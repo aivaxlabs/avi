@@ -107,22 +107,47 @@ function normalizeBalance(data) {
 }
 
 function normalizeModel(model) {
+  const details = model._details ?? {};
+  const providerModel = details.provider_model ?? {};
+  const aiGateway = details.ai_gateway ?? {};
+  const firstPricing = Array.isArray(providerModel.pricing) ? providerModel.pricing[0] ?? {} : {};
+  const technicalInfo = providerModel.technical_info ?? {};
   const pricing = model.pricing ?? model.price ?? model.cost ?? {};
   const metadata = model.metadata ?? model.meta ?? {};
+  const routed = details.type === 'provider_model' || String(model.id ?? '').startsWith('@');
+  const routedProvider = routed ? providerFromModelName(model.id) : providerFromModelName(aiGateway.model_name);
   return {
     ...model,
     id: model.id,
-    name: model.name ?? metadata.name ?? model.id,
-    description: model.description ?? metadata.description ?? '',
+    name: firstText(model.name, metadata.name, model.id),
+    description: firstText(model.description, providerModel.description, metadata.description),
     pricing: {
-      input: pricing.input ?? pricing.in ?? pricing.prompt ?? metadata.input_price ?? null,
-      output: pricing.output ?? pricing.out ?? pricing.completion ?? metadata.output_price ?? null,
-      cached: pricing.cached ?? pricing.cached_input ?? metadata.cached_price ?? null,
+      input: pricing.input ?? pricing.in ?? pricing.prompt ?? firstPricing.input_mtokens ?? metadata.input_price ?? null,
+      output: pricing.output ?? pricing.out ?? pricing.completion ?? firstPricing.output_mtokens ?? metadata.output_price ?? null,
+      cached: pricing.cached ?? pricing.cached_input ?? firstPricing.input_cache_mtokens ?? metadata.cached_price ?? null,
     },
-    speed: model.speed ?? metadata.speed ?? null,
-    intelligence: model.intelligence ?? metadata.intelligence ?? null,
-    routed: String(model.id ?? '').startsWith('@'),
+    speed: model.speed ?? technicalInfo.speed ?? metadata.speed ?? null,
+    intelligence: model.intelligence ?? technicalInfo.intelligence ?? metadata.intelligence ?? null,
+    capabilities: Array.isArray(model.capabilities)
+      ? model.capabilities
+      : Array.isArray(providerModel.capabilities)
+        ? providerModel.capabilities
+        : [],
+    contextWindow: technicalInfo.context_window ?? model.contextWindow ?? model.context_window ?? null,
+    maxCompletionTokens: technicalInfo.max_completion_tokens ?? model.maxCompletionTokens ?? model.max_completion_tokens ?? null,
+    routed,
+    provider: routedProvider,
+    sourceModel: aiGateway.model_name ?? null,
   };
+}
+
+function firstText(...values) {
+  return values.find((value) => typeof value === 'string' && value.trim()) ?? '';
+}
+
+function providerFromModelName(value) {
+  const match = String(value ?? '').match(/^@([^/]+)\//);
+  return match?.[1] ?? 'AI Gateway';
 }
 
 function parseJson(text) {
