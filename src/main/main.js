@@ -60,7 +60,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1180,
     height: 780,
-    minWidth: 940,
+    minWidth: 560,
     minHeight: 640,
     show: process.env.AIVAX_SMOKE_TEST !== '1',
     frame: false,
@@ -81,6 +81,7 @@ function createWindow() {
   chatRunner = new ChatRunner({
     getToken: () => getSession().accessToken,
     sendEvent: (payload) => mainWindow?.webContents.send('chat:event', payload),
+    debugStream: process.env.AIVAX_OPEN_DEVTOOLS === '1',
   });
 
   if (process.env.AIVAX_SMOKE_TEST === '1') {
@@ -188,6 +189,8 @@ function registerIpc() {
   ipcMain.handle('models:favorite', (_event, { modelId, favorited }) => setFavorite(modelId, favorited));
 
   ipcMain.handle('chat:send', (_event, payload) => chatRunner.send(payload));
+  ipcMain.handle('chat:retry', (_event, payload) => chatRunner.retry(payload));
+  ipcMain.handle('chat:cancel-queued', (_event, payload) => chatRunner.cancelQueuedMessage(payload));
   ipcMain.handle('chat:stop', (_event, conversationId) => {
     chatRunner.stop(conversationId);
     return true;

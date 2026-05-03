@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('aivax', {
   },
   chat: {
     send: (payload) => invoke('chat:send', payload),
+    retry: (payload) => invoke('chat:retry', payload),
+    cancelQueued: (payload) => invoke('chat:cancel-queued', payload),
     stop: (conversationId) => invoke('chat:stop', conversationId),
   },
   files: {

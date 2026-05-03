@@ -85,6 +85,10 @@ const statements = {
       ), '') AS first_prompt
     FROM conversations c
     WHERE deleted_at IS NULL
+      AND EXISTS (
+        SELECT 1 FROM messages
+        WHERE conversation_id = c.id
+      )
     ORDER BY updated_at DESC
   `),
   getConversation: db.prepare('SELECT * FROM conversations WHERE id = ? AND deleted_at IS NULL'),
@@ -109,6 +113,7 @@ const statements = {
         updated_at = @updatedAt
     WHERE id = @id
   `),
+  deleteMessage: db.prepare('DELETE FROM messages WHERE id = ?'),
   getMessages: db.prepare(`
     SELECT * FROM messages
     WHERE conversation_id = ?
@@ -246,6 +251,15 @@ export function updateMessage(id, patch) {
   return message;
 }
 
+export function deleteMessage(id) {
+  const message = getMessage(id);
+  statements.deleteMessage.run(id);
+  if (message) {
+    touchConversation(message.conversationId);
+  }
+  return message;
+}
+
 export function getMessages(conversationId) {
   return statements.getMessages.all(conversationId).map(mapMessage);
 }
@@ -332,17 +346,38 @@ export function toOpenAiMessages(conversationId, { excludeMessageId } = {}) {
     .filter((message) => message.id !== excludeMessageId)
     .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
     .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .map((message) => ({
-      role: message.role,
-      content: message.role === 'assistant'
+    .map(messageToApiBlock);
+}
+
+export function toOpenAiMessagesThroughUser(conversationId, beforeMessageId) {
+  const messages = getMessages(conversationId);
+  const beforeIndex = messages.findIndex((message) => message.id === beforeMessageId);
+  const searchEnd = beforeIndex >= 0 ? beforeIndex : messages.length;
+  const lastUserIndex = messages
+    .slice(0, searchEnd)
+    .findLastIndex((message) => message.role === 'user' && ['sent', 'completed'].includes(message.status));
+
+  if (lastUserIndex < 0) return [];
+
+  return messages
+    .slice(0, lastUserIndex + 1)
+    .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .map(messageToApiBlock);
+}
+
+function messageToApiBlock(message) {
+  return {
+    role: message.role,
+    content: message.role === 'assistant'
+      ? message.content
+      : message.attachments.length === 0
         ? message.content
-        : message.attachments.length === 0
-          ? message.content
-          : [
-              ...(message.content.trim() ? [{ type: 'text', text: message.content }] : []),
-              ...message.attachments.map(attachmentToApiBlock),
-            ],
-    }));
+        : [
+            ...(message.content.trim() ? [{ type: 'text', text: message.content }] : []),
+            ...message.attachments.map(attachmentToApiBlock),
+          ],
+  };
 }
 
 function attachmentToApiBlock(attachment) {

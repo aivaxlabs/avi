@@ -1,10 +1,12 @@
 import {
   ensureConversation,
+  deleteMessage,
   getConversation,
   getMessage,
   insertMessage,
   setLastModel,
   toOpenAiMessages,
+  toOpenAiMessagesThroughUser,
   updateConversation,
   updateMessage,
 } from './database.js';
@@ -18,9 +20,10 @@ import {
 const baseUrl = 'https://inference.aivax.net';
 
 export class ChatRunner {
-  constructor({ getToken, sendEvent }) {
+  constructor({ getToken, sendEvent, debugStream = false }) {
     this.getToken = getToken;
     this.sendEvent = sendEvent;
+    this.debugStream = debugStream;
     this.runs = new Map();
   }
 
@@ -33,7 +36,7 @@ export class ChatRunner {
         conversationId: conversation.id,
         text,
         attachments,
-        status: 'queued',
+        status: steer ? 'steered' : 'queued',
       });
       const run = this.runs.get(conversation.id);
       if (steer) {
@@ -71,6 +74,44 @@ export class ChatRunner {
     }
   }
 
+  cancelQueuedMessage({ conversationId, messageId }) {
+    const run = this.runs.get(conversationId);
+    if (run) {
+      run.queue = run.queue.filter((item) => item.userMessageId !== messageId);
+    }
+
+    const message = getMessage(messageId);
+    if (!message || !['queued', 'steered'].includes(message.status)) {
+      return { conversation: getConversation(conversationId), cancelled: false };
+    }
+
+    deleteMessage(messageId);
+    this.emit(conversationId, { type: 'message-delete', messageId });
+    return { conversation: getConversation(conversationId), cancelled: true };
+  }
+
+  async retry({ conversationId, model, assistantMessageId }) {
+    const conversation = ensureConversation(conversationId, model);
+    setLastModel(model);
+
+    if (this.runs.has(conversation.id)) {
+      return { conversation: getConversation(conversation.id), message: null, queued: true };
+    }
+
+    const messages = toOpenAiMessagesThroughUser(conversation.id, assistantMessageId);
+    if (messages.length === 0) {
+      return { conversation: getConversation(conversation.id), message: null, queued: false };
+    }
+
+    this.start({
+      conversationId: conversation.id,
+      model,
+      retryMessages: messages,
+    });
+
+    return { conversation: getConversation(conversation.id), message: null, queued: false };
+  }
+
   createUserMessage({ conversationId, text, attachments, status }) {
     const message = insertMessage({
       conversationId,
@@ -92,11 +133,13 @@ export class ChatRunner {
     return message;
   }
 
-  async start({ conversationId, model, userMessageId, queue = [] }) {
+  async start({ conversationId, model, userMessageId = null, queue = [], retryMessages = null }) {
     const token = this.getToken();
     if (!token) {
-      const message = updateMessage(userMessageId, { status: 'error' });
-      this.emit(conversationId, { type: 'message', message });
+      if (userMessageId) {
+        const message = updateMessage(userMessageId, { status: 'error' });
+        this.emit(conversationId, { type: 'message', message });
+      }
       return;
     }
 
@@ -119,7 +162,7 @@ export class ChatRunner {
     this.emit(conversationId, { type: 'run-state', running: true });
 
     try {
-      const messages = toOpenAiMessages(conversationId, { excludeMessageId: assistantMessage.id });
+      const messages = retryMessages ?? toOpenAiMessages(conversationId, { excludeMessageId: assistantMessage.id });
       const response = await fetch(`${baseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: {
@@ -182,11 +225,20 @@ export class ChatRunner {
     const reader = body.getReader();
     let buffer = '';
     let lastPersisted = 0;
+    let chunkIndex = 0;
+    let payloadIndex = 0;
 
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+      const chunk = decoder.decode(value, { stream: true });
+      chunkIndex += 1;
+      this.logStreamChunk(conversationId, {
+        kind: 'chunk',
+        chunkIndex,
+        text: chunk,
+      });
+      buffer += chunk;
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
 
@@ -194,13 +246,32 @@ export class ChatRunner {
         const line = rawLine.trimEnd();
         if (!line.startsWith('data:')) continue;
         const payload = line.slice(5).trim();
-        if (payload === '[DONE]') return;
+        payloadIndex += 1;
+        this.logStreamChunk(conversationId, {
+          kind: 'payload',
+          chunkIndex,
+          payloadIndex,
+          payload,
+        });
+        if (payload === '[DONE]') {
+          this.logStreamChunk(conversationId, {
+            kind: 'done',
+            chunkIndex,
+            payloadIndex,
+          });
+          return;
+        }
 
         const deltaContent = contentFromSsePayload(payload);
         if (deltaContent) {
           run.content += deltaContent;
-          console.log('[AIVAX stream] delta.content:', deltaContent);
-          console.log('[AIVAX stream] accumulated content:', run.content);
+          this.logStreamChunk(conversationId, {
+            kind: 'delta',
+            chunkIndex,
+            payloadIndex,
+            deltaContent,
+            accumulatedContent: run.content,
+          });
         }
 
         const now = Date.now();
@@ -214,6 +285,18 @@ export class ChatRunner {
         }
       }
     }
+  }
+
+  logStreamChunk(conversationId, details) {
+    if (!this.debugStream) return;
+    const payload = {
+      type: 'debug',
+      scope: 'stream',
+      conversationId,
+      ...details,
+    };
+    console.log('[AIVAX stream]', payload);
+    this.emit(conversationId, payload);
   }
 
   async finishUtilities({ conversationId, token, assistantMessageId }) {
