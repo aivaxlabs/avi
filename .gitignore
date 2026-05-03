@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+/dist
+/dist-electron
+/out
+/build
+/release
+*.log
+*.log.*
+
+# Bun
+bun.lockb
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Electron-builder/Packager outputs
+*.blockmap
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.zip
+
+# Tests
+/coverage
