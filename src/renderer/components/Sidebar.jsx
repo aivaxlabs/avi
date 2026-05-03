@@ -3,6 +3,8 @@ import {
   CopyPlus,
   MessageSquarePlus,
   MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
   Search,
   Trash2,
   UserRound,
@@ -23,11 +25,21 @@ export function Sidebar({
   onFork,
   onDelete,
   onAccount,
+  collapsed,
+  onToggleCollapsed,
 }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-titlebar">
         <div className="app-name">AIVAX</div>
+        <button
+          className="sidebar-toggle"
+          type="button"
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          onClick={onToggleCollapsed}
+        >
+          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+        </button>
       </div>
       <div className="nav-actions">
         <button type="button" onClick={onNewChat}>

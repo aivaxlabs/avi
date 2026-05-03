@@ -7,11 +7,17 @@ export function ChatView({
   currentMessages,
   currentModel,
   models,
+  favorites,
   isRunning,
   onSend,
   onStop,
   onFork,
-  onOpenModelPicker,
+  onRetry,
+  onCancelQueued,
+  onSendContinuation,
+  onChooseModel,
+  onToggleFavorite,
+  onRefreshModels,
 }) {
   const modelName = models.find((model) => model.id === currentModel)?.name ?? currentModel ?? 'Model';
 
@@ -33,6 +39,9 @@ export function ChatView({
                 key={message.id}
                 message={message}
                 onFork={() => onFork(currentConversation?.id)}
+                onRetry={() => onRetry(message.id)}
+                onCancelQueued={() => onCancelQueued(message.id)}
+                onSendContinuation={onSendContinuation}
               />
             ))}
           </div>
@@ -40,10 +49,15 @@ export function ChatView({
       </div>
       <Composer
         modelName={modelName}
+        models={models}
+        favorites={favorites}
+        currentModel={currentModel}
         isRunning={isRunning}
         onSend={onSend}
         onStop={onStop}
-        onOpenModelPicker={onOpenModelPicker}
+        onChooseModel={onChooseModel}
+        onToggleFavorite={onToggleFavorite}
+        onRefreshModels={onRefreshModels}
       />
     </main>
   );

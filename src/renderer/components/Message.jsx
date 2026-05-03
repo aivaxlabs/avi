@@ -1,20 +1,30 @@
-import { ChevronDown, ChevronRight, Copy, GitFork, TerminalSquare } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, GitFork, RotateCcw, TerminalSquare, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatBytes } from '../lib/files.js';
 import { classNames } from '../lib/format.js';
 
-export function Message({ message, onFork }) {
+export function Message({ message, onFork, onRetry, onCancelQueued, onSendContinuation }) {
   if (message.role === 'user') {
-    return <UserMessage message={message} />;
+    return <UserMessage message={message} onCancelQueued={onCancelQueued} />;
   }
-  return <AssistantMessage message={message} onFork={onFork} />;
+  return <AssistantMessage message={message} onFork={onFork} onRetry={onRetry} onSendContinuation={onSendContinuation} />;
 }
 
-function UserMessage({ message }) {
+function UserMessage({ message, onCancelQueued }) {
+  const queueLabel = queueStatusLabel(message.status);
+
   return (
     <article className="message-row user-row">
+      {queueLabel && (
+        <div className="queue-indicator">
+          <span>{queueLabel}</span>
+          <button type="button" aria-label={`Cancel ${queueLabel.toLowerCase()} message`} onClick={onCancelQueued}>
+            <X size={12} />
+          </button>
+        </div>
+      )}
       <div className="user-bubble">
         <div className="plain-text">{message.content}</div>
         {message.attachments.length > 0 && (
@@ -28,35 +38,49 @@ function UserMessage({ message }) {
           </div>
         )}
       </div>
-      <button className="user-copy-float" type="button" onClick={() => copyText(message.content)}>
-        <Copy size={13} />
-        Copy
+      <button className="user-copy-float" type="button" aria-label="Copy message" onClick={() => copyText(message.content)}>
+        <Copy size={14} />
       </button>
     </article>
   );
 }
 
-function AssistantMessage({ message, onFork }) {
+function queueStatusLabel(status) {
+  if (status === 'queued') return 'Queued';
+  if (status === 'steered') return 'Steered';
+  return '';
+}
+
+function AssistantMessage({ message, onFork, onRetry, onSendContinuation }) {
   const content = message.content || '';
   const timeline = useMemo(() => buildTimelineFromContent(content), [content]);
-  const answerText = useMemo(() => answerTextFromContent(content), [content]);
+  const timelinePartition = useMemo(() => partitionTimeline(timeline), [timeline]);
+  const durationLabel = formatWorkedDuration(message.createdAt, message.status === 'streaming' ? null : message.updatedAt);
+  const answerText = useMemo(() => (
+    timelinePartition.workedItems.length > 0
+      ? textFromTimeline(timelinePartition.finalItems)
+      : answerTextFromContent(content)
+  ), [content, timelinePartition]);
 
   return (
     <article className="message-row assistant-row">
       <div className="assistant-message">
         {timeline.length > 0 ? (
           <div className="assistant-timeline">
-            {timeline.map((item, index) => (
-              item.type === 'content' ? (
-                <MarkdownSegment key={item.id} text={item.text} />
-              ) : (
-                <ThinkingGroup
-                  key={item.id}
-                  items={item.items}
-                  streaming={message.status === 'streaming'}
-                  trailing={index === timeline.length - 1}
-                />
-              )
+            {timelinePartition.workedItems.length > 0 && (
+              <WorkedBlock
+                key={workedBlockKey(timelinePartition)}
+                items={timelinePartition.workedItems}
+                label={durationLabel}
+              />
+            )}
+            {timelinePartition.finalItems.map((item, index) => (
+              <TimelineItem
+                key={item.id}
+                item={item}
+                streaming={message.status === 'streaming'}
+                trailing={index === timelinePartition.finalItems.length - 1}
+              />
             ))}
           </div>
         ) : (
@@ -65,7 +89,7 @@ function AssistantMessage({ message, onFork }) {
         {message.continuations.length > 0 && (
           <div className="continuations">
             {message.continuations.map((topic) => (
-              <button key={topic} type="button">
+              <button key={topic} type="button" onClick={() => onSendContinuation(topic)}>
                 {topic}
               </button>
             ))}
@@ -76,6 +100,10 @@ function AssistantMessage({ message, onFork }) {
             <button type="button" onClick={() => copyText(answerText)}>
               <Copy size={13} />
               Copy
+            </button>
+            <button type="button" onClick={onRetry}>
+              <RotateCcw size={13} />
+              Retry
             </button>
             <button type="button" onClick={onFork}>
               <GitFork size={13} />
@@ -88,11 +116,50 @@ function AssistantMessage({ message, onFork }) {
   );
 }
 
+function TimelineItem({ item, streaming, trailing }) {
+  if (item.type === 'content') {
+    return <MarkdownSegment text={item.text} />;
+  }
+
+  return (
+    <ThinkingGroup
+      items={item.items}
+      streaming={streaming}
+      trailing={trailing}
+    />
+  );
+}
+
 function MarkdownSegment({ text }) {
   if (!text.trim()) return null;
   return (
     <div className="markdown-body">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    </div>
+  );
+}
+
+function WorkedBlock({ items, label }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className={classNames('worked-block', open && 'open')}>
+      <button type="button" className="worked-summary" onClick={() => setOpen(!open)}>
+        <span>{label}</span>
+        {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+      </button>
+      <div className="worked-details" aria-hidden={!open}>
+        <div className="worked-details-inner">
+          {items.map((item, index) => (
+            <TimelineItem
+              key={item.id}
+              item={item}
+              streaming={false}
+              trailing={index === items.length - 1}
+            />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -105,17 +172,16 @@ function ThinkingGroup({ items, streaming, trailing }) {
   return (
     <div className={classNames('thinking-group', open && 'open')}>
       <button type="button" className="thinking-summary" onClick={() => setManualOpen(!open)}>
-        {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-        <TerminalSquare size={15} />
         <span>{label}</span>
+        {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
       </button>
-      {open && (
-        <div className="thinking-details">
+      <div className="thinking-details" aria-hidden={!open}>
+        <div className="thinking-details-inner">
           {items.map((item) => (
             <MutedSegment key={item.id} segment={item} />
           ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -130,6 +196,7 @@ function MutedSegment({ segment }) {
     const reason = toolReason(segment);
     return (
       <div className="tool-line">
+        <TerminalSquare className="tool-line-icon" size={13} aria-hidden="true" />
         <strong>{name}</strong>
         {reason && <span>{reason}</span>}
       </div>
@@ -141,6 +208,36 @@ function MutedSegment({ segment }) {
   }
 
   return null;
+}
+
+function partitionTimeline(timeline) {
+  const lastThinkingIndex = timeline.findLastIndex((item) => item.type === 'thinking');
+  if (lastThinkingIndex < 0) {
+    return {
+      workedItems: [],
+      finalItems: timeline,
+    };
+  }
+
+  const finalItems = timeline.slice(lastThinkingIndex + 1);
+  if (!finalItems.some((item) => item.type === 'content' && item.text.trim())) {
+    return {
+      workedItems: [],
+      finalItems: timeline,
+    };
+  }
+
+  return {
+    workedItems: timeline.slice(0, lastThinkingIndex + 1),
+    finalItems,
+  };
+}
+
+function workedBlockKey({ workedItems, finalItems }) {
+  return [
+    workedItems.at(-1)?.id ?? 'none',
+    finalItems[0]?.id ?? 'none',
+  ].join(':');
 }
 
 function toolReason(segment) {
@@ -296,6 +393,14 @@ function answerTextFromContent(content) {
   return output.trim();
 }
 
+function textFromTimeline(timeline) {
+  return timeline
+    .filter((item) => item.type === 'content')
+    .map((item) => item.text)
+    .join('')
+    .trim();
+}
+
 function skipThinkingMarker(content, marker) {
   if (marker.type === 'think') {
     const valueEnd = findTag(content, '</think>', marker.start + '<think>'.length);
@@ -371,6 +476,21 @@ function groupLabel(items) {
   if (tools.length === 1) return `Ran ${tools[0].name || '1 command'}`;
   if (tools.length > 1) return `Ran ${tools.length} commands`;
   return 'Details';
+}
+
+function formatWorkedDuration(startValue, endValue) {
+  const start = Date.parse(startValue);
+  const end = Date.parse(endValue) || Date.now();
+  const seconds = Math.max(1, Math.round((end - start) / 1000));
+
+  if (!Number.isFinite(seconds) || seconds < 60) {
+    const safeSeconds = Number.isFinite(seconds) ? seconds : 1;
+    return `Worked for ${safeSeconds} ${safeSeconds === 1 ? 'second' : 'seconds'}`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `Worked for ${minutes}m ${remainingSeconds}s`;
 }
 
 function copyText(text) {

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Sidebar } from './components/Sidebar.jsx';
 import { ChatView } from './components/ChatView.jsx';
 import { LoginView } from './components/LoginView.jsx';
-import { ModelPicker } from './components/ModelPicker.jsx';
 import { AccountDialog } from './components/AccountDialog.jsx';
 import { SearchDialog } from './components/SearchDialog.jsx';
 import { WindowControls } from './components/WindowControls.jsx';
@@ -17,14 +16,16 @@ export default function App() {
   const [models, setModels] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [running, setRunning] = useState({});
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [error, setError] = useState('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [narrowWindow, setNarrowWindow] = useState(false);
+  const [draftModel, setDraftModel] = useState('');
 
   const currentConversation = conversations.find((item) => item.id === selectedId) ?? null;
   const currentMessages = messagesByConversation[selectedId] ?? [];
-  const currentModel = currentConversation?.model || session?.lastModel || models[0]?.id || '';
+  const currentModel = currentConversation?.model || draftModel || session?.lastModel || models[0]?.id || '';
   const isLoggedIn = Boolean(session?.accessToken);
 
   useEffect(() => {
@@ -44,18 +45,35 @@ export default function App() {
           ...state,
           [event.conversationId]: upsertMessage(state[event.conversationId] ?? [], event.message),
         }));
-        setRunning((state) => ({
-          ...state,
-          [event.conversationId]: event.message.role === 'assistant' && event.message.status === 'streaming',
-        }));
+        if (event.message.role === 'assistant') {
+          setRunning((state) => ({
+            ...state,
+            [event.conversationId]: event.message.status === 'streaming',
+          }));
+        }
       } else if (event.type === 'conversation') {
         setConversations((state) => upsertById(state, event.conversation).sort(sortByUpdatedAt));
+      } else if (event.type === 'message-delete') {
+        setMessagesByConversation((state) => ({
+          ...state,
+          [event.conversationId]: (state[event.conversationId] ?? [])
+            .filter((message) => message.id !== event.messageId),
+        }));
       } else if (event.type === 'run-state') {
         setRunning((state) => ({ ...state, [event.conversationId]: event.running }));
       } else if (event.type === 'error') {
         setError(event.message);
+      } else if (event.type === 'debug') {
+        console.log('[AIVAX debug]', event);
       }
     });
+  }, []);
+
+  useEffect(() => {
+    const syncSidebarWidth = () => setNarrowWindow(window.innerWidth < 700);
+    syncSidebarWidth();
+    window.addEventListener('resize', syncSidebarWidth);
+    return () => window.removeEventListener('resize', syncSidebarWidth);
   }, []);
 
   async function refreshShell() {
@@ -106,12 +124,7 @@ export default function App() {
   }
 
   async function newChat() {
-    const conversation = await api.conversations.create({
-      model: currentModel || models[0]?.id || '',
-    });
-    setConversations((state) => upsertById(state, conversation).sort(sortByUpdatedAt));
-    setSelectedId(conversation.id);
-    setMessagesByConversation((state) => ({ ...state, [conversation.id]: [] }));
+    setSelectedId(null);
   }
 
   async function sendMessage({ text, attachments, steer = false }) {
@@ -139,6 +152,37 @@ export default function App() {
     if (selectedId) {
       await api.chat.stop(selectedId);
       setRunning((state) => ({ ...state, [selectedId]: false }));
+    }
+  }
+
+  async function retryAssistantMessage(messageId) {
+    if (!selectedId || !messageId) return;
+    const result = await api.chat.retry({
+      conversationId: selectedId,
+      model: currentModel,
+      assistantMessageId: messageId,
+    });
+    if (!result?.conversation) return;
+    setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
+    if (!result.queued) {
+      setRunning((state) => ({
+        ...state,
+        [result.conversation.id]: true,
+      }));
+    }
+  }
+
+  async function cancelQueuedMessage(messageId) {
+    if (!selectedId || !messageId) return;
+    const result = await api.chat.cancelQueued({
+      conversationId: selectedId,
+      messageId,
+    });
+    if (result?.cancelled) {
+      setMessagesByConversation((state) => ({
+        ...state,
+        [selectedId]: (state[selectedId] ?? []).filter((message) => message.id !== messageId),
+      }));
     }
   }
 
@@ -171,10 +215,7 @@ export default function App() {
 
   async function chooseModel(modelId) {
     if (!selectedId) {
-      const conversation = await api.conversations.create({ model: modelId });
-      setConversations((state) => upsertById(state, conversation).sort(sortByUpdatedAt));
-      setSelectedId(conversation.id);
-      setMessagesByConversation((state) => ({ ...state, [conversation.id]: [] }));
+      setDraftModel(modelId);
       return;
     }
     const conversation = await api.conversations.update({ id: selectedId, model: modelId });
@@ -190,7 +231,12 @@ export default function App() {
   }
 
   const account = session?.account;
-  const shellClassName = ['app-shell', session?.platform && `platform-${session.platform}`]
+  const effectiveSidebarCollapsed = sidebarCollapsed || narrowWindow;
+  const shellClassName = [
+    'app-shell',
+    session?.platform && `platform-${session.platform}`,
+    effectiveSidebarCollapsed && 'sidebar-collapsed',
+  ]
     .filter(Boolean)
     .join(' ');
   const shell = useMemo(() => ({
@@ -228,26 +274,23 @@ export default function App() {
         onFork={forkConversation}
         onDelete={deleteConversation}
         onAccount={() => setAccountOpen(true)}
+        collapsed={effectiveSidebarCollapsed}
+        onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
       />
       <ChatView
         {...shell}
         models={models}
+        favorites={favorites}
         onSend={sendMessage}
         onStop={stopConversation}
         onFork={forkConversation}
-        onOpenModelPicker={() => setModelPickerOpen(true)}
+        onRetry={retryAssistantMessage}
+        onCancelQueued={cancelQueuedMessage}
+        onSendContinuation={(text) => sendMessage({ text, attachments: [] })}
+        onChooseModel={chooseModel}
+        onToggleFavorite={toggleFavorite}
+        onRefreshModels={refreshModels}
       />
-      {modelPickerOpen && (
-        <ModelPicker
-          models={models}
-          favorites={favorites}
-          currentModel={currentModel}
-          onClose={() => setModelPickerOpen(false)}
-          onChoose={chooseModel}
-          onToggleFavorite={toggleFavorite}
-          onRefresh={refreshModels}
-        />
-      )}
       {accountOpen && (
         <AccountDialog
           account={account}
