@@ -262,14 +262,19 @@ export class ChatRunner {
           return;
         }
 
-        const deltaContent = contentFromSsePayload(payload);
-        if (deltaContent) {
-          run.content += deltaContent;
+        const payloadResult = contentFromSsePayload(payload);
+        if (payloadResult.error) {
+          run.content = appendStreamError(run.content, payloadResult.error);
+          throw new Error(payloadResult.error.message);
+        }
+
+        if (payloadResult.content) {
+          run.content += payloadResult.content;
           this.logStreamChunk(conversationId, {
             kind: 'delta',
             chunkIndex,
             payloadIndex,
-            deltaContent,
+            deltaContent: payloadResult.content,
             accumulatedContent: run.content,
           });
         }
@@ -340,11 +345,58 @@ function shortTitle(text) {
 function contentFromSsePayload(payload) {
   try {
     const json = JSON.parse(payload);
-    return json.choices
+    const error = streamErrorFromPayload(json);
+    if (error) {
+      return { content: '', error };
+    }
+
+    const content = json.choices
       ?.map((choice) => choice.delta?.content)
       .filter((content) => typeof content === 'string')
       .join('') ?? '';
+    return { content, error: null };
   } catch {
-    return '';
+    return { content: '', error: null };
   }
+}
+
+function streamErrorFromPayload(json) {
+  const directError = errorFromValue(json?.error);
+  if (directError) return directError;
+
+  const erroredChoice = Array.isArray(json?.choices)
+    ? json.choices.find((choice) => choice?.finish_reason === 'error')
+    : null;
+  if (!erroredChoice) return null;
+
+  return {
+    code: 'stream_error',
+    message: 'The provider returned an error while streaming.',
+  };
+}
+
+function errorFromValue(value) {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    return { code: 'stream_error', message: value };
+  }
+  if (typeof value !== 'object') return null;
+
+  const message = stringValue(value.message)
+    ?? stringValue(value.error)
+    ?? 'The provider returned an error while streaming.';
+  return {
+    code: stringValue(value.code) ?? 'stream_error',
+    message,
+  };
+}
+
+function appendStreamError(content, error) {
+  const code = error.code ? ` (${error.code})` : '';
+  const errorText = `**Streaming error${code}:** ${error.message}`;
+  return content.trim() ? `${content.trimEnd()}\n\n${errorText}` : errorText;
+}
+
+function stringValue(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
