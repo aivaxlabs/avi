@@ -758,7 +758,7 @@ button {
   padding: 8px;
   background: rgba(255, 255, 255);
   border: 1px solid rgba(255, 255, 255, 0.9);
-  border-radius: 99px;
+  border-radius: 22px;
   box-shadow:
     0 18px 70px rgba(219, 39, 119, 0.16),
     0 6px 24px rgba(37, 99, 235, 0.08);
@@ -848,11 +848,12 @@ button {
 .composer textarea {
   width: 100%;
   min-height: 34px;
-  max-height: 150px;
+  max-height: 500px;
   resize: none;
   border: 0;
   outline: 0;
   padding: 8px 4px;
+  overflow-y: hidden;
   color: #111827;
   background: transparent;
   font-size: 14px;
@@ -878,6 +879,10 @@ button {
 }
 
 .plus-menu button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
   padding: 8px;
   color: #30333d;
   background: transparent;
@@ -886,8 +891,16 @@ button {
   font-size: 12px;
 }
 
+.plus-menu button svg {
+  color: #667085;
+}
+
 .plus-menu button:disabled {
   color: #a5acb8;
+}
+
+.plus-menu button:disabled svg {
+  color: #b4bbc7;
 }
 
 .recording-bar {

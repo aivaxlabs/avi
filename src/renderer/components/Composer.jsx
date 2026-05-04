@@ -1,5 +1,7 @@
 import {
   ArrowUp,
+  FolderOpen,
+  HardDrive,
   Mic,
   Paperclip,
   Pause,
@@ -7,12 +9,15 @@ import {
   Plus,
   Square,
   Trash2,
+  Wrench,
   X,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createMp3Attachment } from '../lib/audio.js';
 import { fileToAttachment, formatBytes, textToAttachment } from '../lib/files.js';
 import { ModelPicker } from './ModelPicker.jsx';
+
+const composerDraftKey = 'aivax.composer.draft';
 
 export function Composer({
   modelName,
@@ -26,7 +31,7 @@ export function Composer({
   onToggleFavorite,
   onRefreshModels,
 }) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(() => window.localStorage.getItem(composerDraftKey) ?? '');
   const [attachments, setAttachments] = useState([]);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -35,6 +40,33 @@ export function Composer({
   const modelPopoverRef = useRef(null);
 
   const canSend = text.trim() || attachments.length > 0;
+
+  useEffect(() => {
+    const saveDelay = text.length <= 2048
+      ? 300
+      : text.length <= 20000
+        ? 1000
+        : 5000;
+    const timer = window.setTimeout(() => saveComposerDraft(text), saveDelay);
+
+    return () => window.clearTimeout(timer);
+  }, [text]);
+
+  useEffect(() => {
+    const saveOnClose = () => saveComposerDraft(text);
+
+    window.addEventListener('beforeunload', saveOnClose);
+    return () => window.removeEventListener('beforeunload', saveOnClose);
+  }, [text]);
+
+  useEffect(() => {
+    const textArea = textAreaRef.current;
+    if (!textArea) return;
+
+    textArea.style.height = '0px';
+    textArea.style.height = `${Math.min(textArea.scrollHeight, 500)}px`;
+    textArea.style.overflowY = textArea.scrollHeight > 500 ? 'auto' : 'hidden';
+  }, [text]);
 
   useEffect(() => {
     if (!modelPickerOpen) return undefined;
@@ -50,6 +82,7 @@ export function Composer({
     if (!canSend) return;
     const payload = { text, attachments, steer };
     setText('');
+    window.localStorage.removeItem(composerDraftKey);
     setAttachments([]);
     await onSend(payload);
   }
@@ -167,9 +200,18 @@ export function Composer({
             </button>
             {plusOpen && (
               <div className="plus-menu">
-                <button type="button" disabled>Tools</button>
-                <button type="button" disabled>Attach from workspace</button>
-                <button type="button" onClick={attachFromComputer}>Attach from computer</button>
+                <button type="button" disabled>
+                  <Wrench size={14} />
+                  Tools
+                </button>
+                <button type="button" disabled>
+                  <FolderOpen size={14} />
+                  Attach from workspace
+                </button>
+                <button type="button" onClick={attachFromComputer}>
+                  <HardDrive size={14} />
+                  Attach from computer
+                </button>
               </div>
             )}
           </div>
@@ -220,6 +262,14 @@ export function Composer({
       </div>
     </section>
   );
+}
+
+function saveComposerDraft(text) {
+  if (text) {
+    window.localStorage.setItem(composerDraftKey, text);
+  } else {
+    window.localStorage.removeItem(composerDraftKey);
+  }
 }
 
 function stopRecording(recording) {
