@@ -5,11 +5,19 @@ import remarkGfm from 'remark-gfm';
 import { formatBytes } from '../lib/files.js';
 import { classNames } from '../lib/format.js';
 
-export function Message({ message, onFork, onRetry, onCancelQueued, onSendContinuation }) {
+export function Message({ message, onFork, onRetry, onCancelQueued, onSendContinuation, showContinuations }) {
   if (message.role === 'user') {
     return <UserMessage message={message} onCancelQueued={onCancelQueued} />;
   }
-  return <AssistantMessage message={message} onFork={onFork} onRetry={onRetry} onSendContinuation={onSendContinuation} />;
+  return (
+    <AssistantMessage
+      message={message}
+      onFork={onFork}
+      onRetry={onRetry}
+      onSendContinuation={onSendContinuation}
+      showContinuations={showContinuations}
+    />
+  );
 }
 
 function UserMessage({ message, onCancelQueued }) {
@@ -51,16 +59,12 @@ function queueStatusLabel(status) {
   return '';
 }
 
-function AssistantMessage({ message, onFork, onRetry, onSendContinuation }) {
+function AssistantMessage({ message, onFork, onRetry, onSendContinuation, showContinuations }) {
   const content = message.content || '';
   const timeline = useMemo(() => buildTimelineFromContent(content), [content]);
   const timelinePartition = useMemo(() => partitionTimeline(timeline), [timeline]);
   const durationLabel = formatWorkedDuration(message.createdAt, message.status === 'streaming' ? null : message.updatedAt);
-  const answerText = useMemo(() => (
-    timelinePartition.workedItems.length > 0
-      ? textFromTimeline(timelinePartition.finalItems)
-      : answerTextFromContent(content)
-  ), [content, timelinePartition]);
+  const answerText = useMemo(() => answerTextForCopy(content), [content]);
 
   return (
     <article className="message-row assistant-row">
@@ -86,7 +90,7 @@ function AssistantMessage({ message, onFork, onRetry, onSendContinuation }) {
         ) : (
           <div className="assistant-placeholder">Generating...</div>
         )}
-        {message.continuations.length > 0 && (
+        {showContinuations && message.continuations.length > 0 && (
           <div className="continuations">
             {message.continuations.map((topic) => (
               <button key={topic} type="button" onClick={() => onSendContinuation(topic)}>
@@ -101,10 +105,12 @@ function AssistantMessage({ message, onFork, onRetry, onSendContinuation }) {
               <Copy size={13} />
               Copy
             </button>
-            <button type="button" onClick={onRetry}>
-              <RotateCcw size={13} />
-              Retry
-            </button>
+            {showContinuations && (
+              <button type="button" onClick={onRetry}>
+                <RotateCcw size={13} />
+                Retry
+              </button>
+            )}
             <button type="button" onClick={onFork}>
               <GitFork size={13} />
               Fork
@@ -393,12 +399,23 @@ function answerTextFromContent(content) {
   return output.trim();
 }
 
-function textFromTimeline(timeline) {
-  return timeline
-    .filter((item) => item.type === 'content')
-    .map((item) => item.text)
-    .join('')
-    .trim();
+function answerTextForCopy(content) {
+  let cursor = 0;
+  let lastMarker = null;
+
+  while (cursor < content.length) {
+    const marker = findNextThinkingMarker(content, cursor);
+    if (!marker) break;
+
+    lastMarker = marker;
+    cursor = skipThinkingMarker(content, marker);
+  }
+
+  if (!lastMarker) {
+    return answerTextFromContent(content);
+  }
+
+  return answerTextFromContent(content.slice(skipThinkingMarker(content, lastMarker)));
 }
 
 function skipThinkingMarker(content, marker) {
