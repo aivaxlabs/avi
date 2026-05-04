@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron';
 import { dirname, join } from 'node:path';
 import { release } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +24,7 @@ import { filePathToAttachment } from './files.js';
 import { ChatRunner } from './chat-runner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const usageDashboardUrl = 'https://console.aivax.net/dashboard/usage';
 let mainWindow;
 let chatRunner;
 
@@ -217,4 +218,5 @@ function registerIpc() {
     }
   });
   ipcMain.handle('window:close', () => mainWindow?.close());
+  ipcMain.handle('window:open-usage-dashboard', () => shell.openExternal(usageDashboardUrl));
 }

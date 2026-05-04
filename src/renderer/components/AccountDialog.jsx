@@ -1,4 +1,4 @@
-import { LogOut, RefreshCw, X } from 'lucide-react';
+import { ExternalLink, LogOut, RefreshCw, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { classNames, formatPrice, formatQuota } from '../lib/format.js';
 
@@ -72,6 +72,10 @@ export function AccountDialog({ account, onClose, onLogout }) {
             ) : (
               <>
                 <div className="usage-toolbar">
+                  <button type="button" onClick={() => window.aivax.window.openUsageDashboard()}>
+                    <ExternalLink size={14} />
+                    Top account
+                  </button>
                   <button type="button" onClick={loadUsage} disabled={usageLoading}>
                     <RefreshCw size={14} />
                     {usageLoading ? 'Loading' : 'Refresh'}

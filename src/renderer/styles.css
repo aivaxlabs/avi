@@ -1215,6 +1215,7 @@ button {
 .usage-toolbar {
   display: flex;
   justify-content: flex-end;
+  gap: 6px;
   margin-bottom: 8px;
 }
 

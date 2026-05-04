@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('aivax', {
     minimize: () => invoke('window:minimize'),
     maximize: () => invoke('window:maximize'),
     close: () => invoke('window:close'),
+    openUsageDashboard: () => invoke('window:open-usage-dashboard'),
   },
   onChatEvent(callback) {
     const handler = (_event, payload) => callback(payload);
