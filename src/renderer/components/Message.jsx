@@ -57,6 +57,7 @@ function UserMessage({ message, onCancelQueued }) {
 function isVisibleAttachment(attachment) {
   return attachment.kind !== 'text_inline';
 }
+
 function queueStatusLabel(status) {
   if (status === 'queued') return 'Queued';
   if (status === 'steered') return 'Steered';
@@ -73,6 +74,9 @@ function AssistantMessage({ message, onFork, onRetry, onSendContinuation, showCo
   return (
     <article className="message-row assistant-row">
       <div className="assistant-message">
+        {message.status === 'streaming' && (
+          <div className="assistant-placeholder">Thinking</div>
+        )}
         {timeline.length > 0 ? (
           <div className="assistant-timeline">
             {timelinePartition.workedItems.length > 0 && (
@@ -91,9 +95,7 @@ function AssistantMessage({ message, onFork, onRetry, onSendContinuation, showCo
               />
             ))}
           </div>
-        ) : (
-          <div className="assistant-placeholder">Generating...</div>
-        )}
+        ) : null}
         {showContinuations && message.continuations.length > 0 && (
           <div className="continuations">
             {message.continuations.map((topic) => (
@@ -198,7 +200,11 @@ function ThinkingGroup({ items, streaming, trailing }) {
 
 function MutedSegment({ segment }) {
   if (segment.type === 'reasoning') {
-    return <div className="reasoning-text">{segment.text}</div>;
+    return (
+      <div className="reasoning-text">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
+      </div>
+    );
   }
 
   if (segment.type === 'tool' || segment.type === 'server-tool' || segment.type === 'tool-call') {

@@ -85,48 +85,47 @@ export function ModelPicker({
               const details = modelDetails(model, modelsById);
               const nameParts = modelNameParts(model);
               return (
-              <article key={model.id} className={classNames('model-card', currentModel === model.id && 'active')}>
-                <button
-                  className="model-content"
-                  type="button"
-                  onClick={() => {
-                    onChoose(model.id);
-                    onClose();
-                  }}
-                >
-                  <div>
-                    <h4>
-                      {nameParts.base}
-                      {nameParts.suffix && <small>{nameParts.suffix}</small>}
-                    </h4>
-                    <span>{modelLabel(model)}</span>
-                  </div>
-                  {details.description && <p>{details.description}</p>}
-                  <div className="model-meta">
-                    <span>In {formatPrice(details.pricing.input)}</span>
-                    <span>Out {formatPrice(details.pricing.output)}</span>
-                    <span>Cached {formatPrice(details.pricing.cached)}</span>
-                    <span>Speed {details.speed ?? '-'}</span>
-                    <span>IQ {details.intelligence ?? '-'}</span>
-                    <span>Context {formatCount(details.contextWindow)}</span>
-                  </div>
-                  {details.capabilities.length > 0 && (
-                    <div className="model-capabilities">
-                      {details.capabilities.map((capability) => (
-                        <span key={capability}>{capability}</span>
-                      ))}
+                <article key={model.id} className={classNames('model-card', currentModel === model.id && 'active')}>
+                  <button
+                    className="model-content"
+                    type="button"
+                    onClick={() => {
+                      onChoose(model.id);
+                      onClose();
+                    }}
+                  >
+                    <div>
+                      <h4>
+                        {nameParts.base}
+                        {nameParts.suffix && <small>{nameParts.suffix}</small>}
+                      </h4>
                     </div>
-                  )}
-                </button>
-                <button
-                  className={classNames('favorite-button', favorites.includes(model.id) && 'active')}
-                  type="button"
-                  onClick={() => onToggleFavorite(model.id)}
-                  aria-label={favorites.includes(model.id) ? 'Remove favorite' : 'Add favorite'}
-                >
-                  <Star size={16} />
-                </button>
-              </article>
+                    {details.description && <p>{details.description}</p>}
+                    <div className="model-meta">
+                      <span><span>In</span> {formatPrice(details.pricing.input)}</span>
+                      <span><span>Out</span> {formatPrice(details.pricing.output)}</span>
+                      {details.pricing.cached && <span><span>Cached</span> {formatPrice(details.pricing.cached)}</span>}
+                      <span><span>Speed</span> {details.speed ?? '-'}</span>
+                      <span><span>IQ</span> {details.intelligence ?? '-'}</span>
+                      <span><span>Context</span> {formatCount(details.contextWindow)}</span>
+                    </div>
+                    {details.capabilities.length > 0 && (
+                      <div className="model-capabilities">
+                        {details.capabilities.map((capability) => (
+                          <span key={capability}>{capability}</span>
+                        ))}
+                      </div>
+                    )}
+                  </button>
+                  <button
+                    className={classNames('favorite-button', favorites.includes(model.id) && 'active')}
+                    type="button"
+                    onClick={() => onToggleFavorite(model.id)}
+                    aria-label={favorites.includes(model.id) ? 'Remove favorite' : 'Add favorite'}
+                  >
+                    <Star size={16} />
+                  </button>
+                </article>
               );
             })}
           </section>
