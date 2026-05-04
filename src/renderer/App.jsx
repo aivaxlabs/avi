@@ -186,9 +186,9 @@ export default function App() {
     }
   }
 
-  async function forkConversation(id = selectedId) {
+  async function forkConversation(id = selectedId, throughMessageId = null) {
     if (!id) return;
-    const result = await api.conversations.fork(id);
+    const result = await api.conversations.fork({ conversationId: id, throughMessageId });
     if (!result) return;
     setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
     setMessagesByConversation((state) => ({ ...state, [result.conversation.id]: result.messages }));

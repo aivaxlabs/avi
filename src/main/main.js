@@ -175,7 +175,10 @@ function registerIpc() {
     deleteConversation(conversationId);
     return listConversations();
   });
-  ipcMain.handle('conversations:fork', (_event, conversationId) => forkConversation(conversationId));
+  ipcMain.handle('conversations:fork', (_event, payload) => {
+    const conversationId = typeof payload === 'string' ? payload : payload?.conversationId;
+    return forkConversation(conversationId, { throughMessageId: payload?.throughMessageId ?? null });
+  });
   ipcMain.handle('conversations:search', (_event, query) => searchChats(query));
 
   ipcMain.handle('models:list', async () => {

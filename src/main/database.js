@@ -287,14 +287,20 @@ export function searchChats(query) {
     .slice(0, 80);
 }
 
-export function forkConversation(id) {
+export function forkConversation(id, { throughMessageId = null } = {}) {
   const source = getConversation(id);
   if (!source) return null;
   const target = createConversation({
     title: `${source.title} - Copy`,
     model: source.model,
   });
-  const messages = getMessages(id);
+  const sourceMessages = getMessages(id);
+  const throughIndex = throughMessageId
+    ? sourceMessages.findIndex((message) => message.id === throughMessageId)
+    : -1;
+  const messages = throughIndex >= 0
+    ? sourceMessages.slice(0, throughIndex + 1)
+    : sourceMessages;
   const now = Date.now();
   for (let index = 0; index < messages.length; index += 1) {
     insertMessage({

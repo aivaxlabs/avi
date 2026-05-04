@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('aivax', {
     update: (payload) => invoke('conversations:update', payload),
     messages: (conversationId) => invoke('conversations:messages', conversationId),
     delete: (conversationId) => invoke('conversations:delete', conversationId),
-    fork: (conversationId) => invoke('conversations:fork', conversationId),
+    fork: (payload) => invoke('conversations:fork', payload),
     search: (query) => invoke('conversations:search', query),
   },
   models: {
