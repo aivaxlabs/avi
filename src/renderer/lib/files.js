@@ -1,5 +1,6 @@
-const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/avif']);
-const videoTypes = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
+const imageExtensions = new Set(['avif', 'bmp', 'gif', 'jpeg', 'jpg', 'png', 'webp']);
+const audioExtensions = new Set(['flac', 'm4a', 'mp3', 'oga', 'ogg', 'wav', 'webm']);
+const videoExtensions = new Set(['avi', 'm4v', 'mov', 'mp4', 'mpeg', 'mpg', 'webm']);
 
 export async function fileToAttachment(file) {
   const dataUrl = await readAsDataUrl(file);
@@ -44,9 +45,12 @@ export function formatBytes(bytes) {
 }
 
 function kindFromFile(file) {
-  if (imageTypes.has(file.type)) return 'image_url';
-  if (videoTypes.has(file.type)) return 'video_url';
-  if (file.type === 'audio/mpeg' || file.name.toLowerCase().endsWith('.mp3')) return 'input_audio';
+  const type = file.type.toLowerCase();
+  const ext = extension(file.name);
+
+  if (type.startsWith('image/') || imageExtensions.has(ext)) return 'image_url';
+  if (type.startsWith('audio/') || audioExtensions.has(ext)) return 'input_audio';
+  if (type.startsWith('video/') || videoExtensions.has(ext)) return 'video_url';
   return 'file';
 }
 

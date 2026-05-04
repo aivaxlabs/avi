@@ -1,5 +1,5 @@
-import { Sparkles } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { Sparkles, UploadCloud } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { Composer } from './Composer.jsx';
 import { Message } from './Message.jsx';
 
@@ -19,11 +19,37 @@ export function ChatView({
   onChooseModel,
   onToggleFavorite,
   onRefreshModels,
+}
+
+function hasFileTransfer(dataTransfer) {
+  if (!dataTransfer) return false;
+
+  const items = Array.from(dataTransfer.items ?? []);
+  if (items.length > 0) {
+    return items.some((item) => isFileItem(item));
+  }
+
+  return Array.from(dataTransfer.types ?? []).includes('Files');
+}
+
+function isFileItem(item) {
+  if (item.kind !== 'file') return false;
+  if (typeof item.webkitGetAsEntry !== 'function') return true;
+
+  const entry = item.webkitGetAsEntry();
+  return !entry || entry.isFile;
+}
+
+function droppedFileList(dataTransfer) {
+  return Array.from(dataTransfer.files ?? []).filter((file) => file instanceof File);
 }) {
   const scrollRef = useRef(null);
   const autoScrollTimerRef = useRef(null);
   const manualScrollDuringRunRef = useRef(false);
   const wasRunningRef = useRef(false);
+  const dragDepthRef = useRef(0);
+  const [fileDropActive, setFileDropActive] = useState(false);
+  const [droppedFiles, setDroppedFiles] = useState(null);
   const modelName = models.find((model) => model.id === currentModel)?.name ?? currentModel ?? 'Model';
   const lastAssistantMessage = currentMessages.findLast((message) => message.role === 'assistant');
   const lastMessage = currentMessages.at(-1);
@@ -55,6 +81,44 @@ export function ChatView({
     }
   }
 
+  function handleDragEnter(event) {
+    if (!hasFileTransfer(event.dataTransfer)) return;
+
+    event.preventDefault();
+    dragDepthRef.current += 1;
+    setFileDropActive(true);
+  }
+
+  function handleDragOver(event) {
+    if (!hasFileTransfer(event.dataTransfer)) return;
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setFileDropActive(true);
+  }
+
+  function handleDragLeave(event) {
+    if (!hasFileTransfer(event.dataTransfer)) return;
+
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setFileDropActive(false);
+    }
+  }
+
+  function handleDrop(event) {
+    if (!hasFileTransfer(event.dataTransfer)) return;
+
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setFileDropActive(false);
+
+    const files = droppedFileList(event.dataTransfer);
+    if (files.length > 0) {
+      setDroppedFiles({ id: crypto.randomUUID(), files });
+    }
+  }
+
   useEffect(() => {
     manualScrollDuringRunRef.current = false;
     scheduleScrollToBottom(0);
@@ -82,7 +146,21 @@ export function ChatView({
   }, [isRunning, streamScrollKey]);
 
   return (
-    <main className="chat-area">
+    <main
+      className="chat-area"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {fileDropActive && (
+        <div className="file-drop-overlay">
+          <div>
+            <UploadCloud size={28} />
+            <span>Drop files to attach</span>
+          </div>
+        </div>
+      )}
       <div
         ref={scrollRef}
         className="chat-scroll"
@@ -124,6 +202,7 @@ export function ChatView({
         onChooseModel={onChooseModel}
         onToggleFavorite={onToggleFavorite}
         onRefreshModels={onRefreshModels}
+        droppedFiles={droppedFiles}
       />
     </main>
   );

@@ -30,6 +30,7 @@ export function Composer({
   onChooseModel,
   onToggleFavorite,
   onRefreshModels,
+  droppedFiles,
 }) {
   const [text, setText] = useState(() => window.localStorage.getItem(composerDraftKey) ?? '');
   const [attachments, setAttachments] = useState([]);
@@ -67,6 +68,14 @@ export function Composer({
     textArea.style.height = `${Math.min(textArea.scrollHeight, 500)}px`;
     textArea.style.overflowY = textArea.scrollHeight > 500 ? 'auto' : 'hidden';
   }, [text]);
+
+  useEffect(() => {
+    if (!droppedFiles?.files.length) return;
+
+    Promise.all(droppedFiles.files.map(fileToAttachment))
+      .then((next) => setAttachments((items) => [...items, ...next]))
+      .catch(() => {});
+  }, [droppedFiles]);
 
   useEffect(() => {
     if (!modelPickerOpen) return undefined;
