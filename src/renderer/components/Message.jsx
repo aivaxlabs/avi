@@ -22,6 +22,7 @@ export function Message({ message, onFork, onRetry, onCancelQueued, onSendContin
 
 function UserMessage({ message, onCancelQueued }) {
   const queueLabel = queueStatusLabel(message.status);
+  const visibleAttachments = message.attachments.filter(isVisibleAttachment);
 
   return (
     <article className="message-row user-row">
@@ -35,11 +36,11 @@ function UserMessage({ message, onCancelQueued }) {
       )}
       <div className="user-bubble">
         <div className="plain-text">{message.content}</div>
-        {message.attachments.length > 0 && (
+        {visibleAttachments.length > 0 && (
           <div className="attachment-list">
-            {message.attachments.map((attachment) => (
+            {visibleAttachments.map((attachment) => (
               <span key={attachment.id} className="attachment-pill">
-                {attachment.name}
+                <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
                 <small>{formatBytes(attachment.size)}</small>
               </span>
             ))}
@@ -53,6 +54,9 @@ function UserMessage({ message, onCancelQueued }) {
   );
 }
 
+function isVisibleAttachment(attachment) {
+  return attachment.kind !== 'text_inline';
+}
 function queueStatusLabel(status) {
   if (status === 'queued') return 'Queued';
   if (status === 'steered') return 'Steered';

@@ -147,6 +147,8 @@ export function Composer({
     setRecording(null);
   }
 
+  const visibleAttachments = attachments.filter(isVisibleAttachment);
+
   return (
     <section className="composer-wrap">
       {recording && (
@@ -165,12 +167,12 @@ export function Composer({
         </div>
       )}
       <div className="composer">
-        {attachments.length > 0 && (
+        {visibleAttachments.length > 0 && (
           <div className="attachment-strip">
-            {attachments.map((attachment) => (
+            {visibleAttachments.map((attachment) => (
               <span key={attachment.id} className="attachment-chip">
                 <Paperclip size={13} />
-                {attachment.name}
+                <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
                 <small>{formatBytes(attachment.size)}</small>
                 <button
                   type="button"
@@ -243,6 +245,10 @@ function saveComposerDraft(text) {
   } else {
     window.localStorage.removeItem(composerDraftKey);
   }
+}
+
+function isVisibleAttachment(attachment) {
+  return attachment.kind !== 'text_inline';
 }
 
 function stopRecording(recording) {

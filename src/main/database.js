@@ -387,6 +387,13 @@ function messageToApiBlock(message) {
 }
 
 function attachmentToApiBlock(attachment) {
+  if (attachment.kind === 'text_inline') {
+    const filename = attachment.name ?? 'attachment.txt';
+    return {
+      type: 'text',
+      text: `<chat-inline-attachment filename="${escapeAttribute(filename)}">\n${attachment.text ?? ''}\n</chat-inline-attachment>`,
+    };
+  }
   if (attachment.kind === 'image_url') {
     return { type: 'image_url', image_url: { url: attachment.dataUrl } };
   }
@@ -409,6 +416,14 @@ function attachmentToApiBlock(attachment) {
       file_data: attachment.dataUrl,
     },
   };
+}
+
+function escapeAttribute(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 function touchConversation(id) {

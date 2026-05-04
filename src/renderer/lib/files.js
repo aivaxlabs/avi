@@ -1,9 +1,26 @@
 const imageExtensions = new Set(['avif', 'bmp', 'gif', 'jpeg', 'jpg', 'png', 'webp']);
 const audioExtensions = new Set(['flac', 'm4a', 'mp3', 'oga', 'ogg', 'wav', 'webm']);
 const videoExtensions = new Set(['avi', 'm4v', 'mov', 'mp4', 'mpeg', 'mpg', 'webm']);
+const textExtensions = new Set([
+  'css',
+  'csv',
+  'html',
+  'js',
+  'json',
+  'jsx',
+  'log',
+  'md',
+  'mjs',
+  'sql',
+  'ts',
+  'tsx',
+  'txt',
+  'xml',
+  'yaml',
+  'yml',
+]);
 
 export async function fileToAttachment(file) {
-  const dataUrl = await readAsDataUrl(file);
   const kind = kindFromFile(file);
   const attachment = {
     id: crypto.randomUUID(),
@@ -12,6 +29,13 @@ export async function fileToAttachment(file) {
     size: file.size,
     kind,
   };
+  if (kind === 'text_inline') {
+    return {
+      ...attachment,
+      text: await file.text(),
+    };
+  }
+  const dataUrl = await readAsDataUrl(file);
   if (kind === 'input_audio') {
     return {
       ...attachment,
@@ -26,14 +50,13 @@ export async function fileToAttachment(file) {
 }
 
 export function textToAttachment(text, name = 'pasted-text.txt') {
-  const base64 = btoa(unescape(encodeURIComponent(text)));
   return {
     id: crypto.randomUUID(),
     name,
     mime: 'text/plain',
     size: text.length,
-    kind: 'file',
-    dataUrl: `data:text/plain;base64,${base64}`,
+    kind: 'text_inline',
+    text,
   };
 }
 
@@ -51,6 +74,7 @@ function kindFromFile(file) {
   if (type.startsWith('image/') || imageExtensions.has(ext)) return 'image_url';
   if (type.startsWith('audio/') || audioExtensions.has(ext)) return 'input_audio';
   if (type.startsWith('video/') || videoExtensions.has(ext)) return 'video_url';
+  if (type.startsWith('text/') || textExtensions.has(ext)) return 'text_inline';
   return 'file';
 }
 

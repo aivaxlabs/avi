@@ -4,6 +4,7 @@ import { extname, basename } from 'node:path';
 const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.avif']);
 const videoExtensions = new Set(['.mp4', '.webm', '.mov', '.m4v', '.avi', '.mkv']);
 const audioExtensions = new Set(['.mp3', '.wav', '.m4a', '.ogg', '.flac']);
+const textExtensions = new Set(['.css', '.csv', '.html', '.js', '.json', '.jsx', '.log', '.md', '.mjs', '.sql', '.ts', '.tsx', '.txt', '.xml', '.yaml', '.yml']);
 
 const mimeTypes = {
   '.png': 'image/png',
@@ -21,9 +22,22 @@ const mimeTypes = {
   '.wav': 'audio/wav',
   '.m4a': 'audio/mp4',
   '.ogg': 'audio/ogg',
-  '.txt': 'text/plain',
+  '.css': 'text/css',
+  '.csv': 'text/csv',
+  '.html': 'text/html',
+  '.js': 'text/javascript',
+  '.jsx': 'text/javascript',
+  '.log': 'text/plain',
   '.md': 'text/markdown',
+  '.mjs': 'text/javascript',
+  '.sql': 'application/sql',
+  '.ts': 'text/typescript',
+  '.tsx': 'text/typescript',
+  '.txt': 'text/plain',
   '.json': 'application/json',
+  '.xml': 'application/xml',
+  '.yaml': 'application/yaml',
+  '.yml': 'application/yaml',
   '.pdf': 'application/pdf',
 };
 
@@ -43,6 +57,9 @@ export function filePathToAttachment(filePath) {
   }
   if (audioExtensions.has(ext) && ext === '.mp3') {
     return makeAttachment({ name, mime, size: buffer.length, kind: 'input_audio', base64, format: 'mp3' });
+  }
+  if (textExtensions.has(ext) || mime.startsWith('text/')) {
+    return makeAttachment({ name, mime, size: buffer.length, kind: 'text_inline', text: buffer.toString('utf8') });
   }
   return makeAttachment({ name, mime, size: buffer.length, kind: 'file', dataUrl });
 }
