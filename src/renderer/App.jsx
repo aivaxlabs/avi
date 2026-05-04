@@ -5,6 +5,8 @@ import { LoginView } from './components/LoginView.jsx';
 import { AccountDialog } from './components/AccountDialog.jsx';
 import { SearchDialog } from './components/SearchDialog.jsx';
 import { WindowControls } from './components/WindowControls.jsx';
+import { WorkspaceDialog } from './components/WorkspaceDialog.jsx';
+import { WorkspaceView } from './components/WorkspaceView.jsx';
 
 const api = window.aivax;
 
@@ -18,6 +20,11 @@ export default function App() {
   const [running, setRunning] = useState({});
   const [accountOpen, setAccountOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
+  const [workspaceState, setWorkspaceState] = useState({ activeWorkspaceId: null, workspaces: [] });
+  const [uploadQueue, setUploadQueue] = useState({ running: false, currentId: null, items: [] });
+  const [mainView, setMainView] = useState('chat');
+  const [workspaceAttachments, setWorkspaceAttachments] = useState(null);
   const [error, setError] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [narrowWindow, setNarrowWindow] = useState(false);
@@ -33,6 +40,7 @@ export default function App() {
       setSession(nextSession);
       if (nextSession.accessToken) {
         await refreshShell();
+        await refreshWorkspaces();
         refreshModels();
       }
     });
@@ -65,6 +73,10 @@ export default function App() {
         setError(event.message);
       } else if (event.type === 'debug') {
         console.log('[AIVAX debug]', event);
+      } else if (event.type === 'workspaces') {
+        setWorkspaceState(event.state);
+      } else if (event.type === 'workspace-uploads') {
+        setUploadQueue(event.state);
       }
     });
   }, []);
@@ -99,10 +111,16 @@ export default function App() {
     }
   }
 
+  async function refreshWorkspaces() {
+    setWorkspaceState(await api.workspaces.list());
+    setUploadQueue(await api.workspaceUploads.snapshot());
+  }
+
   async function handleLogin(loginKey) {
     const nextSession = await api.auth.login(loginKey);
     setSession(nextSession);
     await refreshShell();
+    await refreshWorkspaces();
     await refreshModels();
   }
 
@@ -113,10 +131,14 @@ export default function App() {
     setSelectedId(null);
     setMessagesByConversation({});
     setAccountOpen(false);
+    setWorkspaceDialogOpen(false);
+    setWorkspaceState({ activeWorkspaceId: null, workspaces: [] });
+    setMainView('chat');
   }
 
   async function selectConversation(id) {
     setSelectedId(id);
+    setMainView('chat');
     if (!messagesByConversation[id]) {
       const messages = await api.conversations.messages(id);
       setMessagesByConversation((state) => ({ ...state, [id]: messages }));
@@ -125,6 +147,7 @@ export default function App() {
 
   async function newChat() {
     setSelectedId(null);
+    setMainView('chat');
   }
 
   async function sendMessage({ text, attachments, steer = false }) {
@@ -146,6 +169,7 @@ export default function App() {
       ...state,
       [result.conversation.id]: !result.queued,
     }));
+    setMainView('chat');
   }
 
   async function stopConversation() {
@@ -222,6 +246,11 @@ export default function App() {
     setConversations((state) => upsertById(state, conversation).sort(sortByUpdatedAt));
   }
 
+  function attachWorkspaceItems(attachments) {
+    setWorkspaceAttachments({ id: crypto.randomUUID(), attachments });
+    setMainView('chat');
+  }
+
   async function toggleFavorite(modelId) {
     const next = await api.models.favorite({
       modelId,
@@ -274,23 +303,38 @@ export default function App() {
         onFork={forkConversation}
         onDelete={deleteConversation}
         onAccount={() => setAccountOpen(true)}
+        onSwitchWorkspace={() => setWorkspaceDialogOpen(true)}
+        onLogout={handleLogout}
+        onWorkspace={() => setMainView('workspace')}
+        activeWorkspaceId={workspaceState.activeWorkspaceId}
         collapsed={effectiveSidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
       />
-      <ChatView
-        {...shell}
-        models={models}
-        favorites={favorites}
-        onSend={sendMessage}
-        onStop={stopConversation}
-        onFork={forkConversation}
-        onRetry={retryAssistantMessage}
-        onCancelQueued={cancelQueuedMessage}
-        onSendContinuation={(text) => sendMessage({ text, attachments: [] })}
-        onChooseModel={chooseModel}
-        onToggleFavorite={toggleFavorite}
-        onRefreshModels={refreshModels}
-      />
+      {mainView === 'workspace' && workspaceState.activeWorkspaceId ? (
+        <WorkspaceView
+          workspaceId={workspaceState.activeWorkspaceId}
+          uploadQueue={uploadQueue}
+          onUploadQueueChange={setUploadQueue}
+          onAttachToChat={attachWorkspaceItems}
+        />
+      ) : (
+        <ChatView
+          {...shell}
+          models={models}
+          favorites={favorites}
+          activeWorkspaceId={workspaceState.activeWorkspaceId}
+          workspaceAttachments={workspaceAttachments}
+          onSend={sendMessage}
+          onStop={stopConversation}
+          onFork={forkConversation}
+          onRetry={retryAssistantMessage}
+          onCancelQueued={cancelQueuedMessage}
+          onSendContinuation={(text) => sendMessage({ text, attachments: [] })}
+          onChooseModel={chooseModel}
+          onToggleFavorite={toggleFavorite}
+          onRefreshModels={refreshModels}
+        />
+      )}
       {accountOpen && (
         <AccountDialog
           account={account}
@@ -302,6 +346,18 @@ export default function App() {
         <SearchDialog
           onClose={() => setSearchOpen(false)}
           onSelect={selectConversation}
+        />
+      )}
+      {workspaceDialogOpen && (
+        <WorkspaceDialog
+          workspaceState={workspaceState}
+          onClose={() => setWorkspaceDialogOpen(false)}
+          onChange={(state) => {
+            setWorkspaceState(state);
+            if (!state.activeWorkspaceId && mainView === 'workspace') {
+              setMainView('chat');
+            }
+          }}
         />
       )}
       {error && (

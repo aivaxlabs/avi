@@ -1,6 +1,8 @@
 import {
   Clock,
   CopyPlus,
+  FolderOpen,
+  LogOut,
   MessageSquarePlus,
   MoreHorizontal,
   PanelLeftClose,
@@ -25,9 +27,43 @@ export function Sidebar({
   onFork,
   onDelete,
   onAccount,
+  onSwitchWorkspace,
+  onLogout,
+  onWorkspace,
+  activeWorkspaceId,
   collapsed,
   onToggleCollapsed,
 }) {
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [accountMenuPosition, setAccountMenuPosition] = useState(null);
+  const accountButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return undefined;
+    const close = (event) => {
+      if (accountButtonRef.current?.contains(event.target)) return;
+      if (event.target.closest?.('.item-menu')) return;
+      setAccountMenuOpen(false);
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('resize', () => setAccountMenuOpen(false), { once: true });
+    return () => window.removeEventListener('pointerdown', close);
+  }, [accountMenuOpen]);
+
+  function toggleAccountMenu() {
+    const rect = accountButtonRef.current.getBoundingClientRect();
+    setAccountMenuPosition({
+      top: Math.max(8, Math.min(rect.top - 118, window.innerHeight - 130)),
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 190)),
+    });
+    setAccountMenuOpen((value) => !value);
+  }
+
+  function runAccountAction(action) {
+    setAccountMenuOpen(false);
+    action();
+  }
+
   return (
     <aside className="sidebar">
       <div className="sidebar-titlebar">
@@ -46,7 +82,7 @@ export function Sidebar({
           <MessageSquarePlus size={17} />
           <span>New chat</span>
         </button>
-        <button type="button" disabled>
+        <button type="button" disabled={!activeWorkspaceId} onClick={onWorkspace}>
           <Workflow size={17} />
           <span>Workspace</span>
         </button>
@@ -72,7 +108,7 @@ export function Sidebar({
           />
         ))}
       </div>
-      <button className="account-button" type="button" onClick={onAccount}>
+      <button ref={accountButtonRef} className="account-button" type="button" onClick={toggleAccountMenu}>
         {account?.emailSha256 ? (
           <img
             src={`https://www.gravatar.com/avatar/${account.emailSha256}?d=identicon&s=64`}
@@ -83,6 +119,23 @@ export function Sidebar({
         )}
         <span>{account?.name || 'Account'}</span>
       </button>
+      {accountMenuOpen && accountMenuPosition && createPortal(
+        <div className="item-menu account-menu" style={{ top: accountMenuPosition.top, left: accountMenuPosition.left }}>
+          <button type="button" onClick={() => runAccountAction(onAccount)}>
+            <UserRound size={14} />
+            Account
+          </button>
+          <button type="button" onClick={() => runAccountAction(onSwitchWorkspace)}>
+            <FolderOpen size={14} />
+            Switch workspace
+          </button>
+          <button type="button" onClick={() => runAccountAction(onLogout)}>
+            <LogOut size={14} />
+            Log out
+          </button>
+        </div>,
+        document.body,
+      )}
     </aside>
   );
 }
