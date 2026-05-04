@@ -2,6 +2,7 @@ import { Sparkles, UploadCloud } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Composer } from './Composer.jsx';
 import { Message } from './Message.jsx';
+import { ModelPicker } from './ModelPicker.jsx';
 
 export function ChatView({
   currentConversation,
@@ -19,37 +20,16 @@ export function ChatView({
   onChooseModel,
   onToggleFavorite,
   onRefreshModels,
-}
-
-function hasFileTransfer(dataTransfer) {
-  if (!dataTransfer) return false;
-
-  const items = Array.from(dataTransfer.items ?? []);
-  if (items.length > 0) {
-    return items.some((item) => isFileItem(item));
-  }
-
-  return Array.from(dataTransfer.types ?? []).includes('Files');
-}
-
-function isFileItem(item) {
-  if (item.kind !== 'file') return false;
-  if (typeof item.webkitGetAsEntry !== 'function') return true;
-
-  const entry = item.webkitGetAsEntry();
-  return !entry || entry.isFile;
-}
-
-function droppedFileList(dataTransfer) {
-  return Array.from(dataTransfer.files ?? []).filter((file) => file instanceof File);
 }) {
   const scrollRef = useRef(null);
   const autoScrollTimerRef = useRef(null);
   const manualScrollDuringRunRef = useRef(false);
   const wasRunningRef = useRef(false);
   const dragDepthRef = useRef(0);
+  const modelPopoverRef = useRef(null);
   const [fileDropActive, setFileDropActive] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState(null);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const modelName = models.find((model) => model.id === currentModel)?.name ?? currentModel ?? 'Model';
   const lastAssistantMessage = currentMessages.findLast((message) => message.role === 'assistant');
   const lastMessage = currentMessages.at(-1);
@@ -145,6 +125,17 @@ function droppedFileList(dataTransfer) {
     }
   }, [isRunning, streamScrollKey]);
 
+  useEffect(() => {
+    if (!modelPickerOpen) return undefined;
+    const close = (event) => {
+      if (modelPopoverRef.current?.contains(event.target)) return;
+      setModelPickerOpen(false);
+    };
+
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [modelPickerOpen]);
+
   return (
     <main
       className="chat-area"
@@ -153,6 +144,22 @@ function droppedFileList(dataTransfer) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      <div className="chat-model-picker model-popover-holder" ref={modelPopoverRef}>
+        <button className="model-pill" type="button" onClick={() => setModelPickerOpen((value) => !value)}>
+          {modelName || 'Choose model'}
+        </button>
+        {modelPickerOpen && (
+          <ModelPicker
+            models={models}
+            favorites={favorites}
+            currentModel={currentModel}
+            onClose={() => setModelPickerOpen(false)}
+            onChoose={onChooseModel}
+            onToggleFavorite={onToggleFavorite}
+            onRefresh={onRefreshModels}
+          />
+        )}
+      </div>
       {fileDropActive && (
         <div className="file-drop-overlay">
           <div>
@@ -192,18 +199,34 @@ function droppedFileList(dataTransfer) {
         )}
       </div>
       <Composer
-        modelName={modelName}
-        models={models}
-        favorites={favorites}
-        currentModel={currentModel}
         isRunning={isRunning}
         onSend={onSend}
         onStop={onStop}
-        onChooseModel={onChooseModel}
-        onToggleFavorite={onToggleFavorite}
-        onRefreshModels={onRefreshModels}
         droppedFiles={droppedFiles}
       />
     </main>
   );
+}
+
+function hasFileTransfer(dataTransfer) {
+  if (!dataTransfer) return false;
+
+  const items = Array.from(dataTransfer.items ?? []);
+  if (items.length > 0) {
+    return items.some((item) => isFileItem(item));
+  }
+
+  return Array.from(dataTransfer.types ?? []).includes('Files');
+}
+
+function isFileItem(item) {
+  if (item.kind !== 'file') return false;
+  if (typeof item.webkitGetAsEntry !== 'function') return true;
+
+  const entry = item.webkitGetAsEntry();
+  return !entry || entry.isFile;
+}
+
+function droppedFileList(dataTransfer) {
+  return Array.from(dataTransfer.files ?? []).filter((file) => file instanceof File);
 }

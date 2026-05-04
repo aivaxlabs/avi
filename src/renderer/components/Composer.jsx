@@ -15,30 +15,20 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { createMp3Attachment } from '../lib/audio.js';
 import { fileToAttachment, formatBytes, textToAttachment } from '../lib/files.js';
-import { ModelPicker } from './ModelPicker.jsx';
 
 const composerDraftKey = 'aivax.composer.draft';
 
 export function Composer({
-  modelName,
-  models,
-  favorites,
-  currentModel,
   isRunning,
   onSend,
   onStop,
-  onChooseModel,
-  onToggleFavorite,
-  onRefreshModels,
   droppedFiles,
 }) {
   const [text, setText] = useState(() => window.localStorage.getItem(composerDraftKey) ?? '');
   const [attachments, setAttachments] = useState([]);
   const [plusOpen, setPlusOpen] = useState(false);
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [recording, setRecording] = useState(null);
   const textAreaRef = useRef(null);
-  const modelPopoverRef = useRef(null);
 
   const canSend = text.trim() || attachments.length > 0;
 
@@ -76,16 +66,6 @@ export function Composer({
       .then((next) => setAttachments((items) => [...items, ...next]))
       .catch(() => {});
   }, [droppedFiles]);
-
-  useEffect(() => {
-    if (!modelPickerOpen) return undefined;
-    const close = (event) => {
-      if (modelPopoverRef.current?.contains(event.target)) return;
-      setModelPickerOpen(false);
-    };
-    window.addEventListener('pointerdown', close);
-    return () => window.removeEventListener('pointerdown', close);
-  }, [modelPickerOpen]);
 
   async function submit({ steer = false } = {}) {
     if (!canSend) return;
@@ -222,22 +202,6 @@ export function Composer({
                   Attach from computer
                 </button>
               </div>
-            )}
-          </div>
-          <div className="model-popover-holder" ref={modelPopoverRef}>
-            <button className="model-pill" type="button" onClick={() => setModelPickerOpen((value) => !value)}>
-              {modelName || 'Choose model'}
-            </button>
-            {modelPickerOpen && (
-              <ModelPicker
-                models={models}
-                favorites={favorites}
-                currentModel={currentModel}
-                onClose={() => setModelPickerOpen(false)}
-                onChoose={onChooseModel}
-                onToggleFavorite={onToggleFavorite}
-                onRefresh={onRefreshModels}
-              />
             )}
           </div>
           <textarea
