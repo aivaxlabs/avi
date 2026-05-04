@@ -2,7 +2,7 @@ import { Sparkles, UploadCloud } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Composer } from './Composer.jsx';
 import { Message } from './Message.jsx';
-import { ModelPicker } from './ModelPicker.jsx';
+import { WorkspaceAttachDialog } from './WorkspaceAttachDialog.jsx';
 
 export function ChatView({
   currentConversation,
@@ -10,6 +10,8 @@ export function ChatView({
   currentModel,
   models,
   favorites,
+  activeWorkspaceId,
+  workspaceAttachments,
   isRunning,
   onSend,
   onStop,
@@ -26,10 +28,10 @@ export function ChatView({
   const manualScrollDuringRunRef = useRef(false);
   const wasRunningRef = useRef(false);
   const dragDepthRef = useRef(0);
-  const modelPopoverRef = useRef(null);
   const [fileDropActive, setFileDropActive] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState(null);
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [workspaceAttachOpen, setWorkspaceAttachOpen] = useState(false);
+  const [selectedWorkspaceAttachments, setSelectedWorkspaceAttachments] = useState(null);
   const modelName = models.find((model) => model.id === currentModel)?.name ?? currentModel ?? 'Model';
   const lastAssistantMessage = currentMessages.findLast((message) => message.role === 'assistant');
   const lastMessage = currentMessages.at(-1);
@@ -125,17 +127,6 @@ export function ChatView({
     }
   }, [isRunning, streamScrollKey]);
 
-  useEffect(() => {
-    if (!modelPickerOpen) return undefined;
-    const close = (event) => {
-      if (modelPopoverRef.current?.contains(event.target)) return;
-      setModelPickerOpen(false);
-    };
-
-    window.addEventListener('pointerdown', close);
-    return () => window.removeEventListener('pointerdown', close);
-  }, [modelPickerOpen]);
-
   return (
     <main
       className="chat-area"
@@ -144,22 +135,6 @@ export function ChatView({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div className="chat-model-picker model-popover-holder" ref={modelPopoverRef}>
-        <button className="model-pill" type="button" onClick={() => setModelPickerOpen((value) => !value)}>
-          {modelName || 'Choose model'}
-        </button>
-        {modelPickerOpen && (
-          <ModelPicker
-            models={models}
-            favorites={favorites}
-            currentModel={currentModel}
-            onClose={() => setModelPickerOpen(false)}
-            onChoose={onChooseModel}
-            onToggleFavorite={onToggleFavorite}
-            onRefresh={onRefreshModels}
-          />
-        )}
-      </div>
       {fileDropActive && (
         <div className="file-drop-overlay">
           <div>
@@ -203,7 +178,25 @@ export function ChatView({
         onSend={onSend}
         onStop={onStop}
         droppedFiles={droppedFiles}
+        modelName={modelName}
+        models={models}
+        favorites={favorites}
+        currentModel={currentModel}
+        activeWorkspaceId={activeWorkspaceId}
+        workspaceAttachments={workspaceAttachments}
+        selectedWorkspaceAttachments={selectedWorkspaceAttachments}
+        onChooseModel={onChooseModel}
+        onToggleFavorite={onToggleFavorite}
+        onRefreshModels={onRefreshModels}
+        onAttachFromWorkspace={() => setWorkspaceAttachOpen(true)}
       />
+      {workspaceAttachOpen && activeWorkspaceId && (
+        <WorkspaceAttachDialog
+          workspaceId={activeWorkspaceId}
+          onClose={() => setWorkspaceAttachOpen(false)}
+          onAttach={(attachments) => setSelectedWorkspaceAttachments({ id: crypto.randomUUID(), attachments })}
+        />
+      )}
     </main>
   );
 }

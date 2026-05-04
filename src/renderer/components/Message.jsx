@@ -41,7 +41,7 @@ function UserMessage({ message, onCancelQueued }) {
             {visibleAttachments.map((attachment) => (
               <span key={attachment.id} className="attachment-pill">
                 <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
-                <small>{formatBytes(attachment.size)}</small>
+                <small>{attachmentLabel(attachment)}</small>
               </span>
             ))}
           </div>
@@ -56,6 +56,13 @@ function UserMessage({ message, onCancelQueued }) {
 
 function isVisibleAttachment(attachment) {
   return attachment.kind !== 'text_inline';
+}
+
+function attachmentLabel(attachment) {
+  if (attachment.kind === 'workspace_ref') {
+    return attachment.isDirectory ? 'Workspace folder' : 'Workspace file';
+  }
+  return formatBytes(attachment.size);
 }
 
 function queueStatusLabel(status) {

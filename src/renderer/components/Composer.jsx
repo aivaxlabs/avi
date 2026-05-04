@@ -3,6 +3,7 @@ import {
   FolderOpen,
   HardDrive,
   Mic,
+  Bot,
   Paperclip,
   Pause,
   Play,
@@ -15,6 +16,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { createMp3Attachment } from '../lib/audio.js';
 import { fileToAttachment, formatBytes, textToAttachment } from '../lib/files.js';
+import { ModelPicker } from './ModelPicker.jsx';
 
 const composerDraftKey = 'aivax.composer.draft';
 
@@ -23,11 +25,24 @@ export function Composer({
   onSend,
   onStop,
   droppedFiles,
+  modelName,
+  models,
+  favorites,
+  currentModel,
+  activeWorkspaceId,
+  workspaceAttachments,
+  selectedWorkspaceAttachments,
+  onChooseModel,
+  onToggleFavorite,
+  onRefreshModels,
+  onAttachFromWorkspace,
 }) {
   const [text, setText] = useState(() => window.localStorage.getItem(composerDraftKey) ?? '');
   const [attachments, setAttachments] = useState([]);
   const [plusOpen, setPlusOpen] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [recording, setRecording] = useState(null);
+  const plusHolderRef = useRef(null);
   const textAreaRef = useRef(null);
 
   const canSend = text.trim() || attachments.length > 0;
@@ -66,6 +81,33 @@ export function Composer({
       .then((next) => setAttachments((items) => [...items, ...next]))
       .catch(() => {});
   }, [droppedFiles]);
+
+  useEffect(() => {
+    if (!workspaceAttachments?.attachments?.length) return;
+    setAttachments((items) => [...items, ...workspaceAttachments.attachments]);
+  }, [workspaceAttachments]);
+
+  useEffect(() => {
+    if (!selectedWorkspaceAttachments?.attachments?.length) return;
+    setAttachments((items) => [...items, ...selectedWorkspaceAttachments.attachments]);
+  }, [selectedWorkspaceAttachments]);
+
+  useEffect(() => {
+    if (!plusOpen) return undefined;
+    const close = (event) => {
+      if (plusHolderRef.current?.contains(event.target)) return;
+      setPlusOpen(false);
+      setModelPickerOpen(false);
+    };
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [plusOpen]);
+
+  function chooseModel(modelId) {
+    onChooseModel(modelId);
+    setModelPickerOpen(false);
+    setPlusOpen(false);
+  }
 
   async function submit({ steer = false } = {}) {
     if (!canSend) return;
@@ -173,7 +215,7 @@ export function Composer({
               <span key={attachment.id} className="attachment-chip">
                 <Paperclip size={13} />
                 <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
-                <small>{formatBytes(attachment.size)}</small>
+                <small>{attachmentLabel(attachment)}</small>
                 <button
                   type="button"
                   onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}
@@ -185,17 +227,31 @@ export function Composer({
           </div>
         )}
         <div className="composer-main">
-          <div className="plus-holder">
+          <div className="plus-holder" ref={plusHolderRef}>
             <button className="round-button" type="button" onClick={() => setPlusOpen((value) => !value)}>
               <Plus size={18} />
             </button>
             {plusOpen && (
               <div className="plus-menu">
+                <button type="button" onClick={() => setModelPickerOpen((value) => !value)}>
+                  <Bot size={14} />
+                  <span className="plus-menu-model">
+                    <span>Model</span>
+                    <small>{modelName || 'Choose model'}</small>
+                  </span>
+                </button>
                 <button type="button" disabled>
                   <Wrench size={14} />
                   Tools
                 </button>
-                <button type="button" disabled>
+                <button
+                  type="button"
+                  disabled={!activeWorkspaceId}
+                  onClick={() => {
+                    setPlusOpen(false);
+                    onAttachFromWorkspace();
+                  }}
+                >
                   <FolderOpen size={14} />
                   Attach from workspace
                 </button>
@@ -203,6 +259,17 @@ export function Composer({
                   <HardDrive size={14} />
                   Attach from computer
                 </button>
+                {modelPickerOpen && (
+                  <ModelPicker
+                    models={models}
+                    favorites={favorites}
+                    currentModel={currentModel}
+                    onClose={() => setModelPickerOpen(false)}
+                    onChoose={chooseModel}
+                    onToggleFavorite={onToggleFavorite}
+                    onRefresh={onRefreshModels}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -213,7 +280,7 @@ export function Composer({
             onPaste={handlePaste}
             onKeyDown={handleKeyDown}
             rows={1}
-            placeholder="Message AIVAX"
+            placeholder={`Message ${modelName || 'model'}`}
           />
           {!canSend && isRunning ? (
             <button className="round-button send-button" type="button" onClick={onStop} aria-label="Stop">
@@ -249,6 +316,13 @@ function saveComposerDraft(text) {
 
 function isVisibleAttachment(attachment) {
   return attachment.kind !== 'text_inline';
+}
+
+function attachmentLabel(attachment) {
+  if (attachment.kind === 'workspace_ref') {
+    return attachment.isDirectory ? 'Workspace folder' : 'Workspace file';
+  }
+  return formatBytes(attachment.size);
 }
 
 function stopRecording(recording) {
