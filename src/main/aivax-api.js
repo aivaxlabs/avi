@@ -41,14 +41,18 @@ export async function generateContinuations(token, messages) {
     : [];
 }
 
-export function chatRequestBody({ model, messages }) {
-  return {
+export function chatRequestBody({ model, messages, user }) {
+  const body = {
     model,
     messages,
     stream: true,
     rendering_mode: 'textual_blocks',
     tool_invocation_explanations: true,
   };
+  if (user) {
+    body.user = user;
+  }
+  return body;
 }
 
 export function authHeaders(token) {

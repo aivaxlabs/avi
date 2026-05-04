@@ -54,6 +54,12 @@ db.exec(`
     payload TEXT NOT NULL,
     fetched_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
 `);
 
 const statements = {
@@ -136,6 +142,13 @@ const statements = {
     ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at
   `),
   listCachedModels: db.prepare('SELECT payload FROM models_cache ORDER BY id ASC'),
+  insertWorkspace: db.prepare(`
+    INSERT INTO workspaces (id, created_at, updated_at)
+    VALUES (@id, @createdAt, @updatedAt)
+    ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at
+  `),
+  deleteWorkspace: db.prepare('DELETE FROM workspaces WHERE id = ?'),
+  listWorkspaces: db.prepare('SELECT * FROM workspaces ORDER BY updated_at DESC, id ASC'),
 };
 
 export const paths = {
@@ -347,6 +360,48 @@ export function listCachedModels() {
   return statements.listCachedModels.all().map((row) => parse(row.payload, null)).filter(Boolean);
 }
 
+export function listWorkspaces() {
+  return {
+    activeWorkspaceId: readJson('activeWorkspaceId'),
+    workspaces: statements.listWorkspaces.all().map(mapWorkspace),
+  };
+}
+
+export function addWorkspace(id) {
+  const workspaceId = normalizeWorkspaceId(id);
+  const now = timestamp();
+  statements.insertWorkspace.run({
+    id: workspaceId,
+    createdAt: now,
+    updatedAt: now,
+  });
+  writeJson('activeWorkspaceId', workspaceId);
+  return listWorkspaces();
+}
+
+export function removeWorkspace(id) {
+  const workspaceId = normalizeWorkspaceId(id);
+  statements.deleteWorkspace.run(workspaceId);
+  if (readJson('activeWorkspaceId') === workspaceId) {
+    statements.deleteSession.run('activeWorkspaceId');
+  }
+  return listWorkspaces();
+}
+
+export function setActiveWorkspace(id) {
+  const workspaceId = typeof id === 'string' ? id.trim() : '';
+  if (!workspaceId) {
+    statements.deleteSession.run('activeWorkspaceId');
+    return listWorkspaces();
+  }
+  addWorkspace(workspaceId);
+  return listWorkspaces();
+}
+
+export function getActiveWorkspaceId() {
+  return readJson('activeWorkspaceId');
+}
+
 export function toOpenAiMessages(conversationId, { excludeMessageId } = {}) {
   return getMessages(conversationId)
     .filter((message) => message.id !== excludeMessageId)
@@ -387,6 +442,13 @@ function messageToApiBlock(message) {
 }
 
 function attachmentToApiBlock(attachment) {
+  if (attachment.kind === 'workspace_ref') {
+    const type = attachment.isDirectory ? 'directory' : 'file';
+    return {
+      type: 'text',
+      text: `<workspace-attachment type="${type}" workspace="${escapeAttribute(attachment.workspaceId ?? '')}" path="${escapeAttribute(attachment.path ?? '')}">${escapeAttribute(attachment.name ?? attachment.path ?? '')}</workspace-attachment>`,
+    };
+  }
   if (attachment.kind === 'text_inline') {
     const filename = attachment.name ?? 'attachment.txt';
     return {
@@ -485,6 +547,22 @@ function mapMessage(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function mapWorkspace(row) {
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function normalizeWorkspaceId(id) {
+  const workspaceId = typeof id === 'string' ? id.trim() : '';
+  if (!workspaceId) {
+    throw new Error('Workspace ID is required.');
+  }
+  return workspaceId;
 }
 
 function stringify(value) {

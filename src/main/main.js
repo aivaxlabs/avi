@@ -3,30 +3,56 @@ import { dirname, join } from 'node:path';
 import { release } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import {
+  addWorkspace,
   cacheModels,
   createConversation,
   deleteConversation,
   forkConversation,
+  getActiveWorkspaceId,
   getMessages,
   getSession,
+  listWorkspaces,
   listCachedModels,
   listConversations,
   listFavorites,
   logout,
   paths,
+  removeWorkspace,
   saveLogin,
   searchChats,
   setFavorite,
+  setActiveWorkspace,
   updateConversation,
 } from './database.js';
 import { fetchBalance, fetchModels, login } from './aivax-api.js';
 import { filePathToAttachment } from './files.js';
 import { ChatRunner } from './chat-runner.js';
+import {
+  createDirectory,
+  deleteDirectory,
+  deleteFile,
+  downloadFile,
+  getFileDetails,
+  getPublicAddress,
+  joinRemotePath,
+  listDirectory,
+  openPublicAddress,
+  previewFile,
+  selectUploadFiles,
+  uploadLocalFile,
+  uploadFiles,
+} from './workspace-files.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const usageDashboardUrl = 'https://console.aivax.net/dashboard/usage';
 let mainWindow;
 let chatRunner;
+const uploadQueue = {
+  items: [],
+  currentId: null,
+  controller: null,
+  running: false,
+};
 
 app.setName('AIVAX');
 
@@ -84,6 +110,7 @@ function createWindow() {
     sendEvent: (payload) => mainWindow?.webContents.send('chat:event', payload),
     debugStream: process.env.AIVAX_OPEN_DEVTOOLS === '1',
   });
+  chatRunner.setWorkspaceGetter(getActiveWorkspaceId);
 
   if (process.env.AIVAX_SMOKE_TEST === '1') {
     const smokeTimeout = setTimeout(() => {
@@ -192,6 +219,42 @@ function registerIpc() {
   ipcMain.handle('models:favorites', () => listFavorites());
   ipcMain.handle('models:favorite', (_event, { modelId, favorited }) => setFavorite(modelId, favorited));
 
+  ipcMain.handle('workspaces:list', () => listWorkspaces());
+  ipcMain.handle('workspaces:add', (_event, id) => listWorkspacesWithEvent(addWorkspace(id)));
+  ipcMain.handle('workspaces:remove', (_event, id) => listWorkspacesWithEvent(removeWorkspace(id)));
+  ipcMain.handle('workspaces:set-active', (_event, id) => listWorkspacesWithEvent(setActiveWorkspace(id)));
+
+  ipcMain.handle('workspace-files:list', (_event, payload = {}) => withWorkspace((token, workspaceId) => (
+    listDirectory({ token, workspaceId, path: payload.path ?? '/' })
+  )));
+  ipcMain.handle('workspace-files:details', (_event, payload = {}) => withWorkspace((token, workspaceId) => (
+    getFileDetails({ token, workspaceId, path: payload.path })
+  )));
+  ipcMain.handle('workspace-files:preview', (_event, payload = {}) => withWorkspace((token, workspaceId) => (
+    previewFile({ token, workspaceId, path: payload.path })
+  )));
+  ipcMain.handle('workspace-files:share', (_event, payload = {}) => withWorkspace((token, workspaceId) => (
+    getPublicAddress({ token, workspaceId, path: payload.path })
+  )));
+  ipcMain.handle('workspace-files:open-share', (_event, publicUrl) => openPublicAddress(publicUrl));
+  ipcMain.handle('workspace-files:download', (_event, payload = {}) => withWorkspace((token, workspaceId) => (
+    downloadFile({ token, workspaceId, path: payload.path, window: mainWindow })
+  )));
+  ipcMain.handle('workspace-files:upload', (_event, payload = {}) => withWorkspace((token, workspaceId) => (
+    uploadFiles({ token, workspaceId, path: payload.path ?? '/', window: mainWindow })
+  )));
+  ipcMain.handle('workspace-uploads:start', (_event, payload = {}) => startWorkspaceUpload(payload));
+  ipcMain.handle('workspace-uploads:cancel', (_event, id) => cancelWorkspaceUpload(id));
+  ipcMain.handle('workspace-uploads:snapshot', () => uploadSnapshot());
+  ipcMain.handle('workspace-files:create-directory', (_event, payload = {}) => withWorkspace((token, workspaceId) => (
+    createDirectory({ token, workspaceId, path: joinRemotePath(payload.parentPath ?? '/', payload.name) })
+  )));
+  ipcMain.handle('workspace-files:delete', (_event, payload = {}) => withWorkspace((token, workspaceId) => (
+    payload.isDirectory
+      ? deleteDirectory({ token, workspaceId, path: payload.path })
+      : deleteFile({ token, workspaceId, path: payload.path })
+  )));
+
   ipcMain.handle('chat:send', (_event, payload) => chatRunner.send(payload));
   ipcMain.handle('chat:retry', (_event, payload) => chatRunner.retry(payload));
   ipcMain.handle('chat:cancel-queued', (_event, payload) => chatRunner.cancelQueuedMessage(payload));
@@ -219,4 +282,119 @@ function registerIpc() {
   });
   ipcMain.handle('window:close', () => mainWindow?.close());
   ipcMain.handle('window:open-usage-dashboard', () => shell.openExternal(usageDashboardUrl));
+}
+
+function listWorkspacesWithEvent(state) {
+  mainWindow?.webContents.send('chat:event', { type: 'workspaces', state });
+  return state;
+}
+
+function withWorkspace(action) {
+  const token = getSession().accessToken;
+  const workspaceId = getActiveWorkspaceId();
+  if (!token) {
+    throw new Error('Login is required.');
+  }
+  if (!workspaceId) {
+    throw new Error('Select a workspace first.');
+  }
+  return action(token, workspaceId);
+}
+
+async function startWorkspaceUpload({ path = '/' } = {}) {
+  const token = getSession().accessToken;
+  const workspaceId = getActiveWorkspaceId();
+  if (!token) {
+    throw new Error('Login is required.');
+  }
+  if (!workspaceId) {
+    throw new Error('Select a workspace first.');
+  }
+  const files = await selectUploadFiles({ window: mainWindow });
+  if (files.length === 0) return uploadSnapshot();
+  for (const file of files) {
+    uploadQueue.items.push({
+      id: crypto.randomUUID(),
+      workspaceId,
+      basePath: path,
+      remotePath: joinRemotePath(path, file.name),
+      filePath: file.filePath,
+      name: file.name,
+      size: file.size,
+      status: 'queued',
+      error: '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  emitUploadQueue();
+  processUploadQueue();
+  return uploadSnapshot();
+}
+
+function cancelWorkspaceUpload(id) {
+  const item = uploadQueue.items.find((current) => current.id === id);
+  if (!item || !['queued', 'uploading'].includes(item.status)) {
+    return uploadSnapshot();
+  }
+  if (item.status === 'uploading' && uploadQueue.currentId === id && uploadQueue.controller) {
+    uploadQueue.controller.abort('cancelled');
+    return uploadSnapshot();
+  }
+  item.status = 'cancelled';
+  item.error = 'Cancelled';
+  item.updatedAt = new Date().toISOString();
+  emitUploadQueue();
+  return uploadSnapshot();
+}
+
+async function processUploadQueue() {
+  if (uploadQueue.running) return;
+  uploadQueue.running = true;
+  try {
+    while (true) {
+      const next = uploadQueue.items.find((item) => item.status === 'queued');
+      if (!next) break;
+      next.status = 'uploading';
+      next.updatedAt = new Date().toISOString();
+      uploadQueue.currentId = next.id;
+      uploadQueue.controller = new AbortController();
+      emitUploadQueue();
+      try {
+        await uploadLocalFile({
+          token: getSession().accessToken,
+          workspaceId: next.workspaceId,
+          remotePath: next.remotePath,
+          filePath: next.filePath,
+          signal: uploadQueue.controller.signal,
+        });
+        next.status = 'completed';
+      } catch (error) {
+        next.status = uploadQueue.controller.signal.aborted ? 'cancelled' : 'error';
+        next.error = uploadQueue.controller.signal.aborted
+          ? 'Cancelled'
+          : error instanceof Error ? error.message : String(error);
+      } finally {
+        next.updatedAt = new Date().toISOString();
+        uploadQueue.currentId = null;
+        uploadQueue.controller = null;
+        emitUploadQueue();
+      }
+    }
+  } finally {
+    uploadQueue.running = false;
+    emitUploadQueue();
+  }
+}
+
+function uploadSnapshot() {
+  return {
+    running: uploadQueue.running,
+    currentId: uploadQueue.currentId,
+    items: uploadQueue.items.map(({ filePath, ...item }) => item),
+  };
+}
+
+function emitUploadQueue() {
+  mainWindow?.webContents.send('chat:event', { type: 'workspace-uploads', state: uploadSnapshot() });
 }

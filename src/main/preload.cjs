@@ -25,6 +25,28 @@ contextBridge.exposeInMainWorld('aivax', {
     favorites: () => invoke('models:favorites'),
     favorite: (payload) => invoke('models:favorite', payload),
   },
+  workspaces: {
+    list: () => invoke('workspaces:list'),
+    add: (id) => invoke('workspaces:add', id),
+    remove: (id) => invoke('workspaces:remove', id),
+    setActive: (id) => invoke('workspaces:set-active', id),
+  },
+  workspaceFiles: {
+    list: (payload) => invoke('workspace-files:list', payload),
+    details: (payload) => invoke('workspace-files:details', payload),
+    preview: (payload) => invoke('workspace-files:preview', payload),
+    share: (payload) => invoke('workspace-files:share', payload),
+    openShare: (publicUrl) => invoke('workspace-files:open-share', publicUrl),
+    download: (payload) => invoke('workspace-files:download', payload),
+    upload: (payload) => invoke('workspace-files:upload', payload),
+    createDirectory: (payload) => invoke('workspace-files:create-directory', payload),
+    delete: (payload) => invoke('workspace-files:delete', payload),
+  },
+  workspaceUploads: {
+    start: (payload) => invoke('workspace-uploads:start', payload),
+    cancel: (id) => invoke('workspace-uploads:cancel', id),
+    snapshot: () => invoke('workspace-uploads:snapshot'),
+  },
   chat: {
     send: (payload) => invoke('chat:send', payload),
     retry: (payload) => invoke('chat:retry', payload),

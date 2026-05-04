@@ -24,7 +24,12 @@ export class ChatRunner {
     this.getToken = getToken;
     this.sendEvent = sendEvent;
     this.debugStream = debugStream;
+    this.getWorkspaceId = () => null;
     this.runs = new Map();
+  }
+
+  setWorkspaceGetter(getWorkspaceId) {
+    this.getWorkspaceId = getWorkspaceId;
   }
 
   async send({ conversationId, model, text, attachments = [], steer = false }) {
@@ -169,7 +174,7 @@ export class ChatRunner {
           ...authHeaders(token),
           'Sse-Stream-Options': 'no-ping',
         },
-        body: JSON.stringify(chatRequestBody({ model, messages })),
+        body: JSON.stringify(chatRequestBody({ model, messages, user: this.getWorkspaceId() })),
         signal: controller.signal,
       });
 
