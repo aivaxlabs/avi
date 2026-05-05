@@ -1,5 +1,16 @@
 import { ChevronDown, ChevronRight, Copy, GitFork, RotateCcw, TerminalSquare, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-csharp';
+import 'prismjs/components/prism-css';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-jsx';
+import 'prismjs/components/prism-markdown';
+import 'prismjs/components/prism-markup';
+import 'prismjs/components/prism-powershell';
+import 'prismjs/components/prism-tsx';
+import 'prismjs/components/prism-typescript';
+import { isValidElement, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatBytes } from '../lib/files.js';
@@ -137,7 +148,7 @@ function AssistantMessage({ message, onFork, onRetry, onSendContinuation, showCo
 
 function TimelineItem({ item, streaming, trailing }) {
   if (item.type === 'content') {
-    return <MarkdownSegment text={item.text} />;
+    return <MarkdownSegment text={item.text} finalized={!streaming} />;
   }
 
   return (
@@ -149,13 +160,91 @@ function TimelineItem({ item, streaming, trailing }) {
   );
 }
 
-function MarkdownSegment({ text }) {
+function MarkdownSegment({ text, finalized }) {
+  const components = useMemo(() => createMarkdownComponents(finalized), [finalized]);
+
   if (!text.trim()) return null;
   return (
     <div className="markdown-body">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{text}</ReactMarkdown>
     </div>
   );
+}
+
+function createMarkdownComponents(finalized) {
+  return {
+    pre({ children, ...props }) {
+      const codeElement = codeElementFromChildren(children);
+      if (!codeElement) {
+        return <pre {...props}>{children}</pre>;
+      }
+
+      if (!finalized) {
+        return null;
+      }
+
+      const className = codeElement.props.className ?? '';
+      const language = normalizeLanguage(className);
+      const code = String(codeElement.props.children ?? '').replace(/\n$/, '');
+      return <CodeBlock code={code} language={language} />;
+    },
+  };
+}
+
+function CodeBlock({ code, language }) {
+  const [copied, setCopied] = useState(false);
+  const grammar = Prism.languages[language];
+  const highlighted = grammar ? Prism.highlight(code, grammar, language) : '';
+  const label = language === 'text' ? 'Code' : language;
+
+  function handleCopy() {
+    copyText(code);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  return (
+    <div className="code-block">
+      <div className="code-block-header">
+        <span>{label}</span>
+        <button type="button" onClick={handleCopy} aria-label="Copy code">
+          <Copy size={13} />
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <pre className={`language-${language}`}>
+        {highlighted ? (
+          <code className={`language-${language}`} dangerouslySetInnerHTML={{ __html: highlighted }} />
+        ) : (
+          <code className={`language-${language}`}>{code}</code>
+        )}
+      </pre>
+    </div>
+  );
+}
+
+function codeElementFromChildren(children) {
+  const childList = Array.isArray(children) ? children : [children];
+  return childList.find((child) => isValidElement(child) && child.type === 'code') ?? null;
+}
+
+function normalizeLanguage(className) {
+  const language = /language-([\w-]+)/.exec(className)?.[1]?.toLowerCase() ?? 'text';
+  return {
+    csharp: 'csharp',
+    cs: 'csharp',
+    html: 'markup',
+    js: 'javascript',
+    jsx: 'jsx',
+    json: 'json',
+    md: 'markdown',
+    powershell: 'powershell',
+    ps1: 'powershell',
+    sh: 'bash',
+    ts: 'typescript',
+    tsx: 'tsx',
+    xml: 'markup',
+  }[language] ?? language;
 }
 
 function WorkedBlock({ items, label }) {

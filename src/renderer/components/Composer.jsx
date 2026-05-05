@@ -233,7 +233,13 @@ export function Composer({
             </button>
             {plusOpen && (
               <div className="plus-menu">
-                <button type="button" onClick={() => setModelPickerOpen((value) => !value)}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModelPickerOpen(true);
+                    setPlusOpen(false);
+                  }}
+                >
                   <Bot size={14} />
                   <span className="plus-menu-model">
                     <span>Model</span>
@@ -259,17 +265,6 @@ export function Composer({
                   <HardDrive size={14} />
                   Attach from computer
                 </button>
-                {modelPickerOpen && (
-                  <ModelPicker
-                    models={models}
-                    favorites={favorites}
-                    currentModel={currentModel}
-                    onClose={() => setModelPickerOpen(false)}
-                    onChoose={chooseModel}
-                    onToggleFavorite={onToggleFavorite}
-                    onRefresh={onRefreshModels}
-                  />
-                )}
               </div>
             )}
           </div>
@@ -302,6 +297,17 @@ export function Composer({
           )}
         </div>
       </div>
+      {modelPickerOpen && (
+        <ModelPicker
+          models={models}
+          favorites={favorites}
+          currentModel={currentModel}
+          onClose={() => setModelPickerOpen(false)}
+          onChoose={chooseModel}
+          onToggleFavorite={onToggleFavorite}
+          onRefresh={onRefreshModels}
+        />
+      )}
     </section>
   );
 }

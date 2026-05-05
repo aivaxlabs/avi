@@ -45,6 +45,10 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const usageDashboardUrl = 'https://console.aivax.net/dashboard/usage';
+const appIconPath = join(
+  __dirname,
+  process.platform === 'win32' ? '../../assets/icon/aivchat.ico' : '../../assets/icon/aivchat.png',
+);
 let mainWindow;
 let chatRunner;
 const uploadQueue = {
@@ -91,6 +95,7 @@ function createWindow() {
     minHeight: 640,
     show: process.env.AIVAX_SMOKE_TEST !== '1',
     frame: false,
+    icon: appIconPath,
     ...nativeWindow,
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {

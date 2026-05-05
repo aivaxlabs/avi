@@ -1,5 +1,5 @@
-import { RefreshCw, Search, Star } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { RefreshCw, Search, Star, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { classNames, formatPrice } from '../lib/format.js';
 
 const tabs = ['Favorites', 'Models', 'AI Gateways'];
@@ -15,6 +15,15 @@ export function ModelPicker({
 }) {
   const [tab, setTab] = useState('Models');
   const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
 
   const modelsById = useMemo(() => new Map(models.map((model) => [model.id, model])), [models]);
 
@@ -46,93 +55,100 @@ export function ModelPicker({
   const visibleCount = groupedModels.reduce((total, group) => total + group.items.length, 0);
 
   return (
-    <section className="model-popover" onMouseDown={(event) => event.stopPropagation()}>
-      <div className="model-popover-header">
-        <div>
-          <h2>Choose model</h2>
-          <p>Models and AI gateways grouped by provider.</p>
+    <div className="dialog-backdrop" onMouseDown={onClose}>
+      <section className="model-dialog" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="dialog-header">
+          <div>
+            <h2>Choose model</h2>
+            <p>Models and AI gateways grouped by provider.</p>
+          </div>
+          <div className="dialog-header-actions">
+            <button className="icon-button tiny" type="button" onClick={onRefresh} aria-label="Refresh models">
+              <RefreshCw size={15} />
+            </button>
+            <button className="icon-button tiny" type="button" onClick={onClose} aria-label="Close">
+              <X size={15} />
+            </button>
+          </div>
         </div>
-        <button className="icon-button tiny" type="button" onClick={onRefresh} aria-label="Refresh models">
-          <RefreshCw size={15} />
-        </button>
-      </div>
-      <label className="dialog-search model-popover-search">
-        <Search size={16} />
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search models" />
-      </label>
-      <div className="tabs">
-        {tabs.map((item) => (
-          <button
-            key={item}
-            className={classNames(tab === item && 'active')}
-            type="button"
-            onClick={() => setTab(item)}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
-      <div className="model-list">
-        {groupedModels.map((group) => (
-          <section key={group.provider} className="model-provider-group">
-            {group.showHeader !== false && (
-              <h3>
-                <img src={providerIconUrl(group.providerKey)} alt="" />
-                <span>{group.provider}</span>
-              </h3>
-            )}
-            {group.items.map((model) => {
-              const details = modelDetails(model, modelsById);
-              const nameParts = modelNameParts(model);
-              return (
-                <article key={model.id} className={classNames('model-card', currentModel === model.id && 'active')}>
-                  <button
-                    className="model-content"
-                    type="button"
-                    onClick={() => {
-                      onChoose(model.id);
-                      onClose();
-                    }}
-                  >
-                    <div>
-                      <h4>
-                        {nameParts.base}
-                        {nameParts.suffix && <small>{nameParts.suffix}</small>}
-                      </h4>
-                    </div>
-                    {details.description && <p>{details.description}</p>}
-                    <div className="model-meta">
-                      <span><span>In</span> {formatPrice(details.pricing.input)}</span>
-                      <span><span>Out</span> {formatPrice(details.pricing.output)}</span>
-                      {details.pricing.cached && <span><span>Cached</span> {formatPrice(details.pricing.cached)}</span>}
-                      <span><span>Speed</span> {details.speed ?? '-'}</span>
-                      <span><span>IQ</span> {details.intelligence ?? '-'}</span>
-                      <span><span>Context</span> {formatCount(details.contextWindow)}</span>
-                    </div>
-                    {details.capabilities.length > 0 && (
-                      <div className="model-capabilities">
-                        {details.capabilities.map((capability) => (
-                          <span key={capability}>{capability}</span>
-                        ))}
+        <label className="dialog-search">
+          <Search size={16} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search models" />
+        </label>
+        <div className="tabs">
+          {tabs.map((item) => (
+            <button
+              key={item}
+              className={classNames(tab === item && 'active')}
+              type="button"
+              onClick={() => setTab(item)}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+        <div className="model-list">
+          {groupedModels.map((group) => (
+            <section key={group.provider} className="model-provider-group">
+              {group.showHeader !== false && (
+                <h3>
+                  <img src={providerIconUrl(group.providerKey)} alt="" />
+                  <span>{group.provider}</span>
+                </h3>
+              )}
+              {group.items.map((model) => {
+                const details = modelDetails(model, modelsById);
+                const nameParts = modelNameParts(model);
+                return (
+                  <article key={model.id} className={classNames('model-card', currentModel === model.id && 'active')}>
+                    <button
+                      className="model-content"
+                      type="button"
+                      onClick={() => {
+                        onChoose(model.id);
+                        onClose();
+                      }}
+                    >
+                      <div>
+                        <h4>
+                          {nameParts.base}
+                          {nameParts.suffix && <small>{nameParts.suffix}</small>}
+                        </h4>
                       </div>
-                    )}
-                  </button>
-                  <button
-                    className={classNames('favorite-button', favorites.includes(model.id) && 'active')}
-                    type="button"
-                    onClick={() => onToggleFavorite(model.id)}
-                    aria-label={favorites.includes(model.id) ? 'Remove favorite' : 'Add favorite'}
-                  >
-                    <Star size={16} />
-                  </button>
-                </article>
-              );
-            })}
-          </section>
-        ))}
-        {visibleCount === 0 && <div className="empty-list">No models here yet.</div>}
-      </div>
-    </section>
+                      {details.description && <p>{details.description}</p>}
+                      <div className="model-meta">
+                        <span><span>In</span> {formatPrice(details.pricing.input)}</span>
+                        <span><span>Out</span> {formatPrice(details.pricing.output)}</span>
+                        {details.pricing.cached && <span><span>Cached</span> {formatPrice(details.pricing.cached)}</span>}
+                        <span><span>Speed</span> {details.speed ?? '-'}</span>
+                        <span><span>IQ</span> {details.intelligence ?? '-'}</span>
+                        <span><span>Context</span> {formatCount(details.contextWindow)}</span>
+                      </div>
+                      {details.capabilities.length > 0 && (
+                        <div className="model-capabilities">
+                          {details.capabilities.map((capability) => (
+                            <span key={capability}>{capability}</span>
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                    <button
+                      className={classNames('favorite-button', favorites.includes(model.id) && 'active')}
+                      type="button"
+                      onClick={() => onToggleFavorite(model.id)}
+                      aria-label={favorites.includes(model.id) ? 'Remove favorite' : 'Add favorite'}
+                    >
+                      <Star size={16} />
+                    </button>
+                  </article>
+                );
+              })}
+            </section>
+          ))}
+          {visibleCount === 0 && <div className="empty-list">No models here yet.</div>}
+        </div>
+      </section>
+    </div>
   );
 }
 

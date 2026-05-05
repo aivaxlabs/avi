@@ -1,4 +1,4 @@
-import { Sparkles, UploadCloud } from 'lucide-react';
+import { UploadCloud } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Composer } from './Composer.jsx';
 import { Message } from './Message.jsx';
@@ -35,6 +35,7 @@ export function ChatView({
   const modelName = models.find((model) => model.id === currentModel)?.name ?? currentModel ?? 'Model';
   const lastAssistantMessage = currentMessages.findLast((message) => message.role === 'assistant');
   const lastMessage = currentMessages.at(-1);
+  const isEmptyChat = currentMessages.length === 0;
   const streamScrollKey = [
     currentConversation?.id ?? '',
     lastMessage?.id ?? '',
@@ -129,7 +130,7 @@ export function ChatView({
 
   return (
     <main
-      className="chat-area"
+      className={`chat-area ${isEmptyChat ? 'chat-empty' : ''}`}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -149,13 +150,9 @@ export function ChatView({
         onTouchMove={handleManualScroll}
         onWheel={handleManualScroll}
       >
-        {currentMessages.length === 0 ? (
+        {isEmptyChat ? (
           <div className="empty-chat">
-            <div className="copilot-orb">
-              <Sparkles size={22} />
-            </div>
-            <h1>Hey, good afternoon!</h1>
-            <p>How can AIVAX help you today?</p>
+            <h1>How can I help you today?</h1>
           </div>
         ) : (
           <div className="messages-column">
