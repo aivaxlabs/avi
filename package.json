@@ -17,10 +17,9 @@
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",
     "better-sqlite3": "^12.5.0",
-    "electron": "^39.2.6",
-    "electron-builder": "^26.0.12",
     "lamejs": "^1.2.1",
     "lucide-react": "^0.555.0",
+    "prismjs": "^1.30.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
@@ -28,6 +27,8 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.1",
+    "electron": "^39.2.6",
+    "electron-builder": "^26.0.12",
     "autoprefixer": "^10.4.22",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.18",
@@ -38,6 +39,7 @@
     "productName": "AIVAX",
     "files": [
       "dist/**",
+      "assets/**",
       "src/main/**",
       "package.json"
     ],
@@ -45,13 +47,15 @@
       "output": "release"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "assets/icon/aivchat.ico"
     },
     "mac": {
       "target": "dmg"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "icon": "assets/icon/aivchat.png"
     }
   }
 }
