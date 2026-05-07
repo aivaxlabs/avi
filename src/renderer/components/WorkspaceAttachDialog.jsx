@@ -61,7 +61,9 @@ export function WorkspaceAttachDialog({ workspaceId, onClose, onAttach }) {
             </button>
           ))}
         </div>
-        {error && <div className="workspace-error">{error}</div>}
+        <div className="attach-error-slot">
+          {error && <div className="workspace-error">{error}</div>}
+        </div>
         <div className="attach-list">
           {path !== '/' && (
             <button type="button" onDoubleClick={() => setPath(parentPath(path))}>
@@ -88,7 +90,7 @@ export function WorkspaceAttachDialog({ workspaceId, onClose, onAttach }) {
             );
           })}
         </div>
-        <div className="dialog-footer">
+        <div className="dialog-footer attach-dialog-footer">
           <span>{selectedItems.length} selected</span>
           <button className="primary-button" type="button" disabled={selectedItems.length === 0} onClick={attach}>
             Attach

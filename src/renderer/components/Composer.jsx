@@ -42,6 +42,7 @@ export function Composer({
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [recording, setRecording] = useState(null);
+  const [audioLevel, setAudioLevel] = useState(0);
   const plusHolderRef = useRef(null);
   const textAreaRef = useRef(null);
 
@@ -103,6 +104,29 @@ export function Composer({
     return () => window.removeEventListener('pointerdown', close);
   }, [plusOpen]);
 
+  useEffect(() => {
+    if (!recording?.analyser || recording.paused) {
+      setAudioLevel(0);
+      return undefined;
+    }
+
+    const samples = new Uint8Array(recording.analyser.fftSize);
+    let frameId = 0;
+    const updateLevel = () => {
+      recording.analyser.getByteTimeDomainData(samples);
+      let sum = 0;
+      for (const sample of samples) {
+        const centered = (sample - 128) / 128;
+        sum += centered * centered;
+      }
+      setAudioLevel(Math.min(1, Math.sqrt(sum / samples.length) * 5));
+      frameId = window.requestAnimationFrame(updateLevel);
+    };
+    updateLevel();
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [recording]);
+
   function chooseModel(modelId) {
     onChooseModel(modelId);
     setModelPickerOpen(false);
@@ -156,36 +180,46 @@ export function Composer({
   async function startRecording() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const mediaRecorder = new MediaRecorder(stream);
+    const audioContext = new AudioContext();
+    const source = audioContext.createMediaStreamSource(stream);
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 64;
+    source.connect(analyser);
     const chunks = [];
     mediaRecorder.addEventListener('dataavailable', (event) => {
       if (event.data.size > 0) chunks.push(event.data);
     });
     mediaRecorder.start();
-    setRecording({ mediaRecorder, chunks, paused: false, stream });
+    setRecording({ mediaRecorder, chunks, paused: false, stream, audioContext, source, analyser });
   }
 
   function pauseRecording() {
+    if (!recording || recording.stopping || recording.mediaRecorder.state !== 'recording') return;
     recording.mediaRecorder.pause();
     setRecording({ ...recording, paused: true });
   }
 
   function resumeRecording() {
+    if (!recording || recording.stopping || recording.mediaRecorder.state !== 'paused') return;
     recording.mediaRecorder.resume();
     setRecording({ ...recording, paused: false });
   }
 
   async function sendRecording() {
     const current = recording;
-    if (!current) return;
+    if (!current || current.stopping || current.mediaRecorder.state === 'inactive') return;
+    setRecording({ ...current, stopping: true });
     const attachment = await stopRecording(current);
     setRecording(null);
     await onSend({ text: '', attachments: [attachment] });
   }
 
   async function cancelRecording() {
-    if (!recording) return;
-    recording.mediaRecorder.stop();
-    recording.stream.getTracks().forEach((track) => track.stop());
+    if (!recording || recording.stopping) return;
+    if (recording.mediaRecorder.state !== 'inactive') {
+      recording.mediaRecorder.stop();
+    }
+    cleanupRecording(recording);
     setRecording(null);
   }
 
@@ -197,13 +231,14 @@ export function Composer({
         <div className="recording-bar">
           <span className="record-dot" />
           <span>Recording audio</span>
-          <button type="button" onClick={recording.paused ? resumeRecording : pauseRecording}>
+          <AudioWave level={audioLevel} paused={recording.paused} />
+          <button type="button" disabled={recording.stopping} onClick={recording.paused ? resumeRecording : pauseRecording}>
             {recording.paused ? <Play size={15} /> : <Pause size={15} />}
           </button>
-          <button type="button" onClick={cancelRecording}>
+          <button type="button" disabled={recording.stopping} onClick={cancelRecording}>
             <Trash2 size={15} />
           </button>
-          <button type="button" className="primary-mini" onClick={sendRecording}>
+          <button type="button" className="primary-mini" disabled={recording.stopping} onClick={sendRecording}>
             Send
           </button>
         </div>
@@ -320,8 +355,8 @@ function saveComposerDraft(text) {
   }
 }
 
-function isVisibleAttachment(attachment) {
-  return attachment.kind !== 'text_inline';
+function isVisibleAttachment() {
+  return true;
 }
 
 function attachmentLabel(attachment) {
@@ -331,11 +366,29 @@ function attachmentLabel(attachment) {
   return formatBytes(attachment.size);
 }
 
+function AudioWave({ level, paused }) {
+  const bars = [0.28, 0.56, 0.82, 0.48, 0.7, 0.36, 0.62];
+
+  return (
+    <div className={`audio-wave${paused ? ' paused' : ''}`} style={{ '--audio-level': level }}>
+      {bars.map((base, index) => (
+        <span
+          key={base}
+          style={{
+            '--bar-base': base,
+            '--bar-index': index,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 function stopRecording(recording) {
   return new Promise((resolve, reject) => {
     recording.mediaRecorder.addEventListener('stop', async () => {
       try {
-        recording.stream.getTracks().forEach((track) => track.stop());
+        cleanupRecording(recording);
         resolve(await createMp3Attachment(recording.chunks));
       } catch (error) {
         reject(error);
@@ -343,4 +396,12 @@ function stopRecording(recording) {
     }, { once: true });
     recording.mediaRecorder.stop();
   });
+}
+
+function cleanupRecording(recording) {
+  recording.stream.getTracks().forEach((track) => track.stop());
+  recording.source?.disconnect();
+  if (recording.audioContext?.state !== 'closed') {
+    recording.audioContext?.close();
+  }
 }

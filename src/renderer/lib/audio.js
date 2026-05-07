@@ -1,4 +1,6 @@
-import lamejs from 'lamejs';
+import lameScriptUrl from 'lamejs/lame.all.js?url';
+
+let lameLoadPromise = null;
 
 export async function createMp3Attachment(chunks) {
   const sourceBlob = new Blob(chunks);
@@ -6,7 +8,8 @@ export async function createMp3Attachment(chunks) {
   const context = new AudioContext();
   const audioBuffer = await context.decodeAudioData(arrayBuffer);
   const samples = toMonoSamples(audioBuffer);
-  const encoder = new lamejs.Mp3Encoder(1, audioBuffer.sampleRate, 128);
+  const lame = await loadLame();
+  const encoder = new lame.Mp3Encoder(1, audioBuffer.sampleRate, 128);
   const parts = [];
 
   for (let i = 0; i < samples.length; i += 1152) {
@@ -30,6 +33,28 @@ export async function createMp3Attachment(chunks) {
     base64,
     format: 'mp3',
   };
+}
+
+function loadLame() {
+  if (globalThis.lamejs?.Mp3Encoder) return Promise.resolve(globalThis.lamejs);
+  if (lameLoadPromise) return lameLoadPromise;
+
+  lameLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = lameScriptUrl;
+    script.async = true;
+    script.addEventListener('load', () => {
+      if (globalThis.lamejs?.Mp3Encoder) {
+        resolve(globalThis.lamejs);
+      } else {
+        reject(new Error('The MP3 encoder failed to initialize.'));
+      }
+    }, { once: true });
+    script.addEventListener('error', () => reject(new Error('The MP3 encoder failed to load.')), { once: true });
+    document.head.append(script);
+  });
+
+  return lameLoadPromise;
 }
 
 function toMonoSamples(audioBuffer) {

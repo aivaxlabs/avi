@@ -65,8 +65,8 @@ function UserMessage({ message, onCancelQueued }) {
   );
 }
 
-function isVisibleAttachment(attachment) {
-  return attachment.kind !== 'text_inline';
+function isVisibleAttachment() {
+  return true;
 }
 
 function attachmentLabel(attachment) {
