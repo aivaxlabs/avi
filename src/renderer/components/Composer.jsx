@@ -1,13 +1,14 @@
 import {
   ArrowUp,
+  ChevronDown,
   FolderOpen,
   HardDrive,
   Mic,
-  Bot,
   Paperclip,
   Pause,
   Play,
   Plus,
+  Search,
   Square,
   Trash2,
   Wrench,
@@ -16,6 +17,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { createMp3Attachment } from '../lib/audio.js';
 import { fileToAttachment, formatBytes, textToAttachment } from '../lib/files.js';
+import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { ModelPicker } from './ModelPicker.jsx';
 
 const composerDraftKey = 'aivax.composer.draft';
@@ -26,6 +28,7 @@ export function Composer({
   onStop,
   droppedFiles,
   modelName,
+  recentModels = [],
   models,
   favorites,
   currentModel,
@@ -40,10 +43,12 @@ export function Composer({
   const [text, setText] = useState(() => window.localStorage.getItem(composerDraftKey) ?? '');
   const [attachments, setAttachments] = useState([]);
   const [plusOpen, setPlusOpen] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [recording, setRecording] = useState(null);
   const [audioLevel, setAudioLevel] = useState(0);
   const plusHolderRef = useRef(null);
+  const modelMenuRef = useRef(null);
   const textAreaRef = useRef(null);
 
   const canSend = text.trim() || attachments.length > 0;
@@ -98,11 +103,20 @@ export function Composer({
     const close = (event) => {
       if (plusHolderRef.current?.contains(event.target)) return;
       setPlusOpen(false);
-      setModelPickerOpen(false);
     };
     window.addEventListener('pointerdown', close);
     return () => window.removeEventListener('pointerdown', close);
   }, [plusOpen]);
+
+  useEffect(() => {
+    if (!modelMenuOpen) return undefined;
+    const close = (event) => {
+      if (modelMenuRef.current?.contains(event.target)) return;
+      setModelMenuOpen(false);
+    };
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [modelMenuOpen]);
 
   useEffect(() => {
     if (!recording?.analyser || recording.paused) {
@@ -127,12 +141,6 @@ export function Composer({
     return () => window.cancelAnimationFrame(frameId);
   }, [recording]);
 
-  function chooseModel(modelId) {
-    onChooseModel(modelId);
-    setModelPickerOpen(false);
-    setPlusOpen(false);
-  }
-
   async function submit({ steer = false } = {}) {
     if (!canSend) return;
     const payload = { text, attachments, steer };
@@ -140,6 +148,12 @@ export function Composer({
     window.localStorage.removeItem(composerDraftKey);
     setAttachments([]);
     await onSend(payload);
+  }
+
+  function chooseModel(modelId) {
+    onChooseModel(modelId);
+    setModelMenuOpen(false);
+    setModelPickerOpen(false);
   }
 
   async function attachFromComputer() {
@@ -262,47 +276,6 @@ export function Composer({
           </div>
         )}
         <div className="composer-main">
-          <div className="plus-holder" ref={plusHolderRef}>
-            <button className="round-button" type="button" onClick={() => setPlusOpen((value) => !value)}>
-              <Plus size={18} />
-            </button>
-            {plusOpen && (
-              <div className="plus-menu">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setModelPickerOpen(true);
-                    setPlusOpen(false);
-                  }}
-                >
-                  <Bot size={14} />
-                  <span className="plus-menu-model">
-                    <span>Model</span>
-                    <small>{modelName || 'Choose model'}</small>
-                  </span>
-                </button>
-                <button type="button" disabled>
-                  <Wrench size={14} />
-                  Tools
-                </button>
-                <button
-                  type="button"
-                  disabled={!activeWorkspaceId}
-                  onClick={() => {
-                    setPlusOpen(false);
-                    onAttachFromWorkspace();
-                  }}
-                >
-                  <FolderOpen size={14} />
-                  Attach from workspace
-                </button>
-                <button type="button" onClick={attachFromComputer}>
-                  <HardDrive size={14} />
-                  Attach from computer
-                </button>
-              </div>
-            )}
-          </div>
           <textarea
             ref={textAreaRef}
             value={text}
@@ -312,6 +285,68 @@ export function Composer({
             rows={1}
             placeholder={`Message ${modelName || 'model'}`}
           />
+          <div className="plus-holder" ref={plusHolderRef}>
+            <button className="round-button" type="button" onClick={() => setPlusOpen((value) => !value)}>
+              <Plus size={18} />
+            </button>
+            {plusOpen && (
+              <DropdownMenu className="attachment-dropdown-menu">
+                <DropdownMenuItem icon={<Wrench size={14} />} disabled>
+                  Tools
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  icon={<FolderOpen size={14} />}
+                  disabled={!activeWorkspaceId}
+                  onClick={() => {
+                    setPlusOpen(false);
+                    onAttachFromWorkspace();
+                  }}
+                >
+                  Attach from workspace
+                </DropdownMenuItem>
+                <DropdownMenuItem icon={<HardDrive size={14} />} onClick={attachFromComputer}>
+                  Attach from computer
+                </DropdownMenuItem>
+              </DropdownMenu>
+            )}
+          </div>
+          <div className="model-input-holder" ref={modelMenuRef}>
+            <button
+              className="model-input-trigger"
+              type="button"
+              onClick={() => setModelMenuOpen((value) => !value)}
+            >
+              <span>{modelName || 'Choose model'}</span>
+              <ChevronDown size={14} />
+            </button>
+            {modelMenuOpen && (
+              <DropdownMenu className="model-input-menu">
+                <div className="model-input-menu-list">
+                  {recentModels.length > 0 ? recentModels.map((model) => (
+                    <DropdownMenuItem
+                      key={model.id}
+                      active={model.id === currentModel}
+                      onClick={() => chooseModel(model.id)}
+                    >
+                      {model.name || model.id}
+                    </DropdownMenuItem>
+                  )) : (
+                    <span className="dropdown-menu-empty">No recent models</span>
+                  )}
+                </div>
+                <div className="dropdown-menu-divider" />
+                <DropdownMenuItem
+                  icon={<Search size={14} />}
+                  onClick={() => {
+                    setModelMenuOpen(false);
+                    setModelPickerOpen(true);
+                  }}
+                >
+                  Explore models
+                </DropdownMenuItem>
+              </DropdownMenu>
+            )}
+          </div>
           {!canSend && isRunning ? (
             <button className="round-button send-button" type="button" onClick={onStop} aria-label="Stop">
               <Square size={15} />

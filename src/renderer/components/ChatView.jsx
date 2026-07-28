@@ -8,6 +8,7 @@ export function ChatView({
   currentConversation,
   currentMessages,
   currentModel,
+  recentModels,
   models,
   favorites,
   activeWorkspaceId,
@@ -176,6 +177,7 @@ export function ChatView({
         onStop={onStop}
         droppedFiles={droppedFiles}
         modelName={modelName}
+        recentModels={recentModels}
         models={models}
         favorites={favorites}
         currentModel={currentModel}

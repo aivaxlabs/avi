@@ -13,7 +13,7 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import { classNames, formatPrice } from '../lib/format.js';
 
-const tabs = ['Favorites', 'Models', 'AI Gateways'];
+const tabs = ['Favorites', 'Models', 'AI Gateways', 'Subscription'];
 const intelligenceOrder = ['Lowest', 'Low', 'Medium', 'High', 'Highest'];
 const speedOrder = ['Slowest', 'Slow', 'Medium', 'Fast', 'Ultrafast'];
 const priceRanges = [
@@ -55,8 +55,9 @@ export function ModelPicker({
     if (tab === 'Favorites' && !favorites.includes(model.id)) return false;
     if (tab === 'Models' && !model.routed) return false;
     if (tab === 'AI Gateways' && model.routed) return false;
+    if (tab === 'Subscription' && !hasSubscriptionMultiplier(modelDetails(model, modelsById).pricing)) return false;
     return true;
-  }), [favorites, models, tab]);
+  }), [favorites, models, modelsById, tab]);
 
   const filterOptions = useMemo(() => {
     const options = {
@@ -404,15 +405,24 @@ function providerFromId(value) {
 function modelDetails(model, modelsById) {
   const baseModel = baseModelFor(model, modelsById);
   const providerModel = baseModel._details?.provider_model ?? {};
-  const firstPricing = Array.isArray(providerModel.pricing) ? providerModel.pricing[0] ?? {} : {};
+  const firstPricing = basePricingTier(baseModel.pricing) ?? basePricingTier(providerModel.pricing) ?? {};
+  const pricing = Array.isArray(baseModel.pricing) ? {} : baseModel.pricing;
   const technicalInfo = providerModel.technical_info ?? {};
 
   return {
     description: firstText(baseModel.description, providerModel.description),
     pricing: {
-      input: baseModel.pricing?.input ?? firstPricing.input_mtokens ?? null,
-      output: baseModel.pricing?.output ?? firstPricing.output_mtokens ?? null,
-      cached: baseModel.pricing?.cached ?? firstPricing.input_cache_mtokens ?? null,
+      input: pricing?.input ?? firstPricing.input_mtokens ?? firstPricing.inputPerMillionTokens ?? null,
+      output: pricing?.output ?? firstPricing.output_mtokens ?? firstPricing.outputPerMillionTokens ?? null,
+      cached: pricing?.cached ?? firstPricing.input_cache_mtokens ?? firstPricing.cachedInputPerMillionTokens ?? null,
+      subscriptionMultiplier:
+        pricing?.subscriptionMultiplier ??
+        pricing?.subscription_multiplier ??
+        providerModel.subscriptionMultiplier ??
+        providerModel.subscription_multiplier ??
+        firstPricing.subscriptionMultiplier ??
+        firstPricing.subscription_multiplier ??
+        null,
     },
     speed: baseModel.speed ?? technicalInfo.speed ?? null,
     intelligence: baseModel.intelligence ?? technicalInfo.intelligence ?? null,
@@ -470,7 +480,11 @@ function priceRangeId(outputPrice) {
 }
 
 function formatPricePair(pricing) {
-  return `${formatPrice(pricing.input)} / ${formatPrice(pricing.output)}`;
+  return [
+    formatPrice(pricing.input),
+    formatPrice(pricing.output),
+    formatSubscriptionMultiplier(pricing.subscriptionMultiplier),
+  ].filter(Boolean).join(' - ');
 }
 
 function formatContextPair(model, details, modelsById) {
@@ -512,6 +526,22 @@ function sourceModelName(model) {
 
 function firstText(...values) {
   return values.find((value) => typeof value === 'string' && value.trim()) ?? '';
+}
+
+function basePricingTier(pricing) {
+  if (!Array.isArray(pricing)) return null;
+  return pricing.find((tier) => Number(tier?.tokenThreshold ?? tier?.token_threshold) === 0) ?? pricing[0] ?? {};
+}
+
+function hasSubscriptionMultiplier(pricing) {
+  return pricing.subscriptionMultiplier !== null && pricing.subscriptionMultiplier !== undefined && pricing.subscriptionMultiplier !== '';
+}
+
+function formatSubscriptionMultiplier(value) {
+  if (value === null || value === undefined || value === '') return '';
+  const number = Number(value);
+  if (!Number.isFinite(number)) return `${value}x`;
+  return `${number.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}x`;
 }
 
 function formatCount(value) {

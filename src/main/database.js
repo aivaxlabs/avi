@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 
 const storageDir = join(homedir(), '.aivax');
 mkdirSync(storageDir, { recursive: true });
@@ -431,7 +432,7 @@ function messageToApiBlock(message) {
   return {
     role: message.role,
     content: message.role === 'assistant'
-      ? message.content
+      ? answerTextFromTextualBlocks(message.content)
       : message.attachments.length === 0
         ? message.content
         : [

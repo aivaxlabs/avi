@@ -2,6 +2,7 @@ import {
   ensureConversation,
   deleteMessage,
   getConversation,
+  getMessages,
   getMessage,
   insertMessage,
   setLastModel,
@@ -108,6 +109,18 @@ export class ChatRunner {
       return { conversation: getConversation(conversation.id), message: null, queued: false };
     }
 
+    const conversationMessages = getMessages(conversation.id);
+    const assistantIndex = conversationMessages.findIndex((message) => message.id === assistantMessageId);
+    const searchEnd = assistantIndex >= 0 ? assistantIndex : conversationMessages.length;
+    const lastUserIndex = conversationMessages
+      .slice(0, searchEnd)
+      .findLastIndex((message) => message.role === 'user' && ['sent', 'completed'].includes(message.status));
+    const staleMessages = lastUserIndex >= 0 ? conversationMessages.slice(lastUserIndex + 1) : [];
+    for (const message of staleMessages) {
+      deleteMessage(message.id);
+      this.emit(conversation.id, { type: 'message-delete', messageId: message.id });
+    }
+
     this.start({
       conversationId: conversation.id,
       model,
@@ -166,16 +179,39 @@ export class ChatRunner {
     this.emit(conversationId, { type: 'message', message: assistantMessage });
     this.emit(conversationId, { type: 'run-state', running: true });
 
+    const requestStartedAt = Date.now();
+    this.logChatTiming(conversationId, {
+      phase: 'request-start',
+      assistantMessageId: assistantMessage.id,
+      model,
+    });
+
     try {
       const messages = retryMessages ?? toOpenAiMessages(conversationId, { excludeMessageId: assistantMessage.id });
+      const body = JSON.stringify(chatRequestBody({ model, messages, user: this.getWorkspaceId() }));
+      this.logChatTiming(conversationId, {
+        phase: 'request-body-ready',
+        assistantMessageId: assistantMessage.id,
+        model,
+        messages: messages.length,
+        bodyBytes: Buffer.byteLength(body),
+        elapsedMs: Date.now() - requestStartedAt,
+      });
       const response = await fetch(`${baseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           ...authHeaders(token),
           'Sse-Stream-Options': 'no-ping',
         },
-        body: JSON.stringify(chatRequestBody({ model, messages, user: this.getWorkspaceId() })),
+        body,
         signal: controller.signal,
+      });
+      this.logChatTiming(conversationId, {
+        phase: 'response-headers',
+        assistantMessageId: assistantMessage.id,
+        model,
+        status: response.status,
+        elapsedMs: Date.now() - requestStartedAt,
       });
 
       if (!response.ok) {
@@ -183,13 +219,20 @@ export class ChatRunner {
         throw new Error(errorText || response.statusText);
       }
 
-      await this.consumeStream(response.body, run, conversationId);
+      await this.consumeStream(response.body, run, conversationId, requestStartedAt);
       const finalMessage = updateMessage(assistantMessage.id, {
         status: 'completed',
         content: run.content,
       });
       this.emit(conversationId, { type: 'message', message: finalMessage });
-      await this.finishUtilities({ conversationId, token, assistantMessageId: assistantMessage.id });
+      this.logChatTiming(conversationId, {
+        phase: 'message-completed',
+        assistantMessageId: assistantMessage.id,
+        model,
+        contentChars: run.content.length,
+        elapsedMs: Date.now() - requestStartedAt,
+      });
+      await this.finishUtilities({ conversationId, token, assistantMessageId: assistantMessage.id, requestStartedAt });
     } catch (error) {
       const aborted = controller.signal.aborted;
       const finalMessage = updateMessage(assistantMessage.id, {
@@ -198,6 +241,13 @@ export class ChatRunner {
       });
       this.emit(conversationId, { type: 'message', message: finalMessage });
       if (!aborted) {
+        this.logChatTiming(conversationId, {
+          phase: 'request-error',
+          assistantMessageId: assistantMessage.id,
+          model,
+          elapsedMs: Date.now() - requestStartedAt,
+          error: error instanceof Error ? error.message : String(error),
+        });
         this.emit(conversationId, {
           type: 'error',
           message: error instanceof Error ? error.message : String(error),
@@ -225,19 +275,31 @@ export class ChatRunner {
     }
   }
 
-  async consumeStream(body, run, conversationId) {
+  async consumeStream(body, run, conversationId, requestStartedAt) {
     const decoder = new TextDecoder();
     const reader = body.getReader();
     let buffer = '';
     let lastPersisted = 0;
     let chunkIndex = 0;
     let payloadIndex = 0;
+    let sawFirstChunk = false;
+    let sawFirstPayload = false;
 
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
       const chunk = decoder.decode(value, { stream: true });
       chunkIndex += 1;
+      if (!sawFirstChunk) {
+        sawFirstChunk = true;
+        this.logChatTiming(conversationId, {
+          phase: 'first-stream-chunk',
+          assistantMessageId: run.assistantMessageId,
+          model: run.model,
+          elapsedMs: Date.now() - requestStartedAt,
+          chunkBytes: value.byteLength,
+        });
+      }
       this.logStreamChunk(conversationId, {
         kind: 'chunk',
         chunkIndex,
@@ -252,6 +314,15 @@ export class ChatRunner {
         if (!line.startsWith('data:')) continue;
         const payload = line.slice(5).trim();
         payloadIndex += 1;
+        if (!sawFirstPayload) {
+          sawFirstPayload = true;
+          this.logChatTiming(conversationId, {
+            phase: 'first-sse-payload',
+            assistantMessageId: run.assistantMessageId,
+            model: run.model,
+            elapsedMs: Date.now() - requestStartedAt,
+          });
+        }
         this.logStreamChunk(conversationId, {
           kind: 'payload',
           chunkIndex,
@@ -259,6 +330,15 @@ export class ChatRunner {
           payload,
         });
         if (payload === '[DONE]') {
+          this.logChatTiming(conversationId, {
+            phase: 'stream-done',
+            assistantMessageId: run.assistantMessageId,
+            model: run.model,
+            elapsedMs: Date.now() - requestStartedAt,
+            chunks: chunkIndex,
+            payloads: payloadIndex,
+            contentChars: run.content.length,
+          });
           this.logStreamChunk(conversationId, {
             kind: 'done',
             chunkIndex,
@@ -297,6 +377,13 @@ export class ChatRunner {
     }
   }
 
+  logChatTiming(conversationId, details) {
+    console.log('[AIVAX chat timing]', {
+      conversationId,
+      ...details,
+    });
+  }
+
   logStreamChunk(conversationId, details) {
     if (!this.debugStream) return;
     const payload = {
@@ -309,29 +396,56 @@ export class ChatRunner {
     this.emit(conversationId, payload);
   }
 
-  async finishUtilities({ conversationId, token, assistantMessageId }) {
+  async finishUtilities({ conversationId, token, assistantMessageId, requestStartedAt }) {
     const conversation = getConversation(conversationId);
     const messages = toOpenAiMessages(conversationId);
     const assistant = getMessage(assistantMessageId);
 
     if (conversation?.titleStatus === 'pending' && messages.length >= 2) {
       try {
+        const startedAt = Date.now();
         const title = await generateTitle(token, messages);
+        this.logChatTiming(conversationId, {
+          phase: 'title-generated',
+          assistantMessageId,
+          elapsedMs: Date.now() - requestStartedAt,
+          utilityMs: Date.now() - startedAt,
+        });
         if (title) {
           updateConversation(conversationId, { title, titleStatus: 'generated' });
           this.emit(conversationId, { type: 'conversation', conversation: getConversation(conversationId) });
         }
-      } catch {
+      } catch (error) {
+        this.logChatTiming(conversationId, {
+          phase: 'title-error',
+          assistantMessageId,
+          elapsedMs: Date.now() - requestStartedAt,
+          error: error instanceof Error ? error.message : String(error),
+        });
         updateConversation(conversationId, { titleStatus: 'failed' });
       }
     }
 
     if (assistant?.content?.trim()) {
       try {
+        const startedAt = Date.now();
         const continuations = await generateContinuations(token, messages);
+        this.logChatTiming(conversationId, {
+          phase: 'continuations-generated',
+          assistantMessageId,
+          elapsedMs: Date.now() - requestStartedAt,
+          utilityMs: Date.now() - startedAt,
+          continuations: continuations.length,
+        });
         const message = updateMessage(assistantMessageId, { continuations });
         this.emit(conversationId, { type: 'message', message });
-      } catch {
+      } catch (error) {
+        this.logChatTiming(conversationId, {
+          phase: 'continuations-error',
+          assistantMessageId,
+          elapsedMs: Date.now() - requestStartedAt,
+          error: error instanceof Error ? error.message : String(error),
+        });
         return;
       }
     }

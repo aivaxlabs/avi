@@ -15,6 +15,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatBytes } from '../lib/files.js';
 import { classNames } from '../lib/format.js';
+import { answerTextFromTextualBlocks } from '../../shared/textual-blocks.js';
 
 export function Message({ message, onFork, onRetry, onCancelQueued, onSendContinuation, showContinuations }) {
   if (message.role === 'user') {
@@ -87,7 +88,7 @@ function AssistantMessage({ message, onFork, onRetry, onSendContinuation, showCo
   const timeline = useMemo(() => buildTimelineFromContent(content), [content]);
   const timelinePartition = useMemo(() => partitionTimeline(timeline), [timeline]);
   const durationLabel = formatWorkedDuration(message.createdAt, message.status === 'streaming' ? null : message.updatedAt);
-  const answerText = useMemo(() => answerTextForCopy(content), [content]);
+  const answerText = useMemo(() => answerTextFromTextualBlocks(content), [content]);
 
   return (
     <article className="message-row assistant-row">
@@ -114,15 +115,6 @@ function AssistantMessage({ message, onFork, onRetry, onSendContinuation, showCo
             ))}
           </div>
         ) : null}
-        {showContinuations && message.continuations.length > 0 && (
-          <div className="continuations">
-            {message.continuations.map((topic) => (
-              <button key={topic} type="button" onClick={() => onSendContinuation(topic)}>
-                {topic}
-              </button>
-            ))}
-          </div>
-        )}
         {message.status !== 'streaming' && (
           <div className="message-actions assistant-actions">
             <button type="button" onClick={() => copyText(answerText)}>
@@ -139,6 +131,15 @@ function AssistantMessage({ message, onFork, onRetry, onSendContinuation, showCo
               <GitFork size={13} />
               Fork
             </button>
+          </div>
+        )}
+        {showContinuations && message.continuations.length > 0 && (
+          <div className="continuations">
+            {message.continuations.map((topic) => (
+              <button key={topic} type="button" onClick={() => onSendContinuation(topic)}>
+                {topic}
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -372,6 +373,14 @@ function buildTimelineFromContent(content) {
 
     pushContent(timeline, content.slice(cursor, marker.start));
 
+    if (marker.type === 'answer') {
+      const valueStart = marker.start + marker.openTag.length;
+      const valueEnd = findTag(content, marker.closeTag, valueStart);
+      pushContent(timeline, valueEnd >= 0 ? content.slice(valueStart, valueEnd) : content.slice(valueStart));
+      cursor = valueEnd >= 0 ? valueEnd + marker.closeTag.length : content.length;
+      continue;
+    }
+
     const parsed = parseThinkingMarker(content, marker, timeline.length);
 
     if (parsed.items.length > 0) {
@@ -428,7 +437,8 @@ function parseThinkingGroup(body, timelineIndex) {
   while (cursor < body.length) {
     const thinkStart = findTag(body, '<think>', cursor);
     const toolStart = findTag(body, '<tool>', cursor);
-    const nextStart = nearestPositive(thinkStart, toolStart);
+    const toolResultStart = findTag(body, '<div class="tool-result', cursor);
+    const nextStart = nearestPositive(thinkStart, nearestPositive(toolStart, toolResultStart));
 
     if (nextStart < 0) {
       pushReasoning(items, body.slice(cursor), timelineIndex);
@@ -446,12 +456,21 @@ function parseThinkingGroup(body, timelineIndex) {
       continue;
     }
 
-    const valueStart = toolStart + '<tool>'.length;
-    const valueEnd = findTag(body, '</tool>', valueStart);
-    const toolBody = valueEnd >= 0 ? body.slice(valueStart, valueEnd) : body.slice(valueStart);
-    const tool = parseTool(toolBody, items.length, timelineIndex);
+    if (nextStart === toolStart) {
+      const valueStart = toolStart + '<tool>'.length;
+      const valueEnd = findTag(body, '</tool>', valueStart);
+      const toolBody = valueEnd >= 0 ? body.slice(valueStart, valueEnd) : body.slice(valueStart);
+      const tool = parseTool(toolBody, items.length, timelineIndex);
+      if (tool) items.push(tool);
+      cursor = valueEnd >= 0 ? valueEnd + '</tool>'.length : body.length;
+      continue;
+    }
+
+    const valueEnd = findTag(body, '</div>', toolResultStart);
+    const toolBody = valueEnd >= 0 ? body.slice(toolResultStart, valueEnd + '</div>'.length) : body.slice(toolResultStart);
+    const tool = parseToolResult(toolBody, items.length, timelineIndex);
     if (tool) items.push(tool);
-    cursor = valueEnd >= 0 ? valueEnd + '</tool>'.length : body.length;
+    cursor = valueEnd >= 0 ? valueEnd + '</div>'.length : body.length;
   }
 
   return items;
@@ -460,6 +479,17 @@ function parseThinkingGroup(body, timelineIndex) {
 function parseTool(body, index, timelineIndex) {
   const name = tagValue(body, 'toolname') || 'tool';
   const reason = tagValue(body, 'toolreason') || stripTags(body).trim();
+  return {
+    id: `tool-${timelineIndex}-${index}`,
+    type: 'tool',
+    name,
+    reason,
+  };
+}
+
+function parseToolResult(body, index, timelineIndex) {
+  const name = attributeValue(body, 'data-tool-name') || tagValue(body, 'b') || 'tool';
+  const reason = tagValue(body, 'span') || stripTags(body).replace(name, '').trim();
   return {
     id: `tool-${timelineIndex}-${index}`,
     type: 'tool',
@@ -487,43 +517,6 @@ function pushReasoning(items, text, timelineIndex) {
   });
 }
 
-function answerTextFromContent(content) {
-  let output = '';
-  let cursor = 0;
-
-  while (cursor < content.length) {
-    const marker = findNextThinkingMarker(content, cursor);
-    if (!marker) {
-      output += content.slice(cursor);
-      break;
-    }
-
-    output += content.slice(cursor, marker.start);
-    cursor = skipThinkingMarker(content, marker);
-  }
-
-  return output.trim();
-}
-
-function answerTextForCopy(content) {
-  let cursor = 0;
-  let lastMarker = null;
-
-  while (cursor < content.length) {
-    const marker = findNextThinkingMarker(content, cursor);
-    if (!marker) break;
-
-    lastMarker = marker;
-    cursor = skipThinkingMarker(content, marker);
-  }
-
-  if (!lastMarker) {
-    return answerTextFromContent(content);
-  }
-
-  return answerTextFromContent(content.slice(skipThinkingMarker(content, lastMarker)));
-}
-
 function skipThinkingMarker(content, marker) {
   if (marker.type === 'think') {
     const valueEnd = findTag(content, '</think>', marker.start + '<think>'.length);
@@ -533,6 +526,11 @@ function skipThinkingMarker(content, marker) {
   if (marker.type === 'tool') {
     const valueEnd = findTag(content, '</tool>', marker.start + '<tool>'.length);
     return valueEnd >= 0 ? valueEnd + '</tool>'.length : content.length;
+  }
+
+  if (marker.type === 'answer') {
+    const valueEnd = findTag(content, marker.closeTag, marker.start + marker.openTag.length);
+    return valueEnd >= 0 ? valueEnd + marker.closeTag.length : content.length;
   }
 
   const valueEnd = findTag(content, marker.closeTag, marker.start + marker.openTag.length);
@@ -546,6 +544,7 @@ function findNextThinkingMarker(text, start) {
     { type: 'group', openTag: '<thinking-block>', closeTag: '</thinking-block>' },
     { type: 'think', openTag: '<think>', closeTag: '</think>' },
     { type: 'tool', openTag: '<tool>', closeTag: '</tool>' },
+    { type: 'answer', openTag: '<assistant-answer>', closeTag: '</assistant-answer>' },
   ];
 
   return candidates
@@ -565,6 +564,11 @@ function tagValue(text, tagName) {
   const valueStart = start + startTag.length;
   const end = findTag(text, endTag, valueStart);
   return stripTags(end >= 0 ? text.slice(valueStart, end) : text.slice(valueStart)).trim();
+}
+
+function attributeValue(text, name) {
+  const match = new RegExp(`${name}=["']([^"']*)["']`, 'i').exec(text);
+  return match ? decodeXmlEntities(match[1]).trim() : '';
 }
 
 function stripTags(text) {

@@ -274,7 +274,19 @@ export default function App() {
     currentMessages,
     currentModel,
     isRunning: Boolean(selectedId && running[selectedId]),
-  }), [conversations, currentConversation, currentMessages, currentModel, running, selectedId]);
+    recentModels: (() => {
+      const modelsById = new Map(models.map((model) => [model.id, model]));
+      const ids = [];
+      for (const modelId of [currentModel, ...conversations.map((conversation) => conversation.model)]) {
+        if (!modelId || ids.includes(modelId) || !modelsById.has(modelId)) continue;
+        ids.push(modelId);
+        if (ids.length === 8) break;
+      }
+      return ids
+        .map((modelId) => modelsById.get(modelId))
+        .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+    })(),
+  }), [conversations, currentConversation, currentMessages, currentModel, models, running, selectedId]);
 
   if (!session) {
     return <div className="app-shell" />;
@@ -294,6 +306,7 @@ export default function App() {
       <WindowControls />
       <Sidebar
         conversations={conversations}
+        models={models}
         selectedId={selectedId}
         account={account}
         running={running}

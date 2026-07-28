@@ -41,6 +41,7 @@
       "dist/**",
       "assets/**",
       "src/main/**",
+      "src/shared/**",
       "package.json"
     ],
     "directories": {

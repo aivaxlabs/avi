@@ -19,6 +19,7 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import { formatBytes } from '../lib/files.js';
 import { classNames } from '../lib/format.js';
+import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 
 export function WorkspaceView({ workspaceId, uploadQueue, onUploadQueueChange, onAttachToChat }) {
   const [path, setPath] = useState('/');
@@ -49,7 +50,7 @@ export function WorkspaceView({ workspaceId, uploadQueue, onUploadQueueChange, o
   useEffect(() => {
     if (!contextMenu) return undefined;
     const close = (event) => {
-      if (event.target.closest?.('.item-menu')) return;
+      if (event.target.closest?.('.dropdown-menu')) return;
       setContextMenu(null);
     };
     window.addEventListener('pointerdown', close);
@@ -269,32 +270,26 @@ export function WorkspaceView({ workspaceId, uploadQueue, onUploadQueueChange, o
         />
       </div>
       {contextMenu && (
-        <div className="item-menu workspace-context-menu" style={{ top: contextMenu.top, left: contextMenu.left }}>
-          <button type="button" onClick={() => showPreview(contextMenu.entry)}>
-            <File size={14} />
+        <DropdownMenu className="workspace-context-menu" fixed style={{ top: contextMenu.top, left: contextMenu.left }}>
+          <DropdownMenuItem icon={<File size={14} />} onClick={() => showPreview(contextMenu.entry)}>
             Preview
-          </button>
-          <button type="button" onClick={() => showDetails(contextMenu.entry)}>
-            <Info size={14} />
+          </DropdownMenuItem>
+          <DropdownMenuItem icon={<Info size={14} />} onClick={() => showDetails(contextMenu.entry)}>
             Details
-          </button>
-          <button type="button" onClick={() => attach(contextMenu.entry)}>
-            <Paperclip size={14} />
+          </DropdownMenuItem>
+          <DropdownMenuItem icon={<Paperclip size={14} />} onClick={() => attach(contextMenu.entry)}>
             Attach in chat
-          </button>
-          <button type="button" disabled={contextMenu.entry.isDirectory} onClick={() => share(contextMenu.entry)}>
-            <Link size={14} />
+          </DropdownMenuItem>
+          <DropdownMenuItem icon={<Link size={14} />} disabled={contextMenu.entry.isDirectory} onClick={() => share(contextMenu.entry)}>
             Share link
-          </button>
-          <button type="button" disabled={contextMenu.entry.isDirectory} onClick={() => download(contextMenu.entry)}>
-            <Download size={14} />
+          </DropdownMenuItem>
+          <DropdownMenuItem icon={<Download size={14} />} disabled={contextMenu.entry.isDirectory} onClick={() => download(contextMenu.entry)}>
             Download
-          </button>
-          <button type="button" onClick={() => remove(contextMenu.entry)}>
-            <Trash2 size={14} />
+          </DropdownMenuItem>
+          <DropdownMenuItem icon={<Trash2 size={14} />} onClick={() => remove(contextMenu.entry)}>
             Delete
-          </button>
-        </div>
+          </DropdownMenuItem>
+        </DropdownMenu>
       )}
       {details && <DetailsDialog details={details} onClose={() => setDetails(null)} />}
       {previewLoading && <PreviewDialog preview={previewLoading} loading onClose={() => setPreviewLoading(null)} />}

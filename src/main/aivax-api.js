@@ -114,9 +114,10 @@ function normalizeModel(model) {
   const details = model._details ?? {};
   const providerModel = details.provider_model ?? {};
   const aiGateway = details.ai_gateway ?? {};
-  const firstPricing = Array.isArray(providerModel.pricing) ? providerModel.pricing[0] ?? {} : {};
+  const pricingSource = model.pricing ?? model.price ?? model.cost ?? {};
+  const firstPricing = basePricingTier(model.pricing) ?? basePricingTier(providerModel.pricing) ?? {};
   const technicalInfo = providerModel.technical_info ?? {};
-  const pricing = model.pricing ?? model.price ?? model.cost ?? {};
+  const pricing = Array.isArray(pricingSource) ? {} : pricingSource;
   const metadata = model.metadata ?? model.meta ?? {};
   const routed = details.type === 'provider_model' || String(model.id ?? '').startsWith('@');
   const routedProvider = routed ? providerFromModelName(model.id) : providerFromModelName(aiGateway.model_name);
@@ -126,9 +127,17 @@ function normalizeModel(model) {
     name: firstText(model.name, metadata.name, model.id),
     description: firstText(model.description, providerModel.description, metadata.description),
     pricing: {
-      input: pricing.input ?? pricing.in ?? pricing.prompt ?? firstPricing.input_mtokens ?? metadata.input_price ?? null,
-      output: pricing.output ?? pricing.out ?? pricing.completion ?? firstPricing.output_mtokens ?? metadata.output_price ?? null,
-      cached: pricing.cached ?? pricing.cached_input ?? firstPricing.input_cache_mtokens ?? metadata.cached_price ?? null,
+      input: pricing.input ?? pricing.in ?? pricing.prompt ?? firstPricing.input_mtokens ?? firstPricing.inputPerMillionTokens ?? metadata.input_price ?? null,
+      output: pricing.output ?? pricing.out ?? pricing.completion ?? firstPricing.output_mtokens ?? firstPricing.outputPerMillionTokens ?? metadata.output_price ?? null,
+      cached: pricing.cached ?? pricing.cached_input ?? firstPricing.input_cache_mtokens ?? firstPricing.cachedInputPerMillionTokens ?? metadata.cached_price ?? null,
+      subscriptionMultiplier:
+        pricing.subscriptionMultiplier ??
+        pricing.subscription_multiplier ??
+        providerModel.subscriptionMultiplier ??
+        providerModel.subscription_multiplier ??
+        firstPricing.subscriptionMultiplier ??
+        firstPricing.subscription_multiplier ??
+        null,
     },
     speed: model.speed ?? technicalInfo.speed ?? metadata.speed ?? null,
     intelligence: model.intelligence ?? technicalInfo.intelligence ?? metadata.intelligence ?? null,
@@ -152,6 +161,11 @@ function firstText(...values) {
 function providerFromModelName(value) {
   const match = String(value ?? '').match(/^@([^/]+)\//);
   return match?.[1] ?? 'AI Gateway';
+}
+
+function basePricingTier(pricing) {
+  if (!Array.isArray(pricing)) return null;
+  return pricing.find((tier) => Number(tier?.tokenThreshold ?? tier?.token_threshold) === 0) ?? pricing[0] ?? {};
 }
 
 function parseJson(text) {
