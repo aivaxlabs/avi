@@ -1,4 +1,13 @@
-import { ChevronDown, ChevronRight, Copy, GitFork, RotateCcw, TerminalSquare, X } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  GitFork,
+  Info,
+  RotateCcw,
+  TerminalSquare,
+  X,
+} from 'lucide-react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-bash';
 import 'prismjs/components/prism-csharp';
@@ -10,20 +19,35 @@ import 'prismjs/components/prism-markup';
 import 'prismjs/components/prism-powershell';
 import 'prismjs/components/prism-tsx';
 import 'prismjs/components/prism-typescript';
-import { isValidElement, useMemo, useState } from 'react';
+import {
+  isValidElement,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatBytes } from '../lib/files.js';
 import { classNames } from '../lib/format.js';
 import { answerTextFromTextualBlocks } from '../../shared/textual-blocks.js';
 
-export function Message({ message, onFork, onRetry, onCancelQueued, onSendContinuation, showContinuations }) {
+export function Message({
+  message,
+  modelName,
+  onFork,
+  onRetry,
+  onCancelQueued,
+  onSendContinuation,
+  showContinuations,
+}) {
   if (message.role === 'user') {
     return <UserMessage message={message} onCancelQueued={onCancelQueued} />;
   }
   return (
     <AssistantMessage
       message={message}
+      modelName={modelName}
       onFork={onFork}
       onRetry={onRetry}
       onSendContinuation={onSendContinuation}
@@ -34,7 +58,7 @@ export function Message({ message, onFork, onRetry, onCancelQueued, onSendContin
 
 function UserMessage({ message, onCancelQueued }) {
   const queueLabel = queueStatusLabel(message.status);
-  const visibleAttachments = message.attachments.filter(isVisibleAttachment);
+  const visibleAttachments = message.attachments;
 
   return (
     <article className="message-row user-row">
@@ -53,7 +77,7 @@ function UserMessage({ message, onCancelQueued }) {
             {visibleAttachments.map((attachment) => (
               <span key={attachment.id} className="attachment-pill">
                 <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
-                <small>{attachmentLabel(attachment)}</small>
+                <small>{formatBytes(attachment.size)}</small>
               </span>
             ))}
           </div>
@@ -66,36 +90,71 @@ function UserMessage({ message, onCancelQueued }) {
   );
 }
 
-function isVisibleAttachment() {
-  return true;
-}
-
-function attachmentLabel(attachment) {
-  if (attachment.kind === 'workspace_ref') {
-    return attachment.isDirectory ? 'Workspace folder' : 'Workspace file';
-  }
-  return formatBytes(attachment.size);
-}
-
 function queueStatusLabel(status) {
   if (status === 'queued') return 'Queued';
   if (status === 'steered') return 'Steered';
   return '';
 }
 
-function AssistantMessage({ message, onFork, onRetry, onSendContinuation, showContinuations }) {
+function AssistantMessage({
+  message,
+  modelName,
+  onFork,
+  onRetry,
+  onSendContinuation,
+  showContinuations,
+}) {
+  const [usageOpen, setUsageOpen] = useState(false);
+  const usageRef = useRef(null);
   const content = message.content || '';
-  const timeline = useMemo(() => buildTimelineFromContent(content), [content]);
+  const timeline = useMemo(() => {
+    const parsedTimeline = buildTimelineFromContent(content);
+    const toolSegments = (message.segments ?? [])
+      .filter((segment) => segment.type === 'tool-call');
+
+    for (const timelineItem of parsedTimeline) {
+      if (timelineItem.type !== 'thinking') continue;
+      for (const item of timelineItem.items) {
+        if (!['tool', 'tool-call', 'server-tool'].includes(item.type)) continue;
+        const matchingIndex = toolSegments.findIndex((segment) => segment.name === item.name);
+        if (matchingIndex < 0) continue;
+        Object.assign(item, toolSegments.splice(matchingIndex, 1)[0]);
+      }
+    }
+
+    return parsedTimeline;
+  }, [content, message.segments]);
   const timelinePartition = useMemo(() => partitionTimeline(timeline), [timeline]);
   const durationLabel = formatWorkedDuration(message.createdAt, message.status === 'streaming' ? null : message.updatedAt);
   const answerText = useMemo(() => answerTextFromTextualBlocks(content), [content]);
+  const registeredTime = new Date(message.createdAt).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const hasUsageDetails = [
+    message.usage?.inputTokens,
+    message.usage?.outputTokens,
+    message.usage?.cachedInputTokens,
+    message.usage?.tokensPerSecond,
+    message.usage?.latencyMs,
+    message.usage?.durationMs,
+  ].some((value) => Number.isFinite(value));
+
+  useEffect(() => {
+    if (!usageOpen) return undefined;
+
+    const closeUsage = (event) => {
+      if (!usageRef.current?.contains(event.target)) {
+        setUsageOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', closeUsage);
+    return () => document.removeEventListener('pointerdown', closeUsage);
+  }, [usageOpen]);
 
   return (
     <article className="message-row assistant-row">
       <div className="assistant-message">
-        {message.status === 'streaming' && (
-          <div className="assistant-placeholder">Thinking</div>
-        )}
         {timeline.length > 0 ? (
           <div className="assistant-timeline">
             {timelinePartition.workedItems.length > 0 && (
@@ -115,22 +174,104 @@ function AssistantMessage({ message, onFork, onRetry, onSendContinuation, showCo
             ))}
           </div>
         ) : null}
+        {message.status === 'streaming' && (
+          <div className="assistant-placeholder">Thinking</div>
+        )}
         {message.status !== 'streaming' && (
-          <div className="message-actions assistant-actions">
-            <button type="button" onClick={() => copyText(answerText)}>
-              <Copy size={13} />
-              Copy
-            </button>
-            {showContinuations && (
-              <button type="button" onClick={onRetry}>
-                <RotateCcw size={13} />
-                Retry
+          <div className="message-footer">
+            <div className="message-actions assistant-actions">
+              <button
+                className="message-action-icon"
+                type="button"
+                aria-label="Copy response"
+                title="Copy"
+                onClick={() => copyText(answerText)}
+              >
+                <Copy size={15} />
               </button>
-            )}
-            <button type="button" onClick={onFork}>
-              <GitFork size={13} />
-              Fork
-            </button>
+              {showContinuations && (
+                <button
+                  className="message-action-icon"
+                  type="button"
+                  aria-label="Retry response"
+                  title="Retry"
+                  onClick={onRetry}
+                >
+                  <RotateCcw size={15} />
+                </button>
+              )}
+              <button
+                className="message-action-icon"
+                type="button"
+                aria-label="Fork chat from this response"
+                title="Fork"
+                onClick={onFork}
+              >
+                <GitFork size={15} />
+              </button>
+              {hasUsageDetails && (
+                <div
+                  className="message-info"
+                  ref={usageRef}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      setUsageOpen(false);
+                      event.currentTarget.querySelector('button')?.focus();
+                    }
+                  }}
+                >
+                  <button
+                    className="message-action-icon"
+                    type="button"
+                    aria-label="Response usage details"
+                    aria-expanded={usageOpen}
+                    title="Response information"
+                    onClick={() => setUsageOpen((open) => !open)}
+                  >
+                    <Info size={15} />
+                  </button>
+                  {usageOpen && (
+                    <div className="message-usage-popover" role="dialog" aria-label="Response usage details">
+                      <dl>
+                        <div>
+                          <dt>Input</dt>
+                          <dd>{message.usage?.inputTokens?.toLocaleString() ?? '—'}</dd>
+                        </div>
+                        <div>
+                          <dt>Output</dt>
+                          <dd>{message.usage?.outputTokens?.toLocaleString() ?? '—'}</dd>
+                        </div>
+                        <div>
+                          <dt>Cached</dt>
+                          <dd>{message.usage?.cachedInputTokens?.toLocaleString() ?? '—'}</dd>
+                        </div>
+                        <div>
+                          <dt>Tokens / second</dt>
+                          <dd>
+                            {Number.isFinite(message.usage?.tokensPerSecond)
+                              ? message.usage.tokensPerSecond.toFixed(1)
+                              : '—'}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Latency</dt>
+                          <dd>{formatMetricDuration(message.usage?.latencyMs)}</dd>
+                        </div>
+                        <div>
+                          <dt>Response time</dt>
+                          <dd>{formatMetricDuration(message.usage?.durationMs)}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="message-meta">
+              <span>{registeredTime}</span>
+              <span aria-hidden="true">·</span>
+              <span>{modelName}</span>
+            </div>
           </div>
         )}
         {showContinuations && message.continuations.length > 0 && (
@@ -307,12 +448,36 @@ function MutedSegment({ segment }) {
   if (segment.type === 'tool' || segment.type === 'server-tool' || segment.type === 'tool-call') {
     const name = segment.name || segment.toolType || 'tool';
     const reason = toolReason(segment);
+    const rawInput = String(segment.argumentsText ?? '');
+    const rawOutput = segment.resultText === undefined ? '' : String(segment.resultText);
+    let input = rawInput;
+    let output = rawOutput;
+    try {
+      input = JSON.stringify(JSON.parse(rawInput), null, 2);
+    } catch {}
+    try {
+      output = JSON.stringify(JSON.parse(rawOutput), null, 2);
+    } catch {}
+
     return (
-      <div className="tool-line">
-        <TerminalSquare className="tool-line-icon" size={13} aria-hidden="true" />
-        <strong>{name}</strong>
-        {reason && <span>{reason}</span>}
-      </div>
+      <details className="tool-entry">
+        <summary className="tool-line">
+          <TerminalSquare className="tool-line-icon" size={13} aria-hidden="true" />
+          <strong>{name}</strong>
+          {reason && <span>{reason}</span>}
+          <ChevronRight className="tool-line-chevron" size={13} aria-hidden="true" />
+        </summary>
+        <div className="tool-details">
+          <section>
+            <span>Input</span>
+            <pre><code>{input || '(empty input)'}</code></pre>
+          </section>
+          <section>
+            <span>Output</span>
+            <pre><code>{segment.resultText === undefined ? '(waiting for output)' : output || '(empty output)'}</code></pre>
+          </section>
+        </div>
+      </details>
     );
   }
 
@@ -363,6 +528,7 @@ function buildTimelineFromContent(content) {
 
   const timeline = [];
   let cursor = 0;
+  let markerSequence = 0;
 
   while (cursor < content.length) {
     const marker = findNextThinkingMarker(content, cursor);
@@ -381,14 +547,20 @@ function buildTimelineFromContent(content) {
       continue;
     }
 
-    const parsed = parseThinkingMarker(content, marker, timeline.length);
+    const parsed = parseThinkingMarker(content, marker, markerSequence);
+    markerSequence += 1;
 
     if (parsed.items.length > 0) {
-      timeline.push({
-        id: `thinking-${timeline.length}`,
-        type: 'thinking',
-        items: parsed.items,
-      });
+      const previous = timeline.at(-1);
+      if (previous?.type === 'thinking') {
+        previous.items.push(...parsed.items);
+      } else {
+        timeline.push({
+          id: `thinking-${markerSequence}`,
+          type: 'thinking',
+          items: parsed.items,
+        });
+      }
     }
 
     cursor = parsed.nextCursor;
@@ -597,11 +769,10 @@ function nearestPositive(a, b) {
 function groupLabel(items) {
   const hasReasoning = items.some((item) => item.type === 'reasoning');
   const tools = items.filter((item) => ['tool', 'tool-call', 'server-tool'].includes(item.type));
-  if (hasReasoning && tools.length > 1) return `Thinked, ran ${tools.length} commands`;
-  if (hasReasoning && tools.length === 1) return `Thinked, ran ${tools[0].name || '1 command'}`;
+  const toolLabel = `${tools.length} ${tools.length === 1 ? 'tool' : 'tools'}`;
+  if (hasReasoning && tools.length > 0) return `Thinked, called ${toolLabel}`;
   if (hasReasoning) return 'Thinked';
-  if (tools.length === 1) return `Ran ${tools[0].name || '1 command'}`;
-  if (tools.length > 1) return `Ran ${tools.length} commands`;
+  if (tools.length > 0) return `Called ${toolLabel}`;
   return 'Details';
 }
 
@@ -618,6 +789,12 @@ function formatWorkedDuration(startValue, endValue) {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
   return `Worked for ${minutes}m ${remainingSeconds}s`;
+}
+
+function formatMetricDuration(value) {
+  if (!Number.isFinite(value)) return '—';
+  if (value < 1000) return `${Math.round(value)} ms`;
+  return `${(value / 1000).toFixed(value < 10_000 ? 2 : 1)} s`;
 }
 
 function copyText(text) {

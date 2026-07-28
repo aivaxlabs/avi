@@ -8,13 +8,13 @@ export function WindowControls() {
   return (
     <div className="window-controls">
       <div className="window-drag" />
-      <button type="button" onClick={() => window.aivax.window.minimize()} aria-label="Minimize">
+      <button type="button" onClick={() => window.chatApp.window.minimize()} aria-label="Minimize">
         <Minus size={14} />
       </button>
-      <button type="button" onClick={() => window.aivax.window.maximize()} aria-label="Maximize">
+      <button type="button" onClick={() => window.chatApp.window.maximize()} aria-label="Maximize">
         <Square size={12} />
       </button>
-      <button type="button" className="danger" onClick={() => window.aivax.window.close()} aria-label="Close">
+      <button type="button" className="danger" onClick={() => window.chatApp.window.close()} aria-label="Close">
         <X size={15} />
       </button>
     </div>

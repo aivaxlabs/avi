@@ -1,53 +1,119 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Sidebar } from './components/Sidebar.jsx';
 import { ChatView } from './components/ChatView.jsx';
-import { LoginView } from './components/LoginView.jsx';
-import { AccountDialog } from './components/AccountDialog.jsx';
 import { SearchDialog } from './components/SearchDialog.jsx';
+import { SettingsPage } from './components/SettingsPage.jsx';
 import { WindowControls } from './components/WindowControls.jsx';
-import { WorkspaceDialog } from './components/WorkspaceDialog.jsx';
-import { WorkspaceView } from './components/WorkspaceView.jsx';
 
-const api = window.aivax;
+const api = window.chatApp;
 
 export default function App() {
-  const [session, setSession] = useState(null);
+  const [appState, setAppState] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [messagesByConversation, setMessagesByConversation] = useState({});
+  const [providers, setProviders] = useState([]);
   const [models, setModels] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [running, setRunning] = useState({});
-  const [accountOpen, setAccountOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [workspaceDialogOpen, setWorkspaceDialogOpen] = useState(false);
-  const [workspaceState, setWorkspaceState] = useState({ activeWorkspaceId: null, workspaces: [] });
-  const [uploadQueue, setUploadQueue] = useState({ running: false, currentId: null, items: [] });
-  const [mainView, setMainView] = useState('chat');
-  const [workspaceAttachments, setWorkspaceAttachments] = useState(null);
   const [error, setError] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [narrowWindow, setNarrowWindow] = useState(false);
   const [draftModel, setDraftModel] = useState('');
+  const [draftProject, setDraftProject] = useState(null);
 
   const currentConversation = conversations.find((item) => item.id === selectedId) ?? null;
   const currentMessages = messagesByConversation[selectedId] ?? [];
-  const currentModel = currentConversation?.model || draftModel || session?.lastModel || models[0]?.id || '';
-  const isLoggedIn = Boolean(session?.accessToken);
+  const currentProject = currentConversation
+    ? {
+        path: currentConversation.projectPath,
+        name: currentConversation.projectName,
+        displayPath: currentConversation.projectDisplayPath,
+        gitBranch: currentConversation.gitBranch,
+      }
+    : draftProject ?? appState?.defaultProject ?? null;
+  const recentProjects = useMemo(() => {
+    const paths = new Set();
+    const projects = [];
+
+    for (const conversation of conversations) {
+      if (
+        !conversation.projectPath
+        || conversation.projectPath === appState?.defaultProject?.path
+        || paths.has(conversation.projectPath)
+      ) {
+        continue;
+      }
+      paths.add(conversation.projectPath);
+      projects.push({
+        path: conversation.projectPath,
+        name: conversation.projectName,
+        displayPath: conversation.projectDisplayPath,
+        gitBranch: conversation.gitBranch,
+      });
+      if (projects.length === 8) break;
+    }
+
+    return projects;
+  }, [appState?.defaultProject?.path, conversations]);
+  const currentModel = useMemo(() => {
+    const configuredModelIds = new Set(models.map((model) => model.id));
+    return [
+      currentConversation?.model,
+      draftModel,
+      appState?.lastModel,
+      models[0]?.id,
+    ].find((modelId) => modelId && configuredModelIds.has(modelId)) ?? '';
+  }, [appState?.lastModel, currentConversation?.model, draftModel, models]);
+  const currentModelContextLimit = models
+    .find((model) => model.id === currentModel)
+    ?.context.input ?? null;
+  const contextUsage = useMemo(() => ({
+    tokens: currentConversation?.contextTokens ?? 0,
+    limit: currentModelContextLimit,
+  }), [currentConversation?.contextTokens, currentModelContextLimit]);
 
   useEffect(() => {
-    api.auth.session().then(async (nextSession) => {
-      setSession(nextSession);
-      if (nextSession.accessToken) {
-        await refreshShell();
-        await refreshWorkspaces();
-        refreshModels();
-      }
-    });
+    let active = true;
+    Promise.all([
+      api.app.state(),
+      api.conversations.list(),
+      api.providers.list(),
+      api.models.list(),
+      api.models.favorites(),
+    ])
+      .then(async ([nextAppState, nextConversations, nextProviders, nextModels, nextFavorites]) => {
+        if (!active) return;
+        setAppState(nextAppState);
+        setConversations(nextConversations);
+        setProviders(nextProviders);
+        setModels(nextModels);
+        setFavorites(nextFavorites);
+        setDraftProject(nextAppState.defaultProject);
+        setSettingsOpen(nextModels.length === 0);
+
+        if (nextConversations[0]) {
+          const messages = await api.conversations.messages(nextConversations[0].id);
+          if (!active) return;
+          setSelectedId(nextConversations[0].id);
+          setMessagesByConversation({ [nextConversations[0].id]: messages });
+        }
+      })
+      .catch((nextError) => {
+        if (!active) return;
+        setError(nextError instanceof Error ? nextError.message : String(nextError));
+        setAppState({});
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
-  useEffect(() => {
-    return api.onChatEvent((event) => {
+  useEffect(() => (
+    api.onChatEvent((event) => {
       if (event.type === 'message') {
         setMessagesByConversation((state) => ({
           ...state,
@@ -71,15 +137,9 @@ export default function App() {
         setRunning((state) => ({ ...state, [event.conversationId]: event.running }));
       } else if (event.type === 'error') {
         setError(event.message);
-      } else if (event.type === 'debug') {
-        console.log('[AIVAX debug]', event);
-      } else if (event.type === 'workspaces') {
-        setWorkspaceState(event.state);
-      } else if (event.type === 'workspace-uploads') {
-        setUploadQueue(event.state);
       }
-    });
-  }, []);
+    })
+  ), []);
 
   useEffect(() => {
     const syncSidebarWidth = () => setNarrowWindow(window.innerWidth < 700);
@@ -88,76 +148,35 @@ export default function App() {
     return () => window.removeEventListener('resize', syncSidebarWidth);
   }, []);
 
-  async function refreshShell() {
-    const next = await api.conversations.list();
-    setConversations(next);
-    if (!selectedId && next[0]) {
-      setSelectedId(next[0].id);
-      const messages = await api.conversations.messages(next[0].id);
-      setMessagesByConversation((state) => ({ ...state, [next[0].id]: messages }));
-    }
-  }
-
-  async function refreshModels() {
-    try {
-      const [nextModels, nextFavorites] = await Promise.all([
-        api.models.list(),
-        api.models.favorites(),
-      ]);
-      setModels(nextModels);
-      setFavorites(nextFavorites);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  async function refreshWorkspaces() {
-    setWorkspaceState(await api.workspaces.list());
-    setUploadQueue(await api.workspaceUploads.snapshot());
-  }
-
-  async function handleLogin(loginKey) {
-    const nextSession = await api.auth.login(loginKey);
-    setSession(nextSession);
-    await refreshShell();
-    await refreshWorkspaces();
-    await refreshModels();
-  }
-
-  async function handleLogout() {
-    const nextSession = await api.auth.logout();
-    setSession(nextSession);
-    setConversations([]);
-    setSelectedId(null);
-    setMessagesByConversation({});
-    setAccountOpen(false);
-    setWorkspaceDialogOpen(false);
-    setWorkspaceState({ activeWorkspaceId: null, workspaces: [] });
-    setMainView('chat');
-  }
-
   async function selectConversation(id) {
     setSelectedId(id);
-    setMainView('chat');
     if (!messagesByConversation[id]) {
       const messages = await api.conversations.messages(id);
       setMessagesByConversation((state) => ({ ...state, [id]: messages }));
     }
   }
 
-  async function newChat() {
-    setSelectedId(null);
-    setMainView('chat');
-  }
-
-  async function sendMessage({ text, attachments, steer = false }) {
+  async function sendMessage({
+    text,
+    attachments,
+    steer = false,
+    reasoningEffort = null,
+  }) {
     if (!text.trim() && attachments.length === 0) return;
+    if (!currentModel) {
+      setError('Configure at least one model before sending a message.');
+      setSettingsOpen(true);
+      return;
+    }
+
     const result = await api.chat.send({
       conversationId: selectedId,
       model: currentModel,
       text,
       attachments,
       steer,
+      reasoningEffort,
+      project: currentProject,
     });
     setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
     setSelectedId(result.conversation.id);
@@ -169,7 +188,6 @@ export default function App() {
       ...state,
       [result.conversation.id]: !result.queued,
     }));
-    setMainView('chat');
   }
 
   async function stopConversation() {
@@ -180,7 +198,7 @@ export default function App() {
   }
 
   async function retryAssistantMessage(messageId) {
-    if (!selectedId || !messageId) return;
+    if (!selectedId || !messageId || !currentModel) return;
     const result = await api.chat.retry({
       conversationId: selectedId,
       model: currentModel,
@@ -230,6 +248,7 @@ export default function App() {
     if (selectedId === id) {
       const fallback = next[0]?.id ?? null;
       setSelectedId(fallback);
+      if (!fallback) setDraftProject(appState.defaultProject);
       if (fallback && !messagesByConversation[fallback]) {
         const messages = await api.conversations.messages(fallback);
         setMessagesByConversation((state) => ({ ...state, [fallback]: messages }));
@@ -246,11 +265,6 @@ export default function App() {
     setConversations((state) => upsertById(state, conversation).sort(sortByUpdatedAt));
   }
 
-  function attachWorkspaceItems(attachments) {
-    setWorkspaceAttachments({ id: crypto.randomUUID(), attachments });
-    setMainView('chat');
-  }
-
   async function toggleFavorite(modelId) {
     const next = await api.models.favorite({
       modelId,
@@ -259,12 +273,19 @@ export default function App() {
     setFavorites(next);
   }
 
-  const account = session?.account;
+  async function applyProviders(nextProviders) {
+    setProviders(nextProviders);
+    const nextModels = await api.models.list();
+    setModels(nextModels);
+    return nextProviders;
+  }
+
   const effectiveSidebarCollapsed = sidebarCollapsed || narrowWindow;
   const shellClassName = [
     'app-shell',
-    session?.platform && `platform-${session.platform}`,
+    appState?.platform && `platform-${appState.platform}`,
     effectiveSidebarCollapsed && 'sidebar-collapsed',
+    settingsOpen && 'settings-active',
   ]
     .filter(Boolean)
     .join(' ');
@@ -273,7 +294,9 @@ export default function App() {
     currentConversation,
     currentMessages,
     currentModel,
+    contextUsage,
     isRunning: Boolean(selectedId && running[selectedId]),
+    recentProjects,
     recentModels: (() => {
       const modelsById = new Map(models.map((model) => [model.id, model]));
       const ids = [];
@@ -286,91 +309,101 @@ export default function App() {
         .map((modelId) => modelsById.get(modelId))
         .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
     })(),
-  }), [conversations, currentConversation, currentMessages, currentModel, models, running, selectedId]);
+  }), [
+    conversations,
+    currentConversation,
+    currentMessages,
+    currentModel,
+    contextUsage,
+    models,
+    recentProjects,
+    running,
+    selectedId,
+  ]);
 
-  if (!session) {
+  if (!appState) {
     return <div className="app-shell" />;
-  }
-
-  if (!isLoggedIn) {
-    return (
-      <div className={shellClassName}>
-        <WindowControls />
-        <LoginView onLogin={handleLogin} error={error} setError={setError} />
-      </div>
-    );
   }
 
   return (
     <div className={shellClassName}>
       <WindowControls />
-      <Sidebar
-        conversations={conversations}
-        models={models}
-        selectedId={selectedId}
-        account={account}
-        running={running}
-        onNewChat={newChat}
-        onSelect={selectConversation}
-        onSearch={() => setSearchOpen(true)}
-        onFork={forkConversation}
-        onDelete={deleteConversation}
-        onAccount={() => setAccountOpen(true)}
-        onSwitchWorkspace={() => setWorkspaceDialogOpen(true)}
-        onLogout={handleLogout}
-        onWorkspace={() => setMainView('workspace')}
-        activeWorkspaceId={workspaceState.activeWorkspaceId}
-        collapsed={effectiveSidebarCollapsed}
-        onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
-      />
-      {mainView === 'workspace' && workspaceState.activeWorkspaceId ? (
-        <WorkspaceView
-          workspaceId={workspaceState.activeWorkspaceId}
-          uploadQueue={uploadQueue}
-          onUploadQueueChange={setUploadQueue}
-          onAttachToChat={attachWorkspaceItems}
+      {settingsOpen ? (
+        <SettingsPage
+          providers={providers}
+          onClose={() => setSettingsOpen(false)}
+          onSave={async (provider) => applyProviders(await api.providers.save(provider))}
+          onRemove={async (providerId) => applyProviders(await api.providers.remove(providerId))}
         />
       ) : (
-        <ChatView
-          {...shell}
-          models={models}
-          favorites={favorites}
-          activeWorkspaceId={workspaceState.activeWorkspaceId}
-          workspaceAttachments={workspaceAttachments}
-          onSend={sendMessage}
-          onStop={stopConversation}
-          onFork={forkConversation}
-          onRetry={retryAssistantMessage}
-          onCancelQueued={cancelQueuedMessage}
-          onSendContinuation={(text) => sendMessage({ text, attachments: [] })}
-          onChooseModel={chooseModel}
-          onToggleFavorite={toggleFavorite}
-          onRefreshModels={refreshModels}
-        />
+        <>
+          <Sidebar
+            conversations={conversations}
+            models={models}
+            selectedId={selectedId}
+            running={running}
+            onNewChat={() => {
+              setSelectedId(null);
+              setDraftProject(appState.defaultProject);
+            }}
+            onSelect={selectConversation}
+            onSearch={() => setSearchOpen(true)}
+            onFork={forkConversation}
+            onDelete={deleteConversation}
+            onSettings={() => setSettingsOpen(true)}
+            collapsed={effectiveSidebarCollapsed}
+            onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+          />
+          <ChatView
+            {...shell}
+            currentProject={currentProject}
+            models={models}
+            favorites={favorites}
+            onSend={sendMessage}
+            onStop={stopConversation}
+            onCompress={async () => {
+              if (!selectedId || !currentModel || running[selectedId]) return;
+              try {
+                const conversation = await api.chat.compress({
+                  conversationId: selectedId,
+                  model: currentModel,
+                });
+                if (conversation) {
+                  setConversations((state) => (
+                    upsertById(state, conversation).sort(sortByUpdatedAt)
+                  ));
+                }
+              } catch (nextError) {
+                setError(nextError instanceof Error ? nextError.message : String(nextError));
+              }
+            }}
+            onFork={forkConversation}
+            onRetry={retryAssistantMessage}
+            onCancelQueued={cancelQueuedMessage}
+            onSendContinuation={(text) => sendMessage({ text, attachments: [] })}
+            onChooseModel={chooseModel}
+            onChooseProject={async (project) => {
+              if (currentConversation) return;
+              if (project) {
+                setDraftProject(project);
+                return;
+              }
+              const selectedProject = await api.projects.select({
+                defaultPath: currentProject?.path ?? appState.defaultProject.path,
+              });
+              if (selectedProject) setDraftProject(selectedProject);
+            }}
+            onUseHome={() => {
+              if (!currentConversation) setDraftProject(appState.defaultProject);
+            }}
+            onToggleFavorite={toggleFavorite}
+          />
+        </>
       )}
-      {accountOpen && (
-        <AccountDialog
-          account={account}
-          onClose={() => setAccountOpen(false)}
-          onLogout={handleLogout}
-        />
-      )}
-      {searchOpen && (
+      {!settingsOpen && searchOpen && (
         <SearchDialog
           onClose={() => setSearchOpen(false)}
           onSelect={selectConversation}
-        />
-      )}
-      {workspaceDialogOpen && (
-        <WorkspaceDialog
-          workspaceState={workspaceState}
-          onClose={() => setWorkspaceDialogOpen(false)}
-          onChange={(state) => {
-            setWorkspaceState(state);
-            if (!state.activeWorkspaceId && mainView === 'workspace') {
-              setMainView('chat');
-            }
-          }}
         />
       )}
       {error && (

@@ -2,27 +2,29 @@ import { UploadCloud } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Composer } from './Composer.jsx';
 import { Message } from './Message.jsx';
-import { WorkspaceAttachDialog } from './WorkspaceAttachDialog.jsx';
 
 export function ChatView({
   currentConversation,
   currentMessages,
   currentModel,
+  currentProject,
+  contextUsage,
   recentModels,
+  recentProjects,
   models,
   favorites,
-  activeWorkspaceId,
-  workspaceAttachments,
   isRunning,
   onSend,
   onStop,
+  onCompress,
   onFork,
   onRetry,
   onCancelQueued,
   onSendContinuation,
   onChooseModel,
+  onChooseProject,
+  onUseHome,
   onToggleFavorite,
-  onRefreshModels,
 }) {
   const scrollRef = useRef(null);
   const autoScrollTimerRef = useRef(null);
@@ -31,8 +33,6 @@ export function ChatView({
   const dragDepthRef = useRef(0);
   const [fileDropActive, setFileDropActive] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState(null);
-  const [workspaceAttachOpen, setWorkspaceAttachOpen] = useState(false);
-  const [selectedWorkspaceAttachments, setSelectedWorkspaceAttachments] = useState(null);
   const modelName = models.find((model) => model.id === currentModel)?.name ?? currentModel ?? 'Model';
   const lastAssistantMessage = currentMessages.findLast((message) => message.role === 'assistant');
   const lastMessage = currentMessages.at(-1);
@@ -161,6 +161,12 @@ export function ChatView({
               <Message
                 key={message.id}
                 message={message}
+                modelName={
+                  models.find((model) => model.id === (message.model || currentConversation?.model))?.name
+                  ?? message.model
+                  ?? currentConversation?.model
+                  ?? 'Model'
+                }
                 onFork={() => onFork(currentConversation?.id, message.id)}
                 onRetry={() => onRetry(message.id)}
                 onCancelQueued={() => onCancelQueued(message.id)}
@@ -175,27 +181,22 @@ export function ChatView({
         isRunning={isRunning}
         onSend={onSend}
         onStop={onStop}
+        onCompress={onCompress}
         droppedFiles={droppedFiles}
         modelName={modelName}
         recentModels={recentModels}
+        recentProjects={recentProjects}
         models={models}
         favorites={favorites}
         currentModel={currentModel}
-        activeWorkspaceId={activeWorkspaceId}
-        workspaceAttachments={workspaceAttachments}
-        selectedWorkspaceAttachments={selectedWorkspaceAttachments}
+        contextUsage={contextUsage}
         onChooseModel={onChooseModel}
+        project={currentProject}
+        projectLocked={Boolean(currentConversation)}
+        onChooseProject={onChooseProject}
+        onUseHome={onUseHome}
         onToggleFavorite={onToggleFavorite}
-        onRefreshModels={onRefreshModels}
-        onAttachFromWorkspace={() => setWorkspaceAttachOpen(true)}
       />
-      {workspaceAttachOpen && activeWorkspaceId && (
-        <WorkspaceAttachDialog
-          workspaceId={activeWorkspaceId}
-          onClose={() => setWorkspaceAttachOpen(false)}
-          onAttach={(attachments) => setSelectedWorkspaceAttachments({ id: crypto.randomUUID(), attachments })}
-        />
-      )}
     </main>
   );
 }

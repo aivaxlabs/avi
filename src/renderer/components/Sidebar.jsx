@@ -3,16 +3,14 @@ import {
   Clock,
   CopyPlus,
   Filter,
-  FolderOpen,
-  LogOut,
+  Folder,
   MessageSquarePlus,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Settings,
   Trash2,
-  UserRound,
-  Workflow,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -25,29 +23,21 @@ export function Sidebar({
   conversations,
   models = [],
   selectedId,
-  account,
   running,
   onNewChat,
   onSelect,
   onSearch,
   onFork,
   onDelete,
-  onAccount,
-  onSwitchWorkspace,
-  onLogout,
-  onWorkspace,
-  activeWorkspaceId,
+  onSettings,
   collapsed,
   onToggleCollapsed,
 }) {
-  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [accountMenuPosition, setAccountMenuPosition] = useState(null);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [filterMenuPosition, setFilterMenuPosition] = useState(null);
   const [conversationGrouping, setConversationGrouping] = useState('chronological');
   const [expandedGroups, setExpandedGroups] = useState({});
   const [now, setNow] = useState(() => Date.now());
-  const accountButtonRef = useRef(null);
   const filterButtonRef = useRef(null);
 
   const conversationGroups = useMemo(() => {
@@ -55,16 +45,21 @@ export function Sidebar({
       (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
     );
 
-    if (conversationGrouping === 'model') {
+    if (conversationGrouping === 'model' || conversationGrouping === 'folder') {
       const modelsById = new Map(models.map((model) => [model.id, model]));
-      const groupsByModel = new Map();
+      const groupsByValue = new Map();
 
       for (const conversation of sortedConversations) {
         const model = modelsById.get(conversation.model);
-        const key = `model:${conversation.model || 'none'}`;
-        const current = groupsByModel.get(key) ?? {
+        const key = conversationGrouping === 'model'
+          ? `model:${conversation.model || 'none'}`
+          : `folder:${conversation.projectPath || 'home'}`;
+        const label = conversationGrouping === 'model'
+          ? model?.name || conversation.model || 'No model'
+          : conversation.projectName || '~/';
+        const current = groupsByValue.get(key) ?? {
           key,
-          label: model?.name || conversation.model || 'No model',
+          label,
           items: [],
           latestTime: 0,
         };
@@ -74,10 +69,10 @@ export function Sidebar({
           current.latestTime,
           Number.isFinite(updatedTime) ? updatedTime : 0,
         );
-        groupsByModel.set(key, current);
+        groupsByValue.set(key, current);
       }
 
-      return [...groupsByModel.values()]
+      return [...groupsByValue.values()]
         .sort((a, b) => b.latestTime - a.latestTime || a.label.localeCompare(b.label));
     }
 
@@ -114,18 +109,6 @@ export function Sidebar({
   }, []);
 
   useEffect(() => {
-    if (!accountMenuOpen) return undefined;
-    const close = (event) => {
-      if (accountButtonRef.current?.contains(event.target)) return;
-      if (event.target.closest?.('.dropdown-menu')) return;
-      setAccountMenuOpen(false);
-    };
-    window.addEventListener('pointerdown', close);
-    window.addEventListener('resize', () => setAccountMenuOpen(false), { once: true });
-    return () => window.removeEventListener('pointerdown', close);
-  }, [accountMenuOpen]);
-
-  useEffect(() => {
     if (!filterMenuOpen) return undefined;
     const close = (event) => {
       if (filterButtonRef.current?.contains(event.target)) return;
@@ -137,15 +120,6 @@ export function Sidebar({
     return () => window.removeEventListener('pointerdown', close);
   }, [filterMenuOpen]);
 
-  function toggleAccountMenu() {
-    const rect = accountButtonRef.current.getBoundingClientRect();
-    setAccountMenuPosition({
-      top: Math.max(8, Math.min(rect.top - 118, window.innerHeight - 130)),
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - 190)),
-    });
-    setAccountMenuOpen((value) => !value);
-  }
-
   function toggleFilterMenu() {
     const rect = filterButtonRef.current.getBoundingClientRect();
     setFilterMenuPosition({
@@ -153,11 +127,6 @@ export function Sidebar({
       left: Math.max(8, Math.min(rect.left, window.innerWidth - 196)),
     });
     setFilterMenuOpen((value) => !value);
-  }
-
-  function runAccountAction(action) {
-    setAccountMenuOpen(false);
-    action();
   }
 
   function chooseConversationGrouping(grouping) {
@@ -183,10 +152,6 @@ export function Sidebar({
         <button type="button" onClick={onNewChat}>
           <MessageSquarePlus size={17} />
           <span>New chat</span>
-        </button>
-        <button type="button" disabled={!activeWorkspaceId} onClick={onWorkspace}>
-          <Workflow size={17} />
-          <span>Workspace</span>
         </button>
         <button type="button" onClick={onSearch}>
           <Search size={17} />
@@ -229,6 +194,13 @@ export function Sidebar({
           >
             By model
           </DropdownMenuItem>
+          <DropdownMenuItem
+            active={conversationGrouping === 'folder'}
+            icon={conversationGrouping === 'folder' ? <Check size={14} /> : <Folder size={14} />}
+            onClick={() => chooseConversationGrouping('folder')}
+          >
+            By folder
+          </DropdownMenuItem>
         </DropdownMenu>,
         document.body,
       )}
@@ -267,31 +239,10 @@ export function Sidebar({
           );
         })}
       </div>
-      <button ref={accountButtonRef} className="account-button" type="button" onClick={toggleAccountMenu}>
-        {account?.emailSha256 ? (
-          <img
-            src={`https://www.gravatar.com/avatar/${account.emailSha256}?d=identicon&s=64`}
-            alt=""
-          />
-        ) : (
-          <span className="account-fallback"><UserRound size={17} /></span>
-        )}
-        <span>{account?.name || 'Account'}</span>
+      <button className="settings-button" type="button" onClick={onSettings}>
+        <Settings size={17} />
+        <span>Settings</span>
       </button>
-      {accountMenuOpen && accountMenuPosition && createPortal(
-        <DropdownMenu className="account-menu" fixed style={{ top: accountMenuPosition.top, left: accountMenuPosition.left }}>
-          <DropdownMenuItem icon={<UserRound size={14} />} onClick={() => runAccountAction(onAccount)}>
-            Account
-          </DropdownMenuItem>
-          <DropdownMenuItem icon={<FolderOpen size={14} />} onClick={() => runAccountAction(onSwitchWorkspace)}>
-            Switch workspace
-          </DropdownMenuItem>
-          <DropdownMenuItem icon={<LogOut size={14} />} onClick={() => runAccountAction(onLogout)}>
-            Log out
-          </DropdownMenuItem>
-        </DropdownMenu>,
-        document.body,
-      )}
     </aside>
   );
 }

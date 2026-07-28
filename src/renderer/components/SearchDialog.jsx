@@ -1,4 +1,4 @@
-import { Search, X } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 export function SearchDialog({ onClose, onSelect }) {
@@ -11,7 +11,7 @@ export function SearchDialog({ onClose, onSelect }) {
         setResults([]);
         return;
       }
-      const next = await window.aivax.conversations.search(query);
+      const next = await window.chatApp.conversations.search(query);
       setResults(next);
     }, 200);
     return () => clearTimeout(handle);
@@ -20,11 +20,6 @@ export function SearchDialog({ onClose, onSelect }) {
   return (
     <div className="dialog-backdrop" onMouseDown={onClose}>
       <section className="search-dialog" onMouseDown={(event) => event.stopPropagation()}>
-        {/* <div className="dialog-header">
-          <button className="icon-button" type="button" onClick={onClose}>
-            <X size={17} />
-          </button>
-        </div> */}
         <label className="dialog-search">
           <Search size={16} />
           <input

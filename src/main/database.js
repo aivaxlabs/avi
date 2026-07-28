@@ -1,7 +1,13 @@
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import {
+  basename,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from 'node:path';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 
 const storageDir = join(homedir(), '.aivax');
@@ -23,6 +29,11 @@ db.exec(`
     title TEXT NOT NULL,
     model TEXT NOT NULL,
     title_status TEXT NOT NULL DEFAULT 'pending',
+    project_path TEXT,
+    git_branch TEXT,
+    context_checkpoint TEXT NOT NULL DEFAULT '',
+    checkpoint_message_id TEXT,
+    context_tokens INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     deleted_at TEXT
@@ -32,11 +43,13 @@ db.exec(`
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     role TEXT NOT NULL,
+    model TEXT,
     status TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
     segments TEXT NOT NULL DEFAULT '[]',
     attachments TEXT NOT NULL DEFAULT '[]',
     continuations TEXT NOT NULL DEFAULT '[]',
+    usage TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
@@ -49,37 +62,84 @@ db.exec(`
     model_id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL
   );
+`);
 
-  CREATE TABLE IF NOT EXISTS models_cache (
-    id TEXT PRIMARY KEY,
-    payload TEXT NOT NULL,
-    fetched_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS workspaces (
-    id TEXT PRIMARY KEY,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
+if (!db.pragma('table_info(messages)').some((column) => column.name === 'usage')) {
+  db.exec("ALTER TABLE messages ADD COLUMN usage TEXT NOT NULL DEFAULT '{}'");
+}
+if (!db.pragma('table_info(messages)').some((column) => column.name === 'model')) {
+  db.exec('ALTER TABLE messages ADD COLUMN model TEXT');
+}
+const conversationColumns = db.pragma('table_info(conversations)');
+if (!conversationColumns.some((column) => column.name === 'project_path')) {
+  db.exec('ALTER TABLE conversations ADD COLUMN project_path TEXT');
+}
+if (!conversationColumns.some((column) => column.name === 'git_branch')) {
+  db.exec('ALTER TABLE conversations ADD COLUMN git_branch TEXT');
+}
+if (!conversationColumns.some((column) => column.name === 'context_checkpoint')) {
+  db.exec("ALTER TABLE conversations ADD COLUMN context_checkpoint TEXT NOT NULL DEFAULT ''");
+}
+if (!conversationColumns.some((column) => column.name === 'checkpoint_message_id')) {
+  db.exec('ALTER TABLE conversations ADD COLUMN checkpoint_message_id TEXT');
+}
+if (!conversationColumns.some((column) => column.name === 'context_tokens')) {
+  db.exec('ALTER TABLE conversations ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0');
+}
+const conversationsWithoutContextUsage = db.prepare(`
+  SELECT c.id, (
+    SELECT usage
+    FROM messages
+    WHERE conversation_id = c.id AND role = 'assistant'
+    ORDER BY created_at DESC
+    LIMIT 1
+  ) AS usage
+  FROM conversations c
+  WHERE c.context_tokens = 0
+`).all();
+const backfillContextUsage = db.prepare(`
+  UPDATE conversations
+  SET context_tokens = ?
+  WHERE id = ?
+`);
+for (const row of conversationsWithoutContextUsage) {
+  const inputTokens = Number(parse(row.usage, {})?.inputTokens) || 0;
+  if (inputTokens > 0) {
+    backfillContextUsage.run(inputTokens, row.id);
+  }
+}
+db.exec(`
+  DROP TABLE IF EXISTS models_cache;
+  DROP TABLE IF EXISTS workspaces;
+  DELETE FROM session_values
+  WHERE key IN ('accessToken', 'account', 'activeWorkspaceId');
 `);
 
 const statements = {
-  setSession: db.prepare(`
+  setValue: db.prepare(`
     INSERT INTO session_values (key, value, updated_at)
     VALUES (@key, @value, @updatedAt)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
   `),
-  getSession: db.prepare('SELECT value FROM session_values WHERE key = ?'),
-  deleteSession: db.prepare('DELETE FROM session_values WHERE key = ?'),
+  getValue: db.prepare('SELECT value FROM session_values WHERE key = ?'),
   insertConversation: db.prepare(`
-    INSERT INTO conversations (id, title, model, title_status, created_at, updated_at)
-    VALUES (@id, @title, @model, @titleStatus, @createdAt, @updatedAt)
+    INSERT INTO conversations (
+      id, title, model, title_status, project_path, git_branch,
+      context_checkpoint, checkpoint_message_id, context_tokens, created_at, updated_at
+    )
+    VALUES (
+      @id, @title, @model, @titleStatus, @projectPath, @gitBranch,
+      @contextCheckpoint, @checkpointMessageId, @contextTokens, @createdAt, @updatedAt
+    )
   `),
   updateConversation: db.prepare(`
     UPDATE conversations
     SET title = COALESCE(@title, title),
         model = COALESCE(@model, model),
         title_status = COALESCE(@titleStatus, title_status),
+        context_checkpoint = COALESCE(@contextCheckpoint, context_checkpoint),
+        checkpoint_message_id = COALESCE(@checkpointMessageId, checkpoint_message_id),
+        context_tokens = COALESCE(@contextTokens, context_tokens),
         updated_at = @updatedAt
     WHERE id = @id
   `),
@@ -102,12 +162,12 @@ const statements = {
   deleteConversation: db.prepare('UPDATE conversations SET deleted_at = ?, updated_at = ? WHERE id = ?'),
   insertMessage: db.prepare(`
     INSERT INTO messages (
-      id, conversation_id, role, status, content, segments, attachments,
-      continuations, created_at, updated_at
+      id, conversation_id, role, model, status, content, segments, attachments,
+      continuations, usage, created_at, updated_at
     )
     VALUES (
-      @id, @conversationId, @role, @status, @content, @segments, @attachments,
-      @continuations, @createdAt, @updatedAt
+      @id, @conversationId, @role, @model, @status, @content, @segments, @attachments,
+      @continuations, @usage, @createdAt, @updatedAt
     )
   `),
   updateMessage: db.prepare(`
@@ -117,6 +177,7 @@ const statements = {
         segments = COALESCE(@segments, segments),
         attachments = COALESCE(@attachments, attachments),
         continuations = COALESCE(@continuations, continuations),
+        usage = COALESCE(@usage, usage),
         updated_at = @updatedAt
     WHERE id = @id
   `),
@@ -137,55 +198,45 @@ const statements = {
   listFavorites: db.prepare('SELECT model_id FROM model_favorites ORDER BY created_at DESC'),
   addFavorite: db.prepare('INSERT OR IGNORE INTO model_favorites (model_id, created_at) VALUES (?, ?)'),
   removeFavorite: db.prepare('DELETE FROM model_favorites WHERE model_id = ?'),
-  replaceModelsCache: db.prepare(`
-    INSERT INTO models_cache (id, payload, fetched_at)
-    VALUES (@id, @payload, @fetchedAt)
-    ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, fetched_at = excluded.fetched_at
-  `),
-  listCachedModels: db.prepare('SELECT payload FROM models_cache ORDER BY id ASC'),
-  insertWorkspace: db.prepare(`
-    INSERT INTO workspaces (id, created_at, updated_at)
-    VALUES (@id, @createdAt, @updatedAt)
-    ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at
-  `),
-  deleteWorkspace: db.prepare('DELETE FROM workspaces WHERE id = ?'),
-  listWorkspaces: db.prepare('SELECT * FROM workspaces ORDER BY updated_at DESC, id ASC'),
 };
 
-export const paths = {
-  storageDir,
-  database: join(storageDir, 'aivax.sqlite'),
-};
-
-export function getSession() {
+export function getPreferences() {
   return {
-    accessToken: readJson('accessToken'),
-    account: readJson('account'),
     lastModel: readJson('lastModel'),
   };
 }
 
-export function saveLogin({ accessToken, account }) {
-  writeJson('accessToken', accessToken);
-  writeJson('account', account);
+export function listProviders() {
+  const providers = readJson('modelProviders');
+  return Array.isArray(providers) ? providers : [];
 }
 
-export function logout() {
-  statements.deleteSession.run('accessToken');
-  statements.deleteSession.run('account');
+export function setProviders(providers) {
+  writeJson('modelProviders', providers);
+  return listProviders();
 }
 
 export function setLastModel(model) {
   writeJson('lastModel', model);
 }
 
-export function createConversation({ title = 'New chat', model = '' } = {}) {
+export function createConversation({
+  title = 'New chat',
+  model = '',
+  projectPath = homedir(),
+  gitBranch = null,
+} = {}) {
   const now = timestamp();
   const conversation = {
     id: crypto.randomUUID(),
     title,
     model,
     titleStatus: 'pending',
+    projectPath: resolve(projectPath),
+    gitBranch,
+    contextCheckpoint: '',
+    checkpointMessageId: null,
+    contextTokens: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -193,7 +244,7 @@ export function createConversation({ title = 'New chat', model = '' } = {}) {
   return getConversation(conversation.id);
 }
 
-export function ensureConversation(conversationId, model) {
+export function ensureConversation(conversationId, model, project = {}) {
   const existing = conversationId ? getConversation(conversationId) : null;
   if (existing) {
     if (model && model !== existing.model) {
@@ -201,15 +252,29 @@ export function ensureConversation(conversationId, model) {
     }
     return getConversation(existing.id);
   }
-  return createConversation({ model });
+  return createConversation({
+    model,
+    projectPath: project.path,
+    gitBranch: project.gitBranch,
+  });
 }
 
-export function updateConversation(id, { title = null, model = null, titleStatus = null } = {}) {
+export function updateConversation(id, {
+  title = null,
+  model = null,
+  titleStatus = null,
+  contextCheckpoint = null,
+  checkpointMessageId = null,
+  contextTokens = null,
+} = {}) {
   statements.updateConversation.run({
     id,
     title,
     model,
     titleStatus,
+    contextCheckpoint,
+    checkpointMessageId,
+    contextTokens,
     updatedAt: timestamp(),
   });
   return getConversation(id);
@@ -235,11 +300,13 @@ export function insertMessage(message) {
     id: message.id ?? crypto.randomUUID(),
     conversationId: message.conversationId,
     role: message.role,
+    model: message.model ?? null,
     status: message.status ?? 'completed',
     content: message.content ?? '',
     segments: stringify(message.segments ?? []),
     attachments: stringify(message.attachments ?? []),
     continuations: stringify(message.continuations ?? []),
+    usage: stringify(message.usage ?? {}),
     createdAt: message.createdAt ?? now,
     updatedAt: now,
   };
@@ -256,6 +323,7 @@ export function updateMessage(id, patch) {
     segments: patch.segments === undefined ? null : stringify(patch.segments),
     attachments: patch.attachments === undefined ? null : stringify(patch.attachments),
     continuations: patch.continuations === undefined ? null : stringify(patch.continuations),
+    usage: patch.usage === undefined ? null : stringify(patch.usage),
     updatedAt: timestamp(),
   });
   const message = getMessage(id);
@@ -307,6 +375,8 @@ export function forkConversation(id, { throughMessageId = null } = {}) {
   const target = createConversation({
     title: `${source.title} - Copy`,
     model: source.model,
+    projectPath: source.projectPath,
+    gitBranch: source.gitBranch,
   });
   const sourceMessages = getMessages(id);
   const throughIndex = throughMessageId
@@ -343,76 +413,34 @@ export function setFavorite(modelId, favorited) {
   return listFavorites();
 }
 
-export function cacheModels(models) {
-  const fetchedAt = timestamp();
-  const write = db.transaction((items) => {
-    for (const item of items) {
-      statements.replaceModelsCache.run({
-        id: item.id,
-        payload: stringify(item),
-        fetchedAt,
-      });
-    }
-  });
-  write(models);
-}
-
-export function listCachedModels() {
-  return statements.listCachedModels.all().map((row) => parse(row.payload, null)).filter(Boolean);
-}
-
-export function listWorkspaces() {
-  return {
-    activeWorkspaceId: readJson('activeWorkspaceId'),
-    workspaces: statements.listWorkspaces.all().map(mapWorkspace),
-  };
-}
-
-export function addWorkspace(id) {
-  const workspaceId = normalizeWorkspaceId(id);
-  const now = timestamp();
-  statements.insertWorkspace.run({
-    id: workspaceId,
-    createdAt: now,
-    updatedAt: now,
-  });
-  writeJson('activeWorkspaceId', workspaceId);
-  return listWorkspaces();
-}
-
-export function removeWorkspace(id) {
-  const workspaceId = normalizeWorkspaceId(id);
-  statements.deleteWorkspace.run(workspaceId);
-  if (readJson('activeWorkspaceId') === workspaceId) {
-    statements.deleteSession.run('activeWorkspaceId');
-  }
-  return listWorkspaces();
-}
-
-export function setActiveWorkspace(id) {
-  const workspaceId = typeof id === 'string' ? id.trim() : '';
-  if (!workspaceId) {
-    statements.deleteSession.run('activeWorkspaceId');
-    return listWorkspaces();
-  }
-  addWorkspace(workspaceId);
-  return listWorkspaces();
-}
-
-export function getActiveWorkspaceId() {
-  return readJson('activeWorkspaceId');
-}
-
-export function toOpenAiMessages(conversationId, { excludeMessageId } = {}) {
-  return getMessages(conversationId)
-    .filter((message) => message.id !== excludeMessageId)
-    .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .map(messageToApiBlock);
-}
-
-export function toOpenAiMessagesThroughUser(conversationId, beforeMessageId) {
+export function toModelMessages(conversationId, { excludeMessageId } = {}) {
+  const conversation = statements.getConversation.get(conversationId);
   const messages = getMessages(conversationId);
+  const checkpointIndex = conversation?.checkpoint_message_id
+    ? messages.findIndex((message) => message.id === conversation.checkpoint_message_id)
+    : -1;
+  const hasCheckpoint = Boolean(conversation?.context_checkpoint) && checkpointIndex >= 0;
+  const checkpoint = hasCheckpoint
+    ? [{
+        role: 'system',
+        content: `<conversation_checkpoint>\n${conversation.context_checkpoint}\n</conversation_checkpoint>`,
+      }]
+    : [];
+
+  return [
+    ...checkpoint,
+    ...messages
+      .slice(hasCheckpoint ? checkpointIndex + 1 : 0)
+      .filter((message) => message.id !== excludeMessageId)
+      .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
+      .filter((message) => message.role === 'user' || message.role === 'assistant')
+      .map(messageToApiBlock),
+  ];
+}
+
+export function toModelMessagesThroughUser(conversationId, beforeMessageId) {
+  const messages = getMessages(conversationId);
+  const conversation = statements.getConversation.get(conversationId);
   const beforeIndex = messages.findIndex((message) => message.id === beforeMessageId);
   const searchEnd = beforeIndex >= 0 ? beforeIndex : messages.length;
   const lastUserIndex = messages
@@ -421,11 +449,25 @@ export function toOpenAiMessagesThroughUser(conversationId, beforeMessageId) {
 
   if (lastUserIndex < 0) return [];
 
-  return messages
-    .slice(0, lastUserIndex + 1)
-    .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .map(messageToApiBlock);
+  const checkpointIndex = conversation?.checkpoint_message_id
+    ? messages.findIndex((message) => message.id === conversation.checkpoint_message_id)
+    : -1;
+  const useCheckpoint = Boolean(conversation?.context_checkpoint)
+    && checkpointIndex >= 0
+    && checkpointIndex < lastUserIndex;
+  return [
+    ...(useCheckpoint
+      ? [{
+          role: 'system',
+          content: `<conversation_checkpoint>\n${conversation.context_checkpoint}\n</conversation_checkpoint>`,
+        }]
+      : []),
+    ...messages
+      .slice(useCheckpoint ? checkpointIndex + 1 : 0, lastUserIndex + 1)
+      .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
+      .filter((message) => message.role === 'user' || message.role === 'assistant')
+      .map(messageToApiBlock),
+  ];
 }
 
 function messageToApiBlock(message) {
@@ -443,18 +485,11 @@ function messageToApiBlock(message) {
 }
 
 function attachmentToApiBlock(attachment) {
-  if (attachment.kind === 'workspace_ref') {
-    const type = attachment.isDirectory ? 'directory' : 'file';
-    return {
-      type: 'text',
-      text: `<workspace-attachment type="${type}" workspace="${escapeAttribute(attachment.workspaceId ?? '')}" path="${escapeAttribute(attachment.path ?? '')}">${escapeAttribute(attachment.name ?? attachment.path ?? '')}</workspace-attachment>`,
-    };
-  }
   if (attachment.kind === 'text_inline') {
     const filename = attachment.name ?? 'attachment.txt';
     return {
       type: 'text',
-      text: `<chat-inline-attachment filename="${escapeAttribute(filename)}">\n${attachment.text ?? ''}\n</chat-inline-attachment>`,
+      text: `Attached file "${filename}":\n${attachment.text ?? ''}`,
     };
   }
   if (attachment.kind === 'image_url') {
@@ -472,21 +507,19 @@ function attachmentToApiBlock(attachment) {
       },
     };
   }
+  if (attachment.kind === 'file') {
+    return {
+      type: 'file',
+      file: {
+        filename: attachment.name ?? 'attachment',
+        file_data: attachment.dataUrl,
+      },
+    };
+  }
   return {
-    type: 'file',
-    file: {
-      filename: attachment.name ?? 'attachment',
-      file_data: attachment.dataUrl,
-    },
+    type: 'text',
+    text: `Attachment: ${attachment.name ?? 'unavailable'}`,
   };
-}
-
-function escapeAttribute(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('"', '&quot;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
 }
 
 function touchConversation(id) {
@@ -511,7 +544,7 @@ function fuzzyScore(source, query) {
 }
 
 function writeJson(key, value) {
-  statements.setSession.run({
+  statements.setValue.run({
     key,
     value: stringify(value),
     updatedAt: timestamp(),
@@ -519,16 +552,28 @@ function writeJson(key, value) {
 }
 
 function readJson(key) {
-  const row = statements.getSession.get(key);
+  const row = statements.getValue.get(key);
   return row ? parse(row.value, null) : null;
 }
 
 function mapConversation(row) {
+  const projectPath = resolve(row.project_path || homedir());
+  const relativeProjectPath = relative(homedir(), projectPath);
+
   return {
     id: row.id,
     title: row.title,
     model: row.model,
     titleStatus: row.title_status,
+    projectPath,
+    projectName: relativeProjectPath === '' ? '~/' : basename(projectPath),
+    projectDisplayPath: relativeProjectPath === ''
+      ? '~/'
+      : !relativeProjectPath.startsWith('..') && !isAbsolute(relativeProjectPath)
+        ? `~/${relativeProjectPath.replaceAll('\\', '/')}`
+        : projectPath,
+    gitBranch: row.git_branch || null,
+    contextTokens: Number(row.context_tokens) || 0,
     firstPrompt: row.first_prompt ?? '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -540,30 +585,16 @@ function mapMessage(row) {
     id: row.id,
     conversationId: row.conversation_id,
     role: row.role,
+    model: row.model,
     status: row.status,
     content: row.content,
     segments: parse(row.segments, []),
     attachments: parse(row.attachments, []),
     continuations: parse(row.continuations, []),
+    usage: parse(row.usage, {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
-}
-
-function mapWorkspace(row) {
-  return {
-    id: row.id,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-function normalizeWorkspaceId(id) {
-  const workspaceId = typeof id === 'string' ? id.trim() : '';
-  if (!workspaceId) {
-    throw new Error('Workspace ID is required.');
-  }
-  return workspaceId;
 }
 
 function stringify(value) {
