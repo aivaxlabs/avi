@@ -51,10 +51,30 @@ try {
   if (!tool) throw new Error('Prefixed MCP tool was not discovered.');
   const exposedSchema = interceptToolSchemas([tool])[0].parameters;
   if (
-    Object.hasOwn(exposedSchema.properties ?? {}, '__invocation_goal')
-    || Object.hasOwn(exposedSchema.properties ?? {}, '__requires_human_approval')
+    !Object.hasOwn(exposedSchema.properties ?? {}, '__invocation_goal')
+    || !Object.hasOwn(exposedSchema.properties ?? {}, '__requires_human_approval')
+    || Object.hasOwn(exposedSchema.properties.__requires_human_approval, 'enum')
+    || !exposedSchema.required.includes('__requires_human_approval')
   ) {
-    throw new Error('MCP tool schema contains local control properties.');
+    throw new Error('MCP tool schema does not expose model-controlled approval properties.');
+  }
+  const permissionDescriptions = [
+    'ask_for_approval',
+    'approve_for_me',
+    'full_access',
+  ].map((permissionMode) => (
+    interceptToolSchemas([tool], permissionMode)[0]
+      .parameters
+      .properties
+      .__requires_human_approval
+      .description
+  ));
+  if (
+    !permissionDescriptions[0].includes('true for every tool invocation')
+    || !permissionDescriptions[1].includes('true only when')
+    || !permissionDescriptions[2].includes('false')
+  ) {
+    throw new Error('Permission mode was not reflected in the approval parameter contract.');
   }
 
   console.log('Calling prefixed MCP tool...');

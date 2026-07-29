@@ -47,7 +47,9 @@ export function Message({
   onRetry,
   onResume,
   runActive,
+  questionPending,
   onSendContinuation,
+  onImplementPlan,
   showContinuations,
 }) {
   if (message.role === 'user') {
@@ -60,10 +62,8 @@ export function Message({
     const label = message.status === 'streaming'
       ? 'Compressing context'
       : message.status === 'completed'
-        ? `Context compressed from ${
-          compactTokenFormatter.format(compression.inputTokens)
-        } tokens to ${
-          compactTokenFormatter.format(compression.outputTokens)
+        ? `Context compressed from ${compactTokenFormatter.format(compression.inputTokens)
+        } tokens to ${compactTokenFormatter.format(compression.outputTokens)
         } tokens`
         : compression.error ?? 'Context compression stopped.';
     return (
@@ -84,7 +84,9 @@ export function Message({
       onRetry={onRetry}
       onResume={onResume}
       runActive={runActive}
+      questionPending={questionPending}
       onSendContinuation={onSendContinuation}
+      onImplementPlan={onImplementPlan}
       showContinuations={showContinuations}
     />
   );
@@ -215,7 +217,9 @@ function AssistantMessage({
   onRetry,
   onResume,
   runActive,
+  questionPending,
   onSendContinuation,
+  onImplementPlan,
   showContinuations,
 }) {
   const [usageOpen, setUsageOpen] = useState(false);
@@ -238,9 +242,21 @@ function AssistantMessage({
       }
     }
 
-    return parsedTimeline;
+    return parsedTimeline
+      .map((item) => (
+        item.type === 'thinking'
+          ? {
+              ...item,
+              items: item.items.filter((segment) => segment.name !== 'ask_question'),
+            }
+          : item
+      ))
+      .filter((item) => item.type !== 'thinking' || item.items.length > 0);
   }, [content, message.segments]);
-  const timelinePartition = useMemo(() => partitionTimeline(timeline), [timeline]);
+  const timelinePartition = useMemo(
+    () => partitionTimeline(timeline, activelyStreaming),
+    [activelyStreaming, timeline],
+  );
   const durationLabel = formatWorkedDuration(
     message.createdAt,
     activelyStreaming ? null : message.updatedAt,
@@ -292,11 +308,16 @@ function AssistantMessage({
                 item={item}
                 streaming={activelyStreaming}
                 trailing={index === timelinePartition.finalItems.length - 1}
+                onImplementPlan={
+                  message.workMode === 'plan' && message.status === 'completed'
+                    ? onImplementPlan
+                    : null
+                }
               />
             ))}
           </div>
         ) : null}
-        {activelyStreaming && (
+        {activelyStreaming && !questionPending && (
           <div className="assistant-placeholder">Thinking</div>
         )}
         {!activelyStreaming && (
@@ -324,25 +345,6 @@ function AssistantMessage({
                   onClick={onRetry}
                 >
                   <RotateCcw size={15} />
-                </button>
-              )}
-              {canResumeFromFailure && (
-                <button
-                  className="try-again-action"
-                  type="button"
-                  disabled={resuming}
-                  title="Continue from the last confirmed step"
-                  onClick={async () => {
-                    setResuming(true);
-                    try {
-                      await onResume();
-                    } finally {
-                      setResuming(false);
-                    }
-                  }}
-                >
-                  <RotateCcw size={14} />
-                  <span>{resuming ? 'Trying…' : 'Try again'}</span>
                 </button>
               )}
               <button
@@ -411,11 +413,32 @@ function AssistantMessage({
                   )}
                 </div>
               )}
+              {canResumeFromFailure && (
+                <button
+                  className="try-again-action"
+                  type="button"
+                  disabled={resuming}
+                  title="Continue from the last confirmed step"
+                  onClick={async () => {
+                    setResuming(true);
+                    try {
+                      await onResume();
+                    } finally {
+                      setResuming(false);
+                    }
+                  }}
+                >
+                  <RotateCcw size={14} />
+                  <span>{resuming ? 'Trying…' : 'Try again'}</span>
+                </button>
+              )}
             </div>
             <div className="message-meta">
               <span>{registeredTime}</span>
               <span aria-hidden="true">·</span>
-              <span>{modelName}</span>
+              <span className="message-meta-model" title={message.model ?? modelName}>
+                {modelName}
+              </span>
             </div>
           </div>
         )}
@@ -433,9 +456,20 @@ function AssistantMessage({
   );
 }
 
-function TimelineItem({ item, streaming, trailing }) {
+function TimelineItem({
+  item,
+  streaming,
+  trailing,
+  onImplementPlan,
+}) {
   if (item.type === 'content') {
-    return <MarkdownSegment text={item.text} finalized={!streaming} />;
+    return (
+      <MarkdownSegment
+        text={item.text}
+        finalized={!streaming}
+        onImplementPlan={onImplementPlan}
+      />
+    );
   }
 
   return (
@@ -447,14 +481,80 @@ function TimelineItem({ item, streaming, trailing }) {
   );
 }
 
-function MarkdownSegment({ text, finalized }) {
+function MarkdownSegment({ text, finalized, onImplementPlan }) {
+  const [implementing, setImplementing] = useState(false);
   const components = useMemo(() => createMarkdownComponents(finalized), [finalized]);
+  const parts = useMemo(() => {
+    const parsed = [];
+    const pattern = /<execution-plan>\s*([\s\S]*?\S)\s*<\/execution-plan>/g;
+    let cursor = 0;
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      if (match.index > cursor) {
+        parsed.push({
+          type: 'markdown',
+          text: text.slice(cursor, match.index),
+        });
+      }
+      parsed.push({
+        type: 'execution-plan',
+        text: match[1].trim(),
+      });
+      cursor = match.index + match[0].length;
+    }
+    if (cursor < text.length) {
+      parsed.push({
+        type: 'markdown',
+        text: text.slice(cursor),
+      });
+    }
+    return parsed;
+  }, [text]);
+  const planCount = parts.filter((part) => part.type === 'execution-plan').length;
 
   if (!text.trim()) return null;
   return (
-    <div className="markdown-body">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{text}</ReactMarkdown>
-    </div>
+    <>
+      {parts.map((part, index) => (
+        part.type === 'execution-plan' ? (
+          <section
+            key={`execution-plan:${index}`}
+            className="execution-plan"
+            aria-label="Execution plan"
+          >
+            <div className="execution-plan-label">Execution plan</div>
+            <div className="markdown-body execution-plan-content">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+                {part.text}
+              </ReactMarkdown>
+            </div>
+            {finalized && planCount === 1 && onImplementPlan && (
+              <button
+                className="implement-plan-button"
+                type="button"
+                disabled={implementing}
+                onClick={async () => {
+                  setImplementing(true);
+                  try {
+                    await onImplementPlan();
+                  } finally {
+                    setImplementing(false);
+                  }
+                }}
+              >
+                {implementing ? 'Implementing...' : 'Implement plan'}
+              </button>
+            )}
+          </section>
+        ) : part.text.trim() ? (
+          <div key={`markdown:${index}`} className="markdown-body">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+              {part.text}
+            </ReactMarkdown>
+          </div>
+        ) : null
+      ))}
+    </>
   );
 }
 
@@ -599,10 +699,10 @@ function MutedSegment({ segment }) {
     let output = rawOutput;
     try {
       input = JSON.stringify(JSON.parse(rawInput), null, 2);
-    } catch {}
+    } catch { }
     try {
       output = JSON.stringify(JSON.parse(rawOutput), null, 2);
-    } catch {}
+    } catch { }
 
     return (
       <details className="tool-entry">
@@ -633,7 +733,14 @@ function MutedSegment({ segment }) {
   return null;
 }
 
-function partitionTimeline(timeline) {
+function partitionTimeline(timeline, streaming) {
+  if (streaming) {
+    return {
+      workedItems: [],
+      finalItems: timeline,
+    };
+  }
+
   const lastThinkingIndex = timeline.findLastIndex((item) => item.type === 'thinking');
   if (lastThinkingIndex < 0) {
     return {

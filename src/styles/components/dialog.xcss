@@ -96,6 +96,136 @@
   font-size: 12px;
 }
 
+.permission-dialog-backdrop {
+  z-index: 90;
+}
+
+.permission-dialog {
+  width: min(540px, 100%);
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 16px;
+  padding: 22px;
+  color: var(--color-text);
+  background: var(--surface-dialog);
+  border: 1px solid var(--surface-dialog-border);
+  border-radius: 10px;
+  box-shadow: 0 28px 90px var(--shadow-dialog);
+
+  h2,
+  p,
+  dl {
+    margin: 0;
+  }
+
+  h2 {
+    color: var(--color-text-strong);
+    font-size: 16px;
+  }
+
+  p {
+    margin-top: 5px;
+    color: var(--color-muted);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  dl {
+    display: grid;
+    gap: 5px;
+    margin-top: 14px;
+    padding: 10px;
+    background: var(--surface-muted);
+    border-radius: 8px;
+  }
+
+  dl > div {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  dt {
+    color: var(--color-muted);
+    font-size: 11px;
+  }
+
+  dd {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+    color: var(--color-text-primary);
+    font-size: 11px;
+  }
+
+  pre {
+    max-height: 180px;
+    margin: 10px 0 0;
+    padding: 10px;
+    overflow: auto;
+    color: var(--color-code-block-text);
+    background: var(--surface-code-block-soft);
+    border: 1px solid var(--border-control);
+    border-radius: 8px;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+.permission-dialog-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-primary);
+  background: var(--surface-warning-soft);
+  border: 1px solid var(--border-control);
+  border-radius: 9px;
+}
+
+.permission-dialog-copy {
+  min-width: 0;
+}
+
+.permission-dialog-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+
+  button {
+    min-height: 32px;
+    padding: 6px 10px;
+    color: var(--color-text-soft);
+    background: var(--surface-muted);
+    border: 1px solid var(--border-control);
+    border-radius: 7px;
+    font-size: 12px;
+
+    &:hover {
+      background: var(--surface-hover);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--border-accent);
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      opacity: .5;
+      cursor: wait;
+    }
+  }
+}
+
+@media (max-width: 560px) {
+  .permission-dialog-actions {
+    display: grid;
+  }
+}
+
 .search-results button {
   display: grid;
   gap: 4px;

@@ -1,13 +1,19 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   nativeTheme,
   shell,
 } from 'electron';
 import { spawnSync } from 'node:child_process';
-import { writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  mkdir,
+  readFile,
+  writeFile,
+} from 'node:fs/promises';
 import { homedir, release } from 'node:os';
 import {
   basename,
@@ -22,10 +28,12 @@ import {
   closeDatabase,
   createConversation,
   deleteConversation,
+  deleteProviderCredentials,
   forkConversation,
   getConversation,
   getMessages,
   getPreferences,
+  getProviderCredentials,
   listConversations,
   listFavorites,
   listProviders,
@@ -33,28 +41,41 @@ import {
   listSubagents,
   searchChats,
   setFavorite,
+  setProviderCredentials,
   setProviders,
   updateConversation,
 } from './database.js';
-import { filePathToAttachment } from './files.js';
 import { ChatRunner } from './chat-runner.js';
+import { stopConversationTerminals } from './client-tools.js';
 import { listContextItems } from './context-injection.js';
-import {
-  ModelProviderRegistry,
-  normalizeProviderConfig,
-} from './model-provider.js';
+import { filePathToAttachment } from './files.js';
+import { ModelProviderRegistry } from './model-provider.js';
 import { McpManager } from './mcp-manager.js';
+import { providerTypes } from '../providers/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const appIconPath = join(
   __dirname,
   process.platform === 'win32' ? '../../assets/icon/aivchat.ico' : '../../assets/icon/aivchat.png',
 );
-const providerRegistry = new ModelProviderRegistry(listProviders);
+const providerRegistry = new ModelProviderRegistry({
+  getProviders: listProviders,
+  providerTypes,
+  services: {
+    credentials: {
+      get: getProviderCredentials,
+      set: setProviderCredentials,
+      delete: deleteProviderCredentials,
+    },
+    clipboard,
+    shell,
+  },
+});
 let mainWindow;
 let chatRunner;
 let mcpManager;
 let shutdownStarted = false;
+let shutdownReady = false;
 
 app.setName('AIVAX');
 if (process.env.CHAT_APP_SMOKE_PROFILE) {
@@ -77,16 +98,18 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', (event) => {
-  if (shutdownStarted) {
-    closeDatabase();
-    return;
-  }
+  if (shutdownReady) return;
   event.preventDefault();
+  if (shutdownStarted) return;
   shutdownStarted = true;
-  Promise.resolve(mcpManager?.closeAll()).finally(() => {
-    closeDatabase();
-    app.quit();
-  });
+  Promise.resolve(chatRunner?.shutdown())
+    .then(() => mcpManager?.closeAll())
+    .catch((error) => console.error('Shutdown failed:', error))
+    .finally(() => {
+      closeDatabase();
+      shutdownReady = true;
+      app.quit();
+    });
 });
 
 app.on('activate', () => {
@@ -152,6 +175,20 @@ function createWindow() {
           mainWindow.webContents.send('chat:event', payload);
         }
       },
+      savePermissionGuidance: async ({ workspacePath, invocationSummary }) => {
+        const agentsPath = join(homedir(), '.agents');
+        const guidancePath = join(agentsPath, 'MEMORY.permissionguidance.md');
+        const line = `On folder ${workspacePath || process.cwd()}, user classified tools like ${invocationSummary} are not dangerous and should be always approved`;
+        await mkdir(agentsPath, { recursive: true });
+        const current = await readFile(guidancePath, 'utf8').catch(() => '');
+        if (!current.split(/\r?\n/).includes(line)) {
+          await appendFile(
+            guidancePath,
+            `${current && !current.endsWith('\n') ? '\n' : ''}${line}\n`,
+          );
+        }
+      },
+      stopBackgroundTasks: stopConversationTerminals,
       debugStream: process.env.CHAT_APP_OPEN_DEVTOOLS === '1',
     });
   }
@@ -297,12 +334,9 @@ function registerIpc() {
   ));
   ipcMain.handle('conversations:messages', (_event, conversationId) => getMessages(conversationId));
   ipcMain.handle('conversations:delete', (_event, conversationId) => {
-    chatRunner.stop(conversationId);
+    chatRunner.stop(conversationId, { includeSubagents: true });
     for (const sideChat of listSideChats(conversationId)) {
       chatRunner.stop(sideChat.id);
-    }
-    for (const subagent of listSubagents(conversationId)) {
-      chatRunner.stop(subagent.id);
     }
     deleteConversation(conversationId);
     return listConversationsWithProjects();
@@ -340,17 +374,56 @@ function registerIpc() {
   ));
 
   ipcMain.handle('providers:list', () => listProviders());
+  ipcMain.handle('providers:types', () => providerRegistry.listTypes());
   ipcMain.handle('providers:save', (_event, payload) => {
-    const provider = normalizeProviderConfig(payload);
+    const provider = providerRegistry.normalizeConfig(payload);
     const providers = listProviders();
     const index = providers.findIndex((item) => item.id === provider.id);
     return setProviders(index < 0
       ? [...providers, provider]
       : providers.map((item) => item.id === provider.id ? provider : item));
   });
-  ipcMain.handle('providers:remove', (_event, providerId) => (
-    setProviders(listProviders().filter((provider) => provider.id !== providerId))
+  ipcMain.handle('providers:remove', async (_event, providerId) => {
+    const providers = listProviders();
+    await providerRegistry.remove(providerId);
+    return setProviders(providers.filter((provider) => provider.id !== providerId));
+  });
+  ipcMain.handle('providers:state', (_event, providerId) => providerRegistry.getState(providerId));
+  ipcMain.handle('providers:action', (_event, payload = {}) => (
+    providerRegistry.invokeAction(payload.providerId, payload.action, payload.input)
   ));
+  ipcMain.handle('providers:auxiliary-panels', (_event, payload = {}) => {
+    const conversation = payload.conversationId
+      ? getConversation(payload.conversationId)
+      : null;
+    return providerRegistry.listAuxiliaryPanels({
+      conversation,
+      workspacePath: conversation?.projectPath ?? null,
+    });
+  });
+  ipcMain.handle('providers:auxiliary-panel', (_event, payload = {}) => {
+    const conversation = payload.conversationId
+      ? getConversation(payload.conversationId)
+      : null;
+    return providerRegistry.readAuxiliaryPanel(payload.panelId, {
+      conversation,
+      workspacePath: conversation?.projectPath ?? null,
+    });
+  });
+  ipcMain.handle('providers:auxiliary-panel-action', (_event, payload = {}) => {
+    const conversation = payload.conversationId
+      ? getConversation(payload.conversationId)
+      : null;
+    return providerRegistry.invokeAuxiliaryPanelAction(
+      payload.panelId,
+      payload.action,
+      payload.input,
+      {
+        conversation,
+        workspacePath: conversation?.projectPath ?? null,
+      },
+    );
+  });
 
   ipcMain.handle('models:list', () => providerRegistry.listModels());
   ipcMain.handle('models:favorites', () => listFavorites());
@@ -396,6 +469,8 @@ function registerIpc() {
     };
   });
   ipcMain.handle('chat:retry', (_event, payload) => chatRunner.retry(payload));
+  ipcMain.handle('chat:resolve-approval', (_event, payload) => chatRunner.resolveApproval(payload));
+  ipcMain.handle('chat:answer-question', (_event, payload) => chatRunner.answerQuestion(payload));
   ipcMain.handle('chat:compress', (_event, payload) => chatRunner.compress({
     conversationId: payload?.conversationId,
     model: payload?.model,
@@ -403,7 +478,7 @@ function registerIpc() {
   ipcMain.handle('chat:cancel-queued', (_event, payload) => chatRunner.cancelQueuedMessage(payload));
   ipcMain.handle('chat:reorder-queued', (_event, payload) => chatRunner.reorderQueuedMessages(payload));
   ipcMain.handle('chat:stop', (_event, conversationId) => {
-    chatRunner.stop(conversationId);
+    chatRunner.stop(conversationId, { includeSubagents: true });
     return true;
   });
 

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   deleteMessage,
   ensureConversation,
@@ -5,6 +6,7 @@ import {
   getMessage,
   getMessages,
   insertMessage,
+  listSubagents,
   setLastModel,
   toModelMessages,
   toModelMessagesThroughUser,
@@ -16,6 +18,17 @@ import { StreamAccumulator } from './streaming.js';
 
 const MAX_TOOL_OUTPUT_CHARS = 120_000;
 const AUTOMATIC_COMPACTION_THRESHOLD = 0.9;
+const PLAN_TOOL_NAMES = new Set([
+  'ask_question',
+  'chat_inspect_thread',
+  'chat_list_folders',
+  'chat_list_threads',
+  'file_search',
+  'grep_search',
+  'read_file',
+  'read_terminal_output',
+  'read_url',
+]);
 const COMPACTION_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a highly detailed handoff summary for another LLM that will resume this exact task. Do not continue the task itself and do not omit implementation details merely to be concise.
 
 Include:
@@ -37,13 +50,20 @@ export class ChatRunner {
     registry,
     mcpManager,
     sendEvent,
+    savePermissionGuidance,
+    stopBackgroundTasks,
     debugStream = false,
   }) {
     this.registry = registry;
     this.mcpManager = mcpManager;
     this.sendEvent = sendEvent;
+    this.savePermissionGuidance = savePermissionGuidance;
+    this.stopBackgroundTasks = stopBackgroundTasks;
     this.debugStream = debugStream;
     this.runs = new Map();
+    this.pendingApprovals = new Map();
+    this.pendingQuestions = new Map();
+    this.approvedToolPatterns = new Set();
   }
 
   async send({
@@ -53,8 +73,11 @@ export class ChatRunner {
     attachments = [],
     steer = false,
     reasoningEffort = null,
+    permissionMode = 'approve_for_me',
+    workMode = null,
     project = {},
   }) {
+    workMode = workMode === 'plan' ? 'plan' : null;
     const conversation = ensureConversation(conversationId, model, project);
     setLastModel(model);
 
@@ -63,16 +86,29 @@ export class ChatRunner {
         conversationId: conversation.id,
         model,
         reasoningEffort,
+        workMode,
         text,
         attachments,
         status: steer ? 'steered' : 'queued',
       });
       const run = this.runs.get(conversation.id);
       if (steer) {
-        run.queue.unshift({ userMessageId: queued.id, model, reasoningEffort });
-        run.controller.abort('steer');
+        run.queue.unshift({
+          userMessageId: queued.id,
+          model,
+          reasoningEffort,
+          permissionMode,
+          workMode,
+        });
+        this.requestSteer(conversation.id);
       } else {
-        run.queue.push({ userMessageId: queued.id, model, reasoningEffort });
+        run.queue.push({
+          userMessageId: queued.id,
+          model,
+          reasoningEffort,
+          permissionMode,
+          workMode,
+        });
       }
       this.emit(conversation.id, { type: 'message', message: queued });
       const queueOrder = run.queue.map((item) => item.userMessageId);
@@ -89,9 +125,12 @@ export class ChatRunner {
       conversationId: conversation.id,
       model,
       reasoningEffort,
+      workMode,
       text,
       attachments,
-      status: !this.mcpManager || this.mcpManager.isWorkspaceReady(conversation.projectPath)
+      status: workMode === 'plan'
+        || !this.mcpManager
+        || this.mcpManager.isWorkspaceReady(conversation.projectPath)
         ? 'sent'
         : 'waiting_mcp',
     });
@@ -101,22 +140,51 @@ export class ChatRunner {
       model,
       userMessageId: userMessage.id,
       reasoningEffort,
+      permissionMode,
+      workMode,
     });
     return { conversation: getConversation(conversation.id), message: userMessage, queued: false };
   }
 
-  stop(conversationId, { clearQueue = true } = {}) {
-    const run = this.runs.get(conversationId);
-    if (run) {
-      if (clearQueue) {
-        for (const item of run.queue) {
-          deleteMessage(item.userMessageId);
-          this.emit(conversationId, { type: 'message-delete', messageId: item.userMessageId });
+  stop(conversationId, { clearQueue = true, includeSubagents = false } = {}) {
+    const conversationIds = [
+      conversationId,
+      ...(includeSubagents
+        ? listSubagents(conversationId).map((subagent) => subagent.id)
+        : []),
+    ];
+    for (const id of conversationIds) {
+      const run = this.runs.get(id);
+      if (run) {
+        if (clearQueue) {
+          for (const item of run.queue) {
+            deleteMessage(item.userMessageId);
+            this.emit(id, { type: 'message-delete', messageId: item.userMessageId });
+          }
+          run.queue = [];
         }
-        run.queue = [];
+        run.controller.abort('stop');
       }
-      run.controller.abort('stop');
+      this.stopBackgroundTasks?.(id);
     }
+  }
+
+  async shutdown() {
+    const activeRuns = [...this.runs.entries()];
+    for (const [conversationId] of activeRuns) {
+      this.stop(conversationId);
+    }
+    await Promise.allSettled(activeRuns.map(([, run]) => run.completion));
+  }
+
+  requestSteer(conversationId) {
+    const run = this.runs.get(conversationId);
+    if (!run) return false;
+    run.steerRequested = true;
+    if (['approval', 'question'].includes(run.phase)) {
+      run.controller.abort('steer');
+    }
+    return true;
   }
 
   cancelQueuedMessage({ conversationId, messageId }) {
@@ -169,7 +237,9 @@ export class ChatRunner {
       const orderedQueue = requestedIds.map((messageId) => queuedById.get(messageId));
       const next = orderedQueue.shift();
       const sentMessage = updateMessage(next.userMessageId, {
-        status: !this.mcpManager || this.mcpManager.isWorkspaceReady(conversation?.projectPath)
+        status: next.workMode === 'plan'
+          || !this.mcpManager
+          || this.mcpManager.isWorkspaceReady(conversation?.projectPath)
           ? 'sent'
           : 'waiting_mcp',
       });
@@ -184,6 +254,8 @@ export class ChatRunner {
         userMessageId: next.userMessageId,
         queue: orderedQueue,
         reasoningEffort: next.reasoningEffort,
+        permissionMode: next.permissionMode,
+        workMode: next.workMode,
       });
       return {
         reordered: true,
@@ -212,7 +284,7 @@ export class ChatRunner {
       if (steeredMessage) {
         this.emit(conversationId, { type: 'message', message: steeredMessage });
       }
-      run.controller.abort('steer');
+      this.requestSteer(conversationId);
     }
     return {
       reordered: true,
@@ -226,6 +298,7 @@ export class ChatRunner {
     model,
     assistantMessageId,
     resumeFromFailure = false,
+    permissionMode = 'approve_for_me',
   }) {
     const conversation = ensureConversation(conversationId, model);
     setLastModel(model);
@@ -310,32 +383,10 @@ export class ChatRunner {
 
       const initialToolHistory = [...roundsByIndex.entries()]
         .sort(([left], [right]) => left - right)
-        .map(([, round]) => ({
-          ...round,
-          responseItems: [
-            ...(round.assistantContent
-              ? [{
-                  type: 'message',
-                  role: 'assistant',
-                  content: [{ type: 'output_text', text: round.assistantContent }],
-                }]
-              : []),
-            ...round.toolCalls.map((toolCall) => ({
-              type: 'function_call',
-              call_id: toolCall.callId,
-              name: toolCall.name,
-              arguments: toolCall.argumentsText,
-            })),
-          ],
-        }));
+        .map(([, round]) => round);
       if (pendingAssistantContent) {
         initialToolHistory.push({
           assistantContent: pendingAssistantContent,
-          responseItems: [{
-            type: 'message',
-            role: 'assistant',
-            content: [{ type: 'output_text', text: pendingAssistantContent }],
-          }],
           toolCalls: [],
           results: [],
         });
@@ -353,6 +404,8 @@ export class ChatRunner {
         resumeAssistantMessageId: failedAssistant.id,
         initialSegments: resumeSegments,
         initialUsage: failedAssistant.usage,
+        permissionMode,
+        workMode: sourceUser.workMode,
       });
       return {
         conversation: getConversation(conversation.id),
@@ -374,6 +427,7 @@ export class ChatRunner {
       .slice(0, searchEnd)
       .findLastIndex((message) => message.role === 'user' && ['sent', 'completed'].includes(message.status));
     const staleMessages = lastUserIndex >= 0 ? conversationMessages.slice(lastUserIndex + 1) : [];
+    const sourceUser = lastUserIndex >= 0 ? conversationMessages[lastUserIndex] : null;
     for (const message of staleMessages) {
       if (['queued', 'steered'].includes(message.status)) continue;
       deleteMessage(message.id);
@@ -385,6 +439,8 @@ export class ChatRunner {
       model,
       queue,
       retryMessages: messages,
+      permissionMode,
+      workMode: sourceUser?.workMode,
     });
 
     return { conversation: getConversation(conversation.id), message: null, queued: false };
@@ -440,12 +496,16 @@ export class ChatRunner {
         queue: [],
         model: selection.model.id,
         kind: 'compression',
+        phase: 'inference',
+        steerRequested: false,
       });
       this.emit(conversation.id, { type: 'run-state', running: true });
     }
 
     let compressionUsage = null;
     try {
+      const run = this.runs.get(conversation.id);
+      if (run) run.phase = 'inference';
       const turn = await selection.provider.stream({
         model: selection.model,
         messages: [
@@ -460,6 +520,10 @@ export class ChatRunner {
           if (event.type === 'usage') compressionUsage = event.usage;
         },
       });
+      if (run) {
+        run.phase = 'boundary';
+        if (this.shouldEndAtBoundary(run)) throw new Error('The run was interrupted.');
+      }
       const checkpoint = turn.assistantContent.trim();
       if (!checkpoint) {
         throw new Error('The model returned an empty context checkpoint.');
@@ -501,8 +565,7 @@ export class ChatRunner {
       throw error;
     } finally {
       if (!automatic) {
-        this.runs.delete(conversation.id);
-        this.emit(conversation.id, { type: 'run-state', running: false });
+        this.finishRun(conversation.id);
       }
     }
   }
@@ -514,6 +577,8 @@ export class ChatRunner {
         userMessageId: message.id,
         model: message.model || fallbackModel,
         reasoningEffort: message.reasoningEffort,
+        permissionMode: 'approve_for_me',
+        workMode: message.workMode,
       }));
   }
 
@@ -521,6 +586,7 @@ export class ChatRunner {
     conversationId,
     model,
     reasoningEffort,
+    workMode,
     text,
     attachments,
     status,
@@ -530,6 +596,7 @@ export class ChatRunner {
       role: 'user',
       model,
       reasoningEffort,
+      workMode,
       status,
       content: text,
       attachments,
@@ -559,7 +626,17 @@ export class ChatRunner {
     initialSegments = [],
     initialUsage = null,
     reasoningEffort = null,
+    permissionMode = 'approve_for_me',
+    workMode = null,
   }) {
+    workMode = workMode === 'plan' ? 'plan' : null;
+    permissionMode = [
+      'ask_for_approval',
+      'approve_for_me',
+      'full_access',
+    ].includes(permissionMode)
+      ? permissionMode
+      : 'approve_for_me';
     const controller = new AbortController();
     const accumulator = new StreamAccumulator({
       segments: initialSegments,
@@ -576,6 +653,7 @@ export class ChatRunner {
           conversationId,
           role: 'assistant',
           model,
+          workMode,
           status: 'streaming',
           content: '',
         });
@@ -585,7 +663,13 @@ export class ChatRunner {
       assistantMessageId: assistantMessage.id,
       accumulator,
       model,
+      permissionMode,
+      workMode,
+      phase: 'mcp',
+      steerRequested: false,
     };
+    const completion = Promise.withResolvers();
+    run.completion = completion.promise;
     this.runs.set(conversationId, run);
     this.emit(conversationId, { type: 'message', message: assistantMessage });
     this.emit(conversationId, { type: 'run-state', running: true });
@@ -617,14 +701,19 @@ export class ChatRunner {
     try {
       const workspacePath = getConversation(conversationId)?.projectPath;
       waitingForMcp = Boolean(
-        this.mcpManager && !this.mcpManager.isWorkspaceReady(workspacePath),
+        workMode !== 'plan'
+        && this.mcpManager
+        && !this.mcpManager.isWorkspaceReady(workspacePath),
       );
       if (waitingForMcp) {
         this.emit(conversationId, { type: 'mcp-waiting', waiting: true });
       }
-      const mcpRuntime = this.mcpManager
+      const mcpRuntime = workMode === 'plan'
+        ? { tools: [], instructions: [] }
+        : this.mcpManager
         ? await this.mcpManager.ensureWorkspace(workspacePath, controller.signal)
         : { tools: [], instructions: [] };
+      if (this.shouldEndAtBoundary(run)) throw new Error('The run was interrupted.');
       if (userMessageId && getMessage(userMessageId)?.status === 'waiting_mcp') {
         const sentMessage = updateMessage(userMessageId, { status: 'sent' });
         this.emit(conversationId, { type: 'message', message: sentMessage });
@@ -643,8 +732,16 @@ export class ChatRunner {
         ?? toModelMessages(conversationId, { excludeMessageId: assistantMessage.id });
       const models = this.registry.listModels();
       const currentConversation = getConversation(conversationId);
+      const providerTools = workMode === 'plan'
+        ? []
+        : selection.provider.getContributions({
+            model: selection.model,
+            conversation: currentConversation,
+            workspacePath,
+          }).tools;
       const availableTools = [
         ...CLIENT_TOOLS
+          .filter((tool) => workMode !== 'plan' || PLAN_TOOL_NAMES.has(tool.name))
           .filter((tool) => (
             tool.name !== 'chat_report_to_orchestrator' || currentConversation?.isSubagent
           ))
@@ -673,11 +770,11 @@ export class ChatRunner {
               }
             : tool
           )),
+        ...providerTools,
         ...mcpRuntime.tools,
       ];
       const toolHistory = initialToolHistory.map((round) => ({
         ...round,
-        responseItems: [...round.responseItems],
         toolCalls: [...round.toolCalls],
         results: [...round.results],
       }));
@@ -695,6 +792,7 @@ export class ChatRunner {
 
       while (true) {
         const roundIndex = toolHistory.length;
+        run.phase = 'inference';
         const turn = await selection.provider.stream({
           model: selection.model,
           messages,
@@ -702,8 +800,11 @@ export class ChatRunner {
           toolHistory,
           reasoningEffort,
           invocationContext: {
+            conversationId,
             workspacePath,
             mcpInstructions: mcpRuntime.instructions,
+            permissionMode,
+            workMode,
           },
           signal: controller.signal,
           onEvent: (event) => {
@@ -728,6 +829,8 @@ export class ChatRunner {
             });
           },
         });
+        run.phase = 'boundary';
+        if (this.shouldEndAtBoundary(run)) throw new Error('The run was interrupted.');
         if (turn.toolCalls.length === 0) break;
 
         const results = [];
@@ -738,9 +841,6 @@ export class ChatRunner {
 
           const tool = availableTools.find((item) => item.name === toolCall.name);
           const isMcpTool = Boolean(tool?.mcp);
-          const expectedRequiresHumanApproval = Boolean(
-            tool?.canEditFile || tool?.canPerformDestructiveActions,
-          );
           let args;
           try {
             args = JSON.parse(toolCall.argumentsText);
@@ -759,6 +859,12 @@ export class ChatRunner {
             delete input.__requires_human_approval;
             delete input.__invocation_goal;
           }
+          const invocationSummary = (
+            invocationGoal
+            || tool?.description
+            || toolCall.name
+          ).replace(/\s+/g, ' ').trim();
+          const approvalPattern = `${workspacePath ?? ''}\0${invocationSummary.toLowerCase()}`;
           accumulator.apply({
             type: 'tool-call',
             key: `round:${roundIndex}:${toolCall.key ?? toolCall.callId}`,
@@ -769,7 +875,7 @@ export class ChatRunner {
               : toolCall.argumentsText,
             replaceArguments: true,
             invocationGoal,
-            requiresHumanApproval: expectedRequiresHumanApproval,
+            requiresHumanApproval: requiresHumanApproval === true,
           });
           persistAssistant({ force: true });
 
@@ -779,17 +885,61 @@ export class ChatRunner {
             if (!args || typeof args !== 'object' || Array.isArray(args)) {
               throw new Error('Tool arguments must be a JSON object.');
             }
-            if (!isMcpTool && !invocationGoal) {
+            if (!invocationGoal) {
               throw new Error('Tool arguments must include __invocation_goal.');
             }
-            if (!isMcpTool && typeof requiresHumanApproval !== 'boolean') {
+            if (typeof requiresHumanApproval !== 'boolean') {
               throw new Error('Tool arguments must include __requires_human_approval as a boolean.');
             }
-            if (!isMcpTool && requiresHumanApproval !== expectedRequiresHumanApproval) {
-              throw new Error('__requires_human_approval does not match the tool classification.');
-            }
             if (!tool) throw new Error(`Unknown client-side tool: ${toolCall.name}.`);
+            if (
+              workMode === 'plan'
+              && (tool.mcp || !PLAN_TOOL_NAMES.has(tool.name))
+            ) {
+              throw new Error(`Tool ${toolCall.name} is not available in Plan mode.`);
+            }
 
+            const needsApproval = tool.approval !== 'never'
+              && requiresHumanApproval
+              && permissionMode !== 'full_access'
+              && !this.approvedToolPatterns.has(approvalPattern);
+            if (needsApproval) {
+              const approvalId = randomUUID();
+              run.phase = 'approval';
+              const approved = await new Promise((resolveApproval, rejectApproval) => {
+                const abortApproval = () => {
+                  this.pendingApprovals.delete(approvalId);
+                  this.emit(conversationId, {
+                    type: 'permission-cancelled',
+                    approvalId,
+                  });
+                  rejectApproval(controller.signal.reason ?? new Error('Tool approval was cancelled.'));
+                };
+                this.pendingApprovals.set(approvalId, {
+                  approvalPattern,
+                  invocationSummary,
+                  workspacePath,
+                  finish: (decision) => {
+                    controller.signal.removeEventListener('abort', abortApproval);
+                    resolveApproval(decision);
+                  },
+                });
+                controller.signal.addEventListener('abort', abortApproval, { once: true });
+                this.emit(conversationId, {
+                  type: 'permission-request',
+                  approvalId,
+                  toolName: toolCall.name,
+                  invocationSummary,
+                  workspacePath,
+                  input,
+                });
+              });
+              if (!approved) {
+                throw new Error('The user disallowed this tool call.');
+              }
+            }
+
+            run.phase = 'tool';
             const value = await tool.execute(input, {
               signal: controller.signal,
               workspacePath,
@@ -798,13 +948,20 @@ export class ChatRunner {
               model,
               models,
               reasoningEffort,
+              workMode,
             });
             output = typeof value === 'string' ? value : JSON.stringify(value);
           } catch (error) {
             isError = true;
-            output = JSON.stringify({
-              error: error instanceof Error ? error.message : String(error),
-            });
+            output = JSON.stringify(toolCall.name === 'ask_question'
+              ? {
+                  error: error instanceof Error ? error.message : String(error),
+                  userResponded: false,
+                  instruction: 'No user answer was collected. Correct the arguments and call ask_question again. Do not infer an answer.',
+                }
+              : {
+                  error: error instanceof Error ? error.message : String(error),
+                });
           }
 
           if (output.length > MAX_TOOL_OUTPUT_CHARS) {
@@ -825,11 +982,13 @@ export class ChatRunner {
             isError,
           });
           persistAssistant({ force: true });
+          run.phase = 'boundary';
+          if (this.shouldEndAtBoundary(run)) throw new Error('The run was interrupted.');
         }
 
         toolHistory.push({
           assistantContent: turn.assistantContent,
-          responseItems: turn.responseItems,
+          continuation: turn.continuation,
           toolCalls: turn.toolCalls,
           results,
         });
@@ -925,33 +1084,179 @@ export class ChatRunner {
         this.emit(conversationId, { type: 'error', message });
       }
     } finally {
-      const current = this.runs.get(conversationId);
-      this.runs.delete(conversationId);
-      const pendingQueue = current?.queue ?? [];
-      const next = pendingQueue.shift();
-      if (next) {
-        this.emit(conversationId, {
-          type: 'queue-order',
-          messageIds: pendingQueue.map((item) => item.userMessageId),
-        });
-        const workspacePath = getConversation(conversationId)?.projectPath;
-        const nextMessage = updateMessage(next.userMessageId, {
-          status: !this.mcpManager || this.mcpManager.isWorkspaceReady(workspacePath)
-            ? 'sent'
-            : 'waiting_mcp',
-        });
-        this.emit(conversationId, { type: 'message', message: nextMessage });
-        this.start({
-          conversationId,
-          model: next.model,
-          userMessageId: next.userMessageId,
-          queue: pendingQueue,
-          reasoningEffort: next.reasoningEffort,
-        });
-      } else {
-        this.emit(conversationId, { type: 'run-state', running: false });
+      try {
+        this.finishRun(conversationId);
+      } finally {
+        completion.resolve();
       }
     }
+  }
+
+  async askQuestion({ conversationId, questions, signal }) {
+    const run = this.runs.get(conversationId);
+    if (!run || run.controller.signal !== signal) {
+      throw new Error('The active run is no longer available.');
+    }
+    if (signal.aborted) {
+      throw signal.reason instanceof Error
+        ? signal.reason
+        : new Error('The question was cancelled.');
+    }
+
+    const questionId = randomUUID();
+    run.phase = 'question';
+    return new Promise((resolveQuestion, rejectQuestion) => {
+      const abortQuestion = () => {
+        this.pendingQuestions.delete(questionId);
+        this.emit(conversationId, {
+          type: 'question-cancelled',
+          questionId,
+        });
+        rejectQuestion(
+          signal.reason instanceof Error
+            ? signal.reason
+            : new Error('The question was cancelled.'),
+        );
+      };
+      this.pendingQuestions.set(questionId, {
+        conversationId,
+        questions,
+        finish: (result) => {
+          signal.removeEventListener('abort', abortQuestion);
+          if (this.runs.get(conversationId) === run) {
+            run.phase = 'tool';
+          }
+          resolveQuestion(result);
+        },
+      });
+      signal.addEventListener('abort', abortQuestion, { once: true });
+      this.emit(conversationId, {
+        type: 'question-request',
+        questionId,
+        questions,
+      });
+    });
+  }
+
+  answerQuestion({ questionId, cancelled = false, answers = [] }) {
+    const pending = this.pendingQuestions.get(questionId);
+    if (!pending) return false;
+
+    if (cancelled) {
+      this.pendingQuestions.delete(questionId);
+      this.emit(pending.conversationId, {
+        type: 'question-cancelled',
+        questionId,
+      });
+      pending.finish({
+        cancelled: true,
+        answers: [],
+      });
+      return true;
+    }
+
+    if (!Array.isArray(answers) || answers.length !== pending.questions.length) {
+      throw new Error('Every question must have exactly one answer.');
+    }
+    const normalizedAnswers = pending.questions.map((question, index) => {
+      const answer = answers[index];
+      if (
+        !answer
+        || typeof answer !== 'object'
+        || Array.isArray(answer)
+        || answer.question !== question.question
+      ) {
+        throw new Error(`Answer ${index + 1} does not match its question.`);
+      }
+      if (question.type === 'multiple_choice') {
+        if (
+          !Array.isArray(answer.answer)
+          || answer.answer.length === 0
+          || answer.answer.some((option) => !question.options.includes(option))
+        ) {
+          throw new Error(`Answer ${index + 1} must contain selected options.`);
+        }
+        return {
+          question: question.question,
+          answer: [...new Set(answer.answer)],
+        };
+      }
+      const value = typeof answer.answer === 'string' ? answer.answer.trim() : '';
+      if (
+        !value
+        || (question.type === 'single_choice' && !question.options.includes(value))
+      ) {
+        throw new Error(`Answer ${index + 1} must be non-empty.`);
+      }
+      return {
+        question: question.question,
+        answer: value,
+      };
+    });
+
+    this.pendingQuestions.delete(questionId);
+    pending.finish({
+      cancelled: false,
+      answers: normalizedAnswers,
+    });
+    return true;
+  }
+
+  async resolveApproval({ approvalId, decision }) {
+    const pending = this.pendingApprovals.get(approvalId);
+    if (!pending || !['allow', 'allow_all', 'disallow'].includes(decision)) return false;
+
+    if (decision === 'allow_all') {
+      await this.savePermissionGuidance?.({
+        workspacePath: pending.workspacePath,
+        invocationSummary: pending.invocationSummary,
+      });
+      this.approvedToolPatterns.add(pending.approvalPattern);
+    }
+    this.pendingApprovals.delete(approvalId);
+    pending.finish(decision !== 'disallow');
+    return true;
+  }
+
+  shouldEndAtBoundary(run) {
+    if (run.steerRequested && !run.controller.signal.aborted) {
+      run.controller.abort('steer');
+    }
+    return run.controller.signal.aborted;
+  }
+
+  finishRun(conversationId) {
+    const current = this.runs.get(conversationId);
+    this.runs.delete(conversationId);
+    const pendingQueue = current?.queue ?? [];
+    const next = pendingQueue.shift();
+    if (!next) {
+      this.emit(conversationId, { type: 'run-state', running: false });
+      return;
+    }
+
+    this.emit(conversationId, {
+      type: 'queue-order',
+      messageIds: pendingQueue.map((item) => item.userMessageId),
+    });
+    const workspacePath = getConversation(conversationId)?.projectPath;
+    const nextMessage = updateMessage(next.userMessageId, {
+      status: next.workMode === 'plan'
+        || !this.mcpManager
+        || this.mcpManager.isWorkspaceReady(workspacePath)
+        ? 'sent'
+        : 'waiting_mcp',
+    });
+    this.emit(conversationId, { type: 'message', message: nextMessage });
+    this.start({
+      conversationId,
+      model: next.model,
+      userMessageId: next.userMessageId,
+      queue: pendingQueue,
+      reasoningEffort: next.reasoningEffort,
+      permissionMode: next.permissionMode,
+      workMode: next.workMode,
+    });
   }
 
   logChatTiming(conversationId, details) {

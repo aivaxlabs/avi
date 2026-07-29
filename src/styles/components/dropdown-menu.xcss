@@ -7,7 +7,7 @@
   z-index: 120;
   background: var(--surface-menu-solid);
   border: 1px solid var(--border-panel-strong);
-  border-radius: 18px;
+  border-radius: 16px;
   box-shadow: 0 16px 40px var(--shadow-menu);
 
   &.fixed {
@@ -27,7 +27,7 @@
     padding: 6px 8px;
     color: var(--color-text-primary);
     background: transparent;
-    border-radius: 9999px;
+    border-radius: 12px;
     text-align: left;
     font-size: 12px;
 

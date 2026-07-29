@@ -25,8 +25,14 @@ contextBridge.exposeInMainWorld('chatApp', {
   },
   providers: {
     list: () => invoke('providers:list'),
+    types: () => invoke('providers:types'),
     save: (provider) => invoke('providers:save', provider),
     remove: (providerId) => invoke('providers:remove', providerId),
+    state: (providerId) => invoke('providers:state', providerId),
+    action: (payload) => invoke('providers:action', payload),
+    auxiliaryPanels: (payload) => invoke('providers:auxiliary-panels', payload),
+    auxiliaryPanel: (payload) => invoke('providers:auxiliary-panel', payload),
+    auxiliaryPanelAction: (payload) => invoke('providers:auxiliary-panel-action', payload),
   },
   models: {
     list: () => invoke('models:list'),
@@ -49,6 +55,8 @@ contextBridge.exposeInMainWorld('chatApp', {
   chat: {
     send: (payload) => invoke('chat:send', payload),
     retry: (payload) => invoke('chat:retry', payload),
+    resolveApproval: (payload) => invoke('chat:resolve-approval', payload),
+    answerQuestion: (payload) => invoke('chat:answer-question', payload),
     compress: (payload) => invoke('chat:compress', payload),
     cancelQueued: (payload) => invoke('chat:cancel-queued', payload),
     reorderQueued: (payload) => invoke('chat:reorder-queued', payload),

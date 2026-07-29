@@ -182,7 +182,7 @@ export function Sidebar({
   }
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" id="main-sidebar">
       <div className="sidebar-titlebar">
         <div className="app-name">AIVAX</div>
         <button

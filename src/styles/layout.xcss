@@ -17,7 +17,7 @@ body,
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 222px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 222px) 0 minmax(0, 1fr);
   background: transparent;
   overflow: hidden;
   transition: grid-template-columns 160ms var(--base-transition);
@@ -41,5 +41,57 @@ body,
 
   @media (max-width: 700px) {
     grid-template-columns: 58px minmax(0, 1fr);
+  }
+}
+
+.panel-resizer {
+  position: relative;
+  z-index: 70;
+  width: 9px;
+  height: 100%;
+  justify-self: center;
+  cursor: col-resize;
+  touch-action: none;
+  -webkit-app-region: no-drag;
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 4px;
+    width: 1px;
+    background: transparent;
+    transition: background 180ms var(--base-transition),
+      box-shadow 180ms var(--base-transition);
+  }
+
+  &:hover::before,
+  &:focus-visible::before,
+  &.dragging::before {
+    background: var(--border-accent);
+    box-shadow: 0 0 0 1px var(--surface-accent-soft);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-accent);
+    outline-offset: -3px;
+  }
+}
+
+body.panel-resizing {
+  cursor: col-resize;
+  user-select: none;
+
+  .app-shell {
+    transition: none;
+  }
+
+  * {
+    cursor: col-resize !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-resizer::before {
+    transition: none;
   }
 }

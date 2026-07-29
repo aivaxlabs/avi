@@ -14,6 +14,7 @@ import {
   RadioTower,
   Save,
   Server,
+  Sparkles,
   Trash2,
   Workflow,
 } from 'lucide-react';
@@ -23,21 +24,7 @@ import { classNames } from '../lib/format.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { McpSettings } from './McpSettings.jsx';
 
-const reasoningEfforts = ['low', 'medium', 'high', 'xhigh', 'max'];
-const providerTypes = [
-  {
-    id: 'responses',
-    name: 'OpenAI Compatible',
-    description: 'Responses API',
-    endpoint: '/v1/responses',
-  },
-  {
-    id: 'chat-completions',
-    name: 'OpenAI Compatible',
-    description: 'Chat completions API',
-    endpoint: '/v1/chat/completions',
-  },
-];
+const reasoningEfforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const compactTokenFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 1,
@@ -148,6 +135,7 @@ function ActionMenu({
 
 export function SettingsPage({
   providers,
+  providerTypes,
   initialContextFolder = null,
   initialView = null,
   onClose,
@@ -168,6 +156,8 @@ export function SettingsPage({
   const [contextFolder, setContextFolder] = useState(null);
   const [contextLoading, setContextLoading] = useState(false);
   const [mcpNavigation, setMcpNavigation] = useState(null);
+  const [providerState, setProviderState] = useState(null);
+  const [copiedProviderValue, setCopiedProviderValue] = useState('');
   const selectedProvider = providers.find((provider) => provider.id === selectedId) ?? null;
   const selectedType = providerTypes.find((type) => (
     type.id === (providerDraft?.interface ?? selectedProvider?.interface)
@@ -218,6 +208,26 @@ export function SettingsPage({
     };
   }, [selectedContextFolder, view]);
 
+  useEffect(() => {
+    if (!selectedProvider) {
+      setProviderState(null);
+      return undefined;
+    }
+    let active = true;
+    setProviderState(null);
+    setCopiedProviderValue('');
+    window.chatApp.providers.state(selectedProvider.id)
+      .then((status) => {
+        if (active) setProviderState(status);
+      })
+      .catch((nextError) => {
+        if (active) setError(nextError instanceof Error ? nextError.message : String(nextError));
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedProvider?.id]);
+
   async function runProviderMutation(mutation) {
     setBusy(true);
     setError('');
@@ -232,12 +242,17 @@ export function SettingsPage({
   }
 
   function startProviderCreation(interfaceId) {
+    const type = providerTypes.find((item) => item.id === interfaceId);
     const provider = {
       id: crypto.randomUUID(),
-      name: '',
+      name: type?.defaultName ?? '',
       baseUrl: '',
       interface: interfaceId,
       apiKey: '',
+      ...Object.fromEntries((type?.fields ?? []).map((field) => [
+        field.id,
+        field.default ?? '',
+      ])),
       enabled: true,
       models: [],
     };
@@ -441,13 +456,21 @@ export function SettingsPage({
                             setView('provider');
                           }}
                         >
-                          <span className="settings-entity-icon"><Server size={16} /></span>
+                          <span className="settings-entity-icon">
+                            {type?.icon === 'sparkles'
+                              ? <Sparkles size={16} />
+                              : <Server size={16} />}
+                          </span>
                           <span className="settings-entity-copy">
                             <strong>{provider.name}</strong>
                             <small>
                               {type?.description ?? provider.interface}
                               {' · '}
-                              {provider.models.length} {provider.models.length === 1 ? 'model' : 'models'}
+                              {type?.models === 'managed'
+                                ? 'Managed model catalog'
+                                : `${provider.models.length} ${
+                                  provider.models.length === 1 ? 'model' : 'models'
+                                }`}
                             </small>
                           </span>
                           <span className={classNames('settings-status', enabled ? 'enabled' : 'disabled')}>
@@ -637,7 +660,11 @@ export function SettingsPage({
                       type="button"
                       onClick={() => startProviderCreation(type.id)}
                     >
-                      <span className="settings-entity-icon"><Server size={17} /></span>
+                      <span className="settings-entity-icon">
+                        {type.icon === 'sparkles'
+                          ? <Sparkles size={17} />
+                          : <Server size={17} />}
+                      </span>
                       <span>
                         <strong>{type.name}</strong>
                         <small>{type.description}</small>
@@ -674,10 +701,24 @@ export function SettingsPage({
                         <span>Provider type</span>
                         <select
                           value={providerDraft.interface}
-                          onChange={(event) => setProviderDraft({
-                            ...providerDraft,
-                            interface: event.target.value,
-                          })}
+                          onChange={(event) => {
+                            const type = providerTypes.find(
+                              (item) => item.id === event.target.value,
+                            );
+                            setProviderDraft({
+                              ...providerDraft,
+                              interface: event.target.value,
+                              baseUrl: type?.connection === 'custom'
+                                ? providerDraft.baseUrl
+                                : '',
+                              apiKey: type?.connection === 'custom' ? providerDraft.apiKey : '',
+                              models: type?.models === 'custom' ? providerDraft.models : [],
+                              ...Object.fromEntries((type?.fields ?? []).map((field) => [
+                                field.id,
+                                providerDraft[field.id] ?? field.default ?? '',
+                              ])),
+                            });
+                          }}
                         >
                           {providerTypes.map((type) => (
                             <option value={type.id} key={type.id}>
@@ -686,31 +727,137 @@ export function SettingsPage({
                           ))}
                         </select>
                       </label>
-                      <label className="settings-field settings-field-wide">
-                        <span>Base URL</span>
-                        <input
-                          value={providerDraft.baseUrl}
-                          onChange={(event) => setProviderDraft({
-                            ...providerDraft,
-                            baseUrl: event.target.value,
-                          })}
-                          placeholder="https://openrouter.ai/api/v1"
-                        />
-                        <small>The interface path is appended when it is not already present.</small>
-                      </label>
-                      <label className="settings-field settings-field-wide">
-                        <span>API key</span>
-                        <input
-                          type="password"
-                          value={providerDraft.apiKey}
-                          onChange={(event) => setProviderDraft({
-                            ...providerDraft,
-                            apiKey: event.target.value,
-                          })}
-                          placeholder="Optional for local providers"
-                          autoComplete="off"
-                        />
-                      </label>
+                      {selectedType?.connection === 'managed' ? (
+                        <div className="settings-field settings-field-wide subscription-auth">
+                          <span>{providerState?.connection?.title ?? 'Managed connection'}</span>
+                          <div className="subscription-auth-row">
+                            <span className={classNames(
+                              'settings-status',
+                              providerState?.connection?.status === 'connected'
+                                ? 'enabled'
+                                : 'disabled',
+                            )}>
+                              {providerState?.connection?.statusLabel ?? 'Not connected'}
+                            </span>
+                            {selectedProvider ? (
+                              providerState?.connection?.action && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => runProviderMutation(async () => {
+                                    const result = await window.chatApp.providers.action({
+                                      providerId: selectedProvider.id,
+                                      action: providerState.connection.action.id,
+                                    });
+                                    setProviderState(result?.state ?? result);
+                                    if (result?.followUp) {
+                                      try {
+                                        const completed = await window.chatApp.providers.action({
+                                          providerId: selectedProvider.id,
+                                          action: result.followUp.action,
+                                          input: result.followUp.input,
+                                        });
+                                        setProviderState(completed?.state ?? completed);
+                                      } catch (nextError) {
+                                        setProviderState(
+                                          await window.chatApp.providers.state(selectedProvider.id),
+                                        );
+                                        throw nextError;
+                                      }
+                                    }
+                                  })}
+                                >
+                                  {providerState.connection.action.label}
+                                </button>
+                              )
+                            ) : (
+                              <small>Save the provider before signing in.</small>
+                            )}
+                          </div>
+                          {providerState?.connection?.verification && (
+                            <div className="provider-security-code" aria-live="polite">
+                              <span>{providerState.connection.verification.label}</span>
+                              <code>{providerState.connection.verification.value}</code>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const value = providerState.connection.verification.value;
+                                  try {
+                                    await navigator.clipboard.writeText(value);
+                                    setCopiedProviderValue(value);
+                                    setTimeout(() => setCopiedProviderValue((current) => (
+                                      current === value ? '' : current
+                                    )), 2_000);
+                                  } catch (nextError) {
+                                    setError(
+                                      nextError instanceof Error
+                                        ? nextError.message
+                                        : String(nextError),
+                                    );
+                                  }
+                                }}
+                              >
+                                {copiedProviderValue === providerState.connection.verification.value
+                                  ? 'Copied'
+                                  : providerState.connection.verification.copyLabel}
+                              </button>
+                              <small>{providerState.connection.verification.description}</small>
+                            </div>
+                          )}
+                          {providerState?.connection?.description && (
+                            <small>{providerState.connection.description}</small>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <label className="settings-field settings-field-wide">
+                            <span>Base URL</span>
+                            <input
+                              value={providerDraft.baseUrl}
+                              onChange={(event) => setProviderDraft({
+                                ...providerDraft,
+                                baseUrl: event.target.value,
+                              })}
+                              placeholder="https://openrouter.ai/api/v1"
+                            />
+                            <small>The interface path is appended when it is not already present.</small>
+                          </label>
+                          <label className="settings-field settings-field-wide">
+                            <span>API key</span>
+                            <input
+                              type="password"
+                              value={providerDraft.apiKey}
+                              onChange={(event) => setProviderDraft({
+                                ...providerDraft,
+                                apiKey: event.target.value,
+                              })}
+                              placeholder="Optional for local providers"
+                              autoComplete="off"
+                            />
+                          </label>
+                          {(selectedType?.fields ?? []).map((field) => (
+                            field.type === 'select' && (
+                              <label className="settings-field settings-field-wide" key={field.id}>
+                                <span>{field.label}</span>
+                                <select
+                                  value={providerDraft[field.id] ?? field.default ?? ''}
+                                  onChange={(event) => setProviderDraft({
+                                    ...providerDraft,
+                                    [field.id]: event.target.value,
+                                  })}
+                                >
+                                  {field.options.map((option) => (
+                                    <option value={option.value} key={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                {field.description && <small>{field.description}</small>}
+                              </label>
+                            )
+                          ))}
+                        </>
+                      )}
                     </div>
                   </div>
                 </section>
@@ -720,14 +867,16 @@ export function SettingsPage({
                     <div>
                       <h3>Models</h3>
                       <p>
-                        {selectedProvider
+                        {selectedType?.models === 'managed'
+                          ? 'Managed by the provider'
+                          : selectedProvider
                           ? `${selectedProvider.models.length} ${
                             selectedProvider.models.length === 1 ? 'model' : 'models'
                           }`
                           : 'Save this provider before adding models.'}
                       </p>
                     </div>
-                    {selectedProvider && (
+                    {selectedProvider && selectedType?.models === 'custom' && (
                       <button type="button" onClick={() => {
                         setModelIndex(-1);
                         setModelDraft({
@@ -746,7 +895,12 @@ export function SettingsPage({
                       </button>
                     )}
                   </div>
-                  {selectedProvider ? (
+                  {selectedType?.models === 'managed' ? (
+                    <div className="settings-models-locked subscription-models">
+                      <Sparkles size={17} />
+                      <span>{selectedType.modelsDescription}</span>
+                    </div>
+                  ) : selectedProvider ? (
                     <div className="settings-entity-list">
                       {selectedProvider.models.map((model, index) => {
                         const enabled = model.enabled !== false;

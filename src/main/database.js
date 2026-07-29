@@ -49,6 +49,7 @@ db.exec(`
     role TEXT NOT NULL,
     model TEXT,
     reasoning_effort TEXT,
+    work_mode TEXT,
     status TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
     segments TEXT NOT NULL DEFAULT '[]',
@@ -77,6 +78,9 @@ if (!db.pragma('table_info(messages)').some((column) => column.name === 'model')
 }
 if (!db.pragma('table_info(messages)').some((column) => column.name === 'reasoning_effort')) {
   db.exec('ALTER TABLE messages ADD COLUMN reasoning_effort TEXT');
+}
+if (!db.pragma('table_info(messages)').some((column) => column.name === 'work_mode')) {
+  db.exec('ALTER TABLE messages ADD COLUMN work_mode TEXT');
 }
 const conversationColumns = db.pragma('table_info(conversations)');
 if (!conversationColumns.some((column) => column.name === 'project_path')) {
@@ -225,11 +229,11 @@ const statements = {
   `),
   insertMessage: db.prepare(`
     INSERT INTO messages (
-      id, conversation_id, role, model, reasoning_effort, status, content, segments, attachments,
+      id, conversation_id, role, model, reasoning_effort, work_mode, status, content, segments, attachments,
       continuations, usage, created_at, updated_at
     )
     VALUES (
-      @id, @conversationId, @role, @model, @reasoningEffort, @status, @content, @segments, @attachments,
+      @id, @conversationId, @role, @model, @reasoningEffort, @workMode, @status, @content, @segments, @attachments,
       @continuations, @usage, @createdAt, @updatedAt
     )
   `),
@@ -298,6 +302,54 @@ export function setMcpOAuthSessions(sessions) {
   if (!safeStorage.isEncryptionAvailable()) return;
   const encrypted = safeStorage.encryptString(JSON.stringify(sessions)).toString('base64');
   writeJson('mcpOAuthSessions', encrypted);
+}
+
+export function getProviderCredentials(providerId) {
+  const encrypted = readJson('providerCredentials');
+  if (!encrypted || !safeStorage.isEncryptionAvailable()) return null;
+
+  try {
+    const credentials = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64')));
+    return credentials[providerId] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function setProviderCredentials(providerId, value) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Secure credential storage is unavailable on this system.');
+  }
+  const encrypted = readJson('providerCredentials');
+  let credentials = {};
+  if (encrypted) {
+    try {
+      credentials = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64')));
+    } catch {
+      credentials = {};
+    }
+  }
+  credentials[providerId] = value;
+  writeJson(
+    'providerCredentials',
+    safeStorage.encryptString(JSON.stringify(credentials)).toString('base64'),
+  );
+}
+
+export function deleteProviderCredentials(providerId) {
+  const encrypted = readJson('providerCredentials');
+  if (!encrypted || !safeStorage.isEncryptionAvailable()) return;
+  let credentials;
+  try {
+    credentials = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64')));
+  } catch {
+    return;
+  }
+  delete credentials[providerId];
+  writeJson(
+    'providerCredentials',
+    safeStorage.encryptString(JSON.stringify(credentials)).toString('base64'),
+  );
 }
 
 export function closeDatabase() {
@@ -408,6 +460,7 @@ export function insertMessage(message) {
     role: message.role,
     model: message.model ?? null,
     reasoningEffort: message.reasoningEffort ?? null,
+    workMode: message.workMode === 'plan' ? 'plan' : null,
     status: message.status ?? 'completed',
     content: message.content ?? '',
     segments: stringify(message.segments ?? []),
@@ -809,6 +862,7 @@ function mapMessage(row) {
     role: row.role,
     model: row.model,
     reasoningEffort: row.reasoning_effort,
+    workMode: row.work_mode === 'plan' ? 'plan' : null,
     status: row.status,
     content: row.content,
     segments: parse(row.segments, []),

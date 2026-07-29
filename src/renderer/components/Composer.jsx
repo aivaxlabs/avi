@@ -5,11 +5,13 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Clock3,
   CornerDownLeft,
   FolderOpen,
   GitBranch,
   GripVertical,
   HardDrive,
+  ListChecks,
   LoaderCircle,
   LockKeyhole,
   Mic,
@@ -20,12 +22,15 @@ import {
   Play,
   Plus,
   Search,
+  ShieldCheck,
+  ShieldOff,
+  ShieldQuestion,
   Sparkles,
   SquareTerminal,
   Square,
+  Star,
   Trash2,
   Workflow,
-  Wrench,
   X,
 } from 'lucide-react';
 import {
@@ -41,7 +46,30 @@ import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { ModelPicker } from './ModelPicker.jsx';
 
 const composerDraftKey = 'aivax.composer.draft';
+const permissionModeKey = 'aivax.composer.permission-mode';
+const permissionModes = [
+  {
+    id: 'ask_for_approval',
+    label: 'Ask for approval',
+    description: 'Ask before every tool call',
+  },
+  {
+    id: 'approve_for_me',
+    label: 'Approve for me',
+    description: 'Ask only before destructive actions',
+  },
+  {
+    id: 'full_access',
+    label: 'Full access',
+    description: 'Run tool calls without approval',
+  },
+];
 const composerCommands = [
+  {
+    id: 'plan',
+    name: 'plan',
+    description: 'Create a detailed execution plan without changing anything',
+  },
   {
     id: 'efforts',
     name: 'effort',
@@ -101,12 +129,21 @@ export function Composer({
   onChooseProject,
   onUseHome,
   onToggleFavorite,
+  workMode = null,
+  onWorkModeChange,
   draftKey = composerDraftKey,
 }) {
   const [text, setText] = useState(() => window.localStorage.getItem(draftKey) ?? '');
   const [attachments, setAttachments] = useState([]);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [permissionMenuOpen, setPermissionMenuOpen] = useState(false);
+  const [permissionMode, setPermissionMode] = useState(() => {
+    const savedMode = window.localStorage.getItem(permissionModeKey);
+    return permissionModes.some((mode) => mode.id === savedMode)
+      ? savedMode
+      : 'approve_for_me';
+  });
   const [reasoningMenuOpen, setReasoningMenuOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [commandStage, setCommandStage] = useState(null);
@@ -122,19 +159,43 @@ export function Composer({
   const [queuedMenu, setQueuedMenu] = useState(null);
   const [editingQueuedMessageId, setEditingQueuedMessageId] = useState(null);
   const plusHolderRef = useRef(null);
+  const permissionMenuRef = useRef(null);
   const modelMenuRef = useRef(null);
   const projectMenuRef = useRef(null);
   const projectSearchRef = useRef(null);
   const textAreaRef = useRef(null);
+  const textRef = useRef(text);
+  textRef.current = text;
 
   const commandInvocation = commandStage ? null : text.match(/^([/$])([^\s]*)$/);
   const commandMode = commandStage ?? (commandInvocation ? 'commands' : null);
   const commandPrefix = commandInvocation?.[1] ?? '/';
-  const commandQuery = commandMode === 'commands' ? commandInvocation?.[2] ?? '' : text;
-  const currentModelConfig = models.find((model) => model.id === currentModel) ?? null;
+  const commandQuery = commandMode === 'commands'
+    ? commandInvocation?.[2] ?? ''
+    : commandMode
+      ? text
+      : '';
+  const {
+    currentModelConfig,
+    favoriteModels,
+    quickRecentModels,
+  } = useMemo(() => {
+    const modelsById = new Map(models.map((model) => [model.id, model]));
+    const nextFavoriteModels = favorites
+      .map((modelId) => modelsById.get(modelId))
+      .filter(Boolean);
+    const favoriteModelIds = new Set(nextFavoriteModels.map((model) => model.id));
+
+    return {
+      currentModelConfig: modelsById.get(currentModel) ?? null,
+      favoriteModels: nextFavoriteModels,
+      quickRecentModels: recentModels.filter((model) => !favoriteModelIds.has(model.id)),
+    };
+  }, [currentModel, favorites, models, recentModels]);
   const activeReasoningEffort = currentModelConfig?.reasoning.includes(reasoningEffort)
     ? reasoningEffort
     : currentModelConfig?.reasoning[0] ?? null;
+  const activePermissionMode = permissionModes.find((mode) => mode.id === permissionMode);
   const commandOptions = useMemo(() => {
     const normalized = commandQuery.trim().toLowerCase();
 
@@ -239,20 +300,11 @@ export function Composer({
   }, [draftKey, text]);
 
   useEffect(() => {
-    const saveOnClose = () => saveComposerDraft(draftKey, text);
+    const saveOnClose = () => saveComposerDraft(draftKey, textRef.current);
 
     window.addEventListener('beforeunload', saveOnClose);
     return () => window.removeEventListener('beforeunload', saveOnClose);
-  }, [draftKey, text]);
-
-  useEffect(() => {
-    const textArea = textAreaRef.current;
-    if (!textArea) return;
-
-    textArea.style.height = '0px';
-    textArea.style.height = `${Math.min(textArea.scrollHeight, 500)}px`;
-    textArea.style.overflowY = textArea.scrollHeight > 500 ? 'auto' : 'hidden';
-  }, [text]);
+  }, [draftKey]);
 
   useEffect(() => {
     setCommandIndex(0);
@@ -301,6 +353,16 @@ export function Composer({
     window.addEventListener('pointerdown', close);
     return () => window.removeEventListener('pointerdown', close);
   }, [modelMenuOpen]);
+
+  useEffect(() => {
+    if (!permissionMenuOpen) return undefined;
+    const close = (event) => {
+      if (permissionMenuRef.current?.contains(event.target)) return;
+      setPermissionMenuOpen(false);
+    };
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [permissionMenuOpen]);
 
   useEffect(() => {
     if (!projectMenuOpen) return undefined;
@@ -362,6 +424,8 @@ export function Composer({
       attachments,
       steer,
       reasoningEffort: activeReasoningEffort,
+      permissionMode,
+      workMode,
     };
     setText('');
     window.localStorage.removeItem(draftKey);
@@ -420,12 +484,19 @@ export function Composer({
         onCreateSideChat();
         return;
       }
+      if (option.id === 'plan') {
+        exitCommandMode();
+        onWorkModeChange?.('plan');
+        return;
+      }
       if (option.id === 'mcp' || option.id === 'restart-mcp') {
         exitCommandMode();
         onSend({
           text: `/${option.name}`,
           attachments: [],
           reasoningEffort: activeReasoningEffort,
+          permissionMode,
+          workMode,
         });
         return;
       }
@@ -542,6 +613,8 @@ export function Composer({
       text: '',
       attachments: [attachment],
       reasoningEffort: activeReasoningEffort,
+      permissionMode,
+      workMode,
     });
   }
 
@@ -845,7 +918,9 @@ export function Composer({
               ? 'Filter models...'
               : commandMode === 'efforts'
                 ? 'Filter reasoning efforts...'
-                : `Message ${modelName || 'model'}`}
+                : workMode === 'plan'
+                  ? 'Describe your task to generate a plan...'
+                  : `Message ${modelName || 'model'}`}
             aria-expanded={Boolean(commandMode)}
             aria-controls={commandMode ? 'composer-command-list' : undefined}
             aria-activedescendant={activeCommandOption ? `composer-command-option-${commandIndex}` : undefined}
@@ -855,14 +930,80 @@ export function Composer({
               <Plus size={18} />
             </button>
             {plusOpen && (
-              <DropdownMenu className="attachment-dropdown-menu">
-                <DropdownMenuItem icon={<Wrench size={14} />} disabled>
-                  Tools
+              <DropdownMenu className="attachment-dropdown-menu" role="menu">
+                <DropdownMenuItem
+                  active={workMode === 'plan'}
+                  icon={<ListChecks size={14} />}
+                  role="menuitemcheckbox"
+                  aria-checked={workMode === 'plan'}
+                  onClick={() => {
+                    onWorkModeChange?.(workMode === 'plan' ? null : 'plan');
+                    setPlusOpen(false);
+                  }}
+                >
+                  Plan
                 </DropdownMenuItem>
                 <DropdownMenuItem icon={<HardDrive size={14} />} onClick={attachFromComputer}>
                   Attach from computer
                 </DropdownMenuItem>
               </DropdownMenu>
+            )}
+          </div>
+          <div className="composer-mode-controls">
+            <div className="permission-mode-holder" ref={permissionMenuRef}>
+              <button
+                className="permission-mode-trigger"
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={permissionMenuOpen}
+                title={activePermissionMode?.description}
+                onClick={() => setPermissionMenuOpen((value) => !value)}
+              >
+                {permissionMode === 'ask_for_approval' && <ShieldQuestion size={14} />}
+                {permissionMode === 'approve_for_me' && <ShieldCheck size={14} />}
+                {permissionMode === 'full_access' && <ShieldOff size={14} />}
+                <span>{activePermissionMode?.label}</span>
+                <ChevronDown size={13} />
+              </button>
+              {permissionMenuOpen && (
+                <DropdownMenu className="permission-mode-menu" role="menu">
+                  {permissionModes.map((mode) => (
+                    <DropdownMenuItem
+                      key={mode.id}
+                      active={mode.id === permissionMode}
+                      icon={mode.id === 'ask_for_approval'
+                        ? <ShieldQuestion size={14} />
+                        : mode.id === 'approve_for_me'
+                          ? <ShieldCheck size={14} />
+                          : <ShieldOff size={14} />}
+                      role="menuitemradio"
+                      aria-checked={mode.id === permissionMode}
+                      onClick={() => {
+                        setPermissionMode(mode.id);
+                        window.localStorage.setItem(permissionModeKey, mode.id);
+                        setPermissionMenuOpen(false);
+                      }}
+                    >
+                      <span className="permission-mode-copy">
+                        <strong>{mode.label}</strong>
+                        <small>{mode.description}</small>
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenu>
+              )}
+            </div>
+            {workMode === 'plan' && (
+              <button
+                className="plan-mode-chip"
+                type="button"
+                title="Exit Plan mode"
+                aria-label="Exit Plan mode"
+                onClick={() => onWorkModeChange?.(null)}
+              >
+                <X size={12} aria-hidden="true" />
+                <span>Plan</span>
+              </button>
             )}
           </div>
           <div className="model-input-holder" ref={modelMenuRef}>
@@ -885,17 +1026,45 @@ export function Composer({
             {modelMenuOpen && (
               <DropdownMenu className="model-input-menu">
                 <div className="model-input-menu-list">
-                  {recentModels.length > 0 ? recentModels.map((model) => (
-                    <DropdownMenuItem
-                      key={model.id}
-                      active={model.id === currentModel}
-                      onClick={() => chooseModel(model.id)}
-                    >
-                      {model.name || model.id}
-                    </DropdownMenuItem>
-                  )) : (
-                    <span className="dropdown-menu-empty">No recent models</span>
-                  )}
+                  {[
+                    {
+                      id: 'recent',
+                      label: 'Recent',
+                      icon: <Clock3 size={12} />,
+                      models: quickRecentModels,
+                      empty: 'No recent models',
+                    },
+                    {
+                      id: 'favorites',
+                      label: 'Favorites',
+                      icon: <Star size={12} />,
+                      models: favoriteModels,
+                      empty: 'No favorite models',
+                    },
+                  ].map((section) => (
+                    <section className="model-menu-section" key={section.id}>
+                      <div className="model-menu-section-title">
+                        {section.icon}
+                        <span>{section.label}</span>
+                      </div>
+                      {section.models.length > 0 ? section.models.map((model) => (
+                        <DropdownMenuItem
+                          className="model-menu-model"
+                          key={model.id}
+                          active={model.id === currentModel}
+                          aria-label={`${model.name || model.id}, ${model.providerName}`}
+                          onClick={() => chooseModel(model.id)}
+                        >
+                          <span className="model-menu-model-copy">
+                            <strong>{model.name || model.id}</strong>
+                            <small>{model.providerName}</small>
+                          </span>
+                        </DropdownMenuItem>
+                      )) : (
+                        <span className="dropdown-menu-empty">{section.empty}</span>
+                      )}
+                    </section>
+                  ))}
                 </div>
                 <div className="dropdown-menu-divider" />
                 {currentModelConfig?.reasoning.length > 0 && (
@@ -977,7 +1146,12 @@ export function Composer({
             )}
           </div>
           {!canSend && isRunning ? (
-            <button className="round-button send-button" type="button" onClick={onStop} aria-label="Stop">
+            <button
+              className="round-button send-button"
+              type="button"
+              onClick={() => onStop()}
+              aria-label="Stop"
+            >
               <Square size={15} />
             </button>
           ) : canSend ? (

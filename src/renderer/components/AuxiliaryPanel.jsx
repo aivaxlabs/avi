@@ -3,14 +3,106 @@ import {
   ArrowLeft,
   Bot,
   ChevronRight,
+  Gauge,
   MessageSquarePlus,
   Plus,
   X,
 } from 'lucide-react';
 import { ChatView } from './ChatView.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
+import { ProviderPanel } from './ProviderPanel.jsx';
 
 const subagentsTabId = 'subagents';
+
+function AuxiliaryAddMenu({
+  providerPanels,
+  canCreateSideChat,
+  onCreateSideChat,
+  onOpenSubagentsTab,
+  onOpenProviderPanel,
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const controller = new AbortController();
+    window.addEventListener('pointerdown', (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    }, { signal: controller.signal });
+    window.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      setOpen(false);
+      rootRef.current?.querySelector('.auxiliary-add-button')?.focus();
+    }, { signal: controller.signal });
+    queueMicrotask(() => rootRef.current?.querySelector('[role="menuitem"]:enabled')?.focus());
+    return () => controller.abort();
+  }, [open]);
+
+  return (
+    <div className="auxiliary-add" ref={rootRef}>
+      <button
+        className="auxiliary-add-button"
+        type="button"
+        aria-label="Open another auxiliary tab"
+        title="Open another auxiliary tab"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls="auxiliary-add-menu"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <Plus size={15} />
+      </button>
+      {open && (
+        <DropdownMenu
+          id="auxiliary-add-menu"
+          className="auxiliary-add-menu"
+          role="menu"
+          aria-label="Auxiliary panel options"
+        >
+          <DropdownMenuItem
+            icon={<MessageSquarePlus size={14} />}
+            role="menuitem"
+            disabled={!canCreateSideChat}
+            title={canCreateSideChat
+              ? 'Create a side chat'
+              : 'Start a conversation before creating a side chat'}
+            onClick={() => {
+              setOpen(false);
+              onCreateSideChat();
+            }}
+          >
+            Side chat
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            icon={<Bot size={14} />}
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onOpenSubagentsTab();
+            }}
+          >
+            Sub-agents
+          </DropdownMenuItem>
+          {providerPanels.map((panel) => (
+            <DropdownMenuItem
+              icon={<Gauge size={14} />}
+              key={panel.id}
+              role="menuitem"
+              title={`${panel.title} - ${panel.providerName}`}
+              onClick={() => {
+                setOpen(false);
+                onOpenProviderPanel(panel.id);
+              }}
+            >
+              {panel.title}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenu>
+      )}
+    </div>
+  );
+}
 
 export function AuxiliaryPanel({
   sideChats,
@@ -24,14 +116,24 @@ export function AuxiliaryPanel({
   recentModels,
   recentProjects,
   fallbackModel,
+  conversationId,
+  providerPanels = [],
+  openProviderPanels = [],
+  subagentsTabOpen,
   canCreateSideChat,
   onSelectTab,
   onCloseSideChat,
   onCloseSubagentsTab,
+  onOpenSubagentsTab,
+  onOpenProviderPanel,
+  onCloseProviderPanel,
   onClosePanel,
   onCreateSideChat,
   onSelectSubagent,
   onSend,
+  onImplementPlan,
+  questionRequests = [],
+  onAnswerQuestion,
   onStop,
   onCompress,
   onFork,
@@ -42,9 +144,9 @@ export function AuxiliaryPanel({
   onSteerQueued,
   onChooseModel,
   onToggleFavorite,
+  workMode,
+  onWorkModeChange,
 }) {
-  const [actionsOpen, setActionsOpen] = useState(false);
-  const actionsRef = useRef(null);
   const tabs = [
     ...sideChats.map((sideChat) => ({
       id: sideChat.id,
@@ -52,7 +154,7 @@ export function AuxiliaryPanel({
       running: Boolean(running[sideChat.id]),
       type: 'side-chat',
     })),
-    ...(subagents.length > 0 || activeTab === subagentsTabId
+    ...(subagentsTabOpen
       ? [{
           id: subagentsTabId,
           label: 'Sub-agents',
@@ -60,9 +162,15 @@ export function AuxiliaryPanel({
           type: 'subagents',
         }]
       : []),
+    ...openProviderPanels.map((panel) => ({
+      ...panel,
+      label: panel.title,
+      type: 'provider',
+    })),
   ];
   const activeSideChat = sideChats.find((sideChat) => sideChat.id === activeTab) ?? null;
   const showingSubagents = activeTab === subagentsTabId;
+  const activeProviderPanel = openProviderPanels.find((panel) => panel.id === activeTab) ?? null;
   const activeSubagent = showingSubagents
     ? subagents.find((subagent) => subagent.id === activeSubagentId) ?? null
     : null;
@@ -84,23 +192,8 @@ export function AuxiliaryPanel({
 
   const hasActiveTab = tabs.some((tab) => tab.id === activeTab);
 
-  useEffect(() => {
-    if (!actionsOpen) return undefined;
-    const controller = new AbortController();
-    window.addEventListener('pointerdown', (event) => {
-      if (!actionsRef.current?.contains(event.target)) setActionsOpen(false);
-    }, { signal: controller.signal });
-    window.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape') return;
-      setActionsOpen(false);
-      actionsRef.current?.querySelector('.auxiliary-add-button')?.focus();
-    }, { signal: controller.signal });
-    queueMicrotask(() => actionsRef.current?.querySelector('[role="menuitem"]:enabled')?.focus());
-    return () => controller.abort();
-  }, [actionsOpen]);
-
   return (
-    <aside className="auxiliary-panel" aria-label="Auxiliary panel">
+    <aside className="auxiliary-panel" id="auxiliary-panel" aria-label="Auxiliary panel">
       <header className="auxiliary-panel-header">
         {tabs.length > 0 ? (
           <div className="auxiliary-tabs-row">
@@ -108,7 +201,7 @@ export function AuxiliaryPanel({
               {tabs.map((tab, index) => (
                 <div
                   key={tab.id}
-                  className={`auxiliary-tab ${tab.id === activeTab ? 'active' : ''}`}
+                  className={`auxiliary-tab ${tab.type} ${tab.id === activeTab ? 'active' : ''}`}
                 >
                   <button
                     id={`auxiliary-tab-${tab.id}`}
@@ -132,6 +225,8 @@ export function AuxiliaryPanel({
                   >
                     {tab.type === 'subagents' ? (
                       <Bot size={14} aria-hidden="true" />
+                    ) : tab.type === 'provider' ? (
+                      <Gauge size={14} aria-hidden="true" />
                     ) : (
                       <span className={`run-dot ${tab.running ? 'live' : ''}`} />
                     )}
@@ -146,11 +241,15 @@ export function AuxiliaryPanel({
                     aria-label={tab.type === 'subagents'
                       ? 'Close Sub-agents tab'
                       : `Close ${tab.label}`}
-                    title={tab.type === 'subagents' ? 'Close Sub-agents tab' : `Close ${tab.label}`}
+                    title={tab.type === 'subagents'
+                      ? 'Close Sub-agents tab'
+                      : `Close ${tab.label}`}
                     onClick={() => (
                       tab.type === 'subagents'
                         ? onCloseSubagentsTab()
-                        : onCloseSideChat(tab.id)
+                        : tab.type === 'provider'
+                          ? onCloseProviderPanel(tab.id)
+                          : onCloseSideChat(tab.id)
                     )}
                   >
                     <X size={13} />
@@ -158,66 +257,35 @@ export function AuxiliaryPanel({
                 </div>
               ))}
             </div>
-            <div className="auxiliary-add" ref={actionsRef}>
-              <button
-                className="auxiliary-add-button"
-                type="button"
-                aria-label="Open another auxiliary panel"
-                title="Open another auxiliary panel"
-                aria-haspopup="menu"
-                aria-expanded={actionsOpen}
-                aria-controls="auxiliary-add-menu"
-                onClick={() => setActionsOpen((open) => !open)}
-              >
-                <Plus size={15} />
-              </button>
-              {actionsOpen && (
-                <DropdownMenu
-                  id="auxiliary-add-menu"
-                  className="auxiliary-add-menu"
-                  role="menu"
-                  aria-label="Auxiliary panel options"
-                >
-                  <DropdownMenuItem
-                    icon={<MessageSquarePlus size={14} />}
-                    role="menuitem"
-                    disabled={!canCreateSideChat}
-                    title={canCreateSideChat
-                      ? 'Create a side chat'
-                      : 'Start a conversation before creating a side chat'}
-                    onClick={() => {
-                      setActionsOpen(false);
-                      onCreateSideChat();
-                    }}
-                  >
-                    Side chat
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    icon={<Bot size={14} />}
-                    role="menuitem"
-                    onClick={() => {
-                      setActionsOpen(false);
-                      onSelectTab(subagentsTabId);
-                    }}
-                  >
-                    Sub-agents
-                  </DropdownMenuItem>
-                </DropdownMenu>
-              )}
-            </div>
+            <AuxiliaryAddMenu
+              providerPanels={providerPanels}
+              canCreateSideChat={canCreateSideChat}
+              onCreateSideChat={onCreateSideChat}
+              onOpenSubagentsTab={onOpenSubagentsTab}
+              onOpenProviderPanel={onOpenProviderPanel}
+            />
           </div>
         ) : (
           <div className="auxiliary-empty-header">
             <span>Auxiliary panel</span>
-            <button
-              className="auxiliary-tab-close"
-              type="button"
-              aria-label="Close auxiliary panel"
-              title="Close auxiliary panel"
-              onClick={onClosePanel}
-            >
-              <X size={13} />
-            </button>
+            <div className="auxiliary-empty-actions">
+              <AuxiliaryAddMenu
+                providerPanels={providerPanels}
+                canCreateSideChat={canCreateSideChat}
+                onCreateSideChat={onCreateSideChat}
+                onOpenSubagentsTab={onOpenSubagentsTab}
+                onOpenProviderPanel={onOpenProviderPanel}
+              />
+              <button
+                className="auxiliary-tab-close"
+                type="button"
+                aria-label="Close auxiliary panel"
+                title="Close auxiliary panel"
+                onClick={onClosePanel}
+              >
+                <X size={13} />
+              </button>
+            </div>
           </div>
         )}
       </header>
@@ -237,7 +305,12 @@ export function AuxiliaryPanel({
             </button>
           </div>
         )}
-        {!hasActiveTab ? (
+        {activeProviderPanel ? (
+          <ProviderPanel
+            panel={activeProviderPanel}
+            conversationId={conversationId}
+          />
+        ) : !hasActiveTab ? (
           <div className="auxiliary-empty">
             <p>Open in this panel</p>
             <button
@@ -255,7 +328,7 @@ export function AuxiliaryPanel({
               </span>
               <ChevronRight size={15} aria-hidden="true" />
             </button>
-            <button type="button" onClick={() => onSelectTab(subagentsTabId)}>
+            <button type="button" onClick={onOpenSubagentsTab}>
               <Bot size={16} aria-hidden="true" />
               <span>
                 <strong>Sub-agents</strong>
@@ -263,6 +336,20 @@ export function AuxiliaryPanel({
               </span>
               <ChevronRight size={15} aria-hidden="true" />
             </button>
+            {providerPanels.map((panel) => (
+              <button
+                key={panel.id}
+                type="button"
+                onClick={() => onOpenProviderPanel(panel.id)}
+              >
+                <Gauge size={16} aria-hidden="true" />
+                <span>
+                  <strong>{panel.title}</strong>
+                  <small>Provided by {panel.providerName}</small>
+                </span>
+                <ChevronRight size={15} aria-hidden="true" />
+              </button>
+            ))}
           </div>
         ) : showingSubagents && !activeSubagent && subagents.length === 0 ? (
           <div className="subagent-empty">
@@ -314,6 +401,11 @@ export function AuxiliaryPanel({
             favorites={favorites}
             isRunning={Boolean(running[activeThread.id])}
             onSend={(payload) => onSend(activeThread, currentModel, payload)}
+            onImplementPlan={() => onImplementPlan(activeThread, currentModel)}
+            questionRequest={questionRequests.find(
+              (request) => request.conversationId === activeThread.id,
+            ) ?? null}
+            onAnswerQuestion={onAnswerQuestion}
             onStop={() => onStop(activeThread.id)}
             onCompress={() => onCompress(activeThread.id, currentModel)}
             onFork={(conversationId, throughMessageId) => onFork(
@@ -338,6 +430,8 @@ export function AuxiliaryPanel({
             onChooseProject={() => {}}
             onUseHome={() => {}}
             onToggleFavorite={onToggleFavorite}
+            workMode={workMode}
+            onWorkModeChange={onWorkModeChange}
             draftKey={`aivax.composer.${
               activeThread.isSubagent ? 'subagent' : 'side'
             }.${activeThread.id}`}

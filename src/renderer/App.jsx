@@ -1,14 +1,34 @@
-import { useEffect, useMemo, useState } from 'react';
-import { PanelRightOpen } from 'lucide-react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { PanelRightOpen, ShieldAlert } from 'lucide-react';
 import { Sidebar } from './components/Sidebar.jsx';
 import { ChatView } from './components/ChatView.jsx';
 import { SearchDialog } from './components/SearchDialog.jsx';
 import { SettingsPage } from './components/SettingsPage.jsx';
 import { McpOverlay } from './components/McpOverlay.jsx';
 import { AuxiliaryPanel } from './components/AuxiliaryPanel.jsx';
+import { PanelResizer } from './components/PanelResizer.jsx';
 import { WindowControls } from './components/WindowControls.jsx';
 
 const api = window.chatApp;
+const sidebarWidthStorageKey = 'aivax.layout.sidebar-width';
+const auxiliaryPanelWidthStorageKey = 'aivax.layout.auxiliary-panel-width';
+const workModeStorageKey = 'aivax.composer.work-mode';
+const savedSidebarWidth = Number(window.localStorage.getItem(sidebarWidthStorageKey));
+const savedAuxiliaryPanelWidth = Number(
+  window.localStorage.getItem(auxiliaryPanelWidthStorageKey),
+);
+const initialSidebarWidth = Number.isFinite(savedSidebarWidth) && savedSidebarWidth > 0
+  ? Math.max(180, Math.min(420, savedSidebarWidth))
+  : 222;
+const initialAuxiliaryPanelWidth = Number.isFinite(savedAuxiliaryPanelWidth)
+  && savedAuxiliaryPanelWidth > 0
+  ? Math.max(280, Math.min(720, savedAuxiliaryPanelWidth))
+  : Math.max(280, Math.min(720, Math.round((window.innerWidth - 222) * 0.42)));
 
 export default function App() {
   const [appState, setAppState] = useState(null);
@@ -16,6 +36,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [messagesByConversation, setMessagesByConversation] = useState({});
   const [providers, setProviders] = useState([]);
+  const [providerTypes, setProviderTypes] = useState([]);
   const [models, setModels] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [running, setRunning] = useState({});
@@ -25,11 +46,18 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [error, setError] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [narrowWindow, setNarrowWindow] = useState(false);
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
+  const [auxiliaryPanelWidth, setAuxiliaryPanelWidth] = useState(
+    initialAuxiliaryPanelWidth,
+  );
   const [draftModel, setDraftModel] = useState('');
   const [draftProject, setDraftProject] = useState(null);
   const [sideChats, setSideChats] = useState([]);
   const [subagents, setSubagents] = useState([]);
+  const [providerPanels, setProviderPanels] = useState([]);
+  const [openProviderPanelIds, setOpenProviderPanelIds] = useState([]);
+  const [subagentsTabOpen, setSubagentsTabOpen] = useState(false);
   const [auxiliaryPanelVisible, setAuxiliaryPanelVisible] = useState(false);
   const [activeAuxiliaryTab, setActiveAuxiliaryTab] = useState(null);
   const [activeSubagentId, setActiveSubagentId] = useState(null);
@@ -37,6 +65,13 @@ export default function App() {
   const [mcpWaiting, setMcpWaiting] = useState({});
   const [mcpAlert, setMcpAlert] = useState(null);
   const [mcpWorkspaceServers, setMcpWorkspaceServers] = useState(null);
+  const [approvalRequests, setApprovalRequests] = useState([]);
+  const [approvalResolving, setApprovalResolving] = useState(false);
+  const [questionRequests, setQuestionRequests] = useState([]);
+  const [workMode, setWorkMode] = useState(
+    window.localStorage.getItem(workModeStorageKey) === 'plan' ? 'plan' : null,
+  );
+  const approvalDialogRef = useRef(null);
 
   const currentConversation = conversations.find((item) => item.id === selectedId) ?? null;
   const currentMessages = messagesByConversation[selectedId] ?? [];
@@ -103,6 +138,9 @@ export default function App() {
           : 'waiting';
     return { ...subagent, status };
   }), [messagesByConversation, running, subagents]);
+  const openProviderPanels = useMemo(() => providerPanels.filter(
+    (panel) => openProviderPanelIds.includes(panel.id),
+  ), [openProviderPanelIds, providerPanels]);
 
   useEffect(() => {
     let active = true;
@@ -110,6 +148,7 @@ export default function App() {
       api.app.state(),
       api.conversations.list(),
       api.providers.list(),
+      api.providers.types(),
       api.models.list(),
       api.models.favorites(),
       api.mcp.state(),
@@ -118,6 +157,7 @@ export default function App() {
         nextAppState,
         nextConversations,
         nextProviders,
+        nextProviderTypes,
         nextModels,
         nextFavorites,
         nextMcpState,
@@ -126,6 +166,7 @@ export default function App() {
         setAppState(nextAppState);
         setConversations(nextConversations);
         setProviders(nextProviders);
+        setProviderTypes(nextProviderTypes);
         setModels(nextModels);
         setFavorites(nextFavorites);
         setMcpState(nextMcpState);
@@ -193,6 +234,7 @@ export default function App() {
         }
       } else if (event.type === 'subagent-created') {
         setSubagents((state) => upsertById(state, event.subagent));
+        setSubagentsTabOpen(true);
       } else if (event.type === 'message-delete') {
         setMessagesByConversation((state) => ({
           ...state,
@@ -220,11 +262,59 @@ export default function App() {
           delete next[event.conversationId];
           return next;
         });
+      } else if (event.type === 'permission-request') {
+        setApprovalRequests((state) => (
+          state.some((request) => request.approvalId === event.approvalId)
+            ? state
+            : [...state, event]
+        ));
+      } else if (event.type === 'permission-cancelled') {
+        setApprovalRequests((state) => state.filter(
+          (request) => request.approvalId !== event.approvalId,
+        ));
+      } else if (event.type === 'question-request') {
+        setQuestionRequests((state) => (
+          state.some((request) => request.questionId === event.questionId)
+            ? state
+            : [...state, event]
+        ));
+      } else if (event.type === 'question-cancelled') {
+        setQuestionRequests((state) => state.filter(
+          (request) => request.questionId !== event.questionId,
+        ));
       } else if (event.type === 'error') {
         setError(event.message);
       }
     })
   ), []);
+
+  const activeApprovalRequest = approvalRequests[0] ?? null;
+
+  useEffect(() => {
+    if (!activeApprovalRequest) return undefined;
+    const previousFocus = document.activeElement;
+    const frame = requestAnimationFrame(() => (
+      approvalDialogRef.current?.querySelector('.primary-mini, button')?.focus()
+    ));
+    const disallowOnEscape = (event) => {
+      if (event.key !== 'Escape' || approvalResolving) return;
+      event.preventDefault();
+      api.chat.resolveApproval({
+        approvalId: activeApprovalRequest.approvalId,
+        decision: 'disallow',
+      }).then((resolved) => {
+        if (resolved) setApprovalRequests((state) => state.slice(1));
+      }).catch((nextError) => {
+        setError(nextError instanceof Error ? nextError.message : String(nextError));
+      });
+    };
+    document.addEventListener('keydown', disallowOnEscape);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener('keydown', disallowOnEscape);
+      previousFocus?.focus?.();
+    };
+  }, [activeApprovalRequest, approvalResolving]);
 
   useEffect(() => (
     api.onMcpEvent((event) => {
@@ -280,10 +370,29 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
+    api.providers.auxiliaryPanels({
+      conversationId: selectedId,
+    })
+      .then((panels) => {
+        if (!active) return;
+        setProviderPanels(panels);
+        setOpenProviderPanelIds((current) => current.filter(
+          (panelId) => panels.some((panel) => panel.id === panelId),
+        ));
+      })
+      .catch((nextError) => {
+        if (active) setError(nextError instanceof Error ? nextError.message : String(nextError));
+      });
+    return () => {
+      active = false;
+    };
+  }, [providers, selectedId]);
+
+  useEffect(() => {
+    let active = true;
     if (!selectedId) {
       setSideChats([]);
       setSubagents([]);
-      setActiveAuxiliaryTab(null);
       setActiveSubagentId(null);
       return undefined;
     }
@@ -301,15 +410,11 @@ export default function App() {
         if (!active) return;
         setSideChats(nextSideChats);
         setSubagents(nextSubagents);
+        setSubagentsTabOpen(nextSubagents.length > 0);
         setMessagesByConversation((state) => ({
           ...state,
           ...Object.fromEntries(entries),
         }));
-        setActiveAuxiliaryTab((current) => {
-          if (current === 'subagents' && nextSubagents.length > 0) return current;
-          if (nextSideChats.some((sideChat) => sideChat.id === current)) return current;
-          return nextSideChats[0]?.id ?? null;
-        });
         setActiveSubagentId((current) => (
           nextSubagents.some((subagent) => subagent.id === current)
             ? current
@@ -328,10 +433,24 @@ export default function App() {
   }, [selectedId]);
 
   useEffect(() => {
-    const syncSidebarWidth = () => setNarrowWindow(window.innerWidth < 700);
-    syncSidebarWidth();
-    window.addEventListener('resize', syncSidebarWidth);
-    return () => window.removeEventListener('resize', syncSidebarWidth);
+    setActiveAuxiliaryTab((current) => {
+      if (
+        sideChats.some((sideChat) => sideChat.id === current)
+        || (current === 'subagents' && subagentsTabOpen)
+        || openProviderPanels.some((panel) => panel.id === current)
+      ) {
+        return current;
+      }
+      return sideChats[0]?.id
+        ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null);
+    });
+  }, [openProviderPanels, sideChats, subagentsTabOpen]);
+
+  useEffect(() => {
+    const syncWindowWidth = () => setWindowWidth(window.innerWidth);
+    syncWindowWidth();
+    window.addEventListener('resize', syncWindowWidth);
+    return () => window.removeEventListener('resize', syncWindowWidth);
   }, []);
 
   async function selectConversation(id) {
@@ -350,6 +469,9 @@ export default function App() {
     conversationId = selectedId,
     model = currentModel,
     project = currentProject,
+    permissionMode = window.localStorage.getItem('aivax.composer.permission-mode')
+      || 'approve_for_me',
+    workMode: messageWorkMode = workMode,
   }) {
     if (!text.trim() && attachments.length === 0) return;
     const command = attachments.length === 0 ? text.trim().toLowerCase() : '';
@@ -376,6 +498,8 @@ export default function App() {
       attachments,
       steer,
       reasoningEffort,
+      permissionMode,
+      workMode: messageWorkMode,
       project,
     });
     if (result.conversation.isSubagent) {
@@ -427,6 +551,8 @@ export default function App() {
       model,
       assistantMessageId: messageId,
       resumeFromFailure,
+      permissionMode: window.localStorage.getItem('aivax.composer.permission-mode')
+        || 'approve_for_me',
     });
     if (!result?.conversation) return;
     if (result.conversation.isSubagent) {
@@ -458,6 +584,67 @@ export default function App() {
       }));
     }
     return Boolean(result?.cancelled);
+  }
+
+  async function resolveToolApproval(decision) {
+    if (!activeApprovalRequest || approvalResolving) return;
+    setApprovalResolving(true);
+    try {
+      const resolved = await api.chat.resolveApproval({
+        approvalId: activeApprovalRequest.approvalId,
+        decision,
+      });
+      if (resolved) setApprovalRequests((state) => state.slice(1));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setApprovalResolving(false);
+    }
+  }
+
+  function changeWorkMode(nextWorkMode) {
+    const normalizedWorkMode = nextWorkMode === 'plan' ? 'plan' : null;
+    setWorkMode(normalizedWorkMode);
+    if (normalizedWorkMode) {
+      window.localStorage.setItem(workModeStorageKey, normalizedWorkMode);
+    } else {
+      window.localStorage.removeItem(workModeStorageKey);
+    }
+  }
+
+  async function resolveQuestionRequest(questionRequest, answers, cancelled) {
+    try {
+      const resolved = await api.chat.answerQuestion({
+        questionId: questionRequest.questionId,
+        cancelled,
+        answers: cancelled ? [] : answers,
+      });
+      if (resolved) {
+        setQuestionRequests((state) => state.filter(
+          (request) => request.questionId !== questionRequest.questionId,
+        ));
+      }
+      return resolved;
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return false;
+    }
+  }
+
+  async function implementPlan({
+    conversationId = selectedId,
+    model = currentModel,
+    project = currentProject,
+  } = {}) {
+    changeWorkMode(null);
+    await sendMessage({
+      text: 'Implement this plan',
+      attachments: [],
+      conversationId,
+      model,
+      project,
+      workMode: null,
+    });
   }
 
   async function forkConversation(id = selectedId, throughMessageId = null) {
@@ -496,9 +683,8 @@ export default function App() {
     setRunning((state) => ({ ...state, [id]: false }));
     if (activeAuxiliaryTab === id) {
       const nextTab = remaining[Math.min(index, remaining.length - 1)]?.id
-        ?? (subagents.length > 0 ? 'subagents' : null);
+        ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null);
       setActiveAuxiliaryTab(nextTab);
-      if (!nextTab) setAuxiliaryPanelVisible(false);
     }
   }
 
@@ -604,7 +790,27 @@ export default function App() {
     return nextProviders;
   }
 
+  const narrowWindow = windowWidth <= 700;
   const effectiveSidebarCollapsed = sidebarCollapsed || narrowWindow;
+  const sidebarWidthMax = Math.max(
+    180,
+    Math.min(
+      420,
+      windowWidth - (auxiliaryPanelVisible ? auxiliaryPanelWidth : 0) - 320,
+    ),
+  );
+  const effectiveSidebarWidth = Math.min(sidebarWidth, sidebarWidthMax);
+  const auxiliaryPanelWidthMax = Math.max(
+    280,
+    Math.min(
+      720,
+      windowWidth - (effectiveSidebarCollapsed ? 58 : effectiveSidebarWidth) - 320,
+    ),
+  );
+  const effectiveAuxiliaryPanelWidth = Math.min(
+    auxiliaryPanelWidth,
+    auxiliaryPanelWidthMax,
+  );
   const shellClassName = [
     'app-shell',
     appState?.platform && `platform-${appState.platform}`,
@@ -629,9 +835,7 @@ export default function App() {
         ids.push(modelId);
         if (ids.length === 8) break;
       }
-      return ids
-        .map((modelId) => modelsById.get(modelId))
-        .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+      return ids.map((modelId) => modelsById.get(modelId));
     })(),
   }), [
     conversations,
@@ -650,12 +854,19 @@ export default function App() {
   }
 
   return (
-    <div className={shellClassName}>
+    <div
+      className={shellClassName}
+      style={{
+        '--sidebar-width': `${effectiveSidebarWidth}px`,
+        '--auxiliary-panel-width': `${effectiveAuxiliaryPanelWidth}px`,
+      }}
+    >
       <WindowControls />
       {settingsOpen ? (
         <SettingsPage
           key={`${settingsInitialView ?? 'providers'}:${settingsContextFolder?.path ?? ''}`}
           providers={providers}
+          providerTypes={providerTypes}
           initialContextFolder={settingsContextFolder}
           initialView={settingsInitialView}
           onClose={() => {
@@ -675,7 +886,7 @@ export default function App() {
             running={running}
             onNewChat={(preset = {}) => {
               setSelectedId(null);
-              setDraftProject(preset.project ?? appState.defaultProject);
+              setDraftProject(preset.project ?? currentProject ?? appState.defaultProject);
               setDraftModel(preset.modelId ?? appState.lastModel ?? models[0]?.id ?? '');
             }}
             onSelect={selectConversation}
@@ -697,6 +908,21 @@ export default function App() {
             collapsed={effectiveSidebarCollapsed}
             onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
           />
+          {!effectiveSidebarCollapsed && (
+            <PanelResizer
+              label="Resize sidebar"
+              controls="main-sidebar"
+              value={effectiveSidebarWidth}
+              min={180}
+              max={sidebarWidthMax}
+              direction={1}
+              onChange={setSidebarWidth}
+              onCommit={(width) => window.localStorage.setItem(
+                sidebarWidthStorageKey,
+                String(width),
+              )}
+            />
+          )}
           <div
             className={`chat-workspace${auxiliaryPanelVisible ? ' with-auxiliary-panel' : ''}`}
           >
@@ -706,12 +932,18 @@ export default function App() {
               models={models}
               favorites={favorites}
               onSend={sendMessage}
+              onImplementPlan={implementPlan}
+              questionRequest={questionRequests.find(
+                (request) => request.conversationId === selectedId,
+              ) ?? null}
+              onAnswerQuestion={resolveQuestionRequest}
               onStop={stopConversation}
               onCompress={compressConversation}
               onCreateSideChat={currentConversation ? createSideChat : undefined}
               subagents={subagentsWithStatus}
               onOpenSubagents={() => {
                 setAuxiliaryPanelVisible(true);
+                setSubagentsTabOpen(true);
                 setActiveSubagentId(null);
                 setActiveAuxiliaryTab('subagents');
               }}
@@ -743,7 +975,24 @@ export default function App() {
                 if (!currentConversation) setDraftProject(appState.defaultProject);
               }}
               onToggleFavorite={toggleFavorite}
+              workMode={workMode}
+              onWorkModeChange={changeWorkMode}
             />
+            {auxiliaryPanelVisible && (
+              <PanelResizer
+                label="Resize auxiliary panel"
+                controls="auxiliary-panel"
+                value={effectiveAuxiliaryPanelWidth}
+                min={280}
+                max={auxiliaryPanelWidthMax}
+                direction={-1}
+                onChange={setAuxiliaryPanelWidth}
+                onCommit={(width) => window.localStorage.setItem(
+                  auxiliaryPanelWidthStorageKey,
+                  String(width),
+                )}
+              />
+            )}
             {!auxiliaryPanelVisible && (
               <button
                 className="auxiliary-panel-toggle"
@@ -754,9 +1003,13 @@ export default function App() {
                   setActiveSubagentId(null);
                   setActiveAuxiliaryTab((current) => (
                     sideChats.some((sideChat) => sideChat.id === current)
-                    || (current === 'subagents' && subagents.length > 0)
+                    || (current === 'subagents' && subagentsTabOpen)
+                    || openProviderPanels.some((panel) => panel.id === current)
                       ? current
-                      : sideChats[0]?.id ?? (subagents.length > 0 ? 'subagents' : null)
+                      : sideChats[0]?.id
+                        ?? (subagentsTabOpen
+                          ? 'subagents'
+                          : openProviderPanels[0]?.id ?? null)
                   ));
                   setAuxiliaryPanelVisible(true);
                 }}
@@ -777,12 +1030,19 @@ export default function App() {
                 recentModels={shell.recentModels}
                 recentProjects={recentProjects}
                 fallbackModel={currentModel}
+                conversationId={selectedId}
+                providerPanels={providerPanels}
+                openProviderPanels={openProviderPanels}
+                subagentsTabOpen={subagentsTabOpen}
                 canCreateSideChat={Boolean(currentConversation)}
                 onSelectTab={async (tabId) => {
                   setActiveAuxiliaryTab(tabId);
                   if (tabId === 'subagents') {
                     setActiveSubagentId(null);
-                  } else if (!messagesByConversation[tabId]) {
+                  } else if (
+                    !providerPanels.some((panel) => panel.id === tabId)
+                    && !messagesByConversation[tabId]
+                  ) {
                     const messages = await api.conversations.messages(tabId);
                     setMessagesByConversation((state) => ({ ...state, [tabId]: messages }));
                   }
@@ -790,9 +1050,34 @@ export default function App() {
                 onCloseSideChat={closeSideChat}
                 onCloseSubagentsTab={() => {
                   setActiveSubagentId(null);
-                  const nextTab = sideChats[0]?.id ?? null;
-                  setActiveAuxiliaryTab(nextTab);
-                  if (!nextTab) setAuxiliaryPanelVisible(false);
+                  setSubagentsTabOpen(false);
+                  if (activeAuxiliaryTab === 'subagents') {
+                    setActiveAuxiliaryTab(sideChats[0]?.id ?? openProviderPanels[0]?.id ?? null);
+                  }
+                }}
+                onOpenSubagentsTab={() => {
+                  setSubagentsTabOpen(true);
+                  setActiveSubagentId(null);
+                  setActiveAuxiliaryTab('subagents');
+                }}
+                onOpenProviderPanel={(panelId) => {
+                  if (!providerPanels.some((panel) => panel.id === panelId)) return;
+                  setOpenProviderPanelIds((current) => (
+                    current.includes(panelId) ? current : [...current, panelId]
+                  ));
+                  setActiveAuxiliaryTab(panelId);
+                }}
+                onCloseProviderPanel={(panelId) => {
+                  const index = openProviderPanelIds.indexOf(panelId);
+                  if (index < 0) return;
+                  const remaining = openProviderPanelIds.filter((id) => id !== panelId);
+                  setOpenProviderPanelIds(remaining);
+                  if (activeAuxiliaryTab === panelId) {
+                    setActiveAuxiliaryTab(
+                      remaining[Math.min(index, remaining.length - 1)]
+                        ?? (subagentsTabOpen ? 'subagents' : sideChats[0]?.id ?? null),
+                    );
+                  }
                 }}
                 onClosePanel={() => setAuxiliaryPanelVisible(false)}
                 onCreateSideChat={createSideChat}
@@ -814,6 +1099,18 @@ export default function App() {
                     gitBranch: thread.gitBranch,
                   },
                 })}
+                onImplementPlan={(thread, model) => implementPlan({
+                  conversationId: thread.id,
+                  model,
+                  project: {
+                    path: thread.projectPath,
+                    name: thread.projectName,
+                    displayPath: thread.projectDisplayPath,
+                    gitBranch: thread.gitBranch,
+                  },
+                })}
+                questionRequests={questionRequests}
+                onAnswerQuestion={resolveQuestionRequest}
                 onStop={stopConversation}
                 onCompress={compressConversation}
                 onFork={forkConversation}
@@ -832,6 +1129,8 @@ export default function App() {
                 onSteerQueued={steerQueuedMessage}
                 onChooseModel={chooseModel}
                 onToggleFavorite={toggleFavorite}
+                workMode={workMode}
+                onWorkModeChange={changeWorkMode}
               />
             )}
           </div>
@@ -847,6 +1146,63 @@ export default function App() {
         <button className="toast" type="button" onClick={() => setError('')}>
           {error}
         </button>
+      )}
+      {activeApprovalRequest && (
+        <div className="dialog-backdrop permission-dialog-backdrop">
+          <section
+            ref={approvalDialogRef}
+            className="permission-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="permission-dialog-title"
+            aria-describedby="permission-dialog-description"
+          >
+            <div className="permission-dialog-icon">
+              <ShieldAlert size={20} />
+            </div>
+            <div className="permission-dialog-copy">
+              <h2 id="permission-dialog-title">Allow this tool call?</h2>
+              <p id="permission-dialog-description">{activeApprovalRequest.invocationSummary}</p>
+              <dl>
+                <div>
+                  <dt>Tool</dt>
+                  <dd>{activeApprovalRequest.toolName}</dd>
+                </div>
+                <div>
+                  <dt>Folder</dt>
+                  <dd>{activeApprovalRequest.workspacePath || 'No folder'}</dd>
+                </div>
+              </dl>
+              {activeApprovalRequest.input && Object.keys(activeApprovalRequest.input).length > 0 && (
+                <pre>{JSON.stringify(activeApprovalRequest.input, null, 2)}</pre>
+              )}
+            </div>
+            <div className="permission-dialog-actions">
+              <button
+                type="button"
+                disabled={approvalResolving}
+                onClick={() => resolveToolApproval('disallow')}
+              >
+                Disallow
+              </button>
+              <button
+                type="button"
+                disabled={approvalResolving}
+                onClick={() => resolveToolApproval('allow_all')}
+              >
+                Always allow this command
+              </button>
+              <button
+                className="primary-mini"
+                type="button"
+                disabled={approvalResolving}
+                onClick={() => resolveToolApproval('allow')}
+              >
+                Allow
+              </button>
+            </div>
+          </section>
+        </div>
       )}
       <McpOverlay
         state={mcpState}

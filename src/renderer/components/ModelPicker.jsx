@@ -21,6 +21,7 @@ export function ModelPicker({
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedModelId, setSelectedModelId] = useState(currentModel);
+  const [previewModelId, setPreviewModelId] = useState(null);
 
   useEffect(() => {
     const closeOnEscape = (event) => {
@@ -45,7 +46,7 @@ export function ModelPicker({
       const group = groups.get(model.providerId) ?? {
         id: model.providerId,
         name: model.providerName,
-        interface: model.interface,
+        endpoint: model.endpoint,
         models: [],
       };
       group.models.push(model);
@@ -64,6 +65,8 @@ export function ModelPicker({
   const selectedModel = visibleModels.find((model) => model.id === selectedModelId)
     ?? visibleModels[0]
     ?? null;
+  const previewModel = visibleModels.find((model) => model.id === previewModelId)
+    ?? selectedModel;
 
   return (
     <div className="dialog-backdrop" onMouseDown={onClose}>
@@ -106,12 +109,27 @@ export function ModelPicker({
                 <h3>
                   <Server size={14} />
                   <span>{group.name}</span>
-                  <small>{group.interface === 'responses' ? '/v1/responses' : '/v1/chat/completions'}</small>
+                  <small>{group.endpoint}</small>
                 </h3>
                 {group.models.map((model) => (
                   <article
                     key={model.id}
                     className={classNames('model-row', selectedModel?.id === model.id && 'active')}
+                    onMouseEnter={() => setPreviewModelId(model.id)}
+                    onMouseLeave={(event) => {
+                      if (!event.currentTarget.matches(':focus-within')) {
+                        setPreviewModelId(null);
+                      }
+                    }}
+                    onFocus={() => setPreviewModelId(model.id)}
+                    onBlur={(event) => {
+                      if (
+                        !event.currentTarget.contains(event.relatedTarget)
+                        && !event.currentTarget.matches(':hover')
+                      ) {
+                        setPreviewModelId(null);
+                      }
+                    }}
                   >
                     <button
                       className="model-row-content"
@@ -154,36 +172,38 @@ export function ModelPicker({
               </div>
             )}
           </div>
-          {selectedModel && (
+          {previewModel && (
             <section className="selected-model-details">
               <div className="selected-model-heading">
                 <span className="provider-fallback-icon"><Server size={22} /></span>
                 <div>
-                  <span>{selectedModel.providerName}</span>
-                  <strong>{selectedModel.name}</strong>
-                  <small>{selectedModel.modelId}</small>
+                  <span>{previewModel.providerName}</span>
+                  <strong>{previewModel.name}</strong>
+                  <small>{previewModel.modelId}</small>
                 </div>
               </div>
               <div className="selected-model-body">
                 <dl>
                   <div>
                     <dt>Interface</dt>
-                    <dd>{selectedModel.interface === 'responses' ? '/v1/responses' : '/v1/chat/completions'}</dd>
+                    <dd>
+                      {previewModel.endpoint}
+                    </dd>
                   </div>
-                  <div><dt>Input context</dt><dd>{formatTokens(selectedModel.context.input)}</dd></div>
-                  <div><dt>Output context</dt><dd>{formatTokens(selectedModel.context.output)}</dd></div>
+                  <div><dt>Input context</dt><dd>{formatTokens(previewModel.context.input)}</dd></div>
+                  <div><dt>Output context</dt><dd>{formatTokens(previewModel.context.output)}</dd></div>
                   <div>
                     <dt>Capabilities</dt>
                     <dd>
                       {[
-                        selectedModel.capabilities.images && 'Images',
-                        selectedModel.capabilities.audio && 'Audio',
+                        previewModel.capabilities.images && 'Images',
+                        previewModel.capabilities.audio && 'Audio',
                       ].filter(Boolean).join(', ') || 'Text'}
                     </dd>
                   </div>
                   <div>
                     <dt>Reasoning</dt>
-                    <dd>{selectedModel.reasoning.join(', ') || 'Not configured'}</dd>
+                    <dd>{previewModel.reasoning.join(', ') || 'Not configured'}</dd>
                   </div>
                 </dl>
               </div>

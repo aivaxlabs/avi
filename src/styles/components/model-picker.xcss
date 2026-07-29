@@ -155,6 +155,7 @@
     grid-template-columns: minmax(0, 1fr) 28px;
     align-items: center;
     border-radius: 4px;
+    transition: background 180ms var(--base-transition);
 
     &.active {
       background: rgba(0, 0, 0, 0.18);
@@ -166,6 +167,11 @@
 
     &.active:hover {
       background: rgba(0, 0, 0, 0.22);
+    }
+
+    &:focus-within {
+      outline: 2px solid var(--border-accent);
+      outline-offset: 2px;
     }
   }
 
@@ -180,6 +186,11 @@
     background: transparent;
     text-align: left;
     font-size: 12px;
+    transition: transform 180ms var(--base-transition);
+
+    &:active {
+      transform: scale(0.995);
+    }
 
     strong, span {
       min-width: 0;
@@ -313,5 +324,16 @@
       justify-content: flex-end;
       gap: 8px;
     }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-dialog .model-row,
+  .model-dialog .model-row-content {
+    transition: none;
+  }
+
+  .model-dialog .model-row-content:active {
+    transform: none;
   }
 }

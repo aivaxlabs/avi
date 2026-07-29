@@ -18,8 +18,7 @@ button {
 .settings-add-provider,
 .settings-provider-empty .primary-mini,
 .settings-actions .primary-mini,
-.models-editor-header button,
-.toast {
+.models-editor-header button {
   border-radius: 9999px;
   padding: 4px 10px;
 }

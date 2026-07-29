@@ -12,6 +12,9 @@
     "styles:watch": "cascadium watch -d src/styles -x .xcss -o src/renderer/styles.css --p:pretty true --p:filenametag relative",
     "build": "bun run styles && vite build",
     "syntax": "node scripts/check-syntax.mjs",
+    "test:context": "bun scripts/test-context-injection.mjs",
+    "test:plan": "electron scripts/test-plan-mode.mjs",
+    "test:interruptions": "electron scripts/test-interruption-propagation.mjs",
     "test:mcp": "electron scripts/test-mcp-manager.mjs",
     "test:side-chat": "electron scripts/test-side-chat-database.mjs",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
@@ -48,6 +51,7 @@
       "dist/**",
       "assets/**",
       "src/main/**",
+      "src/providers/**",
       "src/shared/**",
       "package.json"
     ],

@@ -22,7 +22,7 @@ const IGNORED_WORKSPACE_DIRECTORIES = new Set([
 const MAX_ENTRIES_PER_DIRECTORY = 20;
 const MAX_WORKSPACE_DIRECTORIES = 50;
 const MAX_CONTEXT_DIRECTORY_DEPTH = 4;
-const ROOT_CONTEXT_FILES = ['AGENTS.md', 'MEMORY.md'];
+const CONTEXT_FILE_PATTERN = /^(?:AGENTS|MEMORY)(?:\.[^.]+)*\.md$/i;
 
 export const dynamicContextInjectors = new Map([
   ['mcp', ({ mcpInstructions = [] } = {}) => (
@@ -34,6 +34,20 @@ export const dynamicContextInjectors = new Map([
         '</mcp_context>',
       ].join('\n'))
       .join('\n\n')
+  )],
+  ['work-mode', ({ workMode } = {}) => (
+    workMode === 'plan'
+      ? [
+          '<work_mode mode="plan">',
+          'You are in Plan mode. This run is exclusively for investigation, clarification, and creation of an execution plan.',
+          'Do not edit files, run commands, mutate data, create or interrupt conversations, use subagents, call provider tools, call MCP tools, or take destructive actions. No permission level overrides these restrictions.',
+          'Investigate the repository and available read-only context before asking questions. Ask as many focused questions as necessary to eliminate every material ambiguity, but do not repeat questions or ask for facts that can be discovered from the repository.',
+          'Do not present alternatives, unresolved decisions, or implementation work. Refine the plan until no material detail is left open to interpretation.',
+          'When and only when the plan is complete, emit exactly one non-empty <execution-plan>...</execution-plan> block. The block must detail the objective, affected files, specific changes, public contracts, execution sequence, risks, validations, how each validation will be performed, and measurable success criteria.',
+          'Do not emit an <execution-plan> block while questions remain unanswered. Outside the final block, keep any necessary communication concise.',
+          '</work_mode>',
+        ].join('\n')
+      : ''
   )],
   ['environment', () => {
     const operatingSystem = {
@@ -120,18 +134,21 @@ export const dynamicContextInjectors = new Map([
     const sections = [];
 
     for (const root of roots) {
-      const rootFiles = (
-        await Promise.all(ROOT_CONTEXT_FILES.map(async (fileName) => {
-          try {
-            return {
-              name: fileName,
-              content: await readFile(path.join(root.path, fileName), 'utf8'),
-            };
-          } catch {
-            return null;
-          }
-        }))
-      ).filter(Boolean);
+      const rootContextFiles = await collectFiles(
+        root.path,
+        0,
+        (fileName) => CONTEXT_FILE_PATTERN.test(fileName),
+      );
+      const rootFiles = (await Promise.all(rootContextFiles.map(async (filePath) => {
+        try {
+          return {
+            name: path.basename(filePath),
+            content: await readFile(filePath, 'utf8'),
+          };
+        } catch {
+          return null;
+        }
+      }))).filter(Boolean);
       const skillFiles = await collectFiles(
         path.join(root.path, 'skills'),
         MAX_CONTEXT_DIRECTORY_DEPTH,
@@ -146,9 +163,7 @@ export const dynamicContextInjectors = new Map([
         root.path,
         MAX_CONTEXT_DIRECTORY_DEPTH,
         (fileName, depth) => (
-          depth > 0 && ROOT_CONTEXT_FILES.some(
-            (contextFile) => contextFile.toLowerCase() === fileName.toLowerCase(),
-          )
+          depth > 0 && CONTEXT_FILE_PATTERN.test(fileName)
         ),
       );
       const displayPath = (filePath) => {
@@ -197,7 +212,7 @@ export const dynamicContextInjectors = new Map([
         sections.push('Workflows:', ...workflowLines);
       }
       if (nestedContextLines.length > 0) {
-        sections.push('Nested AGENTS.md and MEMORY.md:', ...nestedContextLines);
+        sections.push('Nested AGENTS and MEMORY files:', ...nestedContextLines);
       }
       sections.push('');
     }
@@ -228,17 +243,11 @@ export async function resolveDynamicContext(invocationContext = {}) {
 
 export async function listContextItems(rootPath) {
   const root = path.resolve(rootPath);
-  const instructionFiles = (
-    await Promise.all(ROOT_CONTEXT_FILES.map(async (fileName) => {
-      const filePath = path.join(root, fileName);
-      try {
-        await readFile(filePath, 'utf8');
-        return filePath;
-      } catch {
-        return null;
-      }
-    }))
-  ).filter(Boolean);
+  const instructionFiles = await collectFiles(
+    root,
+    0,
+    (fileName) => CONTEXT_FILE_PATTERN.test(fileName),
+  );
   const skillFiles = await collectFiles(
     path.join(root, 'skills'),
     MAX_CONTEXT_DIRECTORY_DEPTH,

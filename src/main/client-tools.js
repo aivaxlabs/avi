@@ -183,6 +183,24 @@ function terminalSnapshot(terminal) {
   };
 }
 
+function stopTerminal(terminal) {
+  if (!terminal.running || terminal.stopping) return;
+  terminal.stopping = true;
+  if (process.platform === 'win32' && terminal.child.pid) {
+    spawn('taskkill', ['/PID', String(terminal.child.pid), '/T', '/F'], {
+      windowsHide: true,
+    }).unref();
+    return;
+  }
+  terminal.child.kill();
+}
+
+export function stopConversationTerminals(conversationId) {
+  for (const terminal of terminals.values()) {
+    if (terminal.conversationId === conversationId) stopTerminal(terminal);
+  }
+}
+
 async function waitForTerminal(terminal, { untilExit, timeout }) {
   if (!terminal.running) return 'completed';
 
@@ -214,6 +232,94 @@ async function waitForTerminal(terminal, { untilExit, timeout }) {
 }
 
 export const CLIENT_TOOLS = Object.freeze([
+  {
+    name: 'ask_question',
+    description: 'Ask the user focused questions and wait for actual answers before continuing. Never infer or invent answers. Use options only for single_choice and multiple_choice questions.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        questions: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            type: 'object',
+            properties: {
+              type: {
+                type: 'string',
+                enum: ['single_choice', 'multiple_choice', 'free_text'],
+                description: 'Use free_text for an open answer without options. Use single_choice or multiple_choice when options are provided.',
+              },
+              question: {
+                type: 'string',
+                minLength: 1,
+              },
+              options: {
+                type: 'array',
+                minItems: 1,
+                maxItems: 3,
+                description: 'Required for single_choice and multiple_choice. Omit for free_text.',
+                items: {
+                  type: 'string',
+                  minLength: 1,
+                },
+              },
+            },
+            required: ['type', 'question'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['questions'],
+      additionalProperties: false,
+    },
+    execute: async ({ questions }, { chatRunner, conversationId, signal }) => {
+      if (!Array.isArray(questions) || questions.length === 0) {
+        throw new Error('questions must be a non-empty array.');
+      }
+
+      const normalizedQuestions = questions.map((item, index) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          throw new Error(`questions[${index}] must be an object.`);
+        }
+        if (!['single_choice', 'multiple_choice', 'free_text'].includes(item.type)) {
+          throw new Error(`questions[${index}].type is invalid.`);
+        }
+        const question = typeof item.question === 'string' ? item.question.trim() : '';
+        if (!question) {
+          throw new Error(`questions[${index}].question must be a non-empty string.`);
+        }
+        if (item.type !== 'free_text') {
+          if (item.options === undefined) {
+            throw new Error(`questions[${index}].options is required for ${item.type}.`);
+          }
+          if (
+            !Array.isArray(item.options)
+            || item.options.length < 1
+            || item.options.length > 3
+            || item.options.some((option) => typeof option !== 'string' || !option.trim())
+          ) {
+            throw new Error(`questions[${index}].options must contain one to three non-empty strings.`);
+          }
+        }
+        return {
+          type: item.type,
+          question,
+          ...(item.type === 'free_text'
+            ? {}
+            : { options: item.options.map((option) => option.trim()) }),
+        };
+      });
+
+      return chatRunner.askQuestion({
+        conversationId,
+        questions: normalizedQuestions,
+        signal,
+      });
+    },
+  },
   {
     name: 'chat_list_folders',
     description: 'List folders associated with chat threads.',
@@ -552,7 +658,7 @@ export const CLIENT_TOOLS = Object.freeze([
         mode: {
           type: 'string',
           enum: ['queue', 'steer'],
-          description: 'queue waits behind active work; steer takes priority and interrupts active work.',
+          description: 'queue waits behind active work; steer takes priority and interrupts at the next safe inference or tool boundary.',
         },
       },
       required: ['threadId', 'prompt', 'mode'],
@@ -583,7 +689,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'chat_interrupt_thread',
-    description: 'Interrupt the active run in a chat thread without clearing queued prompts.',
+    description: 'Interrupt the active run at its next safe boundary without stopping sub-agents, background processes, or queued prompts.',
     canEditFile: false,
     canPerformDestructiveActions: true,
     inputSchema: {
@@ -600,7 +706,7 @@ export const CLIENT_TOOLS = Object.freeze([
       const conversation = getConversation(String(threadId));
       if (!conversation) throw new Error('The thread was not found.');
       const interrupted = chatRunner.runs.has(conversation.id);
-      chatRunner.stop(conversation.id, { clearQueue: false });
+      chatRunner.requestSteer(conversation.id);
       return {
         threadId: conversation.id,
         interrupted,
@@ -803,7 +909,10 @@ export const CLIENT_TOOLS = Object.freeze([
       },
       required: ['command', 'explanation', 'goal', 'mode'],
     },
-    execute: async ({ command, mode, isBackground, timeout }, { signal, workspacePath }) => {
+    execute: async (
+      { command, mode, isBackground, timeout },
+      { signal, workspacePath, conversationId },
+    ) => {
       const normalizedCommand = String(command ?? '').trim();
       if (!normalizedCommand) throw new Error('command is required.');
 
@@ -837,6 +946,8 @@ export const CLIENT_TOOLS = Object.freeze([
         running: true,
         exitCode: null,
         signal: null,
+        conversationId,
+        stopping: false,
       };
       terminals.set(id, terminal);
 
@@ -852,7 +963,7 @@ export const CLIENT_TOOLS = Object.freeze([
 
       let waitResult;
       if (executionMode === 'sync') {
-        const abort = () => child.kill();
+        const abort = () => stopTerminal(terminal);
         signal?.addEventListener('abort', abort, { once: true });
         waitResult = await waitForTerminal(terminal, {
           untilExit: true,
@@ -1108,43 +1219,35 @@ export const CLIENT_TOOLS = Object.freeze([
   },
 ]);
 
-export function interceptToolSchemas(tools) {
-  return tools.map((tool) => {
-    if (tool.mcp) {
-      return {
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.inputSchema,
-      };
-    }
-
-    const canMutate = tool.canEditFile || tool.canPerformDestructiveActions;
-    return {
-      name: tool.name,
-      description: tool.description,
-      parameters: {
-        ...tool.inputSchema,
-        properties: {
-          ...tool.inputSchema.properties,
-          __requires_human_approval: {
-            type: 'boolean',
-            enum: [canMutate],
-            description: canMutate
-              ? 'This tool can edit files or perform destructive actions, so this value must be true.'
-              : 'This read-only tool does not require human approval, so this value must be false.',
-          },
-          __invocation_goal: {
-            type: 'string',
-            description: 'A short description of the goal of this specific tool invocation.',
-          },
+export function interceptToolSchemas(tools, permissionMode = 'approve_for_me') {
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    parameters: {
+      ...tool.inputSchema,
+      properties: {
+        ...tool.inputSchema.properties,
+        __requires_human_approval: {
+          type: 'boolean',
+          description: tool.approval === 'never'
+            ? 'Set this to false because this tool does not require a separate approval.'
+            : {
+                ask_for_approval: 'Set this to true for every tool invocation because the user selected Ask for approval, unless explicit user guidance always allows this invocation.',
+                approve_for_me: 'Set this to true only when this specific invocation needs explicit human approval, or false when it can proceed safely.',
+                full_access: 'Set this to false because the user selected Full access.',
+              }[permissionMode] ?? 'Set this to true only when this specific invocation needs explicit human approval.',
         },
-        required: [
-          ...(tool.inputSchema.required ?? []),
-          '__requires_human_approval',
-          '__invocation_goal',
-        ],
-        additionalProperties: tool.inputSchema.additionalProperties ?? false,
+        __invocation_goal: {
+          type: 'string',
+          description: 'A short description of the goal of this specific tool invocation.',
+        },
       },
-    };
-  });
+      required: [
+        ...(tool.inputSchema.required ?? []),
+        '__requires_human_approval',
+        '__invocation_goal',
+      ],
+      additionalProperties: tool.inputSchema.additionalProperties ?? false,
+    },
+  }));
 }
