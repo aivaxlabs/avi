@@ -7,7 +7,7 @@
   z-index: 120;
   background: var(--surface-menu-solid);
   border: 1px solid var(--border-panel-strong);
-  border-radius: 16px;
+  border-radius: 18px;
   box-shadow: 0 16px 40px var(--shadow-menu);
 
   &.fixed {

@@ -18,6 +18,8 @@ export function ChatView({
   onStop,
   onCompress,
   onCreateSideChat,
+  subagents,
+  onOpenSubagents,
   onFork,
   onRetry,
   onResume,
@@ -171,7 +173,7 @@ export function ChatView({
   return (
     <Root
       ref={chatAreaRef}
-      className={`chat-area ${compact ? 'side-chat-view' : ''} ${isEmptyChat ? 'chat-empty' : ''}`}
+      className={`chat-area ${compact ? 'auxiliary-chat-view' : ''} ${isEmptyChat ? 'chat-empty' : ''}`}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -251,6 +253,8 @@ export function ChatView({
         onStop={onStop}
         onCompress={onCompress}
         onCreateSideChat={onCreateSideChat}
+        subagents={subagents}
+        onOpenSubagents={onOpenSubagents}
         queuedMessages={queuedMessages}
         onCancelQueued={onCancelQueued}
         onReorderQueued={onReorderQueued}

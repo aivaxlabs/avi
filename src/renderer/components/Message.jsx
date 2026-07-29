@@ -1,4 +1,6 @@
 import {
+  ArrowRightLeft,
+  Bot,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -90,6 +92,86 @@ export function Message({
 
 function UserMessage({ message }) {
   const visibleAttachments = message.attachments;
+  const content = (message.content ?? '').trim();
+  const reportEnvelope = /^<subagent_report\b([^>]*)>\s*([\s\S]*?)\s*<\/subagent_report>$/
+    .exec(content);
+  const reportThreadId = reportEnvelope
+    ? /\bthread_id="([^"]+)"/.exec(reportEnvelope[1])?.[1]
+    : null;
+  const reportTitle = reportEnvelope
+    ? /\btitle="([^"]+)"/.exec(reportEnvelope[1])?.[1]
+    : null;
+
+  if (reportEnvelope && reportThreadId && reportTitle) {
+    const reportBody = reportEnvelope[2].trim();
+    return (
+      <article className="message-row subagent-report-row">
+        <section className="subagent-report-card" aria-label={`Report from ${reportTitle}`}>
+          <header className="subagent-report-header">
+            <span className="subagent-report-icon" aria-hidden="true">
+              <Bot size={15} />
+            </span>
+            <span className="subagent-report-heading">
+              <small>Sub-agent report</small>
+              <strong>{reportTitle}</strong>
+            </span>
+            <code title={reportThreadId}>{reportThreadId.slice(0, 8)}</code>
+            <button
+              type="button"
+              aria-label={`Copy report from ${reportTitle}`}
+              title="Copy report"
+              onClick={() => copyText(reportBody)}
+            >
+              <Copy size={14} />
+            </button>
+          </header>
+          <div className="subagent-report-body">
+            <MarkdownSegment text={reportBody} finalized />
+          </div>
+        </section>
+      </article>
+    );
+  }
+
+  const crossMessageEnvelope = /^<cross-message\b([^>]*)>\s*([\s\S]*?)\s*<\/cross-message>$/
+    .exec(content);
+  const sourceThreadId = crossMessageEnvelope
+    ? /\bfrom_thread_id="([^"]+)"/.exec(crossMessageEnvelope[1])?.[1]
+    : null;
+
+  if (crossMessageEnvelope && sourceThreadId) {
+    const crossMessageBody = crossMessageEnvelope[2].trim();
+    return (
+      <article className="message-row subagent-report-row">
+        <section
+          className="subagent-report-card cross-thread-message-card"
+          aria-label={`Message from thread ${sourceThreadId}`}
+        >
+          <header className="subagent-report-header">
+            <span className="subagent-report-icon" aria-hidden="true">
+              <ArrowRightLeft size={15} />
+            </span>
+            <span className="subagent-report-heading">
+              <small>Cross-thread message</small>
+              <strong>From thread</strong>
+            </span>
+            <code title={sourceThreadId}>{sourceThreadId.slice(0, 8)}</code>
+            <button
+              type="button"
+              aria-label={`Copy message from thread ${sourceThreadId}`}
+              title="Copy message"
+              onClick={() => copyText(crossMessageBody)}
+            >
+              <Copy size={14} />
+            </button>
+          </header>
+          <div className="subagent-report-body">
+            <MarkdownSegment text={crossMessageBody} finalized />
+          </div>
+        </section>
+      </article>
+    );
+  }
 
   return (
     <article className="message-row user-row">
@@ -112,6 +194,11 @@ function UserMessage({ message }) {
               </span>
             ))}
           </div>
+        )}
+        {message.status === 'waiting_mcp' && (
+          <span className="user-message-status" role="status">
+            Waiting for MCP servers...
+          </span>
         )}
       </div>
       <button className="user-copy-float" type="button" aria-label="Copy message" onClick={() => copyText(message.content)}>

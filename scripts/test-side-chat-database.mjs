@@ -24,6 +24,7 @@ try {
     insertMessage,
     listConversations,
     listSideChats,
+    listSubagents,
     toModelMessages,
     toModelMessagesThroughUser,
     updateConversation,
@@ -84,10 +85,90 @@ try {
   assert.equal(listSideChats(parent.id).length, 1);
   const third = forkConversation(parent.id, { sideChat: true });
   assert.equal(third.conversation.title, 'Side chat 3');
+  const subagent = forkConversation(parent.id, { subagent: true });
+  assert.equal(subagent.conversation.isSubagent, true);
+  assert.equal(subagent.conversation.parentConversationId, parent.id);
+  assert.equal(subagent.conversation.title, 'Sub-agent 1');
+  assert.deepEqual(
+    listSubagents(parent.id).map((agent) => agent.title),
+    ['Sub-agent 1'],
+  );
+  const subagentModelMessages = toModelMessages(subagent.conversation.id);
+  assert.ok(subagentModelMessages[0].content.includes('thread_type: subagent'));
+  assert.ok(subagentModelMessages[0].content.includes(`thread_id: ${subagent.conversation.id}`));
+  assert.ok(subagentModelMessages[0].content.includes(`parent_thread_id: ${parent.id}`));
+  assert.ok(subagentModelMessages[0].content.includes('chat_report_to_orchestrator'));
+  assert.equal(forkConversation(subagent.conversation.id, { subagent: true }), null);
+  const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
+  const spawnTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_spawn_subagent');
+  const reportTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_report_to_orchestrator');
+  assert.deepEqual(spawnTool.inputSchema.required, ['prompt']);
+  const spawnEvents = [];
+  const spawnCalls = [];
+  const spawned = await spawnTool.execute(
+    { prompt: 'Inspect the queue.' },
+    {
+      chatRunner: {
+        emit: (conversationId, event) => spawnEvents.push({ conversationId, event }),
+        send: async (payload) => {
+          spawnCalls.push(payload);
+          return { queued: false, message: { id: 'spawn-prompt' } };
+        },
+      },
+      conversationId: parent.id,
+      model: 'test/model',
+      models: [{
+        id: 'test/model',
+        name: 'Test model',
+        reasoning: ['high'],
+      }],
+      reasoningEffort: 'high',
+    },
+  );
+  assert.equal(spawned.status, 'working');
+  assert.equal(getConversation(spawned.thread_id).isSubagent, true);
+  assert.equal(spawnCalls[0].conversationId, spawned.thread_id);
+  assert.equal(spawnCalls[0].reasoningEffort, 'high');
+  assert.equal(spawnEvents[0].conversationId, parent.id);
+  await assert.rejects(
+    () => spawnTool.execute(
+      { prompt: 'Spawn another agent.' },
+      {
+        chatRunner: { emit: () => {}, send: async () => ({ queued: false }) },
+        conversationId: subagent.conversation.id,
+        model: 'test/model',
+        models: [{
+          id: 'test/model',
+          name: 'Test model',
+          reasoning: ['high'],
+        }],
+        reasoningEffort: 'high',
+      },
+    ),
+    /Only an orchestrator thread/,
+  );
+  const reportCalls = [];
+  const report = await reportTool.execute(
+    { message: 'Queue inspection completed.' },
+    {
+      chatRunner: {
+        send: async (payload) => {
+          reportCalls.push(payload);
+          return { queued: true, message: { id: 'report-message' } };
+        },
+      },
+      conversationId: subagent.conversation.id,
+    },
+  );
+  assert.equal(report.thread_id, parent.id);
+  assert.equal(report.status, 'queued');
+  assert.ok(reportCalls[0].text.includes(subagent.conversation.id));
   deleteConversation(parent.id);
   assert.equal(getConversation(second.conversation.id), null);
   assert.equal(getConversation(third.conversation.id), null);
-  console.log('Side-chat database flow passed.');
+  assert.equal(getConversation(subagent.conversation.id), null);
+  assert.equal(getConversation(spawned.thread_id), null);
+  console.log('Child-thread database and sub-agent tool flow passed.');
 } finally {
   database?.closeDatabase();
   rmSync(resolvedProfile, { recursive: true, force: true });

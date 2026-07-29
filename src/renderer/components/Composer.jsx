@@ -62,6 +62,16 @@ const composerCommands = [
     name: 'side',
     description: 'Fork this chat into a temporary side panel',
   },
+  {
+    id: 'mcp',
+    name: 'mcp',
+    description: 'Show MCP servers available in this conversation',
+  },
+  {
+    id: 'restart-mcp',
+    name: 'restart-mcp',
+    description: 'Restart all loaded MCP servers',
+  },
 ];
 
 export function Composer({
@@ -71,6 +81,8 @@ export function Composer({
   onStop,
   onCompress,
   onCreateSideChat,
+  subagents = [],
+  onOpenSubagents,
   queuedMessages = [],
   onCancelQueued,
   onReorderQueued,
@@ -199,6 +211,9 @@ export function Composer({
   ]);
   const activeCommandOption = commandOptions[commandIndex] ?? commandOptions[0] ?? null;
   const canSend = !commandMode && (text.trim() || attachments.length > 0);
+  const workingSubagents = subagents.filter((subagent) => subagent.status === 'working').length;
+  const finishedSubagents = subagents.filter((subagent) => subagent.status === 'finished').length;
+  const failedSubagents = subagents.filter((subagent) => subagent.status === 'failed').length;
   const contextPercent = contextUsage?.limit
     ? Math.min(100, Math.max(0, Math.round((contextUsage.tokens / contextUsage.limit) * 100)))
     : null;
@@ -405,6 +420,15 @@ export function Composer({
         onCreateSideChat();
         return;
       }
+      if (option.id === 'mcp' || option.id === 'restart-mcp') {
+        exitCommandMode();
+        onSend({
+          text: `/${option.name}`,
+          attachments: [],
+          reasoningEffort: activeReasoningEffort,
+        });
+        return;
+      }
       setCommandStage(option.id);
       setCommandIndex(0);
       setText('');
@@ -550,8 +574,25 @@ export function Composer({
           </button>
         </div>
       )}
+      {subagents.length > 0 && (
+        <ComposerStrip
+          as="button"
+          className="subagent-strip"
+          type="button"
+          aria-label="Open sub-agents panel"
+          onClick={onOpenSubagents}
+        >
+          <Bot size={15} aria-hidden="true" />
+          <span aria-live="polite">
+            {workingSubagents} sub-agent{workingSubagents === 1 ? '' : 's'} working,{' '}
+            {finishedSubagents} finished
+            {failedSubagents > 0 ? `, ${failedSubagents} failed` : ''}
+          </span>
+          <ChevronRight size={15} aria-hidden="true" />
+        </ComposerStrip>
+      )}
       {queuedMessages.length > 0 && (
-        <ol className="queued-messages" aria-label="Queued messages">
+        <ComposerStrip as="ol" className="queued-messages" aria-label="Queued messages">
           {queuedMessages.map((message, index) => (
             <li
               key={message.id}
@@ -662,7 +703,7 @@ export function Composer({
               </div>
             </li>
           ))}
-        </ol>
+        </ComposerStrip>
       )}
       {queuedMenu && createPortal(
         <DropdownMenu
@@ -1093,6 +1134,19 @@ export function Composer({
         />
       )}
     </section>
+  );
+}
+
+function ComposerStrip({
+  as: Root = 'div',
+  className = '',
+  children,
+  ...props
+}) {
+  return (
+    <Root className={`composer-strip ${className}`.trim()} {...props}>
+      {children}
+    </Root>
   );
 }
 

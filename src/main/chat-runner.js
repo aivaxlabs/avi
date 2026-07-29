@@ -33,8 +33,14 @@ Include:
 Make the checkpoint structured, exhaustive, precise, and optimized for seamless continuation by another LLM.`;
 
 export class ChatRunner {
-  constructor({ registry, sendEvent, debugStream = false }) {
+  constructor({
+    registry,
+    mcpManager,
+    sendEvent,
+    debugStream = false,
+  }) {
     this.registry = registry;
+    this.mcpManager = mcpManager;
     this.sendEvent = sendEvent;
     this.debugStream = debugStream;
     this.runs = new Map();
@@ -85,7 +91,9 @@ export class ChatRunner {
       reasoningEffort,
       text,
       attachments,
-      status: 'sent',
+      status: !this.mcpManager || this.mcpManager.isWorkspaceReady(conversation.projectPath)
+        ? 'sent'
+        : 'waiting_mcp',
     });
     this.emit(conversation.id, { type: 'message', message: userMessage });
     this.start({
@@ -160,7 +168,11 @@ export class ChatRunner {
 
       const orderedQueue = requestedIds.map((messageId) => queuedById.get(messageId));
       const next = orderedQueue.shift();
-      const sentMessage = updateMessage(next.userMessageId, { status: 'sent' });
+      const sentMessage = updateMessage(next.userMessageId, {
+        status: !this.mcpManager || this.mcpManager.isWorkspaceReady(conversation?.projectPath)
+          ? 'sent'
+          : 'waiting_mcp',
+      });
       this.emit(conversationId, { type: 'message', message: sentMessage });
       this.emit(conversationId, {
         type: 'queue-order',
@@ -601,7 +613,27 @@ export class ChatRunner {
       model,
     });
 
+    let waitingForMcp = false;
     try {
+      const workspacePath = getConversation(conversationId)?.projectPath;
+      waitingForMcp = Boolean(
+        this.mcpManager && !this.mcpManager.isWorkspaceReady(workspacePath),
+      );
+      if (waitingForMcp) {
+        this.emit(conversationId, { type: 'mcp-waiting', waiting: true });
+      }
+      const mcpRuntime = this.mcpManager
+        ? await this.mcpManager.ensureWorkspace(workspacePath, controller.signal)
+        : { tools: [], instructions: [] };
+      if (userMessageId && getMessage(userMessageId)?.status === 'waiting_mcp') {
+        const sentMessage = updateMessage(userMessageId, { status: 'sent' });
+        this.emit(conversationId, { type: 'message', message: sentMessage });
+      }
+      if (waitingForMcp) {
+        waitingForMcp = false;
+        this.emit(conversationId, { type: 'mcp-waiting', waiting: false });
+      }
+
       const selection = this.registry.resolve(model);
       if (!selection) {
         throw new Error('The selected model is no longer configured. Choose another model in Settings.');
@@ -609,7 +641,40 @@ export class ChatRunner {
 
       const messages = retryMessages
         ?? toModelMessages(conversationId, { excludeMessageId: assistantMessage.id });
-      const workspacePath = getConversation(conversationId)?.projectPath;
+      const models = this.registry.listModels();
+      const currentConversation = getConversation(conversationId);
+      const availableTools = [
+        ...CLIENT_TOOLS
+          .filter((tool) => (
+            tool.name !== 'chat_report_to_orchestrator' || currentConversation?.isSubagent
+          ))
+          .filter((tool) => (
+            tool.name !== 'chat_spawn_subagent'
+            || (!currentConversation?.isSubagent && !currentConversation?.isSideChat)
+          ))
+          .map((tool) => (
+          ['chat_create_thread', 'chat_spawn_subagent'].includes(tool.name)
+            ? {
+                ...tool,
+                inputSchema: {
+                  ...tool.inputSchema,
+                  properties: {
+                    ...tool.inputSchema.properties,
+                    model_name: {
+                      ...tool.inputSchema.properties.model_name,
+                      enum: models.map((item) => item.id),
+                    },
+                    reasoning_effort: {
+                      ...tool.inputSchema.properties.reasoning_effort,
+                      enum: [...new Set(models.flatMap((item) => item.reasoning))],
+                    },
+                  },
+                },
+              }
+            : tool
+          )),
+        ...mcpRuntime.tools,
+      ];
       const toolHistory = initialToolHistory.map((round) => ({
         ...round,
         responseItems: [...round.responseItems],
@@ -633,10 +698,13 @@ export class ChatRunner {
         const turn = await selection.provider.stream({
           model: selection.model,
           messages,
-          tools: CLIENT_TOOLS,
+          tools: availableTools,
           toolHistory,
           reasoningEffort,
-          invocationContext: { workspacePath },
+          invocationContext: {
+            workspacePath,
+            mcpInstructions: mcpRuntime.instructions,
+          },
           signal: controller.signal,
           onEvent: (event) => {
             if (
@@ -668,7 +736,8 @@ export class ChatRunner {
             throw new Error('The provider returned a tool call without a call ID or name.');
           }
 
-          const tool = CLIENT_TOOLS.find((item) => item.name === toolCall.name);
+          const tool = availableTools.find((item) => item.name === toolCall.name);
+          const isMcpTool = Boolean(tool?.mcp);
           const expectedRequiresHumanApproval = Boolean(
             tool?.canEditFile || tool?.canPerformDestructiveActions,
           );
@@ -683,12 +752,21 @@ export class ChatRunner {
             ? args.__invocation_goal.trim()
             : '';
           const requiresHumanApproval = args?.__requires_human_approval;
+          const input = args && typeof args === 'object' && !Array.isArray(args)
+            ? { ...args }
+            : null;
+          if (input) {
+            delete input.__requires_human_approval;
+            delete input.__invocation_goal;
+          }
           accumulator.apply({
             type: 'tool-call',
             key: `round:${roundIndex}:${toolCall.key ?? toolCall.callId}`,
             callId: toolCall.callId,
             name: toolCall.name,
-            argumentsText: toolCall.argumentsText,
+            argumentsText: isMcpTool && input
+              ? JSON.stringify(input)
+              : toolCall.argumentsText,
             replaceArguments: true,
             invocationGoal,
             requiresHumanApproval: expectedRequiresHumanApproval,
@@ -701,26 +779,25 @@ export class ChatRunner {
             if (!args || typeof args !== 'object' || Array.isArray(args)) {
               throw new Error('Tool arguments must be a JSON object.');
             }
-            if (!invocationGoal) {
+            if (!isMcpTool && !invocationGoal) {
               throw new Error('Tool arguments must include __invocation_goal.');
             }
-            if (typeof requiresHumanApproval !== 'boolean') {
+            if (!isMcpTool && typeof requiresHumanApproval !== 'boolean') {
               throw new Error('Tool arguments must include __requires_human_approval as a boolean.');
             }
-            if (requiresHumanApproval !== expectedRequiresHumanApproval) {
+            if (!isMcpTool && requiresHumanApproval !== expectedRequiresHumanApproval) {
               throw new Error('__requires_human_approval does not match the tool classification.');
             }
             if (!tool) throw new Error(`Unknown client-side tool: ${toolCall.name}.`);
 
-            const input = { ...args };
-            delete input.__requires_human_approval;
-            delete input.__invocation_goal;
             const value = await tool.execute(input, {
               signal: controller.signal,
               workspacePath,
               chatRunner: this,
               conversationId,
               model,
+              models,
+              reasoningEffort,
             });
             output = typeof value === 'string' ? value : JSON.stringify(value);
           } catch (error) {
@@ -813,6 +890,10 @@ export class ChatRunner {
     } catch (error) {
       const aborted = controller.signal.aborted;
       const message = error instanceof Error ? error.message : String(error);
+      if (waitingForMcp) {
+        waitingForMcp = false;
+        this.emit(conversationId, { type: 'mcp-waiting', waiting: false });
+      }
       if (!aborted && !accumulator.error) {
         accumulator.apply({
           type: 'error',
@@ -825,8 +906,10 @@ export class ChatRunner {
         status: aborted ? 'aborted' : 'error',
         force: true,
       });
-      if (userMessageId && !aborted) {
-        const failedUserMessage = updateMessage(userMessageId, { status: 'error' });
+      if (userMessageId && (!aborted || getMessage(userMessageId)?.status === 'waiting_mcp')) {
+        const failedUserMessage = updateMessage(userMessageId, {
+          status: aborted ? 'aborted' : 'error',
+        });
         if (failedUserMessage) {
           this.emit(conversationId, { type: 'message', message: failedUserMessage });
         }
@@ -851,8 +934,13 @@ export class ChatRunner {
           type: 'queue-order',
           messageIds: pendingQueue.map((item) => item.userMessageId),
         });
-        const sentMessage = updateMessage(next.userMessageId, { status: 'sent' });
-        this.emit(conversationId, { type: 'message', message: sentMessage });
+        const workspacePath = getConversation(conversationId)?.projectPath;
+        const nextMessage = updateMessage(next.userMessageId, {
+          status: !this.mcpManager || this.mcpManager.isWorkspaceReady(workspacePath)
+            ? 'sent'
+            : 'waiting_mcp',
+        });
+        this.emit(conversationId, { type: 'message', message: nextMessage });
         this.start({
           conversationId,
           model: next.model,

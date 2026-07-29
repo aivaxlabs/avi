@@ -25,6 +25,16 @@ const MAX_CONTEXT_DIRECTORY_DEPTH = 4;
 const ROOT_CONTEXT_FILES = ['AGENTS.md', 'MEMORY.md'];
 
 export const dynamicContextInjectors = new Map([
+  ['mcp', ({ mcpInstructions = [] } = {}) => (
+    mcpInstructions
+      .filter((instruction) => instruction?.text)
+      .map((instruction) => [
+        `<mcp_context from="${escapeXml(instruction.from || 'MCP server')}">`,
+        instruction.text,
+        '</mcp_context>',
+      ].join('\n'))
+      .join('\n\n')
+  )],
   ['environment', () => {
     const operatingSystem = {
       win32: 'Windows',

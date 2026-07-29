@@ -20,6 +20,9 @@ contextBridge.exposeInMainWorld('chatApp', {
     create: (payload) => invoke('side-chats:create', payload),
     close: (sideChatId) => invoke('side-chats:close', sideChatId),
   },
+  subagents: {
+    list: (parentConversationId) => invoke('subagents:list', parentConversationId),
+  },
   providers: {
     list: () => invoke('providers:list'),
     save: (provider) => invoke('providers:save', provider),
@@ -29,6 +32,19 @@ contextBridge.exposeInMainWorld('chatApp', {
     list: () => invoke('models:list'),
     favorites: () => invoke('models:favorites'),
     favorite: (payload) => invoke('models:favorite', payload),
+  },
+  mcp: {
+    state: () => invoke('mcp:state'),
+    folders: () => invoke('mcp:folders'),
+    folder: (folderPath) => invoke('mcp:folder', folderPath),
+    workspace: (folderPath) => invoke('mcp:workspace', folderPath),
+    save: (payload) => invoke('mcp:save', payload),
+    remove: (payload) => invoke('mcp:remove', payload),
+    enabled: (payload) => invoke('mcp:enabled', payload),
+    restart: (serverKey) => invoke('mcp:restart', serverKey),
+    restartAll: (folderPath) => invoke('mcp:restart-all', folderPath),
+    inspect: (serverKey) => invoke('mcp:inspect', serverKey),
+    authenticate: (serverKey) => invoke('mcp:authenticate', serverKey),
   },
   chat: {
     send: (payload) => invoke('chat:send', payload),
@@ -59,5 +75,10 @@ contextBridge.exposeInMainWorld('chatApp', {
     const handler = (_event, payload) => callback(payload);
     ipcRenderer.on('chat:event', handler);
     return () => ipcRenderer.removeListener('chat:event', handler);
+  },
+  onMcpEvent(callback) {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('mcp:event', handler);
+    return () => ipcRenderer.removeListener('mcp:event', handler);
   },
 });

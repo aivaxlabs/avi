@@ -57,7 +57,9 @@
     padding: 6px 8px;
   }
 
-  .nav-actions button, .settings-button, .conversation-main {
+  .nav-actions button,
+  .settings-button,
+  .conversation-main {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -70,16 +72,21 @@
     text-align: left;
   }
 
-  .nav-actions button:hover, .settings-button:hover, .conversation-item.active, .conversation-item:hover {
+  .nav-actions button:hover,
+  .settings-button:hover,
+  .conversation-item.active,
+  .conversation-item:hover {
     background: var(--surface-neutral-hover);
   }
 
-  .conversation-item:hover .icon-button, .conversation-item.menu-open .icon-button {
+  .conversation-item:hover .icon-button,
+  .conversation-item.menu-open .icon-button {
     opacity: .4;
     pointer-events: auto;
   }
 
-  .conversation-item:hover .conversation-age, .conversation-item.menu-open .conversation-age {
+  .conversation-item:hover .conversation-age,
+  .conversation-item.menu-open .conversation-age {
     opacity: 0;
   }
 
@@ -113,7 +120,8 @@
     background: transparent;
     border-radius: 5px;
 
-    &:hover, &.active {
+    &:hover,
+    &.active {
       color: var(--color-text-primary);
       background: var(--surface-neutral-hover);
     }
@@ -208,7 +216,9 @@
         opacity 180ms var(--base-transition),
         transform 180ms var(--base-transition);
 
-      &:hover, &:focus-visible, &.active {
+      &:hover,
+      &:focus-visible,
+      &.active {
         color: var(--color-text-strong);
         background: var(--surface-neutral-hover);
         opacity: 1;
@@ -295,17 +305,20 @@
     }
   }
 
+  .nav-actions button,
   .settings-button {
-    margin: auto 4px 4px 4px;
-    width: calc(100% - 8px);
-  }
-
-  .nav-actions button, .settings-button {
     border-radius: 12px;
     padding: 9px 12px;
   }
 
-  .conversation-item, .conversation-main {
+  .settings-button {
+    margin: auto 4px 4px 4px;
+    width: calc(100% - 8px);
+    border-radius: 6px;
+  }
+
+  .conversation-item,
+  .conversation-main {
     border-radius: 12px;
   }
 

@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Pencil,
   Plus,
+  RadioTower,
   Save,
   Server,
   Trash2,
@@ -20,6 +21,7 @@ import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { classNames } from '../lib/format.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
+import { McpSettings } from './McpSettings.jsx';
 
 const reasoningEfforts = ['low', 'medium', 'high', 'xhigh', 'max'];
 const providerTypes = [
@@ -147,11 +149,14 @@ function ActionMenu({
 export function SettingsPage({
   providers,
   initialContextFolder = null,
+  initialView = null,
   onClose,
   onSave,
   onRemove,
 }) {
-  const [view, setView] = useState(initialContextFolder ? 'context-folder' : 'list');
+  const [view, setView] = useState(
+    initialContextFolder ? 'context-folder' : initialView ?? 'list',
+  );
   const [selectedId, setSelectedId] = useState(null);
   const [providerDraft, setProviderDraft] = useState(null);
   const [modelDraft, setModelDraft] = useState(null);
@@ -162,6 +167,7 @@ export function SettingsPage({
   const [selectedContextFolder, setSelectedContextFolder] = useState(initialContextFolder);
   const [contextFolder, setContextFolder] = useState(null);
   const [contextLoading, setContextLoading] = useState(false);
+  const [mcpNavigation, setMcpNavigation] = useState(null);
   const selectedProvider = providers.find((provider) => provider.id === selectedId) ?? null;
   const selectedType = providerTypes.find((type) => (
     type.id === (providerDraft?.interface ?? selectedProvider?.interface)
@@ -261,6 +267,7 @@ export function SettingsPage({
     model: modelDraft?.name || (modelIndex < 0 ? 'New model' : 'Edit model'),
     'context-folders': 'Context management',
     'context-folder': selectedContextFolder?.name || 'Context',
+    mcp: mcpNavigation?.title || 'MCP servers',
   }[view];
   const pageDescription = {
     list: 'Manage the connections and models available in chats.',
@@ -271,7 +278,11 @@ export function SettingsPage({
     model: `Configure the model exposed by ${selectedProvider?.name || 'this provider'}.`,
     'context-folders': 'Manage instructions, skills, and workflows by folder.',
     'context-folder': selectedContextFolder?.displayPath || '',
+    mcp: mcpNavigation?.description
+      || 'Manage global and per-folder Model Context Protocol servers.',
   }[view];
+  const showInlineBack = !['list', 'context-folders', 'mcp'].includes(view)
+    || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
 
   return (
     <section className="settings-page">
@@ -316,17 +327,33 @@ export function SettingsPage({
             <FolderCog size={16} />
             Context management
           </button>
+          <button
+            className={view === 'mcp' ? 'active' : undefined}
+            type="button"
+            aria-current={view === 'mcp' ? 'page' : undefined}
+            onClick={() => {
+              setView('mcp');
+              setError('');
+            }}
+          >
+            <RadioTower size={16} />
+            MCP servers
+          </button>
         </nav>
       </aside>
 
       <main className="settings-main">
         <header className="settings-page-header">
           <div>
-            {!['list', 'context-folders'].includes(view) && (
+            {showInlineBack && (
               <button
                 className="settings-inline-back"
                 type="button"
                 onClick={() => {
+                  if (view === 'mcp') {
+                    mcpNavigation.onBack();
+                    return;
+                  }
                   if (view === 'context-folder') {
                     setView('context-folders');
                     setSelectedContextFolder(null);
@@ -350,7 +377,9 @@ export function SettingsPage({
                 }}
               >
                 <ArrowLeft size={14} />
-                {view === 'context-folder'
+                {view === 'mcp'
+                  ? mcpNavigation.backLabel
+                  : view === 'context-folder'
                   ? 'Back to folders'
                   : view === 'model'
                     ? 'Back to provider'
@@ -369,6 +398,16 @@ export function SettingsPage({
                 }}>
                   <Plus size={14} />
                   Add provider
+                </button>
+              )}
+              {view === 'mcp' && mcpNavigation?.onAction && (
+                <button
+                  className="primary-mini settings-add-provider"
+                  type="button"
+                  onClick={mcpNavigation.onAction}
+                >
+                  <Plus size={14} />
+                  {mcpNavigation.actionLabel}
                 </button>
               )}
             </div>
@@ -585,6 +624,8 @@ export function SettingsPage({
                 {error && <div className="settings-context-error" role="alert">{error}</div>}
               </section>
             )}
+
+            {view === 'mcp' && <McpSettings onNavigationChange={setMcpNavigation} />}
 
             {view === 'type' && (
               <section className="settings-section">

@@ -1,0 +1,429 @@
+.mcp-progress {
+  position: fixed;
+  top: 44px;
+  left: 50%;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  color: var(--color-text-primary);
+  background: var(--surface-popover);
+  border: 1px solid var(--border-panel);
+  border-radius: 9px;
+  box-shadow: 0 10px 30px var(--shadow-popover);
+  font-size: 12px;
+  transform: translateX(-50%);
+  z-index: 65;
+
+  svg {
+    animation: mcp-spin 900ms linear infinite;
+  }
+}
+
+.mcp-dialog-backdrop {
+  z-index: 80;
+}
+
+.mcp-dialog {
+  width: min(500px, 100%);
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 16px;
+  padding: 22px;
+  color: var(--color-text);
+  background: var(--surface-dialog);
+  border: 1px solid var(--surface-dialog-border);
+  border-radius: 10px;
+  box-shadow: 0 28px 90px var(--shadow-dialog);
+
+  .mcp-dialog-icon {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    color: var(--color-text-primary);
+    background: var(--surface-muted);
+    border: 1px solid var(--border-control);
+    border-radius: 9px;
+  }
+
+  .mcp-dialog-copy {
+    min-width: 0;
+  }
+
+  h2, p {
+    margin: 0;
+  }
+
+  h2 {
+    color: var(--color-text-strong);
+    font-size: 16px;
+  }
+
+  p {
+    margin-top: 5px;
+    color: var(--color-muted);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  ul {
+    display: grid;
+    gap: 8px;
+    margin: 10px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  li {
+    display: grid;
+    gap: 2px;
+    padding: 9px 10px;
+    background: var(--surface-muted);
+    border-radius: 7px;
+
+    strong {
+      color: var(--color-text-strong);
+      font-size: 12px;
+    }
+
+    span {
+      color: var(--color-muted);
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+  }
+}
+
+.mcp-dialog-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+
+  button {
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    color: var(--color-text-soft);
+    background: var(--surface-muted);
+    border: 1px solid var(--border-control);
+    border-radius: 7px;
+    font-size: 12px;
+
+    &:hover {
+      background: var(--surface-hover);
+    }
+
+    &:active {
+      background: var(--surface-muted-strong);
+    }
+  }
+}
+
+.mcp-status-dialog {
+  width: min(620px, 100%);
+  max-height: min(680px, 88vh);
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
+
+  header {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 16px;
+
+    button {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      color: var(--color-muted);
+      background: transparent;
+      border-radius: 7px;
+
+      &:hover {
+        color: var(--color-text-primary);
+        background: var(--surface-muted);
+      }
+    }
+  }
+
+  .mcp-dialog-actions {
+    grid-column: auto;
+  }
+}
+
+.mcp-status-list {
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+  overflow-y: auto;
+
+  article {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    background: var(--surface-solid);
+    border: 1px solid var(--border-panel);
+    border-radius: 8px;
+
+    > span:nth-child(2) {
+      min-width: 0;
+      display: grid;
+      gap: 2px;
+    }
+
+    strong {
+      color: var(--color-text-strong);
+      font-size: 12px;
+    }
+
+    small {
+      color: var(--color-muted);
+      font-size: 10px;
+    }
+  }
+
+  .mcp-status-server-icon {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    color: var(--color-icon);
+    background: var(--surface-muted);
+    border-radius: 7px;
+  }
+
+  .settings-status {
+    padding: 3px 7px;
+    border-radius: 999px;
+    color: var(--color-muted);
+    background: var(--surface-muted);
+    font-size: 10px;
+
+    &.ready {
+      color: var(--color-live);
+      background: var(--surface-accent-soft);
+    }
+
+    &.starting, &.auth-required {
+      color: var(--color-warning);
+      background: var(--surface-warning-soft);
+    }
+
+    &.error {
+      color: var(--color-danger);
+      background: var(--surface-danger-soft);
+    }
+  }
+}
+
+.settings-page {
+  .mcp-settings {
+    display: grid;
+    gap: 18px;
+  }
+
+  .settings-field textarea {
+    grid-column: 2;
+    width: 100%;
+    min-width: 0;
+    min-height: 88px;
+    padding: 9px;
+    resize: vertical;
+    color: var(--color-text-primary);
+    background: var(--surface-input);
+    border: 1px solid var(--border-input);
+    border-radius: 7px;
+    outline: 0;
+    font: 12px/1.5 "Cascadia Mono", Consolas, monospace;
+
+    &:focus {
+      border-color: var(--border-accent);
+    }
+  }
+
+  .mcp-editor-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .mcp-server-error {
+    border-color: var(--border-panel-strong);
+  }
+
+  .settings-entity-row:has(.mcp-server-main) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+  }
+
+  .mcp-server-main {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+  }
+
+  .mcp-server-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding-right: 8px;
+
+    .icon-button {
+      width: 28px;
+      height: 28px;
+
+      &:hover {
+        background: var(--surface-muted);
+      }
+
+      &.danger:hover {
+        color: var(--color-danger-strong);
+        background: var(--surface-danger-soft);
+      }
+    }
+  }
+
+  .mcp-server-message {
+    grid-column: 1 / -1;
+    margin: -4px 12px 10px 58px;
+    color: var(--color-muted);
+    font-size: 10px;
+    overflow-wrap: anywhere;
+  }
+
+  .settings-status {
+    &.ready {
+      color: var(--color-live);
+      background: var(--surface-accent-soft);
+    }
+
+    &.starting, &.auth-required {
+      color: var(--color-warning);
+      background: var(--surface-warning-soft);
+    }
+
+    &.error {
+      color: var(--color-danger);
+      background: var(--surface-danger-soft);
+    }
+
+    &.idle, &.shadowed {
+      color: var(--color-muted);
+      background: var(--surface-muted);
+    }
+  }
+
+  .mcp-inspection-section {
+    display: grid;
+    gap: 10px;
+
+    h4, p {
+      margin: 0;
+    }
+
+    h4 {
+      color: var(--color-text-strong);
+      font-size: 12px;
+    }
+
+    details {
+      padding: 8px 0;
+      border-top: 1px solid var(--border-hairline);
+
+      &:first-of-type {
+        border-top: 0;
+      }
+    }
+
+    summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      cursor: pointer;
+
+      strong {
+        color: var(--color-text-primary);
+        font-size: 12px;
+      }
+
+      code {
+        color: var(--color-muted);
+        font-size: 10px;
+        overflow-wrap: anywhere;
+      }
+    }
+
+    pre {
+      max-height: 260px;
+      margin: 0;
+      padding: 10px;
+      overflow: auto;
+      color: var(--color-code-block-text);
+      background: var(--surface-code-block-soft);
+      border-radius: 7px;
+      font: 10px/1.55 "Cascadia Mono", Consolas, monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  @media (max-width: 700px) {
+    .settings-field {
+      grid-template-columns: minmax(0, 1fr);
+
+      > span, input, select, textarea, small {
+        grid-column: 1;
+      }
+
+      > span {
+        grid-row: auto;
+      }
+    }
+
+    .settings-entity-row:has(.mcp-server-main) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .mcp-server-main {
+      grid-template-columns: 34px minmax(0, 1fr);
+    }
+
+    .mcp-server-actions {
+      justify-content: flex-end;
+      padding: 0 8px 8px;
+    }
+  }
+}
+
+.user-message-status {
+  display: block;
+  margin-top: 5px;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.mcp-dialog button:focus-visible,
+.mcp-progress:focus-visible,
+.settings-page .mcp-server-actions button:focus-visible,
+.settings-page .settings-field textarea:focus-visible {
+  outline: 2px solid var(--border-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mcp-progress svg {
+    animation: none;
+  }
+}
+
+@keyframes mcp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

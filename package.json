@@ -12,12 +12,14 @@
     "styles:watch": "cascadium watch -d src/styles -x .xcss -o src/renderer/styles.css --p:pretty true --p:filenametag relative",
     "build": "bun run styles && vite build",
     "syntax": "node scripts/check-syntax.mjs",
+    "test:mcp": "electron scripts/test-mcp-manager.mjs",
     "test:side-chat": "electron scripts/test-side-chat-database.mjs",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "package": "bun run build && electron-builder --dir",
     "postinstall": "electron-rebuild -f -w better-sqlite3"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
     "@vitejs/plugin-react": "^5.1.1",
     "better-sqlite3": "^12.5.0",
     "lamejs": "^1.2.1",
@@ -26,7 +28,8 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.1",

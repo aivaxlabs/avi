@@ -43,7 +43,10 @@
     text-align: left;
   }
 
-  .settings-back:hover, .settings-navigation button:hover, .settings-inline-back:hover, .settings-entity-main:hover {
+  .settings-back:hover,
+  .settings-navigation button:hover,
+  .settings-inline-back:hover,
+  .settings-entity-main:hover {
     color: var(--color-text-primary);
     background: var(--surface-neutral-hover);
   }
@@ -56,7 +59,12 @@
     }
   }
 
-  .settings-sidebar-heading h1, .settings-sidebar-heading p, .settings-page-header h2, .settings-page-header p, .settings-section-heading h3, .settings-section-heading p {
+  .settings-sidebar-heading h1,
+  .settings-sidebar-heading p,
+  .settings-page-header h2,
+  .settings-page-header p,
+  .settings-section-heading h3,
+  .settings-section-heading p {
     margin: 0;
   }
 
@@ -126,7 +134,8 @@
     }
   }
 
-  .settings-page-header > div, .settings-content-inner {
+  .settings-page-header > div,
+  .settings-content-inner {
     width: min(840px, 100%);
     margin: 0 auto;
   }
@@ -171,7 +180,10 @@
     text-wrap: pretty;
   }
 
-  .settings-add-provider, .settings-provider-empty .primary-mini, .settings-actions .primary-mini {
+  .settings-add-provider,
+  .settings-provider-empty .primary-mini,
+  .settings-actions .primary-mini,
+  .mcp-editor-actions .primary-mini {
     flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
@@ -180,9 +192,11 @@
     padding: 7px 10px;
     border-radius: 7px;
     font-size: 12px;
+    white-space: nowrap;
   }
 
-  .settings-actions .primary-mini {
+  .settings-actions .primary-mini,
+  .mcp-editor-actions .primary-mini {
     transition: background-color 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
 
     &:hover:not(:disabled) {
@@ -263,7 +277,7 @@
 
   .settings-entity-list {
     display: grid;
-    gap: 8px;
+    gap: 3px;
   }
 
   .settings-entity-row {
@@ -271,8 +285,6 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) 36px;
     align-items: center;
-    background: var(--surface-solid);
-    border: 1px solid var(--border-panel);
     border-radius: 9px;
     transition: border-color 180ms var(--base-transition),
       box-shadow 180ms var(--base-transition),
@@ -284,7 +296,6 @@
 
     &:hover {
       border-color: var(--border-panel-strong);
-      box-shadow: 0 5px 16px var(--shadow-soft);
     }
 
     &.disabled {
@@ -294,7 +305,6 @@
 
   .settings-entity-main {
     min-width: 0;
-    min-height: 62px;
     display: grid;
     grid-template-columns: 34px minmax(0, 1fr) auto 16px;
     align-items: center;
@@ -330,7 +340,8 @@
     display: grid;
     gap: 3px;
 
-    strong, small {
+    strong,
+    small {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -598,7 +609,8 @@
       font-size: 12px;
     }
 
-    small, code {
+    small,
+    code {
       color: var(--color-muted);
       font-size: 10px;
     }
@@ -619,7 +631,8 @@
     gap: 32px;
   }
 
-  .settings-form, .model-editor-grid {
+  .settings-form,
+  .model-editor-grid {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
@@ -646,7 +659,8 @@
     grid-column: auto;
   }
 
-  .settings-field input, .settings-field select {
+  .settings-field input,
+  .settings-field select {
     grid-column: 2;
     grid-row: 1;
     width: 100%;
@@ -661,7 +675,8 @@
     font-size: 12px;
   }
 
-  .settings-field input:focus, .settings-field select:focus {
+  .settings-field input:focus,
+  .settings-field select:focus {
     border-color: var(--border-accent);
   }
 
@@ -674,7 +689,8 @@
     line-height: 1.5;
   }
 
-  .models-editor-header h3, .models-editor-header p {
+  .models-editor-header h3,
+  .models-editor-header p {
     margin: 0;
   }
 
@@ -877,6 +893,7 @@
 .settings-row-menu .dropdown-menu-item:focus-visible,
 .provider-type-card:focus-visible,
 .settings-actions button:focus-visible,
+.mcp-editor-actions button:focus-visible,
 .models-editor-header button:focus-visible,
 .settings-field input:focus-visible,
 .settings-field select:focus-visible {

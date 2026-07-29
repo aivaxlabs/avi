@@ -11,13 +11,18 @@ import {
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import {
   createConversation,
+  forkConversation,
   getConversation,
   getMessages,
   listAllConversations,
+  updateConversation,
 } from './database.js';
 
 const MAX_READ_URL_CHARS = 100_000;
 const MAX_TERMINAL_OUTPUT_CHARS = 2_000_000;
+const MIN_TERMINAL_TIMEOUT_SECONDS = 1;
+const MAX_TERMINAL_TIMEOUT_SECONDS = 300;
+const DEFAULT_TERMINAL_TIMEOUT_SECONDS = 30;
 const MAX_SEARCH_FILE_BYTES = 5_000_000;
 const DEFAULT_SEARCH_RESULTS = 200;
 const MAX_INSPECTED_TURNS = 4;
@@ -179,33 +184,32 @@ function terminalSnapshot(terminal) {
 }
 
 async function waitForTerminal(terminal, { untilExit, timeout }) {
-  if (!terminal.running) return;
+  if (!terminal.running) return 'completed';
 
-  await new Promise((resolveWait) => {
+  return new Promise((resolveWait) => {
     let idleTimer;
     let timeoutTimer;
 
-    const finish = () => {
+    const finish = (reason) => {
       clearTimeout(idleTimer);
       clearTimeout(timeoutTimer);
       terminal.events.removeListener('activity', onActivity);
-      terminal.events.removeListener('close', finish);
-      resolveWait();
+      terminal.events.removeListener('close', onClose);
+      resolveWait(reason);
     };
+    const onClose = () => finish('completed');
     const onActivity = () => {
       if (untilExit) return;
       clearTimeout(idleTimer);
-      idleTimer = setTimeout(finish, 300);
+      idleTimer = setTimeout(() => finish('idle'), 300);
     };
 
     terminal.events.on('activity', onActivity);
-    terminal.events.once('close', finish);
+    terminal.events.once('close', onClose);
     if (!untilExit) {
-      idleTimer = setTimeout(finish, 300);
+      idleTimer = setTimeout(() => finish('idle'), 300);
     }
-    if (timeout > 0) {
-      timeoutTimer = setTimeout(finish, timeout);
-    }
+    timeoutTimer = setTimeout(() => finish('timeout'), timeout);
   });
 }
 
@@ -307,13 +311,27 @@ export const CLIENT_TOOLS = Object.freeze([
           type: 'string',
           description: 'Optional absolute folder path for the thread. Defaults to the current folder.',
         },
+        model_name: {
+          type: 'string',
+          description: 'Optional configured model to invoke. Defaults to the last model used in the folder.',
+        },
+        reasoning_effort: {
+          type: 'string',
+          description: 'Optional reasoning effort to invoke. Defaults to the last reasoning effort used in the folder.',
+        },
       },
     },
     execute: async (
-      { prompt, folderPath },
+      {
+        prompt,
+        folderPath,
+        model_name,
+        reasoning_effort,
+      },
       {
         chatRunner,
         model,
+        models,
         workspacePath,
       },
     ) => {
@@ -325,9 +343,44 @@ export const CLIENT_TOOLS = Object.freeze([
       if (!details.isDirectory()) {
         throw new Error('folderPath must point to a directory.');
       }
+      const projectKey = process.platform === 'win32'
+        ? projectPath.toLowerCase()
+        : projectPath;
+      const folderConversations = listAllConversations().filter((item) => {
+        const conversationPath = resolve(item.projectPath);
+        return (process.platform === 'win32' ? conversationPath.toLowerCase() : conversationPath)
+          === projectKey;
+      });
+      const selectedModelId = model_name === undefined
+        ? folderConversations[0]?.model ?? model
+        : String(model_name).trim();
+      const selectedModel = models.find((item) => item.id === selectedModelId);
+      if (!selectedModel) {
+        throw new Error(
+          selectedModelId
+            ? `Model "${selectedModelId}" is not configured. Pass a valid model_name.`
+            : 'No model has been used in this folder. Pass model_name.',
+        );
+      }
+      const lastReasoningEffort = folderConversations
+        .flatMap((item) => getMessages(item.id))
+        .filter((messageItem) => messageItem.reasoningEffort)
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
+        ?.reasoningEffort ?? null;
+      const selectedReasoningEffort = reasoning_effort === undefined
+        ? lastReasoningEffort
+        : String(reasoning_effort).trim();
+      if (
+        selectedReasoningEffort
+        && !selectedModel.reasoning.includes(selectedReasoningEffort)
+      ) {
+        throw new Error(
+          `Reasoning effort "${selectedReasoningEffort}" is not supported by ${selectedModel.name}.`,
+        );
+      }
       const normalizedPrompt = String(prompt ?? '').trim();
       const conversation = createConversation({
-        model,
+        model: selectedModel.id,
         projectPath,
       });
       let message = null;
@@ -335,7 +388,8 @@ export const CLIENT_TOOLS = Object.freeze([
       if (normalizedPrompt) {
         const result = await chatRunner.send({
           conversationId: conversation.id,
-          model,
+          model: selectedModel.id,
+          reasoningEffort: selectedReasoningEffort,
           text: normalizedPrompt,
           project: { path: projectPath },
         });
@@ -347,10 +401,135 @@ export const CLIENT_TOOLS = Object.freeze([
           id: conversation.id,
           title: getConversation(conversation.id).title,
           folderPath: projectPath,
-          model,
+          model: selectedModel.id,
+          reasoningEffort: selectedReasoningEffort,
           status: message ? 'running' : 'idle',
         },
         promptMessageId: message?.id ?? null,
+      };
+    },
+  },
+  {
+    name: 'chat_spawn_subagent',
+    description: 'Start an asynchronous sub-agent for a focused task in the current workspace. Returns immediately with its thread_id.',
+    canEditFile: false,
+    canPerformDestructiveActions: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        model_name: {
+          type: 'string',
+          description: 'Optional configured model. Defaults to the orchestrator model.',
+        },
+        reasoning_effort: {
+          type: 'string',
+          description: 'Optional reasoning effort. Defaults to the orchestrator reasoning effort.',
+        },
+        prompt: {
+          type: 'string',
+          description: 'The focused task the sub-agent must complete.',
+        },
+      },
+      required: ['prompt'],
+    },
+    execute: async (
+      {
+        model_name,
+        reasoning_effort,
+        prompt,
+      },
+      {
+        chatRunner,
+        conversationId,
+        model,
+        models,
+        reasoningEffort,
+      },
+    ) => {
+      const parent = getConversation(conversationId);
+      if (!parent || parent.isSideChat || parent.isSubagent) {
+        throw new Error('Only an orchestrator thread can spawn a sub-agent.');
+      }
+      const normalizedPrompt = String(prompt ?? '').trim();
+      if (!normalizedPrompt) throw new Error('prompt is required.');
+
+      const selectedModelId = model_name === undefined ? model : String(model_name).trim();
+      const selectedModel = models.find((item) => item.id === selectedModelId);
+      if (!selectedModel) {
+        throw new Error(`Model "${selectedModelId}" is not configured.`);
+      }
+      const selectedReasoningEffort = reasoning_effort === undefined
+        ? reasoningEffort
+        : String(reasoning_effort).trim();
+      if (
+        selectedReasoningEffort
+        && !selectedModel.reasoning.includes(selectedReasoningEffort)
+      ) {
+        throw new Error(
+          `Reasoning effort "${selectedReasoningEffort}" is not supported by ${selectedModel.name}.`,
+        );
+      }
+
+      const result = forkConversation(parent.id, { subagent: true });
+      if (!result) throw new Error('The sub-agent thread could not be created.');
+      const subagent = selectedModel.id === result.conversation.model
+        ? result.conversation
+        : updateConversation(result.conversation.id, { model: selectedModel.id });
+      chatRunner.emit(parent.id, { type: 'subagent-created', subagent });
+      const sent = await chatRunner.send({
+        conversationId: subagent.id,
+        model: selectedModel.id,
+        reasoningEffort: selectedReasoningEffort,
+        text: normalizedPrompt,
+        project: { path: parent.projectPath },
+      });
+
+      return {
+        thread_id: subagent.id,
+        status: sent.queued ? 'queued' : 'working',
+      };
+    },
+  },
+  {
+    name: 'chat_report_to_orchestrator',
+    description: 'Queue the completed sub-agent result for its parent orchestrator thread.',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          description: 'A concise result with evidence and any blockers.',
+        },
+      },
+      required: ['message'],
+    },
+    execute: async ({ message }, { chatRunner, conversationId }) => {
+      const subagent = getConversation(conversationId);
+      if (!subagent?.isSubagent || !subagent.parentConversationId) {
+        throw new Error('Only a sub-agent can report to an orchestrator.');
+      }
+      const parent = getConversation(subagent.parentConversationId);
+      if (!parent) throw new Error('The orchestrator thread was not found.');
+      const normalizedMessage = String(message ?? '').trim();
+      if (!normalizedMessage) throw new Error('message is required.');
+
+      const result = await chatRunner.send({
+        conversationId: parent.id,
+        model: parent.model,
+        text: [
+          `<subagent_report thread_id="${subagent.id}" title="${subagent.title}">`,
+          normalizedMessage,
+          '</subagent_report>',
+        ].join('\n'),
+        project: { path: parent.projectPath },
+      });
+
+      return {
+        thread_id: parent.id,
+        message_id: result.message.id,
+        status: result.queued ? 'queued' : 'running',
       };
     },
   },
@@ -616,7 +795,10 @@ export const CLIENT_TOOLS = Object.freeze([
         },
         timeout: {
           type: 'number',
-          description: 'Optional. Usually omit entirely for sync commands - the tool waits for completion automatically. Only set a timeout (in milliseconds) as a safety net if you suspect the command might hang. If the timeout elapses, the command continues in the background and you get a terminal ID to check output later. Use 0 to explicitly indicate no timeout.',
+          minimum: MIN_TERMINAL_TIMEOUT_SECONDS,
+          maximum: MAX_TERMINAL_TIMEOUT_SECONDS,
+          default: DEFAULT_TERMINAL_TIMEOUT_SECONDS,
+          description: 'Maximum time to wait, in seconds. Defaults to 30 seconds and accepts values from 1 to 300. If the timeout elapses, the command keeps running and the response includes its terminal ID and partial output.',
         },
       },
       required: ['command', 'explanation', 'goal', 'mode'],
@@ -629,8 +811,13 @@ export const CLIENT_TOOLS = Object.freeze([
       if (!['sync', 'async'].includes(executionMode)) {
         throw new Error('mode must be sync or async.');
       }
-      if (timeout !== undefined && (!Number.isFinite(timeout) || timeout < 0)) {
-        throw new Error('timeout must be a non-negative number.');
+      const timeoutSeconds = timeout ?? DEFAULT_TERMINAL_TIMEOUT_SECONDS;
+      if (
+        !Number.isFinite(timeoutSeconds)
+        || timeoutSeconds < MIN_TERMINAL_TIMEOUT_SECONDS
+        || timeoutSeconds > MAX_TERMINAL_TIMEOUT_SECONDS
+      ) {
+        throw new Error('timeout must be a number from 1 to 300 seconds.');
       }
 
       const id = crypto.randomUUID();
@@ -663,16 +850,31 @@ export const CLIENT_TOOLS = Object.freeze([
         terminal.events.emit('close');
       });
 
+      let waitResult;
       if (executionMode === 'sync') {
         const abort = () => child.kill();
         signal?.addEventListener('abort', abort, { once: true });
-        await waitForTerminal(terminal, { untilExit: true, timeout: timeout ?? 0 });
+        waitResult = await waitForTerminal(terminal, {
+          untilExit: true,
+          timeout: timeoutSeconds * 1_000,
+        });
         signal?.removeEventListener('abort', abort);
       } else {
-        await waitForTerminal(terminal, { untilExit: false, timeout: timeout ?? 10_000 });
+        waitResult = await waitForTerminal(terminal, {
+          untilExit: false,
+          timeout: timeoutSeconds * 1_000,
+        });
       }
 
       const snapshot = terminalSnapshot(terminal);
+      if (waitResult === 'timeout' && terminal.running) {
+        return {
+          ...snapshot,
+          timedOut: true,
+          timeoutSeconds,
+          message: `The command reached the ${timeoutSeconds}-second timeout and is still running. Use terminal ID "${terminal.id}" to read its partial output or interact with it.`,
+        };
+      }
       return executionMode === 'sync' && !terminal.running
         ? { ...snapshot, id: undefined }
         : snapshot;
@@ -908,6 +1110,14 @@ export const CLIENT_TOOLS = Object.freeze([
 
 export function interceptToolSchemas(tools) {
   return tools.map((tool) => {
+    if (tool.mcp) {
+      return {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.inputSchema,
+      };
+    }
+
     const canMutate = tool.canEditFile || tool.canPerformDestructiveActions;
     return {
       name: tool.name,
@@ -933,7 +1143,7 @@ export function interceptToolSchemas(tools) {
           '__requires_human_approval',
           '__invocation_goal',
         ],
-        additionalProperties: false,
+        additionalProperties: tool.inputSchema.additionalProperties ?? false,
       },
     };
   });

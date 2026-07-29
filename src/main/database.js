@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { safeStorage } from 'electron';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import {
@@ -191,6 +192,19 @@ const statements = {
       AND parent_conversation_id = ?
     ORDER BY created_at ASC
   `),
+  listSubagents: db.prepare(`
+    SELECT c.*,
+      COALESCE((
+        SELECT content FROM messages
+        WHERE conversation_id = c.id AND role = 'user'
+        ORDER BY created_at DESC LIMIT 1
+      ), '') AS first_prompt
+    FROM conversations c
+    WHERE deleted_at IS NULL
+      AND conversation_type = 'subagent'
+      AND parent_conversation_id = ?
+    ORDER BY created_at ASC
+  `),
   listAllConversations: db.prepare(`
     SELECT c.*,
       COALESCE((
@@ -205,9 +219,9 @@ const statements = {
   getConversation: db.prepare('SELECT * FROM conversations WHERE id = ? AND deleted_at IS NULL'),
   deleteConversation: db.prepare('UPDATE conversations SET deleted_at = ?, updated_at = ? WHERE id = ?'),
   hardDeleteConversation: db.prepare('DELETE FROM conversations WHERE id = ?'),
-  hardDeleteSideChats: db.prepare(`
+  hardDeleteChildConversations: db.prepare(`
     DELETE FROM conversations
-    WHERE conversation_type = 'side' AND parent_conversation_id = ?
+    WHERE conversation_type IN ('side', 'subagent') AND parent_conversation_id = ?
   `),
   insertMessage: db.prepare(`
     INSERT INTO messages (
@@ -267,6 +281,23 @@ export function setProviders(providers) {
 
 export function setLastModel(model) {
   writeJson('lastModel', model);
+}
+
+export function getMcpOAuthSessions() {
+  const encrypted = readJson('mcpOAuthSessions');
+  if (!encrypted || !safeStorage.isEncryptionAvailable()) return {};
+
+  try {
+    return JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64')));
+  } catch {
+    return {};
+  }
+}
+
+export function setMcpOAuthSessions(sessions) {
+  if (!safeStorage.isEncryptionAvailable()) return;
+  const encrypted = safeStorage.encryptString(JSON.stringify(sessions)).toString('base64');
+  writeJson('mcpOAuthSessions', encrypted);
 }
 
 export function closeDatabase() {
@@ -350,6 +381,10 @@ export function listSideChats(parentConversationId) {
   return statements.listSideChats.all(parentConversationId).map(mapConversation);
 }
 
+export function listSubagents(parentConversationId) {
+  return statements.listSubagents.all(parentConversationId).map(mapConversation);
+}
+
 export function getConversation(id) {
   const row = statements.getConversation.get(id);
   return row ? mapConversation(row) : null;
@@ -361,7 +396,7 @@ export function deleteConversation(id, { hard = false } = {}) {
     return;
   }
   const now = timestamp();
-  statements.hardDeleteSideChats.run(id);
+  statements.hardDeleteChildConversations.run(id);
   statements.deleteConversation.run(now, now, id);
 }
 
@@ -444,26 +479,45 @@ export function searchChats(query) {
 export function forkConversation(id, {
   throughMessageId = null,
   sideChat = false,
+  subagent = false,
 } = {}) {
   const source = getConversation(id);
-  if (!source || (sideChat && source.isSideChat)) return null;
-  let sideChatNumber = null;
+  const childThread = sideChat || subagent;
+  if (
+    !source
+    || (sideChat && subagent)
+    || (childThread && (source.isSideChat || source.isSubagent))
+  ) {
+    return null;
+  }
+  let childNumber = null;
   if (sideChat) {
-    sideChatNumber = Math.max(
+    childNumber = Math.max(
       0,
       ...listSideChats(source.id).map((sideChat) => (
         Number(sideChat.title.match(/^Side chat (\d+)$/)?.[1]) || 0
       )),
     ) + 1;
+  } else if (subagent) {
+    childNumber = Math.max(
+      0,
+      ...listSubagents(source.id).map((agent) => (
+        Number(agent.title.match(/^Sub-agent (\d+)$/)?.[1]) || 0
+      )),
+    ) + 1;
   }
   const target = createConversation({
-    title: sideChat ? `Side chat ${sideChatNumber}` : `${source.title} - Copy`,
+    title: sideChat
+      ? `Side chat ${childNumber}`
+      : subagent
+        ? `Sub-agent ${childNumber}`
+        : `${source.title} - Copy`,
     model: source.model,
     projectPath: source.projectPath,
     gitBranch: source.gitBranch,
-    conversationType: sideChat ? 'side' : 'thread',
-    parentConversationId: sideChat ? source.id : null,
-    titleStatus: sideChat ? 'generated' : 'pending',
+    conversationType: sideChat ? 'side' : subagent ? 'subagent' : 'thread',
+    parentConversationId: childThread ? source.id : null,
+    titleStatus: childThread ? 'generated' : 'pending',
   });
   const sourceMessages = getMessages(id);
   const throughIndex = throughMessageId
@@ -472,7 +526,11 @@ export function forkConversation(id, {
   const messages = throughIndex >= 0
     ? sourceMessages.slice(0, throughIndex + 1)
     : sourceMessages.filter((message) => (
-        !sideChat || !['queued', 'steered'].includes(message.status)
+        !childThread
+        || (
+          !['queued', 'steered'].includes(message.status)
+          && (!subagent || message.status !== 'streaming')
+        )
       ));
   const now = Date.now();
   const copiedMessageIds = new Map();
@@ -513,8 +571,27 @@ export function setFavorite(modelId, favorited) {
   return listFavorites();
 }
 
-function sideChatContext(conversation) {
-  if (conversation?.conversation_type !== 'side') return [];
+function childThreadContext(conversation) {
+  if (!['side', 'subagent'].includes(conversation?.conversation_type)) return [];
+
+  if (conversation.conversation_type === 'subagent') {
+    const parent = statements.getConversation.get(conversation.parent_conversation_id);
+    return [{
+      role: 'system',
+      content: [
+        '<thread_context>',
+        'thread_type: subagent',
+        `thread_id: ${conversation.id}`,
+        `parent_thread_id: ${conversation.parent_conversation_id}`,
+        `parent_thread_title: ${parent?.title ?? 'Unknown'}`,
+        'You are a sub-agent working for the orchestrator in the parent thread.',
+        'Complete the assignment in the latest user message independently.',
+        'You cannot invoke chat_spawn_subagent or create other sub-agents.',
+        'When the assignment is complete, call chat_report_to_orchestrator exactly once with a concise result, evidence, and any blockers.',
+        '</thread_context>',
+      ].join('\n'),
+    }];
+  }
 
   return [{
     role: 'system',
@@ -545,7 +622,7 @@ export function toModelMessages(conversationId, { excludeMessageId } = {}) {
     : [];
 
   return [
-    ...sideChatContext(conversation),
+    ...childThreadContext(conversation),
     ...checkpoint,
     ...messages
       .slice(hasCheckpoint ? checkpointIndex + 1 : 0)
@@ -585,7 +662,7 @@ export function toModelMessagesThroughUser(
     && checkpointIndex >= 0
     && checkpointIndex < lastUserIndex;
   return [
-    ...sideChatContext(conversation),
+    ...childThreadContext(conversation),
     ...(useCheckpoint
       ? [{
           role: 'system',
@@ -712,7 +789,9 @@ function mapConversation(row) {
         ? `~/${relativeProjectPath.replaceAll('\\', '/')}`
         : projectPath,
     gitBranch: row.git_branch || null,
+    conversationType: row.conversation_type,
     isSideChat: row.conversation_type === 'side',
+    isSubagent: row.conversation_type === 'subagent',
     parentConversationId: row.parent_conversation_id || null,
     contextCheckpoint: row.context_checkpoint || '',
     checkpointMessageId: row.checkpoint_message_id || null,

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import { PanelRightOpen } from 'lucide-react';
 import { Sidebar } from './components/Sidebar.jsx';
 import { ChatView } from './components/ChatView.jsx';
 import { SearchDialog } from './components/SearchDialog.jsx';
 import { SettingsPage } from './components/SettingsPage.jsx';
-import { SideChatPanel } from './components/SideChatPanel.jsx';
+import { McpOverlay } from './components/McpOverlay.jsx';
+import { AuxiliaryPanel } from './components/AuxiliaryPanel.jsx';
 import { WindowControls } from './components/WindowControls.jsx';
 
 const api = window.chatApp;
@@ -19,6 +21,7 @@ export default function App() {
   const [running, setRunning] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsContextFolder, setSettingsContextFolder] = useState(null);
+  const [settingsInitialView, setSettingsInitialView] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [error, setError] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -26,7 +29,14 @@ export default function App() {
   const [draftModel, setDraftModel] = useState('');
   const [draftProject, setDraftProject] = useState(null);
   const [sideChats, setSideChats] = useState([]);
-  const [activeSideChatId, setActiveSideChatId] = useState(null);
+  const [subagents, setSubagents] = useState([]);
+  const [auxiliaryPanelVisible, setAuxiliaryPanelVisible] = useState(false);
+  const [activeAuxiliaryTab, setActiveAuxiliaryTab] = useState(null);
+  const [activeSubagentId, setActiveSubagentId] = useState(null);
+  const [mcpState, setMcpState] = useState(null);
+  const [mcpWaiting, setMcpWaiting] = useState({});
+  const [mcpAlert, setMcpAlert] = useState(null);
+  const [mcpWorkspaceServers, setMcpWorkspaceServers] = useState(null);
 
   const currentConversation = conversations.find((item) => item.id === selectedId) ?? null;
   const currentMessages = messagesByConversation[selectedId] ?? [];
@@ -78,6 +88,21 @@ export default function App() {
     tokens: currentConversation?.contextTokens ?? 0,
     limit: currentModelContextLimit,
   }), [currentConversation?.contextTokens, currentModelContextLimit]);
+  const subagentsWithStatus = useMemo(() => subagents.map((subagent) => {
+    const messages = messagesByConversation[subagent.id] ?? [];
+    const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
+    const lastAssistant = messages
+      .slice(lastUserIndex + 1)
+      .findLast((message) => message.role === 'assistant');
+    const status = running[subagent.id]
+      ? 'working'
+      : lastAssistant?.status === 'completed'
+        ? 'finished'
+        : ['error', 'aborted', 'streaming'].includes(lastAssistant?.status)
+          ? 'failed'
+          : 'waiting';
+    return { ...subagent, status };
+  }), [messagesByConversation, running, subagents]);
 
   useEffect(() => {
     let active = true;
@@ -87,14 +112,39 @@ export default function App() {
       api.providers.list(),
       api.models.list(),
       api.models.favorites(),
+      api.mcp.state(),
     ])
-      .then(async ([nextAppState, nextConversations, nextProviders, nextModels, nextFavorites]) => {
+      .then(async ([
+        nextAppState,
+        nextConversations,
+        nextProviders,
+        nextModels,
+        nextFavorites,
+        nextMcpState,
+      ]) => {
         if (!active) return;
         setAppState(nextAppState);
         setConversations(nextConversations);
         setProviders(nextProviders);
         setModels(nextModels);
         setFavorites(nextFavorites);
+        setMcpState(nextMcpState);
+        const authServers = nextMcpState.servers
+          .filter((server) => server.status === 'auth-required');
+        const failedServers = nextMcpState.servers
+          .filter((server) => server.status === 'error');
+        if (authServers.length > 0 || failedServers.length > 0) {
+          setMcpAlert((current) => current ?? (
+            authServers.length > 0
+              ? {
+                  type: 'auth-required',
+                  server: authServers[0],
+                  authQueue: authServers.slice(1),
+                  pendingFailures: failedServers,
+                }
+              : { type: 'failure', servers: failedServers }
+          ));
+        }
         setDraftProject(nextAppState.defaultProject);
         setSettingsOpen(nextModels.length === 0);
 
@@ -130,7 +180,9 @@ export default function App() {
           }));
         }
       } else if (event.type === 'conversation') {
-        if (event.conversation.isSideChat) {
+        if (event.conversation.isSubagent) {
+          setSubagents((state) => upsertById(state, event.conversation));
+        } else if (event.conversation.isSideChat) {
           setSideChats((state) => (
             state.some((sideChat) => sideChat.id === event.conversation.id)
               ? upsertById(state, event.conversation)
@@ -139,6 +191,8 @@ export default function App() {
         } else {
           setConversations((state) => upsertById(state, event.conversation).sort(sortByUpdatedAt));
         }
+      } else if (event.type === 'subagent-created') {
+        setSubagents((state) => upsertById(state, event.subagent));
       } else if (event.type === 'message-delete') {
         setMessagesByConversation((state) => ({
           ...state,
@@ -157,8 +211,69 @@ export default function App() {
         }));
       } else if (event.type === 'run-state') {
         setRunning((state) => ({ ...state, [event.conversationId]: event.running }));
+      } else if (event.type === 'mcp-waiting') {
+        setMcpWaiting((state) => {
+          if (event.waiting) {
+            return { ...state, [event.conversationId]: true };
+          }
+          const next = { ...state };
+          delete next[event.conversationId];
+          return next;
+        });
       } else if (event.type === 'error') {
         setError(event.message);
+      }
+    })
+  ), []);
+
+  useEffect(() => (
+    api.onMcpEvent((event) => {
+      if (event.type === 'state') {
+        setMcpState(event.state);
+      } else if (event.type === 'auth-required') {
+        setMcpAlert((current) => {
+          if (current?.type === 'auth-required') {
+            if (
+              current.server.key === event.server.key
+              || current.authQueue?.some((server) => server.key === event.server.key)
+            ) {
+              return current;
+            }
+            return {
+              ...current,
+              authQueue: [...(current.authQueue ?? []), event.server],
+            };
+          }
+          return {
+            type: 'auth-required',
+            server: event.server,
+            authQueue: [],
+            pendingFailures: current?.type === 'failure' ? current.servers : [],
+          };
+        });
+      } else if (event.type === 'server-failed') {
+        setMcpAlert((current) => {
+          const servers = [
+            ...(current?.type === 'auth-required'
+              ? current.pendingFailures ?? []
+              : current?.servers ?? []),
+            event.server,
+          ].filter((server, index, items) => (
+            items.findIndex((item) => item.key === server.key) === index
+          ));
+          if (current?.type === 'auth-required') {
+            return { ...current, pendingFailures: servers };
+          }
+          return { type: 'failure', servers };
+        });
+      } else if (event.type === 'configuration-error') {
+        setMcpAlert({ type: 'failure', message: event.message, servers: [] });
+      } else if (event.type === 'auth-complete') {
+        setMcpAlert((current) => (
+          current?.server?.key === event.server.key
+            ? advanceMcpAuthAlert(current)
+            : current
+        ));
       }
     })
   ), []);
@@ -167,25 +282,38 @@ export default function App() {
     let active = true;
     if (!selectedId) {
       setSideChats([]);
-      setActiveSideChatId(null);
+      setSubagents([]);
+      setActiveAuxiliaryTab(null);
+      setActiveSubagentId(null);
       return undefined;
     }
 
-    api.sideChats.list(selectedId)
-      .then(async (nextSideChats) => {
-        const entries = await Promise.all(nextSideChats.map(async (sideChat) => (
-          [sideChat.id, await api.conversations.messages(sideChat.id)]
-        )));
+    Promise.all([
+      api.sideChats.list(selectedId),
+      api.subagents.list(selectedId),
+    ])
+      .then(async ([nextSideChats, nextSubagents]) => {
+        const entries = await Promise.all(
+          [...nextSideChats, ...nextSubagents].map(async (childThread) => (
+            [childThread.id, await api.conversations.messages(childThread.id)]
+          )),
+        );
         if (!active) return;
         setSideChats(nextSideChats);
+        setSubagents(nextSubagents);
         setMessagesByConversation((state) => ({
           ...state,
           ...Object.fromEntries(entries),
         }));
-        setActiveSideChatId((current) => (
-          nextSideChats.some((sideChat) => sideChat.id === current)
+        setActiveAuxiliaryTab((current) => {
+          if (current === 'subagents' && nextSubagents.length > 0) return current;
+          if (nextSideChats.some((sideChat) => sideChat.id === current)) return current;
+          return nextSideChats[0]?.id ?? null;
+        });
+        setActiveSubagentId((current) => (
+          nextSubagents.some((subagent) => subagent.id === current)
             ? current
-            : nextSideChats[0]?.id ?? null
+            : null
         ));
       })
       .catch((nextError) => {
@@ -224,6 +352,17 @@ export default function App() {
     project = currentProject,
   }) {
     if (!text.trim() && attachments.length === 0) return;
+    const command = attachments.length === 0 ? text.trim().toLowerCase() : '';
+    if (command === '/mcp' || command === '/restart-mcp') {
+      try {
+        setMcpWorkspaceServers(command === '/mcp'
+          ? await api.mcp.workspace(project?.path)
+          : await api.mcp.restartAll(project?.path));
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : String(nextError));
+      }
+      return;
+    }
     if (!model) {
       setError('Configure at least one model before sending a message.');
       setSettingsOpen(true);
@@ -239,7 +378,9 @@ export default function App() {
       reasoningEffort,
       project,
     });
-    if (result.conversation.isSideChat) {
+    if (result.conversation.isSubagent) {
+      setSubagents((state) => upsertById(state, result.conversation));
+    } else if (result.conversation.isSideChat) {
       setSideChats((state) => upsertById(state, result.conversation));
     } else {
       setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
@@ -288,7 +429,9 @@ export default function App() {
       resumeFromFailure,
     });
     if (!result?.conversation) return;
-    if (result.conversation.isSideChat) {
+    if (result.conversation.isSubagent) {
+      setSubagents((state) => upsertById(state, result.conversation));
+    } else if (result.conversation.isSideChat) {
       setSideChats((state) => upsertById(state, result.conversation));
     } else {
       setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
@@ -335,15 +478,8 @@ export default function App() {
       ...state,
       [result.conversation.id]: result.messages,
     }));
-    setActiveSideChatId(result.conversation.id);
-  }
-
-  async function selectSideChat(id) {
-    setActiveSideChatId(id);
-    if (!messagesByConversation[id]) {
-      const messages = await api.conversations.messages(id);
-      setMessagesByConversation((state) => ({ ...state, [id]: messages }));
-    }
+    setAuxiliaryPanelVisible(true);
+    setActiveAuxiliaryTab(result.conversation.id);
   }
 
   async function closeSideChat(id) {
@@ -358,8 +494,11 @@ export default function App() {
     });
     window.localStorage.removeItem(`aivax.composer.side.${id}`);
     setRunning((state) => ({ ...state, [id]: false }));
-    if (activeSideChatId === id) {
-      setActiveSideChatId(remaining[Math.min(index, remaining.length - 1)]?.id ?? null);
+    if (activeAuxiliaryTab === id) {
+      const nextTab = remaining[Math.min(index, remaining.length - 1)]?.id
+        ?? (subagents.length > 0 ? 'subagents' : null);
+      setActiveAuxiliaryTab(nextTab);
+      if (!nextTab) setAuxiliaryPanelVisible(false);
     }
   }
 
@@ -371,12 +510,15 @@ export default function App() {
       delete copy[id];
       if (selectedId === id) {
         for (const sideChat of sideChats) delete copy[sideChat.id];
+        for (const subagent of subagents) delete copy[subagent.id];
       }
       return copy;
     });
     if (selectedId === id) {
       setSideChats([]);
-      setActiveSideChatId(null);
+      setSubagents([]);
+      setActiveAuxiliaryTab(null);
+      setActiveSubagentId(null);
       const fallback = next[0]?.id ?? null;
       setSelectedId(fallback);
       if (!fallback) setDraftProject(appState.defaultProject);
@@ -393,7 +535,9 @@ export default function App() {
       return;
     }
     const conversation = await api.conversations.update({ id: conversationId, model: modelId });
-    if (conversation.isSideChat) {
+    if (conversation.isSubagent) {
+      setSubagents((state) => upsertById(state, conversation));
+    } else if (conversation.isSideChat) {
       setSideChats((state) => upsertById(state, conversation));
     } else {
       setConversations((state) => upsertById(state, conversation).sort(sortByUpdatedAt));
@@ -405,7 +549,9 @@ export default function App() {
     try {
       const conversation = await api.chat.compress({ conversationId, model });
       if (!conversation) return;
-      if (conversation.isSideChat) {
+      if (conversation.isSubagent) {
+        setSubagents((state) => upsertById(state, conversation));
+      } else if (conversation.isSideChat) {
         setSideChats((state) => upsertById(state, conversation));
       } else {
         setConversations((state) => upsertById(state, conversation).sort(sortByUpdatedAt));
@@ -508,10 +654,13 @@ export default function App() {
       <WindowControls />
       {settingsOpen ? (
         <SettingsPage
+          key={`${settingsInitialView ?? 'providers'}:${settingsContextFolder?.path ?? ''}`}
           providers={providers}
           initialContextFolder={settingsContextFolder}
+          initialView={settingsInitialView}
           onClose={() => {
             setSettingsContextFolder(null);
+            setSettingsInitialView(null);
             setSettingsOpen(false);
           }}
           onSave={async (provider) => applyProviders(await api.providers.save(provider))}
@@ -542,12 +691,15 @@ export default function App() {
             }}
             onSettings={(contextFolder = null) => {
               setSettingsContextFolder(contextFolder);
+              setSettingsInitialView(contextFolder ? 'context-folder' : null);
               setSettingsOpen(true);
             }}
             collapsed={effectiveSidebarCollapsed}
             onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
           />
-          <div className={`chat-workspace ${sideChats.length > 0 ? 'with-side-chat' : ''}`}>
+          <div
+            className={`chat-workspace${auxiliaryPanelVisible ? ' with-auxiliary-panel' : ''}`}
+          >
             <ChatView
               {...shell}
               currentProject={currentProject}
@@ -557,6 +709,12 @@ export default function App() {
               onStop={stopConversation}
               onCompress={compressConversation}
               onCreateSideChat={currentConversation ? createSideChat : undefined}
+              subagents={subagentsWithStatus}
+              onOpenSubagents={() => {
+                setAuxiliaryPanelVisible(true);
+                setActiveSubagentId(null);
+                setActiveAuxiliaryTab('subagents');
+              }}
               onFork={forkConversation}
               onRetry={retryAssistantMessage}
               onResume={(messageId, model) => retryAssistantMessage(
@@ -586,10 +744,32 @@ export default function App() {
               }}
               onToggleFavorite={toggleFavorite}
             />
-            {sideChats.length > 0 && (
-              <SideChatPanel
+            {!auxiliaryPanelVisible && (
+              <button
+                className="auxiliary-panel-toggle"
+                type="button"
+                aria-label="Open auxiliary panel"
+                title="Open auxiliary panel"
+                onClick={() => {
+                  setActiveSubagentId(null);
+                  setActiveAuxiliaryTab((current) => (
+                    sideChats.some((sideChat) => sideChat.id === current)
+                    || (current === 'subagents' && subagents.length > 0)
+                      ? current
+                      : sideChats[0]?.id ?? (subagents.length > 0 ? 'subagents' : null)
+                  ));
+                  setAuxiliaryPanelVisible(true);
+                }}
+              >
+                <PanelRightOpen size={17} />
+              </button>
+            )}
+            {auxiliaryPanelVisible && (
+              <AuxiliaryPanel
                 sideChats={sideChats}
-                activeId={activeSideChatId}
+                subagents={subagentsWithStatus}
+                activeTab={activeAuxiliaryTab}
+                activeSubagentId={activeSubagentId}
                 messagesByConversation={messagesByConversation}
                 running={running}
                 models={models}
@@ -597,17 +777,41 @@ export default function App() {
                 recentModels={shell.recentModels}
                 recentProjects={recentProjects}
                 fallbackModel={currentModel}
-                onSelect={selectSideChat}
-                onClose={closeSideChat}
-                onSend={(sideChat, model, payload) => sendMessage({
+                canCreateSideChat={Boolean(currentConversation)}
+                onSelectTab={async (tabId) => {
+                  setActiveAuxiliaryTab(tabId);
+                  if (tabId === 'subagents') {
+                    setActiveSubagentId(null);
+                  } else if (!messagesByConversation[tabId]) {
+                    const messages = await api.conversations.messages(tabId);
+                    setMessagesByConversation((state) => ({ ...state, [tabId]: messages }));
+                  }
+                }}
+                onCloseSideChat={closeSideChat}
+                onCloseSubagentsTab={() => {
+                  setActiveSubagentId(null);
+                  const nextTab = sideChats[0]?.id ?? null;
+                  setActiveAuxiliaryTab(nextTab);
+                  if (!nextTab) setAuxiliaryPanelVisible(false);
+                }}
+                onClosePanel={() => setAuxiliaryPanelVisible(false)}
+                onCreateSideChat={createSideChat}
+                onSelectSubagent={async (id) => {
+                  setActiveSubagentId(id);
+                  if (id && !messagesByConversation[id]) {
+                    const messages = await api.conversations.messages(id);
+                    setMessagesByConversation((state) => ({ ...state, [id]: messages }));
+                  }
+                }}
+                onSend={(thread, model, payload) => sendMessage({
                   ...payload,
-                  conversationId: sideChat.id,
+                  conversationId: thread.id,
                   model,
                   project: {
-                    path: sideChat.projectPath,
-                    name: sideChat.projectName,
-                    displayPath: sideChat.projectDisplayPath,
-                    gitBranch: sideChat.gitBranch,
+                    path: thread.projectPath,
+                    name: thread.projectName,
+                    displayPath: thread.projectDisplayPath,
+                    gitBranch: thread.gitBranch,
                   },
                 })}
                 onStop={stopConversation}
@@ -644,6 +848,36 @@ export default function App() {
           {error}
         </button>
       )}
+      <McpOverlay
+        state={mcpState}
+        waitingCount={Object.values(mcpWaiting).filter(Boolean).length}
+        alert={mcpAlert}
+        workspaceServers={mcpWorkspaceServers}
+        onCloseAlert={() => setMcpAlert(null)}
+        onCloseWorkspace={() => setMcpWorkspaceServers(null)}
+        onAuthenticate={async (serverKey) => {
+          try {
+            await api.mcp.authenticate(serverKey);
+          } catch (nextError) {
+            setError(nextError instanceof Error ? nextError.message : String(nextError));
+          }
+        }}
+        onDisable={async (serverKey) => {
+          try {
+            await api.mcp.enabled({ serverKey, enabled: false });
+            setMcpAlert(advanceMcpAuthAlert);
+          } catch (nextError) {
+            setError(nextError instanceof Error ? nextError.message : String(nextError));
+          }
+        }}
+        onOpenSettings={() => {
+          setMcpAlert(null);
+          setMcpWorkspaceServers(null);
+          setSettingsContextFolder(null);
+          setSettingsInitialView('mcp');
+          setSettingsOpen(true);
+        }}
+      />
     </div>
   );
 }
@@ -668,4 +902,18 @@ function sortByCreatedAt(a, b) {
 
 function sortByUpdatedAt(a, b) {
   return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+}
+
+function advanceMcpAuthAlert(current) {
+  const [server, ...authQueue] = current?.authQueue ?? [];
+  if (server) {
+    return {
+      ...current,
+      server,
+      authQueue,
+    };
+  }
+  return current?.pendingFailures?.length > 0
+    ? { type: 'failure', servers: current.pendingFailures }
+    : null;
 }

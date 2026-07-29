@@ -7,6 +7,7 @@ import {
   shell,
 } from 'electron';
 import { spawnSync } from 'node:child_process';
+import { writeFile } from 'node:fs/promises';
 import { homedir, release } from 'node:os';
 import {
   basename,
@@ -29,6 +30,7 @@ import {
   listFavorites,
   listProviders,
   listSideChats,
+  listSubagents,
   searchChats,
   setFavorite,
   setProviders,
@@ -41,6 +43,7 @@ import {
   ModelProviderRegistry,
   normalizeProviderConfig,
 } from './model-provider.js';
+import { McpManager } from './mcp-manager.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const appIconPath = join(
@@ -50,8 +53,13 @@ const appIconPath = join(
 const providerRegistry = new ModelProviderRegistry(listProviders);
 let mainWindow;
 let chatRunner;
+let mcpManager;
+let shutdownStarted = false;
 
 app.setName('AIVAX');
+if (process.env.CHAT_APP_SMOKE_PROFILE) {
+  app.setPath('userData', resolve(process.env.CHAT_APP_SMOKE_PROFILE));
+}
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -68,7 +76,18 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', closeDatabase);
+app.on('before-quit', (event) => {
+  if (shutdownStarted) {
+    closeDatabase();
+    return;
+  }
+  event.preventDefault();
+  shutdownStarted = true;
+  Promise.resolve(mcpManager?.closeAll()).finally(() => {
+    closeDatabase();
+    app.quit();
+  });
+});
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -106,11 +125,36 @@ function createWindow() {
     mainWindow.setBackgroundMaterial(nativeWindow.backgroundMaterial);
   }
 
-  chatRunner = new ChatRunner({
-    registry: providerRegistry,
-    sendEvent: (payload) => mainWindow?.webContents.send('chat:event', payload),
-    debugStream: process.env.CHAT_APP_OPEN_DEVTOOLS === '1',
-  });
+  if (!mcpManager) {
+    mcpManager = new McpManager({
+      sendEvent: (payload) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('mcp:event', payload);
+        }
+      },
+      openExternal: (url) => shell.openExternal(url),
+    });
+    mcpManager.initializeGlobal().catch((error) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('mcp:event', {
+          type: 'configuration-error',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
+  }
+  if (!chatRunner) {
+    chatRunner = new ChatRunner({
+      registry: providerRegistry,
+      mcpManager,
+      sendEvent: (payload) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('chat:event', payload);
+        }
+      },
+      debugStream: process.env.CHAT_APP_OPEN_DEVTOOLS === '1',
+    });
+  }
 
   if (smokeTest) {
     const smokeTimeout = setTimeout(() => {
@@ -133,11 +177,44 @@ function createWindow() {
             return;
           }
           const deadline = Date.now() + 5000;
-          const check = () => {
+          const check = async () => {
             const appReady = document.querySelector('.settings-button, .settings-page');
             const settingsReady = models.length > 0 || document.querySelector('.settings-page');
             if (appReady && settingsReady) {
-              resolve(true);
+              document.querySelector('.settings-button')?.click();
+              await new Promise((next) => window.setTimeout(next, 50));
+              const mcpButton = [...document.querySelectorAll('.settings-navigation button')]
+                .find((button) => button.textContent.includes('MCP servers'));
+              mcpButton?.click();
+              while (
+                Date.now() < deadline
+                && !document.querySelector('.mcp-settings .settings-entity-main')
+              ) {
+                await new Promise((next) => window.setTimeout(next, 50));
+              }
+              document.querySelector('.mcp-settings .settings-entity-main')?.click();
+              while (
+                Date.now() < deadline
+                && !document.querySelector('.settings-page-header .settings-inline-back')
+              ) {
+                await new Promise((next) => window.setTimeout(next, 50));
+              }
+              document.querySelector('.settings-page-header .settings-add-provider')?.click();
+              while (
+                Date.now() < deadline
+                && !document.querySelector('.mcp-editor-actions .primary-mini')
+              ) {
+                await new Promise((next) => window.setTimeout(next, 50));
+              }
+              const saveButton = document.querySelector('.mcp-editor-actions .primary-mini');
+              const saveButtonRect = saveButton?.getBoundingClientRect();
+              resolve(Boolean(
+                document.querySelector('.mcp-settings')
+                && document.querySelector('.settings-page-header .settings-inline-back')
+                && !document.querySelector('.settings-content .settings-inline-back')
+                && saveButtonRect?.height <= 36
+                && getComputedStyle(saveButton).whiteSpace === 'nowrap'
+              ));
             } else if (Date.now() >= deadline) {
               resolve(false);
             } else {
@@ -147,7 +224,14 @@ function createWindow() {
           check();
         })
       `);
+      if (smokePassed && process.env.CHAT_APP_SMOKE_SCREENSHOT) {
+        mainWindow.show();
+        await new Promise((resolveCapture) => setTimeout(resolveCapture, 150));
+        const image = await mainWindow.webContents.capturePage();
+        await writeFile(resolve(process.env.CHAT_APP_SMOKE_SCREENSHOT), image.toPNG());
+      }
       console.log(smokePassed ? 'Chat app smoke test passed.' : 'Chat app smoke test failed.');
+      await mcpManager.closeAll();
       app.exit(smokePassed ? 0 : 1);
     });
   }
@@ -217,6 +301,9 @@ function registerIpc() {
     for (const sideChat of listSideChats(conversationId)) {
       chatRunner.stop(sideChat.id);
     }
+    for (const subagent of listSubagents(conversationId)) {
+      chatRunner.stop(subagent.id);
+    }
     deleteConversation(conversationId);
     return listConversationsWithProjects();
   });
@@ -235,7 +322,7 @@ function registerIpc() {
   ));
   ipcMain.handle('side-chats:create', (_event, { parentConversationId } = {}) => {
     const parent = getConversation(parentConversationId);
-    if (!parent || parent.isSideChat) return null;
+    if (!parent || parent.isSideChat || parent.isSubagent) return null;
     const result = forkConversation(parent.id, { sideChat: true });
     return result
       ? { ...result, conversation: refreshConversationProject(result.conversation) }
@@ -248,6 +335,9 @@ function registerIpc() {
     deleteConversation(sideChat.id, { hard: true });
     return true;
   });
+  ipcMain.handle('subagents:list', (_event, parentConversationId) => (
+    listSubagents(parentConversationId).map(refreshConversationProject)
+  ));
 
   ipcMain.handle('providers:list', () => listProviders());
   ipcMain.handle('providers:save', (_event, payload) => {
@@ -265,6 +355,38 @@ function registerIpc() {
   ipcMain.handle('models:list', () => providerRegistry.listModels());
   ipcMain.handle('models:favorites', () => listFavorites());
   ipcMain.handle('models:favorite', (_event, { modelId, favorited }) => setFavorite(modelId, favorited));
+
+  ipcMain.handle('mcp:state', () => mcpManager.snapshot());
+  ipcMain.handle('mcp:folders', async () => {
+    const folderPaths = listConversations().map((conversation) => conversation.projectPath);
+    const folders = await mcpManager.listFolders(folderPaths);
+    return folders.map((folder) => {
+      const project = inspectProjectFolder(folder.path);
+      const global = resolve(folder.path) === resolve(homedir());
+      return {
+        ...folder,
+        name: global ? 'Global' : project.name,
+        displayPath: global ? '~/.agents' : project.displayPath,
+      };
+    });
+  });
+  ipcMain.handle('mcp:folder', (_event, folderPath) => mcpManager.listFolder(folderPath));
+  ipcMain.handle('mcp:workspace', (_event, folderPath) => mcpManager.listWorkspace(folderPath));
+  ipcMain.handle('mcp:save', (_event, payload = {}) => mcpManager.saveServer(
+    payload.folderPath,
+    payload.previousName,
+    payload.server,
+  ));
+  ipcMain.handle('mcp:remove', (_event, payload = {}) => (
+    mcpManager.removeServer(payload.folderPath, payload.name)
+  ));
+  ipcMain.handle('mcp:enabled', (_event, payload = {}) => (
+    mcpManager.setServerEnabled(payload.serverKey, payload.enabled)
+  ));
+  ipcMain.handle('mcp:restart', (_event, serverKey) => mcpManager.restartServer(serverKey));
+  ipcMain.handle('mcp:restart-all', (_event, folderPath) => mcpManager.restartAll(folderPath));
+  ipcMain.handle('mcp:inspect', (_event, serverKey) => mcpManager.inspectServer(serverKey));
+  ipcMain.handle('mcp:authenticate', (_event, serverKey) => mcpManager.authenticate(serverKey));
 
   ipcMain.handle('chat:send', async (_event, payload) => {
     const result = await chatRunner.send(payload);
