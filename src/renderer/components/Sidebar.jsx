@@ -8,6 +8,7 @@ import {
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Plus,
   Search,
   Settings,
   Trash2,
@@ -18,6 +19,8 @@ import { classNames } from '../lib/format.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 
 const GROUP_LIMIT = 5;
+const conversationGroupingKey = 'aivax.sidebar.conversation-grouping';
+const savedConversationGrouping = window.localStorage.getItem(conversationGroupingKey);
 
 export function Sidebar({
   conversations,
@@ -35,7 +38,11 @@ export function Sidebar({
 }) {
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [filterMenuPosition, setFilterMenuPosition] = useState(null);
-  const [conversationGrouping, setConversationGrouping] = useState('chronological');
+  const [conversationGrouping, setConversationGrouping] = useState(
+    ['model', 'folder'].includes(savedConversationGrouping)
+      ? savedConversationGrouping
+      : 'chronological',
+  );
   const [expandedGroups, setExpandedGroups] = useState({});
   const [now, setNow] = useState(() => Date.now());
   const filterButtonRef = useRef(null);
@@ -60,6 +67,16 @@ export function Sidebar({
         const current = groupsByValue.get(key) ?? {
           key,
           label,
+          preset: conversationGrouping === 'model'
+            ? { modelId: conversation.model }
+            : {
+                project: {
+                  path: conversation.projectPath,
+                  name: conversation.projectName,
+                  displayPath: conversation.projectDisplayPath,
+                  gitBranch: conversation.gitBranch,
+                },
+              },
           items: [],
           latestTime: 0,
         };
@@ -131,6 +148,7 @@ export function Sidebar({
 
   function chooseConversationGrouping(grouping) {
     setConversationGrouping(grouping);
+    window.localStorage.setItem(conversationGroupingKey, grouping);
     setExpandedGroups({});
     setFilterMenuOpen(false);
   }
@@ -149,7 +167,7 @@ export function Sidebar({
         </button>
       </div>
       <div className="nav-actions">
-        <button type="button" onClick={onNewChat}>
+        <button type="button" onClick={() => onNewChat()}>
           <MessageSquarePlus size={17} />
           <span>New chat</span>
         </button>
@@ -210,7 +228,19 @@ export function Sidebar({
           const visibleItems = expanded ? group.items : group.items.slice(0, GROUP_LIMIT);
           return (
             <section key={group.key} className="conversation-group">
-              <div className="conversation-group-header">{group.label}</div>
+              <div className="conversation-group-header">
+                <span title={group.label}>{group.label}</span>
+                {conversationGrouping !== 'chronological' && (
+                  <button
+                    type="button"
+                    aria-label={`New chat with ${group.label}`}
+                    title={`New chat with ${group.label}`}
+                    onClick={() => onNewChat(group.preset)}
+                  >
+                    <Plus size={13} />
+                  </button>
+                )}
+              </div>
               {visibleItems.map((conversation) => (
                 <ConversationItem
                   key={conversation.id}

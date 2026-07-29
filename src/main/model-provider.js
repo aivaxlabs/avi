@@ -29,14 +29,18 @@ const interfacesById = {
             {
               role: 'assistant',
               content: round.assistantContent || null,
-              tool_calls: round.toolCalls.map((toolCall) => ({
-                id: toolCall.callId,
-                type: 'function',
-                function: {
-                  name: toolCall.name,
-                  arguments: toolCall.argumentsText,
-                },
-              })),
+              ...(round.toolCalls.length > 0
+                ? {
+                    tool_calls: round.toolCalls.map((toolCall) => ({
+                      id: toolCall.callId,
+                      type: 'function',
+                      function: {
+                        name: toolCall.name,
+                        arguments: toolCall.argumentsText,
+                      },
+                    })),
+                  }
+                : {}),
             },
             ...round.results.map((result) => ({
               role: 'tool',

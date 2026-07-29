@@ -6,7 +6,6 @@ import {
   Info,
   RotateCcw,
   TerminalSquare,
-  X,
 } from 'lucide-react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-bash';
@@ -37,12 +36,13 @@ export function Message({
   modelName,
   onFork,
   onRetry,
-  onCancelQueued,
+  onResume,
+  runActive,
   onSendContinuation,
   showContinuations,
 }) {
   if (message.role === 'user') {
-    return <UserMessage message={message} onCancelQueued={onCancelQueued} />;
+    return <UserMessage message={message} />;
   }
   return (
     <AssistantMessage
@@ -50,26 +50,19 @@ export function Message({
       modelName={modelName}
       onFork={onFork}
       onRetry={onRetry}
+      onResume={onResume}
+      runActive={runActive}
       onSendContinuation={onSendContinuation}
       showContinuations={showContinuations}
     />
   );
 }
 
-function UserMessage({ message, onCancelQueued }) {
-  const queueLabel = queueStatusLabel(message.status);
+function UserMessage({ message }) {
   const visibleAttachments = message.attachments;
 
   return (
     <article className="message-row user-row">
-      {queueLabel && (
-        <div className="queue-indicator">
-          <span>{queueLabel}</span>
-          <button type="button" aria-label={`Cancel ${queueLabel.toLowerCase()} message`} onClick={onCancelQueued}>
-            <X size={12} />
-          </button>
-        </div>
-      )}
       <div className="user-bubble">
         <div className="plain-text">{message.content}</div>
         {visibleAttachments.length > 0 && (
@@ -90,23 +83,21 @@ function UserMessage({ message, onCancelQueued }) {
   );
 }
 
-function queueStatusLabel(status) {
-  if (status === 'queued') return 'Queued';
-  if (status === 'steered') return 'Steered';
-  return '';
-}
-
 function AssistantMessage({
   message,
   modelName,
   onFork,
   onRetry,
+  onResume,
+  runActive,
   onSendContinuation,
   showContinuations,
 }) {
   const [usageOpen, setUsageOpen] = useState(false);
+  const [resuming, setResuming] = useState(false);
   const usageRef = useRef(null);
   const content = message.content || '';
+  const activelyStreaming = message.status === 'streaming' && runActive;
   const timeline = useMemo(() => {
     const parsedTimeline = buildTimelineFromContent(content);
     const toolSegments = (message.segments ?? [])
@@ -125,7 +116,10 @@ function AssistantMessage({
     return parsedTimeline;
   }, [content, message.segments]);
   const timelinePartition = useMemo(() => partitionTimeline(timeline), [timeline]);
-  const durationLabel = formatWorkedDuration(message.createdAt, message.status === 'streaming' ? null : message.updatedAt);
+  const durationLabel = formatWorkedDuration(
+    message.createdAt,
+    activelyStreaming ? null : message.updatedAt,
+  );
   const answerText = useMemo(() => answerTextFromTextualBlocks(content), [content]);
   const registeredTime = new Date(message.createdAt).toLocaleTimeString([], {
     hour: '2-digit',
@@ -139,6 +133,9 @@ function AssistantMessage({
     message.usage?.latencyMs,
     message.usage?.durationMs,
   ].some((value) => Number.isFinite(value));
+  const canResumeFromFailure = showContinuations
+    && message.status !== 'completed'
+    && !activelyStreaming;
 
   useEffect(() => {
     if (!usageOpen) return undefined;
@@ -168,18 +165,22 @@ function AssistantMessage({
               <TimelineItem
                 key={item.id}
                 item={item}
-                streaming={message.status === 'streaming'}
+                streaming={activelyStreaming}
                 trailing={index === timelinePartition.finalItems.length - 1}
               />
             ))}
           </div>
         ) : null}
-        {message.status === 'streaming' && (
+        {activelyStreaming && (
           <div className="assistant-placeholder">Thinking</div>
         )}
-        {message.status !== 'streaming' && (
+        {!activelyStreaming && (
           <div className="message-footer">
-            <div className="message-actions assistant-actions">
+            <div className={classNames(
+              'message-actions assistant-actions',
+              canResumeFromFailure && 'has-try-again',
+            )}
+            >
               <button
                 className="message-action-icon"
                 type="button"
@@ -189,7 +190,7 @@ function AssistantMessage({
               >
                 <Copy size={15} />
               </button>
-              {showContinuations && (
+              {showContinuations && message.status === 'completed' && (
                 <button
                   className="message-action-icon"
                   type="button"
@@ -198,6 +199,25 @@ function AssistantMessage({
                   onClick={onRetry}
                 >
                   <RotateCcw size={15} />
+                </button>
+              )}
+              {canResumeFromFailure && (
+                <button
+                  className="try-again-action"
+                  type="button"
+                  disabled={resuming}
+                  title="Continue from the last confirmed step"
+                  onClick={async () => {
+                    setResuming(true);
+                    try {
+                      await onResume();
+                    } finally {
+                      setResuming(false);
+                    }
+                  }}
+                >
+                  <RotateCcw size={14} />
+                  <span>{resuming ? 'Trying…' : 'Try again'}</span>
                 </button>
               )}
               <button

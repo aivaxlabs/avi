@@ -1,0 +1,26 @@
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+strong,
+b,
+th {
+  font-weight: 500;
+}
+
+button,
+input,
+textarea,
+select {
+  font-size: inherit;
+  font-weight: 400;
+}

@@ -1,0 +1,92 @@
+.chat-area {
+  position: relative;
+  height: 100%;
+  padding-top: 34px;
+  --composer-bottom: 0;
+  background: var(--surface-solid);
+  overflow: hidden;
+}
+
+.platform-win32 .chat-area,
+.platform-darwin .chat-area {
+  backdrop-filter: saturate(120%);
+}
+
+.platform-linux .sidebar {
+  background: var(--surface-sidebar);
+}
+
+.chat-scroll {
+  height: 100%;
+  overflow: auto;
+  padding: 22px 5px calc(var(--composer-clearance, 176px) + 24px) 20px;
+  scrollbar-gutter: stable;
+}
+
+.file-drop-overlay {
+  position: absolute;
+  inset: 34px 0 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: var(--surface-drop);
+  border: 1px dashed var(--border-drop);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+.file-drop-overlay div {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 18px 22px;
+  color: var(--color-drop-text);
+  background: var(--surface-overlay-card);
+  border: 1px solid var(--border-panel);
+  border-radius: 8px;
+  box-shadow: 0 18px 60px var(--shadow-soft);
+}
+
+.file-drop-overlay span {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.empty-chat {
+  min-height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  text-align: center;
+  transform: translateY(-72px);
+}
+
+.chat-empty {
+  --composer-bottom: calc(50% - 60px);
+}
+
+.copilot-orb,
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  color: var(--color-on-accent);
+  background: linear-gradient(135deg, var(--color-live), var(--color-brand-blue) 52%, var(--color-brand-pink));
+  border-radius: 8px;
+  box-shadow: 0 20px 60px var(--shadow-brand-strong);
+}
+
+.empty-chat h1 {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 400;
+}
+
+.empty-chat p,
+.dialog-header p {
+  margin: 0;
+  color: var(--color-muted-warm);
+  font-size: 12px;
+}

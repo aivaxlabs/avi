@@ -1,0 +1,11 @@
+input:not([type="checkbox"]):not([type="radio"]),
+textarea,
+select {
+  padding: 8px;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+textarea:not([readonly]),
+select:not([multiple]) {
+  padding: 8px;
+}

@@ -1,8 +1,12 @@
 import { classNames } from '../lib/format.js';
 
-export function DropdownMenu({ children, className, style, fixed = false }) {
+export function DropdownMenu({ children, className, style, fixed = false, ...props }) {
   return (
-    <div className={classNames('dropdown-menu', fixed && 'fixed', className)} style={style}>
+    <div
+      {...props}
+      className={classNames('dropdown-menu', fixed && 'fixed', className)}
+      style={style}
+    >
       {children}
     </div>
   );

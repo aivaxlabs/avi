@@ -4,14 +4,19 @@ import {
   Brain,
   Check,
   ChevronDown,
+  ChevronRight,
+  CornerDownLeft,
   FolderOpen,
   GitBranch,
+  GripVertical,
   HardDrive,
   LoaderCircle,
   LockKeyhole,
   Mic,
+  MoreHorizontal,
   Paperclip,
   Pause,
+  Pencil,
   Play,
   Plus,
   Search,
@@ -27,6 +32,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { createMp3Attachment } from '../lib/audio.js';
 import { fileToAttachment, formatBytes, textToAttachment } from '../lib/files.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
@@ -52,10 +58,15 @@ const composerCommands = [
 ];
 
 export function Composer({
+  containerRef,
   isRunning,
   onSend,
   onStop,
   onCompress,
+  queuedMessages = [],
+  onCancelQueued,
+  onReorderQueued,
+  onSteerQueued,
   droppedFiles,
   modelName,
   recentModels = [],
@@ -75,6 +86,7 @@ export function Composer({
   const [attachments, setAttachments] = useState([]);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [reasoningMenuOpen, setReasoningMenuOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [commandStage, setCommandStage] = useState(null);
   const [commandIndex, setCommandIndex] = useState(0);
@@ -84,6 +96,9 @@ export function Composer({
   const [projectSelecting, setProjectSelecting] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectQuery, setProjectQuery] = useState('');
+  const [draggedQueuedMessageId, setDraggedQueuedMessageId] = useState(null);
+  const [queuedMenu, setQueuedMenu] = useState(null);
+  const [editingQueuedMessageId, setEditingQueuedMessageId] = useState(null);
   const plusHolderRef = useRef(null);
   const modelMenuRef = useRef(null);
   const projectMenuRef = useRef(null);
@@ -97,7 +112,7 @@ export function Composer({
   const currentModelConfig = models.find((model) => model.id === currentModel) ?? null;
   const activeReasoningEffort = currentModelConfig?.reasoning.includes(reasoningEffort)
     ? reasoningEffort
-    : null;
+    : currentModelConfig?.reasoning[0] ?? null;
   const commandOptions = useMemo(() => {
     const normalized = commandQuery.trim().toLowerCase();
 
@@ -217,6 +232,7 @@ export function Composer({
     const close = (event) => {
       if (modelMenuRef.current?.contains(event.target)) return;
       setModelMenuOpen(false);
+      setReasoningMenuOpen(false);
     };
     window.addEventListener('pointerdown', close);
     return () => window.removeEventListener('pointerdown', close);
@@ -234,6 +250,23 @@ export function Composer({
     window.addEventListener('pointerdown', close);
     return () => window.removeEventListener('pointerdown', close);
   }, [projectMenuOpen]);
+
+  useEffect(() => {
+    if (!queuedMenu) return undefined;
+    const close = (event) => {
+      if (event.target.closest?.('.queued-message-actions-menu')) return;
+      if (event.target.closest?.('[data-queue-menu-trigger]')) return;
+      setQueuedMenu(null);
+    };
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [queuedMenu]);
+
+  useEffect(() => {
+    if (queuedMenu && !queuedMessages.some((message) => message.id === queuedMenu.messageId)) {
+      setQueuedMenu(null);
+    }
+  }, [queuedMenu, queuedMessages]);
 
   useEffect(() => {
     if (!recording?.analyser || recording.paused) {
@@ -275,6 +308,7 @@ export function Composer({
   function chooseModel(modelId) {
     onChooseModel(modelId);
     setReasoningEffort(null);
+    setReasoningMenuOpen(false);
     setModelMenuOpen(false);
     setModelPickerOpen(false);
   }
@@ -423,7 +457,7 @@ export function Composer({
   const visibleAttachments = attachments;
 
   return (
-    <section className="composer-wrap">
+    <section ref={containerRef} className="composer-wrap">
       {recording && (
         <div className="recording-bar">
           <span className="record-dot" />
@@ -439,6 +473,163 @@ export function Composer({
             Send
           </button>
         </div>
+      )}
+      {queuedMessages.length > 0 && (
+        <ol className="queued-messages" aria-label="Queued messages">
+          {queuedMessages.map((message, index) => (
+            <li
+              key={message.id}
+              className={[
+                draggedQueuedMessageId === message.id && 'dragging',
+                queuedMenu?.messageId === message.id && 'menu-open',
+              ].filter(Boolean).join(' ')}
+              onDragOver={(event) => {
+                if (!draggedQueuedMessageId || draggedQueuedMessageId === message.id) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                if (!draggedQueuedMessageId || draggedQueuedMessageId === message.id) return;
+                const messageIds = queuedMessages
+                  .map((item) => item.id)
+                  .filter((messageId) => messageId !== draggedQueuedMessageId);
+                messageIds.splice(index, 0, draggedQueuedMessageId);
+                setDraggedQueuedMessageId(null);
+                onReorderQueued(messageIds);
+              }}
+            >
+              <button
+                className="queued-message-grip"
+                type="button"
+                draggable
+                title="Drag or use the arrow keys to reorder"
+                aria-label={`Reorder queued message ${index + 1}`}
+                onKeyDown={(event) => {
+                  if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+                  event.preventDefault();
+                  const nextIndex = event.key === 'ArrowUp' ? index - 1 : index + 1;
+                  if (nextIndex < 0 || nextIndex >= queuedMessages.length) return;
+                  const messageIds = queuedMessages.map((item) => item.id);
+                  [messageIds[index], messageIds[nextIndex]] = [
+                    messageIds[nextIndex],
+                    messageIds[index],
+                  ];
+                  onReorderQueued(messageIds);
+                }}
+                onDragStart={(event) => {
+                  setDraggedQueuedMessageId(message.id);
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData('text/plain', message.id);
+                }}
+                onDragEnd={() => setDraggedQueuedMessageId(null)}
+              >
+                <GripVertical size={14} />
+              </button>
+              <span className="queued-message-position" aria-hidden="true">{index + 1}</span>
+              <span
+                className="queued-message-copy"
+                title={message.content || message.attachments.map((attachment) => attachment.name).join(', ')}
+              >
+                {message.content
+                  || message.attachments.map((attachment) => attachment.name).join(', ')
+                  || 'Message with attachments'}
+              </span>
+              <div className="queued-message-actions">
+                <button
+                  type="button"
+                  className="queued-message-steer"
+                  title="Stop the current response and send this message next"
+                  onClick={() => onSteerQueued(
+                    message.id,
+                    queuedMessages.map((item) => item.id),
+                  )}
+                >
+                  <CornerDownLeft size={13} />
+                  <span>Steer</span>
+                </button>
+                <button
+                  type="button"
+                  title="Remove from queue"
+                  aria-label={`Remove queued message ${index + 1}`}
+                  onClick={() => onCancelQueued(message.id)}
+                >
+                  <Trash2 size={13} />
+                </button>
+                <button
+                  className={queuedMenu?.messageId === message.id ? 'active' : ''}
+                  type="button"
+                  title="More actions"
+                  aria-label={`More actions for queued message ${index + 1}`}
+                  aria-haspopup="menu"
+                  aria-expanded={queuedMenu?.messageId === message.id}
+                  data-queue-menu-trigger={message.id}
+                  onClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const nextMenu = queuedMenu?.messageId === message.id
+                      ? null
+                      : {
+                          messageId: message.id,
+                          top: Math.min(window.innerHeight - 48, rect.bottom + 4),
+                          left: Math.max(8, rect.right - 174),
+                        };
+                    setQueuedMenu(nextMenu);
+                    if (nextMenu) {
+                      queueMicrotask(() => (
+                        document.querySelector('.queued-message-actions-menu button')?.focus()
+                      ));
+                    }
+                  }}
+                >
+                  <MoreHorizontal size={14} />
+                </button>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      {queuedMenu && createPortal(
+        <DropdownMenu
+          className="queued-message-actions-menu"
+          fixed
+          role="menu"
+          aria-label="Queued message actions"
+          style={{ top: queuedMenu.top, left: queuedMenu.left }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            const messageId = queuedMenu.messageId;
+            setQueuedMenu(null);
+            queueMicrotask(() => (
+              document.querySelector(`[data-queue-menu-trigger="${messageId}"]`)?.focus()
+            ));
+          }}
+        >
+          <DropdownMenuItem
+            icon={<Pencil size={14} />}
+            role="menuitem"
+            disabled={editingQueuedMessageId === queuedMenu.messageId}
+            onClick={async () => {
+              const message = queuedMessages.find((item) => item.id === queuedMenu.messageId);
+              if (!message) return;
+              setEditingQueuedMessageId(message.id);
+              try {
+                if (!await onCancelQueued(message.id)) return;
+                setText(message.content ?? '');
+                setAttachments(message.attachments ?? []);
+                setCommandStage(null);
+                setCommandIndex(0);
+                setQueuedMenu(null);
+                queueMicrotask(() => textAreaRef.current?.focus());
+              } finally {
+                setEditingQueuedMessageId(null);
+              }
+            }}
+          >
+            {editingQueuedMessageId === queuedMenu.messageId ? 'Opening…' : 'Edit message'}
+          </DropdownMenuItem>
+        </DropdownMenu>,
+        document.body,
       )}
       <div className="composer">
         {commandMode && (
@@ -539,11 +730,16 @@ export function Composer({
             <button
               className="model-input-trigger"
               type="button"
-              onClick={() => setModelMenuOpen((value) => !value)}
+              onClick={() => {
+                setReasoningMenuOpen(false);
+                setModelMenuOpen((value) => !value);
+              }}
             >
-              <span>
+              <span className="model-input-label">
                 {modelName || 'Choose model'}
-                {activeReasoningEffort ? ` · ${activeReasoningEffort}` : ''}
+                {activeReasoningEffort && (
+                  <span className="model-input-effort"> - {activeReasoningEffort}</span>
+                )}
               </span>
               <ChevronDown size={14} />
             </button>
@@ -563,9 +759,75 @@ export function Composer({
                   )}
                 </div>
                 <div className="dropdown-menu-divider" />
+                {currentModelConfig?.reasoning.length > 0 && (
+                  <>
+                    <div
+                      className="model-reasoning-submenu-holder"
+                      onMouseEnter={() => setReasoningMenuOpen(true)}
+                      onMouseLeave={() => setReasoningMenuOpen(false)}
+                      onFocus={() => setReasoningMenuOpen(true)}
+                      onBlur={(event) => {
+                        if (!event.currentTarget.contains(event.relatedTarget)) {
+                          setReasoningMenuOpen(false);
+                        }
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape' || event.key === 'ArrowLeft') {
+                          event.preventDefault();
+                          setReasoningMenuOpen(false);
+                          event.currentTarget.querySelector('.model-reasoning-trigger')?.focus();
+                        } else if (event.key === 'ArrowRight') {
+                          event.preventDefault();
+                          const holder = event.currentTarget;
+                          setReasoningMenuOpen(true);
+                          queueMicrotask(() => (
+                            holder.querySelector('.model-reasoning-submenu button')?.focus()
+                          ));
+                        }
+                      }}
+                    >
+                      <DropdownMenuItem
+                        className="model-reasoning-trigger"
+                        icon={<Brain size={14} />}
+                        aria-haspopup="menu"
+                        aria-expanded={reasoningMenuOpen}
+                        onClick={() => setReasoningMenuOpen((open) => !open)}
+                      >
+                        <>
+                          <span>Reasoning</span>
+                          <ChevronRight size={14} />
+                        </>
+                      </DropdownMenuItem>
+                      {reasoningMenuOpen && (
+                        <DropdownMenu className="model-reasoning-submenu">
+                          {currentModelConfig.reasoning.map((effort) => (
+                            <DropdownMenuItem
+                              key={effort}
+                              active={effort === activeReasoningEffort}
+                              icon={(
+                                <span className="model-reasoning-check">
+                                  {effort === activeReasoningEffort && <Check size={13} />}
+                                </span>
+                              )}
+                              onClick={() => {
+                                setReasoningEffort(effort);
+                                setReasoningMenuOpen(false);
+                                setModelMenuOpen(false);
+                              }}
+                            >
+                              {effort}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenu>
+                      )}
+                    </div>
+                    <div className="dropdown-menu-divider" />
+                  </>
+                )}
                 <DropdownMenuItem
                   icon={<Search size={14} />}
                   onClick={() => {
+                    setReasoningMenuOpen(false);
                     setModelMenuOpen(false);
                     setModelPickerOpen(true);
                   }}

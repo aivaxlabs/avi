@@ -8,7 +8,9 @@
     "dev": "bun scripts/dev.mjs",
     "dev:devtools": "bun scripts/dev.mjs --devtools",
     "start": "electron .",
-    "build": "vite build",
+    "styles": "cascadium build -d src/styles -x .xcss -o src/renderer/styles.css --p:pretty true --p:filenametag relative",
+    "styles:watch": "cascadium watch -d src/styles -x .xcss -o src/renderer/styles.css --p:pretty true --p:filenametag relative",
+    "build": "bun run styles && vite build",
     "syntax": "node scripts/check-syntax.mjs",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "package": "bun run build && electron-builder --dir",
@@ -27,6 +29,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.1",
+    "@cypherpotato/cascadium": "^1.0.3",
     "electron": "^39.2.6",
     "electron-builder": "^26.0.12",
     "autoprefixer": "^10.4.22",

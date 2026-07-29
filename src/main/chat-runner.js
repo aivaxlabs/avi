@@ -55,6 +55,8 @@ export class ChatRunner {
     if (this.runs.has(conversation.id)) {
       const queued = this.createUserMessage({
         conversationId: conversation.id,
+        model,
+        reasoningEffort,
         text,
         attachments,
         status: steer ? 'steered' : 'queued',
@@ -67,11 +69,20 @@ export class ChatRunner {
         run.queue.push({ userMessageId: queued.id, model, reasoningEffort });
       }
       this.emit(conversation.id, { type: 'message', message: queued });
-      return { conversation: getConversation(conversation.id), message: queued, queued: true };
+      const queueOrder = run.queue.map((item) => item.userMessageId);
+      this.emit(conversation.id, { type: 'queue-order', messageIds: queueOrder });
+      return {
+        conversation: getConversation(conversation.id),
+        message: queued,
+        queued: true,
+        queueOrder,
+      };
     }
 
     const userMessage = this.createUserMessage({
       conversationId: conversation.id,
+      model,
+      reasoningEffort,
       text,
       attachments,
       status: 'sent',
@@ -89,6 +100,10 @@ export class ChatRunner {
   stop(conversationId) {
     const run = this.runs.get(conversationId);
     if (run) {
+      for (const item of run.queue) {
+        deleteMessage(item.userMessageId);
+        this.emit(conversationId, { type: 'message-delete', messageId: item.userMessageId });
+      }
       run.queue = [];
       run.controller.abort('stop');
     }
@@ -102,20 +117,234 @@ export class ChatRunner {
 
     const message = getMessage(messageId);
     if (!message || !['queued', 'steered'].includes(message.status)) {
-      return { conversation: getConversation(conversationId), cancelled: false };
+      return {
+        conversation: getConversation(conversationId),
+        cancelled: false,
+        queueOrder: run?.queue.map((item) => item.userMessageId) ?? [],
+      };
     }
 
     deleteMessage(messageId);
     this.emit(conversationId, { type: 'message-delete', messageId });
-    return { conversation: getConversation(conversationId), cancelled: true };
+    const { queueOrder } = this.reorderQueuedMessages({
+      conversationId,
+      messageIds: run?.queue.map((item) => item.userMessageId) ?? [],
+    });
+    return {
+      conversation: getConversation(conversationId),
+      cancelled: true,
+      queueOrder,
+    };
   }
 
-  async retry({ conversationId, model, assistantMessageId }) {
+  reorderQueuedMessages({ conversationId, messageIds = [], steerMessageId = null }) {
+    const run = this.runs.get(conversationId);
+    if (!run) {
+      const conversation = getConversation(conversationId);
+      const queuedItems = this.getQueuedItems(conversationId, conversation?.model);
+      const queuedById = new Map(queuedItems.map((item) => [item.userMessageId, item]));
+      const requestedIds = [...new Set(messageIds)];
+      if (
+        !steerMessageId
+        || requestedIds.length !== queuedItems.length
+        || requestedIds.some((messageId) => !queuedById.has(messageId))
+        || !queuedById.has(steerMessageId)
+      ) {
+        return {
+          reordered: false,
+          queueOrder: queuedItems.map((item) => item.userMessageId),
+        };
+      }
+
+      const orderedQueue = requestedIds.map((messageId) => queuedById.get(messageId));
+      const next = orderedQueue.shift();
+      const sentMessage = updateMessage(next.userMessageId, { status: 'sent' });
+      this.emit(conversationId, { type: 'message', message: sentMessage });
+      this.emit(conversationId, {
+        type: 'queue-order',
+        messageIds: orderedQueue.map((item) => item.userMessageId),
+      });
+      this.start({
+        conversationId,
+        model: next.model,
+        userMessageId: next.userMessageId,
+        queue: orderedQueue,
+        reasoningEffort: next.reasoningEffort,
+      });
+      return {
+        reordered: true,
+        steered: true,
+        queueOrder: orderedQueue.map((item) => item.userMessageId),
+      };
+    }
+
+    const queuedById = new Map(run.queue.map((item) => [item.userMessageId, item]));
+    const requestedIds = [...new Set(messageIds)];
+    if (
+      requestedIds.length !== run.queue.length
+      || requestedIds.some((messageId) => !queuedById.has(messageId))
+      || (steerMessageId && !queuedById.has(steerMessageId))
+    ) {
+      return {
+        reordered: false,
+        queueOrder: run.queue.map((item) => item.userMessageId),
+      };
+    }
+
+    run.queue = requestedIds.map((messageId) => queuedById.get(messageId));
+    this.emit(conversationId, { type: 'queue-order', messageIds: requestedIds });
+    if (steerMessageId) {
+      const steeredMessage = updateMessage(steerMessageId, { status: 'steered' });
+      if (steeredMessage) {
+        this.emit(conversationId, { type: 'message', message: steeredMessage });
+      }
+      run.controller.abort('steer');
+    }
+    return {
+      reordered: true,
+      steered: Boolean(steerMessageId),
+      queueOrder: requestedIds,
+    };
+  }
+
+  async retry({
+    conversationId,
+    model,
+    assistantMessageId,
+    resumeFromFailure = false,
+  }) {
     const conversation = ensureConversation(conversationId, model);
     setLastModel(model);
 
     if (this.runs.has(conversation.id)) {
       return { conversation: getConversation(conversation.id), message: null, queued: true };
+    }
+
+    if (resumeFromFailure) {
+      const failedAssistant = getMessage(assistantMessageId);
+      if (
+        !failedAssistant
+        || failedAssistant.conversationId !== conversation.id
+        || failedAssistant.role !== 'assistant'
+        || failedAssistant.status === 'completed'
+      ) {
+        return { conversation: getConversation(conversation.id), message: null, queued: false };
+      }
+
+      const conversationMessages = getMessages(conversation.id);
+      const assistantIndex = conversationMessages.findIndex(
+        (message) => message.id === assistantMessageId,
+      );
+      const sourceUser = conversationMessages
+        .slice(0, assistantIndex)
+        .findLast((message) => (
+          message.role === 'user'
+          && !['queued', 'steered'].includes(message.status)
+        ));
+      const messages = toModelMessagesThroughUser(
+        conversation.id,
+        assistantMessageId,
+        { includeFailedUser: true },
+      );
+      if (!sourceUser || messages.length === 0) {
+        return { conversation: getConversation(conversation.id), message: null, queued: false };
+      }
+
+      const resumeSegments = (failedAssistant.segments ?? [])
+        .filter((segment) => segment.type !== 'error')
+        .filter((segment) => (
+          segment.type !== 'tool-call'
+          || (
+            segment.callId
+            && segment.name
+            && segment.resultText !== undefined
+          )
+        ));
+      const roundsByIndex = new Map();
+      let pendingAssistantContent = '';
+      for (const segment of resumeSegments) {
+        if (segment.type === 'content') {
+          pendingAssistantContent += segment.text ?? '';
+          continue;
+        }
+        if (segment.type !== 'tool-call') continue;
+
+        const roundIndex = Number(segment.key?.match(/^round:(\d+):/)?.[1]);
+        if (!Number.isInteger(roundIndex)) continue;
+        const round = roundsByIndex.get(roundIndex) ?? {
+          assistantContent: '',
+          toolCalls: [],
+          results: [],
+        };
+        if (pendingAssistantContent) {
+          round.assistantContent += pendingAssistantContent;
+          pendingAssistantContent = '';
+        }
+        round.toolCalls.push({
+          key: segment.key,
+          callId: segment.callId,
+          name: segment.name,
+          argumentsText: segment.argumentsText ?? '',
+        });
+        round.results.push({
+          callId: segment.callId,
+          output: segment.resultText ?? '',
+          isError: segment.status === 'error',
+        });
+        roundsByIndex.set(roundIndex, round);
+      }
+
+      const initialToolHistory = [...roundsByIndex.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([, round]) => ({
+          ...round,
+          responseItems: [
+            ...(round.assistantContent
+              ? [{
+                  type: 'message',
+                  role: 'assistant',
+                  content: [{ type: 'output_text', text: round.assistantContent }],
+                }]
+              : []),
+            ...round.toolCalls.map((toolCall) => ({
+              type: 'function_call',
+              call_id: toolCall.callId,
+              name: toolCall.name,
+              arguments: toolCall.argumentsText,
+            })),
+          ],
+        }));
+      if (pendingAssistantContent) {
+        initialToolHistory.push({
+          assistantContent: pendingAssistantContent,
+          responseItems: [{
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: pendingAssistantContent }],
+          }],
+          toolCalls: [],
+          results: [],
+        });
+      }
+
+      updateMessage(sourceUser.id, { status: 'sent' });
+      const queue = this.getQueuedItems(conversation.id, model);
+      this.start({
+        conversationId: conversation.id,
+        model,
+        userMessageId: sourceUser.id,
+        queue,
+        retryMessages: messages,
+        initialToolHistory,
+        resumeAssistantMessageId: failedAssistant.id,
+        initialSegments: resumeSegments,
+        initialUsage: failedAssistant.usage,
+      });
+      return {
+        conversation: getConversation(conversation.id),
+        message: getMessage(failedAssistant.id),
+        queued: false,
+      };
     }
 
     const messages = toModelMessagesThroughUser(conversation.id, assistantMessageId);
@@ -124,6 +353,7 @@ export class ChatRunner {
     }
 
     const conversationMessages = getMessages(conversation.id);
+    const queue = this.getQueuedItems(conversation.id, model);
     const assistantIndex = conversationMessages.findIndex((message) => message.id === assistantMessageId);
     const searchEnd = assistantIndex >= 0 ? assistantIndex : conversationMessages.length;
     const lastUserIndex = conversationMessages
@@ -131,6 +361,7 @@ export class ChatRunner {
       .findLastIndex((message) => message.role === 'user' && ['sent', 'completed'].includes(message.status));
     const staleMessages = lastUserIndex >= 0 ? conversationMessages.slice(lastUserIndex + 1) : [];
     for (const message of staleMessages) {
+      if (['queued', 'steered'].includes(message.status)) continue;
       deleteMessage(message.id);
       this.emit(conversation.id, { type: 'message-delete', messageId: message.id });
     }
@@ -138,6 +369,7 @@ export class ChatRunner {
     this.start({
       conversationId: conversation.id,
       model,
+      queue,
       retryMessages: messages,
     });
 
@@ -220,10 +452,29 @@ export class ChatRunner {
     }
   }
 
-  createUserMessage({ conversationId, text, attachments, status }) {
+  getQueuedItems(conversationId, fallbackModel) {
+    return getMessages(conversationId)
+      .filter((message) => ['queued', 'steered'].includes(message.status))
+      .map((message) => ({
+        userMessageId: message.id,
+        model: message.model || fallbackModel,
+        reasoningEffort: message.reasoningEffort,
+      }));
+  }
+
+  createUserMessage({
+    conversationId,
+    model,
+    reasoningEffort,
+    text,
+    attachments,
+    status,
+  }) {
     const message = insertMessage({
       conversationId,
       role: 'user',
+      model,
+      reasoningEffort,
       status,
       content: text,
       attachments,
@@ -248,17 +499,31 @@ export class ChatRunner {
     userMessageId = null,
     queue = [],
     retryMessages = null,
+    initialToolHistory = [],
+    resumeAssistantMessageId = null,
+    initialSegments = [],
+    initialUsage = null,
     reasoningEffort = null,
   }) {
     const controller = new AbortController();
-    const accumulator = new StreamAccumulator();
-    const assistantMessage = insertMessage({
-      conversationId,
-      role: 'assistant',
-      model,
-      status: 'streaming',
-      content: '',
+    const accumulator = new StreamAccumulator({
+      segments: initialSegments,
+      usage: initialUsage,
     });
+    const assistantMessage = resumeAssistantMessageId
+      ? updateMessage(resumeAssistantMessageId, {
+          status: 'streaming',
+          content: accumulator.content,
+          segments: accumulator.segments,
+          usage: accumulator.usage,
+        })
+      : insertMessage({
+          conversationId,
+          role: 'assistant',
+          model,
+          status: 'streaming',
+          content: '',
+        });
     const run = {
       controller,
       queue,
@@ -302,7 +567,12 @@ export class ChatRunner {
       const messages = retryMessages
         ?? toModelMessages(conversationId, { excludeMessageId: assistantMessage.id });
       const workspacePath = getConversation(conversationId)?.projectPath;
-      const toolHistory = [];
+      const toolHistory = initialToolHistory.map((round) => ({
+        ...round,
+        responseItems: [...round.responseItems],
+        toolCalls: [...round.toolCalls],
+        results: [...round.results],
+      }));
       let lastInputTokens = 0;
       let firstResponseAt = null;
       this.logChatTiming(conversationId, {
@@ -531,6 +801,10 @@ export class ChatRunner {
       const pendingQueue = current?.queue ?? [];
       const next = pendingQueue.shift();
       if (next) {
+        this.emit(conversationId, {
+          type: 'queue-order',
+          messageIds: pendingQueue.map((item) => item.userMessageId),
+        });
         const sentMessage = updateMessage(next.userMessageId, { status: 'sent' });
         this.emit(conversationId, { type: 'message', message: sentMessage });
         this.start({

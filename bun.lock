@@ -16,6 +16,7 @@
         "remark-gfm": "^4.0.1",
       },
       "devDependencies": {
+        "@cypherpotato/cascadium": "^1.0.3",
         "@electron/rebuild": "^4.0.1",
         "autoprefixer": "^10.4.22",
         "electron": "^39.2.6",
@@ -68,6 +69,8 @@
     "@babel/traverse": ["@babel/traverse@7.29.0", "", { "dependencies": { "@babel/code-frame": "^7.29.0", "@babel/generator": "^7.29.0", "@babel/helper-globals": "^7.28.0", "@babel/parser": "^7.29.0", "@babel/template": "^7.28.6", "@babel/types": "^7.29.0", "debug": "^4.3.1" } }, "sha512-4HPiQr0X7+waHfyXPZpWPfWL/J7dcN1mx9gL6WdQVMbPnF3+ZhSMs8tCxN7oHddJE9fhNE7+lxdnlyemKfJRuA=="],
 
     "@babel/types": ["@babel/types@7.29.0", "", { "dependencies": { "@babel/helper-string-parser": "^7.27.1", "@babel/helper-validator-identifier": "^7.28.5" } }, "sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A=="],
+
+    "@cypherpotato/cascadium": ["@cypherpotato/cascadium@1.0.3", "", { "bin": { "cascadium": "bin/cascadium.js" } }, "sha512-SkXPIXiJ6e4GVpTNY9HV7kL+8ku8GfI2KkOBMahKNg+3oL5xr2FrucwtSs7q6MOhWa+8Z82StvYlMBwR8b9ckg=="],
 
     "@develar/schema-utils": ["@develar/schema-utils@2.6.5", "", { "dependencies": { "ajv": "^6.12.0", "ajv-keywords": "^3.4.1" } }, "sha512-0cp4PsWQ/9avqTVMCtZ+GirikIA36ikvjtHweU4/j8yLtgObI0+JUPhYFScgwlteveGB1rt3Cm8UhN04XayDig=="],
 

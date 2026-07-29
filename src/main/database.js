@@ -44,6 +44,7 @@ db.exec(`
     conversation_id TEXT NOT NULL,
     role TEXT NOT NULL,
     model TEXT,
+    reasoning_effort TEXT,
     status TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
     segments TEXT NOT NULL DEFAULT '[]',
@@ -69,6 +70,9 @@ if (!db.pragma('table_info(messages)').some((column) => column.name === 'usage')
 }
 if (!db.pragma('table_info(messages)').some((column) => column.name === 'model')) {
   db.exec('ALTER TABLE messages ADD COLUMN model TEXT');
+}
+if (!db.pragma('table_info(messages)').some((column) => column.name === 'reasoning_effort')) {
+  db.exec('ALTER TABLE messages ADD COLUMN reasoning_effort TEXT');
 }
 const conversationColumns = db.pragma('table_info(conversations)');
 if (!conversationColumns.some((column) => column.name === 'project_path')) {
@@ -162,11 +166,11 @@ const statements = {
   deleteConversation: db.prepare('UPDATE conversations SET deleted_at = ?, updated_at = ? WHERE id = ?'),
   insertMessage: db.prepare(`
     INSERT INTO messages (
-      id, conversation_id, role, model, status, content, segments, attachments,
+      id, conversation_id, role, model, reasoning_effort, status, content, segments, attachments,
       continuations, usage, created_at, updated_at
     )
     VALUES (
-      @id, @conversationId, @role, @model, @status, @content, @segments, @attachments,
+      @id, @conversationId, @role, @model, @reasoningEffort, @status, @content, @segments, @attachments,
       @continuations, @usage, @createdAt, @updatedAt
     )
   `),
@@ -301,6 +305,7 @@ export function insertMessage(message) {
     conversationId: message.conversationId,
     role: message.role,
     model: message.model ?? null,
+    reasoningEffort: message.reasoningEffort ?? null,
     status: message.status ?? 'completed',
     content: message.content ?? '',
     segments: stringify(message.segments ?? []),
@@ -438,16 +443,27 @@ export function toModelMessages(conversationId, { excludeMessageId } = {}) {
   ];
 }
 
-export function toModelMessagesThroughUser(conversationId, beforeMessageId) {
+export function toModelMessagesThroughUser(
+  conversationId,
+  beforeMessageId,
+  { includeFailedUser = false } = {},
+) {
   const messages = getMessages(conversationId);
   const conversation = statements.getConversation.get(conversationId);
   const beforeIndex = messages.findIndex((message) => message.id === beforeMessageId);
   const searchEnd = beforeIndex >= 0 ? beforeIndex : messages.length;
   const lastUserIndex = messages
     .slice(0, searchEnd)
-    .findLastIndex((message) => message.role === 'user' && ['sent', 'completed'].includes(message.status));
+    .findLastIndex((message) => (
+      message.role === 'user'
+      && (
+        ['sent', 'completed'].includes(message.status)
+        || (includeFailedUser && message.status === 'error')
+      )
+    ));
 
   if (lastUserIndex < 0) return [];
+  const lastUserMessageId = messages[lastUserIndex].id;
 
   const checkpointIndex = conversation?.checkpoint_message_id
     ? messages.findIndex((message) => message.id === conversation.checkpoint_message_id)
@@ -464,7 +480,10 @@ export function toModelMessagesThroughUser(conversationId, beforeMessageId) {
       : []),
     ...messages
       .slice(useCheckpoint ? checkpointIndex + 1 : 0, lastUserIndex + 1)
-      .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
+      .filter((message) => (
+        ['completed', 'sent', 'aborted'].includes(message.status)
+        || message.id === lastUserMessageId
+      ))
       .filter((message) => message.role === 'user' || message.role === 'assistant')
       .map(messageToApiBlock),
   ];
@@ -586,6 +605,7 @@ function mapMessage(row) {
     conversationId: row.conversation_id,
     role: row.role,
     model: row.model,
+    reasoningEffort: row.reasoning_effort,
     status: row.status,
     content: row.content,
     segments: parse(row.segments, []),

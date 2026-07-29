@@ -9,6 +9,10 @@ const vite = spawn('bun', ['x', 'vite', '--host', '127.0.0.1', '--port', '5173']
   shell: true,
   stdio: 'inherit',
 });
+const styles = spawn('bun', ['run', 'styles:watch'], {
+  shell: true,
+  stdio: 'inherit',
+});
 
 let electron;
 let restartTimer;
@@ -39,6 +43,7 @@ const stop = () => {
   stopping = true;
   clearTimeout(restartTimer);
   mainWatcher.close();
+  styles.kill();
   vite.kill();
   electron?.kill();
 };

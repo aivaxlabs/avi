@@ -1,9 +1,12 @@
 export class StreamAccumulator {
-  constructor() {
-    this.segments = [];
-    this.usage = null;
+  constructor({ segments = [], usage = null } = {}) {
+    this.segments = segments.map((segment) => ({ ...segment }));
+    this.usage = usage;
     this.error = null;
-    this.nextSequence = 1;
+    this.nextSequence = Math.max(
+      0,
+      ...this.segments.map((segment) => Number(segment.sequence) || 0),
+    ) + 1;
   }
 
   get content() {

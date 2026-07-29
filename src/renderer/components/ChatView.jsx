@@ -19,24 +19,39 @@ export function ChatView({
   onCompress,
   onFork,
   onRetry,
+  onResume,
   onCancelQueued,
+  onReorderQueued,
+  onSteerQueued,
   onSendContinuation,
   onChooseModel,
   onChooseProject,
   onUseHome,
   onToggleFavorite,
 }) {
+  const chatAreaRef = useRef(null);
+  const composerRef = useRef(null);
   const scrollRef = useRef(null);
   const autoScrollTimerRef = useRef(null);
+  const autoScrollTargetRef = useRef(null);
   const manualScrollDuringRunRef = useRef(false);
   const wasRunningRef = useRef(false);
   const dragDepthRef = useRef(0);
   const [fileDropActive, setFileDropActive] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState(null);
   const modelName = models.find((model) => model.id === currentModel)?.name ?? currentModel ?? 'Model';
-  const lastAssistantMessage = currentMessages.findLast((message) => message.role === 'assistant');
-  const lastMessage = currentMessages.at(-1);
-  const isEmptyChat = currentMessages.length === 0;
+  const queuedMessages = currentMessages
+    .filter((message) => ['queued', 'steered'].includes(message.status))
+    .sort((a, b) => (
+      (a.queuePosition ?? Number.MAX_SAFE_INTEGER)
+      - (b.queuePosition ?? Number.MAX_SAFE_INTEGER)
+      || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    ));
+  const visibleMessages = currentMessages
+    .filter((message) => !['queued', 'steered'].includes(message.status));
+  const lastAssistantMessage = visibleMessages.findLast((message) => message.role === 'assistant');
+  const lastMessage = visibleMessages.at(-1);
+  const isEmptyChat = visibleMessages.length === 0;
   const streamScrollKey = [
     currentConversation?.id ?? '',
     lastMessage?.id ?? '',
@@ -47,22 +62,19 @@ export function ChatView({
   function scrollToBottom() {
     const scrollElement = scrollRef.current;
     if (scrollElement) {
-      scrollElement.scrollTop = scrollElement.scrollHeight;
+      const target = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight);
+      autoScrollTargetRef.current = target;
+      scrollElement.scrollTop = target;
     }
   }
 
   function scheduleScrollToBottom(delay = 50) {
-    window.clearTimeout(autoScrollTimerRef.current);
+    if (autoScrollTimerRef.current !== null) return;
+
     autoScrollTimerRef.current = window.setTimeout(() => {
+      autoScrollTimerRef.current = null;
       requestAnimationFrame(scrollToBottom);
     }, delay);
-  }
-
-  function handleManualScroll() {
-    if (isRunning) {
-      manualScrollDuringRunRef.current = true;
-      window.clearTimeout(autoScrollTimerRef.current);
-    }
   }
 
   function handleDragEnter(event) {
@@ -107,7 +119,10 @@ export function ChatView({
     manualScrollDuringRunRef.current = false;
     scheduleScrollToBottom(0);
 
-    return () => window.clearTimeout(autoScrollTimerRef.current);
+    return () => {
+      window.clearTimeout(autoScrollTimerRef.current);
+      autoScrollTimerRef.current = null;
+    };
   }, [currentConversation?.id]);
 
   useEffect(() => {
@@ -129,8 +144,29 @@ export function ChatView({
     }
   }, [isRunning, streamScrollKey]);
 
+  useEffect(() => {
+    if (!chatAreaRef.current || !composerRef.current) return undefined;
+
+    const observer = new ResizeObserver(([entry]) => {
+      const scrollElement = scrollRef.current;
+      const distanceFromBottom = scrollElement
+        ? scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight
+        : Number.POSITIVE_INFINITY;
+      chatAreaRef.current?.style.setProperty(
+        '--composer-clearance',
+        `${Math.ceil(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height)}px`,
+      );
+      if (distanceFromBottom <= 48) {
+        requestAnimationFrame(scrollToBottom);
+      }
+    });
+    observer.observe(composerRef.current);
+    return () => observer.disconnect();
+  }, [currentConversation?.id]);
+
   return (
     <main
+      ref={chatAreaRef}
       className={`chat-area ${isEmptyChat ? 'chat-empty' : ''}`}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
@@ -148,8 +184,31 @@ export function ChatView({
       <div
         ref={scrollRef}
         className="chat-scroll"
-        onTouchMove={handleManualScroll}
-        onWheel={handleManualScroll}
+        onScroll={(event) => {
+          if (!isRunning) return;
+
+          const scrollElement = event.currentTarget;
+          const reachedBottom = (
+            scrollElement.scrollHeight
+            - scrollElement.scrollTop
+            - scrollElement.clientHeight
+          ) <= 24;
+          const matchedAutoScroll = (
+            autoScrollTargetRef.current !== null
+            && Math.abs(scrollElement.scrollTop - autoScrollTargetRef.current) <= 1
+          );
+          autoScrollTargetRef.current = null;
+          if (matchedAutoScroll) {
+            manualScrollDuringRunRef.current = false;
+            return;
+          }
+
+          manualScrollDuringRunRef.current = !reachedBottom;
+          if (!reachedBottom) {
+            window.clearTimeout(autoScrollTimerRef.current);
+            autoScrollTimerRef.current = null;
+          }
+        }}
       >
         {isEmptyChat ? (
           <div className="empty-chat">
@@ -157,7 +216,7 @@ export function ChatView({
           </div>
         ) : (
           <div className="messages-column">
-            {currentMessages.map((message) => (
+            {visibleMessages.map((message) => (
               <Message
                 key={message.id}
                 message={message}
@@ -169,7 +228,11 @@ export function ChatView({
                 }
                 onFork={() => onFork(currentConversation?.id, message.id)}
                 onRetry={() => onRetry(message.id)}
-                onCancelQueued={() => onCancelQueued(message.id)}
+                onResume={() => onResume(
+                  message.id,
+                  message.model || currentConversation?.model || currentModel,
+                )}
+                runActive={isRunning && message.id === lastAssistantMessage?.id}
                 onSendContinuation={onSendContinuation}
                 showContinuations={message.id === lastAssistantMessage?.id}
               />
@@ -178,10 +241,15 @@ export function ChatView({
         )}
       </div>
       <Composer
+        containerRef={composerRef}
         isRunning={isRunning}
         onSend={onSend}
         onStop={onStop}
         onCompress={onCompress}
+        queuedMessages={queuedMessages}
+        onCancelQueued={onCancelQueued}
+        onReorderQueued={onReorderQueued}
+        onSteerQueued={onSteerQueued}
         droppedFiles={droppedFiles}
         modelName={modelName}
         recentModels={recentModels}

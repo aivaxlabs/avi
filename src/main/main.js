@@ -245,6 +245,7 @@ function registerIpc() {
     model: payload?.model,
   }));
   ipcMain.handle('chat:cancel-queued', (_event, payload) => chatRunner.cancelQueuedMessage(payload));
+  ipcMain.handle('chat:reorder-queued', (_event, payload) => chatRunner.reorderQueuedMessages(payload));
   ipcMain.handle('chat:stop', (_event, conversationId) => {
     chatRunner.stop(conversationId);
     return true;

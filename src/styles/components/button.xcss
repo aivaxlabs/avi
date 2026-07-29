@@ -1,0 +1,71 @@
+button {
+  border: 0;
+  border-radius: 9999px;
+  padding: 4px 10px;
+}
+
+.nav-actions button,
+.settings-button,
+.dialog-footer button,
+.code-block-header button,
+.continuations button,
+.project-picker,
+.model-pill,
+.recording-bar button.primary-mini,
+.settings-back,
+.settings-navigation button,
+.settings-inline-back,
+.settings-add-provider,
+.settings-provider-empty .primary-mini,
+.settings-actions .primary-mini,
+.models-editor-header button,
+.toast {
+  border-radius: 9999px;
+  padding: 4px 10px;
+}
+
+.icon-button,
+.round-button,
+.recent-filter-button,
+.user-copy-float,
+.favorite-button,
+.sidebar-toggle,
+.attachment-chip button {
+  border-radius: 9999px;
+  padding: 0;
+}
+
+.icon-button,
+.round-button {
+  display: inline-grid;
+  place-items: center;
+  color: var(--color-icon);
+  background: var(--surface-control);
+  border: 1px solid var(--border-control);
+  border-radius: 999px;
+}
+
+.icon-button {
+  width: 34px;
+  height: 34px;
+}
+
+.icon-button.tiny {
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: 0;
+}
+
+.icon-button:hover,
+.round-button:hover,
+.model-pill:hover,
+.message-actions button:hover,
+.continuations button:hover {
+  background: var(--surface-hover-strong);
+}
+
+.primary-mini {
+  color: var(--color-primary-text) !important;
+  background: var(--color-primary-fill) !important;
+}

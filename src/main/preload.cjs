@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     retry: (payload) => invoke('chat:retry', payload),
     compress: (payload) => invoke('chat:compress', payload),
     cancelQueued: (payload) => invoke('chat:cancel-queued', payload),
+    reorderQueued: (payload) => invoke('chat:reorder-queued', payload),
     stop: (conversationId) => invoke('chat:stop', conversationId),
   },
   files: {

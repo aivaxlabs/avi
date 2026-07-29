@@ -133,6 +133,16 @@ export default function App() {
           [event.conversationId]: (state[event.conversationId] ?? [])
             .filter((message) => message.id !== event.messageId),
         }));
+      } else if (event.type === 'queue-order') {
+        const positions = new Map(event.messageIds.map((messageId, index) => [messageId, index]));
+        setMessagesByConversation((state) => ({
+          ...state,
+          [event.conversationId]: (state[event.conversationId] ?? []).map((message) => (
+            positions.has(message.id)
+              ? { ...message, queuePosition: positions.get(message.id) }
+              : message
+          )),
+        }));
       } else if (event.type === 'run-state') {
         setRunning((state) => ({ ...state, [event.conversationId]: event.running }));
       } else if (event.type === 'error') {
@@ -180,10 +190,20 @@ export default function App() {
     });
     setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
     setSelectedId(result.conversation.id);
-    setMessagesByConversation((state) => ({
-      ...state,
-      [result.conversation.id]: upsertMessage(state[result.conversation.id] ?? [], result.message),
-    }));
+    setMessagesByConversation((state) => {
+      const positions = new Map((result.queueOrder ?? []).map((messageId, index) => [messageId, index]));
+      return {
+        ...state,
+        [result.conversation.id]: upsertMessage(
+          state[result.conversation.id] ?? [],
+          result.message,
+        ).map((message) => (
+          positions.has(message.id)
+            ? { ...message, queuePosition: positions.get(message.id) }
+            : message
+        )),
+      };
+    });
     setRunning((state) => ({
       ...state,
       [result.conversation.id]: !result.queued,
@@ -197,12 +217,16 @@ export default function App() {
     }
   }
 
-  async function retryAssistantMessage(messageId) {
-    if (!selectedId || !messageId || !currentModel) return;
+  async function retryAssistantMessage(
+    messageId,
+    { resumeFromFailure = false, model = currentModel } = {},
+  ) {
+    if (!selectedId || !messageId || !model) return;
     const result = await api.chat.retry({
       conversationId: selectedId,
-      model: currentModel,
+      model,
       assistantMessageId: messageId,
+      resumeFromFailure,
     });
     if (!result?.conversation) return;
     setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
@@ -215,7 +239,7 @@ export default function App() {
   }
 
   async function cancelQueuedMessage(messageId) {
-    if (!selectedId || !messageId) return;
+    if (!selectedId || !messageId) return false;
     const result = await api.chat.cancelQueued({
       conversationId: selectedId,
       messageId,
@@ -226,6 +250,7 @@ export default function App() {
         [selectedId]: (state[selectedId] ?? []).filter((message) => message.id !== messageId),
       }));
     }
+    return Boolean(result?.cancelled);
   }
 
   async function forkConversation(id = selectedId, throughMessageId = null) {
@@ -342,9 +367,10 @@ export default function App() {
             models={models}
             selectedId={selectedId}
             running={running}
-            onNewChat={() => {
+            onNewChat={(preset = {}) => {
               setSelectedId(null);
-              setDraftProject(appState.defaultProject);
+              setDraftProject(preset.project ?? appState.defaultProject);
+              setDraftModel(preset.modelId ?? appState.lastModel ?? models[0]?.id ?? '');
             }}
             onSelect={selectConversation}
             onSearch={() => setSearchOpen(true)}
@@ -379,7 +405,40 @@ export default function App() {
             }}
             onFork={forkConversation}
             onRetry={retryAssistantMessage}
+            onResume={(messageId, model) => retryAssistantMessage(
+              messageId,
+              { resumeFromFailure: true, model },
+            )}
             onCancelQueued={cancelQueuedMessage}
+            onReorderQueued={async (messageIds) => {
+              if (!selectedId) return;
+              const result = await api.chat.reorderQueued({
+                conversationId: selectedId,
+                messageIds,
+              });
+              const positions = new Map(
+                (result?.queueOrder ?? []).map((messageId, index) => [messageId, index]),
+              );
+              setMessagesByConversation((state) => ({
+                ...state,
+                [selectedId]: (state[selectedId] ?? []).map((message) => (
+                  positions.has(message.id)
+                    ? { ...message, queuePosition: positions.get(message.id) }
+                    : message
+                )),
+              }));
+            }}
+            onSteerQueued={async (messageId, messageIds) => {
+              if (!selectedId) return;
+              await api.chat.reorderQueued({
+                conversationId: selectedId,
+                messageIds: [
+                  messageId,
+                  ...messageIds.filter((queuedMessageId) => queuedMessageId !== messageId),
+                ],
+                steerMessageId: messageId,
+              });
+            }}
             onSendContinuation={(text) => sendMessage({ text, attachments: [] })}
             onChooseModel={chooseModel}
             onChooseProject={async (project) => {

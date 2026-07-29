@@ -1,0 +1,18 @@
+.inline-error,
+.toast {
+  color: var(--color-danger);
+  font-size: 12px;
+}
+
+.toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  max-width: 420px;
+  padding: 10px 12px;
+  color: var(--color-on-accent);
+  background: var(--color-danger-strong);
+  border-radius: 8px;
+  box-shadow: 0 18px 50px var(--shadow-dialog);
+  z-index: 80;
+}

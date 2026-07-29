@@ -1,0 +1,124 @@
+.dialog-footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 9px;
+  color: var(--color-text-soft);
+  background: var(--surface-muted);
+  border: 1px solid var(--border-control);
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 30px;
+  background: var(--surface-backdrop);
+  backdrop-filter: blur(10px);
+  z-index: 70;
+}
+
+.model-dialog,
+.search-dialog {
+  width: min(780px, 100%);
+  max-height: min(720px, 88vh);
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  padding: 16px;
+  background: var(--surface-dialog);
+  border: 1px solid var(--surface-dialog-border);
+  border-radius: 8px;
+  box-shadow: 0 28px 90px var(--shadow-dialog);
+}
+
+.model-dialog {
+  width: min(1040px, 100%);
+  min-height: min(620px, 88vh);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.search-dialog {
+  width: min(640px, 100%);
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+}
+
+.dialog-header h2 {
+  margin: 0 0 4px;
+  font-size: 17px;
+}
+
+.dialog-header-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.dialog-search {
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  background: var(--surface-muted-solid);
+  border: 1px solid var(--border-control);
+  border-radius: 8px;
+}
+
+.dialog-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 13px;
+}
+
+.dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.search-results button {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  text-align: left;
+  color: var(--color-text-primary);
+  background: var(--surface-slate-faint);
+  border: 1px solid var(--border-hairline);
+  border-radius: 8px;
+}
+
+.search-results button span {
+  max-height: 42px;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.empty-list {
+  padding: 22px;
+  color: var(--color-muted);
+  text-align: center;
+  font-size: 13px;
+}
+@media (max-width: 700px) {
+  .dialog-backdrop {
+    padding: 14px;
+  }
+}
+
