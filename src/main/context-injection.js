@@ -216,6 +216,91 @@ export async function resolveDynamicContext(invocationContext = {}) {
     .join('\n\n');
 }
 
+export async function listContextItems(rootPath) {
+  const root = path.resolve(rootPath);
+  const instructionFiles = (
+    await Promise.all(ROOT_CONTEXT_FILES.map(async (fileName) => {
+      const filePath = path.join(root, fileName);
+      try {
+        await readFile(filePath, 'utf8');
+        return filePath;
+      } catch {
+        return null;
+      }
+    }))
+  ).filter(Boolean);
+  const skillFiles = await collectFiles(
+    path.join(root, 'skills'),
+    MAX_CONTEXT_DIRECTORY_DEPTH,
+    (fileName) => fileName.toLowerCase() === 'skill.md',
+  );
+  const workflowFiles = await collectFiles(
+    path.join(root, 'workflows'),
+    MAX_CONTEXT_DIRECTORY_DEPTH,
+    () => true,
+  );
+  const groups = await Promise.all([
+    {
+      id: 'instruction',
+      title: 'Instructions',
+      folderPath: root,
+      files: instructionFiles,
+    },
+    {
+      id: 'skill',
+      title: 'Skills',
+      folderPath: path.join(root, 'skills'),
+      files: skillFiles,
+    },
+    {
+      id: 'workflow',
+      title: 'Workflows',
+      folderPath: path.join(root, 'workflows'),
+      files: workflowFiles,
+    },
+  ].map(async ({ files, ...group }) => ({
+    ...group,
+    items: await Promise.all(files.map((filePath) => readContextItem(filePath))),
+  })));
+  const items = groups.flatMap((group) => group.items);
+  const commands = [];
+  const commandKeys = new Set();
+
+  for (const group of groups.filter(({ id }) => id === 'skill' || id === 'workflow')) {
+    for (const item of group.items) {
+      const fileName = path.basename(item.path);
+      const sourceName = group.id === 'skill' && item.title.toLowerCase() === 'skill.md'
+        ? path.basename(path.dirname(item.path))
+        : group.id === 'workflow' && item.title === fileName
+          ? path.basename(fileName, path.extname(fileName))
+          : item.title;
+      const name = sourceName
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '')
+        .toLowerCase()
+        .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
+        .replace(/^-+|-+$/g, '');
+      const key = `${group.id}:${name}`;
+
+      if (!name || commandKeys.has(key)) continue;
+      commandKeys.add(key);
+      commands.push({
+        id: key,
+        type: group.id,
+        name,
+        description: item.description,
+      });
+    }
+  }
+
+  return {
+    itemCount: items.length,
+    tokenCount: items.reduce((total, item) => total + item.tokenCount, 0),
+    groups,
+    commands,
+  };
+}
+
 function escapeXml(value) {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -252,15 +337,29 @@ async function collectFiles(rootPath, maxDepth, predicate) {
 }
 
 async function readDescription(filePath) {
+  return (await readContextItem(filePath)).description;
+}
+
+async function readContextItem(filePath) {
   let content;
   try {
     content = await readFile(filePath, 'utf8');
   } catch {
-    return 'Unable to read file.';
+    return {
+      path: filePath,
+      title: path.basename(filePath),
+      description: 'Unable to read file.',
+      tokenCount: 0,
+    };
   }
 
   const frontmatter = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
   const frontmatterLines = frontmatter?.[1].split(/\r?\n/) ?? [];
+  const name = frontmatterLines
+    .find((line) => /^(?:name|title)\s*:/i.test(line))
+    ?.replace(/^(?:name|title)\s*:\s*/i, '')
+    .trim()
+    .replace(/^(['"])(.*)\1$/, '$2');
   const descriptionIndex = frontmatterLines.findIndex((line) => /^description\s*:/i.test(line));
   let description = '';
 
@@ -283,5 +382,10 @@ async function readDescription(filePath) {
     description = body.split(/\r?\n/).find((line) => line.trim())?.trim() ?? 'No description.';
   }
 
-  return description.replace(/\s+/g, ' ').trim();
+  return {
+    path: filePath,
+    title: name || path.basename(filePath),
+    description: description.replace(/^#+\s*/, '').replace(/\s+/g, ' ').trim(),
+    tokenCount: Math.ceil(content.length / 4),
+  };
 }

@@ -20,6 +20,10 @@
   background: var(--surface-backdrop);
   backdrop-filter: blur(10px);
   z-index: 70;
+
+  @media (max-width: 700px) {
+    padding: 14px;
+  }
 }
 
 .model-dialog,
@@ -51,11 +55,11 @@
   justify-content: space-between;
   gap: 16px;
   align-items: start;
-}
 
-.dialog-header h2 {
-  margin: 0 0 4px;
-  font-size: 17px;
+  h2 {
+    margin: 0 0 4px;
+    font-size: 17px;
+  }
 }
 
 .dialog-header-actions {
@@ -72,14 +76,14 @@
   background: var(--surface-muted-solid);
   border: 1px solid var(--border-control);
   border-radius: 8px;
-}
 
-.dialog-search input {
-  width: 100%;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  font-size: 13px;
+  input {
+    width: 100%;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    font-size: 13px;
+  }
 }
 
 .dialog-footer {
@@ -101,13 +105,13 @@
   background: var(--surface-slate-faint);
   border: 1px solid var(--border-hairline);
   border-radius: 8px;
-}
 
-.search-results button span {
-  max-height: 42px;
-  overflow: hidden;
-  color: var(--color-muted);
-  font-size: 12px;
+  span {
+    max-height: 42px;
+    overflow: hidden;
+    color: var(--color-muted);
+    font-size: 12px;
+  }
 }
 
 .empty-list {
@@ -116,9 +120,3 @@
   text-align: center;
   font-size: 13px;
 }
-@media (max-width: 700px) {
-  .dialog-backdrop {
-    padding: 14px;
-  }
-}
-

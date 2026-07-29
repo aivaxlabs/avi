@@ -17,6 +17,7 @@ export function ChatView({
   onSend,
   onStop,
   onCompress,
+  onCreateSideChat,
   onFork,
   onRetry,
   onResume,
@@ -28,6 +29,8 @@ export function ChatView({
   onChooseProject,
   onUseHome,
   onToggleFavorite,
+  compact = false,
+  draftKey,
 }) {
   const chatAreaRef = useRef(null);
   const composerRef = useRef(null);
@@ -58,6 +61,7 @@ export function ChatView({
     lastMessage?.updatedAt ?? '',
     lastMessage?.content?.length ?? 0,
   ].join(':');
+  const Root = compact ? 'section' : 'main';
 
   function scrollToBottom() {
     const scrollElement = scrollRef.current;
@@ -165,9 +169,9 @@ export function ChatView({
   }, [currentConversation?.id]);
 
   return (
-    <main
+    <Root
       ref={chatAreaRef}
-      className={`chat-area ${isEmptyChat ? 'chat-empty' : ''}`}
+      className={`chat-area ${compact ? 'side-chat-view' : ''} ${isEmptyChat ? 'chat-empty' : ''}`}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -246,6 +250,7 @@ export function ChatView({
         onSend={onSend}
         onStop={onStop}
         onCompress={onCompress}
+        onCreateSideChat={onCreateSideChat}
         queuedMessages={queuedMessages}
         onCancelQueued={onCancelQueued}
         onReorderQueued={onReorderQueued}
@@ -264,8 +269,9 @@ export function ChatView({
         onChooseProject={onChooseProject}
         onUseHome={onUseHome}
         onToggleFavorite={onToggleFavorite}
+        draftKey={draftKey}
       />
-    </main>
+    </Root>
   );
 }
 

@@ -32,8 +32,7 @@
   grid-template-rows: 0fr;
   margin: 0;
   opacity: 0;
-  transition:
-    grid-template-rows 180ms var(--base-transition),
+  transition: grid-template-rows 180ms var(--base-transition),
     margin 180ms var(--base-transition),
     opacity 140ms var(--base-transition);
 }
@@ -63,40 +62,35 @@
   color: var(--color-muted-warm);
   font-size: 12.6px;
   line-height: 1.42;
-}
 
-.reasoning-text > :last-child {
-  margin-bottom: 0;
-}
+  > :last-child {
+    margin-bottom: 0;
+  }
 
-.reasoning-text p,
-.reasoning-text ul,
-.reasoning-text ol,
-.reasoning-text pre {
-  margin: 0 0 10px;
-}
+  p, ul, ol, pre {
+    margin: 0 0 10px;
+  }
 
-.reasoning-text h1,
-.reasoning-text h2,
-.reasoning-text h3 {
-  margin: 10px 0 6px;
-  color: var(--color-muted-warm);
-  font-size: 13px;
-  line-height: 1.35;
-}
+  h1, h2, h3 {
+    margin: 10px 0 6px;
+    color: var(--color-muted-warm);
+    font-size: 13px;
+    line-height: 1.35;
+  }
 
-.reasoning-text code {
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: var(--surface-code-inline);
-}
+  code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: var(--surface-code-inline);
+  }
 
-.reasoning-text pre {
-  padding: 10px;
-  overflow: auto;
-  border-radius: 8px;
-  background: var(--surface-code-block);
-  color: var(--color-code-text);
+  pre {
+    padding: 10px;
+    overflow: auto;
+    border-radius: 8px;
+    background: var(--surface-code-block);
+    color: var(--color-code-text);
+  }
 }
 
 .tool-line {
@@ -110,19 +104,19 @@
   line-height: 1.45;
   cursor: pointer;
   list-style: none;
-}
 
-.tool-line::-webkit-details-marker {
-  display: none;
-}
+  &::-webkit-details-marker {
+    display: none;
+  }
 
-.tool-line:hover {
-  color: var(--color-text-primary);
-}
+  &:hover {
+    color: var(--color-text-primary);
+  }
 
-.tool-line:focus-visible {
-  outline: 2px solid var(--border-accent);
-  outline-offset: 2px;
+  &:focus-visible {
+    outline: 2px solid var(--border-accent);
+    outline-offset: 2px;
+  }
 }
 
 :is(.reasoning-text, .tool-line) {
@@ -172,31 +166,31 @@
   display: grid;
   gap: 8px;
   padding: 3px 0 8px 14px;
-}
 
-.tool-details section {
-  min-width: 0;
-}
+  section {
+    min-width: 0;
 
-.tool-details section > span {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--color-muted);
-  font-size: 11px;
-}
+    > span {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--color-muted);
+      font-size: 11px;
+    }
+  }
 
-.tool-details pre {
-  max-height: 260px;
-  margin: 0;
-  padding: 8px;
-  overflow: auto;
-  border: 1px solid var(--color-divider-subtle);
-  border-radius: 8px;
-  background: var(--surface-code-block-soft);
-  color: var(--color-code-block-text);
-  font: 11.5px/1.45 Consolas, "Cascadia Code", monospace;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  pre {
+    max-height: 260px;
+    margin: 0;
+    padding: 8px;
+    overflow: auto;
+    border: 1px solid var(--color-divider-subtle);
+    border-radius: 8px;
+    background: var(--surface-code-block-soft);
+    color: var(--color-code-block-text);
+    font: 11.5px/1.45 Consolas, "Cascadia Code", monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
 }
 
 .error-line {

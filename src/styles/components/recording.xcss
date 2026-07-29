@@ -12,82 +12,79 @@
   border-radius: 8px;
   color: var(--color-text-tertiary);
   font-size: 12px;
-}
 
-.recording-bar::before {
-  content: "";
-  position: absolute;
-  inset: -30px 36% -30px 14%;
-  background:
-    radial-gradient(circle, rgba(255, 255, 255, 0.22), transparent 62%),
-    radial-gradient(circle at 70% 45%, rgba(0, 0, 0, 0.14), transparent 58%);
-  filter: blur(14px);
-  opacity: calc(0.18 + var(--audio-level, 0) * 0.78);
-  pointer-events: none;
-  transform: scale(calc(0.92 + var(--audio-level, 0) * 0.18));
-}
+  &::before {
+    content: "";
+    position: absolute;
+    inset: -30px 36% -30px 14%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.22), transparent 62%),
+      radial-gradient(circle at 70% 45%, rgba(0, 0, 0, 0.14), transparent 58%);
+    filter: blur(14px);
+    opacity: calc(0.18 + var(--audio-level, 0) * 0.78);
+    pointer-events: none;
+    transform: scale(calc(0.92 + var(--audio-level, 0) * 0.18));
+  }
 
-.recording-bar > * {
-  position: relative;
-  z-index: 1;
-}
+  > * {
+    position: relative;
+    z-index: 1;
+  }
 
-.recording-bar button {
-  display: inline-grid;
-  place-items: center;
-  min-height: 28px;
-  padding: 0 8px;
-  color: var(--color-text-secondary);
-  background: var(--surface-muted-strong);
-  border-radius: 6px;
-}
+  button {
+    display: inline-grid;
+    place-items: center;
+    min-height: 28px;
+    padding: 0 8px;
+    color: var(--color-text-secondary);
+    background: var(--surface-muted-strong);
+    border-radius: 6px;
+  }
 
-.record-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--color-recording);
-}
+  .record-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--color-recording);
+  }
 
-.audio-wave {
-  --audio-level: 0;
-  height: 28px;
-  min-width: 108px;
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 0 10px;
-  color: var(--color-recording);
-  background: rgba(128, 128, 128, calc(0.07 + var(--audio-level) * 0.08));
-  border: 1px solid rgba(128, 128, 128, calc(0.18 + var(--audio-level) * 0.22));
-  border-radius: 999px;
-  box-shadow:
-    0 0 calc(8px + var(--audio-level) * 20px) rgba(128, 128, 128, calc(0.16 + var(--audio-level) * 0.28)),
-    inset 0 0 16px rgba(128, 128, 128, calc(0.04 + var(--audio-level) * 0.08));
-}
+  .audio-wave {
+    --audio-level: 0;
+    height: 28px;
+    min-width: 108px;
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 0 10px;
+    color: var(--color-recording);
+    background: rgba(128, 128, 128, calc(0.07 + var(--audio-level) * 0.08));
+    border: 1px solid rgba(128, 128, 128, calc(0.18 + var(--audio-level) * 0.22));
+    border-radius: 999px;
+    box-shadow: 0 0 calc(8px + var(--audio-level) * 20px) rgba(128, 128, 128, calc(0.16 + var(--audio-level) * 0.28)),
+      inset 0 0 16px rgba(128, 128, 128, calc(0.04 + var(--audio-level) * 0.08));
 
-.audio-wave span {
-  width: 3px;
-  height: calc(5px + (var(--bar-base) * 7px) + (var(--audio-level) * 18px));
-  border-radius: 999px;
-  background: currentColor;
-  opacity: calc(0.45 + var(--audio-level) * 0.55);
-  transform: scaleY(calc(0.72 + var(--audio-level) * 0.7));
-  animation: audio-wave-pulse 780ms ease-in-out infinite;
-  animation-delay: calc(var(--bar-index) * -90ms);
-  transform-origin: center;
-}
+    span {
+      width: 3px;
+      height: calc(5px + (var(--bar-base) * 7px) + (var(--audio-level) * 18px));
+      border-radius: 999px;
+      background: currentColor;
+      opacity: calc(0.45 + var(--audio-level) * 0.55);
+      transform: scaleY(calc(0.72 + var(--audio-level) * 0.7));
+      animation: audio-wave-pulse 780ms ease-in-out infinite;
+      animation-delay: calc(var(--bar-index) * -90ms);
+      transform-origin: center;
+    }
 
-.audio-wave.paused span {
-  animation-play-state: paused;
-  opacity: 0.4;
-  transform: scaleY(0.55);
+    &.paused span {
+      animation-play-state: paused;
+      opacity: 0.4;
+      transform: scaleY(0.55);
+    }
+  }
 }
 
 @keyframes audio-wave-pulse {
-
   0%,
   100% {
     transform: scaleY(calc(0.62 + var(--audio-level) * 0.42));

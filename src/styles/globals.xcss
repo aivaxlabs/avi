@@ -115,7 +115,7 @@
   --shadow-soft: rgba(0, 0, 0, 0.04);
   --shadow-menu: rgba(0, 0, 0, 0.14);
   --shadow-popover: rgba(0, 0, 0, 0.18);
-  --shadow-dialog: rgba(0, 0, 0, 0.2);
+  --shadow-dialog: rgba(0, 0, 0, 0.11);
   --shadow-brand: rgba(0, 0, 0, 0.14);
   --shadow-brand-strong: rgba(0, 0, 0, 0.2);
   --shadow-blue: rgba(0, 0, 0, 0.08);
@@ -238,5 +238,6 @@
     --glow-live: rgba(255, 255, 255, 0.14);
     --glow-pink-soft: rgba(255, 255, 255, 0.06);
     --glow-pink: rgba(255, 255, 255, 0.08)
+      ;
   }
 }

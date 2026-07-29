@@ -21,29 +21,25 @@ body,
   background: transparent;
   overflow: hidden;
   transition: grid-template-columns 160ms var(--base-transition);
-}
 
-.app-shell.sidebar-collapsed {
-  grid-template-columns: 58px minmax(0, 1fr);
-}
+  &.sidebar-collapsed {
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
 
-.app-shell.settings-active {
-  grid-template-columns: minmax(0, 1fr);
-}
+  &.settings-active {
+    grid-template-columns: minmax(0, 1fr);
+  }
 
-.app-shell.platform-win32,
-.app-shell.platform-darwin {
-  background: var(--surface-shell);
-}
+  &.platform-win32, &.platform-darwin {
+    background: var(--surface-shell);
+  }
 
-.app-shell.platform-linux {
-  background:
-    radial-gradient(circle at 56% 92%, var(--glow-pink), transparent 24%),
-    linear-gradient(135deg, var(--color-page-start), var(--color-page-end));
-}
-@media (max-width: 700px) {
-  .app-shell {
+  &.platform-linux {
+    background: radial-gradient(circle at 56% 92%, var(--glow-pink), transparent 24%),
+      linear-gradient(135deg, var(--color-page-start), var(--color-page-end));
+  }
+
+  @media (max-width: 700px) {
     grid-template-columns: 58px minmax(0, 1fr);
   }
 }
-

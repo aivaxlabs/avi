@@ -10,39 +10,43 @@
   pointer-events: none;
   -webkit-app-region: no-drag;
   background: linear-gradient(to bottom, var(--surface-titlebar), var(--surface-clear));
-}
 
-.window-controls button {
-  width: 42px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  color: var(--color-control);
-  background: transparent;
-  border-radius: 0;
-  pointer-events: auto;
-  -webkit-app-region: no-drag;
-  cursor: default;
-}
+  button {
+    width: 42px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    color: var(--color-control);
+    background: transparent;
+    border-radius: 0;
+    pointer-events: auto;
+    -webkit-app-region: no-drag;
+    cursor: default;
 
-.window-controls button:hover {
-  background: var(--surface-code-inline);
-}
+    &:hover {
+      background: var(--surface-code-inline);
+    }
+  }
 
-.window-controls .danger:hover {
-  color: var(--color-on-accent);
-  background: var(--color-danger-hover);
+  .danger:hover {
+    color: var(--color-on-accent);
+    background: var(--color-danger-hover);
+  }
 }
 
 .window-drag {
   flex: 1;
   pointer-events: auto;
   -webkit-app-region: drag;
-}
 
-.window-drag .button {
-  cursor: default;
+  .button {
+    cursor: default;
+  }
+
+  @media (max-width: 860px) {
+    margin-left: 200px;
+  }
 }
 
 .mac-drag {
@@ -51,9 +55,3 @@
   height: 34px;
   z-index: 50;
 }
-@media (max-width: 860px) {
-  .window-drag {
-    margin-left: 200px;
-  }
-}
-

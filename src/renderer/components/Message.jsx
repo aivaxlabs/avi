@@ -5,7 +5,9 @@ import {
   GitFork,
   Info,
   RotateCcw,
+  Sparkles,
   TerminalSquare,
+  Workflow,
 } from 'lucide-react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-bash';
@@ -31,6 +33,11 @@ import { formatBytes } from '../lib/files.js';
 import { classNames } from '../lib/format.js';
 import { answerTextFromTextualBlocks } from '../../shared/textual-blocks.js';
 
+const compactTokenFormatter = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+});
+
 export function Message({
   message,
   modelName,
@@ -43,6 +50,29 @@ export function Message({
 }) {
   if (message.role === 'user') {
     return <UserMessage message={message} />;
+  }
+  const compression = message.role === 'system'
+    ? message.segments.find((segment) => segment.type === 'context-compression')
+    : null;
+  if (compression) {
+    const label = message.status === 'streaming'
+      ? 'Compressing context'
+      : message.status === 'completed'
+        ? `Context compressed from ${
+          compactTokenFormatter.format(compression.inputTokens)
+        } tokens to ${
+          compactTokenFormatter.format(compression.outputTokens)
+        } tokens`
+        : compression.error ?? 'Context compression stopped.';
+    return (
+      <article className="message-row context-compression-row" aria-live="polite">
+        <div className="context-compression-indicator">
+          <span className={message.status === 'streaming' ? 'assistant-placeholder' : ''}>
+            {label}
+          </span>
+        </div>
+      </article>
+    );
   }
   return (
     <AssistantMessage
@@ -68,9 +98,17 @@ function UserMessage({ message }) {
         {visibleAttachments.length > 0 && (
           <div className="attachment-list">
             {visibleAttachments.map((attachment) => (
-              <span key={attachment.id} className="attachment-pill">
+              <span
+                key={attachment.id}
+                className={`attachment-pill${attachment.kind === 'context_marker' ? ' context-marker' : ''}`}
+              >
+                {attachment.kind === 'context_marker' && (
+                  attachment.markerType === 'workflow'
+                    ? <Workflow size={13} />
+                    : <Sparkles size={13} />
+                )}
                 <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
-                <small>{formatBytes(attachment.size)}</small>
+                {attachment.kind !== 'context_marker' && <small>{formatBytes(attachment.size)}</small>}
               </span>
             ))}
           </div>

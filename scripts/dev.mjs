@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 const devtools = process.argv.includes('--devtools');
 const electronPath = createRequire(import.meta.url)('electron');
 
-const vite = spawn('bun', ['x', 'vite', '--host', '127.0.0.1', '--port', '5173'], {
+const vite = spawn('bun', ['x', 'vite', '--host', '127.0.0.1', '--port', '5273'], {
   shell: true,
   stdio: 'inherit',
 });
@@ -24,7 +24,7 @@ const startElectron = () => {
     stdio: 'inherit',
     env: {
       ...process.env,
-      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5173',
+      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5273',
       ...(devtools ? { CHAT_APP_OPEN_DEVTOOLS: '1' } : {}),
     },
   });

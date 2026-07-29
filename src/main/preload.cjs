@@ -15,6 +15,11 @@ contextBridge.exposeInMainWorld('chatApp', {
     fork: (payload) => invoke('conversations:fork', payload),
     search: (query) => invoke('conversations:search', query),
   },
+  sideChats: {
+    list: (parentConversationId) => invoke('side-chats:list', parentConversationId),
+    create: (payload) => invoke('side-chats:create', payload),
+    close: (sideChatId) => invoke('side-chats:close', sideChatId),
+  },
   providers: {
     list: () => invoke('providers:list'),
     save: (provider) => invoke('providers:save', provider),
@@ -38,6 +43,12 @@ contextBridge.exposeInMainWorld('chatApp', {
   },
   projects: {
     select: (payload) => invoke('projects:select', payload),
+  },
+  context: {
+    folders: () => invoke('context:folders'),
+    folder: (folderPath) => invoke('context:folder', folderPath),
+    commands: (folderPath) => invoke('context:commands', folderPath),
+    open: (targetPath) => invoke('context:open', targetPath),
   },
   window: {
     minimize: () => invoke('window:minimize'),

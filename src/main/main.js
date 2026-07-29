@@ -1,4 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  shell,
+} from 'electron';
 import { spawnSync } from 'node:child_process';
 import { homedir, release } from 'node:os';
 import {
@@ -11,14 +18,17 @@ import {
 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  closeDatabase,
   createConversation,
   deleteConversation,
   forkConversation,
+  getConversation,
   getMessages,
   getPreferences,
   listConversations,
   listFavorites,
   listProviders,
+  listSideChats,
   searchChats,
   setFavorite,
   setProviders,
@@ -26,6 +36,7 @@ import {
 } from './database.js';
 import { filePathToAttachment } from './files.js';
 import { ChatRunner } from './chat-runner.js';
+import { listContextItems } from './context-injection.js';
 import {
   ModelProviderRegistry,
   normalizeProviderConfig,
@@ -56,6 +67,8 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
+
+app.on('before-quit', closeDatabase);
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -201,6 +214,9 @@ function registerIpc() {
   ipcMain.handle('conversations:messages', (_event, conversationId) => getMessages(conversationId));
   ipcMain.handle('conversations:delete', (_event, conversationId) => {
     chatRunner.stop(conversationId);
+    for (const sideChat of listSideChats(conversationId)) {
+      chatRunner.stop(sideChat.id);
+    }
     deleteConversation(conversationId);
     return listConversationsWithProjects();
   });
@@ -214,6 +230,24 @@ function registerIpc() {
       : null;
   });
   ipcMain.handle('conversations:search', (_event, query) => searchChats(query));
+  ipcMain.handle('side-chats:list', (_event, parentConversationId) => (
+    listSideChats(parentConversationId).map(refreshConversationProject)
+  ));
+  ipcMain.handle('side-chats:create', (_event, { parentConversationId } = {}) => {
+    const parent = getConversation(parentConversationId);
+    if (!parent || parent.isSideChat) return null;
+    const result = forkConversation(parent.id, { sideChat: true });
+    return result
+      ? { ...result, conversation: refreshConversationProject(result.conversation) }
+      : null;
+  });
+  ipcMain.handle('side-chats:close', (_event, sideChatId) => {
+    const sideChat = getConversation(sideChatId);
+    if (!sideChat?.isSideChat) return false;
+    chatRunner.stop(sideChat.id);
+    deleteConversation(sideChat.id, { hard: true });
+    return true;
+  });
 
   ipcMain.handle('providers:list', () => listProviders());
   ipcMain.handle('providers:save', (_event, payload) => {
@@ -265,6 +299,50 @@ function registerIpc() {
     });
     if (result.canceled || !result.filePaths[0]) return null;
     return inspectProjectFolder(result.filePaths[0]);
+  });
+  ipcMain.handle('context:folders', async () => {
+    const globalPath = join(homedir(), '.agents');
+    const folders = new Map([
+      [globalPath.toLowerCase(), {
+        path: globalPath,
+        name: 'Global',
+        displayPath: '~/.agents',
+      }],
+    ]);
+    for (const conversation of listConversations()) {
+      const project = inspectProjectFolder(conversation.projectPath);
+      if (!folders.has(project.path.toLowerCase())) {
+        folders.set(project.path.toLowerCase(), project);
+      }
+    }
+
+    return Promise.all([...folders.values()].map(async (folder) => {
+      const { itemCount, tokenCount } = await listContextItems(folder.path);
+      return { ...folder, itemCount, tokenCount };
+    }));
+  });
+  ipcMain.handle('context:folder', (_event, folderPath) => (
+    listContextItems(folderPath)
+  ));
+  ipcMain.handle('context:commands', async (_event, folderPath) => {
+    const globalPath = join(homedir(), '.agents');
+    const roots = [resolve(folderPath || homedir()), globalPath]
+      .filter((root, index, items) => (
+        items.findIndex((item) => item.toLowerCase() === root.toLowerCase()) === index
+      ));
+    const contexts = await Promise.all(roots.map((root) => listContextItems(root)));
+    const commands = new Map();
+
+    for (const command of contexts.flatMap((context) => context.commands)) {
+      if (!commands.has(command.id)) commands.set(command.id, command);
+    }
+
+    return [...commands.values()];
+  });
+  ipcMain.handle('context:open', async (_event, targetPath) => {
+    const error = await shell.openPath(resolve(targetPath));
+    if (error) throw new Error(error);
+    return true;
   });
 
   ipcMain.handle('window:minimize', () => mainWindow?.minimize());

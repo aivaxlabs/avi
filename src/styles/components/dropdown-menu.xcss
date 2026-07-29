@@ -9,67 +9,67 @@
   border: 1px solid var(--border-panel-strong);
   border-radius: 16px;
   box-shadow: 0 16px 40px var(--shadow-menu);
-}
 
-.dropdown-menu.fixed {
-  position: fixed;
-}
+  &.fixed {
+    position: fixed;
+  }
 
-.dropdown-menu-item {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  color: var(--color-text-primary);
-  background: transparent;
-  border-radius: 9999px;
-  text-align: left;
-  font-size: 12px;
-}
+  &.conversation-filter-menu {
+    width: 180px;
+  }
 
-.dropdown-menu-item.no-icon {
-  grid-template-columns: minmax(0, 1fr);
-}
+  .dropdown-menu-item {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    color: var(--color-text-primary);
+    background: transparent;
+    border-radius: 9999px;
+    text-align: left;
+    font-size: 12px;
 
-.dropdown-menu-item:hover,
-.dropdown-menu-item.active {
-  background: var(--surface-neutral-hover);
-}
+    &.no-icon {
+      grid-template-columns: minmax(0, 1fr);
+    }
 
-.dropdown-menu-item:disabled {
-  color: var(--color-disabled-soft);
-  pointer-events: none;
-}
+    &:hover,
+    &.active {
+      background: var(--surface-neutral-hover);
+    }
 
-.dropdown-menu-item svg {
-  color: var(--color-menu-icon);
-}
+    &:disabled {
+      color: var(--color-disabled-soft);
+      pointer-events: none;
 
-.dropdown-menu-item:disabled svg {
-  color: var(--color-disabled-icon);
-}
+      svg {
+        color: var(--color-disabled-icon);
+      }
+    }
 
-.dropdown-menu-item span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+    svg {
+      color: var(--color-menu-icon);
+    }
 
-.dropdown-menu-divider {
-  height: 1px;
-  margin: 2px 4px;
-  background: var(--border-hairline);
-}
+    span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
 
-.dropdown-menu-empty {
-  padding: 7px 9px;
-  color: var(--color-muted);
-  font-size: 12px;
-}
+  .dropdown-menu-divider {
+    height: 1px;
+    margin: 2px 4px;
+    background: var(--border-hairline);
+  }
 
-.conversation-filter-menu {
-  width: 180px;
+  .dropdown-menu-empty {
+    padding: 7px 9px;
+    color: var(--color-muted);
+    font-size: 12px;
+  }
 }

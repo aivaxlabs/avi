@@ -5,11 +5,16 @@ import {
   CheckCircle2,
   CircleOff,
   Ellipsis,
+  FileText,
+  Folder,
+  FolderCog,
+  FolderOpen,
   Pencil,
   Plus,
   Save,
   Server,
   Trash2,
+  Workflow,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
@@ -31,6 +36,10 @@ const providerTypes = [
     endpoint: '/v1/chat/completions',
   },
 ];
+const compactTokenFormatter = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+});
 
 function ActionMenu({
   disabled = false,
@@ -137,21 +146,71 @@ function ActionMenu({
 
 export function SettingsPage({
   providers,
+  initialContextFolder = null,
   onClose,
   onSave,
   onRemove,
 }) {
-  const [view, setView] = useState('list');
+  const [view, setView] = useState(initialContextFolder ? 'context-folder' : 'list');
   const [selectedId, setSelectedId] = useState(null);
   const [providerDraft, setProviderDraft] = useState(null);
   const [modelDraft, setModelDraft] = useState(null);
   const [modelIndex, setModelIndex] = useState(-1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [contextFolders, setContextFolders] = useState([]);
+  const [selectedContextFolder, setSelectedContextFolder] = useState(initialContextFolder);
+  const [contextFolder, setContextFolder] = useState(null);
+  const [contextLoading, setContextLoading] = useState(false);
   const selectedProvider = providers.find((provider) => provider.id === selectedId) ?? null;
   const selectedType = providerTypes.find((type) => (
     type.id === (providerDraft?.interface ?? selectedProvider?.interface)
   ));
+
+  useEffect(() => {
+    if (view !== 'context-folders') return undefined;
+    let cancelled = false;
+    setContextLoading(true);
+    setError('');
+    window.chatApp.context.folders()
+      .then((folders) => {
+        if (!cancelled) setContextFolders(folders);
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setError(nextError instanceof Error ? nextError.message : String(nextError));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setContextLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [view]);
+
+  useEffect(() => {
+    if (view !== 'context-folder' || !selectedContextFolder) return undefined;
+    let cancelled = false;
+    setContextLoading(true);
+    setContextFolder(null);
+    setError('');
+    window.chatApp.context.folder(selectedContextFolder.path)
+      .then((folder) => {
+        if (!cancelled) setContextFolder(folder);
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setError(nextError instanceof Error ? nextError.message : String(nextError));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setContextLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedContextFolder, view]);
 
   async function runProviderMutation(mutation) {
     setBusy(true);
@@ -200,6 +259,8 @@ export function SettingsPage({
     type: 'Add provider',
     provider: providerDraft?.name || 'New provider',
     model: modelDraft?.name || (modelIndex < 0 ? 'New model' : 'Edit model'),
+    'context-folders': 'Context management',
+    'context-folder': selectedContextFolder?.name || 'Context',
   }[view];
   const pageDescription = {
     list: 'Manage the connections and models available in chats.',
@@ -208,6 +269,8 @@ export function SettingsPage({
       ? `${selectedType.name} · ${selectedType.description}`
       : 'Configure this provider connection and its models.',
     model: `Configure the model exposed by ${selectedProvider?.name || 'this provider'}.`,
+    'context-folders': 'Manage instructions, skills, and workflows by folder.',
+    'context-folder': selectedContextFolder?.displayPath || '',
   }[view];
 
   return (
@@ -224,15 +287,34 @@ export function SettingsPage({
         </div>
         <nav className="settings-navigation" aria-label="Settings sections">
           <span>Configuration</span>
-          <button className="active" type="button" aria-current="page" onClick={() => {
-            setView('list');
-            setSelectedId(null);
-            setProviderDraft(null);
-            setModelDraft(null);
-            setError('');
-          }}>
+          <button
+            className={['list', 'type', 'provider', 'model'].includes(view) ? 'active' : undefined}
+            type="button"
+            aria-current={['list', 'type', 'provider', 'model'].includes(view) ? 'page' : undefined}
+            onClick={() => {
+              setView('list');
+              setSelectedId(null);
+              setProviderDraft(null);
+              setModelDraft(null);
+              setError('');
+            }}
+          >
             <Server size={16} />
             Providers
+          </button>
+          <button
+            className={view.startsWith('context-') ? 'active' : undefined}
+            type="button"
+            aria-current={view.startsWith('context-') ? 'page' : undefined}
+            onClick={() => {
+              setView('context-folders');
+              setSelectedContextFolder(null);
+              setContextFolder(null);
+              setError('');
+            }}
+          >
+            <FolderCog size={16} />
+            Context management
           </button>
         </nav>
       </aside>
@@ -240,11 +322,18 @@ export function SettingsPage({
       <main className="settings-main">
         <header className="settings-page-header">
           <div>
-            {view !== 'list' && (
+            {!['list', 'context-folders'].includes(view) && (
               <button
                 className="settings-inline-back"
                 type="button"
                 onClick={() => {
+                  if (view === 'context-folder') {
+                    setView('context-folders');
+                    setSelectedContextFolder(null);
+                    setContextFolder(null);
+                    setError('');
+                    return;
+                  }
                   if (view === 'model') {
                     setView('provider');
                     setModelDraft(null);
@@ -261,7 +350,11 @@ export function SettingsPage({
                 }}
               >
                 <ArrowLeft size={14} />
-                {view === 'model' ? 'Back to provider' : 'Back'}
+                {view === 'context-folder'
+                  ? 'Back to folders'
+                  : view === 'model'
+                    ? 'Back to provider'
+                    : 'Back'}
               </button>
             )}
             <div className="settings-page-title-row">
@@ -373,6 +466,123 @@ export function SettingsPage({
                     </div>
                   )}
                 </div>
+              </section>
+            )}
+
+            {view === 'context-folders' && (
+              <section className="settings-section">
+                {!contextLoading && (
+                  <div className="settings-list-summary">
+                    <span>
+                      {contextFolders.length}{' '}
+                      {contextFolders.length === 1 ? 'folder' : 'folders'}
+                    </span>
+                  </div>
+                )}
+                {contextLoading ? (
+                  <div className="settings-empty">Loading context folders...</div>
+                ) : (
+                  <div className="settings-entity-list">
+                    {contextFolders.map((folder) => (
+                      <article
+                        className="settings-entity-row settings-context-folder-row"
+                        key={folder.path}
+                      >
+                        <button
+                          className="settings-entity-main"
+                          type="button"
+                          onClick={() => {
+                            setSelectedContextFolder(folder);
+                            setError('');
+                            setView('context-folder');
+                          }}
+                        >
+                          <span className="settings-entity-icon"><Folder size={16} /></span>
+                          <span className="settings-entity-copy">
+                            <strong>{folder.name}</strong>
+                            <small>{folder.displayPath}</small>
+                          </span>
+                          <span className="settings-context-summary">
+                            {folder.itemCount} context item(s), ~
+                            {compactTokenFormatter.format(folder.tokenCount)} tokens total
+                          </span>
+                          <ArrowRight className="settings-entity-arrow" size={15} />
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                )}
+                {error && <div className="settings-context-error" role="alert">{error}</div>}
+              </section>
+            )}
+
+            {view === 'context-folder' && (
+              <section className="settings-context-groups">
+                {contextLoading && (
+                  <div className="settings-empty">Loading context items...</div>
+                )}
+                {!contextLoading && contextFolder?.groups.map((group) => (
+                  <section className="settings-context-group" key={group.id}>
+                    <header className="settings-context-group-header">
+                      <div>
+                        <h3>{group.title}</h3>
+                        <span>{group.items.length}</span>
+                      </div>
+                      <ActionMenu
+                        label={`Actions for ${group.title}`}
+                        items={[{
+                          label: 'Open in explorer',
+                          icon: <FolderOpen size={14} />,
+                          onClick: () => {
+                            setError('');
+                            window.chatApp.context.open(group.folderPath).catch((nextError) => {
+                              setError(
+                                nextError instanceof Error ? nextError.message : String(nextError),
+                              );
+                            });
+                          },
+                        }]}
+                      />
+                    </header>
+                    <div className="settings-context-item-list">
+                      {group.items.map((item) => (
+                        <button
+                          className="settings-context-item"
+                          type="button"
+                          key={item.path}
+                          title={item.path}
+                          onClick={() => {
+                            setError('');
+                            window.chatApp.context.open(item.path).catch((nextError) => {
+                              setError(
+                                nextError instanceof Error ? nextError.message : String(nextError),
+                              );
+                            });
+                          }}
+                        >
+                          <span className="settings-entity-icon">
+                            {group.id === 'instruction'
+                              ? <FileText size={16} />
+                              : group.id === 'skill'
+                                ? <FolderCog size={16} />
+                                : <Workflow size={16} />}
+                          </span>
+                          <span className="settings-context-item-copy">
+                            <strong>{item.title}</strong>
+                            <small>{item.description}</small>
+                          </span>
+                          <span className="settings-context-token-count">
+                            ~{compactTokenFormatter.format(item.tokenCount)} tokens
+                          </span>
+                        </button>
+                      ))}
+                      {group.items.length === 0 && (
+                        <div className="settings-context-group-empty">No context items.</div>
+                      )}
+                    </div>
+                  </section>
+                ))}
+                {error && <div className="settings-context-error" role="alert">{error}</div>}
               </section>
             )}
 

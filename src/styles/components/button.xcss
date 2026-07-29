@@ -48,13 +48,13 @@ button {
 .icon-button {
   width: 34px;
   height: 34px;
-}
 
-.icon-button.tiny {
-  width: 26px;
-  height: 26px;
-  background: transparent;
-  border: 0;
+  &.tiny {
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    border: 0;
+  }
 }
 
 .icon-button:hover,

@@ -4,44 +4,54 @@
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 8px;
-}
 
-.attachment-pill,
-.attachment-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: min(100%, 320px);
-  min-width: 0;
-  padding: 5px 7px;
-  color: var(--color-text-tertiary);
-  background: var(--surface-chip);
-  border: 1px solid var(--border-panel-strong);
-  border-radius: 14px;
-  font-size: 12px;
-}
+  > .attachment-pill,
+  > .attachment-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: min(100%, 320px);
+    min-width: 0;
+    padding: 5px 7px;
+    color: var(--color-text-tertiary);
+    background: var(--surface-chip);
+    border: 1px solid var(--border-panel-strong);
+    border-radius: 14px;
+    font-size: 12px;
 
-.attachment-chip svg {
-  flex: 0 0 auto;
-}
+    .attachment-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
 
-.attachment-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+    small {
+      flex: 0 0 auto;
+      color: var(--color-muted-light);
+    }
 
-.attachment-pill small,
-.attachment-chip small {
-  flex: 0 0 auto;
-  color: var(--color-muted-light);
-}
+    &.context-marker {
+      color: var(--color-text-primary);
 
-.attachment-chip button {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  color: var(--color-muted-warm);
-  background: transparent;
+      svg {
+        flex: 0 0 auto;
+        color: var(--color-menu-icon);
+      }
+    }
+  }
+
+  > .attachment-chip {
+    svg {
+      flex: 0 0 auto;
+    }
+
+    button {
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      color: var(--color-muted-warm);
+      background: transparent;
+    }
+  }
 }

@@ -20,9 +20,11 @@ import {
   Play,
   Plus,
   Search,
+  Sparkles,
   SquareTerminal,
   Square,
   Trash2,
+  Workflow,
   Wrench,
   X,
 } from 'lucide-react';
@@ -55,6 +57,11 @@ const composerCommands = [
     name: 'compress',
     description: 'Create a detailed checkpoint and compress the conversation context',
   },
+  {
+    id: 'side',
+    name: 'side',
+    description: 'Fork this chat into a temporary side panel',
+  },
 ];
 
 export function Composer({
@@ -63,6 +70,7 @@ export function Composer({
   onSend,
   onStop,
   onCompress,
+  onCreateSideChat,
   queuedMessages = [],
   onCancelQueued,
   onReorderQueued,
@@ -81,8 +89,9 @@ export function Composer({
   onChooseProject,
   onUseHome,
   onToggleFavorite,
+  draftKey = composerDraftKey,
 }) {
-  const [text, setText] = useState(() => window.localStorage.getItem(composerDraftKey) ?? '');
+  const [text, setText] = useState(() => window.localStorage.getItem(draftKey) ?? '');
   const [attachments, setAttachments] = useState([]);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -90,6 +99,7 @@ export function Composer({
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [commandStage, setCommandStage] = useState(null);
   const [commandIndex, setCommandIndex] = useState(0);
+  const [contextCommands, setContextCommands] = useState([]);
   const [reasoningEffort, setReasoningEffort] = useState(null);
   const [recording, setRecording] = useState(null);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -117,13 +127,35 @@ export function Composer({
     const normalized = commandQuery.trim().toLowerCase();
 
     if (commandMode === 'commands') {
-      return composerCommands
-        .filter((command) => command.id !== 'compress' || projectLocked)
-        .filter((command) => command.name.includes(normalized))
+      const builtInCommands = commandPrefix === '/'
+        ? composerCommands
+          .filter((command) => command.id !== 'compress' || projectLocked)
+          .filter((command) => command.id !== 'side' || onCreateSideChat)
+          .map((command) => ({
+            ...command,
+            label: `/${command.name}`,
+          }))
+        : [];
+      const markerCommands = contextCommands
+        .filter(({ type }) => type === (commandPrefix === '/' ? 'workflow' : 'skill'))
+        .filter((command) => command.name !== 'side' || onCreateSideChat)
         .map((command) => ({
           ...command,
+          kind: 'context_marker',
           label: `${commandPrefix}${command.name}`,
         }));
+      const names = new Set();
+
+      return [...builtInCommands, ...markerCommands]
+        .filter((command) => command.name.includes(normalized))
+        .sort((left, right) => (
+          Number(right.name === normalized) - Number(left.name === normalized)
+        ))
+        .filter((command) => {
+          if (names.has(command.name)) return false;
+          names.add(command.name);
+          return true;
+        });
     }
 
     if (commandMode === 'models') {
@@ -158,9 +190,11 @@ export function Composer({
     commandMode,
     commandPrefix,
     commandQuery,
+    contextCommands,
     currentModel,
     currentModelConfig,
     models,
+    onCreateSideChat,
     projectLocked,
   ]);
   const activeCommandOption = commandOptions[commandIndex] ?? commandOptions[0] ?? null;
@@ -184,17 +218,17 @@ export function Composer({
       : text.length <= 20000
         ? 1000
         : 5000;
-    const timer = window.setTimeout(() => saveComposerDraft(text), saveDelay);
+    const timer = window.setTimeout(() => saveComposerDraft(draftKey, text), saveDelay);
 
     return () => window.clearTimeout(timer);
-  }, [text]);
+  }, [draftKey, text]);
 
   useEffect(() => {
-    const saveOnClose = () => saveComposerDraft(text);
+    const saveOnClose = () => saveComposerDraft(draftKey, text);
 
     window.addEventListener('beforeunload', saveOnClose);
     return () => window.removeEventListener('beforeunload', saveOnClose);
-  }, [text]);
+  }, [draftKey, text]);
 
   useEffect(() => {
     const textArea = textAreaRef.current;
@@ -208,6 +242,21 @@ export function Composer({
   useEffect(() => {
     setCommandIndex(0);
   }, [commandMode, commandQuery, currentModel]);
+
+  useEffect(() => {
+    let active = true;
+    window.chatApp.context.commands(project?.path)
+      .then((commands) => {
+        if (active) setContextCommands(commands);
+      })
+      .catch(() => {
+        if (active) setContextCommands([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [project?.path]);
 
   useEffect(() => {
     if (!droppedFiles?.files.length) return;
@@ -300,7 +349,7 @@ export function Composer({
       reasoningEffort: activeReasoningEffort,
     };
     setText('');
-    window.localStorage.removeItem(composerDraftKey);
+    window.localStorage.removeItem(draftKey);
     setAttachments([]);
     await onSend(payload);
   }
@@ -324,9 +373,36 @@ export function Composer({
     if (!option) return;
 
     if (commandMode === 'commands') {
+      if (option.kind === 'context_marker') {
+        const prefix = option.type === 'workflow' ? '/' : '$';
+        setAttachments((items) => (
+          items.some((item) => (
+            item.kind === 'context_marker'
+            && item.markerType === option.type
+            && item.commandName === option.name
+          ))
+            ? items
+            : [...items, {
+                id: crypto.randomUUID(),
+                kind: 'context_marker',
+                markerType: option.type,
+                commandName: option.name,
+                name: `${prefix}${option.name}`,
+                size: 0,
+                text: `Use the ${option.name} ${option.type}.`,
+              }]
+        ));
+        exitCommandMode();
+        return;
+      }
       if (option.id === 'compress') {
         exitCommandMode();
         onCompress();
+        return;
+      }
+      if (option.id === 'side') {
+        exitCommandMode();
+        onCreateSideChat();
         return;
       }
       setCommandStage(option.id);
@@ -633,10 +709,19 @@ export function Composer({
       )}
       <div className="composer">
         {commandMode && (
-          <section className="command-picker" aria-label="Composer commands">
+          <section
+            className="command-picker"
+            aria-label={commandMode === 'commands'
+              ? commandPrefix === '/'
+                ? 'Action commands'
+                : 'Skills'
+              : 'Composer options'}
+          >
             <header className="command-picker-header">
               <span>
-                {commandMode === 'commands' && 'Commands'}
+                {commandMode === 'commands' && (
+                  commandPrefix === '/' ? 'Action commands' : 'Skills'
+                )}
                 {commandMode === 'models' && 'Choose model'}
                 {commandMode === 'efforts' && `Reasoning · ${currentModelConfig?.name ?? 'No model'}`}
               </span>
@@ -656,7 +741,13 @@ export function Composer({
                   onMouseEnter={() => setCommandIndex(index)}
                 >
                   <span className="command-picker-icon">
-                    {commandMode === 'commands' && <SquareTerminal size={16} />}
+                    {commandMode === 'commands' && (
+                      option.kind === 'context_marker'
+                        ? option.type === 'workflow'
+                          ? <Workflow size={16} />
+                          : <Sparkles size={16} />
+                        : <SquareTerminal size={16} />
+                    )}
                     {commandMode === 'models' && <Bot size={16} />}
                     {commandMode === 'efforts' && <Brain size={16} />}
                   </span>
@@ -680,10 +771,17 @@ export function Composer({
         {visibleAttachments.length > 0 && (
           <div className="attachment-strip">
             {visibleAttachments.map((attachment) => (
-              <span key={attachment.id} className="attachment-chip">
-                <Paperclip size={13} />
+              <span
+                key={attachment.id}
+                className={`attachment-chip${attachment.kind === 'context_marker' ? ' context-marker' : ''}`}
+              >
+                {attachment.kind === 'context_marker'
+                  ? attachment.markerType === 'workflow'
+                    ? <Workflow size={13} />
+                    : <Sparkles size={13} />
+                  : <Paperclip size={13} />}
                 <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
-                <small>{formatBytes(attachment.size)}</small>
+                {attachment.kind !== 'context_marker' && <small>{formatBytes(attachment.size)}</small>}
                 <button
                   type="button"
                   onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}
@@ -998,11 +1096,11 @@ export function Composer({
   );
 }
 
-function saveComposerDraft(text) {
+function saveComposerDraft(key, text) {
   if (text) {
-    window.localStorage.setItem(composerDraftKey, text);
+    window.localStorage.setItem(key, text);
   } else {
-    window.localStorage.removeItem(composerDraftKey);
+    window.localStorage.removeItem(key);
   }
 }
 

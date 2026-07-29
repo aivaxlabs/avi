@@ -2,12 +2,27 @@ import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { EOL } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import {
+  basename,
+  isAbsolute,
+  join,
+  resolve,
+} from 'node:path';
+import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
+import {
+  createConversation,
+  getConversation,
+  getMessages,
+  listAllConversations,
+} from './database.js';
 
 const MAX_READ_URL_CHARS = 100_000;
 const MAX_TERMINAL_OUTPUT_CHARS = 2_000_000;
 const MAX_SEARCH_FILE_BYTES = 5_000_000;
 const DEFAULT_SEARCH_RESULTS = 200;
+const MAX_INSPECTED_TURNS = 4;
+const MAX_ASSISTANT_MESSAGES_BEFORE_FINAL = 6;
+const MAX_INSPECTED_TOOL_RESULT_CHARS = 512 * 4;
 const ignoredDirectories = new Set(['.git', 'dist', 'node_modules', 'out', 'release']);
 const terminals = new Map();
 
@@ -195,6 +210,335 @@ async function waitForTerminal(terminal, { untilExit, timeout }) {
 }
 
 export const CLIENT_TOOLS = Object.freeze([
+  {
+    name: 'chat_list_folders',
+    description: 'List folders associated with chat threads.',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+    execute: async (_input, { workspacePath }) => {
+      const folders = new Map();
+      const conversations = listAllConversations();
+      for (const folderPath of [
+        workspacePath,
+        ...conversations.map((conversation) => conversation.projectPath),
+      ].filter(Boolean)) {
+        const path = resolve(folderPath);
+        const key = process.platform === 'win32' ? path.toLowerCase() : path;
+        if (!folders.has(key)) {
+          folders.set(key, {
+            path,
+            name: basename(path) || path,
+            threadCount: 0,
+          });
+        }
+      }
+
+      for (const conversation of conversations) {
+        const path = resolve(conversation.projectPath);
+        const key = process.platform === 'win32' ? path.toLowerCase() : path;
+        const folder = folders.get(key);
+        if (folder) folder.threadCount += 1;
+      }
+
+      return { folders: [...folders.values()] };
+    },
+  },
+  {
+    name: 'chat_list_threads',
+    description: 'List chat threads, optionally filtered by an exact folder path.',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        folderPath: {
+          type: 'string',
+          description: 'Optional absolute folder path used to filter threads.',
+        },
+      },
+    },
+    execute: async ({ folderPath }, { chatRunner }) => {
+      if (folderPath && !isAbsolute(String(folderPath))) {
+        throw new Error('folderPath must be absolute.');
+      }
+      const normalizedFolder = folderPath
+        ? resolve(folderPath)
+        : null;
+      const folderKey = process.platform === 'win32'
+        ? normalizedFolder?.toLowerCase()
+        : normalizedFolder;
+      const threads = listAllConversations()
+        .filter((conversation) => {
+          if (!folderKey) return true;
+          const conversationPath = resolve(conversation.projectPath);
+          return (process.platform === 'win32' ? conversationPath.toLowerCase() : conversationPath)
+            === folderKey;
+        })
+        .map((conversation) => ({
+          id: conversation.id,
+          title: conversation.title,
+          folderPath: conversation.projectPath,
+          model: conversation.model,
+          status: chatRunner.runs.has(conversation.id) ? 'running' : 'idle',
+          createdAt: conversation.createdAt,
+          updatedAt: conversation.updatedAt,
+        }));
+
+      return { threads };
+    },
+  },
+  {
+    name: 'chat_create_thread',
+    description: 'Create a chat thread and optionally start it with a prompt.',
+    canEditFile: false,
+    canPerformDestructiveActions: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: {
+          type: 'string',
+          description: 'Optional prompt to send immediately after creating the thread.',
+        },
+        folderPath: {
+          type: 'string',
+          description: 'Optional absolute folder path for the thread. Defaults to the current folder.',
+        },
+      },
+    },
+    execute: async (
+      { prompt, folderPath },
+      {
+        chatRunner,
+        model,
+        workspacePath,
+      },
+    ) => {
+      if (folderPath && !isAbsolute(String(folderPath))) {
+        throw new Error('folderPath must be absolute.');
+      }
+      const projectPath = resolve(folderPath || workspacePath || process.cwd());
+      const details = await stat(projectPath);
+      if (!details.isDirectory()) {
+        throw new Error('folderPath must point to a directory.');
+      }
+      const normalizedPrompt = String(prompt ?? '').trim();
+      const conversation = createConversation({
+        model,
+        projectPath,
+      });
+      let message = null;
+
+      if (normalizedPrompt) {
+        const result = await chatRunner.send({
+          conversationId: conversation.id,
+          model,
+          text: normalizedPrompt,
+          project: { path: projectPath },
+        });
+        message = result.message;
+      }
+
+      return {
+        thread: {
+          id: conversation.id,
+          title: getConversation(conversation.id).title,
+          folderPath: projectPath,
+          model,
+          status: message ? 'running' : 'idle',
+        },
+        promptMessageId: message?.id ?? null,
+      };
+    },
+  },
+  {
+    name: 'chat_send_prompt',
+    description: 'Send a prompt to a chat thread using queue or steer delivery.',
+    canEditFile: false,
+    canPerformDestructiveActions: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        threadId: {
+          type: 'string',
+          description: 'The target thread ID.',
+        },
+        prompt: {
+          type: 'string',
+          description: 'The prompt to send.',
+        },
+        mode: {
+          type: 'string',
+          enum: ['queue', 'steer'],
+          description: 'queue waits behind active work; steer takes priority and interrupts active work.',
+        },
+      },
+      required: ['threadId', 'prompt', 'mode'],
+    },
+    execute: async ({ threadId, prompt, mode }, { chatRunner }) => {
+      const conversation = getConversation(String(threadId));
+      if (!conversation) throw new Error('The thread was not found.');
+      const normalizedPrompt = String(prompt ?? '').trim();
+      if (!normalizedPrompt) throw new Error('prompt is required.');
+      if (!['queue', 'steer'].includes(mode)) {
+        throw new Error('mode must be queue or steer.');
+      }
+      const result = await chatRunner.send({
+        conversationId: conversation.id,
+        model: conversation.model,
+        text: normalizedPrompt,
+        steer: mode === 'steer',
+        project: { path: conversation.projectPath },
+      });
+
+      return {
+        threadId: conversation.id,
+        messageId: result.message.id,
+        mode,
+        status: result.queued ? mode === 'steer' ? 'steered' : 'queued' : 'running',
+      };
+    },
+  },
+  {
+    name: 'chat_interrupt_thread',
+    description: 'Interrupt the active run in a chat thread without clearing queued prompts.',
+    canEditFile: false,
+    canPerformDestructiveActions: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        threadId: {
+          type: 'string',
+          description: 'The thread ID to interrupt.',
+        },
+      },
+      required: ['threadId'],
+    },
+    execute: async ({ threadId }, { chatRunner }) => {
+      const conversation = getConversation(String(threadId));
+      if (!conversation) throw new Error('The thread was not found.');
+      const interrupted = chatRunner.runs.has(conversation.id);
+      chatRunner.stop(conversation.id, { clearQueue: false });
+      return {
+        threadId: conversation.id,
+        interrupted,
+      };
+    },
+  },
+  {
+    name: 'chat_inspect_thread',
+    description: 'Inspect the latest four turns of a chat thread without exposing assistant reasoning.',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        threadId: {
+          type: 'string',
+          description: 'The thread ID to inspect.',
+        },
+      },
+      required: ['threadId'],
+    },
+    execute: async ({ threadId }, { chatRunner }) => {
+      const conversation = getConversation(String(threadId));
+      if (!conversation) throw new Error('The thread was not found.');
+      const turns = [];
+
+      for (const message of getMessages(conversation.id)) {
+        if (message.role === 'user') {
+          turns.push({
+            user: {
+              id: message.id,
+              status: message.status,
+              message: message.content,
+              createdAt: message.createdAt,
+            },
+            assistantMessages: [],
+          });
+        } else if (message.role === 'assistant' && turns.length > 0) {
+          turns.at(-1).assistantMessages.push(message);
+        }
+      }
+
+      const inspectedTurns = turns.slice(-MAX_INSPECTED_TURNS).map((turn) => {
+        const assistantEvents = turn.assistantMessages.flatMap((message) => {
+          const segments = message.segments?.length > 0
+            ? message.segments
+            : [{
+                type: 'content',
+                text: answerTextFromTextualBlocks(message.content),
+              }];
+          return segments.flatMap((segment) => {
+            if (segment.type === 'content' && segment.text) {
+              const text = answerTextFromTextualBlocks(segment.text);
+              if (!text) return [];
+              return [{
+                type: 'message',
+                messageId: message.id,
+                status: message.status,
+                text,
+                createdAt: message.createdAt,
+              }];
+            }
+            if (segment.type !== 'tool-call') return [];
+
+            let args = segment.argumentsText;
+            try {
+              args = JSON.parse(segment.argumentsText);
+            } catch {}
+            const events = [{
+              type: 'tool_call',
+              messageId: message.id,
+              callId: segment.callId,
+              name: segment.name,
+              arguments: args,
+              status: segment.status,
+            }];
+            if (segment.resultText !== undefined) {
+              const output = String(segment.resultText);
+              events.push({
+                type: 'tool_result',
+                messageId: message.id,
+                callId: segment.callId,
+                output: output.slice(0, MAX_INSPECTED_TOOL_RESULT_CHARS),
+                truncated: output.length > MAX_INSPECTED_TOOL_RESULT_CHARS,
+                isError: segment.status === 'error',
+              });
+            }
+            return events;
+          });
+        });
+        const messageIndexes = assistantEvents
+          .map((event, index) => event.type === 'message' ? index : -1)
+          .filter((index) => index >= 0);
+        const includedMessageIndexes = new Set([
+          ...messageIndexes.slice(-(MAX_ASSISTANT_MESSAGES_BEFORE_FINAL + 1)),
+        ]);
+
+        return {
+          user: turn.user,
+          assistant: assistantEvents.filter((event, index) => (
+            event.type !== 'message' || includedMessageIndexes.has(index)
+          )),
+        };
+      });
+
+      return {
+        thread: {
+          id: conversation.id,
+          title: conversation.title,
+          folderPath: conversation.projectPath,
+          model: conversation.model,
+          status: chatRunner.runs.has(conversation.id) ? 'running' : 'idle',
+        },
+        turns: inspectedTurns,
+      };
+    },
+  },
   {
     name: 'read_url',
     description: 'Read a public HTTP or HTTPS URL as LLM-friendly Markdown using the Jina Reader API.',

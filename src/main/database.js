@@ -31,12 +31,15 @@ db.exec(`
     title_status TEXT NOT NULL DEFAULT 'pending',
     project_path TEXT,
     git_branch TEXT,
+    conversation_type TEXT NOT NULL DEFAULT 'thread',
+    parent_conversation_id TEXT,
     context_checkpoint TEXT NOT NULL DEFAULT '',
     checkpoint_message_id TEXT,
     context_tokens INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    deleted_at TEXT
+    deleted_at TEXT,
+    FOREIGN KEY (parent_conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS messages (
@@ -81,6 +84,12 @@ if (!conversationColumns.some((column) => column.name === 'project_path')) {
 if (!conversationColumns.some((column) => column.name === 'git_branch')) {
   db.exec('ALTER TABLE conversations ADD COLUMN git_branch TEXT');
 }
+if (!conversationColumns.some((column) => column.name === 'conversation_type')) {
+  db.exec("ALTER TABLE conversations ADD COLUMN conversation_type TEXT NOT NULL DEFAULT 'thread'");
+}
+if (!conversationColumns.some((column) => column.name === 'parent_conversation_id')) {
+  db.exec('ALTER TABLE conversations ADD COLUMN parent_conversation_id TEXT');
+}
 if (!conversationColumns.some((column) => column.name === 'context_checkpoint')) {
   db.exec("ALTER TABLE conversations ADD COLUMN context_checkpoint TEXT NOT NULL DEFAULT ''");
 }
@@ -90,6 +99,10 @@ if (!conversationColumns.some((column) => column.name === 'checkpoint_message_id
 if (!conversationColumns.some((column) => column.name === 'context_tokens')) {
   db.exec('ALTER TABLE conversations ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0');
 }
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_conversations_parent
+    ON conversations(parent_conversation_id, conversation_type, created_at);
+`);
 const conversationsWithoutContextUsage = db.prepare(`
   SELECT c.id, (
     SELECT usage
@@ -129,10 +142,12 @@ const statements = {
   insertConversation: db.prepare(`
     INSERT INTO conversations (
       id, title, model, title_status, project_path, git_branch,
+      conversation_type, parent_conversation_id,
       context_checkpoint, checkpoint_message_id, context_tokens, created_at, updated_at
     )
     VALUES (
       @id, @title, @model, @titleStatus, @projectPath, @gitBranch,
+      @conversationType, @parentConversationId,
       @contextCheckpoint, @checkpointMessageId, @contextTokens, @createdAt, @updatedAt
     )
   `),
@@ -156,14 +171,44 @@ const statements = {
       ), '') AS first_prompt
     FROM conversations c
     WHERE deleted_at IS NULL
+      AND conversation_type = 'thread'
       AND EXISTS (
         SELECT 1 FROM messages
         WHERE conversation_id = c.id
       )
     ORDER BY updated_at DESC
   `),
+  listSideChats: db.prepare(`
+    SELECT c.*,
+      COALESCE((
+        SELECT content FROM messages
+        WHERE conversation_id = c.id AND role = 'user'
+        ORDER BY created_at LIMIT 1
+      ), '') AS first_prompt
+    FROM conversations c
+    WHERE deleted_at IS NULL
+      AND conversation_type = 'side'
+      AND parent_conversation_id = ?
+    ORDER BY created_at ASC
+  `),
+  listAllConversations: db.prepare(`
+    SELECT c.*,
+      COALESCE((
+        SELECT content FROM messages
+        WHERE conversation_id = c.id AND role = 'user'
+        ORDER BY created_at LIMIT 1
+      ), '') AS first_prompt
+    FROM conversations c
+    WHERE deleted_at IS NULL
+    ORDER BY updated_at DESC
+  `),
   getConversation: db.prepare('SELECT * FROM conversations WHERE id = ? AND deleted_at IS NULL'),
   deleteConversation: db.prepare('UPDATE conversations SET deleted_at = ?, updated_at = ? WHERE id = ?'),
+  hardDeleteConversation: db.prepare('DELETE FROM conversations WHERE id = ?'),
+  hardDeleteSideChats: db.prepare(`
+    DELETE FROM conversations
+    WHERE conversation_type = 'side' AND parent_conversation_id = ?
+  `),
   insertMessage: db.prepare(`
     INSERT INTO messages (
       id, conversation_id, role, model, reasoning_effort, status, content, segments, attachments,
@@ -196,7 +241,7 @@ const statements = {
     SELECT m.*, c.title AS conversation_title
     FROM messages m
     JOIN conversations c ON c.id = m.conversation_id
-    WHERE c.deleted_at IS NULL
+    WHERE c.deleted_at IS NULL AND c.conversation_type = 'thread'
     ORDER BY m.updated_at DESC
   `),
   listFavorites: db.prepare('SELECT model_id FROM model_favorites ORDER BY created_at DESC'),
@@ -224,20 +269,29 @@ export function setLastModel(model) {
   writeJson('lastModel', model);
 }
 
+export function closeDatabase() {
+  if (db.open) db.close();
+}
+
 export function createConversation({
   title = 'New chat',
   model = '',
   projectPath = homedir(),
   gitBranch = null,
+  conversationType = 'thread',
+  parentConversationId = null,
+  titleStatus = 'pending',
 } = {}) {
   const now = timestamp();
   const conversation = {
     id: crypto.randomUUID(),
     title,
     model,
-    titleStatus: 'pending',
+    titleStatus,
     projectPath: resolve(projectPath),
     gitBranch,
+    conversationType,
+    parentConversationId,
     contextCheckpoint: '',
     checkpointMessageId: null,
     contextTokens: 0,
@@ -288,13 +342,26 @@ export function listConversations() {
   return statements.listConversations.all().map(mapConversation);
 }
 
+export function listAllConversations() {
+  return statements.listAllConversations.all().map(mapConversation);
+}
+
+export function listSideChats(parentConversationId) {
+  return statements.listSideChats.all(parentConversationId).map(mapConversation);
+}
+
 export function getConversation(id) {
   const row = statements.getConversation.get(id);
   return row ? mapConversation(row) : null;
 }
 
-export function deleteConversation(id) {
+export function deleteConversation(id, { hard = false } = {}) {
+  if (hard) {
+    statements.hardDeleteConversation.run(id);
+    return;
+  }
   const now = timestamp();
+  statements.hardDeleteSideChats.run(id);
   statements.deleteConversation.run(now, now, id);
 }
 
@@ -374,14 +441,29 @@ export function searchChats(query) {
     .slice(0, 80);
 }
 
-export function forkConversation(id, { throughMessageId = null } = {}) {
+export function forkConversation(id, {
+  throughMessageId = null,
+  sideChat = false,
+} = {}) {
   const source = getConversation(id);
-  if (!source) return null;
+  if (!source || (sideChat && source.isSideChat)) return null;
+  let sideChatNumber = null;
+  if (sideChat) {
+    sideChatNumber = Math.max(
+      0,
+      ...listSideChats(source.id).map((sideChat) => (
+        Number(sideChat.title.match(/^Side chat (\d+)$/)?.[1]) || 0
+      )),
+    ) + 1;
+  }
   const target = createConversation({
-    title: `${source.title} - Copy`,
+    title: sideChat ? `Side chat ${sideChatNumber}` : `${source.title} - Copy`,
     model: source.model,
     projectPath: source.projectPath,
     gitBranch: source.gitBranch,
+    conversationType: sideChat ? 'side' : 'thread',
+    parentConversationId: sideChat ? source.id : null,
+    titleStatus: sideChat ? 'generated' : 'pending',
   });
   const sourceMessages = getMessages(id);
   const throughIndex = throughMessageId
@@ -389,16 +471,29 @@ export function forkConversation(id, { throughMessageId = null } = {}) {
     : -1;
   const messages = throughIndex >= 0
     ? sourceMessages.slice(0, throughIndex + 1)
-    : sourceMessages;
+    : sourceMessages.filter((message) => (
+        !sideChat || !['queued', 'steered'].includes(message.status)
+      ));
   const now = Date.now();
+  const copiedMessageIds = new Map();
   for (let index = 0; index < messages.length; index += 1) {
+    const messageId = crypto.randomUUID();
+    copiedMessageIds.set(messages[index].id, messageId);
     insertMessage({
       ...messages[index],
-      id: crypto.randomUUID(),
+      id: messageId,
       conversationId: target.id,
+      status: sideChat && messages[index].status === 'streaming'
+        ? 'completed'
+        : messages[index].status,
       createdAt: new Date(now + index).toISOString(),
     });
   }
+  updateConversation(target.id, {
+    contextCheckpoint: source.contextCheckpoint,
+    checkpointMessageId: copiedMessageIds.get(source.checkpointMessageId) ?? null,
+    contextTokens: source.contextTokens,
+  });
   return {
     conversation: getConversation(target.id),
     messages: getMessages(target.id),
@@ -418,6 +513,23 @@ export function setFavorite(modelId, favorited) {
   return listFavorites();
 }
 
+function sideChatContext(conversation) {
+  if (conversation?.conversation_type !== 'side') return [];
+
+  return [{
+    role: 'system',
+    content: [
+      '<thread_context>',
+      'thread_type: side_chat',
+      `thread_id: ${conversation.id}`,
+      `parent_thread_id: ${conversation.parent_conversation_id}`,
+      'You are running inside a side chat forked from the parent thread.',
+      'You cannot create another side chat from this thread.',
+      '</thread_context>',
+    ].join('\n'),
+  }];
+}
+
 export function toModelMessages(conversationId, { excludeMessageId } = {}) {
   const conversation = statements.getConversation.get(conversationId);
   const messages = getMessages(conversationId);
@@ -433,6 +545,7 @@ export function toModelMessages(conversationId, { excludeMessageId } = {}) {
     : [];
 
   return [
+    ...sideChatContext(conversation),
     ...checkpoint,
     ...messages
       .slice(hasCheckpoint ? checkpointIndex + 1 : 0)
@@ -472,6 +585,7 @@ export function toModelMessagesThroughUser(
     && checkpointIndex >= 0
     && checkpointIndex < lastUserIndex;
   return [
+    ...sideChatContext(conversation),
     ...(useCheckpoint
       ? [{
           role: 'system',
@@ -504,6 +618,12 @@ function messageToApiBlock(message) {
 }
 
 function attachmentToApiBlock(attachment) {
+  if (attachment.kind === 'context_marker') {
+    return {
+      type: 'text',
+      text: attachment.text ?? '',
+    };
+  }
   if (attachment.kind === 'text_inline') {
     const filename = attachment.name ?? 'attachment.txt';
     return {
@@ -592,6 +712,10 @@ function mapConversation(row) {
         ? `~/${relativeProjectPath.replaceAll('\\', '/')}`
         : projectPath,
     gitBranch: row.git_branch || null,
+    isSideChat: row.conversation_type === 'side',
+    parentConversationId: row.parent_conversation_id || null,
+    contextCheckpoint: row.context_checkpoint || '',
+    checkpointMessageId: row.checkpoint_message_id || null,
     contextTokens: Number(row.context_tokens) || 0,
     firstPrompt: row.first_prompt ?? '',
     createdAt: row.created_at,

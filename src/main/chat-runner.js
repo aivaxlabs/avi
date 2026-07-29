@@ -97,14 +97,16 @@ export class ChatRunner {
     return { conversation: getConversation(conversation.id), message: userMessage, queued: false };
   }
 
-  stop(conversationId) {
+  stop(conversationId, { clearQueue = true } = {}) {
     const run = this.runs.get(conversationId);
     if (run) {
-      for (const item of run.queue) {
-        deleteMessage(item.userMessageId);
-        this.emit(conversationId, { type: 'message-delete', messageId: item.userMessageId });
+      if (clearQueue) {
+        for (const item of run.queue) {
+          deleteMessage(item.userMessageId);
+          this.emit(conversationId, { type: 'message-delete', messageId: item.userMessageId });
+        }
+        run.queue = [];
       }
-      run.queue = [];
       run.controller.abort('stop');
     }
   }
@@ -402,6 +404,23 @@ export class ChatRunner {
       .at(-1);
     if (!checkpointMessage) return conversation;
 
+    const inputTokens = conversation.contextTokens > 0
+      ? conversation.contextTokens
+      : Math.ceil(JSON.stringify(messages).length / 4);
+    const compressionSegment = {
+      type: 'context-compression',
+      inputTokens,
+      outputTokens: null,
+    };
+    const compressionMessage = insertMessage({
+      conversationId: conversation.id,
+      role: 'system',
+      status: 'streaming',
+      content: '',
+      segments: [compressionSegment],
+    });
+    this.emit(conversation.id, { type: 'message', message: compressionMessage });
+
     const controller = activeController ?? new AbortController();
     if (!automatic) {
       this.runs.set(conversation.id, {
@@ -413,6 +432,7 @@ export class ChatRunner {
       this.emit(conversation.id, { type: 'run-state', running: true });
     }
 
+    let compressionUsage = null;
     try {
       const turn = await selection.provider.stream({
         model: selection.model,
@@ -424,7 +444,9 @@ export class ChatRunner {
         toolHistory: [],
         invocationContext: { workspacePath: conversation.projectPath },
         signal: controller.signal,
-        onEvent: () => {},
+        onEvent: (event) => {
+          if (event.type === 'usage') compressionUsage = event.usage;
+        },
       });
       const checkpoint = turn.assistantContent.trim();
       if (!checkpoint) {
@@ -434,15 +456,36 @@ export class ChatRunner {
         throw new Error('The model attempted to call a tool while compressing the context.');
       }
 
+      const outputTokens = compressionUsage?.outputTokens
+        || Math.ceil(checkpoint.length / 4);
       const updatedConversation = updateConversation(conversation.id, {
         contextCheckpoint: checkpoint,
         checkpointMessageId: checkpointMessage.id,
-        contextTokens: Math.ceil(checkpoint.length / 4),
+        contextTokens: outputTokens,
       });
+      const completedMessage = updateMessage(compressionMessage.id, {
+        status: 'completed',
+        segments: [{
+          ...compressionSegment,
+          outputTokens: updatedConversation.contextTokens,
+        }],
+      });
+      this.emit(conversation.id, { type: 'message', message: completedMessage });
       this.emit(conversation.id, { type: 'conversation', conversation: updatedConversation });
       return updatedConversation;
     } catch (error) {
-      if (controller.signal.aborted) return getConversation(conversation.id);
+      const stopped = controller.signal.aborted;
+      const failedMessage = updateMessage(compressionMessage.id, {
+        status: stopped ? 'aborted' : 'error',
+        segments: [{
+          ...compressionSegment,
+          error: stopped
+            ? 'Context compression stopped.'
+            : 'Context compression failed.',
+        }],
+      });
+      this.emit(conversation.id, { type: 'message', message: failedMessage });
+      if (stopped) return getConversation(conversation.id);
       throw error;
     } finally {
       if (!automatic) {
@@ -675,6 +718,9 @@ export class ChatRunner {
             const value = await tool.execute(input, {
               signal: controller.signal,
               workspacePath,
+              chatRunner: this,
+              conversationId,
+              model,
             });
             output = typeof value === 'string' ? value : JSON.stringify(value);
           } catch (error) {

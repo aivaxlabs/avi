@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar.jsx';
 import { ChatView } from './components/ChatView.jsx';
 import { SearchDialog } from './components/SearchDialog.jsx';
 import { SettingsPage } from './components/SettingsPage.jsx';
+import { SideChatPanel } from './components/SideChatPanel.jsx';
 import { WindowControls } from './components/WindowControls.jsx';
 
 const api = window.chatApp;
@@ -17,12 +18,15 @@ export default function App() {
   const [favorites, setFavorites] = useState([]);
   const [running, setRunning] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsContextFolder, setSettingsContextFolder] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [error, setError] = useState('');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [narrowWindow, setNarrowWindow] = useState(false);
   const [draftModel, setDraftModel] = useState('');
   const [draftProject, setDraftProject] = useState(null);
+  const [sideChats, setSideChats] = useState([]);
+  const [activeSideChatId, setActiveSideChatId] = useState(null);
 
   const currentConversation = conversations.find((item) => item.id === selectedId) ?? null;
   const currentMessages = messagesByConversation[selectedId] ?? [];
@@ -126,7 +130,15 @@ export default function App() {
           }));
         }
       } else if (event.type === 'conversation') {
-        setConversations((state) => upsertById(state, event.conversation).sort(sortByUpdatedAt));
+        if (event.conversation.isSideChat) {
+          setSideChats((state) => (
+            state.some((sideChat) => sideChat.id === event.conversation.id)
+              ? upsertById(state, event.conversation)
+              : state
+          ));
+        } else {
+          setConversations((state) => upsertById(state, event.conversation).sort(sortByUpdatedAt));
+        }
       } else if (event.type === 'message-delete') {
         setMessagesByConversation((state) => ({
           ...state,
@@ -152,6 +164,42 @@ export default function App() {
   ), []);
 
   useEffect(() => {
+    let active = true;
+    if (!selectedId) {
+      setSideChats([]);
+      setActiveSideChatId(null);
+      return undefined;
+    }
+
+    api.sideChats.list(selectedId)
+      .then(async (nextSideChats) => {
+        const entries = await Promise.all(nextSideChats.map(async (sideChat) => (
+          [sideChat.id, await api.conversations.messages(sideChat.id)]
+        )));
+        if (!active) return;
+        setSideChats(nextSideChats);
+        setMessagesByConversation((state) => ({
+          ...state,
+          ...Object.fromEntries(entries),
+        }));
+        setActiveSideChatId((current) => (
+          nextSideChats.some((sideChat) => sideChat.id === current)
+            ? current
+            : nextSideChats[0]?.id ?? null
+        ));
+      })
+      .catch((nextError) => {
+        if (active) {
+          setError(nextError instanceof Error ? nextError.message : String(nextError));
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedId]);
+
+  useEffect(() => {
     const syncSidebarWidth = () => setNarrowWindow(window.innerWidth < 700);
     syncSidebarWidth();
     window.addEventListener('resize', syncSidebarWidth);
@@ -171,25 +219,32 @@ export default function App() {
     attachments,
     steer = false,
     reasoningEffort = null,
+    conversationId = selectedId,
+    model = currentModel,
+    project = currentProject,
   }) {
     if (!text.trim() && attachments.length === 0) return;
-    if (!currentModel) {
+    if (!model) {
       setError('Configure at least one model before sending a message.');
       setSettingsOpen(true);
       return;
     }
 
     const result = await api.chat.send({
-      conversationId: selectedId,
-      model: currentModel,
+      conversationId,
+      model,
       text,
       attachments,
       steer,
       reasoningEffort,
-      project: currentProject,
+      project,
     });
-    setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
-    setSelectedId(result.conversation.id);
+    if (result.conversation.isSideChat) {
+      setSideChats((state) => upsertById(state, result.conversation));
+    } else {
+      setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
+      setSelectedId(result.conversation.id);
+    }
     setMessagesByConversation((state) => {
       const positions = new Map((result.queueOrder ?? []).map((messageId, index) => [messageId, index]));
       return {
@@ -210,26 +265,34 @@ export default function App() {
     }));
   }
 
-  async function stopConversation() {
-    if (selectedId) {
-      await api.chat.stop(selectedId);
-      setRunning((state) => ({ ...state, [selectedId]: false }));
+  async function stopConversation(conversationId = selectedId) {
+    if (conversationId) {
+      await api.chat.stop(conversationId);
+      setRunning((state) => ({ ...state, [conversationId]: false }));
     }
   }
 
   async function retryAssistantMessage(
     messageId,
-    { resumeFromFailure = false, model = currentModel } = {},
+    {
+      resumeFromFailure = false,
+      model = currentModel,
+      conversationId = selectedId,
+    } = {},
   ) {
-    if (!selectedId || !messageId || !model) return;
+    if (!conversationId || !messageId || !model) return;
     const result = await api.chat.retry({
-      conversationId: selectedId,
+      conversationId,
       model,
       assistantMessageId: messageId,
       resumeFromFailure,
     });
     if (!result?.conversation) return;
-    setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
+    if (result.conversation.isSideChat) {
+      setSideChats((state) => upsertById(state, result.conversation));
+    } else {
+      setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
+    }
     if (!result.queued) {
       setRunning((state) => ({
         ...state,
@@ -238,16 +301,17 @@ export default function App() {
     }
   }
 
-  async function cancelQueuedMessage(messageId) {
-    if (!selectedId || !messageId) return false;
+  async function cancelQueuedMessage(messageId, conversationId = selectedId) {
+    if (!conversationId || !messageId) return false;
     const result = await api.chat.cancelQueued({
-      conversationId: selectedId,
+      conversationId,
       messageId,
     });
     if (result?.cancelled) {
       setMessagesByConversation((state) => ({
         ...state,
-        [selectedId]: (state[selectedId] ?? []).filter((message) => message.id !== messageId),
+        [conversationId]: (state[conversationId] ?? [])
+          .filter((message) => message.id !== messageId),
       }));
     }
     return Boolean(result?.cancelled);
@@ -262,15 +326,57 @@ export default function App() {
     setSelectedId(result.conversation.id);
   }
 
+  async function createSideChat() {
+    if (!selectedId) return;
+    const result = await api.sideChats.create({ parentConversationId: selectedId });
+    if (!result) return;
+    setSideChats((state) => [...state, result.conversation]);
+    setMessagesByConversation((state) => ({
+      ...state,
+      [result.conversation.id]: result.messages,
+    }));
+    setActiveSideChatId(result.conversation.id);
+  }
+
+  async function selectSideChat(id) {
+    setActiveSideChatId(id);
+    if (!messagesByConversation[id]) {
+      const messages = await api.conversations.messages(id);
+      setMessagesByConversation((state) => ({ ...state, [id]: messages }));
+    }
+  }
+
+  async function closeSideChat(id) {
+    const index = sideChats.findIndex((sideChat) => sideChat.id === id);
+    if (index < 0 || !await api.sideChats.close(id)) return;
+    const remaining = sideChats.filter((sideChat) => sideChat.id !== id);
+    setSideChats(remaining);
+    setMessagesByConversation((state) => {
+      const next = { ...state };
+      delete next[id];
+      return next;
+    });
+    window.localStorage.removeItem(`aivax.composer.side.${id}`);
+    setRunning((state) => ({ ...state, [id]: false }));
+    if (activeSideChatId === id) {
+      setActiveSideChatId(remaining[Math.min(index, remaining.length - 1)]?.id ?? null);
+    }
+  }
+
   async function deleteConversation(id) {
     const next = await api.conversations.delete(id);
     setConversations(next);
     setMessagesByConversation((state) => {
       const copy = { ...state };
       delete copy[id];
+      if (selectedId === id) {
+        for (const sideChat of sideChats) delete copy[sideChat.id];
+      }
       return copy;
     });
     if (selectedId === id) {
+      setSideChats([]);
+      setActiveSideChatId(null);
       const fallback = next[0]?.id ?? null;
       setSelectedId(fallback);
       if (!fallback) setDraftProject(appState.defaultProject);
@@ -281,13 +387,60 @@ export default function App() {
     }
   }
 
-  async function chooseModel(modelId) {
-    if (!selectedId) {
+  async function chooseModel(modelId, conversationId = selectedId) {
+    if (!conversationId) {
       setDraftModel(modelId);
       return;
     }
-    const conversation = await api.conversations.update({ id: selectedId, model: modelId });
-    setConversations((state) => upsertById(state, conversation).sort(sortByUpdatedAt));
+    const conversation = await api.conversations.update({ id: conversationId, model: modelId });
+    if (conversation.isSideChat) {
+      setSideChats((state) => upsertById(state, conversation));
+    } else {
+      setConversations((state) => upsertById(state, conversation).sort(sortByUpdatedAt));
+    }
+  }
+
+  async function compressConversation(conversationId = selectedId, model = currentModel) {
+    if (!conversationId || !model || running[conversationId]) return;
+    try {
+      const conversation = await api.chat.compress({ conversationId, model });
+      if (!conversation) return;
+      if (conversation.isSideChat) {
+        setSideChats((state) => upsertById(state, conversation));
+      } else {
+        setConversations((state) => upsertById(state, conversation).sort(sortByUpdatedAt));
+      }
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }
+
+  async function reorderQueuedMessages(conversationId, messageIds, steerMessageId = null) {
+    if (!conversationId) return;
+    const result = await api.chat.reorderQueued({
+      conversationId,
+      messageIds,
+      steerMessageId,
+    });
+    const positions = new Map(
+      (result?.queueOrder ?? []).map((messageId, index) => [messageId, index]),
+    );
+    setMessagesByConversation((state) => ({
+      ...state,
+      [conversationId]: (state[conversationId] ?? []).map((message) => (
+        positions.has(message.id)
+          ? { ...message, queuePosition: positions.get(message.id) }
+          : message
+      )),
+    }));
+  }
+
+  async function steerQueuedMessage(conversationId, messageId, messageIds) {
+    await reorderQueuedMessages(
+      conversationId,
+      [messageId, ...messageIds.filter((queuedMessageId) => queuedMessageId !== messageId)],
+      messageId,
+    );
   }
 
   async function toggleFavorite(modelId) {
@@ -356,7 +509,11 @@ export default function App() {
       {settingsOpen ? (
         <SettingsPage
           providers={providers}
-          onClose={() => setSettingsOpen(false)}
+          initialContextFolder={settingsContextFolder}
+          onClose={() => {
+            setSettingsContextFolder(null);
+            setSettingsOpen(false);
+          }}
           onSave={async (provider) => applyProviders(await api.providers.save(provider))}
           onRemove={async (providerId) => applyProviders(await api.providers.remove(providerId))}
         />
@@ -376,87 +533,104 @@ export default function App() {
             onSearch={() => setSearchOpen(true)}
             onFork={forkConversation}
             onDelete={deleteConversation}
-            onSettings={() => setSettingsOpen(true)}
-            collapsed={effectiveSidebarCollapsed}
-            onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
-          />
-          <ChatView
-            {...shell}
-            currentProject={currentProject}
-            models={models}
-            favorites={favorites}
-            onSend={sendMessage}
-            onStop={stopConversation}
-            onCompress={async () => {
-              if (!selectedId || !currentModel || running[selectedId]) return;
+            onOpenProject={async (project) => {
               try {
-                const conversation = await api.chat.compress({
-                  conversationId: selectedId,
-                  model: currentModel,
-                });
-                if (conversation) {
-                  setConversations((state) => (
-                    upsertById(state, conversation).sort(sortByUpdatedAt)
-                  ));
-                }
+                await api.context.open(project.path);
               } catch (nextError) {
                 setError(nextError instanceof Error ? nextError.message : String(nextError));
               }
             }}
-            onFork={forkConversation}
-            onRetry={retryAssistantMessage}
-            onResume={(messageId, model) => retryAssistantMessage(
-              messageId,
-              { resumeFromFailure: true, model },
-            )}
-            onCancelQueued={cancelQueuedMessage}
-            onReorderQueued={async (messageIds) => {
-              if (!selectedId) return;
-              const result = await api.chat.reorderQueued({
-                conversationId: selectedId,
-                messageIds,
-              });
-              const positions = new Map(
-                (result?.queueOrder ?? []).map((messageId, index) => [messageId, index]),
-              );
-              setMessagesByConversation((state) => ({
-                ...state,
-                [selectedId]: (state[selectedId] ?? []).map((message) => (
-                  positions.has(message.id)
-                    ? { ...message, queuePosition: positions.get(message.id) }
-                    : message
-                )),
-              }));
+            onSettings={(contextFolder = null) => {
+              setSettingsContextFolder(contextFolder);
+              setSettingsOpen(true);
             }}
-            onSteerQueued={async (messageId, messageIds) => {
-              if (!selectedId) return;
-              await api.chat.reorderQueued({
-                conversationId: selectedId,
-                messageIds: [
-                  messageId,
-                  ...messageIds.filter((queuedMessageId) => queuedMessageId !== messageId),
-                ],
-                steerMessageId: messageId,
-              });
-            }}
-            onSendContinuation={(text) => sendMessage({ text, attachments: [] })}
-            onChooseModel={chooseModel}
-            onChooseProject={async (project) => {
-              if (currentConversation) return;
-              if (project) {
-                setDraftProject(project);
-                return;
-              }
-              const selectedProject = await api.projects.select({
-                defaultPath: currentProject?.path ?? appState.defaultProject.path,
-              });
-              if (selectedProject) setDraftProject(selectedProject);
-            }}
-            onUseHome={() => {
-              if (!currentConversation) setDraftProject(appState.defaultProject);
-            }}
-            onToggleFavorite={toggleFavorite}
+            collapsed={effectiveSidebarCollapsed}
+            onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
           />
+          <div className={`chat-workspace ${sideChats.length > 0 ? 'with-side-chat' : ''}`}>
+            <ChatView
+              {...shell}
+              currentProject={currentProject}
+              models={models}
+              favorites={favorites}
+              onSend={sendMessage}
+              onStop={stopConversation}
+              onCompress={compressConversation}
+              onCreateSideChat={currentConversation ? createSideChat : undefined}
+              onFork={forkConversation}
+              onRetry={retryAssistantMessage}
+              onResume={(messageId, model) => retryAssistantMessage(
+                messageId,
+                { resumeFromFailure: true, model },
+              )}
+              onCancelQueued={cancelQueuedMessage}
+              onReorderQueued={(messageIds) => reorderQueuedMessages(selectedId, messageIds)}
+              onSteerQueued={(messageId, messageIds) => (
+                steerQueuedMessage(selectedId, messageId, messageIds)
+              )}
+              onSendContinuation={(text) => sendMessage({ text, attachments: [] })}
+              onChooseModel={chooseModel}
+              onChooseProject={async (project) => {
+                if (currentConversation) return;
+                if (project) {
+                  setDraftProject(project);
+                  return;
+                }
+                const selectedProject = await api.projects.select({
+                  defaultPath: currentProject?.path ?? appState.defaultProject.path,
+                });
+                if (selectedProject) setDraftProject(selectedProject);
+              }}
+              onUseHome={() => {
+                if (!currentConversation) setDraftProject(appState.defaultProject);
+              }}
+              onToggleFavorite={toggleFavorite}
+            />
+            {sideChats.length > 0 && (
+              <SideChatPanel
+                sideChats={sideChats}
+                activeId={activeSideChatId}
+                messagesByConversation={messagesByConversation}
+                running={running}
+                models={models}
+                favorites={favorites}
+                recentModels={shell.recentModels}
+                recentProjects={recentProjects}
+                fallbackModel={currentModel}
+                onSelect={selectSideChat}
+                onClose={closeSideChat}
+                onSend={(sideChat, model, payload) => sendMessage({
+                  ...payload,
+                  conversationId: sideChat.id,
+                  model,
+                  project: {
+                    path: sideChat.projectPath,
+                    name: sideChat.projectName,
+                    displayPath: sideChat.projectDisplayPath,
+                    gitBranch: sideChat.gitBranch,
+                  },
+                })}
+                onStop={stopConversation}
+                onCompress={compressConversation}
+                onFork={forkConversation}
+                onRetry={(conversationId, messageId, model) => retryAssistantMessage(
+                  messageId,
+                  { conversationId, model },
+                )}
+                onResume={(conversationId, messageId, model) => retryAssistantMessage(
+                  messageId,
+                  { conversationId, model, resumeFromFailure: true },
+                )}
+                onCancelQueued={(conversationId, messageId) => (
+                  cancelQueuedMessage(messageId, conversationId)
+                )}
+                onReorderQueued={reorderQueuedMessages}
+                onSteerQueued={steerQueuedMessage}
+                onChooseModel={chooseModel}
+                onToggleFavorite={toggleFavorite}
+              />
+            )}
+          </div>
         </>
       )}
       {!settingsOpen && searchOpen && (

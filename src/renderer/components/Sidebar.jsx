@@ -4,6 +4,8 @@ import {
   CopyPlus,
   Filter,
   Folder,
+  FolderCog,
+  FolderOpen,
   MessageSquarePlus,
   MoreHorizontal,
   PanelLeftClose,
@@ -32,6 +34,7 @@ export function Sidebar({
   onSearch,
   onFork,
   onDelete,
+  onOpenProject,
   onSettings,
   collapsed,
   onToggleCollapsed,
@@ -44,8 +47,10 @@ export function Sidebar({
       : 'chronological',
   );
   const [expandedGroups, setExpandedGroups] = useState({});
+  const [folderMenu, setFolderMenu] = useState(null);
   const [now, setNow] = useState(() => Date.now());
   const filterButtonRef = useRef(null);
+  const folderMenuButtonRef = useRef(null);
 
   const conversationGroups = useMemo(() => {
     const sortedConversations = [...conversations].sort(
@@ -137,6 +142,28 @@ export function Sidebar({
     return () => window.removeEventListener('pointerdown', close);
   }, [filterMenuOpen]);
 
+  useEffect(() => {
+    if (!folderMenu) return undefined;
+    const close = (event) => {
+      if (folderMenuButtonRef.current?.contains(event.target)) return;
+      if (event.target.closest?.('.conversation-folder-menu')) return;
+      setFolderMenu(null);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      setFolderMenu(null);
+      folderMenuButtonRef.current?.focus();
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('resize', close, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('resize', close);
+    };
+  }, [folderMenu]);
+
   function toggleFilterMenu() {
     const rect = filterButtonRef.current.getBoundingClientRect();
     setFilterMenuPosition({
@@ -151,6 +178,7 @@ export function Sidebar({
     window.localStorage.setItem(conversationGroupingKey, grouping);
     setExpandedGroups({});
     setFilterMenuOpen(false);
+    setFolderMenu(null);
   }
 
   return (
@@ -231,16 +259,73 @@ export function Sidebar({
               <div className="conversation-group-header">
                 <span title={group.label}>{group.label}</span>
                 {conversationGrouping !== 'chronological' && (
-                  <button
-                    type="button"
-                    aria-label={`New chat with ${group.label}`}
-                    title={`New chat with ${group.label}`}
-                    onClick={() => onNewChat(group.preset)}
-                  >
-                    <Plus size={13} />
-                  </button>
+                  <div className="conversation-group-actions">
+                    <button
+                      type="button"
+                      aria-label={`New chat with ${group.label}`}
+                      title={`New chat with ${group.label}`}
+                      onClick={() => onNewChat(group.preset)}
+                    >
+                      <Plus size={13} />
+                    </button>
+                    {conversationGrouping === 'folder' && (
+                      <button
+                        className={folderMenu?.key === group.key ? 'active' : undefined}
+                        type="button"
+                        aria-label={`Actions for ${group.label}`}
+                        aria-haspopup="menu"
+                        aria-expanded={folderMenu?.key === group.key}
+                        title={`Actions for ${group.label}`}
+                        onClick={(event) => {
+                          if (folderMenu?.key === group.key) {
+                            setFolderMenu(null);
+                            return;
+                          }
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          folderMenuButtonRef.current = event.currentTarget;
+                          setFolderMenu({
+                            key: group.key,
+                            top: rect.bottom + 4,
+                            left: Math.max(8, Math.min(rect.right - 184, window.innerWidth - 192)),
+                          });
+                        }}
+                      >
+                        <MoreHorizontal size={13} />
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
+              {folderMenu?.key === group.key && createPortal(
+                <DropdownMenu
+                  className="conversation-folder-menu"
+                  fixed
+                  role="menu"
+                  style={{ top: folderMenu.top, left: folderMenu.left }}
+                >
+                  <DropdownMenuItem
+                    icon={<FolderOpen size={14} />}
+                    role="menuitem"
+                    onClick={() => {
+                      setFolderMenu(null);
+                      onOpenProject(group.preset.project);
+                    }}
+                  >
+                    Open in explorer
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    icon={<FolderCog size={14} />}
+                    role="menuitem"
+                    onClick={() => {
+                      setFolderMenu(null);
+                      onSettings(group.preset.project);
+                    }}
+                  >
+                    Manage Context
+                  </DropdownMenuItem>
+                </DropdownMenu>,
+                document.body,
+              )}
               {visibleItems.map((conversation) => (
                 <ConversationItem
                   key={conversation.id}
@@ -269,7 +354,7 @@ export function Sidebar({
           );
         })}
       </div>
-      <button className="settings-button" type="button" onClick={onSettings}>
+      <button className="settings-button" type="button" onClick={() => onSettings()}>
         <Settings size={17} />
         <span>Settings</span>
       </button>
