@@ -75,6 +75,7 @@
   }
 
   .nav-actions button:hover,
+  .nav-actions button.active,
   .settings-button:hover,
   .conversation-item.active,
   .conversation-item:hover {

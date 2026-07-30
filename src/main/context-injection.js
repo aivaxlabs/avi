@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { resolveTerminalShell } from './terminal-shell.js';
 
 const IGNORED_WORKSPACE_DIRECTORIES = new Set([
   '.git',
@@ -49,23 +50,57 @@ export const dynamicContextInjectors = new Map([
         ].join('\n')
       : ''
   )],
-  ['environment', () => {
+  ['goal', ({ goal } = {}) => (
+    goal && ['active', 'paused'].includes(goal.status)
+      ? [
+          `<goal_mode id="${escapeXml(goal.id)}" revision="${goal.revision}" status="${goal.status}">`,
+          'You are working in Goal mode. Pursue the objective persistently and authentically, without shortcuts, false claims, fabricated evidence, or misleading the user.',
+          'The goal specification is authoritative:',
+          '<goal_specification>',
+          goal.specification,
+          '</goal_specification>',
+          'Keep working until every acceptance term in the specification is genuinely satisfied or a real blocker makes further progress impossible.',
+          'Call update_goal_status with status "completed" only after verifying that the full specification is satisfied. Include concrete completion evidence in the summary.',
+          'Call update_goal_status with status "blocked" only when a specific condition actually prevents further progress. Include the blocker and the work already attempted in the summary.',
+          'Do not classify ordinary difficulty, uncertainty, a long task, or the end of an iteration as blocked. If the goal is still achievable and incomplete, do not classify it; the system will continue the goal in another iteration.',
+          goal.status === 'paused'
+            ? 'The user paused automatic Goal iterations. Finish the current iteration responsibly, but do not assume the pause cancels the goal.'
+            : 'Automatic Goal iterations are active.',
+          '</goal_mode>',
+        ].join('\n')
+      : ''
+  )],
+  ['subagents', ({ subagents = [] } = {}) => (
+    Array.isArray(subagents) && subagents.length > 0
+      ? [
+          '<subagents>',
+          ...subagents.flatMap((subagent) => [
+            `<subagent thread_id="${escapeXml(subagent.threadId)}" status="${escapeXml(subagent.status)}">`,
+            `<initial_prompt>${escapeXml(
+              String(subagent.initialPrompt ?? '').replace(/\s+/g, ' ').trim().slice(0, 256),
+            )}</initial_prompt>`,
+            '</subagent>',
+          ]),
+          '</subagents>',
+        ].join('\n')
+      : ''
+  )],
+  ['environment', ({ tuning } = {}) => {
     const operatingSystem = {
       win32: 'Windows',
       darwin: 'macOS',
       linux: 'Linux',
     }[process.platform] ?? process.platform;
-    const shellPath = process.env.SHELL ?? process.env.ComSpec ?? process.env.COMSPEC;
-    const shell = process.env.MSYSTEM && shellPath?.toLowerCase().includes('bash')
-      ? 'Git Bash'
-      : shellPath
-        ? path.basename(shellPath)
-        : 'Unknown';
+    const terminalShell = resolveTerminalShell(
+      process.env,
+      process.platform,
+      tuning?.terminalShell,
+    );
 
     return [
       '<environment_info>',
       `User current OS: ${operatingSystem}`,
-      `User current shell: ${shell}`,
+      `Command execution shell: ${terminalShell.label}`,
       '</environment_info>',
     ].join('\n');
   }],

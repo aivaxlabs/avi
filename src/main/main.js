@@ -34,6 +34,7 @@ import {
   getMessages,
   getPreferences,
   getProviderCredentials,
+  listAllConversations,
   listConversations,
   listFavorites,
   listProviders,
@@ -43,6 +44,7 @@ import {
   setFavorite,
   setProviderCredentials,
   setProviders,
+  setTuningSettings,
   updateConversation,
 } from './database.js';
 import { ChatRunner } from './chat-runner.js';
@@ -51,6 +53,10 @@ import { listContextItems } from './context-injection.js';
 import { filePathToAttachment } from './files.js';
 import { ModelProviderRegistry } from './model-provider.js';
 import { McpManager } from './mcp-manager.js';
+import {
+  listInstalledTerminalShells,
+  resolveTerminalShell,
+} from './terminal-shell.js';
 import { providerTypes } from '../providers/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -170,6 +176,7 @@ function createWindow() {
     chatRunner = new ChatRunner({
       registry: providerRegistry,
       mcpManager,
+      getPreferences,
       sendEvent: (payload) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('chat:event', payload);
@@ -324,6 +331,21 @@ function registerIpc() {
     defaultProject: inspectProjectFolder(homedir()),
     windowMaterial: getNativeWindowOptions().backgroundMaterial ?? null,
   }));
+  ipcMain.handle('tuning:shells', () => {
+    const automaticShell = resolveTerminalShell();
+    return [
+      {
+        id: 'auto',
+        label: `Automatic · ${automaticShell.label}`,
+        executable: automaticShell.executable,
+      },
+      ...listInstalledTerminalShells(),
+    ];
+  });
+  ipcMain.handle('tuning:save', (_event, tuning) => {
+    resolveTerminalShell(process.env, process.platform, tuning?.terminalShell);
+    return setTuningSettings(tuning);
+  });
 
   ipcMain.handle('conversations:list', () => listConversationsWithProjects());
   ipcMain.handle('conversations:create', (_event, payload = {}) => (
@@ -351,6 +373,74 @@ function registerIpc() {
       : null;
   });
   ipcMain.handle('conversations:search', (_event, query) => searchChats(query));
+  ipcMain.handle('orchestration:overview', () => {
+    const conversations = listAllConversations();
+    const today = new Date().toDateString();
+    const isToday = (value) => new Date(value).toDateString() === today;
+    const tasks = conversations.map((conversation) => {
+      const messages = getMessages(conversation.id).filter((message) => !message.hidden);
+      const latestMessage = messages.at(-1) ?? null;
+      const latestAssistant = messages.findLast((message) => message.role === 'assistant') ?? null;
+      const goalStatus = conversation.goal?.status ?? null;
+      const ongoing = ['active', 'paused'].includes(goalStatus)
+        || latestAssistant?.status === 'streaming'
+        || latestMessage?.status === 'queued';
+
+      return {
+        ...conversation,
+        messages,
+        latestMessage,
+        latestAssistant,
+        ongoing,
+      };
+    });
+    const messagesToday = tasks.flatMap((task) => (
+      task.messages
+        .filter((message) => isToday(message.createdAt))
+        .map((message) => ({ ...message, conversationModel: task.model }))
+    ));
+    const modelUsage = new Map();
+
+    for (const message of messagesToday.filter((item) => item.role === 'assistant')) {
+      const model = message.model || message.conversationModel || 'Modelo desconhecido';
+      const totalTokens = Number(message.usage?.totalTokens)
+        || (Number(message.usage?.inputTokens) || 0)
+          + (Number(message.usage?.outputTokens) || 0);
+      const usage = modelUsage.get(model) ?? { id: model, messages: 0, tokens: 0 };
+      usage.messages += 1;
+      usage.tokens += totalTokens;
+      modelUsage.set(model, usage);
+    }
+
+    return {
+      metrics: {
+        messagesSent: messagesToday.filter((message) => message.role === 'user').length,
+        threadsOpened: conversations.filter(
+          (conversation) => conversation.conversationType === 'thread'
+            && isToday(conversation.createdAt),
+        ).length,
+        tokens: [...modelUsage.values()].reduce((total, usage) => total + usage.tokens, 0),
+        topModels: [...modelUsage.values()]
+          .sort((a, b) => b.messages - a.messages || b.tokens - a.tokens)
+          .slice(0, 5),
+      },
+      ongoing: tasks
+        .filter((task) => task.ongoing)
+        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+        .map(({ messages, latestMessage, latestAssistant, ongoing, ...task }) => task),
+      recentlyCompleted: tasks
+        .filter((task) => (
+          !task.ongoing
+          && (
+            task.goal?.status === 'completed'
+            || task.latestAssistant?.status === 'completed'
+          )
+        ))
+        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+        .slice(0, 8)
+        .map(({ messages, latestMessage, latestAssistant, ongoing, ...task }) => task),
+    };
+  });
   ipcMain.handle('side-chats:list', (_event, parentConversationId) => (
     listSideChats(parentConversationId).map(refreshConversationProject)
   ));
@@ -479,6 +569,27 @@ function registerIpc() {
   ipcMain.handle('chat:reorder-queued', (_event, payload) => chatRunner.reorderQueuedMessages(payload));
   ipcMain.handle('chat:stop', (_event, conversationId) => {
     chatRunner.stop(conversationId, { includeSubagents: true });
+    return true;
+  });
+  ipcMain.handle('goals:start', async (_event, payload = {}) => {
+    const result = await chatRunner.startGoal({
+      ...payload,
+      sendInitialPrompt: true,
+    });
+    return {
+      ...result,
+      conversation: refreshConversationProject(result.conversation),
+    };
+  });
+  ipcMain.handle('goals:change', async (_event, payload = {}) => {
+    const result = await chatRunner.changeGoal(payload);
+    return {
+      result,
+      conversation: refreshConversationProject(getConversation(payload.conversationId)),
+    };
+  });
+  ipcMain.handle('goals:resume', () => {
+    chatRunner.resumeGoals();
     return true;
   });
 

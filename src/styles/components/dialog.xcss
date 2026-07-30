@@ -100,6 +100,112 @@
   z-index: 90;
 }
 
+.goal-dialog-backdrop {
+  z-index: 85;
+}
+
+.goal-dialog {
+  width: min(620px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  color: var(--color-text);
+  background: var(--surface-dialog);
+  border: 1px solid var(--surface-dialog-border);
+  border-radius: 10px;
+  box-shadow: 0 28px 90px var(--shadow-dialog);
+
+  .dialog-header {
+    p {
+      max-width: 500px;
+      margin: 4px 0 0;
+      color: var(--color-muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+  }
+
+  > label {
+    margin-bottom: -7px;
+    color: var(--color-text-primary);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  > textarea {
+    width: 100%;
+    min-height: 190px;
+    resize: vertical;
+    padding: 11px 12px;
+    color: var(--color-text-strong);
+    background: var(--surface-muted-solid);
+    border: 1px solid var(--border-control);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.5;
+
+    &:focus-visible {
+      outline: 2px solid var(--border-accent);
+      outline-offset: 1px;
+    }
+
+    &:disabled {
+      opacity: .65;
+    }
+  }
+
+  .dialog-footer {
+    margin-top: 0;
+    align-items: end;
+
+    > span {
+      max-width: 340px;
+      line-height: 1.45;
+    }
+
+    > div {
+      display: flex;
+      gap: 7px;
+    }
+
+    .primary-mini {
+      color: var(--color-primary-text);
+      background: var(--color-primary-fill);
+      border-color: transparent;
+
+      &:hover {
+        background: var(--color-primary-hover);
+      }
+    }
+
+    button:focus-visible {
+      outline: 2px solid var(--border-accent);
+      outline-offset: 2px;
+    }
+
+    button:disabled {
+      opacity: .5;
+      cursor: wait;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .dialog-footer {
+      align-items: stretch;
+      display: grid;
+
+      > span {
+        max-width: none;
+      }
+
+      > div {
+        justify-content: end;
+      }
+    }
+  }
+}
+
 .permission-dialog {
   width: min(540px, 100%);
   display: grid;

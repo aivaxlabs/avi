@@ -63,6 +63,7 @@ export class StreamAccumulator {
         existing.invocationGoal = event.invocationGoal ?? existing.invocationGoal;
         existing.requiresHumanApproval =
           event.requiresHumanApproval ?? existing.requiresHumanApproval;
+        existing.isMcp = event.isMcp ?? existing.isMcp;
         return;
       }
 
@@ -76,6 +77,7 @@ export class StreamAccumulator {
         argumentsText: event.argumentsText ?? event.argumentsDelta ?? '',
         invocationGoal: event.invocationGoal ?? '',
         requiresHumanApproval: event.requiresHumanApproval ?? false,
+        isMcp: event.isMcp ?? false,
         status: 'running',
       });
       this.nextSequence += 1;

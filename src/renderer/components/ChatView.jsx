@@ -49,6 +49,8 @@ export function ChatView({
   onToggleFavorite,
   workMode,
   onWorkModeChange,
+  onGoalAction,
+  messageDeliveryMode = 'queue',
   compact = false,
   draftKey,
 }) {
@@ -68,13 +70,14 @@ export function ChatView({
   const [questionResolving, setQuestionResolving] = useState(false);
   const modelName = getModelDisplayName(models, currentModel);
   const queuedMessages = currentMessages
-    .filter((message) => ['queued', 'steered'].includes(message.status))
+    .filter((message) => !message.hidden && ['queued', 'steered'].includes(message.status))
     .sort((a, b) => (
       (a.queuePosition ?? Number.MAX_SAFE_INTEGER)
       - (b.queuePosition ?? Number.MAX_SAFE_INTEGER)
       || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     ));
   const visibleMessages = currentMessages
+    .filter((message) => !message.hidden)
     .filter((message) => !['queued', 'steered'].includes(message.status));
   const lastAssistantMessage = visibleMessages.findLast((message) => message.role === 'assistant');
   const lastMessage = visibleMessages.at(-1);
@@ -514,7 +517,12 @@ export function ChatView({
         onUseHome={onUseHome}
         onToggleFavorite={onToggleFavorite}
         workMode={workMode}
-        onWorkModeChange={onWorkModeChange}
+        onWorkModeChange={(nextWorkMode) => (
+          onWorkModeChange(nextWorkMode, currentConversation?.id)
+        )}
+        goal={currentConversation?.goal}
+        onGoalAction={onGoalAction}
+        messageDeliveryMode={messageDeliveryMode}
         draftKey={draftKey}
       />
     </Root>

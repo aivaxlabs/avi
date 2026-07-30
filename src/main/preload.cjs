@@ -6,6 +6,10 @@ contextBridge.exposeInMainWorld('chatApp', {
   app: {
     state: () => invoke('app:state'),
   },
+  tuning: {
+    shells: () => invoke('tuning:shells'),
+    save: (settings) => invoke('tuning:save', settings),
+  },
   conversations: {
     list: () => invoke('conversations:list'),
     create: (payload) => invoke('conversations:create', payload),
@@ -14,6 +18,9 @@ contextBridge.exposeInMainWorld('chatApp', {
     delete: (conversationId) => invoke('conversations:delete', conversationId),
     fork: (payload) => invoke('conversations:fork', payload),
     search: (query) => invoke('conversations:search', query),
+  },
+  orchestration: {
+    overview: () => invoke('orchestration:overview'),
   },
   sideChats: {
     list: (parentConversationId) => invoke('side-chats:list', parentConversationId),
@@ -61,6 +68,11 @@ contextBridge.exposeInMainWorld('chatApp', {
     cancelQueued: (payload) => invoke('chat:cancel-queued', payload),
     reorderQueued: (payload) => invoke('chat:reorder-queued', payload),
     stop: (conversationId) => invoke('chat:stop', conversationId),
+  },
+  goals: {
+    start: (payload) => invoke('goals:start', payload),
+    change: (payload) => invoke('goals:change', payload),
+    resume: () => invoke('goals:resume'),
   },
   files: {
     select: () => invoke('files:select'),

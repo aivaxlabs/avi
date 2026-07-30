@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import {
   mkdtemp,
   mkdir,
@@ -10,6 +11,10 @@ import {
   listContextItems,
   resolveDynamicContext,
 } from '../src/main/context-injection.js';
+import {
+  listInstalledTerminalShells,
+  resolveTerminalShell,
+} from '../src/main/terminal-shell.js';
 
 const root = await mkdtemp(path.join(tmpdir(), 'context-variants-'));
 
@@ -47,14 +52,63 @@ try {
   }
 
   const injected = await resolveDynamicContext({ workspacePath: root });
+  const terminalShell = resolveTerminalShell();
   if (
     !injected.includes('--- BEGIN AGENTS.foobar.md ---')
     || !injected.includes('nested/MEMORY.child.md')
     || injected.includes('--- BEGIN AGENT.invalid.md ---')
     || injected.includes('--- BEGIN NOTES.md ---')
+    || !injected.includes(`Command execution shell: ${terminalShell.label}`)
   ) {
     throw new Error('Context variants did not follow the expected root and nested rules.');
   }
+
+  await mkdir(path.join(root, 'git', 'bin'), { recursive: true });
+  await writeFile(path.join(root, 'git', 'bin', 'bash.exe'), '');
+  await mkdir(path.join(root, 'windows', 'System32'), { recursive: true });
+  await writeFile(path.join(root, 'windows', 'System32', 'cmd.exe'), '');
+  const windowsEnvironment = {
+    SHELL: '/usr/bin/bash',
+    MSYSTEM: 'MINGW64',
+    EXEPATH: path.join(root, 'git'),
+    SystemRoot: path.join(root, 'windows'),
+    ComSpec: path.join(root, 'windows', 'System32', 'cmd.exe'),
+  };
+  assert.deepEqual(
+    resolveTerminalShell(windowsEnvironment, 'win32'),
+    {
+      executable: path.join(root, 'git', 'bin', 'bash.exe'),
+      commandArguments: ['-c'],
+      label: 'Git Bash',
+    },
+  );
+  assert.deepEqual(
+    resolveTerminalShell({
+      SystemRoot: path.join(root, 'windows'),
+      ComSpec: path.join(root, 'windows', 'System32', 'cmd.exe'),
+    }, 'win32'),
+    {
+      executable: path.join(root, 'windows', 'System32', 'cmd.exe'),
+      commandArguments: ['/d', '/s', '/c'],
+      label: 'Command Prompt',
+    },
+  );
+  assert.deepEqual(
+    resolveTerminalShell(windowsEnvironment, 'win32', 'cmd'),
+    {
+      executable: path.join(root, 'windows', 'System32', 'cmd.exe'),
+      commandArguments: ['/d', '/s', '/c'],
+      label: 'Command Prompt',
+    },
+  );
+  assert.deepEqual(
+    listInstalledTerminalShells(windowsEnvironment, 'win32').map(({ id }) => id),
+    ['cmd', 'git-bash'],
+  );
+  assert.throws(
+    () => resolveTerminalShell(windowsEnvironment, 'win32', 'pwsh'),
+    /is not installed/,
+  );
 
   const planContext = await resolveDynamicContext({
     workspacePath: root,
@@ -77,6 +131,41 @@ try {
   if (injected.includes('<work_mode mode="plan">')) {
     throw new Error('Plan context was injected outside Plan mode.');
   }
+
+  const longSubagentPrompt = 'x'.repeat(300);
+  const subagentContext = await resolveDynamicContext({
+    workspacePath: root,
+    subagents: [
+      {
+        threadId: 'thread-running',
+        initialPrompt: longSubagentPrompt,
+        status: 'in_progress',
+      },
+      {
+        threadId: 'thread-completed',
+        initialPrompt: 'Completed task',
+        status: 'completed',
+      },
+      {
+        threadId: 'thread-failed',
+        initialPrompt: 'Failed task',
+        status: 'failed',
+      },
+    ],
+  });
+  assert.ok(subagentContext.includes(
+    '<subagent thread_id="thread-running" status="in_progress">',
+  ));
+  assert.ok(subagentContext.includes(
+    `<initial_prompt>${longSubagentPrompt.slice(0, 256)}</initial_prompt>`,
+  ));
+  assert.ok(!subagentContext.includes(longSubagentPrompt));
+  assert.ok(subagentContext.includes(
+    '<subagent thread_id="thread-completed" status="completed">',
+  ));
+  assert.ok(subagentContext.includes(
+    '<subagent thread_id="thread-failed" status="failed">',
+  ));
 
   console.log('Context variant discovery passed.');
 } finally {

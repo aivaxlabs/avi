@@ -6,6 +6,7 @@ import {
   Folder,
   FolderCog,
   FolderOpen,
+  LayoutDashboard,
   MessageSquarePlus,
   MoreHorizontal,
   PanelLeftClose,
@@ -32,11 +33,13 @@ export function Sidebar({
   onNewChat,
   onSelect,
   onSearch,
+  onOpenOrchestration,
   onFork,
   onDelete,
   onOpenProject,
   onSettings,
   collapsed,
+  orchestrationOpen,
   onToggleCollapsed,
 }) {
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
@@ -198,6 +201,15 @@ export function Sidebar({
         <button type="button" onClick={() => onNewChat()}>
           <MessageSquarePlus size={17} />
           <span>New chat</span>
+        </button>
+        <button
+          className={orchestrationOpen ? 'active' : undefined}
+          type="button"
+          aria-current={orchestrationOpen ? 'page' : undefined}
+          onClick={onOpenOrchestration}
+        >
+          <LayoutDashboard size={17} />
+          <span>Orchestration</span>
         </button>
         <button type="button" onClick={onSearch}>
           <Search size={17} />

@@ -59,6 +59,34 @@
     }
   }
 
+  .settings-search {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 4px 8px 10px;
+    padding: 0 9px;
+    color: var(--color-muted-light);
+    background: var(--surface-input);
+    border: 1px solid var(--border-input);
+    border-radius: 7px;
+
+    &:focus-within {
+      border-color: var(--border-accent);
+    }
+
+    input {
+      width: 100%;
+      min-width: 0;
+      padding: 0;
+      color: var(--color-text-primary);
+      background: transparent;
+      border: 0;
+      outline: 0;
+      font-size: 11px;
+    }
+  }
+
   .settings-sidebar-heading h1,
   .settings-sidebar-heading p,
   .settings-page-header h2,
@@ -122,21 +150,20 @@
   }
 
   .settings-page-header {
-    padding: 70px 48px 24px;
-    border-bottom: 1px solid var(--border-hairline);
+    padding: 82px 48px 30px;
 
     @media (max-width: 860px) {
-      padding: 64px 32px 22px;
+      padding: 72px 32px 26px;
     }
 
     @media (max-width: 700px) {
-      padding: 56px 20px 18px;
+      padding: 56px 20px 22px;
     }
   }
 
   .settings-page-header > div,
   .settings-content-inner {
-    width: min(840px, 100%);
+    width: min(768px, 100%);
     margin: 0 auto;
   }
 
@@ -167,7 +194,7 @@
 
   .settings-page-header h2 {
     color: var(--color-text-strong);
-    font-size: 24px;
+    font-size: 20px;
     font-weight: 500;
     line-height: 1.25;
   }
@@ -215,15 +242,15 @@
 
   .settings-content {
     min-height: 0;
-    padding: 32px 48px 48px;
+    padding: 8px 48px 48px;
     overflow: auto;
 
     @media (max-width: 860px) {
-      padding: 28px 32px 40px;
+      padding: 8px 32px 40px;
     }
 
     @media (max-width: 700px) {
-      padding: 24px 20px 32px;
+      padding: 8px 20px 32px;
     }
   }
 
@@ -234,6 +261,80 @@
   .settings-section {
     display: grid;
     gap: 16px;
+  }
+
+  .settings-tuning {
+    display: grid;
+    gap: 38px;
+
+    @media (max-width: 700px) {
+      gap: 30px;
+    }
+
+    .settings-section {
+      gap: 12px;
+    }
+
+    .settings-section-card {
+      gap: 0;
+      padding: 0 16px;
+      overflow: hidden;
+    }
+
+    .settings-field {
+      min-height: 66px;
+      grid-template-columns: minmax(0, 1fr) minmax(150px, auto);
+      column-gap: 24px;
+      row-gap: 3px;
+      padding: 12px 0;
+
+      + .settings-field {
+        border-top: 1px solid var(--border-hairline);
+      }
+
+      > span {
+        grid-column: 1;
+        grid-row: 1;
+        color: var(--color-text-strong);
+        font-weight: 500;
+      }
+
+      input,
+      select {
+        grid-column: 2;
+        grid-row: 1 / 3;
+        align-self: center;
+        justify-self: end;
+        width: min(280px, 100%);
+        height: 32px;
+        padding-block: 5px;
+      }
+
+      input[type="number"] {
+        width: 120px;
+      }
+
+      small {
+        grid-column: 1;
+        grid-row: 2;
+      }
+
+      @media (max-width: 700px) {
+        grid-template-columns: minmax(0, 1fr);
+
+        input,
+        select {
+          grid-column: 1;
+          grid-row: 3;
+          justify-self: stretch;
+          width: 100%;
+        }
+
+        input[type="number"] {
+          width: 100%;
+        }
+      }
+    }
   }
 
   .settings-section-heading h3 {
@@ -252,7 +353,7 @@
     padding: 24px;
     background: var(--surface-solid);
     border: 1px solid var(--border-panel);
-    border-radius: 10px;
+    border-radius: 14px;
 
     @media (max-width: 700px) {
       padding: 14px;
@@ -687,6 +788,10 @@
     font-size: 11px;
     font-weight: 400;
     line-height: 1.5;
+  }
+
+  .settings-field small.settings-field-warning {
+    color: var(--color-danger);
   }
 
   .subscription-auth {

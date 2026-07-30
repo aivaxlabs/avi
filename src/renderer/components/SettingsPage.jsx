@@ -13,7 +13,9 @@ import {
   Plus,
   RadioTower,
   Save,
+  Search,
   Server,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   Workflow,
@@ -136,11 +138,13 @@ function ActionMenu({
 export function SettingsPage({
   providers,
   providerTypes,
+  tuning,
   initialContextFolder = null,
   initialView = null,
   onClose,
   onSave,
   onRemove,
+  onSaveTuning,
 }) {
   const [view, setView] = useState(
     initialContextFolder ? 'context-folder' : initialView ?? 'list',
@@ -158,10 +162,17 @@ export function SettingsPage({
   const [mcpNavigation, setMcpNavigation] = useState(null);
   const [providerState, setProviderState] = useState(null);
   const [copiedProviderValue, setCopiedProviderValue] = useState('');
+  const [settingsQuery, setSettingsQuery] = useState('');
+  const [tuningDraft, setTuningDraft] = useState(tuning);
+  const [tuningSaved, setTuningSaved] = useState(false);
+  const [terminalShells, setTerminalShells] = useState(null);
   const selectedProvider = providers.find((provider) => provider.id === selectedId) ?? null;
   const selectedType = providerTypes.find((type) => (
     type.id === (providerDraft?.interface ?? selectedProvider?.interface)
   ));
+  const selectedTerminalShell = terminalShells?.find(
+    (shell) => shell.id === tuningDraft?.terminalShell,
+  );
 
   useEffect(() => {
     if (view !== 'context-folders') return undefined;
@@ -179,6 +190,25 @@ export function SettingsPage({
       })
       .finally(() => {
         if (!cancelled) setContextLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [view]);
+
+  useEffect(() => {
+    if (view !== 'tuning') return undefined;
+    let cancelled = false;
+    setTerminalShells(null);
+    setError('');
+    window.chatApp.tuning.shells()
+      .then((shells) => {
+        if (!cancelled) setTerminalShells(shells);
+      })
+      .catch((nextError) => {
+        if (!cancelled) {
+          setError(nextError instanceof Error ? nextError.message : String(nextError));
+        }
       });
     return () => {
       cancelled = true;
@@ -283,6 +313,7 @@ export function SettingsPage({
     'context-folders': 'Context management',
     'context-folder': selectedContextFolder?.name || 'Context',
     mcp: mcpNavigation?.title || 'MCP servers',
+    tuning: 'Tuning',
   }[view];
   const pageDescription = {
     list: 'Manage the connections and models available in chats.',
@@ -295,8 +326,9 @@ export function SettingsPage({
     'context-folder': selectedContextFolder?.displayPath || '',
     mcp: mcpNavigation?.description
       || 'Manage global and per-folder Model Context Protocol servers.',
+    tuning: 'Adjust how the app manages context, tool execution, and parallel work.',
   }[view];
-  const showInlineBack = !['list', 'context-folders', 'mcp'].includes(view)
+  const showInlineBack = !['list', 'context-folders', 'mcp', 'tuning'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
 
   return (
@@ -307,53 +339,86 @@ export function SettingsPage({
           <ArrowLeft size={15} />
           Back to app
         </button>
-        <div className="settings-sidebar-heading">
-          <h1>Settings</h1>
-          <p>Application preferences</p>
+        <div className="settings-search">
+          <Search size={14} />
+          <input
+            type="search"
+            value={settingsQuery}
+            aria-label="Search settings"
+            placeholder="Search settings..."
+            onChange={(event) => setSettingsQuery(event.target.value.toLowerCase())}
+          />
         </div>
         <nav className="settings-navigation" aria-label="Settings sections">
           <span>Configuration</span>
-          <button
-            className={['list', 'type', 'provider', 'model'].includes(view) ? 'active' : undefined}
-            type="button"
-            aria-current={['list', 'type', 'provider', 'model'].includes(view) ? 'page' : undefined}
-            onClick={() => {
-              setView('list');
-              setSelectedId(null);
-              setProviderDraft(null);
-              setModelDraft(null);
-              setError('');
-            }}
-          >
-            <Server size={16} />
-            Providers
-          </button>
-          <button
-            className={view.startsWith('context-') ? 'active' : undefined}
-            type="button"
-            aria-current={view.startsWith('context-') ? 'page' : undefined}
-            onClick={() => {
-              setView('context-folders');
-              setSelectedContextFolder(null);
-              setContextFolder(null);
-              setError('');
-            }}
-          >
-            <FolderCog size={16} />
-            Context management
-          </button>
-          <button
-            className={view === 'mcp' ? 'active' : undefined}
-            type="button"
-            aria-current={view === 'mcp' ? 'page' : undefined}
-            onClick={() => {
-              setView('mcp');
-              setError('');
-            }}
-          >
-            <RadioTower size={16} />
-            MCP servers
-          </button>
+          {(!settingsQuery || 'providers models api'.includes(settingsQuery)) && (
+            <button
+              className={['list', 'type', 'provider', 'model'].includes(view) ? 'active' : undefined}
+              type="button"
+              aria-current={['list', 'type', 'provider', 'model'].includes(view) ? 'page' : undefined}
+              onClick={() => {
+                setView('list');
+                setSelectedId(null);
+                setProviderDraft(null);
+                setModelDraft(null);
+                setError('');
+              }}
+            >
+              <Server size={16} />
+              Providers
+            </button>
+          )}
+          {(!settingsQuery || 'context management instructions skills workflows'.includes(settingsQuery)) && (
+            <button
+              className={view.startsWith('context-') ? 'active' : undefined}
+              type="button"
+              aria-current={view.startsWith('context-') ? 'page' : undefined}
+              onClick={() => {
+                setView('context-folders');
+                setSelectedContextFolder(null);
+                setContextFolder(null);
+                setError('');
+              }}
+            >
+              <FolderCog size={16} />
+              Context management
+            </button>
+          )}
+          {(!settingsQuery || 'mcp servers integrations tools'.includes(settingsQuery)) && (
+            <button
+              className={view === 'mcp' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'mcp' ? 'page' : undefined}
+              onClick={() => {
+                setView('mcp');
+                setError('');
+              }}
+            >
+              <RadioTower size={16} />
+              MCP servers
+            </button>
+          )}
+          {(
+            !settingsQuery
+            || (
+              'tuning compaction output permission message queue steer enter '
+              + 'shell terminal timeout sub-agents'
+            ).includes(settingsQuery)
+          ) && (
+            <button
+              className={view === 'tuning' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'tuning' ? 'page' : undefined}
+              onClick={() => {
+                setView('tuning');
+                setError('');
+                setTuningSaved(false);
+              }}
+            >
+              <SlidersHorizontal size={16} />
+              Tuning
+            </button>
+          )}
         </nav>
       </aside>
 
@@ -649,6 +714,195 @@ export function SettingsPage({
             )}
 
             {view === 'mcp' && <McpSettings onNavigationChange={setMcpNavigation} />}
+
+            {view === 'tuning' && tuningDraft && (
+              <div className="settings-tuning">
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>Context and output</h3>
+                    <p>Control when context is compacted and how much tool output is retained.</p>
+                  </div>
+                  <div className="settings-section-card settings-form">
+                    <label className="settings-field settings-field-wide">
+                      <span>Automatic compaction</span>
+                      <select
+                        value={tuningDraft.automaticCompactionThreshold}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            automaticCompactionThreshold: Number(event.target.value),
+                          }));
+                        }}
+                      >
+                        <option value={0.8}>80%</option>
+                        <option value={0.9}>90%</option>
+                        <option value={0.95}>95%</option>
+                      </select>
+                      <small>
+                        Creates a context checkpoint after the selected share of the model window is used.
+                      </small>
+                    </label>
+                    <label className="settings-field settings-field-wide">
+                      <span>Tool output length</span>
+                      <select
+                        value={tuningDraft.toolOutputLimit ?? 'none'}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            toolOutputLimit: event.target.value === 'none'
+                              ? null
+                              : Number(event.target.value),
+                          }));
+                        }}
+                      >
+                        <option value={30_000}>Short · 30K characters</option>
+                        <option value={120_000}>Medium · 120K characters</option>
+                        <option value={200_000}>Long · 200K characters</option>
+                        <option value="none">None · Dangerous</option>
+                      </select>
+                      <small>
+                        Limits tool results added to the conversation. Disabling truncation can exhaust the context window.
+                      </small>
+                    </label>
+                  </div>
+                </section>
+
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>Execution and safety</h3>
+                    <p>Set the defaults applied to new conversations and terminal commands.</p>
+                  </div>
+                  <div className="settings-section-card settings-form">
+                    <label className="settings-field settings-field-wide">
+                      <span>Default permission mode</span>
+                      <select
+                        value={tuningDraft.defaultPermissionMode}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            defaultPermissionMode: event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="ask_for_approval">Ask for approval</option>
+                        <option value="approve_for_me">Approve for me</option>
+                        <option value="full_access">Full access</option>
+                      </select>
+                      <small>
+                        Used as the initial permission mode when a new conversation is created.
+                      </small>
+                    </label>
+                    <label className="settings-field settings-field-wide">
+                      <span>Message delivery</span>
+                      <select
+                        value={tuningDraft.messageDeliveryMode}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            messageDeliveryMode: event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="queue">Queue · Enter queues</option>
+                        <option value="steer">Steer · Enter steers</option>
+                      </select>
+                      <small>
+                        Queue uses Enter to enqueue and Ctrl+Enter to steer. Steer reverses these shortcuts.
+                      </small>
+                    </label>
+                    <label className="settings-field settings-field-wide">
+                      <span>Terminal shell</span>
+                      <select
+                        value={tuningDraft.terminalShell}
+                        disabled={!terminalShells}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            terminalShell: event.target.value,
+                          }));
+                        }}
+                      >
+                        {!selectedTerminalShell && tuningDraft.terminalShell !== 'auto' && (
+                          <option value={tuningDraft.terminalShell} disabled>
+                            {tuningDraft.terminalShell} · Not installed
+                          </option>
+                        )}
+                        {terminalShells?.map((shell) => (
+                          <option key={shell.id} value={shell.id}>
+                            {shell.label}
+                          </option>
+                        ))}
+                      </select>
+                      <small className={
+                        terminalShells && !selectedTerminalShell
+                          ? 'settings-field-warning'
+                          : undefined
+                      }>
+                        {!terminalShells
+                          ? 'Detecting installed shells...'
+                          : selectedTerminalShell
+                            ? `Commands run with ${selectedTerminalShell.label}. The installation is checked again before every command.`
+                            : 'This shell is no longer installed. Choose an available option to continue.'}
+                      </small>
+                    </label>
+                    <label className="settings-field settings-field-wide">
+                      <span>Terminal timeout</span>
+                      <input
+                        type="number"
+                        min="5"
+                        max="300"
+                        step="1"
+                        value={tuningDraft.terminalTimeoutSeconds}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            terminalTimeoutSeconds: Number(event.target.value),
+                          }));
+                        }}
+                      />
+                      <small>
+                        Default wait in seconds when a terminal command does not provide its own timeout. From 5 to 300.
+                      </small>
+                    </label>
+                  </div>
+                </section>
+
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>Orchestration</h3>
+                    <p>Bound parallel agent work to match the capacity of this machine.</p>
+                  </div>
+                  <div className="settings-section-card settings-form">
+                    <label className="settings-field settings-field-wide">
+                      <span>Running sub-agents</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="128"
+                        step="1"
+                        value={tuningDraft.maxConcurrentSubagents}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            maxConcurrentSubagents: Number(event.target.value),
+                          }));
+                        }}
+                      />
+                      <small>
+                        Global maximum of sub-agents that may run at the same time. From 1 to 128.
+                      </small>
+                    </label>
+                  </div>
+                </section>
+              </div>
+            )}
 
             {view === 'type' && (
               <section className="settings-section">
@@ -1117,15 +1371,34 @@ export function SettingsPage({
           </div>
         </div>
 
-        {(view === 'provider' || view === 'model') && (
+        {(view === 'provider' || view === 'model' || view === 'tuning') && (
           <footer className="settings-actions">
             <span className="settings-error" role="alert">{error}</span>
             <div>
               <button
                 className="primary-mini"
                 type="button"
-                disabled={busy || (view === 'provider' ? !providerDraft : !modelDraft)}
+                disabled={busy || (
+                  view === 'provider'
+                    ? !providerDraft
+                    : view === 'model'
+                      ? !modelDraft
+                      : !tuningDraft
+                        || !selectedTerminalShell
+                        || !Number.isInteger(tuningDraft.terminalTimeoutSeconds)
+                        || tuningDraft.terminalTimeoutSeconds < 5
+                        || tuningDraft.terminalTimeoutSeconds > 300
+                        || !Number.isInteger(tuningDraft.maxConcurrentSubagents)
+                        || tuningDraft.maxConcurrentSubagents < 1
+                        || tuningDraft.maxConcurrentSubagents > 128
+                )}
                 onClick={() => runProviderMutation(async () => {
+                  if (view === 'tuning') {
+                    const saved = await onSaveTuning(tuningDraft);
+                    setTuningDraft(saved);
+                    setTuningSaved(true);
+                    return;
+                  }
                   if (view === 'provider') {
                     const nextProviders = await onSave(providerDraft);
                     const saved = nextProviders.find((provider) => provider.id === providerDraft.id);
@@ -1155,12 +1428,18 @@ export function SettingsPage({
                   }
                 })}
               >
-                <Save size={14} />
+                {tuningSaved && view === 'tuning'
+                  ? <CheckCircle2 size={14} />
+                  : <Save size={14} />}
                 {busy
                   ? 'Saving...'
                   : view === 'provider'
                     ? 'Save provider'
-                    : 'Save model'}
+                    : view === 'model'
+                      ? 'Save model'
+                      : tuningSaved
+                        ? 'Saved'
+                        : 'Save tuning'}
               </button>
             </div>
           </footer>

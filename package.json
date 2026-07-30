@@ -14,6 +14,8 @@
     "syntax": "node scripts/check-syntax.mjs",
     "test:context": "bun scripts/test-context-injection.mjs",
     "test:plan": "electron scripts/test-plan-mode.mjs",
+    "test:goal": "electron scripts/test-goal-mode.mjs",
+    "test:server-retry": "electron scripts/test-server-retry.mjs",
     "test:interruptions": "electron scripts/test-interruption-propagation.mjs",
     "test:mcp": "electron scripts/test-mcp-manager.mjs",
     "test:side-chat": "electron scripts/test-side-chat-database.mjs",
@@ -24,6 +26,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
     "@vitejs/plugin-react": "^5.1.1",
+    "aivax-chat-electron": ".",
     "better-sqlite3": "^12.5.0",
     "lamejs": "^1.2.1",
     "lucide-react": "^0.555.0",

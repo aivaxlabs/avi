@@ -9,6 +9,7 @@
   color: var(--color-text);
   background: transparent;
   --base-transition: cubic-bezier(0.075, 0.82, 0.165, 1);
+  --primary-color: #43ec9a;
   --color-text: #191919;
   --color-on-accent: #f7f7f7;
   --color-text-strong: #0f0f0f;

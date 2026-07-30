@@ -29,6 +29,7 @@ import {
   SquareTerminal,
   Square,
   Star,
+  Target,
   Trash2,
   Workflow,
   X,
@@ -71,6 +72,11 @@ const composerCommands = [
     description: 'Create a detailed execution plan without changing anything',
   },
   {
+    id: 'goal',
+    name: 'goal',
+    description: 'Work persistently until a defined objective is completed or blocked',
+  },
+  {
     id: 'efforts',
     name: 'effort',
     description: 'Set the reasoning effort for the selected model',
@@ -102,6 +108,12 @@ const composerCommands = [
   },
 ];
 
+function shouldSteerMessage(messageDeliveryMode, isRunning, modifierPressed) {
+  return isRunning && (
+    (messageDeliveryMode === 'steer') !== modifierPressed
+  );
+}
+
 export function Composer({
   containerRef,
   isRunning,
@@ -131,6 +143,9 @@ export function Composer({
   onToggleFavorite,
   workMode = null,
   onWorkModeChange,
+  goal = null,
+  onGoalAction,
+  messageDeliveryMode = 'queue',
   draftKey = composerDraftKey,
 }) {
   const [text, setText] = useState(() => window.localStorage.getItem(draftKey) ?? '');
@@ -158,6 +173,10 @@ export function Composer({
   const [draggedQueuedMessageId, setDraggedQueuedMessageId] = useState(null);
   const [queuedMenu, setQueuedMenu] = useState(null);
   const [editingQueuedMessageId, setEditingQueuedMessageId] = useState(null);
+  const [goalDialogOpen, setGoalDialogOpen] = useState(false);
+  const [goalSpecification, setGoalSpecification] = useState('');
+  const [goalAction, setGoalAction] = useState(null);
+  const [goalNow, setGoalNow] = useState(Date.now());
   const plusHolderRef = useRef(null);
   const permissionMenuRef = useRef(null);
   const modelMenuRef = useRef(null);
@@ -271,13 +290,32 @@ export function Composer({
     projectLocked,
   ]);
   const activeCommandOption = commandOptions[commandIndex] ?? commandOptions[0] ?? null;
-  const canSend = !commandMode && (text.trim() || attachments.length > 0);
+  const activeGoal = goal && ['active', 'paused'].includes(goal.status) ? goal : null;
+  const effectiveWorkMode = activeGoal ? 'goal' : workMode;
+  const canSend = !commandMode && (
+    effectiveWorkMode === 'goal' && !activeGoal
+      ? Boolean(text.trim())
+      : Boolean(text.trim() || attachments.length > 0)
+  );
   const workingSubagents = subagents.filter((subagent) => subagent.status === 'working').length;
   const finishedSubagents = subagents.filter((subagent) => subagent.status === 'finished').length;
   const failedSubagents = subagents.filter((subagent) => subagent.status === 'failed').length;
   const contextPercent = contextUsage?.limit
     ? Math.min(100, Math.max(0, Math.round((contextUsage.tokens / contextUsage.limit) * 100)))
     : null;
+  const goalElapsedMs = activeGoal
+    ? activeGoal.activeElapsedMs + (
+        activeGoal.status === 'active' && activeGoal.resumedAt
+          ? Math.max(0, goalNow - new Date(activeGoal.resumedAt).getTime())
+          : 0
+      )
+    : 0;
+  const goalElapsedSeconds = Math.floor(goalElapsedMs / 1000);
+  const goalElapsedLabel = [
+    Math.floor(goalElapsedSeconds / 3600),
+    Math.floor((goalElapsedSeconds % 3600) / 60),
+    goalElapsedSeconds % 60,
+  ].map((part) => String(part).padStart(2, '0')).join(':');
   const filteredRecentProjects = useMemo(() => {
     const query = projectQuery.trim().toLowerCase();
     if (!query) return recentProjects;
@@ -305,6 +343,13 @@ export function Composer({
     window.addEventListener('beforeunload', saveOnClose);
     return () => window.removeEventListener('beforeunload', saveOnClose);
   }, [draftKey]);
+
+  useEffect(() => {
+    setGoalNow(Date.now());
+    if (activeGoal?.status !== 'active') return undefined;
+    const timer = window.setInterval(() => setGoalNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [activeGoal?.id, activeGoal?.status, activeGoal?.resumedAt]);
 
   useEffect(() => {
     setCommandIndex(0);
@@ -425,7 +470,7 @@ export function Composer({
       steer,
       reasoningEffort: activeReasoningEffort,
       permissionMode,
-      workMode,
+      workMode: effectiveWorkMode,
     };
     setText('');
     window.localStorage.removeItem(draftKey);
@@ -489,6 +534,16 @@ export function Composer({
         onWorkModeChange?.('plan');
         return;
       }
+      if (option.id === 'goal') {
+        exitCommandMode();
+        if (activeGoal) {
+          setGoalSpecification(activeGoal.specification);
+          setGoalDialogOpen(true);
+        } else {
+          onWorkModeChange?.('goal');
+        }
+        return;
+      }
       if (option.id === 'mcp' || option.id === 'restart-mcp') {
         exitCommandMode();
         onSend({
@@ -496,7 +551,7 @@ export function Composer({
           attachments: [],
           reasoningEffort: activeReasoningEffort,
           permissionMode,
-          workMode,
+          workMode: effectiveWorkMode,
         });
         return;
       }
@@ -563,16 +618,18 @@ export function Composer({
       return;
     }
 
-    if (event.key !== 'Enter') return;
-    if (event.shiftKey && isRunning) {
-      event.preventDefault();
-      submit({ steer: true });
-      return;
-    }
-    if (!event.shiftKey) {
-      event.preventDefault();
-      submit();
-    }
+    if (
+      event.key !== 'Enter'
+      || event.shiftKey
+      || event.altKey
+      || event.metaKey
+      || event.isComposing
+    ) return;
+
+    event.preventDefault();
+    submit({
+      steer: shouldSteerMessage(messageDeliveryMode, isRunning, event.ctrlKey),
+    });
   }
 
   async function startRecording() {
@@ -614,7 +671,7 @@ export function Composer({
       attachments: [attachment],
       reasoningEffort: activeReasoningEffort,
       permissionMode,
-      workMode,
+      workMode: effectiveWorkMode,
     });
   }
 
@@ -646,6 +703,66 @@ export function Composer({
             Send
           </button>
         </div>
+      )}
+      {activeGoal && (
+        <ComposerStrip
+          className={`goal-strip${activeGoal.status === 'paused' ? ' paused' : ''}`}
+          aria-label={`Goal ${activeGoal.status}`}
+        >
+          <Target size={15} aria-hidden="true" />
+          <span className="goal-strip-copy">
+            <strong title={activeGoal.specification}>{activeGoal.specification}</strong>
+            <small>
+              <Clock3 size={12} aria-hidden="true" />
+              <span>{goalElapsedLabel}</span>
+              <span aria-hidden="true">·</span>
+              <span>{activeGoal.status === 'paused' ? 'Paused' : 'Working'}</span>
+            </small>
+          </span>
+          <span className="goal-strip-actions">
+            <button
+              type="button"
+              disabled={Boolean(goalAction)}
+              title={activeGoal.status === 'paused' ? 'Resume Goal' : 'Pause Goal'}
+              aria-label={activeGoal.status === 'paused' ? 'Resume Goal' : 'Pause Goal'}
+              onClick={async () => {
+                const action = activeGoal.status === 'paused' ? 'resume' : 'pause';
+                setGoalAction(action);
+                await onGoalAction?.(action);
+                setGoalAction(null);
+              }}
+            >
+              {activeGoal.status === 'paused'
+                ? <Play size={14} aria-hidden="true" />
+                : <Pause size={14} aria-hidden="true" />}
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(goalAction)}
+              title="Edit Goal"
+              aria-label="Edit Goal"
+              onClick={() => {
+                setGoalSpecification(activeGoal.specification);
+                setGoalDialogOpen(true);
+              }}
+            >
+              <Pencil size={14} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(goalAction)}
+              title="Stop Goal"
+              aria-label="Stop Goal"
+              onClick={async () => {
+                setGoalAction('stop');
+                await onGoalAction?.('stop');
+                setGoalAction(null);
+              }}
+            >
+              <Square size={13} aria-hidden="true" />
+            </button>
+          </span>
+        </ComposerStrip>
       )}
       {subagents.length > 0 && (
         <ComposerStrip
@@ -918,19 +1035,50 @@ export function Composer({
               ? 'Filter models...'
               : commandMode === 'efforts'
                 ? 'Filter reasoning efforts...'
-                : workMode === 'plan'
-                  ? 'Describe your task to generate a plan...'
-                  : `Message ${modelName || 'model'}`}
+                : activeGoal?.status === 'paused'
+                  ? 'Goal paused...'
+                  : activeGoal
+                    ? 'Guide the active Goal...'
+                    : workMode === 'goal'
+                      ? 'Describe the Goal...'
+                      : workMode === 'plan'
+                        ? 'Describe your task to generate a plan...'
+                        : `Message ${modelName || 'model'}`}
             aria-expanded={Boolean(commandMode)}
             aria-controls={commandMode ? 'composer-command-list' : undefined}
             aria-activedescendant={activeCommandOption ? `composer-command-option-${commandIndex}` : undefined}
           />
           <div className="plus-holder" ref={plusHolderRef}>
-            <button className="round-button" type="button" onClick={() => setPlusOpen((value) => !value)}>
+            <button
+              className="round-button"
+              type="button"
+              title="Composer actions"
+              aria-label="Open composer actions"
+              aria-haspopup="menu"
+              aria-expanded={plusOpen}
+              onClick={() => setPlusOpen((value) => !value)}
+            >
               <Plus size={18} />
             </button>
             {plusOpen && (
               <DropdownMenu className="attachment-dropdown-menu" role="menu">
+                <DropdownMenuItem
+                  active={Boolean(activeGoal) || workMode === 'goal'}
+                  icon={<Target size={14} />}
+                  role="menuitemcheckbox"
+                  aria-checked={Boolean(activeGoal) || workMode === 'goal'}
+                  onClick={() => {
+                    if (activeGoal) {
+                      setGoalSpecification(activeGoal.specification);
+                      setGoalDialogOpen(true);
+                    } else {
+                      onWorkModeChange?.(workMode === 'goal' ? null : 'goal');
+                    }
+                    setPlusOpen(false);
+                  }}
+                >
+                  Goal
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   active={workMode === 'plan'}
                   icon={<ListChecks size={14} />}
@@ -993,16 +1141,19 @@ export function Composer({
                 </DropdownMenu>
               )}
             </div>
-            {workMode === 'plan' && (
+            {workMode && !activeGoal && (
               <button
-                className="plan-mode-chip"
+                className="work-mode-chip"
                 type="button"
-                title="Exit Plan mode"
-                aria-label="Exit Plan mode"
+                title={`Exit ${workMode === 'goal' ? 'Goal' : 'Plan'} mode`}
+                aria-label={`Exit ${workMode === 'goal' ? 'Goal' : 'Plan'} mode`}
                 onClick={() => onWorkModeChange?.(null)}
               >
+                {workMode === 'goal'
+                  ? <Target size={12} aria-hidden="true" />
+                  : <ListChecks size={12} aria-hidden="true" />}
+                <span>{workMode === 'goal' ? 'Goal' : 'Plan'}</span>
                 <X size={12} aria-hidden="true" />
-                <span>Plan</span>
               </button>
             )}
           </div>
@@ -1158,7 +1309,9 @@ export function Composer({
             <button
               className="round-button send-button"
               type="button"
-              onClick={(event) => submit({ steer: event.shiftKey })}
+              onClick={(event) => submit({
+                steer: shouldSteerMessage(messageDeliveryMode, isRunning, event.ctrlKey),
+              })}
               aria-label="Send"
             >
               <ArrowUp size={18} />
@@ -1297,6 +1450,97 @@ export function Composer({
           <span>{contextPercent === null ? '—' : contextPercent}%</span>
         </div>
       </div>
+      {goalDialogOpen && createPortal(
+        <div
+          className="dialog-backdrop goal-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target !== event.currentTarget || goalAction) return;
+            setGoalDialogOpen(false);
+            queueMicrotask(() => textAreaRef.current?.focus());
+          }}
+        >
+          <form
+            className="goal-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="goal-dialog-title"
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape' || goalAction) return;
+              event.preventDefault();
+              setGoalDialogOpen(false);
+              queueMicrotask(() => textAreaRef.current?.focus());
+            }}
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const specification = goalSpecification.trim();
+              if (!specification || goalAction) return;
+              setGoalAction('edit');
+              const saved = await onGoalAction?.('edit', specification);
+              setGoalAction(null);
+              if (saved === false) return;
+              setGoalDialogOpen(false);
+              queueMicrotask(() => textAreaRef.current?.focus());
+            }}
+          >
+            <header className="dialog-header">
+              <div>
+                <h2 id="goal-dialog-title">Edit Goal</h2>
+                <p>
+                  Define the objective, acceptance terms, constraints, and the conditions for
+                  authentic completion.
+                </p>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                disabled={Boolean(goalAction)}
+                aria-label="Close Goal dialog"
+                onClick={() => {
+                  setGoalDialogOpen(false);
+                  queueMicrotask(() => textAreaRef.current?.focus());
+                }}
+              >
+                <X size={16} />
+              </button>
+            </header>
+            <label htmlFor="goal-specification">Goal specification</label>
+            <textarea
+              id="goal-specification"
+              autoFocus
+              rows={9}
+              value={goalSpecification}
+              disabled={Boolean(goalAction)}
+              placeholder="Describe the objective, what must be true at the end, and any constraints the agent must respect."
+              onChange={(event) => setGoalSpecification(event.target.value)}
+            />
+            <footer className="dialog-footer">
+              <span>The agent will keep iterating until it completes or blocks this Goal.</span>
+              <div>
+                <button
+                  type="button"
+                  disabled={Boolean(goalAction)}
+                  onClick={() => {
+                    setGoalDialogOpen(false);
+                    queueMicrotask(() => textAreaRef.current?.focus());
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="primary-mini"
+                  type="submit"
+                  disabled={Boolean(goalAction) || !goalSpecification.trim()}
+                >
+                  {goalAction
+                    ? 'Saving...'
+                    : 'Save changes'}
+                </button>
+              </div>
+            </footer>
+          </form>
+        </div>,
+        document.body,
+      )}
       {modelPickerOpen && (
         <ModelPicker
           models={models}

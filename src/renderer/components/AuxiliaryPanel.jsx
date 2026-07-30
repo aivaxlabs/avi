@@ -146,6 +146,8 @@ export function AuxiliaryPanel({
   onToggleFavorite,
   workMode,
   onWorkModeChange,
+  onGoalAction,
+  messageDeliveryMode = 'queue',
 }) {
   const tabs = [
     ...sideChats.map((sideChat) => ({
@@ -432,6 +434,10 @@ export function AuxiliaryPanel({
             onToggleFavorite={onToggleFavorite}
             workMode={workMode}
             onWorkModeChange={onWorkModeChange}
+            onGoalAction={(action, specification) => (
+              onGoalAction(activeThread, action, specification)
+            )}
+            messageDeliveryMode={messageDeliveryMode}
             draftKey={`aivax.composer.${
               activeThread.isSubagent ? 'subagent' : 'side'
             }.${activeThread.id}`}

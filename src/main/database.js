@@ -18,6 +18,16 @@ const db = new Database(join(storageDir, 'aivax.sqlite'));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+const defaultTuningSettings = Object.freeze({
+  automaticCompactionThreshold: 0.9,
+  toolOutputLimit: 120_000,
+  defaultPermissionMode: 'approve_for_me',
+  messageDeliveryMode: 'queue',
+  terminalShell: 'auto',
+  terminalTimeoutSeconds: 30,
+  maxConcurrentSubagents: 128,
+});
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS session_values (
     key TEXT PRIMARY KEY,
@@ -34,6 +44,7 @@ db.exec(`
     git_branch TEXT,
     conversation_type TEXT NOT NULL DEFAULT 'thread',
     parent_conversation_id TEXT,
+    initial_prompt TEXT,
     context_checkpoint TEXT NOT NULL DEFAULT '',
     checkpoint_message_id TEXT,
     context_tokens INTEGER NOT NULL DEFAULT 0,
@@ -50,6 +61,8 @@ db.exec(`
     model TEXT,
     reasoning_effort TEXT,
     work_mode TEXT,
+    goal_id TEXT,
+    hidden INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
     segments TEXT NOT NULL DEFAULT '[]',
@@ -61,8 +74,30 @@ db.exec(`
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS goals (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    specification TEXT NOT NULL,
+    status TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1,
+    model TEXT NOT NULL,
+    reasoning_effort TEXT,
+    permission_mode TEXT NOT NULL,
+    active_elapsed_ms INTEGER NOT NULL DEFAULT 0,
+    resumed_at TEXT,
+    result_summary TEXT,
+    tokens_transacted INTEGER,
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    ended_at TEXT,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
     ON messages(conversation_id, created_at);
+
+  CREATE INDEX IF NOT EXISTS idx_goals_conversation_started
+    ON goals(conversation_id, started_at DESC);
 
   CREATE TABLE IF NOT EXISTS model_favorites (
     model_id TEXT PRIMARY KEY,
@@ -82,6 +117,12 @@ if (!db.pragma('table_info(messages)').some((column) => column.name === 'reasoni
 if (!db.pragma('table_info(messages)').some((column) => column.name === 'work_mode')) {
   db.exec('ALTER TABLE messages ADD COLUMN work_mode TEXT');
 }
+if (!db.pragma('table_info(messages)').some((column) => column.name === 'goal_id')) {
+  db.exec('ALTER TABLE messages ADD COLUMN goal_id TEXT');
+}
+if (!db.pragma('table_info(messages)').some((column) => column.name === 'hidden')) {
+  db.exec('ALTER TABLE messages ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
+}
 const conversationColumns = db.pragma('table_info(conversations)');
 if (!conversationColumns.some((column) => column.name === 'project_path')) {
   db.exec('ALTER TABLE conversations ADD COLUMN project_path TEXT');
@@ -94,6 +135,9 @@ if (!conversationColumns.some((column) => column.name === 'conversation_type')) 
 }
 if (!conversationColumns.some((column) => column.name === 'parent_conversation_id')) {
   db.exec('ALTER TABLE conversations ADD COLUMN parent_conversation_id TEXT');
+}
+if (!conversationColumns.some((column) => column.name === 'initial_prompt')) {
+  db.exec('ALTER TABLE conversations ADD COLUMN initial_prompt TEXT');
 }
 if (!conversationColumns.some((column) => column.name === 'context_checkpoint')) {
   db.exec("ALTER TABLE conversations ADD COLUMN context_checkpoint TEXT NOT NULL DEFAULT ''");
@@ -144,15 +188,55 @@ const statements = {
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
   `),
   getValue: db.prepare('SELECT value FROM session_values WHERE key = ?'),
+  insertGoal: db.prepare(`
+    INSERT INTO goals (
+      id, conversation_id, specification, status, revision, model, reasoning_effort,
+      permission_mode, active_elapsed_ms, resumed_at, result_summary, tokens_transacted,
+      started_at, updated_at, ended_at
+    )
+    VALUES (
+      @id, @conversationId, @specification, @status, @revision, @model, @reasoningEffort,
+      @permissionMode, @activeElapsedMs, @resumedAt, @resultSummary, @tokensTransacted,
+      @startedAt, @updatedAt, @endedAt
+    )
+  `),
+  updateGoal: db.prepare(`
+    UPDATE goals
+    SET specification = @specification,
+        status = @status,
+        revision = @revision,
+        model = @model,
+        reasoning_effort = @reasoningEffort,
+        permission_mode = @permissionMode,
+        active_elapsed_ms = @activeElapsedMs,
+        resumed_at = @resumedAt,
+        result_summary = @resultSummary,
+        tokens_transacted = @tokensTransacted,
+        updated_at = @updatedAt,
+        ended_at = @endedAt
+    WHERE id = @id
+  `),
+  getGoal: db.prepare('SELECT * FROM goals WHERE id = ?'),
+  getLatestGoal: db.prepare(`
+    SELECT * FROM goals
+    WHERE conversation_id = ?
+    ORDER BY started_at DESC
+    LIMIT 1
+  `),
+  listContinuingGoals: db.prepare(`
+    SELECT * FROM goals
+    WHERE status = 'active'
+    ORDER BY started_at ASC
+  `),
   insertConversation: db.prepare(`
     INSERT INTO conversations (
       id, title, model, title_status, project_path, git_branch,
-      conversation_type, parent_conversation_id,
+      conversation_type, parent_conversation_id, initial_prompt,
       context_checkpoint, checkpoint_message_id, context_tokens, created_at, updated_at
     )
     VALUES (
       @id, @title, @model, @titleStatus, @projectPath, @gitBranch,
-      @conversationType, @parentConversationId,
+      @conversationType, @parentConversationId, @initialPrompt,
       @contextCheckpoint, @checkpointMessageId, @contextTokens, @createdAt, @updatedAt
     )
   `),
@@ -171,7 +255,7 @@ const statements = {
     SELECT c.*,
       COALESCE((
         SELECT content FROM messages
-        WHERE conversation_id = c.id AND role = 'user'
+        WHERE conversation_id = c.id AND role = 'user' AND hidden = 0
         ORDER BY created_at LIMIT 1
       ), '') AS first_prompt
     FROM conversations c
@@ -179,7 +263,7 @@ const statements = {
       AND conversation_type = 'thread'
       AND EXISTS (
         SELECT 1 FROM messages
-        WHERE conversation_id = c.id
+        WHERE conversation_id = c.id AND hidden = 0
       )
     ORDER BY updated_at DESC
   `),
@@ -187,7 +271,7 @@ const statements = {
     SELECT c.*,
       COALESCE((
         SELECT content FROM messages
-        WHERE conversation_id = c.id AND role = 'user'
+        WHERE conversation_id = c.id AND role = 'user' AND hidden = 0
         ORDER BY created_at LIMIT 1
       ), '') AS first_prompt
     FROM conversations c
@@ -198,9 +282,9 @@ const statements = {
   `),
   listSubagents: db.prepare(`
     SELECT c.*,
-      COALESCE((
+      COALESCE(c.initial_prompt, (
         SELECT content FROM messages
-        WHERE conversation_id = c.id AND role = 'user'
+        WHERE conversation_id = c.id AND role = 'user' AND hidden = 0
         ORDER BY created_at DESC LIMIT 1
       ), '') AS first_prompt
     FROM conversations c
@@ -213,7 +297,7 @@ const statements = {
     SELECT c.*,
       COALESCE((
         SELECT content FROM messages
-        WHERE conversation_id = c.id AND role = 'user'
+        WHERE conversation_id = c.id AND role = 'user' AND hidden = 0
         ORDER BY created_at LIMIT 1
       ), '') AS first_prompt
     FROM conversations c
@@ -229,11 +313,13 @@ const statements = {
   `),
   insertMessage: db.prepare(`
     INSERT INTO messages (
-      id, conversation_id, role, model, reasoning_effort, work_mode, status, content, segments, attachments,
+      id, conversation_id, role, model, reasoning_effort, work_mode, goal_id, hidden,
+      status, content, segments, attachments,
       continuations, usage, created_at, updated_at
     )
     VALUES (
-      @id, @conversationId, @role, @model, @reasoningEffort, @workMode, @status, @content, @segments, @attachments,
+      @id, @conversationId, @role, @model, @reasoningEffort, @workMode, @goalId, @hidden,
+      @status, @content, @segments, @attachments,
       @continuations, @usage, @createdAt, @updatedAt
     )
   `),
@@ -259,7 +345,7 @@ const statements = {
     SELECT m.*, c.title AS conversation_title
     FROM messages m
     JOIN conversations c ON c.id = m.conversation_id
-    WHERE c.deleted_at IS NULL AND c.conversation_type = 'thread'
+    WHERE c.deleted_at IS NULL AND c.conversation_type = 'thread' AND m.hidden = 0
     ORDER BY m.updated_at DESC
   `),
   listFavorites: db.prepare('SELECT model_id FROM model_favorites ORDER BY created_at DESC'),
@@ -270,7 +356,14 @@ const statements = {
 export function getPreferences() {
   return {
     lastModel: readJson('lastModel'),
+    tuning: normalizeTuningSettings(readJson('tuningSettings')),
   };
+}
+
+export function setTuningSettings(value) {
+  const tuning = normalizeTuningSettings(value, true);
+  writeJson('tuningSettings', tuning);
+  return tuning;
 }
 
 export function listProviders() {
@@ -356,6 +449,30 @@ export function closeDatabase() {
   if (db.open) db.close();
 }
 
+export function insertGoal(goal) {
+  statements.insertGoal.run(goal);
+  return getGoal(goal.id);
+}
+
+export function updateGoal(goal) {
+  statements.updateGoal.run(goal);
+  return getGoal(goal.id);
+}
+
+export function getGoal(id) {
+  const row = statements.getGoal.get(id);
+  return row ? mapGoal(row) : null;
+}
+
+export function getGoalForConversation(conversationId) {
+  const row = statements.getLatestGoal.get(conversationId);
+  return row ? mapGoal(row) : null;
+}
+
+export function listContinuingGoals() {
+  return statements.listContinuingGoals.all().map(mapGoal);
+}
+
 export function createConversation({
   title = 'New chat',
   model = '',
@@ -363,6 +480,7 @@ export function createConversation({
   gitBranch = null,
   conversationType = 'thread',
   parentConversationId = null,
+  initialPrompt = null,
   titleStatus = 'pending',
 } = {}) {
   const now = timestamp();
@@ -375,6 +493,7 @@ export function createConversation({
     gitBranch,
     conversationType,
     parentConversationId,
+    initialPrompt,
     contextCheckpoint: '',
     checkpointMessageId: null,
     contextTokens: 0,
@@ -460,7 +579,9 @@ export function insertMessage(message) {
     role: message.role,
     model: message.model ?? null,
     reasoningEffort: message.reasoningEffort ?? null,
-    workMode: message.workMode === 'plan' ? 'plan' : null,
+    workMode: ['plan', 'goal'].includes(message.workMode) ? message.workMode : null,
+    goalId: message.goalId ?? null,
+    hidden: message.hidden ? 1 : 0,
     status: message.status ?? 'completed',
     content: message.content ?? '',
     segments: stringify(message.segments ?? []),
@@ -533,6 +654,7 @@ export function forkConversation(id, {
   throughMessageId = null,
   sideChat = false,
   subagent = false,
+  subagentPrompt = null,
 } = {}) {
   const source = getConversation(id);
   const childThread = sideChat || subagent;
@@ -570,21 +692,24 @@ export function forkConversation(id, {
     gitBranch: source.gitBranch,
     conversationType: sideChat ? 'side' : subagent ? 'subagent' : 'thread',
     parentConversationId: childThread ? source.id : null,
+    initialPrompt: subagent ? String(subagentPrompt ?? '').trim() || null : null,
     titleStatus: childThread ? 'generated' : 'pending',
   });
   const sourceMessages = getMessages(id);
   const throughIndex = throughMessageId
     ? sourceMessages.findIndex((message) => message.id === throughMessageId)
     : -1;
-  const messages = throughIndex >= 0
-    ? sourceMessages.slice(0, throughIndex + 1)
-    : sourceMessages.filter((message) => (
-        !childThread
-        || (
-          !['queued', 'steered'].includes(message.status)
-          && (!subagent || message.status !== 'streaming')
-        )
-      ));
+  const messages = (
+    throughIndex >= 0
+      ? sourceMessages.slice(0, throughIndex + 1)
+      : sourceMessages.filter((message) => (
+          !childThread
+          || (
+            !['queued', 'steered'].includes(message.status)
+            && (!subagent || message.status !== 'streaming')
+          )
+        ))
+  ).filter((message) => !message.hidden);
   const now = Date.now();
   const copiedMessageIds = new Map();
   for (let index = 0; index < messages.length; index += 1) {
@@ -594,6 +719,7 @@ export function forkConversation(id, {
       ...messages[index],
       id: messageId,
       conversationId: target.id,
+      goalId: null,
       status: sideChat && messages[index].status === 'streaming'
         ? 'completed'
         : messages[index].status,
@@ -825,6 +951,53 @@ function readJson(key) {
   return row ? parse(row.value, null) : null;
 }
 
+function normalizeTuningSettings(value, strict = false) {
+  const tuning = value && typeof value === 'object' ? value : {};
+  const automaticCompactionThreshold = Number(tuning.automaticCompactionThreshold);
+  const toolOutputLimit = tuning.toolOutputLimit === null
+    ? null
+    : Number(tuning.toolOutputLimit);
+  const terminalTimeoutSeconds = Number(tuning.terminalTimeoutSeconds);
+  const maxConcurrentSubagents = Number(tuning.maxConcurrentSubagents);
+
+  const normalized = {
+    automaticCompactionThreshold: [0.8, 0.9, 0.95].includes(automaticCompactionThreshold)
+      ? automaticCompactionThreshold
+      : defaultTuningSettings.automaticCompactionThreshold,
+    toolOutputLimit: [30_000, 120_000, 200_000, null].includes(toolOutputLimit)
+      ? toolOutputLimit
+      : defaultTuningSettings.toolOutputLimit,
+    defaultPermissionMode: [
+      'ask_for_approval',
+      'approve_for_me',
+      'full_access',
+    ].includes(tuning.defaultPermissionMode)
+      ? tuning.defaultPermissionMode
+      : defaultTuningSettings.defaultPermissionMode,
+    messageDeliveryMode: ['queue', 'steer'].includes(tuning.messageDeliveryMode)
+      ? tuning.messageDeliveryMode
+      : defaultTuningSettings.messageDeliveryMode,
+    terminalShell: typeof tuning.terminalShell === 'string' && tuning.terminalShell.trim()
+      ? tuning.terminalShell.trim()
+      : defaultTuningSettings.terminalShell,
+    terminalTimeoutSeconds: Number.isInteger(terminalTimeoutSeconds)
+      && terminalTimeoutSeconds >= 5
+      && terminalTimeoutSeconds <= 300
+      ? terminalTimeoutSeconds
+      : defaultTuningSettings.terminalTimeoutSeconds,
+    maxConcurrentSubagents: Number.isInteger(maxConcurrentSubagents)
+      && maxConcurrentSubagents >= 1
+      && maxConcurrentSubagents <= 128
+      ? maxConcurrentSubagents
+      : defaultTuningSettings.maxConcurrentSubagents,
+  };
+
+  if (strict && Object.entries(normalized).some(([key, entry]) => entry !== tuning[key])) {
+    throw new Error('One or more tuning settings are outside their allowed range.');
+  }
+  return normalized;
+}
+
 function mapConversation(row) {
   const projectPath = resolve(row.project_path || homedir());
   const relativeProjectPath = relative(homedir(), projectPath);
@@ -846,9 +1019,11 @@ function mapConversation(row) {
     isSideChat: row.conversation_type === 'side',
     isSubagent: row.conversation_type === 'subagent',
     parentConversationId: row.parent_conversation_id || null,
+    initialPrompt: row.initial_prompt || null,
     contextCheckpoint: row.context_checkpoint || '',
     checkpointMessageId: row.checkpoint_message_id || null,
     contextTokens: Number(row.context_tokens) || 0,
+    goal: getGoalForConversation(row.id),
     firstPrompt: row.first_prompt ?? '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -862,7 +1037,9 @@ function mapMessage(row) {
     role: row.role,
     model: row.model,
     reasoningEffort: row.reasoning_effort,
-    workMode: row.work_mode === 'plan' ? 'plan' : null,
+    workMode: ['plan', 'goal'].includes(row.work_mode) ? row.work_mode : null,
+    goalId: row.goal_id || null,
+    hidden: Boolean(row.hidden),
     status: row.status,
     content: row.content,
     segments: parse(row.segments, []),
@@ -871,6 +1048,28 @@ function mapMessage(row) {
     usage: parse(row.usage, {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapGoal(row) {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    specification: row.specification,
+    status: row.status,
+    revision: Number(row.revision) || 1,
+    model: row.model,
+    reasoningEffort: row.reasoning_effort || null,
+    permissionMode: row.permission_mode,
+    activeElapsedMs: Number(row.active_elapsed_ms) || 0,
+    resumedAt: row.resumed_at || null,
+    resultSummary: row.result_summary || null,
+    tokensTransacted: row.tokens_transacted === null
+      ? null
+      : Number(row.tokens_transacted) || 0,
+    startedAt: row.started_at,
+    updatedAt: row.updated_at,
+    endedAt: row.ended_at || null,
   };
 }
 

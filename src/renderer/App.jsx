@@ -10,6 +10,7 @@ import { ChatView } from './components/ChatView.jsx';
 import { SearchDialog } from './components/SearchDialog.jsx';
 import { SettingsPage } from './components/SettingsPage.jsx';
 import { McpOverlay } from './components/McpOverlay.jsx';
+import { OrchestrationPage } from './components/OrchestrationPage.jsx';
 import { AuxiliaryPanel } from './components/AuxiliaryPanel.jsx';
 import { PanelResizer } from './components/PanelResizer.jsx';
 import { WindowControls } from './components/WindowControls.jsx';
@@ -22,6 +23,7 @@ const savedSidebarWidth = Number(window.localStorage.getItem(sidebarWidthStorage
 const savedAuxiliaryPanelWidth = Number(
   window.localStorage.getItem(auxiliaryPanelWidthStorageKey),
 );
+const savedWorkMode = window.localStorage.getItem(workModeStorageKey);
 const initialSidebarWidth = Number.isFinite(savedSidebarWidth) && savedSidebarWidth > 0
   ? Math.max(180, Math.min(420, savedSidebarWidth))
   : 222;
@@ -41,6 +43,7 @@ export default function App() {
   const [favorites, setFavorites] = useState([]);
   const [running, setRunning] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [orchestrationOpen, setOrchestrationOpen] = useState(false);
   const [settingsContextFolder, setSettingsContextFolder] = useState(null);
   const [settingsInitialView, setSettingsInitialView] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -69,7 +72,7 @@ export default function App() {
   const [approvalResolving, setApprovalResolving] = useState(false);
   const [questionRequests, setQuestionRequests] = useState([]);
   const [workMode, setWorkMode] = useState(
-    window.localStorage.getItem(workModeStorageKey) === 'plan' ? 'plan' : null,
+    ['plan', 'goal'].includes(savedWorkMode) ? savedWorkMode : null,
   );
   const approvalDialogRef = useRef(null);
 
@@ -195,6 +198,7 @@ export default function App() {
           setSelectedId(nextConversations[0].id);
           setMessagesByConversation({ [nextConversations[0].id]: messages });
         }
+        await api.goals.resume();
       })
       .catch((nextError) => {
         if (!active) return;
@@ -206,6 +210,16 @@ export default function App() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (
+      workMode === 'plan'
+      && currentConversation?.goal
+      && ['active', 'paused'].includes(currentConversation.goal.status)
+    ) {
+      changeWorkMode(null, currentConversation.id);
+    }
+  }, [currentConversation?.goal?.status, currentConversation?.id, workMode]);
 
   useEffect(() => (
     api.onChatEvent((event) => {
@@ -470,8 +484,14 @@ export default function App() {
     model = currentModel,
     project = currentProject,
     permissionMode = window.localStorage.getItem('aivax.composer.permission-mode')
+      || appState?.tuning?.defaultPermissionMode
       || 'approve_for_me',
-    workMode: messageWorkMode = workMode,
+    workMode: messageWorkMode = (
+      currentConversation?.goal
+      && ['active', 'paused'].includes(currentConversation.goal.status)
+        ? 'goal'
+        : workMode
+    ),
   }) {
     if (!text.trim() && attachments.length === 0) return;
     const command = attachments.length === 0 ? text.trim().toLowerCase() : '';
@@ -488,6 +508,27 @@ export default function App() {
     if (!model) {
       setError('Configure at least one model before sending a message.');
       setSettingsOpen(true);
+      return;
+    }
+
+    const targetConversation = [
+      ...conversations,
+      ...sideChats,
+      ...subagents,
+    ].find((conversation) => conversation.id === conversationId);
+    if (
+      messageWorkMode === 'goal'
+      && !['active', 'paused'].includes(targetConversation?.goal?.status)
+    ) {
+      await startGoal({
+        conversationId,
+        model,
+        project,
+        specification: text,
+        attachments,
+        reasoningEffort,
+        permissionMode,
+      });
       return;
     }
 
@@ -552,6 +593,7 @@ export default function App() {
       assistantMessageId: messageId,
       resumeFromFailure,
       permissionMode: window.localStorage.getItem('aivax.composer.permission-mode')
+        || appState?.tuning?.defaultPermissionMode
         || 'approve_for_me',
     });
     if (!result?.conversation) return;
@@ -602,13 +644,100 @@ export default function App() {
     }
   }
 
-  function changeWorkMode(nextWorkMode) {
-    const normalizedWorkMode = nextWorkMode === 'plan' ? 'plan' : null;
+  async function changeWorkMode(nextWorkMode, conversationId = selectedId) {
+    const normalizedWorkMode = ['plan', 'goal'].includes(nextWorkMode)
+      ? nextWorkMode
+      : null;
+    if (normalizedWorkMode === 'plan' && conversationId) {
+      const target = [
+        ...conversations,
+        ...sideChats,
+        ...subagents,
+      ].find((conversation) => conversation.id === conversationId);
+      if (target?.goal && ['active', 'paused'].includes(target.goal.status)) {
+        const stopped = await changeGoal(conversationId, 'stop');
+        if (!stopped) return false;
+      }
+    }
     setWorkMode(normalizedWorkMode);
     if (normalizedWorkMode) {
       window.localStorage.setItem(workModeStorageKey, normalizedWorkMode);
     } else {
       window.localStorage.removeItem(workModeStorageKey);
+    }
+    return true;
+  }
+
+  async function startGoal({
+    conversationId = selectedId,
+    model = currentModel,
+    project = currentProject,
+    specification,
+    attachments = [],
+    reasoningEffort = null,
+    permissionMode = 'approve_for_me',
+  }) {
+    if (!model) {
+      setError('Configure at least one model before starting a Goal.');
+      setSettingsOpen(true);
+      return false;
+    }
+    try {
+      await changeWorkMode(null, conversationId);
+      const result = await api.goals.start({
+        conversationId,
+        model,
+        project,
+        specification,
+        attachments,
+        reasoningEffort,
+        permissionMode,
+      });
+      if (result.conversation.isSubagent) {
+        setSubagents((state) => upsertById(state, result.conversation));
+      } else if (result.conversation.isSideChat) {
+        setSideChats((state) => upsertById(state, result.conversation));
+      } else {
+        setConversations((state) => (
+          upsertById(state, result.conversation).sort(sortByUpdatedAt)
+        ));
+        setSelectedId(result.conversation.id);
+      }
+      setRunning((state) => ({
+        ...state,
+        [result.conversation.id]: !result.queued,
+      }));
+      return true;
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return false;
+    }
+  }
+
+  async function changeGoal(conversationId, action, specification = null) {
+    if (!conversationId) return false;
+    try {
+      const result = await api.goals.change({
+        conversationId,
+        action,
+        ...(specification === null ? {} : { specification }),
+      });
+      if (result.conversation.isSubagent) {
+        setSubagents((state) => upsertById(state, result.conversation));
+      } else if (result.conversation.isSideChat) {
+        setSideChats((state) => upsertById(state, result.conversation));
+      } else {
+        setConversations((state) => (
+          upsertById(state, result.conversation).sort(sortByUpdatedAt)
+        ));
+      }
+      if (action === 'stop') {
+        setRunning((state) => ({ ...state, [conversationId]: false }));
+      }
+      return true;
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return false;
     }
   }
 
@@ -867,6 +996,7 @@ export default function App() {
           key={`${settingsInitialView ?? 'providers'}:${settingsContextFolder?.path ?? ''}`}
           providers={providers}
           providerTypes={providerTypes}
+          tuning={appState.tuning}
           initialContextFolder={settingsContextFolder}
           initialView={settingsInitialView}
           onClose={() => {
@@ -876,6 +1006,15 @@ export default function App() {
           }}
           onSave={async (provider) => applyProviders(await api.providers.save(provider))}
           onRemove={async (providerId) => applyProviders(await api.providers.remove(providerId))}
+          onSaveTuning={async (tuning) => {
+            const savedTuning = await api.tuning.save(tuning);
+            window.localStorage.setItem(
+              'aivax.composer.permission-mode',
+              savedTuning.defaultPermissionMode,
+            );
+            setAppState((current) => ({ ...current, tuning: savedTuning }));
+            return savedTuning;
+          }}
         />
       ) : (
         <>
@@ -885,12 +1024,20 @@ export default function App() {
             selectedId={selectedId}
             running={running}
             onNewChat={(preset = {}) => {
+              setOrchestrationOpen(false);
               setSelectedId(null);
               setDraftProject(preset.project ?? currentProject ?? appState.defaultProject);
               setDraftModel(preset.modelId ?? appState.lastModel ?? models[0]?.id ?? '');
             }}
-            onSelect={selectConversation}
+            onSelect={(id) => {
+              setOrchestrationOpen(false);
+              selectConversation(id);
+            }}
             onSearch={() => setSearchOpen(true)}
+            onOpenOrchestration={() => {
+              setOrchestrationOpen(true);
+              setAuxiliaryPanelVisible(false);
+            }}
             onFork={forkConversation}
             onDelete={deleteConversation}
             onOpenProject={async (project) => {
@@ -906,6 +1053,7 @@ export default function App() {
               setSettingsOpen(true);
             }}
             collapsed={effectiveSidebarCollapsed}
+            orchestrationOpen={orchestrationOpen}
             onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
           />
           {!effectiveSidebarCollapsed && (
@@ -924,9 +1072,20 @@ export default function App() {
             />
           )}
           <div
-            className={`chat-workspace${auxiliaryPanelVisible ? ' with-auxiliary-panel' : ''}`}
+            className={`chat-workspace${auxiliaryPanelVisible && !orchestrationOpen
+              ? ' with-auxiliary-panel'
+              : ''}`}
           >
-            <ChatView
+            {orchestrationOpen ? (
+              <OrchestrationPage
+                models={models}
+                onOpenThread={(id) => {
+                  setOrchestrationOpen(false);
+                  selectConversation(id);
+                }}
+              />
+            ) : (
+              <ChatView
               {...shell}
               currentProject={currentProject}
               models={models}
@@ -977,8 +1136,13 @@ export default function App() {
               onToggleFavorite={toggleFavorite}
               workMode={workMode}
               onWorkModeChange={changeWorkMode}
-            />
-            {auxiliaryPanelVisible && (
+              onGoalAction={(action, specification) => (
+                changeGoal(selectedId, action, specification)
+              )}
+              messageDeliveryMode={appState.tuning.messageDeliveryMode}
+              />
+            )}
+            {!orchestrationOpen && auxiliaryPanelVisible && (
               <PanelResizer
                 label="Resize auxiliary panel"
                 controls="auxiliary-panel"
@@ -993,7 +1157,7 @@ export default function App() {
                 )}
               />
             )}
-            {!auxiliaryPanelVisible && (
+            {!orchestrationOpen && !auxiliaryPanelVisible && (
               <button
                 className="auxiliary-panel-toggle"
                 type="button"
@@ -1017,7 +1181,7 @@ export default function App() {
                 <PanelRightOpen size={17} />
               </button>
             )}
-            {auxiliaryPanelVisible && (
+            {!orchestrationOpen && auxiliaryPanelVisible && (
               <AuxiliaryPanel
                 sideChats={sideChats}
                 subagents={subagentsWithStatus}
@@ -1131,6 +1295,10 @@ export default function App() {
                 onToggleFavorite={toggleFavorite}
                 workMode={workMode}
                 onWorkModeChange={changeWorkMode}
+                onGoalAction={(thread, action, specification) => (
+                  changeGoal(thread.id, action, specification)
+                )}
+                messageDeliveryMode={appState.tuning.messageDeliveryMode}
               />
             )}
           </div>

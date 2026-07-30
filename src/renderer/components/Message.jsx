@@ -3,12 +3,27 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
+  CircleHelp,
+  CircleStop,
   Copy,
+  FilePenLine,
+  FileText,
+  FolderTree,
   GitFork,
+  Globe,
   Info,
+  MessageSquarePlus,
+  MessageSquareShare,
+  MessagesSquare,
   RotateCcw,
+  ScanSearch,
+  Search,
+  Send,
   Sparkles,
+  SquareFunction,
+  Target,
   TerminalSquare,
+  Wrench,
   Workflow,
 } from 'lucide-react';
 import Prism from 'prismjs';
@@ -24,6 +39,8 @@ import 'prismjs/components/prism-tsx';
 import 'prismjs/components/prism-typescript';
 import {
   isValidElement,
+  memo,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -38,6 +55,29 @@ import { answerTextFromTextualBlocks } from '../../shared/textual-blocks.js';
 const compactTokenFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 1,
+});
+const MARKDOWN_PLUGINS = Object.freeze([remarkGfm]);
+const MemoizedMarkdown = memo(ReactMarkdown);
+const TOOL_ICONS = Object.freeze({
+  ask_question: CircleHelp,
+  chat_create_thread: MessageSquarePlus,
+  chat_inspect_thread: ScanSearch,
+  chat_interrupt_thread: CircleStop,
+  chat_list_folders: FolderTree,
+  chat_list_threads: MessagesSquare,
+  chat_report_to_orchestrator: MessageSquareShare,
+  chat_send_prompt: Send,
+  chat_spawn_subagent: Bot,
+  file_search: Search,
+  grep_search: Search,
+  read_file: FileText,
+  read_terminal_output: TerminalSquare,
+  read_url: Globe,
+  run_in_terminal: TerminalSquare,
+  send_to_terminal: TerminalSquare,
+  start_goal: Target,
+  update_goal_status: Target,
+  write_file: FilePenLine,
 });
 
 export function Message({
@@ -481,19 +521,21 @@ function TimelineItem({
   );
 }
 
-function MarkdownSegment({ text, finalized, onImplementPlan }) {
+const MarkdownSegment = memo(function MarkdownSegment({ text, finalized, onImplementPlan }) {
   const [implementing, setImplementing] = useState(false);
+  const deferredText = useDeferredValue(text);
+  const renderedText = finalized ? text : deferredText;
   const components = useMemo(() => createMarkdownComponents(finalized), [finalized]);
   const parts = useMemo(() => {
     const parsed = [];
     const pattern = /<execution-plan>\s*([\s\S]*?\S)\s*<\/execution-plan>/g;
     let cursor = 0;
     let match;
-    while ((match = pattern.exec(text)) !== null) {
+    while ((match = pattern.exec(renderedText)) !== null) {
       if (match.index > cursor) {
         parsed.push({
           type: 'markdown',
-          text: text.slice(cursor, match.index),
+          text: renderedText.slice(cursor, match.index),
         });
       }
       parsed.push({
@@ -502,17 +544,17 @@ function MarkdownSegment({ text, finalized, onImplementPlan }) {
       });
       cursor = match.index + match[0].length;
     }
-    if (cursor < text.length) {
+    if (cursor < renderedText.length) {
       parsed.push({
         type: 'markdown',
-        text: text.slice(cursor),
+        text: renderedText.slice(cursor),
       });
     }
     return parsed;
-  }, [text]);
+  }, [renderedText]);
   const planCount = parts.filter((part) => part.type === 'execution-plan').length;
 
-  if (!text.trim()) return null;
+  if (!renderedText.trim()) return null;
   return (
     <>
       {parts.map((part, index) => (
@@ -524,9 +566,9 @@ function MarkdownSegment({ text, finalized, onImplementPlan }) {
           >
             <div className="execution-plan-label">Execution plan</div>
             <div className="markdown-body execution-plan-content">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+              <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>
                 {part.text}
-              </ReactMarkdown>
+              </MemoizedMarkdown>
             </div>
             {finalized && planCount === 1 && onImplementPlan && (
               <button
@@ -548,15 +590,15 @@ function MarkdownSegment({ text, finalized, onImplementPlan }) {
           </section>
         ) : part.text.trim() ? (
           <div key={`markdown:${index}`} className="markdown-body">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+            <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>
               {part.text}
-            </ReactMarkdown>
+            </MemoizedMarkdown>
           </div>
         ) : null
       ))}
     </>
   );
-}
+});
 
 function createMarkdownComponents(finalized) {
   return {
@@ -580,8 +622,10 @@ function createMarkdownComponents(finalized) {
 
 function CodeBlock({ code, language }) {
   const [copied, setCopied] = useState(false);
-  const grammar = Prism.languages[language];
-  const highlighted = grammar ? Prism.highlight(code, grammar, language) : '';
+  const highlighted = useMemo(() => {
+    const grammar = Prism.languages[language];
+    return grammar ? Prism.highlight(code, grammar, language) : '';
+  }, [code, language]);
   const label = language === 'text' ? 'Code' : language;
 
   function handleCopy() {
@@ -644,16 +688,18 @@ function WorkedBlock({ items, label }) {
         {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
       </button>
       <div className="worked-details" aria-hidden={!open}>
-        <div className="worked-details-inner">
-          {items.map((item, index) => (
-            <TimelineItem
-              key={item.id}
-              item={item}
-              streaming={false}
-              trailing={index === items.length - 1}
-            />
-          ))}
-        </div>
+        {open && (
+          <div className="worked-details-inner">
+            {items.map((item, index) => (
+              <TimelineItem
+                key={item.id}
+                item={item}
+                streaming={false}
+                trailing={index === items.length - 1}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -671,28 +717,28 @@ function ThinkingGroup({ items, streaming, trailing }) {
         {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
       </button>
       <div className="thinking-details" aria-hidden={!open}>
-        <div className="thinking-details-inner">
-          {items.map((item) => (
-            <MutedSegment key={item.id} segment={item} />
-          ))}
-        </div>
+        {open && (
+          <div className="thinking-details-inner">
+            {items.map((item) => (
+              <MutedSegment key={item.id} segment={item} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 function MutedSegment({ segment }) {
-  if (segment.type === 'reasoning') {
-    return (
-      <div className="reasoning-text">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
-      </div>
-    );
-  }
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const formattedDetails = useMemo(() => {
+    if (
+      !detailsOpen
+      || !['tool', 'server-tool', 'tool-call'].includes(segment.type)
+    ) {
+      return null;
+    }
 
-  if (segment.type === 'tool' || segment.type === 'server-tool' || segment.type === 'tool-call') {
-    const name = segment.name || segment.toolType || 'tool';
-    const reason = toolReason(segment);
     const rawInput = String(segment.argumentsText ?? '');
     const rawOutput = segment.resultText === undefined ? '' : String(segment.resultText);
     let input = rawInput;
@@ -703,25 +749,53 @@ function MutedSegment({ segment }) {
     try {
       output = JSON.stringify(JSON.parse(rawOutput), null, 2);
     } catch { }
+    return { input, output };
+  }, [detailsOpen, segment.argumentsText, segment.resultText, segment.type]);
+
+  if (segment.type === 'reasoning') {
+    return (
+      <div className="reasoning-text">
+        <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{segment.text}</MemoizedMarkdown>
+      </div>
+    );
+  }
+
+  if (segment.type === 'tool' || segment.type === 'server-tool' || segment.type === 'tool-call') {
+    const name = segment.name || segment.toolType || 'tool';
+    const ToolIcon = segment.isMcp || name.startsWith('mcp_')
+      ? SquareFunction
+      : TOOL_ICONS[name] ?? Wrench;
+    const reason = toolReason(segment);
 
     return (
-      <details className="tool-entry">
+      <details
+        className="tool-entry"
+        onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+      >
         <summary className="tool-line">
-          <TerminalSquare className="tool-line-icon" size={13} aria-hidden="true" />
+          <ToolIcon className="tool-line-icon" size={13} aria-hidden="true" />
           <strong>{name}</strong>
           {reason && <span>{reason}</span>}
           <ChevronRight className="tool-line-chevron" size={13} aria-hidden="true" />
         </summary>
-        <div className="tool-details">
-          <section>
-            <span>Input</span>
-            <pre><code>{input || '(empty input)'}</code></pre>
-          </section>
-          <section>
-            <span>Output</span>
-            <pre><code>{segment.resultText === undefined ? '(waiting for output)' : output || '(empty output)'}</code></pre>
-          </section>
-        </div>
+        {formattedDetails && (
+          <div className="tool-details">
+            <section>
+              <span>Input</span>
+              <pre><code>{formattedDetails.input || '(empty input)'}</code></pre>
+            </section>
+            <section>
+              <span>Output</span>
+              <pre>
+                <code>
+                  {segment.resultText === undefined
+                    ? '(waiting for output)'
+                    : formattedDetails.output || '(empty output)'}
+                </code>
+              </pre>
+            </section>
+          </div>
+        )}
       </details>
     );
   }
@@ -1009,7 +1083,7 @@ function decodeXmlEntities(text) {
 }
 
 function findTag(text, tag, start) {
-  return text.toLowerCase().indexOf(tag.toLowerCase(), start);
+  return text.indexOf(tag, start);
 }
 
 function nearestPositive(a, b) {

@@ -6,6 +6,11 @@ const EMPTY_PROVIDER_CONTRIBUTIONS = Object.freeze({
   tools: Object.freeze([]),
   auxiliaryPanels: Object.freeze([]),
 });
+const SERVER_CONNECT_TIMEOUT_MS = 30_000;
+const NORMAL_MAX_ATTEMPTS = 5;
+const INITIAL_RETRY_DELAY_MS = 200;
+const NORMAL_MAX_RETRY_DELAY_MS = 5_000;
+const GOAL_MAX_RETRY_DELAY_MS = 5 * 60_000;
 
 export class ModelProvider {
   constructor(config, implementation, services) {
@@ -78,14 +83,74 @@ export class ModelProvider {
       toolHistory,
       invocationContext,
     });
-    const response = await this.implementation.request({
-      provider: this.config,
-      model,
-      body,
-      signal,
-      invocationContext,
-      services: this.services,
-    });
+    const goalMode = invocationContext.workMode === 'goal';
+    const maxAttempts = goalMode ? Infinity : NORMAL_MAX_ATTEMPTS;
+    const maxRetryDelay = goalMode
+      ? GOAL_MAX_RETRY_DELAY_MS
+      : NORMAL_MAX_RETRY_DELAY_MS;
+    let response;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const attemptController = new AbortController();
+      const attemptSignal = AbortSignal.any([signal, attemptController.signal]);
+      let connectTimedOut = false;
+      const connectTimeout = setTimeout(() => {
+        connectTimedOut = true;
+        attemptController.abort(new Error('The server did not respond within 30 seconds.'));
+      }, SERVER_CONNECT_TIMEOUT_MS);
+
+      try {
+        response = await this.implementation.request({
+          provider: this.config,
+          model,
+          body,
+          signal: attemptSignal,
+          invocationContext,
+          services: this.services,
+        });
+      } catch (error) {
+        if (signal.aborted) {
+          throw signal.reason instanceof Error ? signal.reason : error;
+        }
+        if (!connectTimedOut || attempt === maxAttempts) {
+          throw connectTimedOut
+            ? new Error('The server did not respond within 30 seconds.')
+            : error;
+        }
+      } finally {
+        clearTimeout(connectTimeout);
+      }
+
+      const retryableResponse = response?.status >= 500 && response.status <= 599;
+      if (!connectTimedOut && (!retryableResponse || attempt === maxAttempts)) break;
+
+      if (retryableResponse) {
+        await response.body?.cancel();
+      }
+
+      const exponentialStep = Math.min(
+        attempt - 1,
+        Math.ceil(Math.log2(maxRetryDelay / INITIAL_RETRY_DELAY_MS)),
+      );
+      const retryDelay = Math.min(
+        INITIAL_RETRY_DELAY_MS * (2 ** exponentialStep),
+        maxRetryDelay,
+      );
+      await new Promise((resolveDelay, rejectDelay) => {
+        const retryTimeout = setTimeout(() => {
+          signal.removeEventListener('abort', abortDelay);
+          resolveDelay();
+        }, retryDelay);
+        const abortDelay = () => {
+          clearTimeout(retryTimeout);
+          rejectDelay(signal.reason instanceof Error
+            ? signal.reason
+            : new Error('The request was aborted.'));
+        };
+        signal.addEventListener('abort', abortDelay, { once: true });
+        if (signal.aborted) abortDelay();
+      });
+    }
 
     if (!response.ok) {
       const responseText = await response.text();

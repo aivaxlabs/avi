@@ -28,6 +28,7 @@ try {
   database = await import('../src/main/database.js');
   const { ChatRunner } = await import('../src/main/chat-runner.js');
   const clientTools = await import('../src/main/client-tools.js');
+  const { resolveTerminalShell } = await import('../src/main/terminal-shell.js');
   stopTerminals = clientTools.stopConversationTerminals;
   const {
     closeDatabase,
@@ -204,7 +205,79 @@ try {
   const readTerminalOutput = clientTools.CLIENT_TOOLS.find(
     (tool) => tool.name === 'read_terminal_output',
   );
-  const terminalCommand = 'bun -e "setInterval(() => {}, 1000)"';
+  const writeFileTool = clientTools.CLIENT_TOOLS.find((tool) => tool.name === 'write_file');
+  const writtenFile = join(testProfile, 'written-by-tool.md');
+  const writtenContent = '# Native write\n\nUTF-8: configuração\nCódigo: `$value` & "texto"!\n';
+  const writeResult = await writeFileTool.execute({
+    filePath: writtenFile,
+    content: writtenContent,
+  });
+  assert.equal(readFileSync(writtenFile, 'utf8'), writtenContent);
+  assert.equal(writeResult.bytesWritten, Buffer.byteLength(writtenContent, 'utf8'));
+  await assert.rejects(
+    writeFileTool.execute({ filePath: 'relative.md', content: '' }),
+    /filePath must be absolute/,
+  );
+
+  const terminalShell = resolveTerminalShell();
+  const failedTerminal = await runInTerminal.execute(
+    {
+      command: terminalShell.label === 'cmd.exe' ? 'exit /b 7' : 'exit 7',
+      explanation: 'Run a command with a controlled non-zero exit.',
+      goal: 'Verify failed terminal status.',
+      mode: 'sync',
+      timeout: 5,
+    },
+    {
+      signal: new AbortController().signal,
+      workspacePath: process.cwd(),
+      conversationId: 'failed-terminal-owner',
+    },
+  );
+  assert.equal(failedTerminal.status, 'failed');
+  assert.equal(failedTerminal.exitCode, 7, JSON.stringify(failedTerminal));
+  assert.equal(failedTerminal.shell, terminalShell.label);
+
+  if (process.platform === 'win32') {
+    const originalShell = process.env.SHELL;
+    const originalMsystem = process.env.MSYSTEM;
+    process.env.SHELL = '/usr/bin/bash';
+    process.env.MSYSTEM = 'MINGW64';
+    try {
+      const gitBashShell = resolveTerminalShell();
+      if (gitBashShell.label === 'Git Bash') {
+        const gitBashTerminal = await runInTerminal.execute(
+          {
+            command: 'printf git-bash-ok',
+            explanation: 'Run a command using the resolved Git Bash executable.',
+            goal: 'Verify Git Bash command execution.',
+            mode: 'sync',
+            timeout: 5,
+          },
+          {
+            signal: new AbortController().signal,
+            workspacePath: process.cwd(),
+            conversationId: 'git-bash-terminal-owner',
+          },
+        );
+        assert.equal(gitBashTerminal.status, 'completed');
+        assert.equal(gitBashTerminal.shell, 'Git Bash');
+        assert.equal(gitBashTerminal.output, 'git-bash-ok');
+      }
+    } finally {
+      if (originalShell === undefined) delete process.env.SHELL;
+      else process.env.SHELL = originalShell;
+      if (originalMsystem === undefined) delete process.env.MSYSTEM;
+      else process.env.MSYSTEM = originalMsystem;
+    }
+  }
+
+  const terminalCommand = ['powershell.exe', 'powershell', 'pwsh.exe', 'pwsh']
+    .includes(terminalShell.label.toLowerCase())
+    ? 'Start-Sleep -Seconds 300'
+    : terminalShell.label === 'cmd.exe'
+      ? 'ping -t 127.0.0.1 >NUL'
+      : 'sleep 300';
   const awaitedController = new AbortController();
   const awaitedTerminal = runInTerminal.execute(
     {
@@ -221,7 +294,7 @@ try {
     },
   );
   setTimeout(() => awaitedController.abort('stop'), 100);
-  assert.equal((await awaitedTerminal).status, 'completed');
+  assert.equal((await awaitedTerminal).status, 'stopped');
 
   stopTerminalOwner = 'background-terminal-owner';
   const backgroundTerminal = await runInTerminal.execute(
@@ -246,7 +319,7 @@ try {
     await new Promise((resolveWait) => setTimeout(resolveWait, 25));
     stoppedTerminal = await readTerminalOutput.execute({ id: backgroundTerminal.id });
   }
-  assert.equal(stoppedTerminal.status, 'completed');
+  assert.equal(stoppedTerminal.status, 'stopped');
 
   closeDatabase();
   database = null;

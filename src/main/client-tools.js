@@ -1,6 +1,11 @@
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { readFile, readdir, stat } from 'node:fs/promises';
+import {
+  readFile,
+  readdir,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { EOL } from 'node:os';
 import {
   basename,
@@ -17,6 +22,7 @@ import {
   listAllConversations,
   updateConversation,
 } from './database.js';
+import { resolveTerminalShell } from './terminal-shell.js';
 
 const MAX_READ_URL_CHARS = 100_000;
 const MAX_TERMINAL_OUTPUT_CHARS = 2_000_000;
@@ -172,10 +178,20 @@ function appendTerminalOutput(terminal, chunk) {
 }
 
 function terminalSnapshot(terminal) {
+  let status = 'running';
+  if (!terminal.running) {
+    status = terminal.stopping
+      ? 'stopped'
+      : terminal.exitCode === 0
+        ? 'completed'
+        : 'failed';
+  }
+
   return {
     id: terminal.id,
     command: terminal.command,
-    status: terminal.running ? 'running' : 'completed',
+    shell: terminal.shell.label,
+    status,
     exitCode: terminal.exitCode,
     signal: terminal.signal,
     output: terminal.output,
@@ -232,6 +248,86 @@ async function waitForTerminal(terminal, { untilExit, timeout }) {
 }
 
 export const CLIENT_TOOLS = Object.freeze([
+  {
+    name: 'start_goal',
+    description: 'Start a persistent Goal for the current conversation when an explicit long-running objective should continue across iterations.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        specification: {
+          type: 'string',
+          minLength: 1,
+          description: 'The complete objective, acceptance terms, constraints, and conditions for authentic completion.',
+        },
+      },
+      required: ['specification'],
+      additionalProperties: false,
+    },
+    execute: async (
+      { specification },
+      {
+        chatRunner,
+        conversationId,
+        model,
+        reasoningEffort,
+        permissionMode,
+      },
+    ) => {
+      const normalizedSpecification = String(specification ?? '').trim();
+      if (!normalizedSpecification) throw new Error('specification is required.');
+      const result = await chatRunner.startGoal({
+        conversationId,
+        model,
+        specification: normalizedSpecification,
+        reasoningEffort,
+        permissionMode,
+      });
+      return {
+        goal_id: result.goal.id,
+        status: result.goal.status,
+        started_at: result.goal.startedAt,
+        specification: result.goal.specification,
+      };
+    },
+  },
+  {
+    name: 'update_goal_status',
+    description: 'Classify the active Goal as completed or blocked. Use completed only with verified acceptance evidence, and blocked only for a real condition that prevents further progress.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: {
+          type: 'string',
+          enum: ['completed', 'blocked'],
+        },
+        summary: {
+          type: 'string',
+          minLength: 1,
+          description: 'For completed, concrete evidence that every acceptance term was met. For blocked, the exact blocker and work already attempted.',
+        },
+      },
+      required: ['status', 'summary'],
+      additionalProperties: false,
+    },
+    execute: async ({ status, summary }, { chatRunner, conversationId }) => {
+      if (!['completed', 'blocked'].includes(status)) {
+        throw new Error('status must be completed or blocked.');
+      }
+      const normalizedSummary = String(summary ?? '').trim();
+      if (!normalizedSummary) throw new Error('summary is required.');
+      return chatRunner.changeGoal({
+        conversationId,
+        action: status,
+        summary: normalizedSummary,
+      });
+    },
+  },
   {
     name: 'ask_question',
     description: 'Ask the user focused questions and wait for actual answers before continuing. Never infer or invent answers. Use options only for single_choice and multiple_choice questions.',
@@ -550,11 +646,21 @@ export const CLIENT_TOOLS = Object.freeze([
         model,
         models,
         reasoningEffort,
+        tuning,
       },
     ) => {
       const parent = getConversation(conversationId);
       if (!parent || parent.isSideChat || parent.isSubagent) {
         throw new Error('Only an orchestrator thread can spawn a sub-agent.');
+      }
+      const runningSubagents = listAllConversations()
+        .filter((conversation) => conversation.isSubagent)
+        .filter((subagent) => chatRunner.runs.has(subagent.id))
+        .length;
+      if (runningSubagents >= (tuning?.maxConcurrentSubagents ?? 128)) {
+        throw new Error(
+          `The limit of ${tuning?.maxConcurrentSubagents ?? 128} running sub-agents has been reached.`,
+        );
       }
       const normalizedPrompt = String(prompt ?? '').trim();
       if (!normalizedPrompt) throw new Error('prompt is required.');
@@ -576,7 +682,10 @@ export const CLIENT_TOOLS = Object.freeze([
         );
       }
 
-      const result = forkConversation(parent.id, { subagent: true });
+      const result = forkConversation(parent.id, {
+        subagent: true,
+        subagentPrompt: normalizedPrompt,
+      });
       if (!result) throw new Error('The sub-agent thread could not be created.');
       const subagent = selectedModel.id === result.conversation.model
         ? result.conversation
@@ -911,7 +1020,12 @@ export const CLIENT_TOOLS = Object.freeze([
     },
     execute: async (
       { command, mode, isBackground, timeout },
-      { signal, workspacePath, conversationId },
+      {
+        signal,
+        workspacePath,
+        conversationId,
+        tuning,
+      },
     ) => {
       const normalizedCommand = String(command ?? '').trim();
       if (!normalizedCommand) throw new Error('command is required.');
@@ -920,7 +1034,9 @@ export const CLIENT_TOOLS = Object.freeze([
       if (!['sync', 'async'].includes(executionMode)) {
         throw new Error('mode must be sync or async.');
       }
-      const timeoutSeconds = timeout ?? DEFAULT_TERMINAL_TIMEOUT_SECONDS;
+      const timeoutSeconds = timeout
+        ?? tuning?.terminalTimeoutSeconds
+        ?? DEFAULT_TERMINAL_TIMEOUT_SECONDS;
       if (
         !Number.isFinite(timeoutSeconds)
         || timeoutSeconds < MIN_TERMINAL_TIMEOUT_SECONDS
@@ -930,16 +1046,22 @@ export const CLIENT_TOOLS = Object.freeze([
       }
 
       const id = crypto.randomUUID();
-      const child = spawn(normalizedCommand, {
+      const shell = resolveTerminalShell(
+        process.env,
+        process.platform,
+        tuning?.terminalShell,
+      );
+      const child = spawn(shell.executable, [...shell.commandArguments, normalizedCommand], {
         cwd: workspacePath ? resolve(workspacePath) : process.cwd(),
         env: process.env,
-        shell: true,
+        shell: false,
         windowsHide: true,
       });
       const terminal = {
         id,
         child,
         command: normalizedCommand,
+        shell,
         events: new EventEmitter(),
         output: '',
         truncated: false,
@@ -1049,6 +1171,38 @@ export const CLIENT_TOOLS = Object.freeze([
       const terminal = terminals.get(String(id));
       if (!terminal) throw new Error('The terminal execution was not found.');
       return terminalSnapshot(terminal);
+    },
+  },
+  {
+    name: 'write_file',
+    description: 'Write complete UTF-8 text content to an absolute local file. This creates the file or replaces its existing contents.',
+    canEditFile: true,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filePath: {
+          type: 'string',
+          description: 'The absolute path of the file to create or replace.',
+        },
+        content: {
+          type: 'string',
+          description: 'The complete UTF-8 text content to write.',
+        },
+      },
+      required: ['filePath', 'content'],
+      additionalProperties: false,
+    },
+    execute: async ({ filePath, content }) => {
+      if (!isAbsolute(String(filePath ?? ''))) throw new Error('filePath must be absolute.');
+      if (typeof content !== 'string') throw new Error('content must be a string.');
+
+      await writeFile(filePath, content, 'utf8');
+      return {
+        filePath,
+        encoding: 'utf8',
+        bytesWritten: Buffer.byteLength(content, 'utf8'),
+      };
     },
   },
   {

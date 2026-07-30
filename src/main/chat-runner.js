@@ -3,21 +3,29 @@ import {
   deleteMessage,
   ensureConversation,
   getConversation,
+  getGoal,
+  getGoalForConversation,
   getMessage,
   getMessages,
+  getPreferences as readPreferences,
+  insertGoal,
   insertMessage,
+  listContinuingGoals,
   listSubagents,
   setLastModel,
   toModelMessages,
   toModelMessagesThroughUser,
   updateConversation,
+  updateGoal as updateGoalRecord,
   updateMessage,
 } from './database.js';
 import { CLIENT_TOOLS } from './client-tools.js';
 import { StreamAccumulator } from './streaming.js';
 
-const MAX_TOOL_OUTPUT_CHARS = 120_000;
-const AUTOMATIC_COMPACTION_THRESHOLD = 0.9;
+const CONTINUING_GOAL_STATUSES = new Set(['active', 'paused']);
+const TERMINAL_GOAL_STATUSES = new Set(['completed', 'blocked', 'cancelled']);
+const STREAM_PERSIST_INTERVAL_MS = 120;
+const STREAM_RENDER_INTERVAL_MS = 240;
 const PLAN_TOOL_NAMES = new Set([
   'ask_question',
   'chat_inspect_thread',
@@ -49,6 +57,7 @@ export class ChatRunner {
   constructor({
     registry,
     mcpManager,
+    getPreferences = readPreferences,
     sendEvent,
     savePermissionGuidance,
     stopBackgroundTasks,
@@ -56,6 +65,7 @@ export class ChatRunner {
   }) {
     this.registry = registry;
     this.mcpManager = mcpManager;
+    this.getPreferences = getPreferences;
     this.sendEvent = sendEvent;
     this.savePermissionGuidance = savePermissionGuidance;
     this.stopBackgroundTasks = stopBackgroundTasks;
@@ -64,6 +74,224 @@ export class ChatRunner {
     this.pendingApprovals = new Map();
     this.pendingQuestions = new Map();
     this.approvedToolPatterns = new Set();
+  }
+
+  async startGoal({
+    conversationId,
+    model,
+    specification,
+    reasoningEffort = null,
+    permissionMode = 'approve_for_me',
+    project = {},
+    attachments = [],
+    sendInitialPrompt = false,
+  }) {
+    const normalizedSpecification = String(specification ?? '').trim();
+    if (!normalizedSpecification) throw new Error('Goal specification is required.');
+    const conversation = ensureConversation(conversationId, model, project);
+    const existingGoal = getGoalForConversation(conversation.id);
+    if (existingGoal && CONTINUING_GOAL_STATUSES.has(existingGoal.status)) {
+      throw new Error('This conversation already has an active Goal.');
+    }
+
+    const now = new Date().toISOString();
+    const goal = insertGoal({
+      id: randomUUID(),
+      conversationId: conversation.id,
+      specification: normalizedSpecification,
+      status: 'active',
+      revision: 1,
+      model,
+      reasoningEffort,
+      permissionMode,
+      activeElapsedMs: 0,
+      resumedAt: now,
+      resultSummary: null,
+      tokensTransacted: null,
+      startedAt: now,
+      updatedAt: now,
+      endedAt: null,
+    });
+    this.emitConversation(conversation.id);
+
+    if (!sendInitialPrompt) {
+      return {
+        conversation: getConversation(conversation.id),
+        goal,
+      };
+    }
+
+    const result = await this.send({
+      conversationId: conversation.id,
+      model,
+      text: normalizedSpecification,
+      attachments,
+      steer: this.runs.has(conversation.id),
+      reasoningEffort,
+      permissionMode,
+      workMode: 'goal',
+      goalId: goal.id,
+      project,
+    });
+    return { ...result, goal: getGoal(goal.id) };
+  }
+
+  async changeGoal({
+    conversationId,
+    action,
+    specification,
+    summary,
+    stopRun = true,
+  }) {
+    const goal = getGoalForConversation(conversationId);
+    if (!goal || !CONTINUING_GOAL_STATUSES.has(goal.status)) {
+      throw new Error('This conversation does not have an active Goal.');
+    }
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const activeElapsedMs = goal.activeElapsedMs + (
+      goal.status === 'active' && goal.resumedAt
+        ? Math.max(0, now.getTime() - new Date(goal.resumedAt).getTime())
+        : 0
+    );
+    let updatedGoal;
+
+    if (action === 'pause') {
+      if (goal.status !== 'active') throw new Error('The Goal is already paused.');
+      updatedGoal = updateGoalRecord({
+        ...goal,
+        status: 'paused',
+        activeElapsedMs,
+        resumedAt: null,
+        updatedAt: nowIso,
+      });
+    } else if (action === 'resume') {
+      if (goal.status !== 'paused') throw new Error('The Goal is not paused.');
+      updatedGoal = updateGoalRecord({
+        ...goal,
+        status: 'active',
+        resumedAt: nowIso,
+        updatedAt: nowIso,
+      });
+    } else if (action === 'edit') {
+      const normalizedSpecification = String(specification ?? '').trim();
+      if (!normalizedSpecification) throw new Error('Goal specification is required.');
+      updatedGoal = updateGoalRecord({
+        ...goal,
+        specification: normalizedSpecification,
+        revision: goal.revision + 1,
+        updatedAt: nowIso,
+      });
+    } else if (['stop', 'completed', 'blocked'].includes(action)) {
+      const resultSummary = action === 'stop' ? 'Stopped by the user.' : String(summary ?? '').trim();
+      if (action !== 'stop' && !resultSummary) throw new Error('A completion or blocker summary is required.');
+      const tokensTransacted = getMessages(conversationId)
+        .filter((message) => message.goalId === goal.id && message.role === 'assistant')
+        .reduce((total, message) => (
+          total
+          + (Number(message.usage?.inputTokens) || 0)
+          + (Number(message.usage?.outputTokens) || 0)
+        ), 0);
+      updatedGoal = updateGoalRecord({
+        ...goal,
+        status: action === 'stop' ? 'cancelled' : action,
+        activeElapsedMs,
+        resumedAt: null,
+        resultSummary,
+        tokensTransacted,
+        updatedAt: nowIso,
+        endedAt: nowIso,
+      });
+    } else {
+      throw new Error('Unknown Goal action.');
+    }
+
+    this.emitConversation(conversationId);
+
+    if (action === 'stop') {
+      if (stopRun) {
+        this.stop(conversationId, { includeSubagents: true });
+      } else {
+        const run = this.runs.get(conversationId);
+        if (run) {
+          const cancelledItems = run.queue.filter((item) => item.goalId === goal.id);
+          run.queue = run.queue.filter((item) => item.goalId !== goal.id);
+          for (const item of cancelledItems) {
+            deleteMessage(item.userMessageId);
+            this.emit(conversationId, {
+              type: 'message-delete',
+              messageId: item.userMessageId,
+            });
+          }
+        }
+      }
+      for (const message of getMessages(conversationId)) {
+        if (
+          message.goalId === goal.id
+          && ['queued', 'steered'].includes(message.status)
+        ) {
+          deleteMessage(message.id);
+          this.emit(conversationId, { type: 'message-delete', messageId: message.id });
+        }
+      }
+    } else if (action === 'resume' && !this.runs.has(conversationId)) {
+      this.continueGoal(updatedGoal, 'resume');
+    } else if (action === 'edit') {
+      const revisionMessage = [
+        `<goal_update goal_id="${updatedGoal.id}" revision="${updatedGoal.revision}">`,
+        'The user changed the original Goal specification. Re-evaluate the work against the revised specification and continue from the current state.',
+        '</goal_update>',
+      ].join('\n');
+      if (updatedGoal.status === 'paused' && !this.runs.has(conversationId)) {
+        const queued = this.createUserMessage({
+          conversationId,
+          model: updatedGoal.model,
+          reasoningEffort: updatedGoal.reasoningEffort,
+          workMode: 'goal',
+          goalId: updatedGoal.id,
+          hidden: true,
+          text: revisionMessage,
+          attachments: [],
+          status: 'queued',
+        });
+        this.emit(conversationId, { type: 'message', message: queued });
+      } else {
+        await this.send({
+          conversationId,
+          model: updatedGoal.model,
+          text: revisionMessage,
+          attachments: [],
+          hidden: true,
+          steer: this.runs.has(conversationId),
+          reasoningEffort: updatedGoal.reasoningEffort,
+          permissionMode: updatedGoal.permissionMode,
+          workMode: 'goal',
+          goalId: updatedGoal.id,
+        });
+      }
+    }
+
+    if (['completed', 'blocked'].includes(action)) {
+      return {
+        goal_id: updatedGoal.id,
+        status: updatedGoal.status,
+        tokens_transacted: updatedGoal.tokensTransacted,
+        started_at: updatedGoal.startedAt,
+        elapsed_ms: Math.max(0, now.getTime() - new Date(updatedGoal.startedAt).getTime()),
+        active_time_ms: updatedGoal.activeElapsedMs,
+        summary: updatedGoal.resultSummary,
+        final_response_instruction: 'Present the Goal metrics in your final response: token volume from tokens_transacted and time spent from active_time_ms. Format both values for readability.',
+      };
+    }
+
+    return updatedGoal;
+  }
+
+  resumeGoals() {
+    for (const goal of listContinuingGoals()) {
+      if (!this.runs.has(goal.conversationId)) this.continueGoal(goal, 'restart');
+    }
   }
 
   async send({
@@ -75,10 +303,31 @@ export class ChatRunner {
     reasoningEffort = null,
     permissionMode = 'approve_for_me',
     workMode = null,
+    goalId = null,
+    hidden = false,
     project = {},
   }) {
-    workMode = workMode === 'plan' ? 'plan' : null;
+    workMode = ['plan', 'goal'].includes(workMode) ? workMode : null;
     const conversation = ensureConversation(conversationId, model, project);
+    const activeGoal = getGoalForConversation(conversation.id);
+    if (workMode === 'plan' && activeGoal && CONTINUING_GOAL_STATUSES.has(activeGoal.status)) {
+      await this.changeGoal({
+        conversationId: conversation.id,
+        action: 'stop',
+        stopRun: false,
+      });
+      steer = this.runs.has(conversation.id);
+    }
+    if (workMode === 'goal') {
+      goalId = goalId ?? (
+        activeGoal && CONTINUING_GOAL_STATUSES.has(activeGoal.status)
+          ? activeGoal.id
+          : null
+      );
+      if (!goalId) workMode = null;
+    } else {
+      goalId = null;
+    }
     setLastModel(model);
 
     if (this.runs.has(conversation.id)) {
@@ -87,6 +336,8 @@ export class ChatRunner {
         model,
         reasoningEffort,
         workMode,
+        goalId,
+        hidden,
         text,
         attachments,
         status: steer ? 'steered' : 'queued',
@@ -99,6 +350,7 @@ export class ChatRunner {
           reasoningEffort,
           permissionMode,
           workMode,
+          ...(goalId ? { goalId } : {}),
         });
         this.requestSteer(conversation.id);
       } else {
@@ -108,6 +360,7 @@ export class ChatRunner {
           reasoningEffort,
           permissionMode,
           workMode,
+          ...(goalId ? { goalId } : {}),
         });
       }
       this.emit(conversation.id, { type: 'message', message: queued });
@@ -126,6 +379,8 @@ export class ChatRunner {
       model,
       reasoningEffort,
       workMode,
+      goalId,
+      hidden,
       text,
       attachments,
       status: workMode === 'plan'
@@ -142,6 +397,7 @@ export class ChatRunner {
       reasoningEffort,
       permissionMode,
       workMode,
+      goalId,
     });
     return { conversation: getConversation(conversation.id), message: userMessage, queued: false };
   }
@@ -256,6 +512,7 @@ export class ChatRunner {
         reasoningEffort: next.reasoningEffort,
         permissionMode: next.permissionMode,
         workMode: next.workMode,
+        goalId: next.goalId,
       });
       return {
         reordered: true,
@@ -406,6 +663,7 @@ export class ChatRunner {
         initialUsage: failedAssistant.usage,
         permissionMode,
         workMode: sourceUser.workMode,
+        goalId: sourceUser.goalId,
       });
       return {
         conversation: getConversation(conversation.id),
@@ -441,6 +699,7 @@ export class ChatRunner {
       retryMessages: messages,
       permissionMode,
       workMode: sourceUser?.workMode,
+      goalId: sourceUser?.goalId,
     });
 
     return { conversation: getConversation(conversation.id), message: null, queued: false };
@@ -579,6 +838,7 @@ export class ChatRunner {
         reasoningEffort: message.reasoningEffort,
         permissionMode: 'approve_for_me',
         workMode: message.workMode,
+        ...(message.goalId ? { goalId: message.goalId } : {}),
       }));
   }
 
@@ -587,6 +847,8 @@ export class ChatRunner {
     model,
     reasoningEffort,
     workMode,
+    goalId = null,
+    hidden = false,
     text,
     attachments,
     status,
@@ -597,13 +859,20 @@ export class ChatRunner {
       model,
       reasoningEffort,
       workMode,
+      goalId,
+      hidden,
       status,
       content: text,
       attachments,
     });
     const conversation = getConversation(conversationId);
 
-    if (conversation?.titleStatus === 'pending' && conversation.title === 'New chat' && text.trim()) {
+    if (
+      !hidden
+      && conversation?.titleStatus === 'pending'
+      && conversation.title === 'New chat'
+      && text.trim()
+    ) {
       const normalizedTitle = text.replace(/\s+/g, ' ').trim();
       updateConversation(conversationId, {
         title: normalizedTitle.length > 48 ? `${normalizedTitle.slice(0, 48)}...` : normalizedTitle,
@@ -628,8 +897,9 @@ export class ChatRunner {
     reasoningEffort = null,
     permissionMode = 'approve_for_me',
     workMode = null,
+    goalId = null,
   }) {
-    workMode = workMode === 'plan' ? 'plan' : null;
+    workMode = ['plan', 'goal'].includes(workMode) ? workMode : null;
     permissionMode = [
       'ask_for_approval',
       'approve_for_me',
@@ -654,6 +924,7 @@ export class ChatRunner {
           role: 'assistant',
           model,
           workMode,
+          goalId,
           status: 'streaming',
           content: '',
         });
@@ -665,6 +936,8 @@ export class ChatRunner {
       model,
       permissionMode,
       workMode,
+      goalId,
+      kind: 'chat',
       phase: 'mcp',
       steerRequested: false,
     };
@@ -676,9 +949,10 @@ export class ChatRunner {
 
     const requestStartedAt = Date.now();
     let lastPersistedAt = 0;
+    let lastRenderedAt = 0;
     const persistAssistant = ({ status = 'streaming', force = false } = {}) => {
       const now = Date.now();
-      if (!force && now - lastPersistedAt < 120) return null;
+      if (!force && now - lastPersistedAt < STREAM_PERSIST_INTERVAL_MS) return null;
       lastPersistedAt = now;
       const message = updateMessage(assistantMessage.id, {
         status,
@@ -686,7 +960,15 @@ export class ChatRunner {
         segments: accumulator.segments,
         usage: accumulator.usage,
       });
-      if (message) {
+      if (
+        message
+        && (
+          force
+          || status !== 'streaming'
+          || now - lastRenderedAt >= STREAM_RENDER_INTERVAL_MS
+        )
+      ) {
+        lastRenderedAt = now;
         this.emit(conversationId, { type: 'message', message });
       }
       return message;
@@ -732,6 +1014,9 @@ export class ChatRunner {
         ?? toModelMessages(conversationId, { excludeMessageId: assistantMessage.id });
       const models = this.registry.listModels();
       const currentConversation = getConversation(conversationId);
+      const currentGoal = goalId ? getGoal(goalId) : getGoalForConversation(conversationId);
+      const goalContinues = currentGoal && CONTINUING_GOAL_STATUSES.has(currentGoal.status);
+      const tuning = this.getPreferences().tuning;
       const providerTools = workMode === 'plan'
         ? []
         : selection.provider.getContributions({
@@ -742,6 +1027,8 @@ export class ChatRunner {
       const availableTools = [
         ...CLIENT_TOOLS
           .filter((tool) => workMode !== 'plan' || PLAN_TOOL_NAMES.has(tool.name))
+          .filter((tool) => tool.name !== 'start_goal' || !goalContinues)
+          .filter((tool) => tool.name !== 'update_goal_status' || goalContinues)
           .filter((tool) => (
             tool.name !== 'chat_report_to_orchestrator' || currentConversation?.isSubagent
           ))
@@ -749,9 +1036,9 @@ export class ChatRunner {
             tool.name !== 'chat_spawn_subagent'
             || (!currentConversation?.isSubagent && !currentConversation?.isSideChat)
           ))
-          .map((tool) => (
-          ['chat_create_thread', 'chat_spawn_subagent'].includes(tool.name)
-            ? {
+          .map((tool) => {
+            if (['chat_create_thread', 'chat_spawn_subagent'].includes(tool.name)) {
+              return {
                 ...tool,
                 inputSchema: {
                   ...tool.inputSchema,
@@ -767,9 +1054,26 @@ export class ChatRunner {
                     },
                   },
                 },
-              }
-            : tool
-          )),
+              };
+            }
+            if (tool.name === 'run_in_terminal') {
+              return {
+                ...tool,
+                inputSchema: {
+                  ...tool.inputSchema,
+                  properties: {
+                    ...tool.inputSchema.properties,
+                    timeout: {
+                      ...tool.inputSchema.properties.timeout,
+                      default: tuning.terminalTimeoutSeconds,
+                      description: `Maximum time to wait, in seconds. Defaults to ${tuning.terminalTimeoutSeconds} seconds and accepts values from 1 to 300. If the timeout elapses, the command keeps running and the response includes its terminal ID and partial output.`,
+                    },
+                  },
+                },
+              };
+            }
+            return tool;
+          }),
         ...providerTools,
         ...mcpRuntime.tools,
       ];
@@ -792,6 +1096,34 @@ export class ChatRunner {
 
       while (true) {
         const roundIndex = toolHistory.length;
+        const latestGoal = goalId ? getGoal(goalId) : getGoalForConversation(conversationId);
+        const goalContext = latestGoal && CONTINUING_GOAL_STATUSES.has(latestGoal.status)
+          ? latestGoal
+          : null;
+        const subagentParentId = currentConversation?.isSubagent
+          ? currentConversation.parentConversationId
+          : currentConversation?.isSideChat
+            ? null
+            : currentConversation?.id;
+        const subagentContext = subagentParentId
+          ? listSubagents(subagentParentId).map((subagent) => {
+              const subagentMessages = getMessages(subagent.id);
+              const lastUserIndex = subagentMessages
+                .findLastIndex((message) => message.role === 'user');
+              const lastAssistant = subagentMessages
+                .slice(lastUserIndex + 1)
+                .findLast((message) => message.role === 'assistant');
+              return {
+                threadId: subagent.id,
+                initialPrompt: subagent.initialPrompt ?? subagent.firstPrompt,
+                status: this.runs.has(subagent.id)
+                  ? 'in_progress'
+                  : lastAssistant?.status === 'completed'
+                    ? 'completed'
+                    : 'failed',
+              };
+            })
+          : [];
         run.phase = 'inference';
         const turn = await selection.provider.stream({
           model: selection.model,
@@ -805,6 +1137,9 @@ export class ChatRunner {
             mcpInstructions: mcpRuntime.instructions,
             permissionMode,
             workMode,
+            goal: goalContext,
+            subagents: subagentContext,
+            tuning,
           },
           signal: controller.signal,
           onEvent: (event) => {
@@ -821,6 +1156,9 @@ export class ChatRunner {
               ? {
                   ...event,
                   key: `round:${roundIndex}:${event.key ?? event.callId ?? 'tool'}`,
+                  isMcp: Boolean(
+                    availableTools.find((tool) => tool.name === event.name)?.mcp,
+                  ),
                 }
               : event);
             this.logStreamEvent(conversationId, event);
@@ -876,6 +1214,7 @@ export class ChatRunner {
             replaceArguments: true,
             invocationGoal,
             requiresHumanApproval: requiresHumanApproval === true,
+            isMcp: isMcpTool,
           });
           persistAssistant({ force: true });
 
@@ -948,7 +1287,10 @@ export class ChatRunner {
               model,
               models,
               reasoningEffort,
+              permissionMode,
               workMode,
+              goal: goalContext,
+              tuning,
             });
             output = typeof value === 'string' ? value : JSON.stringify(value);
           } catch (error) {
@@ -964,9 +1306,9 @@ export class ChatRunner {
                 });
           }
 
-          if (output.length > MAX_TOOL_OUTPUT_CHARS) {
+          if (tuning.toolOutputLimit !== null && output.length > tuning.toolOutputLimit) {
             output = JSON.stringify({
-              output: output.slice(0, MAX_TOOL_OUTPUT_CHARS),
+              output: output.slice(0, tuning.toolOutputLimit),
               truncated: true,
             });
           }
@@ -1021,7 +1363,7 @@ export class ChatRunner {
       const contextLimit = selection.model.context.input;
       if (
         contextLimit
-        && lastInputTokens / contextLimit > AUTOMATIC_COMPACTION_THRESHOLD
+        && lastInputTokens / contextLimit > tuning.automaticCompactionThreshold
       ) {
         this.emit(conversationId, { type: 'run-state', running: true });
         try {
@@ -1225,12 +1567,69 @@ export class ChatRunner {
     return run.controller.signal.aborted;
   }
 
+  continueGoal(goal, reason = 'continue') {
+    if (!goal || goal.status !== 'active' || this.runs.has(goal.conversationId)) return false;
+    const queuedItems = this.getQueuedItems(goal.conversationId, goal.model);
+    const queuedGoalIndex = queuedItems.findIndex((item) => item.goalId === goal.id);
+    const queuedGoalMessage = queuedGoalIndex >= 0
+      ? queuedItems.splice(queuedGoalIndex, 1)[0]
+      : null;
+    const userMessage = queuedGoalMessage
+      ? updateMessage(queuedGoalMessage.userMessageId, { status: 'sent' })
+      : this.createUserMessage({
+          conversationId: goal.conversationId,
+          model: goal.model,
+          reasoningEffort: goal.reasoningEffort,
+          workMode: 'goal',
+          goalId: goal.id,
+          hidden: true,
+          text: [
+            `<goal_continuation goal_id="${goal.id}" revision="${goal.revision}" reason="${reason}">`,
+            'Continue working on the active Goal from the current state. Re-check the specification and acceptance terms, perform the next necessary work, and verify results honestly. Do not repeat completed work.',
+            '</goal_continuation>',
+          ].join('\n'),
+          attachments: [],
+          status: 'sent',
+        });
+    this.emit(goal.conversationId, { type: 'message', message: userMessage });
+    this.emit(goal.conversationId, {
+      type: 'queue-order',
+      messageIds: queuedItems.map((item) => item.userMessageId),
+    });
+    this.start({
+      conversationId: goal.conversationId,
+      model: queuedGoalMessage?.model ?? goal.model,
+      userMessageId: userMessage.id,
+      queue: queuedItems,
+      reasoningEffort: queuedGoalMessage?.reasoningEffort ?? goal.reasoningEffort,
+      permissionMode: goal.permissionMode,
+      workMode: 'goal',
+      goalId: goal.id,
+    });
+    return true;
+  }
+
   finishRun(conversationId) {
     const current = this.runs.get(conversationId);
     this.runs.delete(conversationId);
-    const pendingQueue = current?.queue ?? [];
+    let pendingQueue = current?.queue ?? [];
+    const runGoal = current?.goalId ? getGoal(current.goalId) : null;
+    if (runGoal && TERMINAL_GOAL_STATUSES.has(runGoal.status)) {
+      const cancelledItems = pendingQueue.filter((item) => item.goalId === runGoal.id);
+      pendingQueue = pendingQueue.filter((item) => item.goalId !== runGoal.id);
+      for (const item of cancelledItems) {
+        deleteMessage(item.userMessageId);
+        this.emit(conversationId, { type: 'message-delete', messageId: item.userMessageId });
+      }
+    }
     const next = pendingQueue.shift();
     if (!next) {
+      const continuingGoal = current?.kind === 'chat'
+        ? current.goalId
+          ? getGoal(current.goalId)
+          : getGoalForConversation(conversationId)
+        : null;
+      if (continuingGoal?.status === 'active' && this.continueGoal(continuingGoal)) return;
       this.emit(conversationId, { type: 'run-state', running: false });
       return;
     }
@@ -1256,6 +1655,7 @@ export class ChatRunner {
       reasoningEffort: next.reasoningEffort,
       permissionMode: next.permissionMode,
       workMode: next.workMode,
+      goalId: next.goalId,
     });
   }
 
@@ -1279,5 +1679,12 @@ export class ChatRunner {
 
   emit(conversationId, payload) {
     this.sendEvent({ conversationId, ...payload });
+  }
+
+  emitConversation(conversationId) {
+    this.emit(conversationId, {
+      type: 'conversation',
+      conversation: getConversation(conversationId),
+    });
   }
 }
