@@ -7,10 +7,8 @@ const EMPTY_PROVIDER_CONTRIBUTIONS = Object.freeze({
   auxiliaryPanels: Object.freeze([]),
 });
 const SERVER_CONNECT_TIMEOUT_MS = 30_000;
-const NORMAL_MAX_ATTEMPTS = 5;
-const INITIAL_RETRY_DELAY_MS = 200;
-const NORMAL_MAX_RETRY_DELAY_MS = 5_000;
-const GOAL_MAX_RETRY_DELAY_MS = 5 * 60_000;
+const NORMAL_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 10_000];
+const GOAL_RETRY_DELAYS_MS = [1_000, 4_000, 8_000, 30_000, 60_000, 5 * 60_000];
 
 export class ModelProvider {
   constructor(config, implementation, services) {
@@ -84,16 +82,20 @@ export class ModelProvider {
       invocationContext,
     });
     const goalMode = invocationContext.workMode === 'goal';
-    const maxAttempts = goalMode ? Infinity : NORMAL_MAX_ATTEMPTS;
-    const maxRetryDelay = goalMode
-      ? GOAL_MAX_RETRY_DELAY_MS
-      : NORMAL_MAX_RETRY_DELAY_MS;
-    let response;
+    const retryDelays = goalMode ? GOAL_RETRY_DELAYS_MS : NORMAL_RETRY_DELAYS_MS;
+    const maxAttempts = goalMode ? Infinity : retryDelays.length + 1;
+    let assistantContent = '';
+    let completedContinuation = null;
+    const continuationItems = new Map();
+    const toolCalls = new Map();
+    let retryVisible = false;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const attemptController = new AbortController();
       const attemptSignal = AbortSignal.any([signal, attemptController.signal]);
       let connectTimedOut = false;
+      let response;
+      let retryError = null;
       const connectTimeout = setTimeout(() => {
         connectTimedOut = true;
         attemptController.abort(new Error('The server did not respond within 30 seconds.'));
@@ -112,30 +114,181 @@ export class ModelProvider {
         if (signal.aborted) {
           throw signal.reason instanceof Error ? signal.reason : error;
         }
-        if (!connectTimedOut || attempt === maxAttempts) {
-          throw connectTimedOut
-            ? new Error('The server did not respond within 30 seconds.')
-            : error;
-        }
+        if (!connectTimedOut) throw error;
+        retryError = {
+          code: 'server_timeout',
+          message: 'The server did not respond within 30 seconds.',
+        };
       } finally {
         clearTimeout(connectTimeout);
       }
 
       const retryableResponse = response?.status >= 500 && response.status <= 599;
-      if (!connectTimedOut && (!retryableResponse || attempt === maxAttempts)) break;
-
       if (retryableResponse) {
-        await response.body?.cancel();
+        retryError = {
+          code: `http_${response.status}`,
+          message: await response.text() || `${response.status} ${response.statusText}`,
+        };
       }
 
-      const exponentialStep = Math.min(
-        attempt - 1,
-        Math.ceil(Math.log2(maxRetryDelay / INITIAL_RETRY_DELAY_MS)),
-      );
-      const retryDelay = Math.min(
-        INITIAL_RETRY_DELAY_MS * (2 ** exponentialStep),
-        maxRetryDelay,
-      );
+      if (!retryError) {
+        if (!response.ok) {
+          const responseText = await response.text();
+          const error = new Error(responseText || `${response.status} ${response.statusText}`);
+          error.status = response.status;
+          throw error;
+        }
+        if (!response.body) {
+          throw new Error('The provider returned no streaming body.');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let receivedOutput = false;
+        const abortReader = () => {
+          reader.cancel(signal.reason).catch(() => {});
+        };
+        signal.addEventListener('abort', abortReader, { once: true });
+
+        try {
+          if (signal.aborted) abortReader();
+          while (true) {
+            const { value, done } = await reader.read();
+            if (signal.aborted) {
+              throw signal.reason instanceof Error
+                ? signal.reason
+                : new Error('The request was aborted.');
+            }
+            buffer = (
+              buffer + decoder.decode(value ?? new Uint8Array(), { stream: !done })
+            ).replaceAll('\r\n', '\n');
+            const blocks = buffer.split('\n\n');
+            buffer = done ? '' : blocks.pop() ?? '';
+
+            for (const block of blocks) {
+              const payload = block
+                .split('\n')
+                .filter((line) => line.startsWith('data:'))
+                .map((line) => line.slice(5).trimStart())
+                .join('\n')
+                .trim();
+              if (!payload || payload === '[DONE]') continue;
+
+              let json;
+              try {
+                json = JSON.parse(payload);
+              } catch {
+                throw new Error('The provider returned an invalid SSE payload.');
+              }
+
+              for (const event of this.implementation.eventsFrom(json)) {
+                if (
+                  event.type === 'error'
+                  && event.code === 'server_is_overloaded'
+                  && !receivedOutput
+                ) {
+                  retryError = event;
+                  break;
+                }
+
+                let normalizedEvent = event;
+                if (event.type === 'continuation-item') {
+                  continuationItems.set(event.index ?? continuationItems.size, event.item);
+                  continue;
+                }
+                if (event.type === 'continuation') {
+                  completedContinuation = event.items;
+                  continue;
+                }
+                if (event.type === 'content') {
+                  assistantContent += event.text;
+                }
+                if (event.type === 'tool-call') {
+                  const key = event.key ?? event.callId;
+                  const providerCallId = typeof event.callId === 'string' && event.callId.trim()
+                    ? event.callId
+                    : null;
+                  const existing = toolCalls.get(key) ?? {
+                    key,
+                    callId: providerCallId ?? `call_${randomUUID()}`,
+                    name: null,
+                    argumentsText: '',
+                  };
+                  existing.callId = providerCallId ?? existing.callId;
+                  existing.name = event.name ?? existing.name;
+                  existing.argumentsText = event.replaceArguments
+                    ? event.argumentsText
+                    : `${existing.argumentsText}${event.argumentsDelta ?? ''}`;
+                  toolCalls.set(key, existing);
+                  normalizedEvent = { ...event, callId: existing.callId };
+                }
+                receivedOutput ||= ['content', 'reasoning', 'tool-call'].includes(event.type);
+                if (retryVisible && receivedOutput) {
+                  onEvent({ type: 'retry-clear' });
+                  retryVisible = false;
+                }
+                onEvent(normalizedEvent);
+                if (event.type === 'error') {
+                  const error = new Error(event.message);
+                  error.code = event.code;
+                  const status = Number(event.status);
+                  if (Number.isInteger(status) && status >= 400 && status <= 599) {
+                    error.status = status;
+                  } else if (event.code === 'context_length_exceeded') {
+                    error.status = 400;
+                  }
+                  throw error;
+                }
+              }
+              if (retryError) break;
+            }
+
+            if (retryError) {
+              await reader.cancel();
+              break;
+            }
+            if (done) break;
+          }
+        } finally {
+          signal.removeEventListener('abort', abortReader);
+        }
+
+        if (!retryError) {
+          if (retryVisible) onEvent({ type: 'retry-clear' });
+          return {
+            assistantContent,
+            continuation: completedContinuation ?? [...continuationItems.entries()]
+              .sort(([left], [right]) => left - right)
+              .map(([, item]) => item),
+            toolCalls: [...toolCalls.values()],
+          };
+        }
+      }
+
+      const exhausted = attempt === maxAttempts;
+      const displayedMaxAttempts = Number.isFinite(maxAttempts) ? retryDelays.length : null;
+      if (exhausted) {
+        onEvent({
+          type: 'error',
+          code: retryError.code,
+          message: retryError.message,
+          retryAttempt: retryDelays.length,
+          maxAttempts: displayedMaxAttempts,
+        });
+        throw new Error(retryError.message);
+      }
+
+      onEvent({
+        type: 'retry',
+        code: retryError.code,
+        message: retryError.message,
+        attempt,
+        maxAttempts: displayedMaxAttempts,
+      });
+      retryVisible = true;
+
+      const retryDelay = retryDelays[Math.min(attempt - 1, retryDelays.length - 1)];
       await new Promise((resolveDelay, rejectDelay) => {
         const retryTimeout = setTimeout(() => {
           signal.removeEventListener('abort', abortDelay);
@@ -151,96 +304,6 @@ export class ModelProvider {
         if (signal.aborted) abortDelay();
       });
     }
-
-    if (!response.ok) {
-      const responseText = await response.text();
-      throw new Error(responseText || `${response.status} ${response.statusText}`);
-    }
-    if (!response.body) {
-      throw new Error('The provider returned no streaming body.');
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let assistantContent = '';
-    let completedContinuation = null;
-    const continuationItems = new Map();
-    const toolCalls = new Map();
-
-    while (true) {
-      const { value, done } = await reader.read();
-      buffer = (
-        buffer + decoder.decode(value ?? new Uint8Array(), { stream: !done })
-      ).replaceAll('\r\n', '\n');
-      const blocks = buffer.split('\n\n');
-      buffer = done ? '' : blocks.pop() ?? '';
-
-      for (const block of blocks) {
-        const payload = block
-          .split('\n')
-          .filter((line) => line.startsWith('data:'))
-          .map((line) => line.slice(5).trimStart())
-          .join('\n')
-          .trim();
-        if (!payload || payload === '[DONE]') continue;
-
-        let json;
-        try {
-          json = JSON.parse(payload);
-        } catch {
-          throw new Error('The provider returned an invalid SSE payload.');
-        }
-
-        for (const event of this.implementation.eventsFrom(json)) {
-          let normalizedEvent = event;
-          if (event.type === 'continuation-item') {
-            continuationItems.set(event.index ?? continuationItems.size, event.item);
-            continue;
-          }
-          if (event.type === 'continuation') {
-            completedContinuation = event.items;
-            continue;
-          }
-          if (event.type === 'content') {
-            assistantContent += event.text;
-          }
-          if (event.type === 'tool-call') {
-            const key = event.key ?? event.callId;
-            const providerCallId = typeof event.callId === 'string' && event.callId.trim()
-              ? event.callId
-              : null;
-            const existing = toolCalls.get(key) ?? {
-              key,
-              callId: providerCallId ?? `call_${randomUUID()}`,
-              name: null,
-              argumentsText: '',
-            };
-            existing.callId = providerCallId ?? existing.callId;
-            existing.name = event.name ?? existing.name;
-            existing.argumentsText = event.replaceArguments
-              ? event.argumentsText
-              : `${existing.argumentsText}${event.argumentsDelta ?? ''}`;
-            toolCalls.set(key, existing);
-            normalizedEvent = { ...event, callId: existing.callId };
-          }
-          onEvent(normalizedEvent);
-          if (event.type === 'error') {
-            throw new Error(event.message);
-          }
-        }
-      }
-
-      if (done) break;
-    }
-
-    return {
-      assistantContent,
-      continuation: completedContinuation ?? [...continuationItems.entries()]
-        .sort(([left], [right]) => left - right)
-        .map(([, item]) => item),
-      toolCalls: [...toolCalls.values()],
-    };
   }
 }
 

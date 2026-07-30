@@ -186,6 +186,7 @@ export const responsesApi = {
         type: 'error',
         code: error?.code ?? 'stream_error',
         message: error?.message ?? error?.error ?? 'The provider returned an error while streaming.',
+        status: error?.status ?? error?.status_code ?? payload?.status,
       }];
     }
     return [];
@@ -259,6 +260,7 @@ const chatCompletionsApi = {
         type: 'error',
         code: payload.error.code ?? 'stream_error',
         message: payload.error.message ?? payload.error.error ?? String(payload.error),
+        status: payload.error.status ?? payload.error.status_code ?? payload.status,
       });
     }
 

@@ -24,7 +24,19 @@ export class StreamAccumulator {
         }
         if (segment.type === 'error') {
           const code = segment.code ? ` (${segment.code})` : '';
-          return `\n\n**Streaming error${code}:** ${segment.message}`;
+          const retry = segment.retryAttempt
+            ? `\n\nRetry attempt ${segment.retryAttempt}${segment.maxAttempts
+              ? `/${segment.maxAttempts}`
+              : ''}`
+            : '';
+          return `\n\n**Streaming error${code}:** ${segment.message}${retry}`;
+        }
+        if (segment.type === 'retry') {
+          const code = segment.code ? ` (${segment.code})` : '';
+          const attempt = `${segment.attempt}${segment.maxAttempts
+            ? `/${segment.maxAttempts}`
+            : ''}`;
+          return `\n\n**Streaming error${code}:** ${segment.message}\n\nRetry attempt ${attempt}`;
         }
         return '';
       })
@@ -43,6 +55,36 @@ export class StreamAccumulator {
           (previous.reasoningTokens ?? 0) + (event.usage.reasoningTokens ?? 0),
         totalTokens: (previous.totalTokens ?? 0) + (event.usage.totalTokens ?? 0),
       };
+      return;
+    }
+    if (event.type === 'retry-clear') {
+      this.segments = this.segments.filter((segment) => segment.type !== 'retry');
+      return;
+    }
+    if (event.type === 'retry') {
+      const existing = this.segments.find((segment) => segment.type === 'retry');
+      if (existing) {
+        existing.code = event.code;
+        existing.message = event.message;
+        existing.attempt = event.attempt;
+        existing.maxAttempts = event.maxAttempts;
+        return;
+      }
+      const last = this.segments.at(-1);
+      if (['running', 'streaming'].includes(last?.status)) {
+        last.status = 'completed';
+      }
+      this.segments.push({
+        id: `retry-${this.nextSequence}`,
+        sequence: this.nextSequence,
+        type: 'retry',
+        code: event.code,
+        message: event.message,
+        attempt: event.attempt,
+        maxAttempts: event.maxAttempts,
+        status: 'streaming',
+      });
+      this.nextSequence += 1;
       return;
     }
     if (event.type === 'tool-call') {
@@ -95,6 +137,17 @@ export class StreamAccumulator {
     }
     if (event.type === 'error') {
       this.error = { code: event.code, message: event.message };
+      const retry = this.segments.find((segment) => segment.type === 'retry');
+      if (retry) {
+        retry.type = 'error';
+        retry.code = event.code;
+        retry.message = event.message;
+        retry.retryAttempt = event.retryAttempt ?? retry.attempt;
+        retry.maxAttempts = event.maxAttempts ?? retry.maxAttempts;
+        delete retry.attempt;
+        retry.status = 'completed';
+        return;
+      }
       const last = this.segments.at(-1);
       if (['running', 'streaming'].includes(last?.status)) {
         last.status = 'completed';

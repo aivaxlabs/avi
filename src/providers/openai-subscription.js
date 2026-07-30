@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  mkdir,
+  readFile,
+  writeFile,
+} from 'node:fs/promises';
 import { homedir } from 'node:os';
 import {
   basename,
@@ -127,7 +132,7 @@ export const openAiSubscriptionProviderType = defineProvider({
     services,
   }) {
     if (action === 'disconnect') {
-      signOutOpenAiSubscription(provider.id, services);
+      await signOutOpenAiSubscription(provider.id, services);
     } else if (action === 'connect') {
       const device = await startOpenAiSubscriptionLogin();
       services.clipboard.writeText(device.userCode);
@@ -169,7 +174,8 @@ function getOpenAiSubscriptionState({ provider, services }) {
       status: signedIn ? 'connected' : 'disconnected',
       statusLabel: signedIn ? 'Connected' : 'Not connected',
       title: 'ChatGPT account',
-      description: 'OAuth credentials are encrypted with the operating system credential store.',
+      description:
+        'OAuth credentials are encrypted locally with a key protected by the operating system.',
       action: signedIn
         ? { id: 'disconnect', label: 'Disconnect' }
         : { id: 'connect', label: 'Sign in with ChatGPT' },
@@ -299,7 +305,15 @@ async function completeOpenAiSubscriptionLogin(providerId, device, services) {
         }),
       });
       if (!tokenResponse.ok) {
-        throw new Error(`OAuth code exchange failed (${tokenResponse.status}).`);
+        const oauthError = await readOAuthError(tokenResponse);
+        await writeAuthLog('login-failed', {
+          providerId,
+          status: tokenResponse.status,
+          code: oauthError.code,
+        });
+        throw new Error(
+          `OAuth code exchange failed (${oauthError.code || tokenResponse.status}).`,
+        );
       }
 
       const tokens = await tokenResponse.json();
@@ -310,12 +324,13 @@ async function completeOpenAiSubscriptionLogin(providerId, device, services) {
       }
 
       signedOutProviders.delete(providerId);
-      services.credentials.set(providerId, {
+      await services.credentials.set(providerId, {
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token,
         idToken: tokens.id_token,
         accountId,
       });
+      await writeAuthLog('login-succeeded', { providerId });
       return { signedIn: true };
     }
 
@@ -328,11 +343,17 @@ async function completeOpenAiSubscriptionLogin(providerId, device, services) {
   throw new Error('Sign-in expired after 15 minutes.');
 }
 
-function signOutOpenAiSubscription(providerId, services) {
+async function signOutOpenAiSubscription(providerId, services) {
   if (!services.credentials.get(providerId)) return { signedIn: false };
   signedOutProviders.add(providerId);
-  services.credentials.delete(providerId);
+  try {
+    await services.credentials.delete(providerId);
+  } catch (error) {
+    signedOutProviders.delete(providerId);
+    throw error;
+  }
   refreshPromises.delete(providerId);
+  await writeAuthLog('signed-out', { providerId });
   return { signedIn: false };
 }
 
@@ -400,24 +421,81 @@ async function getTokens(providerId, services, forceRefresh = false) {
       }),
     }).then(async (response) => {
       if (!response.ok) {
-        throw new Error(`The ChatGPT session expired (${response.status}). Sign in again.`);
+        const oauthError = await readOAuthError(response);
+        await writeAuthLog('refresh-failed', {
+          providerId,
+          status: response.status,
+          code: oauthError.code,
+        });
+        const reconnectRequired = response.status === 401 || [
+          'refresh_token_expired',
+          'refresh_token_invalidated',
+          'refresh_token_reused',
+          'token_expired',
+        ].includes(oauthError.code);
+        throw new Error(reconnectRequired
+          ? `The ChatGPT session expired (${oauthError.code || response.status}). Sign in again.`
+          : `Unable to refresh the ChatGPT session (${oauthError.code || response.status}).`);
       }
       const refreshed = await response.json();
+      if (typeof refreshed.access_token !== 'string' || !refreshed.access_token) {
+        await writeAuthLog('refresh-failed', {
+          providerId,
+          status: response.status,
+          code: 'missing_access_token',
+        });
+        throw new Error('The ChatGPT token refresh returned no access token.');
+      }
+      const refreshedAccountId = decodeJwtPayload(refreshed.id_token)
+        ?.['https://api.openai.com/auth']?.chatgpt_account_id;
       const nextTokens = {
-        accessToken: refreshed.access_token ?? tokens.accessToken,
+        accessToken: refreshed.access_token,
         refreshToken: refreshed.refresh_token ?? tokens.refreshToken,
         idToken: refreshed.id_token ?? tokens.idToken,
-        accountId: tokens.accountId,
+        accountId: typeof refreshedAccountId === 'string' && refreshedAccountId
+          ? refreshedAccountId
+          : tokens.accountId,
       };
       if (signedOutProviders.has(providerId)) {
         throw new Error('The ChatGPT session was disconnected.');
       }
-      services.credentials.set(providerId, nextTokens);
+      await services.credentials.set(providerId, nextTokens);
+      await writeAuthLog('refresh-succeeded', { providerId });
       return nextTokens;
     }).finally(() => refreshPromises.delete(providerId)));
   }
 
   return refreshPromises.get(providerId);
+}
+
+async function readOAuthError(response) {
+  const text = (await response.text()).slice(0, 2_000);
+  try {
+    const payload = JSON.parse(text);
+    const error = payload?.error;
+    return {
+      code: String(
+        (error && typeof error === 'object' ? error.code : error)
+        ?? payload?.code
+        ?? '',
+      ).slice(0, 120),
+    };
+  } catch {
+    return { code: '' };
+  }
+}
+
+async function writeAuthLog(event, details = {}) {
+  const directory = join(homedir(), '.aivax');
+  await mkdir(directory, { recursive: true });
+  await appendFile(
+    join(directory, 'auth.log'),
+    `${JSON.stringify({
+      timestamp: new Date().toISOString(),
+      event,
+      ...details,
+    })}\n`,
+  ).catch(() => {});
 }
 
 async function requestAccountJson(providerId, path, services, init = {}) {
