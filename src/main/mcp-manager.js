@@ -10,13 +10,14 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import packageMetadata from '../../package.json' with { type: 'json' };
 import {
   getMcpOAuthSessions,
   setMcpOAuthSessions,
 } from './database.js';
 
 const GLOBAL_ROOT = resolve(homedir());
-const CLIENT_INFO = Object.freeze({ name: 'AIVAX', version: '0.1.0' });
+const CLIENT_INFO = Object.freeze({ name: 'Avi', version: packageMetadata.version });
 const SERVER_TYPES = new Set(['stdio', 'streamable-http', 'sse']);
 const AUTH_TYPES = new Set(['auto', 'none', 'bearer', 'oauth2']);
 const MAX_LOG_ENTRIES = 200;
@@ -44,7 +45,7 @@ class McpOAuthProvider {
 
   get clientMetadata() {
     return {
-      client_name: 'AIVAX',
+      client_name: 'Avi',
       redirect_uris: [String(this.redirectUrl)],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
@@ -777,13 +778,13 @@ export class McpManager {
       const record = serverKey ? this.records.get(serverKey) : null;
       if (!record || !code || error) {
         response.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-        response.end('<h1>Authentication failed</h1><p>Return to AIVAX and try again.</p>');
+        response.end('<h1>Authentication failed</h1><p>Return to Avi and try again.</p>');
         return;
       }
 
       this.oauthStates.delete(state);
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      response.end('<h1>Authentication complete</h1><p>You can close this window and return to AIVAX.</p>');
+      response.end('<h1>Authentication complete</h1><p>You can close this window and return to Avi.</p>');
       this.finishOAuth(record, code);
     });
     await new Promise((resolveListen, reject) => {

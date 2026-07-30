@@ -17,6 +17,7 @@ import {
   relative,
   resolve,
 } from 'node:path';
+import packageMetadata from '../../package.json' with { type: 'json' };
 import {
   closeDatabase,
   createConversation,
@@ -130,7 +131,7 @@ function createWindow() {
   const smokeTest = process.env.CHAT_APP_SMOKE_TEST === '1';
 
   mainWindow = new BrowserWindow({
-    title: 'AIVAX',
+    title: 'Avi',
     url: process.env.VITE_DEV_SERVER_URL || 'views://mainview/index.html',
     rpc,
     frame: {
@@ -202,7 +203,7 @@ function createWindow() {
 
   if (smokeTest) {
     const smokeTimeout = setTimeout(() => {
-      console.error('Chat app smoke test timed out.');
+      console.error('Avi smoke test timed out.');
       process.exitCode = 1;
       Utils.quit();
     }, 15000);
@@ -227,6 +228,7 @@ function createWindow() {
               const appReady = document.querySelector('.settings-button, .settings-page');
               const settingsReady = models.length > 0 || document.querySelector('.settings-page');
               if (appReady && settingsReady) {
+                const sidebarLogo = document.querySelector('.app-name img');
                 document.querySelector('.settings-button')?.click();
                 await new Promise((next) => window.setTimeout(next, 50));
                 const mcpButton = [...document.querySelectorAll('.settings-navigation button')]
@@ -254,12 +256,37 @@ function createWindow() {
                 }
                 const saveButton = document.querySelector('.mcp-editor-actions .primary-mini');
                 const saveButtonRect = saveButton?.getBoundingClientRect();
-                resolve(Boolean(
+                const mcpPassed = Boolean(
                   document.querySelector('.mcp-settings')
                   && document.querySelector('.settings-page-header .settings-inline-back')
                   && !document.querySelector('.settings-content .settings-inline-back')
                   && saveButtonRect?.height <= 36
                   && getComputedStyle(saveButton).whiteSpace === 'nowrap'
+                );
+                const aboutButton = [...document.querySelectorAll('.settings-navigation button')]
+                  .find((button) => button.textContent.includes('About'));
+                aboutButton?.click();
+                while (
+                  Date.now() < deadline
+                  && !document.querySelector('.settings-about')
+                ) {
+                  await new Promise((next) => window.setTimeout(next, 50));
+                }
+                const aboutLogo = document.querySelector('.settings-about-logo');
+                const aboutLinks = [...document.querySelectorAll('.settings-about-link')];
+                const aboutText = document.querySelector('.settings-about')?.textContent ?? '';
+                resolve(Boolean(
+                  mcpPassed
+                  && aboutLogo?.complete
+                  && aboutLogo?.naturalWidth > 0
+                  && (
+                    !sidebarLogo
+                    || (sidebarLogo.complete && sidebarLogo.naturalWidth > 0)
+                  )
+                  && aboutText.includes('Avi')
+                  && aboutText.includes(${JSON.stringify(packageMetadata.version)})
+                  && aboutLinks.some((link) => link.href === 'https://avi.aivax.net/')
+                  && aboutLinks.some((link) => link.href === 'https://github.com/aivaxlabs/avi')
                 ));
               } else if (Date.now() >= deadline) {
                 resolve(false);
@@ -271,7 +298,7 @@ function createWindow() {
           });
         `,
       });
-      console.log(smokePassed ? 'Chat app smoke test passed.' : 'Chat app smoke test failed.');
+      console.log(smokePassed ? 'Avi smoke test passed.' : 'Avi smoke test failed.');
       process.exitCode = smokePassed ? 0 : 1;
       Utils.quit();
     });
@@ -298,6 +325,11 @@ function registerIpc() {
     defaultProject: inspectProjectFolder(homedir()),
     windowMaterial: getNativeWindowOptions().backgroundMaterial ?? null,
   }));
+  ipcMain.handle('app:open-external', (_event, url) => {
+    const target = new URL(url);
+    if (target.protocol !== 'https:') throw new Error('Only HTTPS links can be opened.');
+    return Utils.openExternal(target.href);
+  });
   ipcMain.handle('tuning:shells', () => {
     const automaticShell = resolveTerminalShell();
     return [
@@ -369,7 +401,7 @@ function registerIpc() {
     const modelUsage = new Map();
 
     for (const message of messagesToday.filter((item) => item.role === 'assistant')) {
-      const model = message.model || message.conversationModel || 'Modelo desconhecido';
+      const model = message.model || message.conversationModel || 'Unknown model';
       const totalTokens = Number(message.usage?.totalTokens)
         || (Number(message.usage?.inputTokens) || 0)
           + (Number(message.usage?.outputTokens) || 0);

@@ -1,4 +1,9 @@
 import { Database } from 'bun:sqlite';
+import {
+  createCipheriv,
+  createDecipheriv,
+  randomBytes,
+} from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import {
@@ -15,11 +20,13 @@ mkdirSync(storageDir, { recursive: true });
 
 const db = new Database(join(storageDir, 'aivax.sqlite'), { strict: true });
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+const credentialService = process.env.CHAT_APP_CREDENTIAL_SERVICE || 'net.aivax.chat';
 const secureStorage = {
   mcpOAuthSessions: {},
   providerCredentials: {},
 };
 const secureWrites = new Set();
+let providerCredentialsKey = null;
 
 const defaultTuningSettings = Object.freeze({
   automaticCompactionThreshold: 0.9,
@@ -64,6 +71,7 @@ db.exec(`
     role TEXT NOT NULL,
     model TEXT,
     reasoning_effort TEXT,
+    permission_mode TEXT,
     work_mode TEXT,
     ultra_mode INTEGER NOT NULL DEFAULT 0,
     goal_id TEXT,
@@ -119,6 +127,9 @@ if (!messageColumns.some((column) => column.name === 'model')) {
 }
 if (!messageColumns.some((column) => column.name === 'reasoning_effort')) {
   db.exec('ALTER TABLE messages ADD COLUMN reasoning_effort TEXT');
+}
+if (!messageColumns.some((column) => column.name === 'permission_mode')) {
+  db.exec('ALTER TABLE messages ADD COLUMN permission_mode TEXT');
 }
 if (!messageColumns.some((column) => column.name === 'work_mode')) {
   db.exec('ALTER TABLE messages ADD COLUMN work_mode TEXT');
@@ -325,12 +336,14 @@ const statements = {
   `),
   insertMessage: db.prepare(`
     INSERT INTO messages (
-      id, conversation_id, role, model, reasoning_effort, work_mode, ultra_mode, goal_id, hidden,
+      id, conversation_id, role, model, reasoning_effort, permission_mode,
+      work_mode, ultra_mode, goal_id, hidden,
       status, content, segments, attachments,
       continuations, usage, created_at, updated_at
     )
     VALUES (
-      @id, @conversationId, @role, @model, @reasoningEffort, @workMode, @ultraMode, @goalId, @hidden,
+      @id, @conversationId, @role, @model, @reasoningEffort, @permissionMode,
+      @workMode, @ultraMode, @goalId, @hidden,
       @status, @content, @segments, @attachments,
       @continuations, @usage, @createdAt, @updatedAt
     )
@@ -405,23 +418,100 @@ export function getProviderCredentials(providerId) {
   return secureStorage.providerCredentials[providerId] ?? null;
 }
 
-export function setProviderCredentials(providerId, value) {
+export async function setProviderCredentials(providerId, value) {
+  const previous = secureStorage.providerCredentials[providerId];
   secureStorage.providerCredentials[providerId] = value;
-  persistSecureValue('provider-credentials', secureStorage.providerCredentials);
+  try {
+    persistProviderCredentials();
+  } catch (error) {
+    if (previous === undefined) {
+      delete secureStorage.providerCredentials[providerId];
+    } else {
+      secureStorage.providerCredentials[providerId] = previous;
+    }
+    throw error;
+  }
 }
 
-export function deleteProviderCredentials(providerId) {
+export async function deleteProviderCredentials(providerId) {
+  const previous = secureStorage.providerCredentials[providerId];
   delete secureStorage.providerCredentials[providerId];
-  persistSecureValue('provider-credentials', secureStorage.providerCredentials);
+  try {
+    persistProviderCredentials();
+  } catch (error) {
+    if (previous !== undefined) secureStorage.providerCredentials[providerId] = previous;
+    throw error;
+  }
 }
 
 export async function initializeSecureStorage() {
-  const [mcpOAuthSessions, providerCredentials] = await Promise.all([
-    Bun.secrets.get({ service: 'net.aivax.chat', name: 'mcp-oauth-sessions' }).catch(() => null),
-    Bun.secrets.get({ service: 'net.aivax.chat', name: 'provider-credentials' }).catch(() => null),
+  const [mcpOAuthSessions, storedKey, legacyProviderCredentials] = await Promise.all([
+    Bun.secrets.get({ service: credentialService, name: 'mcp-oauth-sessions' }),
+    Bun.secrets.get({ service: credentialService, name: 'provider-credentials-key' }),
+    Bun.secrets.get({ service: credentialService, name: 'provider-credentials' }),
   ]);
   secureStorage.mcpOAuthSessions = mcpOAuthSessions ? parse(mcpOAuthSessions, {}) : {};
-  secureStorage.providerCredentials = providerCredentials ? parse(providerCredentials, {}) : {};
+  const encryptedCredentials = readJson('providerCredentialsV2');
+
+  if (storedKey) {
+    providerCredentialsKey = Buffer.from(storedKey, 'base64');
+    if (providerCredentialsKey.length !== 32) {
+      throw new Error('The provider credential encryption key is invalid.');
+    }
+  } else {
+    if (encryptedCredentials) {
+      throw new Error('The provider credential encryption key is unavailable.');
+    }
+    providerCredentialsKey = randomBytes(32);
+    await Bun.secrets.set({
+      service: credentialService,
+      name: 'provider-credentials-key',
+      value: providerCredentialsKey.toString('base64'),
+    });
+  }
+
+  if (encryptedCredentials) {
+    if (
+      encryptedCredentials.version !== 1
+      || typeof encryptedCredentials.iv !== 'string'
+      || typeof encryptedCredentials.authTag !== 'string'
+      || typeof encryptedCredentials.ciphertext !== 'string'
+    ) {
+      throw new Error('The encrypted provider credentials are invalid.');
+    }
+    try {
+      const decipher = createDecipheriv(
+        'aes-256-gcm',
+        providerCredentialsKey,
+        Buffer.from(encryptedCredentials.iv, 'base64'),
+      );
+      decipher.setAuthTag(Buffer.from(encryptedCredentials.authTag, 'base64'));
+      const decrypted = Buffer.concat([
+        decipher.update(Buffer.from(encryptedCredentials.ciphertext, 'base64')),
+        decipher.final(),
+      ]).toString('utf8');
+      const credentials = JSON.parse(decrypted);
+      if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) {
+        throw new Error();
+      }
+      secureStorage.providerCredentials = credentials;
+    } catch {
+      throw new Error('The encrypted provider credentials could not be decrypted.');
+    }
+  } else if (legacyProviderCredentials) {
+    const credentials = parse(legacyProviderCredentials, null);
+    if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) {
+      throw new Error('The legacy provider credentials are invalid.');
+    }
+    secureStorage.providerCredentials = credentials;
+    persistProviderCredentials();
+    await Bun.secrets.delete({
+      service: credentialService,
+      name: 'provider-credentials',
+    });
+  } else {
+    secureStorage.providerCredentials = {};
+  }
 }
 
 export async function flushSecureStorage() {
@@ -568,6 +658,13 @@ export function insertMessage(message) {
     role: message.role,
     model: message.model ?? null,
     reasoningEffort: message.reasoningEffort ?? null,
+    permissionMode: [
+      'ask_for_approval',
+      'approve_for_me',
+      'full_access',
+    ].includes(message.permissionMode)
+      ? message.permissionMode
+      : null,
     workMode: ['plan', 'goal'].includes(message.workMode) ? message.workMode : null,
     ultraMode: message.ultraMode ? 1 : 0,
     goalId: message.goalId ?? null,
@@ -625,19 +722,36 @@ export function getMessage(id) {
 export function searchChats(query) {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return [];
+  const seenConversations = new Set();
   return statements.searchMessages.all()
-    .map((row) => ({
-      score: fuzzyScore(`${row.conversation_title} ${row.content}`.toLowerCase(), normalized),
-      conversationId: row.conversation_id,
-      messageId: row.id,
-      title: row.conversation_title,
-      role: row.role,
-      content: row.content,
-      updatedAt: row.updated_at,
-    }))
+    .map((row) => {
+      const content = row.role === 'assistant'
+        ? answerTextFromTextualBlocks(row.content)
+        : row.content;
+      const source = `${row.conversation_title} ${content}`.toLowerCase();
+      const terms = normalized.split(/\s+/);
+      return {
+        score: source.includes(normalized)
+          ? 1000 + normalized.length
+          : terms.every((term) => source.includes(term))
+            ? 100 + terms.reduce((total, term) => total + term.length, 0)
+            : 0,
+        conversationId: row.conversation_id,
+        messageId: row.id,
+        title: row.conversation_title,
+        role: row.role,
+        content,
+        updatedAt: row.updated_at,
+      };
+    })
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score || new Date(b.updatedAt) - new Date(a.updatedAt))
-    .slice(0, 80);
+    .filter((item) => {
+      if (seenConversations.has(item.conversationId)) return false;
+      seenConversations.add(item.conversationId);
+      return true;
+    })
+    .slice(0, 20);
 }
 
 export function forkConversation(id, {
@@ -927,21 +1041,6 @@ function touchConversation(id) {
   updateConversation(id, {});
 }
 
-function fuzzyScore(source, query) {
-  if (source.includes(query)) return 1000 + query.length;
-  let score = 0;
-  let sourceIndex = 0;
-  let streak = 0;
-  for (const char of query) {
-    const found = source.indexOf(char, sourceIndex);
-    if (found === -1) return 0;
-    streak = found === sourceIndex ? streak + 1 : 0;
-    score += 1 + streak * 2;
-    sourceIndex = found + 1;
-  }
-  return score;
-}
-
 function writeJson(key, value) {
   statements.setValue.run({
     key,
@@ -1042,6 +1141,13 @@ function mapMessage(row) {
     role: row.role,
     model: row.model,
     reasoningEffort: row.reasoning_effort,
+    permissionMode: [
+      'ask_for_approval',
+      'approve_for_me',
+      'full_access',
+    ].includes(row.permission_mode)
+      ? row.permission_mode
+      : null,
     workMode: ['plan', 'goal'].includes(row.work_mode) ? row.work_mode : null,
     ultraMode: Boolean(row.ultra_mode),
     goalId: row.goal_id || null,
@@ -1085,7 +1191,7 @@ function stringify(value) {
 
 function persistSecureValue(name, value) {
   const write = Bun.secrets.set({
-    service: 'net.aivax.chat',
+    service: credentialService,
     name,
     value: JSON.stringify(value),
   }).catch((error) => {
@@ -1094,6 +1200,24 @@ function persistSecureValue(name, value) {
     secureWrites.delete(write);
   });
   secureWrites.add(write);
+}
+
+function persistProviderCredentials() {
+  if (!providerCredentialsKey) {
+    throw new Error('Secure provider credential storage is not initialized.');
+  }
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', providerCredentialsKey, iv);
+  const ciphertext = Buffer.concat([
+    cipher.update(JSON.stringify(secureStorage.providerCredentials), 'utf8'),
+    cipher.final(),
+  ]);
+  writeJson('providerCredentialsV2', {
+    version: 1,
+    iv: iv.toString('base64'),
+    authTag: cipher.getAuthTag().toString('base64'),
+    ciphertext: ciphertext.toString('base64'),
+  });
 }
 
 function parse(value, fallback) {

@@ -196,10 +196,75 @@ try {
     text: 'Sub-agent work',
   });
   await waitFor(() => fullStopSignals.length === 2);
+  const queuedParent = await fullStopRunner.send({
+    conversationId: parent.id,
+    model: model.id,
+    text: 'Keep this first parent prompt queued',
+  });
+  const secondQueuedParent = await fullStopRunner.send({
+    conversationId: parent.id,
+    model: model.id,
+    text: 'Keep this second parent prompt queued',
+    permissionMode: 'full_access',
+  });
+  const queuedSubagent = await fullStopRunner.send({
+    conversationId: subagent.id,
+    model: model.id,
+    text: 'Keep this sub-agent prompt queued',
+  });
   fullStopRunner.stop(parent.id, { includeSubagents: true });
   assert.equal(fullStopSignals.every((signal) => signal.aborted), true);
   assert.deepEqual(new Set(stoppedBackgroundTasks), new Set([parent.id, subagent.id]));
   await waitFor(() => fullStopRunner.runs.size === 0);
+  assert.deepEqual(
+    fullStopRunner.getQueuedItems(parent.id, model.id)
+      .map((item) => item.userMessageId),
+    [queuedParent.message.id, secondQueuedParent.message.id],
+  );
+  assert.deepEqual(
+    fullStopRunner.getQueuedItems(subagent.id, model.id)
+      .map((item) => item.userMessageId),
+    [queuedSubagent.message.id],
+  );
+  assert.equal(fullStopSignals.length, 2);
+  const restoredStopRunner = buildRunner(fullStopProvider);
+  assert.equal(
+    restoredStopRunner.getQueuedItems(parent.id, model.id)
+      .find((item) => item.userMessageId === secondQueuedParent.message.id)
+      ?.permissionMode,
+    'full_access',
+  );
+
+  const reorderedParent = fullStopRunner.reorderQueuedMessages({
+    conversationId: parent.id,
+    messageIds: [secondQueuedParent.message.id, queuedParent.message.id],
+  });
+  assert.equal(reorderedParent.reordered, true);
+
+  await fullStopRunner.send({
+    conversationId: parent.id,
+    model: model.id,
+    text: 'Resume the parent queue',
+  });
+  await waitFor(() => fullStopSignals.length === 3);
+  assert.deepEqual(
+    fullStopRunner.runs.get(parent.id).queue.map((item) => item.userMessageId),
+    [secondQueuedParent.message.id, queuedParent.message.id],
+  );
+  fullStopRunner.stop(parent.id);
+  await waitFor(() => !fullStopRunner.runs.has(parent.id));
+
+  const subagentQueueOrder = fullStopRunner.getQueuedItems(subagent.id, model.id)
+    .map((item) => item.userMessageId);
+  const steeredSubagent = fullStopRunner.reorderQueuedMessages({
+    conversationId: subagent.id,
+    messageIds: subagentQueueOrder,
+    steerMessageId: queuedSubagent.message.id,
+  });
+  assert.equal(steeredSubagent.steered, true);
+  await waitFor(() => fullStopSignals.length === 4);
+  fullStopRunner.stop(subagent.id);
+  await waitFor(() => !fullStopRunner.runs.has(subagent.id));
 
   const runInTerminal = clientTools.CLIENT_TOOLS.find((tool) => tool.name === 'run_in_terminal');
   const readTerminalOutput = clientTools.CLIENT_TOOLS.find(

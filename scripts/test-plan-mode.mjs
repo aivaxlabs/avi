@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { Database } from 'bun:sqlite';
 import {
+  mkdirSync,
   mkdtempSync,
   rmSync,
 } from 'node:fs';
@@ -11,6 +13,24 @@ const resolvedTemp = resolve(tmpdir());
 const resolvedProfile = resolve(testProfile);
 assert.ok(resolvedProfile.startsWith(resolvedTemp));
 process.env.USERPROFILE = resolvedProfile;
+const legacyStorage = join(resolvedProfile, '.aivax');
+mkdirSync(legacyStorage, { recursive: true });
+const legacyDatabase = new Database(join(legacyStorage, 'aivax.sqlite'));
+legacyDatabase.exec(`
+  CREATE TABLE messages (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    status TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    segments TEXT NOT NULL DEFAULT '[]',
+    attachments TEXT NOT NULL DEFAULT '[]',
+    continuations TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+legacyDatabase.close();
 
 let database;
 try {
@@ -126,15 +146,17 @@ try {
     conversationId: restoredConversation.id,
     role: 'user',
     model: model.id,
+    permissionMode: 'full_access',
     workMode: 'plan',
     status: 'queued',
     content: 'Restore this queued plan',
   });
-  assert.deepEqual(planRunner.getQueuedItems(restoredConversation.id, model.id), [{
+  const { runner: restoredRunner } = buildRunner(planProvider);
+  assert.deepEqual(restoredRunner.getQueuedItems(restoredConversation.id, model.id), [{
     userMessageId: restoredMessage.id,
     model: model.id,
     reasoningEffort: null,
-    permissionMode: 'approve_for_me',
+    permissionMode: 'full_access',
     workMode: 'plan',
     ultraMode: false,
   }]);

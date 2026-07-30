@@ -250,7 +250,7 @@ async function waitForTerminal(terminal, { untilExit, timeout }) {
 export const CLIENT_TOOLS = Object.freeze([
   {
     name: 'start_goal',
-    description: 'Start a persistent Goal for the current conversation when an explicit long-running objective should continue across iterations.',
+    description: 'Start a Goal only when explicitly requested by the user or system/developer instructions; do not infer Goals from ordinary tasks. Fails if an unfinished Goal exists; use update_goal_status only for status.',
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
@@ -633,6 +633,11 @@ export const CLIENT_TOOLS = Object.freeze([
           type: 'string',
           description: 'The focused task the sub-agent must complete.',
         },
+        response_mode: {
+          type: 'string',
+          enum: ['steer', 'queue', 'none'],
+          description: 'Optional delivery preference for the final result: steer prioritizes it at the next safe boundary, queue waits behind active work, and none leaves reporting to the sub-agent. Defaults to none.',
+        },
       },
       required: ['prompt'],
     },
@@ -641,6 +646,7 @@ export const CLIENT_TOOLS = Object.freeze([
         model_name,
         reasoning_effort,
         prompt,
+        response_mode = 'none',
       },
       {
         chatRunner,
@@ -667,6 +673,15 @@ export const CLIENT_TOOLS = Object.freeze([
       }
       const normalizedPrompt = String(prompt ?? '').trim();
       if (!normalizedPrompt) throw new Error('prompt is required.');
+      if (!['steer', 'queue', 'none'].includes(response_mode)) {
+        throw new Error('response_mode must be steer, queue, or none.');
+      }
+      let responseAppendix = '';
+      if (response_mode === 'steer') {
+        responseAppendix = `When the assignment is complete, send the final result to orchestrator thread "${parent.id}" with chat_send_prompt using mode "steer".`;
+      } else if (response_mode === 'queue') {
+        responseAppendix = 'When the assignment is complete, use chat_report_to_orchestrator to queue the final result for the orchestrator.';
+      }
 
       const selectedModelId = model_name === undefined ? model : String(model_name).trim();
       const selectedModel = models.find((item) => item.id === selectedModelId);
@@ -699,7 +714,9 @@ export const CLIENT_TOOLS = Object.freeze([
         conversationId: subagent.id,
         model: selectedModel.id,
         reasoningEffort: selectedReasoningEffort,
-        text: normalizedPrompt,
+        text: responseAppendix
+          ? `${normalizedPrompt}\n\n${responseAppendix}`
+          : normalizedPrompt,
         ultraMode,
         project: { path: parent.projectPath },
       });

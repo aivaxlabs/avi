@@ -71,6 +71,7 @@ export class ChatRunner {
     this.stopBackgroundTasks = stopBackgroundTasks;
     this.debugStream = debugStream;
     this.runs = new Map();
+    this.pausedQueues = new Map();
     this.pendingApprovals = new Map();
     this.pendingQuestions = new Map();
     this.approvedToolPatterns = new Set();
@@ -251,6 +252,7 @@ export class ChatRunner {
           conversationId,
           model: updatedGoal.model,
           reasoningEffort: updatedGoal.reasoningEffort,
+          permissionMode: updatedGoal.permissionMode,
           workMode: 'goal',
           ultraMode,
           goalId: updatedGoal.id,
@@ -345,6 +347,7 @@ export class ChatRunner {
         conversationId: conversation.id,
         model,
         reasoningEffort,
+        permissionMode,
         workMode,
         ultraMode,
         goalId,
@@ -391,6 +394,7 @@ export class ChatRunner {
       conversationId: conversation.id,
       model,
       reasoningEffort,
+      permissionMode,
       workMode,
       ultraMode,
       goalId,
@@ -404,10 +408,13 @@ export class ChatRunner {
         : 'waiting_mcp',
     });
     this.emit(conversation.id, { type: 'message', message: userMessage });
+    const queue = this.getQueuedItems(conversation.id, model);
+    this.pausedQueues.delete(conversation.id);
     this.start({
       conversationId: conversation.id,
       model,
       userMessageId: userMessage.id,
+      queue,
       reasoningEffort,
       permissionMode,
       workMode,
@@ -417,7 +424,7 @@ export class ChatRunner {
     return { conversation: getConversation(conversation.id), message: userMessage, queued: false };
   }
 
-  stop(conversationId, { clearQueue = true, includeSubagents = false } = {}) {
+  stop(conversationId, { includeSubagents = false, pauseGoal = true } = {}) {
     const conversationIds = [
       conversationId,
       ...(includeSubagents
@@ -427,13 +434,24 @@ export class ChatRunner {
     for (const id of conversationIds) {
       const run = this.runs.get(id);
       if (run) {
-        if (clearQueue) {
-          for (const item of run.queue) {
-            deleteMessage(item.userMessageId);
-            this.emit(id, { type: 'message-delete', messageId: item.userMessageId });
-          }
-          run.queue = [];
+        const goal = pauseGoal ? getGoalForConversation(id) : null;
+        if (goal?.status === 'active') {
+          const now = new Date();
+          updateGoalRecord({
+            ...goal,
+            status: 'paused',
+            activeElapsedMs: goal.activeElapsedMs + (
+              goal.resumedAt
+                ? Math.max(0, now.getTime() - new Date(goal.resumedAt).getTime())
+                : 0
+            ),
+            resumedAt: null,
+            updatedAt: now.toISOString(),
+          });
+          this.emitConversation(id);
         }
+        run.queuePaused = true;
+        this.pausedQueues.set(id, [...run.queue]);
         run.controller.abort('stop');
       }
       this.stopBackgroundTasks?.(id);
@@ -443,7 +461,7 @@ export class ChatRunner {
   async shutdown() {
     const activeRuns = [...this.runs.entries()];
     for (const [conversationId] of activeRuns) {
-      this.stop(conversationId);
+      this.stop(conversationId, { pauseGoal: false });
     }
     await Promise.allSettled(activeRuns.map(([, run]) => run.completion));
   }
@@ -494,10 +512,9 @@ export class ChatRunner {
       const queuedById = new Map(queuedItems.map((item) => [item.userMessageId, item]));
       const requestedIds = [...new Set(messageIds)];
       if (
-        !steerMessageId
-        || requestedIds.length !== queuedItems.length
+        requestedIds.length !== queuedItems.length
         || requestedIds.some((messageId) => !queuedById.has(messageId))
-        || !queuedById.has(steerMessageId)
+        || (steerMessageId && !queuedById.has(steerMessageId))
       ) {
         return {
           reordered: false,
@@ -506,7 +523,21 @@ export class ChatRunner {
       }
 
       const orderedQueue = requestedIds.map((messageId) => queuedById.get(messageId));
+      if (!steerMessageId) {
+        this.pausedQueues.set(conversationId, orderedQueue);
+        this.emit(conversationId, {
+          type: 'queue-order',
+          messageIds: requestedIds,
+        });
+        return {
+          reordered: true,
+          steered: false,
+          queueOrder: requestedIds,
+        };
+      }
+
       const next = orderedQueue.shift();
+      this.pausedQueues.delete(conversationId);
       const sentMessage = updateMessage(next.userMessageId, {
         status: next.workMode === 'plan'
           || !this.mcpManager
@@ -848,23 +879,40 @@ export class ChatRunner {
   }
 
   getQueuedItems(conversationId, fallbackModel) {
-    return getMessages(conversationId)
+    const persistedItems = getMessages(conversationId)
       .filter((message) => ['queued', 'steered'].includes(message.status))
       .map((message) => ({
         userMessageId: message.id,
         model: message.model || fallbackModel,
         reasoningEffort: message.reasoningEffort,
-        permissionMode: 'approve_for_me',
+        permissionMode: message.permissionMode ?? 'approve_for_me',
         workMode: message.workMode,
         ultraMode: message.ultraMode,
         ...(message.goalId ? { goalId: message.goalId } : {}),
       }));
+    const pausedQueue = this.pausedQueues.get(conversationId);
+    if (!pausedQueue) return persistedItems;
+
+    const persistedById = new Map(
+      persistedItems.map((item) => [item.userMessageId, item]),
+    );
+    const pausedIds = new Set(pausedQueue.map((item) => item.userMessageId));
+    return [
+      ...pausedQueue
+        .filter((item) => persistedById.has(item.userMessageId))
+        .map((item) => ({
+          ...persistedById.get(item.userMessageId),
+          permissionMode: item.permissionMode,
+        })),
+      ...persistedItems.filter((item) => !pausedIds.has(item.userMessageId)),
+    ];
   }
 
   createUserMessage({
     conversationId,
     model,
     reasoningEffort,
+    permissionMode,
     workMode,
     ultraMode = false,
     goalId = null,
@@ -878,6 +926,7 @@ export class ChatRunner {
       role: 'user',
       model,
       reasoningEffort,
+      permissionMode,
       workMode,
       ultraMode,
       goalId,
@@ -1038,7 +1087,7 @@ export class ChatRunner {
         throw new Error('The selected model is no longer configured. Choose another model in Settings.');
       }
 
-      const messages = retryMessages
+      let messages = retryMessages
         ?? toModelMessages(conversationId, { excludeMessageId: assistantMessage.id });
       const models = this.registry.listModels();
       const currentConversation = getConversation(conversationId);
@@ -1112,6 +1161,7 @@ export class ChatRunner {
       }));
       let lastInputTokens = 0;
       let firstResponseAt = null;
+      let retriedAfterContextCompaction = false;
       this.logChatTiming(conversationId, {
         phase: 'request-ready',
         assistantMessageId: assistantMessage.id,
@@ -1153,54 +1203,84 @@ export class ChatRunner {
             })
           : [];
         run.phase = 'inference';
-        const turn = await selection.provider.stream({
-          model: selection.model,
-          messages,
-          tools: availableTools,
-          toolHistory,
-          reasoningEffort,
-          invocationContext: {
+        let turn;
+        try {
+          turn = await selection.provider.stream({
+            model: selection.model,
+            messages,
+            tools: availableTools,
+            toolHistory,
+            reasoningEffort,
+            invocationContext: {
+              conversationId,
+              workspacePath,
+              mcpInstructions: mcpRuntime.instructions,
+              permissionMode,
+              workMode,
+              ultraMode,
+              orchestrationRole: currentConversation?.isSubagent
+                ? 'subagent'
+                : currentConversation?.isSideChat
+                  ? 'side_chat'
+                  : 'orchestrator',
+              goal: goalContext,
+              subagents: subagentContext,
+              tuning,
+            },
+            signal: controller.signal,
+            onEvent: (event) => {
+              if (
+                firstResponseAt === null
+                && ['content', 'reasoning', 'tool-call'].includes(event.type)
+              ) {
+                firstResponseAt = Date.now();
+              }
+              if (event.type === 'usage') {
+                lastInputTokens = event.usage.inputTokens ?? lastInputTokens;
+              }
+              accumulator.apply(event.type === 'tool-call'
+                ? {
+                    ...event,
+                    key: `round:${roundIndex}:${event.key ?? event.callId ?? 'tool'}`,
+                    isMcp: Boolean(
+                      availableTools.find((tool) => tool.name === event.name)?.mcp,
+                    ),
+                  }
+                : event);
+              this.logStreamEvent(conversationId, event);
+              persistAssistant({
+                force: ['usage', 'error', 'retry', 'retry-clear'].includes(event.type),
+              });
+            },
+          });
+        } catch (error) {
+          const errorText = `${error?.code ?? ''} ${
+            error instanceof Error ? error.message : String(error)
+          }`.toLowerCase();
+          const isContextLengthError = error?.status >= 400
+            && error.status <= 499
+            && errorText.includes('context')
+            && errorText.includes('length');
+          if (!isContextLengthError || retriedAfterContextCompaction) throw error;
+
+          const errorSegmentIndex = accumulator.segments.findLastIndex(
+            (segment) => segment.type === 'error'
+              && errorText.includes(String(segment.code ?? '').toLowerCase())
+              && errorText.includes(String(segment.message ?? '').toLowerCase()),
+          );
+          if (errorSegmentIndex >= 0) accumulator.segments.splice(errorSegmentIndex, 1);
+          accumulator.error = null;
+          persistAssistant({ force: true });
+          await this.compress({
             conversationId,
-            workspacePath,
-            mcpInstructions: mcpRuntime.instructions,
-            permissionMode,
-            workMode,
-            ultraMode,
-            orchestrationRole: currentConversation?.isSubagent
-              ? 'subagent'
-              : currentConversation?.isSideChat
-                ? 'side_chat'
-                : 'orchestrator',
-            goal: goalContext,
-            subagents: subagentContext,
-            tuning,
-          },
-          signal: controller.signal,
-          onEvent: (event) => {
-            if (
-              firstResponseAt === null
-              && ['content', 'reasoning', 'tool-call'].includes(event.type)
-            ) {
-              firstResponseAt = Date.now();
-            }
-            if (event.type === 'usage') {
-              lastInputTokens = event.usage.inputTokens ?? lastInputTokens;
-            }
-            accumulator.apply(event.type === 'tool-call'
-              ? {
-                  ...event,
-                  key: `round:${roundIndex}:${event.key ?? event.callId ?? 'tool'}`,
-                  isMcp: Boolean(
-                    availableTools.find((tool) => tool.name === event.name)?.mcp,
-                  ),
-                }
-              : event);
-            this.logStreamEvent(conversationId, event);
-            persistAssistant({
-              force: event.type === 'usage' || event.type === 'error',
-            });
-          },
-        });
+            model,
+            automatic: true,
+            controller,
+          });
+          retriedAfterContextCompaction = true;
+          messages = toModelMessages(conversationId, { excludeMessageId: assistantMessage.id });
+          continue;
+        }
         run.phase = 'boundary';
         if (this.shouldEndAtBoundary(run)) throw new Error('The run was interrupted.');
         if (turn.toolCalls.length === 0) break;
@@ -1625,6 +1705,7 @@ export class ChatRunner {
           conversationId: goal.conversationId,
           model: goal.model,
           reasoningEffort: goal.reasoningEffort,
+          permissionMode: goal.permissionMode,
           workMode: 'goal',
           ultraMode,
           goalId: goal.id,
@@ -1659,6 +1740,16 @@ export class ChatRunner {
   finishRun(conversationId) {
     const current = this.runs.get(conversationId);
     this.runs.delete(conversationId);
+    if (current?.queuePaused) {
+      this.pausedQueues.set(conversationId, [...current.queue]);
+      this.emit(conversationId, {
+        type: 'queue-order',
+        messageIds: current.queue.map((item) => item.userMessageId),
+      });
+      this.emit(conversationId, { type: 'run-state', running: false });
+      return;
+    }
+
     let pendingQueue = current?.queue ?? [];
     const runGoal = current?.goalId ? getGoal(current.goalId) : null;
     if (runGoal && TERMINAL_GOAL_STATUSES.has(runGoal.status)) {

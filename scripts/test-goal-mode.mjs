@@ -16,6 +16,7 @@ let database;
 try {
   database = await import('../src/main/database.js');
   const { ChatRunner } = await import('../src/main/chat-runner.js');
+  const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
   const {
     closeDatabase,
     createConversation,
@@ -31,6 +32,9 @@ try {
     reasoning: ['high'],
     context: { input: 100_000, output: 10_000 },
   };
+  const startGoalTool = CLIENT_TOOLS.find((tool) => tool.name === 'start_goal');
+  assert.match(startGoalTool.description, /only when explicitly requested/);
+  assert.match(startGoalTool.description, /do not infer Goals from ordinary tasks/);
 
   function buildRunner(provider, events = []) {
     return {
@@ -219,6 +223,34 @@ try {
   await waitFor(() => !pauseRunner.runs.has(pauseConversation.id));
   assert.equal(pauseCalls.length, 3);
   assert.equal(getGoalForConversation(pauseConversation.id).status, 'completed');
+
+  let stopSignal;
+  const stopProvider = {
+    getContributions: () => ({ tools: [] }),
+    stream: ({ signal }) => new Promise((resolveStream, rejectStream) => {
+      stopSignal = signal;
+      signal.addEventListener('abort', () => rejectStream(new Error('Stopped.')), { once: true });
+    }),
+  };
+  const { runner: stopRunner } = buildRunner(stopProvider);
+  const stopConversation = createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  await stopRunner.startGoal({
+    conversationId: stopConversation.id,
+    model: model.id,
+    specification: 'Pause this Goal when its inference is stopped.',
+    sendInitialPrompt: true,
+  });
+  await waitFor(() => Boolean(stopSignal));
+  stopRunner.stop(stopConversation.id);
+  await waitFor(() => !stopRunner.runs.has(stopConversation.id));
+  const stoppedGoal = getGoalForConversation(stopConversation.id);
+  assert.equal(stopSignal.aborted, true);
+  assert.equal(stoppedGoal.status, 'paused');
+  assert.equal(stoppedGoal.resumedAt, null);
+  assert.ok(stoppedGoal.activeElapsedMs >= 0);
 
   const editCalls = [];
   let finishOriginalIteration;

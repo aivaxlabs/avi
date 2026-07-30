@@ -152,11 +152,18 @@ try {
   const reportTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_report_to_orchestrator');
   const sendPromptTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_send_prompt');
   assert.deepEqual(spawnTool.inputSchema.required, ['prompt']);
+  assert.deepEqual(
+    spawnTool.inputSchema.properties.response_mode.enum,
+    ['steer', 'queue', 'none'],
+  );
   const spawnEvents = [];
   const spawnCalls = [];
   const spawnRuns = new Map();
   const spawned = await spawnTool.execute(
-    { prompt: 'Inspect the queue.' },
+    {
+      prompt: 'Inspect the queue.',
+      response_mode: 'steer',
+    },
     {
       chatRunner: {
         runs: spawnRuns,
@@ -185,9 +192,75 @@ try {
   assert.equal(spawnCalls[0].conversationId, spawned.thread_id);
   assert.equal(spawnCalls[0].reasoningEffort, 'high');
   assert.equal(spawnCalls[0].ultraMode, true);
+  assert.equal(
+    spawnCalls[0].text,
+    [
+      'Inspect the queue.',
+      `When the assignment is complete, send the final result to orchestrator thread "${parent.id}" with chat_send_prompt using mode "steer".`,
+    ].join('\n\n'),
+  );
   assert.ok(toModelMessages(spawned.thread_id)[0].content.includes('Ultra team'));
   assert.ok(toModelMessages(spawned.thread_id)[0].content.includes('chat_send_prompt'));
   assert.equal(spawnEvents[0].conversationId, parent.id);
+  const queueCalls = [];
+  const queuedSubagent = await spawnTool.execute(
+    {
+      prompt: 'Inspect the queued work.',
+      response_mode: 'queue',
+    },
+    {
+      chatRunner: {
+        runs: new Map(),
+        emit: () => {},
+        send: async (payload) => {
+          queueCalls.push(payload);
+          return { queued: false, message: { id: 'queue-prompt' } };
+        },
+      },
+      conversationId: parent.id,
+      model: 'test/model',
+      models: [{
+        id: 'test/model',
+        name: 'Test model',
+        reasoning: ['high'],
+      }],
+      reasoningEffort: 'high',
+    },
+  );
+  assert.equal(
+    queueCalls[0].text,
+    [
+      'Inspect the queued work.',
+      'When the assignment is complete, use chat_report_to_orchestrator to queue the final result for the orchestrator.',
+    ].join('\n\n'),
+  );
+  deleteConversation(queuedSubagent.thread_id, { hard: true });
+  const noResponseCalls = [];
+  const optionalSubagent = await spawnTool.execute(
+    {
+      prompt: 'Inspect without a reporting preference.',
+    },
+    {
+      chatRunner: {
+        runs: new Map(),
+        emit: () => {},
+        send: async (payload) => {
+          noResponseCalls.push(payload);
+          return { queued: false, message: { id: 'optional-prompt' } };
+        },
+      },
+      conversationId: parent.id,
+      model: 'test/model',
+      models: [{
+        id: 'test/model',
+        name: 'Test model',
+        reasoning: ['high'],
+      }],
+      reasoningEffort: 'high',
+    },
+  );
+  assert.equal(noResponseCalls[0].text, 'Inspect without a reporting preference.');
+  deleteConversation(optionalSubagent.thread_id, { hard: true });
   const crossAgentCalls = [];
   await sendPromptTool.execute(
     {
@@ -207,7 +280,10 @@ try {
   assert.equal(crossAgentCalls[0].ultraMode, true);
   await assert.rejects(
     () => spawnTool.execute(
-      { prompt: 'Inspect another queue.' },
+      {
+        prompt: 'Inspect another queue.',
+        response_mode: 'queue',
+      },
       {
         chatRunner: {
           runs: spawnRuns,
@@ -229,7 +305,10 @@ try {
   );
   await assert.rejects(
     () => spawnTool.execute(
-      { prompt: 'Spawn another agent.' },
+      {
+        prompt: 'Spawn another agent.',
+        response_mode: 'queue',
+      },
       {
         chatRunner: { emit: () => {}, send: async () => ({ queued: false }) },
         conversationId: subagent.conversation.id,
