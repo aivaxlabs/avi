@@ -274,6 +274,7 @@ export const CLIENT_TOOLS = Object.freeze([
         model,
         reasoningEffort,
         permissionMode,
+        ultraMode,
       },
     ) => {
       const normalizedSpecification = String(specification ?? '').trim();
@@ -284,6 +285,7 @@ export const CLIENT_TOOLS = Object.freeze([
         specification: normalizedSpecification,
         reasoningEffort,
         permissionMode,
+        ultraMode,
       });
       return {
         goal_id: result.goal.id,
@@ -647,6 +649,7 @@ export const CLIENT_TOOLS = Object.freeze([
         models,
         reasoningEffort,
         tuning,
+        ultraMode,
       },
     ) => {
       const parent = getConversation(conversationId);
@@ -685,6 +688,7 @@ export const CLIENT_TOOLS = Object.freeze([
       const result = forkConversation(parent.id, {
         subagent: true,
         subagentPrompt: normalizedPrompt,
+        orchestrationMode: ultraMode ? 'ultra' : null,
       });
       if (!result) throw new Error('The sub-agent thread could not be created.');
       const subagent = selectedModel.id === result.conversation.model
@@ -696,6 +700,7 @@ export const CLIENT_TOOLS = Object.freeze([
         model: selectedModel.id,
         reasoningEffort: selectedReasoningEffort,
         text: normalizedPrompt,
+        ultraMode,
         project: { path: parent.projectPath },
       });
 
@@ -707,7 +712,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'chat_report_to_orchestrator',
-    description: 'Queue the completed sub-agent result for its parent orchestrator thread.',
+    description: 'Queue a material progress update, blocker, course correction, or final result for the parent orchestrator thread.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -715,7 +720,7 @@ export const CLIENT_TOOLS = Object.freeze([
       properties: {
         message: {
           type: 'string',
-          description: 'A concise result with evidence and any blockers.',
+          description: 'A concise update or result with evidence, implications, and any blockers.',
         },
       },
       required: ['message'],
@@ -729,6 +734,12 @@ export const CLIENT_TOOLS = Object.freeze([
       if (!parent) throw new Error('The orchestrator thread was not found.');
       const normalizedMessage = String(message ?? '').trim();
       if (!normalizedMessage) throw new Error('message is required.');
+      const ultraMode = subagent.orchestrationMode === 'ultra';
+      const activeGoal = ultraMode
+        && parent.goal
+        && ['active', 'paused'].includes(parent.goal.status)
+        ? parent.goal
+        : null;
 
       const result = await chatRunner.send({
         conversationId: parent.id,
@@ -738,6 +749,9 @@ export const CLIENT_TOOLS = Object.freeze([
           normalizedMessage,
           '</subagent_report>',
         ].join('\n'),
+        workMode: activeGoal ? 'goal' : null,
+        goalId: activeGoal?.id,
+        ultraMode,
         project: { path: parent.projectPath },
       });
 
@@ -785,6 +799,7 @@ export const CLIENT_TOOLS = Object.freeze([
         model: conversation.model,
         text: normalizedPrompt,
         steer: mode === 'steer',
+        ultraMode: conversation.orchestrationMode === 'ultra',
         project: { path: conversation.projectPath },
       });
 

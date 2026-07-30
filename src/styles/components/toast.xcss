@@ -1,6 +1,6 @@
 .inline-error,
 .toast {
-  color: var(--color-danger);
+  color: var(--text-1);
   font-size: 12px;
 }
 
@@ -10,9 +10,9 @@
   bottom: 18px;
   max-width: 420px;
   padding: 10px 12px;
-  color: var(--color-on-accent);
-  background: var(--color-danger-strong);
+  color: var(--text-5);
+  background: var(--text-1);
   border-radius: 8px;
-  box-shadow: 0 18px 50px var(--shadow-dialog);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 30%);
   z-index: 80;
 }

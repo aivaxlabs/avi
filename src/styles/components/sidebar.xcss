@@ -5,9 +5,9 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: transparent;
+  background: --background-2;
   font-size: --sidebar-font-size;
-  border-right: 1px solid var(--border-hairline);
+  border-right: 1px solid var(--border-color);
 
   .sidebar-titlebar {
     height: 38px;
@@ -21,7 +21,7 @@
   .app-name {
     font-size: 12px;
     font-weight: 500;
-    color: var(--color-text-heading);
+    color: var(--text-1);
   }
 
   .sidebar-toggle {
@@ -29,13 +29,13 @@
     height: 26px;
     display: grid;
     place-items: center;
-    color: var(--color-control-secondary);
+    color: var(--text-3);
     background: transparent;
     border-radius: 6px;
     -webkit-app-region: no-drag;
 
     &:hover {
-      background: var(--surface-hover);
+      background: var(--item-hover);
     }
   }
 
@@ -66,7 +66,7 @@
     align-items: center;
     gap: 8px;
     min-width: 0;
-    color: var(--color-text-primary);
+    color: var(--text-1);
     background: transparent;
     border-radius: 6px;
     padding: 4px 8px;
@@ -75,11 +75,15 @@
   }
 
   .nav-actions button:hover,
-  .nav-actions button.active,
   .settings-button:hover,
-  .conversation-item.active,
   .conversation-item:hover {
-    background: var(--surface-neutral-hover);
+    background: var(--item-hover);
+  }
+
+  .nav-actions button.active,
+  .conversation-item.active,
+  .conversation-item.menu-open {
+    background: var(--item-active);
   }
 
   .conversation-item:hover .icon-button,
@@ -94,17 +98,18 @@
   }
 
   .nav-actions button:disabled {
-    color: var(--color-disabled);
+    color: var(--text-4);
   }
 
   .recent-label {
-    margin: 18px 8px 6px;
+    padding: 10px 16px 0 16px;
+    margin: 1em 0 1em 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    border-top: 1px solid --border-color;
     gap: 6px;
-    color: var(--color-muted-strong);
-    font-size: 11px;
+    color: var(--text-4);
   }
 
   .recent-title {
@@ -119,14 +124,18 @@
     height: 22px;
     display: grid;
     place-items: center;
-    color: var(--color-muted-icon);
+    color: var(--text-3);
     background: transparent;
     border-radius: 5px;
 
-    &:hover,
+    &:hover {
+      color: var(--text-1);
+      background: var(--item-hover);
+    }
+
     &.active {
-      color: var(--color-text-primary);
-      background: var(--surface-neutral-hover);
+      color: var(--text-1);
+      background: var(--item-active);
     }
   }
 
@@ -139,7 +148,7 @@
     padding: 6px;
     scrollbar-gutter: stable;
     scrollbar-width: thin;
-    scrollbar-color: var(--scrollbar-thumb) transparent;
+    scrollbar-color: var(--text-4) transparent;
 
     &::-webkit-scrollbar {
       width: 10px;
@@ -151,14 +160,14 @@
 
     &::-webkit-scrollbar-thumb {
       min-height: 44px;
-      background: var(--scrollbar-thumb);
+      background: var(--text-4);
       background-clip: padding-box;
       border: 3px solid transparent;
       border-radius: 999px;
     }
 
     &:hover::-webkit-scrollbar-thumb {
-      background: var(--scrollbar-thumb-hover);
+      background: var(--text-3);
       background-clip: padding-box;
     }
 
@@ -175,7 +184,7 @@
     gap: 2px;
 
     + .conversation-group {
-      margin-top: 8px;
+      margin-top: 1.25em;
     }
   }
 
@@ -186,9 +195,8 @@
     align-items: center;
     justify-content: space-between;
     gap: 6px;
-    margin: 4px 6px 2px;
-    color: var(--color-muted-strong);
-    font-size: 12px;
+    margin: 4px 6px 2px 10px;
+    color: var(--text-3);
 
     > span {
       min-width: 0;
@@ -210,7 +218,7 @@
       display: grid;
       place-items: center;
       padding: 0;
-      color: var(--color-muted-strong);
+      color: var(--text-3);
       background: transparent;
       border-radius: 9999px;
       opacity: .72;
@@ -220,10 +228,15 @@
         transform 180ms var(--base-transition);
 
       &:hover,
-      &:focus-visible,
+      &:focus-visible {
+        color: var(--text-1);
+        background: var(--item-hover);
+        opacity: 1;
+      }
+
       &.active {
-        color: var(--color-text-strong);
-        background: var(--surface-neutral-hover);
+        color: var(--text-1);
+        background: var(--item-active);
         opacity: 1;
       }
 
@@ -232,7 +245,7 @@
       }
 
       &:focus-visible {
-        outline: 2px solid var(--border-accent);
+        outline: 2px solid var(--text-3);
         outline-offset: 1px;
       }
     }
@@ -271,7 +284,7 @@
     grid-row: 1;
     justify-self: center;
     flex: 0 0 auto;
-    color: var(--color-muted-light);
+    color: var(--text-4);
     font-size: 12px;
     white-space: nowrap;
     pointer-events: none;
@@ -282,15 +295,15 @@
     width: fit-content;
     margin: 2px 0 4px 13px;
     padding: 4px 6px;
-    color: var(--color-muted-strong);
+    color: var(--text-3);
     background: transparent;
     border-radius: 5px;
     font-size: 12px;
     text-align: left;
 
     &:hover {
-      color: var(--color-text-primary);
-      background: var(--surface-neutral-hover);
+      color: var(--text-1);
+      background: var(--item-hover);
     }
   }
 
@@ -303,8 +316,8 @@
       width: 6px;
       height: 6px;
       flex: 0 0 6px;
-      background: var(--color-live);
-      box-shadow: 0 0 0 4px var(--glow-live);
+      background: var(--text-1);
+      box-shadow: 0 0 0 4px var(--text-4);
     }
   }
 

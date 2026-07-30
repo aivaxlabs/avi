@@ -13,9 +13,9 @@
     max-width: min(100%, 320px);
     min-width: 0;
     padding: 5px 7px;
-    color: var(--color-text-tertiary);
-    background: var(--surface-chip);
-    border: 1px solid var(--border-panel-strong);
+    color: var(--text-2);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
     border-radius: 14px;
     font-size: 12px;
 
@@ -28,15 +28,15 @@
 
     small {
       flex: 0 0 auto;
-      color: var(--color-muted-light);
+      color: var(--text-4);
     }
 
     &.context-marker {
-      color: var(--color-text-primary);
+      color: var(--text-1);
 
       svg {
         flex: 0 0 auto;
-        color: var(--color-menu-icon);
+        color: var(--text-3);
       }
     }
   }
@@ -50,7 +50,7 @@
       flex: 0 0 auto;
       display: grid;
       place-items: center;
-      color: var(--color-muted-warm);
+      color: var(--text-3);
       background: transparent;
     }
   }

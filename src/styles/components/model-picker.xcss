@@ -13,9 +13,9 @@
   .model-filter-input, .model-provider-tabs {
     height: 30px;
     min-width: 0;
-    color: var(--color-text-primary);
-    background: var(--surface-muted-solid);
-    border: 1px solid var(--border-control);
+    color: var(--text-1);
+    background: var(--background-4);
+    border: 1px solid var(--border-color);
     border-radius: 5px;
   }
 
@@ -43,9 +43,9 @@
     button {
       min-width: 0;
       padding: 0 8px;
-      color: var(--color-text-soft);
+      color: var(--text-2);
       background: transparent;
-      border-right: 1px solid var(--border-control);
+      border-right: 1px solid var(--border-color);
       font-size: 12px;
       font-weight: 500;
       overflow: hidden;
@@ -57,12 +57,12 @@
       }
 
       &:hover {
-        background: var(--surface-hover);
+        background: var(--item-hover);
       }
 
       &.active {
-        color: var(--color-text-strong);
-        background: var(--surface-hover-strong);
+        color: var(--text-1);
+        background: var(--item-active);
       }
     }
   }
@@ -83,13 +83,13 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      color: var(--color-text-soft);
+      color: var(--text-2);
       font-size: 12px;
       font-weight: 500;
 
       small {
         margin-left: auto;
-        color: var(--color-muted);
+        color: var(--text-3);
         font-size: 10px;
         font-weight: 500;
       }
@@ -102,9 +102,9 @@
     flex: 0 0 40px;
     display: grid;
     place-items: center;
-    color: var(--color-muted);
-    background: var(--surface-muted-solid);
-    border: 1px solid var(--border-panel);
+    color: var(--text-3);
+    background: var(--background-4);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
   }
 
@@ -113,13 +113,13 @@
     height: 32px;
     display: grid;
     place-items: center;
-    color: var(--color-placeholder);
+    color: var(--text-4);
     background: transparent;
     border-radius: 999px;
 
     &.active {
-      color: var(--color-warning);
-      background: var(--surface-warning-soft);
+      color: var(--text-2);
+      background: var(--item-active);
     }
   }
 
@@ -144,7 +144,7 @@
       h3 {
         margin: 10px 4px 4px;
         padding-bottom: 5px;
-        border-bottom: 1px dashed var(--border-panel-strong);
+        border-bottom: 1px dashed var(--border-color);
       }
     }
   }
@@ -162,7 +162,7 @@
     }
 
     &:hover {
-      background: var(--surface-subtle-hover);
+      background: var(--background-2);
     }
 
     &.active:hover {
@@ -170,7 +170,7 @@
     }
 
     &:focus-within {
-      outline: 2px solid var(--border-accent);
+      outline: 2px solid var(--text-3);
       outline-offset: 2px;
     }
   }
@@ -182,7 +182,7 @@
     align-items: center;
     gap: 10px;
     padding: 4px 6px;
-    color: var(--color-text-primary);
+    color: var(--text-1);
     background: transparent;
     text-align: left;
     font-size: 12px;
@@ -215,19 +215,19 @@
   }
 
   .model-row-content small {
-    color: var(--color-placeholder);
+    color: var(--text-4);
     font-size: inherit;
     font-weight: 400;
   }
 
   .model-row-content span {
-    color: var(--color-text-soft);
+    color: var(--text-2);
 
     &:nth-child(2) {
       display: flex;
       align-items: center;
       gap: 5px;
-      color: var(--color-muted-strong);
+      color: var(--text-3);
     }
   }
 
@@ -244,8 +244,8 @@
     min-height: 176px;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
-    background: var(--surface-slate-faint);
-    border: 1px solid var(--border-panel);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
   }
 
@@ -255,7 +255,7 @@
     align-items: center;
     gap: 10px;
     padding: 10px;
-    border-bottom: 1px solid var(--border-panel);
+    border-bottom: 1px solid var(--border-color);
 
     div {
       min-width: 0;
@@ -264,20 +264,20 @@
     }
 
     span {
-      color: var(--color-muted);
+      color: var(--text-3);
       font-size: 12px;
     }
 
     strong {
       overflow: hidden;
-      color: var(--color-text-strong);
+      color: var(--text-1);
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: 15px;
     }
 
     small {
-      color: var(--color-placeholder);
+      color: var(--text-4);
       font-size: inherit;
       font-weight: 400;
     }
@@ -301,14 +301,14 @@
     }
 
     dt {
-      color: var(--color-muted);
+      color: var(--text-3);
       font-size: 11px;
       font-weight: 500;
     }
 
     dd {
       margin: 0;
-      color: var(--color-text-primary);
+      color: var(--text-1);
       font-size: 11px;
       font-weight: 500;
       text-align: right;

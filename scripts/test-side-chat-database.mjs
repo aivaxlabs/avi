@@ -150,6 +150,7 @@ try {
   const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
   const spawnTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_spawn_subagent');
   const reportTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_report_to_orchestrator');
+  const sendPromptTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_send_prompt');
   assert.deepEqual(spawnTool.inputSchema.required, ['prompt']);
   const spawnEvents = [];
   const spawnCalls = [];
@@ -174,14 +175,36 @@ try {
         reasoning: ['high'],
       }],
       reasoningEffort: 'high',
+      ultraMode: true,
     },
   );
   assert.equal(spawned.status, 'working');
   assert.equal(getConversation(spawned.thread_id).isSubagent, true);
   assert.equal(getConversation(spawned.thread_id).initialPrompt, 'Inspect the queue.');
+  assert.equal(getConversation(spawned.thread_id).orchestrationMode, 'ultra');
   assert.equal(spawnCalls[0].conversationId, spawned.thread_id);
   assert.equal(spawnCalls[0].reasoningEffort, 'high');
+  assert.equal(spawnCalls[0].ultraMode, true);
+  assert.ok(toModelMessages(spawned.thread_id)[0].content.includes('Ultra team'));
+  assert.ok(toModelMessages(spawned.thread_id)[0].content.includes('chat_send_prompt'));
   assert.equal(spawnEvents[0].conversationId, parent.id);
+  const crossAgentCalls = [];
+  await sendPromptTool.execute(
+    {
+      threadId: spawned.thread_id,
+      prompt: 'Coordinate this finding with the team.',
+      mode: 'queue',
+    },
+    {
+      chatRunner: {
+        send: async (payload) => {
+          crossAgentCalls.push(payload);
+          return { queued: true, message: { id: 'cross-agent-prompt' } };
+        },
+      },
+    },
+  );
+  assert.equal(crossAgentCalls[0].ultraMode, true);
   await assert.rejects(
     () => spawnTool.execute(
       { prompt: 'Inspect another queue.' },
@@ -345,12 +368,13 @@ try {
           return { queued: true, message: { id: 'report-message' } };
         },
       },
-      conversationId: subagent.conversation.id,
+      conversationId: spawned.thread_id,
     },
   );
   assert.equal(report.thread_id, parent.id);
   assert.equal(report.status, 'queued');
-  assert.ok(reportCalls[0].text.includes(subagent.conversation.id));
+  assert.ok(reportCalls[0].text.includes(spawned.thread_id));
+  assert.equal(reportCalls[0].ultraMode, true);
   deleteConversation(parent.id);
   assert.equal(getConversation(second.conversation.id), null);
   assert.equal(getConversation(third.conversation.id), null);

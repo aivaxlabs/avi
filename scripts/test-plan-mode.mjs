@@ -136,6 +136,7 @@ try {
     reasoningEffort: null,
     permissionMode: 'approve_for_me',
     workMode: 'plan',
+    ultraMode: false,
   }]);
 
   let finishQueuedRun;

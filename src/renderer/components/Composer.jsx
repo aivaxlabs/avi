@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Clock3,
   CornerDownLeft,
+  FileText,
   FolderOpen,
   GitBranch,
   GripVertical,
@@ -33,6 +34,7 @@ import {
   Trash2,
   Workflow,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   useEffect,
@@ -66,6 +68,11 @@ const permissionModes = [
   },
 ];
 const composerCommands = [
+  {
+    id: 'ultra',
+    name: 'ultra',
+    description: 'Lead a proactive team of sub-agents for maximum quality',
+  },
   {
     id: 'plan',
     name: 'plan',
@@ -143,8 +150,12 @@ export function Composer({
   onToggleFavorite,
   workMode = null,
   onWorkModeChange,
+  ultraMode = false,
+  onUltraModeChange,
   goal = null,
   onGoalAction,
+  pendingAttachment,
+  onPendingAttachmentConsumed,
   messageDeliveryMode = 'queue',
   draftKey = composerDraftKey,
 }) {
@@ -379,6 +390,18 @@ export function Composer({
   }, [droppedFiles]);
 
   useEffect(() => {
+    if (!pendingAttachment) return;
+
+    setAttachments((items) => (
+      items.some((item) => item.id === pendingAttachment.id)
+        ? items
+        : [...items, pendingAttachment]
+    ));
+    onPendingAttachmentConsumed?.(pendingAttachment.id);
+    queueMicrotask(() => textAreaRef.current?.focus());
+  }, [onPendingAttachmentConsumed, pendingAttachment]);
+
+  useEffect(() => {
     if (!plusOpen) return undefined;
     const close = (event) => {
       if (plusHolderRef.current?.contains(event.target)) return;
@@ -471,6 +494,7 @@ export function Composer({
       reasoningEffort: activeReasoningEffort,
       permissionMode,
       workMode: effectiveWorkMode,
+      ultraMode,
     };
     setText('');
     window.localStorage.removeItem(draftKey);
@@ -534,6 +558,11 @@ export function Composer({
         onWorkModeChange?.('plan');
         return;
       }
+      if (option.id === 'ultra') {
+        exitCommandMode();
+        onUltraModeChange?.(!ultraMode);
+        return;
+      }
       if (option.id === 'goal') {
         exitCommandMode();
         if (activeGoal) {
@@ -552,6 +581,7 @@ export function Composer({
           reasoningEffort: activeReasoningEffort,
           permissionMode,
           workMode: effectiveWorkMode,
+          ultraMode,
         });
         return;
       }
@@ -672,6 +702,7 @@ export function Composer({
       reasoningEffort: activeReasoningEffort,
       permissionMode,
       workMode: effectiveWorkMode,
+      ultraMode,
     });
   }
 
@@ -1009,7 +1040,11 @@ export function Composer({
                 {attachment.kind === 'context_marker'
                   ? attachment.markerType === 'workflow'
                     ? <Workflow size={13} />
-                    : <Sparkles size={13} />
+                    : attachment.markerType === 'directory_reference'
+                      ? <FolderOpen size={13} />
+                      : attachment.markerType?.startsWith('file_')
+                        ? <FileText size={13} />
+                        : <Sparkles size={13} />
                   : <Paperclip size={13} />}
                 <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
                 {attachment.kind !== 'context_marker' && <small>{formatBytes(attachment.size)}</small>}
@@ -1043,7 +1078,9 @@ export function Composer({
                       ? 'Describe the Goal...'
                       : workMode === 'plan'
                         ? 'Describe your task to generate a plan...'
-                        : `Message ${modelName || 'model'}`}
+                        : ultraMode
+                          ? 'Describe the objective for the Ultra team...'
+                          : `Message ${modelName || 'model'}`}
             aria-expanded={Boolean(commandMode)}
             aria-controls={commandMode ? 'composer-command-list' : undefined}
             aria-activedescendant={activeCommandOption ? `composer-command-option-${commandIndex}` : undefined}
@@ -1062,6 +1099,18 @@ export function Composer({
             </button>
             {plusOpen && (
               <DropdownMenu className="attachment-dropdown-menu" role="menu">
+                <DropdownMenuItem
+                  active={ultraMode}
+                  icon={<Zap size={14} />}
+                  role="menuitemcheckbox"
+                  aria-checked={ultraMode}
+                  onClick={() => {
+                    onUltraModeChange?.(!ultraMode);
+                    setPlusOpen(false);
+                  }}
+                >
+                  Ultra
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   active={Boolean(activeGoal) || workMode === 'goal'}
                   icon={<Target size={14} />}
@@ -1153,6 +1202,19 @@ export function Composer({
                   ? <Target size={12} aria-hidden="true" />
                   : <ListChecks size={12} aria-hidden="true" />}
                 <span>{workMode === 'goal' ? 'Goal' : 'Plan'}</span>
+                <X size={12} aria-hidden="true" />
+              </button>
+            )}
+            {ultraMode && (
+              <button
+                className="work-mode-chip"
+                type="button"
+                title="Exit Ultra mode"
+                aria-label="Exit Ultra mode"
+                onClick={() => onUltraModeChange?.(false)}
+              >
+                <Zap size={12} aria-hidden="true" />
+                <span>Ultra</span>
                 <X size={12} aria-hidden="true" />
               </button>
             )}

@@ -1,9 +1,15 @@
 .project-picker-row {
-  width: min(720px, 100%);
-  margin: 6px auto 0;
+  width: min(680px, 95%);
+  margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  background: var(--background-2);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--border-color);
+  border-top: none;
+  border-radius: 0 0 16px 16px;
+  padding: 0 10px;
   gap: 12px;
 
   .project-picker-holder {
@@ -19,9 +25,10 @@
     align-items: center;
     gap: 6px;
     padding: 0 8px;
-    color: var(--color-muted-strong);
+    color: var(--text-3);
     border-radius: 7px;
     font-size: 11px;
+    background: var(--background-2);
     transition: color 180ms var(--base-transition),
       background 180ms var(--base-transition),
       border-color 180ms var(--base-transition),
@@ -32,9 +39,9 @@
     }
 
     &:hover:not(:disabled) {
-      color: var(--color-text-primary);
-      background: var(--surface-hover);
-      border-color: var(--border-control);
+      color: var(--text-1);
+      background: var(--item-hover);
+      border-color: var(--border-color);
     }
 
     &:active:not(:disabled) {
@@ -42,12 +49,12 @@
     }
 
     &:focus-visible {
-      outline: 2px solid var(--border-accent);
+      outline: 2px solid var(--text-3);
       outline-offset: 2px;
     }
 
     &:disabled {
-      color: var(--color-muted);
+      color: var(--text-3);
       background: transparent;
       cursor: not-allowed;
       opacity: .72;
@@ -61,10 +68,10 @@
     z-index: 130;
     width: 280px;
     padding: 6px;
-    background: var(--surface-menu-solid);
-    border: 1px solid var(--border-panel);
+    background: var(--background-1);
+    border: 1px solid var(--border-color);
     border-radius: 12px;
-    box-shadow: 0 16px 40px var(--shadow-menu);
+    box-shadow: 0 16px 40px rgb(0 0 0 / 22%);
   }
 
   .project-picker-search {
@@ -73,13 +80,13 @@
     align-items: center;
     gap: 6px;
     padding: 0 6px;
-    color: var(--color-muted);
+    color: var(--text-3);
 
     input {
       min-width: 0;
       height: 30px;
       padding: 6px 0 !important;
-      color: var(--color-text-primary);
+      color: var(--text-1);
       background: transparent;
       border: 0;
       border-radius: 0;
@@ -93,7 +100,8 @@
     overflow-y: auto;
   }
 
-  .project-picker-list button, .project-picker-action {
+  .project-picker-list button,
+  .project-picker-action {
     width: 100%;
     min-width: 0;
     min-height: 30px;
@@ -102,22 +110,30 @@
     align-items: center;
     gap: 7px;
     padding: 6px 8px;
-    color: var(--color-text-primary);
+    color: var(--text-1);
     background: transparent;
     text-align: left;
     font-size: 12px;
   }
 
-  .project-picker-list button:hover, .project-picker-list button.active, .project-picker-action:hover {
-    background: var(--surface-neutral-hover);
+  .project-picker-list button:hover,
+  .project-picker-action:hover {
+    background: var(--item-hover);
   }
 
-  .project-picker-list button:focus-visible, .project-picker-action:focus-visible {
-    outline: 2px solid var(--border-accent);
+  .project-picker-list button.active,
+  .project-picker-action.active {
+    background: var(--item-active);
+  }
+
+  .project-picker-list button:focus-visible,
+  .project-picker-action:focus-visible {
+    outline: 2px solid var(--text-3);
     outline-offset: -2px;
   }
 
-  .project-picker-list button > span, .project-picker-list button > small {
+  .project-picker-list button > span,
+  .project-picker-list button > small {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -125,42 +141,39 @@
 
   .project-picker-list button > small {
     max-width: 82px;
-    color: var(--color-muted);
+    color: var(--text-3);
     font-size: 10px;
   }
 
   .project-picker-list button > svg:last-child {
     grid-column: 4;
-    color: var(--color-text-primary);
+    color: var(--text-1);
   }
 
   .project-picker-empty {
     display: block;
     padding: 10px 8px;
-    color: var(--color-muted);
+    color: var(--text-3);
     font-size: 11px;
   }
 
   .project-picker-divider {
     height: 1px;
     margin: 5px 6px;
-    background: var(--color-divider-subtle);
+    background: var(--background-3);
   }
 
   .project-picker-action {
     grid-template-columns: 16px minmax(0, 1fr) 16px;
   }
 
-  .project-picker-action svg, .project-picker-list button > svg:first-child {
-    color: var(--color-menu-icon);
-  }
-
-  .project-picker-action.active {
-    background: var(--surface-neutral-hover);
+  .project-picker-action svg,
+  .project-picker-list button > svg:first-child {
+    color: var(--text-3);
   }
 
   .project-picker-action > svg:last-child {
-    color: var(--color-text-primary);
+    color: var(--text-1);
   }
 
   .context-usage {
@@ -169,7 +182,7 @@
     align-items: center;
     gap: 5px;
     padding: 2px 0;
-    color: var(--color-muted);
+    color: var(--text-3);
     font-size: 11px;
     font-variant-numeric: tabular-nums;
   }
@@ -181,19 +194,20 @@
     position: relative;
     display: block;
     border-radius: 50%;
-    background: conic-gradient(var(--color-text-primary) var(--context-progress),
-      var(--surface-muted-solid) 0);
+    background: conic-gradient(var(--text-1) var(--context-progress),
+        var(--background-4) 0);
 
     &::after {
       content: '';
       position: absolute;
       inset: 3px;
-      background: var(--surface-solid);
+      background: var(--background-1);
       border-radius: 50%;
     }
   }
 
-  .project-picker-path, .project-picker-branch span {
+  .project-picker-path,
+  .project-picker-branch span {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -211,10 +225,11 @@
     align-items: center;
     gap: 4px;
     padding-left: 7px;
-    border-left: 1px solid var(--border-hairline);
+    border-left: 1px solid var(--border-color);
   }
 
-  .project-picker-branch svg, .project-picker-lock {
+  .project-picker-branch svg,
+  .project-picker-lock {
     flex: 0 0 auto;
   }
 

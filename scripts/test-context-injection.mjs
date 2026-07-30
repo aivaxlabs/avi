@@ -59,6 +59,9 @@ try {
     || injected.includes('--- BEGIN AGENT.invalid.md ---')
     || injected.includes('--- BEGIN NOTES.md ---')
     || !injected.includes(`Command execution shell: ${terminalShell.label}`)
+    || !injected.includes('#file:./path:12-52')
+    || !injected.includes('#file:<./path with spaces.js>:12')
+    || !injected.includes('Do not wrap the reference in backticks')
   ) {
     throw new Error('Context variants did not follow the expected root and nested rules.');
   }
@@ -131,6 +134,31 @@ try {
   if (injected.includes('<work_mode mode="plan">')) {
     throw new Error('Plan context was injected outside Plan mode.');
   }
+
+  const ultraContext = await resolveDynamicContext({
+    workspacePath: root,
+    ultraMode: true,
+    orchestrationRole: 'orchestrator',
+  });
+  for (const requirement of [
+    '<work_mode mode="ultra" role="orchestrator">',
+    'chat_spawn_subagent',
+    'chat_send_prompt',
+    'independent judges or reviewers',
+    'Ultra mode may operate together with an active Goal',
+    'incompatible with Plan mode',
+    'diminishing value',
+  ]) {
+    if (!ultraContext.includes(requirement)) {
+      throw new Error(`Ultra context is missing: ${requirement}`);
+    }
+  }
+  assert.ok(!injected.includes('<work_mode mode="ultra"'));
+  assert.ok(!(await resolveDynamicContext({
+    workspacePath: root,
+    ultraMode: true,
+    orchestrationRole: 'subagent',
+  })).includes('role="orchestrator"'));
 
   const longSubagentPrompt = 'x'.repeat(300);
   const subagentContext = await resolveDynamicContext({

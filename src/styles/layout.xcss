@@ -31,12 +31,12 @@ body,
   }
 
   &.platform-win32, &.platform-darwin {
-    background: var(--surface-shell);
+    background: var(--background-1);
   }
 
   &.platform-linux {
-    background: radial-gradient(circle at 56% 92%, var(--glow-pink), transparent 24%),
-      linear-gradient(135deg, var(--color-page-start), var(--color-page-end));
+    background: radial-gradient(circle at 56% 92%, var(--background-4), transparent 24%),
+      linear-gradient(135deg, var(--background-1), var(--background-2));
   }
 
   @media (max-width: 700px) {
@@ -67,12 +67,12 @@ body,
   &:hover::before,
   &:focus-visible::before,
   &.dragging::before {
-    background: var(--border-accent);
-    box-shadow: 0 0 0 1px var(--surface-accent-soft);
+    background: var(--text-3);
+    box-shadow: 0 0 0 1px var(--background-3);
   }
 
   &:focus-visible {
-    outline: 2px solid var(--border-accent);
+    outline: 2px solid var(--text-3);
     outline-offset: -3px;
   }
 }

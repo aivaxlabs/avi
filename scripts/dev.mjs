@@ -1,64 +1,88 @@
-import { spawn } from 'node:child_process';
-import { watch } from 'node:fs';
-import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
-const devtools = process.argv.includes('--devtools');
-const electronPath = createRequire(import.meta.url)('electron');
-
-const vite = spawn('bun', ['x', 'vite', '--host', '127.0.0.1', '--port', '5273'], {
-  shell: true,
-  stdio: 'inherit',
+const cwd = fileURLToPath(new URL('..', import.meta.url));
+const rendererUrl = 'http://127.0.0.1:5173';
+const env = {
+  ...process.env,
+  VITE_DEV_SERVER_URL: rendererUrl,
+  ...(process.argv.includes('--devtools') ? { CHAT_APP_OPEN_DEVTOOLS: '1' } : {}),
+};
+const processes = [];
+const styles = Bun.spawn(['bun', 'run', 'styles:watch'], {
+  cwd,
+  env,
+  stdin: 'ignore',
+  stdout: 'inherit',
+  stderr: 'inherit',
 });
-const styles = spawn('bun', ['run', 'styles:watch'], {
-  shell: true,
-  stdio: 'inherit',
-});
+processes.push(styles);
 
-let electron;
-let restartTimer;
-let restarting = false;
+const vite = Bun.spawn(['bun', 'x', 'vite'], {
+  cwd,
+  env,
+  stdin: 'ignore',
+  stdout: 'inherit',
+  stderr: 'inherit',
+});
+processes.push(vite);
+
 let stopping = false;
+const stopChildren = () => {
+  if (stopping) {
+    return;
+  }
 
-const startElectron = () => {
-  electron = spawn(electronPath, ['.'], {
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5273',
-      ...(devtools ? { CHAT_APP_OPEN_DEVTOOLS: '1' } : {}),
-    },
-  });
-  electron.on('exit', () => {
-    if (restarting && !stopping) {
-      restarting = false;
-      startElectron();
-      return;
-    }
-    stop();
-  });
-};
-
-const stop = () => {
-  if (stopping) return;
   stopping = true;
-  clearTimeout(restartTimer);
-  mainWatcher.close();
-  styles.kill();
-  vite.kill();
-  electron?.kill();
+  for (const child of processes) {
+    child.kill();
+  }
 };
 
-const mainWatcher = watch(new URL('../src/main', import.meta.url), { recursive: true }, () => {
-  clearTimeout(restartTimer);
-  restartTimer = setTimeout(() => {
-    if (!electron || electron.killed || stopping) return;
-    restarting = true;
-    electron.kill();
-  }, 150);
-});
+process.once('SIGINT', stopChildren);
+process.once('SIGTERM', stopChildren);
 
-startElectron();
-process.on('SIGINT', () => {
-  stop();
-  process.exit(0);
-});
+let result;
+
+try {
+  let rendererReady = false;
+
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (vite.exitCode !== null) {
+      throw new Error(`Vite exited before serving ${rendererUrl}.`);
+    }
+
+    try {
+      rendererReady = (await fetch(rendererUrl)).ok;
+    } catch {
+      rendererReady = false;
+    }
+
+    if (rendererReady) {
+      break;
+    }
+
+    await Bun.sleep(100);
+  }
+
+  if (!rendererReady) {
+    throw new Error(`Vite did not start at ${rendererUrl}.`);
+  }
+
+  const app = Bun.spawn(['bun', 'x', 'electrobun', 'dev'], {
+    cwd,
+    env,
+    stdin: 'inherit',
+    stdout: 'inherit',
+    stderr: 'inherit',
+  });
+  processes.push(app);
+
+  result = await Promise.race(processes.map(
+    (child) => child.exited.then((exitCode) => ({ exitCode })),
+  ));
+} finally {
+  stopChildren();
+  await Promise.allSettled(processes.map((child) => child.exited));
+}
+
+process.exitCode = result.exitCode;

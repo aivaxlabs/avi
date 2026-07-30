@@ -1,5 +1,4 @@
-import Database from 'better-sqlite3';
-import { safeStorage } from 'electron';
+import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import {
@@ -14,9 +13,13 @@ import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 const storageDir = join(homedir(), '.aivax');
 mkdirSync(storageDir, { recursive: true });
 
-const db = new Database(join(storageDir, 'aivax.sqlite'));
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const db = new Database(join(storageDir, 'aivax.sqlite'), { strict: true });
+db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+const secureStorage = {
+  mcpOAuthSessions: {},
+  providerCredentials: {},
+};
+const secureWrites = new Set();
 
 const defaultTuningSettings = Object.freeze({
   automaticCompactionThreshold: 0.9,
@@ -45,6 +48,7 @@ db.exec(`
     conversation_type TEXT NOT NULL DEFAULT 'thread',
     parent_conversation_id TEXT,
     initial_prompt TEXT,
+    orchestration_mode TEXT,
     context_checkpoint TEXT NOT NULL DEFAULT '',
     checkpoint_message_id TEXT,
     context_tokens INTEGER NOT NULL DEFAULT 0,
@@ -61,6 +65,7 @@ db.exec(`
     model TEXT,
     reasoning_effort TEXT,
     work_mode TEXT,
+    ultra_mode INTEGER NOT NULL DEFAULT 0,
     goal_id TEXT,
     hidden INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
@@ -105,25 +110,29 @@ db.exec(`
   );
 `);
 
-if (!db.pragma('table_info(messages)').some((column) => column.name === 'usage')) {
+const messageColumns = db.prepare("PRAGMA table_info('messages')").all();
+if (!messageColumns.some((column) => column.name === 'usage')) {
   db.exec("ALTER TABLE messages ADD COLUMN usage TEXT NOT NULL DEFAULT '{}'");
 }
-if (!db.pragma('table_info(messages)').some((column) => column.name === 'model')) {
+if (!messageColumns.some((column) => column.name === 'model')) {
   db.exec('ALTER TABLE messages ADD COLUMN model TEXT');
 }
-if (!db.pragma('table_info(messages)').some((column) => column.name === 'reasoning_effort')) {
+if (!messageColumns.some((column) => column.name === 'reasoning_effort')) {
   db.exec('ALTER TABLE messages ADD COLUMN reasoning_effort TEXT');
 }
-if (!db.pragma('table_info(messages)').some((column) => column.name === 'work_mode')) {
+if (!messageColumns.some((column) => column.name === 'work_mode')) {
   db.exec('ALTER TABLE messages ADD COLUMN work_mode TEXT');
 }
-if (!db.pragma('table_info(messages)').some((column) => column.name === 'goal_id')) {
+if (!messageColumns.some((column) => column.name === 'ultra_mode')) {
+  db.exec('ALTER TABLE messages ADD COLUMN ultra_mode INTEGER NOT NULL DEFAULT 0');
+}
+if (!messageColumns.some((column) => column.name === 'goal_id')) {
   db.exec('ALTER TABLE messages ADD COLUMN goal_id TEXT');
 }
-if (!db.pragma('table_info(messages)').some((column) => column.name === 'hidden')) {
+if (!messageColumns.some((column) => column.name === 'hidden')) {
   db.exec('ALTER TABLE messages ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
 }
-const conversationColumns = db.pragma('table_info(conversations)');
+const conversationColumns = db.prepare("PRAGMA table_info('conversations')").all();
 if (!conversationColumns.some((column) => column.name === 'project_path')) {
   db.exec('ALTER TABLE conversations ADD COLUMN project_path TEXT');
 }
@@ -138,6 +147,9 @@ if (!conversationColumns.some((column) => column.name === 'parent_conversation_i
 }
 if (!conversationColumns.some((column) => column.name === 'initial_prompt')) {
   db.exec('ALTER TABLE conversations ADD COLUMN initial_prompt TEXT');
+}
+if (!conversationColumns.some((column) => column.name === 'orchestration_mode')) {
+  db.exec('ALTER TABLE conversations ADD COLUMN orchestration_mode TEXT');
 }
 if (!conversationColumns.some((column) => column.name === 'context_checkpoint')) {
   db.exec("ALTER TABLE conversations ADD COLUMN context_checkpoint TEXT NOT NULL DEFAULT ''");
@@ -231,12 +243,12 @@ const statements = {
   insertConversation: db.prepare(`
     INSERT INTO conversations (
       id, title, model, title_status, project_path, git_branch,
-      conversation_type, parent_conversation_id, initial_prompt,
+      conversation_type, parent_conversation_id, initial_prompt, orchestration_mode,
       context_checkpoint, checkpoint_message_id, context_tokens, created_at, updated_at
     )
     VALUES (
       @id, @title, @model, @titleStatus, @projectPath, @gitBranch,
-      @conversationType, @parentConversationId, @initialPrompt,
+      @conversationType, @parentConversationId, @initialPrompt, @orchestrationMode,
       @contextCheckpoint, @checkpointMessageId, @contextTokens, @createdAt, @updatedAt
     )
   `),
@@ -313,12 +325,12 @@ const statements = {
   `),
   insertMessage: db.prepare(`
     INSERT INTO messages (
-      id, conversation_id, role, model, reasoning_effort, work_mode, goal_id, hidden,
+      id, conversation_id, role, model, reasoning_effort, work_mode, ultra_mode, goal_id, hidden,
       status, content, segments, attachments,
       continuations, usage, created_at, updated_at
     )
     VALUES (
-      @id, @conversationId, @role, @model, @reasoningEffort, @workMode, @goalId, @hidden,
+      @id, @conversationId, @role, @model, @reasoningEffort, @workMode, @ultraMode, @goalId, @hidden,
       @status, @content, @segments, @attachments,
       @continuations, @usage, @createdAt, @updatedAt
     )
@@ -381,72 +393,47 @@ export function setLastModel(model) {
 }
 
 export function getMcpOAuthSessions() {
-  const encrypted = readJson('mcpOAuthSessions');
-  if (!encrypted || !safeStorage.isEncryptionAvailable()) return {};
-
-  try {
-    return JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64')));
-  } catch {
-    return {};
-  }
+  return secureStorage.mcpOAuthSessions;
 }
 
 export function setMcpOAuthSessions(sessions) {
-  if (!safeStorage.isEncryptionAvailable()) return;
-  const encrypted = safeStorage.encryptString(JSON.stringify(sessions)).toString('base64');
-  writeJson('mcpOAuthSessions', encrypted);
+  secureStorage.mcpOAuthSessions = sessions;
+  persistSecureValue('mcp-oauth-sessions', sessions);
 }
 
 export function getProviderCredentials(providerId) {
-  const encrypted = readJson('providerCredentials');
-  if (!encrypted || !safeStorage.isEncryptionAvailable()) return null;
-
-  try {
-    const credentials = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64')));
-    return credentials[providerId] ?? null;
-  } catch {
-    return null;
-  }
+  return secureStorage.providerCredentials[providerId] ?? null;
 }
 
 export function setProviderCredentials(providerId, value) {
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('Secure credential storage is unavailable on this system.');
-  }
-  const encrypted = readJson('providerCredentials');
-  let credentials = {};
-  if (encrypted) {
-    try {
-      credentials = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64')));
-    } catch {
-      credentials = {};
-    }
-  }
-  credentials[providerId] = value;
-  writeJson(
-    'providerCredentials',
-    safeStorage.encryptString(JSON.stringify(credentials)).toString('base64'),
-  );
+  secureStorage.providerCredentials[providerId] = value;
+  persistSecureValue('provider-credentials', secureStorage.providerCredentials);
 }
 
 export function deleteProviderCredentials(providerId) {
-  const encrypted = readJson('providerCredentials');
-  if (!encrypted || !safeStorage.isEncryptionAvailable()) return;
-  let credentials;
-  try {
-    credentials = JSON.parse(safeStorage.decryptString(Buffer.from(encrypted, 'base64')));
-  } catch {
-    return;
-  }
-  delete credentials[providerId];
-  writeJson(
-    'providerCredentials',
-    safeStorage.encryptString(JSON.stringify(credentials)).toString('base64'),
-  );
+  delete secureStorage.providerCredentials[providerId];
+  persistSecureValue('provider-credentials', secureStorage.providerCredentials);
+}
+
+export async function initializeSecureStorage() {
+  const [mcpOAuthSessions, providerCredentials] = await Promise.all([
+    Bun.secrets.get({ service: 'net.aivax.chat', name: 'mcp-oauth-sessions' }).catch(() => null),
+    Bun.secrets.get({ service: 'net.aivax.chat', name: 'provider-credentials' }).catch(() => null),
+  ]);
+  secureStorage.mcpOAuthSessions = mcpOAuthSessions ? parse(mcpOAuthSessions, {}) : {};
+  secureStorage.providerCredentials = providerCredentials ? parse(providerCredentials, {}) : {};
+}
+
+export async function flushSecureStorage() {
+  await Promise.allSettled(secureWrites);
 }
 
 export function closeDatabase() {
-  if (db.open) db.close();
+  for (const statement of Object.values(statements)) {
+    statement.finalize();
+  }
+  backfillContextUsage.finalize();
+  db.close();
 }
 
 export function insertGoal(goal) {
@@ -481,6 +468,7 @@ export function createConversation({
   conversationType = 'thread',
   parentConversationId = null,
   initialPrompt = null,
+  orchestrationMode = null,
   titleStatus = 'pending',
 } = {}) {
   const now = timestamp();
@@ -494,6 +482,7 @@ export function createConversation({
     conversationType,
     parentConversationId,
     initialPrompt,
+    orchestrationMode: orchestrationMode === 'ultra' ? 'ultra' : null,
     contextCheckpoint: '',
     checkpointMessageId: null,
     contextTokens: 0,
@@ -580,6 +569,7 @@ export function insertMessage(message) {
     model: message.model ?? null,
     reasoningEffort: message.reasoningEffort ?? null,
     workMode: ['plan', 'goal'].includes(message.workMode) ? message.workMode : null,
+    ultraMode: message.ultraMode ? 1 : 0,
     goalId: message.goalId ?? null,
     hidden: message.hidden ? 1 : 0,
     status: message.status ?? 'completed',
@@ -655,6 +645,7 @@ export function forkConversation(id, {
   sideChat = false,
   subagent = false,
   subagentPrompt = null,
+  orchestrationMode = null,
 } = {}) {
   const source = getConversation(id);
   const childThread = sideChat || subagent;
@@ -693,6 +684,7 @@ export function forkConversation(id, {
     conversationType: sideChat ? 'side' : subagent ? 'subagent' : 'thread',
     parentConversationId: childThread ? source.id : null,
     initialPrompt: subagent ? String(subagentPrompt ?? '').trim() || null : null,
+    orchestrationMode: subagent ? orchestrationMode : null,
     titleStatus: childThread ? 'generated' : 'pending',
   });
   const sourceMessages = getMessages(id);
@@ -755,6 +747,20 @@ function childThreadContext(conversation) {
 
   if (conversation.conversation_type === 'subagent') {
     const parent = statements.getConversation.get(conversation.parent_conversation_id);
+    const ultraInstructions = conversation.orchestration_mode === 'ultra'
+      ? [
+          'You are a specialist on an Ultra team led by the orchestrator in the parent thread.',
+          'Own the focused assignment independently, investigate beyond the obvious path, and return evidence rather than assumptions.',
+          'Send material findings, blockers, dependencies, or course corrections promptly with chat_report_to_orchestrator; send a final report when your assignment is complete.',
+          'Use chat_send_prompt to coordinate directly with another listed sub-agent when that materially improves the shared result.',
+          'Challenge weak assumptions constructively, but stay within your assigned scope and do not duplicate work without a verification purpose.',
+          'Do not expose private chain-of-thought. Communicate concise conclusions, decisions, evidence, and remaining uncertainty.',
+        ]
+      : [
+          'You are a sub-agent working for the orchestrator in the parent thread.',
+          'Complete the assignment in the latest user message independently.',
+          'When the assignment is complete, call chat_report_to_orchestrator exactly once with a concise result, evidence, and any blockers.',
+        ];
     return [{
       role: 'system',
       content: [
@@ -763,10 +769,8 @@ function childThreadContext(conversation) {
         `thread_id: ${conversation.id}`,
         `parent_thread_id: ${conversation.parent_conversation_id}`,
         `parent_thread_title: ${parent?.title ?? 'Unknown'}`,
-        'You are a sub-agent working for the orchestrator in the parent thread.',
-        'Complete the assignment in the latest user message independently.',
+        ...ultraInstructions,
         'You cannot invoke chat_spawn_subagent or create other sub-agents.',
-        'When the assignment is complete, call chat_report_to_orchestrator exactly once with a concise result, evidence, and any blockers.',
         '</thread_context>',
       ].join('\n'),
     }];
@@ -1020,6 +1024,7 @@ function mapConversation(row) {
     isSubagent: row.conversation_type === 'subagent',
     parentConversationId: row.parent_conversation_id || null,
     initialPrompt: row.initial_prompt || null,
+    orchestrationMode: row.orchestration_mode === 'ultra' ? 'ultra' : null,
     contextCheckpoint: row.context_checkpoint || '',
     checkpointMessageId: row.checkpoint_message_id || null,
     contextTokens: Number(row.context_tokens) || 0,
@@ -1038,6 +1043,7 @@ function mapMessage(row) {
     model: row.model,
     reasoningEffort: row.reasoning_effort,
     workMode: ['plan', 'goal'].includes(row.work_mode) ? row.work_mode : null,
+    ultraMode: Boolean(row.ultra_mode),
     goalId: row.goal_id || null,
     hidden: Boolean(row.hidden),
     status: row.status,
@@ -1075,6 +1081,19 @@ function mapGoal(row) {
 
 function stringify(value) {
   return JSON.stringify(value ?? null);
+}
+
+function persistSecureValue(name, value) {
+  const write = Bun.secrets.set({
+    service: 'net.aivax.chat',
+    name,
+    value: JSON.stringify(value),
+  }).catch((error) => {
+    console.error(`Could not persist secure value "${name}":`, error);
+  }).finally(() => {
+    secureWrites.delete(write);
+  });
+  secureWrites.add(write);
 }
 
 function parse(value, fallback) {

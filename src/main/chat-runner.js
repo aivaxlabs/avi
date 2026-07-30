@@ -84,6 +84,7 @@ export class ChatRunner {
     permissionMode = 'approve_for_me',
     project = {},
     attachments = [],
+    ultraMode = false,
     sendInitialPrompt = false,
   }) {
     const normalizedSpecification = String(specification ?? '').trim();
@@ -131,6 +132,7 @@ export class ChatRunner {
       permissionMode,
       workMode: 'goal',
       goalId: goal.id,
+      ultraMode,
       project,
     });
     return { ...result, goal: getGoal(goal.id) };
@@ -238,6 +240,7 @@ export class ChatRunner {
     } else if (action === 'resume' && !this.runs.has(conversationId)) {
       this.continueGoal(updatedGoal, 'resume');
     } else if (action === 'edit') {
+      const ultraMode = this.isUltraGoal(conversationId, updatedGoal.id);
       const revisionMessage = [
         `<goal_update goal_id="${updatedGoal.id}" revision="${updatedGoal.revision}">`,
         'The user changed the original Goal specification. Re-evaluate the work against the revised specification and continue from the current state.',
@@ -249,6 +252,7 @@ export class ChatRunner {
           model: updatedGoal.model,
           reasoningEffort: updatedGoal.reasoningEffort,
           workMode: 'goal',
+          ultraMode,
           goalId: updatedGoal.id,
           hidden: true,
           text: revisionMessage,
@@ -267,6 +271,7 @@ export class ChatRunner {
           reasoningEffort: updatedGoal.reasoningEffort,
           permissionMode: updatedGoal.permissionMode,
           workMode: 'goal',
+          ultraMode,
           goalId: updatedGoal.id,
         });
       }
@@ -303,11 +308,16 @@ export class ChatRunner {
     reasoningEffort = null,
     permissionMode = 'approve_for_me',
     workMode = null,
+    ultraMode = false,
     goalId = null,
     hidden = false,
     project = {},
   }) {
     workMode = ['plan', 'goal'].includes(workMode) ? workMode : null;
+    ultraMode = Boolean(ultraMode);
+    if (workMode === 'plan' && ultraMode) {
+      throw new Error('Ultra mode cannot be used with Plan mode.');
+    }
     const conversation = ensureConversation(conversationId, model, project);
     const activeGoal = getGoalForConversation(conversation.id);
     if (workMode === 'plan' && activeGoal && CONTINUING_GOAL_STATUSES.has(activeGoal.status)) {
@@ -336,6 +346,7 @@ export class ChatRunner {
         model,
         reasoningEffort,
         workMode,
+        ultraMode,
         goalId,
         hidden,
         text,
@@ -350,6 +361,7 @@ export class ChatRunner {
           reasoningEffort,
           permissionMode,
           workMode,
+          ultraMode,
           ...(goalId ? { goalId } : {}),
         });
         this.requestSteer(conversation.id);
@@ -360,6 +372,7 @@ export class ChatRunner {
           reasoningEffort,
           permissionMode,
           workMode,
+          ultraMode,
           ...(goalId ? { goalId } : {}),
         });
       }
@@ -379,6 +392,7 @@ export class ChatRunner {
       model,
       reasoningEffort,
       workMode,
+      ultraMode,
       goalId,
       hidden,
       text,
@@ -397,6 +411,7 @@ export class ChatRunner {
       reasoningEffort,
       permissionMode,
       workMode,
+      ultraMode,
       goalId,
     });
     return { conversation: getConversation(conversation.id), message: userMessage, queued: false };
@@ -512,6 +527,7 @@ export class ChatRunner {
         reasoningEffort: next.reasoningEffort,
         permissionMode: next.permissionMode,
         workMode: next.workMode,
+        ultraMode: next.ultraMode,
         goalId: next.goalId,
       });
       return {
@@ -663,6 +679,7 @@ export class ChatRunner {
         initialUsage: failedAssistant.usage,
         permissionMode,
         workMode: sourceUser.workMode,
+        ultraMode: sourceUser.ultraMode,
         goalId: sourceUser.goalId,
       });
       return {
@@ -699,6 +716,7 @@ export class ChatRunner {
       retryMessages: messages,
       permissionMode,
       workMode: sourceUser?.workMode,
+      ultraMode: sourceUser?.ultraMode,
       goalId: sourceUser?.goalId,
     });
 
@@ -838,6 +856,7 @@ export class ChatRunner {
         reasoningEffort: message.reasoningEffort,
         permissionMode: 'approve_for_me',
         workMode: message.workMode,
+        ultraMode: message.ultraMode,
         ...(message.goalId ? { goalId: message.goalId } : {}),
       }));
   }
@@ -847,6 +866,7 @@ export class ChatRunner {
     model,
     reasoningEffort,
     workMode,
+    ultraMode = false,
     goalId = null,
     hidden = false,
     text,
@@ -859,6 +879,7 @@ export class ChatRunner {
       model,
       reasoningEffort,
       workMode,
+      ultraMode,
       goalId,
       hidden,
       status,
@@ -897,9 +918,14 @@ export class ChatRunner {
     reasoningEffort = null,
     permissionMode = 'approve_for_me',
     workMode = null,
+    ultraMode = false,
     goalId = null,
   }) {
     workMode = ['plan', 'goal'].includes(workMode) ? workMode : null;
+    ultraMode = Boolean(ultraMode);
+    if (workMode === 'plan' && ultraMode) {
+      throw new Error('Ultra mode cannot be used with Plan mode.');
+    }
     permissionMode = [
       'ask_for_approval',
       'approve_for_me',
@@ -924,6 +950,7 @@ export class ChatRunner {
           role: 'assistant',
           model,
           workMode,
+          ultraMode,
           goalId,
           status: 'streaming',
           content: '',
@@ -936,6 +963,7 @@ export class ChatRunner {
       model,
       permissionMode,
       workMode,
+      ultraMode,
       goalId,
       kind: 'chat',
       phase: 'mcp',
@@ -1137,6 +1165,12 @@ export class ChatRunner {
             mcpInstructions: mcpRuntime.instructions,
             permissionMode,
             workMode,
+            ultraMode,
+            orchestrationRole: currentConversation?.isSubagent
+              ? 'subagent'
+              : currentConversation?.isSideChat
+                ? 'side_chat'
+                : 'orchestrator',
             goal: goalContext,
             subagents: subagentContext,
             tuning,
@@ -1289,6 +1323,7 @@ export class ChatRunner {
               reasoningEffort,
               permissionMode,
               workMode,
+              ultraMode,
               goal: goalContext,
               tuning,
             });
@@ -1567,6 +1602,14 @@ export class ChatRunner {
     return run.controller.signal.aborted;
   }
 
+  isUltraGoal(conversationId, goalId) {
+    const run = this.runs.get(conversationId);
+    if (run?.goalId === goalId) return run.ultraMode;
+    return getMessages(conversationId)
+      .findLast((message) => message.goalId === goalId)
+      ?.ultraMode ?? false;
+  }
+
   continueGoal(goal, reason = 'continue') {
     if (!goal || goal.status !== 'active' || this.runs.has(goal.conversationId)) return false;
     const queuedItems = this.getQueuedItems(goal.conversationId, goal.model);
@@ -1574,6 +1617,8 @@ export class ChatRunner {
     const queuedGoalMessage = queuedGoalIndex >= 0
       ? queuedItems.splice(queuedGoalIndex, 1)[0]
       : null;
+    const ultraMode = queuedGoalMessage?.ultraMode
+      ?? this.isUltraGoal(goal.conversationId, goal.id);
     const userMessage = queuedGoalMessage
       ? updateMessage(queuedGoalMessage.userMessageId, { status: 'sent' })
       : this.createUserMessage({
@@ -1581,6 +1626,7 @@ export class ChatRunner {
           model: goal.model,
           reasoningEffort: goal.reasoningEffort,
           workMode: 'goal',
+          ultraMode,
           goalId: goal.id,
           hidden: true,
           text: [
@@ -1604,6 +1650,7 @@ export class ChatRunner {
       reasoningEffort: queuedGoalMessage?.reasoningEffort ?? goal.reasoningEffort,
       permissionMode: goal.permissionMode,
       workMode: 'goal',
+      ultraMode,
       goalId: goal.id,
     });
     return true;
@@ -1655,6 +1702,7 @@ export class ChatRunner {
       reasoningEffort: next.reasoningEffort,
       permissionMode: next.permissionMode,
       workMode: next.workMode,
+      ultraMode: next.ultraMode,
       goalId: next.goalId,
     });
   }

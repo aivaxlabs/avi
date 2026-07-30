@@ -1,76 +1,45 @@
 {
-  "name": "aivax-chat-electron",
+  "name": "aivax-chat",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "src/main/main.js",
   "scripts": {
     "dev": "bun scripts/dev.mjs",
     "dev:devtools": "bun scripts/dev.mjs --devtools",
-    "start": "electron .",
+    "start": "electrobun dev",
     "styles": "cascadium build -d src/styles -x .xcss -o src/renderer/styles.css --p:pretty true --p:filenametag relative",
     "styles:watch": "cascadium watch -d src/styles -x .xcss -o src/renderer/styles.css --p:pretty true --p:filenametag relative",
-    "build": "bun run styles && vite build",
-    "syntax": "node scripts/check-syntax.mjs",
+    "renderer:build": "bun run styles && vite build",
+    "build": "electrobun build --env=stable",
+    "syntax": "bun scripts/check-syntax.mjs",
     "test:context": "bun scripts/test-context-injection.mjs",
-    "test:plan": "electron scripts/test-plan-mode.mjs",
-    "test:goal": "electron scripts/test-goal-mode.mjs",
-    "test:server-retry": "electron scripts/test-server-retry.mjs",
-    "test:interruptions": "electron scripts/test-interruption-propagation.mjs",
-    "test:mcp": "electron scripts/test-mcp-manager.mjs",
-    "test:side-chat": "electron scripts/test-side-chat-database.mjs",
-    "rebuild:native": "electron-rebuild -f -w better-sqlite3",
-    "package": "bun run build && electron-builder --dir",
-    "postinstall": "electron-rebuild -f -w better-sqlite3"
+    "test:plan": "bun scripts/test-plan-mode.mjs",
+    "test:goal": "bun scripts/test-goal-mode.mjs",
+    "test:ultra": "bun scripts/test-ultra-mode.mjs",
+    "test:server-retry": "bun scripts/test-server-retry.mjs",
+    "test:interruptions": "bun scripts/test-interruption-propagation.mjs",
+    "test:mcp": "bun scripts/test-mcp-manager.mjs",
+    "test:files": "bun scripts/test-files-panel.mjs",
+    "test:side-chat": "bun scripts/test-side-chat-database.mjs",
+    "package": "bun run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@cypherpotato/cascadium": "^1.0.3",
     "@vitejs/plugin-react": "^5.1.1",
-    "aivax-chat-electron": ".",
-    "better-sqlite3": "^12.5.0",
+    "autoprefixer": "^10.4.22",
+    "electrobun": "1.18.1",
     "lamejs": "^1.2.1",
     "lucide-react": "^0.555.0",
+    "postcss": "^8.5.6",
     "prismjs": "^1.30.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "zod": "^3.25.76"
-  },
-  "devDependencies": {
-    "@electron/rebuild": "^4.0.1",
-    "@cypherpotato/cascadium": "^1.0.3",
-    "electron": "^39.2.6",
-    "electron-builder": "^26.0.12",
-    "autoprefixer": "^10.4.22",
-    "postcss": "^8.5.6",
-    "tailwindcss": "^3.4.18",
     "vite": "^7.2.4"
-  },
-  "build": {
-    "appId": "net.aivax.chat",
-    "productName": "AIVAX",
-    "files": [
-      "dist/**",
-      "assets/**",
-      "src/main/**",
-      "src/providers/**",
-      "src/shared/**",
-      "package.json"
-    ],
-    "directories": {
-      "output": "release"
-    },
-    "win": {
-      "target": "nsis",
-      "icon": "assets/icon/aivchat.ico"
-    },
-    "mac": {
-      "target": "dmg"
-    },
-    "linux": {
-      "target": "AppImage",
-      "icon": "assets/icon/aivchat.png"
-    }
   }
 }

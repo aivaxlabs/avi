@@ -7,11 +7,11 @@
   display: grid;
   gap: 5px;
   padding: 6px;
-  color: var(--color-text-primary);
-  background: var(--surface-menu-solid);
-  border: 1px solid var(--border-panel);
+  color: var(--text-1);
+  background: var(--background-1);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
-  box-shadow: 0 3px 10px var(--shadow-dialog);
+  box-shadow: 0 3px 10px rgb(0 0 0 / 30%);
 
   .command-picker-header {
     min-height: 30px;
@@ -20,11 +20,11 @@
     justify-content: space-between;
     gap: 12px;
     padding: 0 8px;
-    color: var(--color-muted);
+    color: var(--text-3);
     font-size: 11px;
 
     > span {
-      color: var(--color-text-strong);
+      color: var(--text-1);
       font-weight: 500;
     }
 
@@ -38,9 +38,9 @@
     kbd {
       min-width: 22px;
       padding: 2px 5px;
-      color: var(--color-text-soft);
-      background: var(--surface-muted-solid);
-      border: 1px solid var(--border-control);
+      color: var(--text-2);
+      background: var(--background-4);
+      border: 1px solid var(--border-color);
       border-radius: 4px;
       font-family: inherit;
       font-size: 9px;
@@ -60,7 +60,7 @@
       align-items: center;
       gap: 8px;
       padding: 3px 8px;
-      color: var(--color-text-primary);
+      color: var(--text-1);
       background: transparent;
       border: 1px solid transparent;
       border-radius: 8px;
@@ -71,17 +71,21 @@
 
       &:hover,
       &.active {
-        color: var(--color-text-strong);
-        background: var(--surface-neutral-hover);
-        border-color: var(--border-control);
+        color: var(--text-1);
+        border-color: var(--border-color);
       }
 
+      &:hover {
+        background: var(--item-hover);
+      }
+
+      &.active,
       &:active {
-        background: var(--surface-hover-strong);
+        background: var(--item-active);
       }
 
       &:focus-visible {
-        outline: 2px solid var(--border-accent);
+        outline: 2px solid var(--text-3);
         outline-offset: 2px;
       }
     }
@@ -92,8 +96,8 @@
     height: 16px;
     display: grid;
     place-items: center;
-    color: var(--color-menu-icon);
-    background: var(--surface-muted);
+    color: var(--text-3);
+    background: var(--background-3);
     border-radius: 7px;
   }
 
@@ -120,14 +124,14 @@
     small {
       flex: 1 1 auto;
       min-width: 0;
-      color: var(--color-muted);
+      color: var(--text-3);
       font-size: 12px;
     }
   }
 
   .command-picker-empty {
     padding: 20px 12px;
-    color: var(--color-muted);
+    color: var(--text-3);
     font-size: 12px;
     text-align: center;
   }

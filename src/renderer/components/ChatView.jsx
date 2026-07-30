@@ -49,7 +49,12 @@ export function ChatView({
   onToggleFavorite,
   workMode,
   onWorkModeChange,
+  ultraMode,
+  onUltraModeChange,
   onGoalAction,
+  pendingAttachment,
+  onPendingAttachmentConsumed,
+  onOpenFileReference,
   messageDeliveryMode = 'queue',
   compact = false,
   draftKey,
@@ -312,6 +317,7 @@ export function ChatView({
                 )}
                 onSendContinuation={onSendContinuation}
                 onImplementPlan={() => onImplementPlan?.()}
+                onOpenFileReference={onOpenFileReference}
                 showContinuations={message.id === lastAssistantMessage?.id}
               />
             ))}
@@ -520,8 +526,12 @@ export function ChatView({
         onWorkModeChange={(nextWorkMode) => (
           onWorkModeChange(nextWorkMode, currentConversation?.id)
         )}
+        ultraMode={ultraMode}
+        onUltraModeChange={onUltraModeChange}
         goal={currentConversation?.goal}
         onGoalAction={onGoalAction}
+        pendingAttachment={pendingAttachment}
+        onPendingAttachmentConsumed={onPendingAttachmentConsumed}
         messageDeliveryMode={messageDeliveryMode}
         draftKey={draftKey}
       />

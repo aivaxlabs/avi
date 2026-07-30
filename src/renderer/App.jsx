@@ -13,24 +13,40 @@ import { McpOverlay } from './components/McpOverlay.jsx';
 import { OrchestrationPage } from './components/OrchestrationPage.jsx';
 import { AuxiliaryPanel } from './components/AuxiliaryPanel.jsx';
 import { PanelResizer } from './components/PanelResizer.jsx';
-import { WindowControls } from './components/WindowControls.jsx';
 
 const api = window.chatApp;
 const sidebarWidthStorageKey = 'aivax.layout.sidebar-width';
 const auxiliaryPanelWidthStorageKey = 'aivax.layout.auxiliary-panel-width';
 const workModeStorageKey = 'aivax.composer.work-mode';
+const ultraModeStorageKey = 'aivax.composer.ultra-mode';
 const savedSidebarWidth = Number(window.localStorage.getItem(sidebarWidthStorageKey));
 const savedAuxiliaryPanelWidth = Number(
   window.localStorage.getItem(auxiliaryPanelWidthStorageKey),
 );
 const savedWorkMode = window.localStorage.getItem(workModeStorageKey);
+const savedUltraMode = window.localStorage.getItem(ultraModeStorageKey);
+const minimumAuxiliaryPanelWidth = 280;
+const minimumMainContentWidth = 320;
 const initialSidebarWidth = Number.isFinite(savedSidebarWidth) && savedSidebarWidth > 0
   ? Math.max(180, Math.min(420, savedSidebarWidth))
   : 222;
+const initialAuxiliaryPanelWidthMax = Math.max(
+  minimumAuxiliaryPanelWidth,
+  window.innerWidth - initialSidebarWidth - minimumMainContentWidth,
+);
 const initialAuxiliaryPanelWidth = Number.isFinite(savedAuxiliaryPanelWidth)
   && savedAuxiliaryPanelWidth > 0
-  ? Math.max(280, Math.min(720, savedAuxiliaryPanelWidth))
-  : Math.max(280, Math.min(720, Math.round((window.innerWidth - 222) * 0.42)));
+  ? Math.max(
+      minimumAuxiliaryPanelWidth,
+      Math.min(initialAuxiliaryPanelWidthMax, savedAuxiliaryPanelWidth),
+    )
+  : Math.max(
+      minimumAuxiliaryPanelWidth,
+      Math.min(
+        initialAuxiliaryPanelWidthMax,
+        Math.round((window.innerWidth - initialSidebarWidth) * 0.42),
+      ),
+    );
 
 export default function App() {
   const [appState, setAppState] = useState(null);
@@ -60,10 +76,13 @@ export default function App() {
   const [subagents, setSubagents] = useState([]);
   const [providerPanels, setProviderPanels] = useState([]);
   const [openProviderPanelIds, setOpenProviderPanelIds] = useState([]);
+  const [filesTabOpen, setFilesTabOpen] = useState(false);
   const [subagentsTabOpen, setSubagentsTabOpen] = useState(false);
   const [auxiliaryPanelVisible, setAuxiliaryPanelVisible] = useState(false);
   const [activeAuxiliaryTab, setActiveAuxiliaryTab] = useState(null);
   const [activeSubagentId, setActiveSubagentId] = useState(null);
+  const [pendingComposerAttachment, setPendingComposerAttachment] = useState(null);
+  const [fileNavigation, setFileNavigation] = useState(null);
   const [mcpState, setMcpState] = useState(null);
   const [mcpWaiting, setMcpWaiting] = useState({});
   const [mcpAlert, setMcpAlert] = useState(null);
@@ -73,6 +92,9 @@ export default function App() {
   const [questionRequests, setQuestionRequests] = useState([]);
   const [workMode, setWorkMode] = useState(
     ['plan', 'goal'].includes(savedWorkMode) ? savedWorkMode : null,
+  );
+  const [ultraMode, setUltraMode] = useState(
+    savedUltraMode === 'true' && savedWorkMode !== 'plan',
   );
   const approvalDialogRef = useRef(null);
 
@@ -450,15 +472,17 @@ export default function App() {
     setActiveAuxiliaryTab((current) => {
       if (
         sideChats.some((sideChat) => sideChat.id === current)
+        || (current === 'files' && filesTabOpen)
         || (current === 'subagents' && subagentsTabOpen)
         || openProviderPanels.some((panel) => panel.id === current)
       ) {
         return current;
       }
       return sideChats[0]?.id
+        ?? (filesTabOpen ? 'files' : null)
         ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null);
     });
-  }, [openProviderPanels, sideChats, subagentsTabOpen]);
+  }, [filesTabOpen, openProviderPanels, sideChats, subagentsTabOpen]);
 
   useEffect(() => {
     const syncWindowWidth = () => setWindowWidth(window.innerWidth);
@@ -473,6 +497,17 @@ export default function App() {
       const messages = await api.conversations.messages(id);
       setMessagesByConversation((state) => ({ ...state, [id]: messages }));
     }
+  }
+
+  function openFileReference(reference) {
+    setFileNavigation({
+      ...reference,
+      id: crypto.randomUUID(),
+    });
+    setFilesTabOpen(true);
+    setActiveSubagentId(null);
+    setActiveAuxiliaryTab('files');
+    setAuxiliaryPanelVisible(true);
   }
 
   async function sendMessage({
@@ -492,6 +527,7 @@ export default function App() {
         ? 'goal'
         : workMode
     ),
+    ultraMode: messageUltraMode = ultraMode,
   }) {
     if (!text.trim() && attachments.length === 0) return;
     const command = attachments.length === 0 ? text.trim().toLowerCase() : '';
@@ -516,6 +552,9 @@ export default function App() {
       ...sideChats,
       ...subagents,
     ].find((conversation) => conversation.id === conversationId);
+    const effectiveUltraMode = targetConversation?.isSubagent
+      ? targetConversation.orchestrationMode === 'ultra'
+      : !targetConversation?.isSideChat && messageUltraMode;
     if (
       messageWorkMode === 'goal'
       && !['active', 'paused'].includes(targetConversation?.goal?.status)
@@ -528,6 +567,7 @@ export default function App() {
         attachments,
         reasoningEffort,
         permissionMode,
+        ultraMode: effectiveUltraMode,
       });
       return;
     }
@@ -541,6 +581,7 @@ export default function App() {
       reasoningEffort,
       permissionMode,
       workMode: messageWorkMode,
+      ultraMode: effectiveUltraMode,
       project,
     });
     if (result.conversation.isSubagent) {
@@ -648,6 +689,9 @@ export default function App() {
     const normalizedWorkMode = ['plan', 'goal'].includes(nextWorkMode)
       ? nextWorkMode
       : null;
+    if (normalizedWorkMode === 'plan') {
+      changeUltraMode(false);
+    }
     if (normalizedWorkMode === 'plan' && conversationId) {
       const target = [
         ...conversations,
@@ -668,6 +712,20 @@ export default function App() {
     return true;
   }
 
+  function changeUltraMode(enabled) {
+    const nextUltraMode = Boolean(enabled);
+    if (nextUltraMode && workMode === 'plan') {
+      setWorkMode(null);
+      window.localStorage.removeItem(workModeStorageKey);
+    }
+    setUltraMode(nextUltraMode);
+    if (nextUltraMode) {
+      window.localStorage.setItem(ultraModeStorageKey, 'true');
+    } else {
+      window.localStorage.removeItem(ultraModeStorageKey);
+    }
+  }
+
   async function startGoal({
     conversationId = selectedId,
     model = currentModel,
@@ -676,6 +734,7 @@ export default function App() {
     attachments = [],
     reasoningEffort = null,
     permissionMode = 'approve_for_me',
+    ultraMode: goalUltraMode = ultraMode,
   }) {
     if (!model) {
       setError('Configure at least one model before starting a Goal.');
@@ -692,6 +751,7 @@ export default function App() {
         attachments,
         reasoningEffort,
         permissionMode,
+        ultraMode: goalUltraMode,
       });
       if (result.conversation.isSubagent) {
         setSubagents((state) => upsertById(state, result.conversation));
@@ -812,6 +872,7 @@ export default function App() {
     setRunning((state) => ({ ...state, [id]: false }));
     if (activeAuxiliaryTab === id) {
       const nextTab = remaining[Math.min(index, remaining.length - 1)]?.id
+        ?? (filesTabOpen ? 'files' : null)
         ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null);
       setActiveAuxiliaryTab(nextTab);
     }
@@ -925,16 +986,17 @@ export default function App() {
     180,
     Math.min(
       420,
-      windowWidth - (auxiliaryPanelVisible ? auxiliaryPanelWidth : 0) - 320,
+      windowWidth
+        - (auxiliaryPanelVisible ? auxiliaryPanelWidth : 0)
+        - minimumMainContentWidth,
     ),
   );
   const effectiveSidebarWidth = Math.min(sidebarWidth, sidebarWidthMax);
   const auxiliaryPanelWidthMax = Math.max(
-    280,
-    Math.min(
-      720,
-      windowWidth - (effectiveSidebarCollapsed ? 58 : effectiveSidebarWidth) - 320,
-    ),
+    minimumAuxiliaryPanelWidth,
+    windowWidth
+      - (effectiveSidebarCollapsed ? 58 : effectiveSidebarWidth)
+      - minimumMainContentWidth,
   );
   const effectiveAuxiliaryPanelWidth = Math.min(
     auxiliaryPanelWidth,
@@ -990,7 +1052,6 @@ export default function App() {
         '--auxiliary-panel-width': `${effectiveAuxiliaryPanelWidth}px`,
       }}
     >
-      <WindowControls />
       {settingsOpen ? (
         <SettingsPage
           key={`${settingsInitialView ?? 'providers'}:${settingsContextFolder?.path ?? ''}`}
@@ -1136,9 +1197,14 @@ export default function App() {
               onToggleFavorite={toggleFavorite}
               workMode={workMode}
               onWorkModeChange={changeWorkMode}
+              ultraMode={ultraMode}
+              onUltraModeChange={changeUltraMode}
               onGoalAction={(action, specification) => (
                 changeGoal(selectedId, action, specification)
               )}
+              pendingAttachment={pendingComposerAttachment}
+              onPendingAttachmentConsumed={() => setPendingComposerAttachment(null)}
+              onOpenFileReference={openFileReference}
               messageDeliveryMode={appState.tuning.messageDeliveryMode}
               />
             )}
@@ -1147,7 +1213,7 @@ export default function App() {
                 label="Resize auxiliary panel"
                 controls="auxiliary-panel"
                 value={effectiveAuxiliaryPanelWidth}
-                min={280}
+                min={minimumAuxiliaryPanelWidth}
                 max={auxiliaryPanelWidthMax}
                 direction={-1}
                 onChange={setAuxiliaryPanelWidth}
@@ -1167,10 +1233,12 @@ export default function App() {
                   setActiveSubagentId(null);
                   setActiveAuxiliaryTab((current) => (
                     sideChats.some((sideChat) => sideChat.id === current)
+                    || (current === 'files' && filesTabOpen)
                     || (current === 'subagents' && subagentsTabOpen)
                     || openProviderPanels.some((panel) => panel.id === current)
                       ? current
                       : sideChats[0]?.id
+                        ?? (filesTabOpen ? 'files' : null)
                         ?? (subagentsTabOpen
                           ? 'subagents'
                           : openProviderPanels[0]?.id ?? null)
@@ -1195,13 +1263,17 @@ export default function App() {
                 recentProjects={recentProjects}
                 fallbackModel={currentModel}
                 conversationId={selectedId}
+                project={currentProject}
                 providerPanels={providerPanels}
                 openProviderPanels={openProviderPanels}
+                filesTabOpen={filesTabOpen}
                 subagentsTabOpen={subagentsTabOpen}
                 canCreateSideChat={Boolean(currentConversation)}
                 onSelectTab={async (tabId) => {
                   setActiveAuxiliaryTab(tabId);
                   if (tabId === 'subagents') {
+                    setActiveSubagentId(null);
+                  } else if (tabId === 'files') {
                     setActiveSubagentId(null);
                   } else if (
                     !providerPanels.some((panel) => panel.id === tabId)
@@ -1212,12 +1284,29 @@ export default function App() {
                   }
                 }}
                 onCloseSideChat={closeSideChat}
+                onCloseFilesTab={() => {
+                  setFilesTabOpen(false);
+                  if (activeAuxiliaryTab === 'files') {
+                    setActiveAuxiliaryTab(
+                      sideChats[0]?.id
+                        ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null),
+                    );
+                  }
+                }}
                 onCloseSubagentsTab={() => {
                   setActiveSubagentId(null);
                   setSubagentsTabOpen(false);
                   if (activeAuxiliaryTab === 'subagents') {
-                    setActiveAuxiliaryTab(sideChats[0]?.id ?? openProviderPanels[0]?.id ?? null);
+                    setActiveAuxiliaryTab(
+                      sideChats[0]?.id
+                        ?? (filesTabOpen ? 'files' : openProviderPanels[0]?.id ?? null),
+                    );
                   }
+                }}
+                onOpenFilesTab={() => {
+                  setFilesTabOpen(true);
+                  setActiveSubagentId(null);
+                  setActiveAuxiliaryTab('files');
                 }}
                 onOpenSubagentsTab={() => {
                   setSubagentsTabOpen(true);
@@ -1239,12 +1328,17 @@ export default function App() {
                   if (activeAuxiliaryTab === panelId) {
                     setActiveAuxiliaryTab(
                       remaining[Math.min(index, remaining.length - 1)]
+                        ?? (filesTabOpen ? 'files' : null)
                         ?? (subagentsTabOpen ? 'subagents' : sideChats[0]?.id ?? null),
                     );
                   }
                 }}
                 onClosePanel={() => setAuxiliaryPanelVisible(false)}
                 onCreateSideChat={createSideChat}
+                onAddToChat={setPendingComposerAttachment}
+                fileNavigation={fileNavigation}
+                onFileNavigationConsumed={() => setFileNavigation(null)}
+                onOpenFileReference={openFileReference}
                 onSelectSubagent={async (id) => {
                   setActiveSubagentId(id);
                   if (id && !messagesByConversation[id]) {

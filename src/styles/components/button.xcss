@@ -38,9 +38,9 @@ button {
 .round-button {
   display: inline-grid;
   place-items: center;
-  color: var(--color-icon);
-  background: var(--surface-control);
-  border: 1px solid var(--border-control);
+  color: var(--text-2);
+  background: var(--background-2);
+  border: 1px solid var(--border-color);
   border-radius: 999px;
 }
 
@@ -61,10 +61,10 @@ button {
 .model-pill:hover,
 .message-actions button:hover,
 .continuations button:hover {
-  background: var(--surface-hover-strong);
+  background: var(--item-hover);
 }
 
 .primary-mini {
-  color: var(--color-primary-text) !important;
-  background: var(--color-primary-fill) !important;
+  color: var(--text-5) !important;
+  background: var(--background-5) !important;
 }

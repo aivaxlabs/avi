@@ -56,7 +56,75 @@ const compactTokenFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 1,
 });
-const MARKDOWN_PLUGINS = Object.freeze([remarkGfm]);
+const STANDARD_MARKDOWN_PLUGINS = Object.freeze([remarkGfm]);
+const MARKDOWN_PLUGINS = Object.freeze([
+  ...STANDARD_MARKDOWN_PLUGINS,
+  () => (tree) => {
+    const walk = (node) => {
+      if (
+        !node.children
+        || ['code', 'inlineCode', 'link', 'linkReference', 'html'].includes(node.type)
+      ) {
+        return;
+      }
+
+      node.children = node.children.flatMap((child) => {
+        if (child.type !== 'text') {
+          walk(child);
+          return child;
+        }
+
+        const parts = [];
+        const pattern = /#file:(?:<([^>\r\n]+)>|([^\s<>"'`]+?))(?::(\d+)(?:-(\d+))?)?(?=[),.;!?]*(?:\s|$))/g;
+        let cursor = 0;
+        let match;
+        while ((match = pattern.exec(child.value)) !== null) {
+          const path = match[1] ?? match[2];
+          const lineFrom = match[3] ? Number(match[3]) : null;
+          const lineTo = match[3] ? Number(match[4] ?? match[3]) : null;
+          if (
+            !path
+            || (lineFrom !== null && (
+              lineFrom < 1
+              || lineTo < lineFrom
+            ))
+          ) {
+            continue;
+          }
+          if (match.index > cursor) {
+            parts.push({
+              type: 'text',
+              value: child.value.slice(cursor, match.index),
+            });
+          }
+          parts.push({
+            type: 'link',
+            url: `#file-reference=${encodeURIComponent(JSON.stringify({
+              path,
+              lineFrom,
+              lineTo,
+            }))}`,
+            children: [{
+              type: 'text',
+              value: match[0],
+            }],
+          });
+          cursor = match.index + match[0].length;
+        }
+        if (parts.length === 0) return child;
+        if (cursor < child.value.length) {
+          parts.push({
+            type: 'text',
+            value: child.value.slice(cursor),
+          });
+        }
+        return parts;
+      });
+    };
+
+    walk(tree);
+  },
+]);
 const MemoizedMarkdown = memo(ReactMarkdown);
 const TOOL_ICONS = Object.freeze({
   ask_question: CircleHelp,
@@ -90,6 +158,7 @@ export function Message({
   questionPending,
   onSendContinuation,
   onImplementPlan,
+  onOpenFileReference,
   showContinuations,
 }) {
   if (message.role === 'user') {
@@ -127,6 +196,7 @@ export function Message({
       questionPending={questionPending}
       onSendContinuation={onSendContinuation}
       onImplementPlan={onImplementPlan}
+      onOpenFileReference={onOpenFileReference}
       showContinuations={showContinuations}
     />
   );
@@ -229,7 +299,11 @@ function UserMessage({ message }) {
                 {attachment.kind === 'context_marker' && (
                   attachment.markerType === 'workflow'
                     ? <Workflow size={13} />
-                    : <Sparkles size={13} />
+                    : attachment.markerType === 'directory_reference'
+                      ? <FolderTree size={13} />
+                      : attachment.markerType?.startsWith('file_')
+                        ? <FileText size={13} />
+                        : <Sparkles size={13} />
                 )}
                 <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
                 {attachment.kind !== 'context_marker' && <small>{formatBytes(attachment.size)}</small>}
@@ -260,6 +334,7 @@ function AssistantMessage({
   questionPending,
   onSendContinuation,
   onImplementPlan,
+  onOpenFileReference,
   showContinuations,
 }) {
   const [usageOpen, setUsageOpen] = useState(false);
@@ -340,6 +415,7 @@ function AssistantMessage({
                 key={workedBlockKey(timelinePartition)}
                 items={timelinePartition.workedItems}
                 label={durationLabel}
+                onOpenFileReference={onOpenFileReference}
               />
             )}
             {timelinePartition.finalItems.map((item, index) => (
@@ -353,6 +429,7 @@ function AssistantMessage({
                     ? onImplementPlan
                     : null
                 }
+                onOpenFileReference={onOpenFileReference}
               />
             ))}
           </div>
@@ -501,6 +578,7 @@ function TimelineItem({
   streaming,
   trailing,
   onImplementPlan,
+  onOpenFileReference,
 }) {
   if (item.type === 'content') {
     return (
@@ -508,6 +586,7 @@ function TimelineItem({
         text={item.text}
         finalized={!streaming}
         onImplementPlan={onImplementPlan}
+        onOpenFileReference={onOpenFileReference}
       />
     );
   }
@@ -521,11 +600,19 @@ function TimelineItem({
   );
 }
 
-const MarkdownSegment = memo(function MarkdownSegment({ text, finalized, onImplementPlan }) {
+const MarkdownSegment = memo(function MarkdownSegment({
+  text,
+  finalized,
+  onImplementPlan,
+  onOpenFileReference,
+}) {
   const [implementing, setImplementing] = useState(false);
   const deferredText = useDeferredValue(text);
   const renderedText = finalized ? text : deferredText;
-  const components = useMemo(() => createMarkdownComponents(finalized), [finalized]);
+  const components = useMemo(
+    () => createMarkdownComponents(finalized, onOpenFileReference),
+    [finalized, onOpenFileReference],
+  );
   const parts = useMemo(() => {
     const parsed = [];
     const pattern = /<execution-plan>\s*([\s\S]*?\S)\s*<\/execution-plan>/g;
@@ -600,8 +687,51 @@ const MarkdownSegment = memo(function MarkdownSegment({ text, finalized, onImple
   );
 });
 
-function createMarkdownComponents(finalized) {
+function createMarkdownComponents(finalized, onOpenFileReference) {
   return {
+    a({
+      children,
+      href,
+      node: _node,
+      ...props
+    }) {
+      if (!href?.startsWith('#file-reference=')) {
+        return <a href={href} {...props}>{children}</a>;
+      }
+
+      let reference;
+      try {
+        reference = JSON.parse(decodeURIComponent(href.slice('#file-reference='.length)));
+      } catch {
+        return <code>{children}</code>;
+      }
+      if (!onOpenFileReference) return <code>{children}</code>;
+      const fileName = reference.path.split(/[\\/]/).filter(Boolean).at(-1) ?? reference.path;
+      const displayLabel = reference.lineFrom === null
+        ? fileName
+        : reference.lineFrom === reference.lineTo
+          ? `${fileName}, line ${reference.lineFrom}`
+          : `${fileName}, lines ${reference.lineFrom}-${reference.lineTo}`;
+      const lineLabel = reference.lineFrom === null
+        ? ''
+        : reference.lineFrom === reference.lineTo
+          ? ` at line ${reference.lineFrom}`
+          : ` at lines ${reference.lineFrom} to ${reference.lineTo}`;
+      return (
+        <a
+          className="file-reference-link"
+          href={href}
+          title={`Open ${reference.path}${lineLabel}`}
+          onClick={(event) => {
+            event.preventDefault();
+            onOpenFileReference(reference);
+          }}
+        >
+          <FileText size={13} aria-hidden="true" />
+          <span>{displayLabel}</span>
+        </a>
+      );
+    },
     pre({ children, ...props }) {
       const codeElement = codeElementFromChildren(children);
       if (!codeElement) {
@@ -678,7 +808,7 @@ function normalizeLanguage(className) {
   }[language] ?? language;
 }
 
-function WorkedBlock({ items, label }) {
+function WorkedBlock({ items, label, onOpenFileReference }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -696,6 +826,7 @@ function WorkedBlock({ items, label }) {
                 item={item}
                 streaming={false}
                 trailing={index === items.length - 1}
+                onOpenFileReference={onOpenFileReference}
               />
             ))}
           </div>
@@ -755,7 +886,9 @@ function MutedSegment({ segment }) {
   if (segment.type === 'reasoning') {
     return (
       <div className="reasoning-text">
-        <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{segment.text}</MemoizedMarkdown>
+        <MemoizedMarkdown remarkPlugins={STANDARD_MARKDOWN_PLUGINS}>
+          {segment.text}
+        </MemoizedMarkdown>
       </div>
     );
   }

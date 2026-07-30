@@ -1,6 +1,5 @@
-import { readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 
 const roots = ['scripts', 'src/main'];
 const files = [];
@@ -10,12 +9,7 @@ for (const root of roots) {
 }
 
 for (const file of files) {
-  const result = spawnSync(process.execPath, ['--check', file], {
-    stdio: 'inherit',
-  });
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
+  new Bun.Transpiler({ loader: 'js' }).scan(readFileSync(file, 'utf8'));
 }
 
 function collect(dir) {

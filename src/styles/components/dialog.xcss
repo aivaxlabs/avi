@@ -4,9 +4,9 @@
   gap: 6px;
   min-height: 30px;
   padding: 6px 9px;
-  color: var(--color-text-soft);
-  background: var(--surface-muted);
-  border: 1px solid var(--border-control);
+  color: var(--text-2);
+  background: var(--background-3);
+  border: 1px solid var(--border-color);
   border-radius: 7px;
   font-size: 12px;
 }
@@ -17,7 +17,7 @@
   display: grid;
   place-items: center;
   padding: 30px;
-  background: var(--surface-backdrop);
+  background: rgb(0 0 0 / 58%);
   backdrop-filter: blur(10px);
   z-index: 70;
 
@@ -33,10 +33,10 @@
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
   padding: 16px;
-  background: var(--surface-dialog);
-  border: 1px solid var(--surface-dialog-border);
+  background: var(--background-2);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
-  box-shadow: 0 28px 90px var(--shadow-dialog);
+  box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
 }
 
 .model-dialog {
@@ -73,8 +73,8 @@
   align-items: center;
   gap: 8px;
   padding: 9px 10px;
-  background: var(--surface-muted-solid);
-  border: 1px solid var(--border-control);
+  background: var(--background-4);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
 
   input {
@@ -92,7 +92,7 @@
   justify-content: space-between;
   gap: 12px;
   margin-top: 12px;
-  color: var(--color-muted);
+  color: var(--text-3);
   font-size: 12px;
 }
 
@@ -109,17 +109,17 @@
   display: grid;
   gap: 14px;
   padding: 18px;
-  color: var(--color-text);
-  background: var(--surface-dialog);
-  border: 1px solid var(--surface-dialog-border);
+  color: var(--text-1);
+  background: var(--background-2);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
-  box-shadow: 0 28px 90px var(--shadow-dialog);
+  box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
 
   .dialog-header {
     p {
       max-width: 500px;
       margin: 4px 0 0;
-      color: var(--color-muted);
+      color: var(--text-3);
       font-size: 12px;
       line-height: 1.5;
     }
@@ -127,7 +127,7 @@
 
   > label {
     margin-bottom: -7px;
-    color: var(--color-text-primary);
+    color: var(--text-1);
     font-size: 12px;
     font-weight: 500;
   }
@@ -137,16 +137,16 @@
     min-height: 190px;
     resize: vertical;
     padding: 11px 12px;
-    color: var(--color-text-strong);
-    background: var(--surface-muted-solid);
-    border: 1px solid var(--border-control);
+    color: var(--text-1);
+    background: var(--background-4);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     font: inherit;
     font-size: 13px;
     line-height: 1.5;
 
     &:focus-visible {
-      outline: 2px solid var(--border-accent);
+      outline: 2px solid var(--text-3);
       outline-offset: 1px;
     }
 
@@ -170,17 +170,17 @@
     }
 
     .primary-mini {
-      color: var(--color-primary-text);
-      background: var(--color-primary-fill);
+      color: var(--text-5);
+      background: var(--background-5);
       border-color: transparent;
 
       &:hover {
-        background: var(--color-primary-hover);
+        background: var(--background-5);
       }
     }
 
     button:focus-visible {
-      outline: 2px solid var(--border-accent);
+      outline: 2px solid var(--text-3);
       outline-offset: 2px;
     }
 
@@ -212,11 +212,11 @@
   grid-template-columns: 42px minmax(0, 1fr);
   gap: 16px;
   padding: 22px;
-  color: var(--color-text);
-  background: var(--surface-dialog);
-  border: 1px solid var(--surface-dialog-border);
+  color: var(--text-1);
+  background: var(--background-2);
+  border: 1px solid var(--border-color);
   border-radius: 10px;
-  box-shadow: 0 28px 90px var(--shadow-dialog);
+  box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
 
   h2,
   p,
@@ -225,13 +225,13 @@
   }
 
   h2 {
-    color: var(--color-text-strong);
+    color: var(--text-1);
     font-size: 16px;
   }
 
   p {
     margin-top: 5px;
-    color: var(--color-muted);
+    color: var(--text-3);
     font-size: 12px;
     line-height: 1.55;
   }
@@ -241,7 +241,7 @@
     gap: 5px;
     margin-top: 14px;
     padding: 10px;
-    background: var(--surface-muted);
+    background: var(--background-3);
     border-radius: 8px;
   }
 
@@ -252,7 +252,7 @@
   }
 
   dt {
-    color: var(--color-muted);
+    color: var(--text-3);
     font-size: 11px;
   }
 
@@ -260,7 +260,7 @@
     min-width: 0;
     margin: 0;
     overflow-wrap: anywhere;
-    color: var(--color-text-primary);
+    color: var(--text-1);
     font-size: 11px;
   }
 
@@ -269,9 +269,9 @@
     margin: 10px 0 0;
     padding: 10px;
     overflow: auto;
-    color: var(--color-code-block-text);
-    background: var(--surface-code-block-soft);
-    border: 1px solid var(--border-control);
+    color: var(--text-1);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     font-size: 11px;
     line-height: 1.45;
@@ -285,9 +285,9 @@
   height: 40px;
   display: grid;
   place-items: center;
-  color: var(--color-text-primary);
-  background: var(--surface-warning-soft);
-  border: 1px solid var(--border-control);
+  color: var(--text-1);
+  background: var(--background-3);
+  border: 1px solid var(--border-color);
   border-radius: 9px;
 }
 
@@ -304,18 +304,18 @@
   button {
     min-height: 32px;
     padding: 6px 10px;
-    color: var(--color-text-soft);
-    background: var(--surface-muted);
-    border: 1px solid var(--border-control);
+    color: var(--text-2);
+    background: var(--background-3);
+    border: 1px solid var(--border-color);
     border-radius: 7px;
     font-size: 12px;
 
     &:hover {
-      background: var(--surface-hover);
+      background: var(--item-hover);
     }
 
     &:focus-visible {
-      outline: 2px solid var(--border-accent);
+      outline: 2px solid var(--text-3);
       outline-offset: 2px;
     }
 
@@ -337,22 +337,22 @@
   gap: 4px;
   padding: 10px;
   text-align: left;
-  color: var(--color-text-primary);
-  background: var(--surface-slate-faint);
-  border: 1px solid var(--border-hairline);
+  color: var(--text-1);
+  background: var(--background-2);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
 
   span {
     max-height: 42px;
     overflow: hidden;
-    color: var(--color-muted);
+    color: var(--text-3);
     font-size: 12px;
   }
 }
 
 .empty-list {
   padding: 22px;
-  color: var(--color-muted);
+  color: var(--text-3);
   text-align: center;
   font-size: 13px;
 }

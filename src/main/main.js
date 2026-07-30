@@ -1,39 +1,34 @@
-import {
-  app,
+import Electrobun, {
+  BrowserView,
   BrowserWindow,
-  clipboard,
-  dialog,
-  ipcMain,
-  nativeTheme,
-  shell,
-} from 'electron';
+  Utils,
+} from 'electrobun/bun';
 import { spawnSync } from 'node:child_process';
 import {
   appendFile,
   mkdir,
   readFile,
-  writeFile,
 } from 'node:fs/promises';
-import { homedir, release } from 'node:os';
+import { homedir } from 'node:os';
 import {
   basename,
-  dirname,
   isAbsolute,
   join,
   relative,
   resolve,
 } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   closeDatabase,
   createConversation,
   deleteConversation,
   deleteProviderCredentials,
   forkConversation,
+  flushSecureStorage,
   getConversation,
   getMessages,
   getPreferences,
   getProviderCredentials,
+  initializeSecureStorage,
   listAllConversations,
   listConversations,
   listFavorites,
@@ -50,7 +45,14 @@ import {
 import { ChatRunner } from './chat-runner.js';
 import { stopConversationTerminals } from './client-tools.js';
 import { listContextItems } from './context-injection.js';
-import { filePathToAttachment } from './files.js';
+import {
+  filePathToAttachment,
+  inspectWorkspaceFiles,
+  listWorkspaceDirectory,
+  readWorkspaceFile,
+  resolveWorkspacePath,
+  searchWorkspaceFiles,
+} from './files.js';
 import { ModelProviderRegistry } from './model-provider.js';
 import { McpManager } from './mcp-manager.js';
 import {
@@ -59,11 +61,12 @@ import {
 } from './terminal-shell.js';
 import { providerTypes } from '../providers/index.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const appIconPath = join(
-  __dirname,
-  process.platform === 'win32' ? '../../assets/icon/aivchat.ico' : '../../assets/icon/aivchat.png',
-);
+const ipcHandlers = new Map();
+const ipcMain = {
+  handle(channel, handler) {
+    ipcHandlers.set(channel, handler);
+  },
+};
 const providerRegistry = new ModelProviderRegistry({
   getProviders: listProviders,
   providerTypes,
@@ -73,8 +76,12 @@ const providerRegistry = new ModelProviderRegistry({
       set: setProviderCredentials,
       delete: deleteProviderCredentials,
     },
-    clipboard,
-    shell,
+    clipboard: {
+      writeText: Utils.clipboardWriteText,
+    },
+    shell: {
+      openExternal: Utils.openExternal,
+    },
   },
 });
 let mainWindow;
@@ -83,49 +90,39 @@ let mcpManager;
 let shutdownStarted = false;
 let shutdownReady = false;
 
-app.setName('AIVAX');
-if (process.env.CHAT_APP_SMOKE_PROFILE) {
-  app.setPath('userData', resolve(process.env.CHAT_APP_SMOKE_PROFILE));
-}
+await initializeSecureStorage();
+registerIpc();
 
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-  app.quit();
-}
-
-app.whenReady().then(() => {
-  nativeTheme.themeSource = 'system';
-  createWindow();
-  registerIpc();
+const rpc = BrowserView.defineRPC({
+  maxRequestTime: Infinity,
+  handlers: {
+    requests: {
+      invoke: ({ channel, payload }) => {
+        const handler = ipcHandlers.get(channel);
+        if (!handler) throw new Error(`Unknown application request: ${channel}`);
+        return handler(undefined, payload);
+      },
+    },
+    messages: {},
+  },
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+createWindow();
 
-app.on('before-quit', (event) => {
+Electrobun.events.on('before-quit', (event) => {
   if (shutdownReady) return;
-  event.preventDefault();
+  event.response = { allow: false };
   if (shutdownStarted) return;
   shutdownStarted = true;
   Promise.resolve(chatRunner?.shutdown())
     .then(() => mcpManager?.closeAll())
+    .then(() => flushSecureStorage())
     .catch((error) => console.error('Shutdown failed:', error))
     .finally(() => {
       closeDatabase();
       shutdownReady = true;
-      app.quit();
+      Utils.quit();
     });
-});
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
-
-app.on('second-instance', () => {
-  if (!mainWindow) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.focus();
 });
 
 function createWindow() {
@@ -133,43 +130,48 @@ function createWindow() {
   const smokeTest = process.env.CHAT_APP_SMOKE_TEST === '1';
 
   mainWindow = new BrowserWindow({
-    width: 1180,
-    height: 780,
-    minWidth: 560,
-    minHeight: 640,
-    show: !smokeTest,
-    frame: false,
-    icon: appIconPath,
-    ...nativeWindow,
-    trafficLightPosition: { x: 16, y: 16 },
-    webPreferences: {
-      preload: join(__dirname, 'preload.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: false,
+    title: 'AIVAX',
+    url: process.env.VITE_DEV_SERVER_URL || 'views://mainview/index.html',
+    rpc,
+    frame: {
+      x: 160,
+      y: 100,
+      width: 1180,
+      height: 780,
     },
+    titleBarStyle: nativeWindow.titleBarStyle,
+    transparent: nativeWindow.transparent,
+    hidden: true,
+    renderer: 'native',
   });
 
-  if (nativeWindow.backgroundMaterial && typeof mainWindow.setBackgroundMaterial === 'function') {
-    mainWindow.setBackgroundMaterial(nativeWindow.backgroundMaterial);
-  }
+  mainWindow.webview.on('dom-ready', () => {
+    if (smokeTest) return;
+
+    // Electrobun 1.18.1 initially sizes the WebView from the outer window frame
+    // when using a native title bar. Force its resize handler before showing the
+    // window; remove this after Electrobun derives the initial client-area size.
+    const { width, height } = mainWindow.getSize();
+    mainWindow.setSize(width, height + 1);
+    mainWindow.setSize(width, height);
+    mainWindow.show();
+  });
 
   if (!mcpManager) {
     mcpManager = new McpManager({
       sendEvent: (payload) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('mcp:event', payload);
-        }
+        rpc.send.event({ channel: 'mcp:event', payload });
       },
-      openExternal: (url) => shell.openExternal(url),
+      openExternal: (url) => Utils.openExternal(url),
     });
     mcpManager.initializeGlobal().catch((error) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('mcp:event', {
+      rpc.send.event({
+        channel: 'mcp:event',
+        payload: {
           type: 'configuration-error',
           message: error instanceof Error ? error.message : String(error),
-        });
-      }
+        },
+      });
     });
   }
   if (!chatRunner) {
@@ -178,9 +180,7 @@ function createWindow() {
       mcpManager,
       getPreferences,
       sendEvent: (payload) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('chat:event', payload);
-        }
+        rpc.send.event({ channel: 'chat:event', payload });
       },
       savePermissionGuidance: async ({ workspacePath, invocationSummary }) => {
         const agentsPath = join(homedir(), '.agents');
@@ -203,124 +203,91 @@ function createWindow() {
   if (smokeTest) {
     const smokeTimeout = setTimeout(() => {
       console.error('Chat app smoke test timed out.');
-      app.exit(1);
+      process.exitCode = 1;
+      Utils.quit();
     }, 15000);
-    mainWindow.webContents.once('did-finish-load', async () => {
+    mainWindow.webview.on('dom-ready', async () => {
       clearTimeout(smokeTimeout);
-      const smokePassed = await mainWindow.webContents.executeJavaScript(`
-        new Promise(async (resolve) => {
-          let models;
-          try {
-            models = await window.chatApp?.models.list();
-          } catch {
-            resolve(false);
-            return;
-          }
-          if (!Array.isArray(models)) {
-            resolve(false);
-            return;
-          }
-          const deadline = Date.now() + 5000;
-          const check = async () => {
-            const appReady = document.querySelector('.settings-button, .settings-page');
-            const settingsReady = models.length > 0 || document.querySelector('.settings-page');
-            if (appReady && settingsReady) {
-              document.querySelector('.settings-button')?.click();
-              await new Promise((next) => window.setTimeout(next, 50));
-              const mcpButton = [...document.querySelectorAll('.settings-navigation button')]
-                .find((button) => button.textContent.includes('MCP servers'));
-              mcpButton?.click();
-              while (
-                Date.now() < deadline
-                && !document.querySelector('.mcp-settings .settings-entity-main')
-              ) {
-                await new Promise((next) => window.setTimeout(next, 50));
-              }
-              document.querySelector('.mcp-settings .settings-entity-main')?.click();
-              while (
-                Date.now() < deadline
-                && !document.querySelector('.settings-page-header .settings-inline-back')
-              ) {
-                await new Promise((next) => window.setTimeout(next, 50));
-              }
-              document.querySelector('.settings-page-header .settings-add-provider')?.click();
-              while (
-                Date.now() < deadline
-                && !document.querySelector('.mcp-editor-actions .primary-mini')
-              ) {
-                await new Promise((next) => window.setTimeout(next, 50));
-              }
-              const saveButton = document.querySelector('.mcp-editor-actions .primary-mini');
-              const saveButtonRect = saveButton?.getBoundingClientRect();
-              resolve(Boolean(
-                document.querySelector('.mcp-settings')
-                && document.querySelector('.settings-page-header .settings-inline-back')
-                && !document.querySelector('.settings-content .settings-inline-back')
-                && saveButtonRect?.height <= 36
-                && getComputedStyle(saveButton).whiteSpace === 'nowrap'
-              ));
-            } else if (Date.now() >= deadline) {
+      const smokePassed = await mainWindow.webview.rpc.request.evaluateJavascriptWithResponse({
+        script: `
+          return new Promise(async (resolve) => {
+            let models;
+            try {
+              models = await window.chatApp?.models.list();
+            } catch {
               resolve(false);
-            } else {
-              window.setTimeout(check, 50);
+              return;
             }
-          };
-          check();
-        })
-      `);
-      if (smokePassed && process.env.CHAT_APP_SMOKE_SCREENSHOT) {
-        mainWindow.show();
-        await new Promise((resolveCapture) => setTimeout(resolveCapture, 150));
-        const image = await mainWindow.webContents.capturePage();
-        await writeFile(resolve(process.env.CHAT_APP_SMOKE_SCREENSHOT), image.toPNG());
-      }
+            if (!Array.isArray(models)) {
+              resolve(false);
+              return;
+            }
+            const deadline = Date.now() + 5000;
+            const check = async () => {
+              const appReady = document.querySelector('.settings-button, .settings-page');
+              const settingsReady = models.length > 0 || document.querySelector('.settings-page');
+              if (appReady && settingsReady) {
+                document.querySelector('.settings-button')?.click();
+                await new Promise((next) => window.setTimeout(next, 50));
+                const mcpButton = [...document.querySelectorAll('.settings-navigation button')]
+                  .find((button) => button.textContent.includes('MCP servers'));
+                mcpButton?.click();
+                while (
+                  Date.now() < deadline
+                  && !document.querySelector('.mcp-settings .settings-entity-main')
+                ) {
+                  await new Promise((next) => window.setTimeout(next, 50));
+                }
+                document.querySelector('.mcp-settings .settings-entity-main')?.click();
+                while (
+                  Date.now() < deadline
+                  && !document.querySelector('.settings-page-header .settings-inline-back')
+                ) {
+                  await new Promise((next) => window.setTimeout(next, 50));
+                }
+                document.querySelector('.settings-page-header .settings-add-provider')?.click();
+                while (
+                  Date.now() < deadline
+                  && !document.querySelector('.mcp-editor-actions .primary-mini')
+                ) {
+                  await new Promise((next) => window.setTimeout(next, 50));
+                }
+                const saveButton = document.querySelector('.mcp-editor-actions .primary-mini');
+                const saveButtonRect = saveButton?.getBoundingClientRect();
+                resolve(Boolean(
+                  document.querySelector('.mcp-settings')
+                  && document.querySelector('.settings-page-header .settings-inline-back')
+                  && !document.querySelector('.settings-content .settings-inline-back')
+                  && saveButtonRect?.height <= 36
+                  && getComputedStyle(saveButton).whiteSpace === 'nowrap'
+                ));
+              } else if (Date.now() >= deadline) {
+                resolve(false);
+              } else {
+                window.setTimeout(check, 50);
+              }
+            };
+            check();
+          });
+        `,
+      });
       console.log(smokePassed ? 'Chat app smoke test passed.' : 'Chat app smoke test failed.');
-      await mcpManager.closeAll();
-      app.exit(smokePassed ? 0 : 1);
+      process.exitCode = smokePassed ? 0 : 1;
+      Utils.quit();
     });
   }
 
   if (process.env.CHAT_APP_OPEN_DEVTOOLS === '1') {
-    mainWindow.webContents.once('did-finish-load', () => {
-      mainWindow.webContents.openDevTools({ mode: 'detach' });
+    mainWindow.webview.on('dom-ready', () => {
+      mainWindow.webview.openDevTools();
     });
-  }
-
-  if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-  } else {
-    mainWindow.loadFile(join(__dirname, '../../dist/index.html'));
   }
 }
 
 function getNativeWindowOptions() {
-  if (process.platform === 'win32') {
-    const build = Number(release().split('.')[2] ?? 0);
-    return {
-      transparent: false,
-      backgroundColor: '#00000000',
-      backgroundMaterial: build >= 22000 ? 'tabbed' : 'acrylic',
-      roundedCorners: true,
-      thickFrame: true,
-      titleBarStyle: 'hidden',
-    };
-  }
-
-  if (process.platform === 'darwin') {
-    return {
-      transparent: true,
-      backgroundColor: '#00000000',
-      vibrancy: 'under-window',
-      visualEffectState: 'active',
-      titleBarStyle: 'hiddenInset',
-      roundedCorners: true,
-    };
-  }
-
   return {
     transparent: false,
-    backgroundColor: '#f8fafc',
-    titleBarStyle: 'hidden',
+    titleBarStyle: 'default',
   };
 }
 
@@ -594,19 +561,47 @@ function registerIpc() {
   });
 
   ipcMain.handle('files:select', async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openFile', 'multiSelections'],
+    const filePaths = await Utils.openFileDialog({
+      startingFolder: homedir(),
+      canChooseFiles: true,
+      canChooseDirectory: false,
+      allowsMultipleSelection: true,
     });
-    if (result.canceled) return [];
-    return result.filePaths.map(filePathToAttachment);
+    return filePaths.filter(Boolean).map(filePathToAttachment);
+  });
+  ipcMain.handle('files:workspace', (_event, folderPath) => (
+    inspectWorkspaceFiles(folderPath)
+  ));
+  ipcMain.handle('files:directory', (_event, payload = {}) => (
+    listWorkspaceDirectory(payload.folderPath, payload.directoryPath)
+  ));
+  ipcMain.handle('files:read', (_event, payload = {}) => (
+    readWorkspaceFile(payload.folderPath, payload.filePath)
+  ));
+  ipcMain.handle('files:search', (_event, payload = {}) => (
+    searchWorkspaceFiles(payload.folderPath, payload.query)
+  ));
+  ipcMain.handle('files:open', (_event, payload = {}) => {
+    const filePath = resolveWorkspacePath(payload.folderPath, payload.filePath);
+    if (!Utils.openPath(filePath)) throw new Error(`Could not open "${payload.filePath}".`);
+    return true;
+  });
+  ipcMain.handle('files:reveal', (_event, payload = {}) => {
+    Utils.showItemInFolder(resolveWorkspacePath(payload.folderPath, payload.filePath));
+    return true;
+  });
+  ipcMain.handle('files:copy-path', (_event, payload = {}) => {
+    Utils.clipboardWriteText(resolveWorkspacePath(payload.folderPath, payload.filePath));
+    return true;
   });
   ipcMain.handle('projects:select', async (_event, payload = {}) => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      defaultPath: payload.defaultPath || homedir(),
-      properties: ['openDirectory'],
+    const [folderPath] = await Utils.openFileDialog({
+      startingFolder: payload.defaultPath || homedir(),
+      canChooseFiles: false,
+      canChooseDirectory: true,
+      allowsMultipleSelection: false,
     });
-    if (result.canceled || !result.filePaths[0]) return null;
-    return inspectProjectFolder(result.filePaths[0]);
+    return folderPath ? inspectProjectFolder(folderPath) : null;
   });
   ipcMain.handle('context:folders', async () => {
     const globalPath = join(homedir(), '.agents');
@@ -648,21 +643,12 @@ function registerIpc() {
     return [...commands.values()];
   });
   ipcMain.handle('context:open', async (_event, targetPath) => {
-    const error = await shell.openPath(resolve(targetPath));
-    if (error) throw new Error(error);
+    if (!Utils.openPath(resolve(targetPath))) {
+      throw new Error(`Could not open "${targetPath}".`);
+    }
     return true;
   });
 
-  ipcMain.handle('window:minimize', () => mainWindow?.minimize());
-  ipcMain.handle('window:maximize', () => {
-    if (!mainWindow) return;
-    if (mainWindow.isMaximized()) {
-      mainWindow.unmaximize();
-    } else {
-      mainWindow.maximize();
-    }
-  });
-  ipcMain.handle('window:close', () => mainWindow?.close());
 }
 
 function inspectProjectFolder(folderPath) {

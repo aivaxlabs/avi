@@ -3,9 +3,9 @@
   min-width: 0;
   margin: 0 0 12px;
   overflow: hidden;
-  color: var(--color-code-block-text);
-  background: var(--surface-code-block-soft);
-  border: 1px solid var(--border-panel-strong);
+  color: var(--text-1);
+  background: var(--background-2);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 
@@ -20,9 +20,9 @@
     gap: 12px;
     min-height: 34px;
     padding: 0 8px 0 12px;
-    color: var(--color-code-muted);
-    background: var(--surface-code-header);
-    border-bottom: 1px solid var(--border-panel);
+    color: var(--text-3);
+    background: var(--background-3);
+    border-bottom: 1px solid var(--border-color);
     font-size: 11px;
     font-weight: 500;
     text-transform: uppercase;
@@ -33,57 +33,57 @@
       gap: 5px;
       min-height: 26px;
       padding: 0 7px;
-      color: var(--color-code-muted);
+      color: var(--text-3);
       background: transparent;
       border-radius: 6px;
       font-size: 11px;
       text-transform: none;
 
       &:hover {
-        color: var(--color-code-block-text);
-        background: var(--surface-hover);
+        color: var(--text-1);
+        background: var(--item-hover);
       }
     }
   }
 
   .token.comment, .token.prolog, .token.doctype, .token.cdata {
-    color: var(--color-code-token-comment);
+    color: var(--text-4);
   }
 
   .token.punctuation {
-    color: var(--color-code-token-punctuation);
+    color: var(--text-3);
   }
 
   .token.property, .token.tag, .token.boolean, .token.constant, .token.symbol, .token.deleted {
-    color: var(--color-code-token-property);
+    color: var(--text-1);
   }
 
   .token.selector, .token.attr-name, .token.char, .token.builtin, .token.inserted {
-    color: var(--color-code-token-selector);
+    color: var(--text-2);
   }
 
   .token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string {
-    color: var(--color-code-token-operator);
+    color: var(--text-1);
   }
 
   .token.atrule, .token.attr-value, .token.keyword {
-    color: var(--color-code-token-keyword);
+    color: var(--text-2);
   }
 
   .token.function {
-    color: var(--color-code-token-function);
+    color: var(--text-2);
   }
 
   .token.regex, .token.important, .token.variable, .token.string {
-    color: var(--color-code-token-string);
+    color: var(--text-2);
   }
 
   .token.number {
-    color: var(--color-code-token-number);
+    color: var(--text-1);
   }
 
   .token.class-name {
-    color: var(--color-code-token-class);
+    color: var(--text-2);
   }
 
   .token.important, .token.bold {
@@ -101,7 +101,7 @@
   padding: 13px 14px;
   overflow-x: auto;
   overflow-y: auto;
-  color: var(--color-code-block-text);
+  color: var(--text-1);
   background: transparent;
   border-radius: 0;
   font-size: 13px;

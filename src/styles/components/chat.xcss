@@ -1,9 +1,8 @@
 .chat-area {
   position: relative;
   height: 100%;
-  padding-top: 34px;
   --composer-bottom: 0;
-  background: var(--surface-solid);
+  background: var(--background-1);
   overflow: hidden;
 
   .chat-scroll {
@@ -20,8 +19,8 @@
     display: grid;
     place-items: center;
     padding: 28px;
-    background: var(--surface-drop);
-    border: 1px dashed var(--border-drop);
+    background: var(--background-2);
+    border: 1px dashed var(--border-color);
     backdrop-filter: blur(8px);
     pointer-events: none;
 
@@ -30,11 +29,11 @@
       justify-items: center;
       gap: 8px;
       padding: 18px 22px;
-      color: var(--color-drop-text);
-      background: var(--surface-overlay-card);
-      border: 1px solid var(--border-panel);
+      color: var(--text-1);
+      background: var(--background-2);
+      border: 1px solid var(--border-color);
       border-radius: 8px;
-      box-shadow: 0 18px 60px var(--shadow-soft);
+      box-shadow: 0 18px 60px rgb(0 0 0 / 12%);
     }
 
     span {
@@ -56,15 +55,16 @@
     --composer-bottom: calc(50% - 60px);
   }
 
-  .copilot-orb, .brand-mark {
+  .copilot-orb,
+  .brand-mark {
     width: 32px;
     height: 32px;
     display: grid;
     place-items: center;
-    color: var(--color-on-accent);
-    background: linear-gradient(135deg, var(--color-live), var(--color-brand-blue) 52%, var(--color-brand-pink));
+    color: var(--text-5);
+    background: linear-gradient(135deg, var(--text-1), var(--text-1) 52%, var(--text-2));
     border-radius: 8px;
-    box-shadow: 0 20px 60px var(--shadow-brand-strong);
+    box-shadow: 0 20px 60px rgb(0 0 0 / 28%);
   }
 
   .empty-chat h1 {
@@ -80,12 +80,12 @@
 }
 
 .platform-linux .sidebar {
-  background: var(--surface-sidebar);
+  background: var(--background-2);
 }
 
 .empty-chat p,
 .dialog-header p {
   margin: 0;
-  color: var(--color-muted-warm);
+  color: var(--text-3);
   font-size: 12px;
 }

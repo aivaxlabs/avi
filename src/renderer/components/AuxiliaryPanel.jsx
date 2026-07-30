@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   Bot,
   ChevronRight,
+  Files,
   Gauge,
   MessageSquarePlus,
   Plus,
@@ -10,14 +11,17 @@ import {
 } from 'lucide-react';
 import { ChatView } from './ChatView.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
+import { FilesPanel } from './FilesPanel.jsx';
 import { ProviderPanel } from './ProviderPanel.jsx';
 
 const subagentsTabId = 'subagents';
+const filesTabId = 'files';
 
 function AuxiliaryAddMenu({
   providerPanels,
   canCreateSideChat,
   onCreateSideChat,
+  onOpenFilesTab,
   onOpenSubagentsTab,
   onOpenProviderPanel,
 }) {
@@ -75,6 +79,16 @@ function AuxiliaryAddMenu({
             Side chat
           </DropdownMenuItem>
           <DropdownMenuItem
+            icon={<Files size={14} />}
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onOpenFilesTab();
+            }}
+          >
+            Files
+          </DropdownMenuItem>
+          <DropdownMenuItem
             icon={<Bot size={14} />}
             role="menuitem"
             onClick={() => {
@@ -117,18 +131,26 @@ export function AuxiliaryPanel({
   recentProjects,
   fallbackModel,
   conversationId,
+  project,
   providerPanels = [],
   openProviderPanels = [],
+  filesTabOpen,
   subagentsTabOpen,
   canCreateSideChat,
   onSelectTab,
   onCloseSideChat,
+  onCloseFilesTab,
   onCloseSubagentsTab,
+  onOpenFilesTab,
   onOpenSubagentsTab,
   onOpenProviderPanel,
   onCloseProviderPanel,
   onClosePanel,
   onCreateSideChat,
+  onAddToChat,
+  fileNavigation,
+  onFileNavigationConsumed,
+  onOpenFileReference,
   onSelectSubagent,
   onSend,
   onImplementPlan,
@@ -156,6 +178,14 @@ export function AuxiliaryPanel({
       running: Boolean(running[sideChat.id]),
       type: 'side-chat',
     })),
+    ...(filesTabOpen
+      ? [{
+          id: filesTabId,
+          label: 'Files',
+          running: false,
+          type: 'files',
+        }]
+      : []),
     ...(subagentsTabOpen
       ? [{
           id: subagentsTabId,
@@ -171,6 +201,7 @@ export function AuxiliaryPanel({
     })),
   ];
   const activeSideChat = sideChats.find((sideChat) => sideChat.id === activeTab) ?? null;
+  const showingFiles = activeTab === filesTabId;
   const showingSubagents = activeTab === subagentsTabId;
   const activeProviderPanel = openProviderPanels.find((panel) => panel.id === activeTab) ?? null;
   const activeSubagent = showingSubagents
@@ -227,6 +258,8 @@ export function AuxiliaryPanel({
                   >
                     {tab.type === 'subagents' ? (
                       <Bot size={14} aria-hidden="true" />
+                    ) : tab.type === 'files' ? (
+                      <Files size={14} aria-hidden="true" />
                     ) : tab.type === 'provider' ? (
                       <Gauge size={14} aria-hidden="true" />
                     ) : (
@@ -249,6 +282,8 @@ export function AuxiliaryPanel({
                     onClick={() => (
                       tab.type === 'subagents'
                         ? onCloseSubagentsTab()
+                        : tab.type === 'files'
+                          ? onCloseFilesTab()
                         : tab.type === 'provider'
                           ? onCloseProviderPanel(tab.id)
                           : onCloseSideChat(tab.id)
@@ -263,6 +298,7 @@ export function AuxiliaryPanel({
               providerPanels={providerPanels}
               canCreateSideChat={canCreateSideChat}
               onCreateSideChat={onCreateSideChat}
+              onOpenFilesTab={onOpenFilesTab}
               onOpenSubagentsTab={onOpenSubagentsTab}
               onOpenProviderPanel={onOpenProviderPanel}
             />
@@ -275,6 +311,7 @@ export function AuxiliaryPanel({
                 providerPanels={providerPanels}
                 canCreateSideChat={canCreateSideChat}
                 onCreateSideChat={onCreateSideChat}
+                onOpenFilesTab={onOpenFilesTab}
                 onOpenSubagentsTab={onOpenSubagentsTab}
                 onOpenProviderPanel={onOpenProviderPanel}
               />
@@ -307,7 +344,14 @@ export function AuxiliaryPanel({
             </button>
           </div>
         )}
-        {activeProviderPanel ? (
+        {showingFiles ? (
+          <FilesPanel
+            project={project}
+            onAddToChat={onAddToChat}
+            navigation={fileNavigation}
+            onNavigationConsumed={onFileNavigationConsumed}
+          />
+        ) : activeProviderPanel ? (
           <ProviderPanel
             panel={activeProviderPanel}
             conversationId={conversationId}
@@ -327,6 +371,14 @@ export function AuxiliaryPanel({
               <span>
                 <strong>Side chat</strong>
                 <small>Fork this conversation</small>
+              </span>
+              <ChevronRight size={15} aria-hidden="true" />
+            </button>
+            <button type="button" onClick={onOpenFilesTab}>
+              <Files size={16} aria-hidden="true" />
+              <span>
+                <strong>Files</strong>
+                <small>Browse the current directory</small>
               </span>
               <ChevronRight size={15} aria-hidden="true" />
             </button>
@@ -437,6 +489,7 @@ export function AuxiliaryPanel({
             onGoalAction={(action, specification) => (
               onGoalAction(activeThread, action, specification)
             )}
+            onOpenFileReference={onOpenFileReference}
             messageDeliveryMode={messageDeliveryMode}
             draftKey={`aivax.composer.${
               activeThread.isSubagent ? 'subagent' : 'side'
