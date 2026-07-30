@@ -5,10 +5,14 @@ import {
   CheckCircle2,
   CircleOff,
   Ellipsis,
+  ExternalLink,
   FileText,
   Folder,
   FolderCog,
   FolderOpen,
+  Github,
+  Globe2,
+  Info,
   Pencil,
   Plus,
   RadioTower,
@@ -22,6 +26,7 @@ import {
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
+import aviIconUrl from '../../../assets/icon/avi.png';
 import { classNames } from '../lib/format.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { McpSettings } from './McpSettings.jsx';
@@ -147,7 +152,7 @@ export function SettingsPage({
   onSaveTuning,
 }) {
   const [view, setView] = useState(
-    initialContextFolder ? 'context-folder' : initialView ?? 'list',
+    initialView ?? (initialContextFolder ? 'context-folder' : 'list'),
   );
   const [selectedId, setSelectedId] = useState(null);
   const [providerDraft, setProviderDraft] = useState(null);
@@ -314,6 +319,7 @@ export function SettingsPage({
     'context-folder': selectedContextFolder?.name || 'Context',
     mcp: mcpNavigation?.title || 'MCP servers',
     tuning: 'Tuning',
+    about: 'About Avi',
   }[view];
   const pageDescription = {
     list: 'Manage the connections and models available in chats.',
@@ -327,8 +333,9 @@ export function SettingsPage({
     mcp: mcpNavigation?.description
       || 'Manage global and per-folder Model Context Protocol servers.',
     tuning: 'Adjust how the app manages context, tool execution, and parallel work.',
+    about: 'Project information, version, and links.',
   }[view];
-  const showInlineBack = !['list', 'context-folders', 'mcp', 'tuning'].includes(view)
+  const showInlineBack = !['list', 'context-folders', 'mcp', 'tuning', 'about'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
 
   return (
@@ -418,6 +425,23 @@ export function SettingsPage({
               <SlidersHorizontal size={16} />
               Tuning
             </button>
+          )}
+          {(!settingsQuery || 'about avi version website github repository project'.includes(settingsQuery)) && (
+            <>
+              <span>Product</span>
+              <button
+                className={view === 'about' ? 'active' : undefined}
+                type="button"
+                aria-current={view === 'about' ? 'page' : undefined}
+                onClick={() => {
+                  setView('about');
+                  setError('');
+                }}
+              >
+                <Info size={16} />
+                About
+              </button>
+            </>
           )}
         </nav>
       </aside>
@@ -713,7 +737,69 @@ export function SettingsPage({
               </section>
             )}
 
-            {view === 'mcp' && <McpSettings onNavigationChange={setMcpNavigation} />}
+            {view === 'mcp' && (
+              <McpSettings
+                initialFolder={initialContextFolder}
+                onNavigationChange={setMcpNavigation}
+              />
+            )}
+
+            {view === 'about' && (
+              <section className="settings-about">
+                <div className="settings-about-hero">
+                  <img className="settings-about-logo" src={aviIconUrl} alt="Avi logo" />
+                  <div>
+                    <h3>Avi</h3>
+                    <p>
+                      A local desktop workspace for AI conversations, tools, and orchestration.
+                    </p>
+                  </div>
+                </div>
+                <dl className="settings-about-details">
+                  <div>
+                    <dt>Version</dt>
+                    <dd>{__APP_VERSION__}</dd>
+                  </div>
+                  <div>
+                    <dt>Website</dt>
+                    <dd>
+                      <a
+                        className="settings-about-link"
+                        href="https://avi.aivax.net"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          window.chatApp.app.openExternal(event.currentTarget.href);
+                        }}
+                      >
+                        <Globe2 size={15} />
+                        avi.aivax.net
+                        <ExternalLink size={13} />
+                      </a>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Repository</dt>
+                    <dd>
+                      <a
+                        className="settings-about-link"
+                        href="https://github.com/aivaxlabs/avi"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          window.chatApp.app.openExternal(event.currentTarget.href);
+                        }}
+                      >
+                        <Github size={15} />
+                        github.com/aivaxlabs/avi
+                        <ExternalLink size={13} />
+                      </a>
+                    </dd>
+                  </div>
+                </dl>
+                <p className="settings-about-credit">
+                  Created and maintained by <strong>AIVAX Labs</strong>.
+                </p>
+              </section>
+            )}
 
             {view === 'tuning' && tuningDraft && (
               <div className="settings-tuning">

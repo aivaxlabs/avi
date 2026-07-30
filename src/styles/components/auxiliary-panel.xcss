@@ -24,7 +24,7 @@
   background: var(--background-1);
   opacity: .7;
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  border: 1px solid --border-color;
   transition: 180ms var(--base-transition);
 
   &:hover {

@@ -7,17 +7,20 @@ import {
   FolderCog,
   FolderOpen,
   LayoutDashboard,
+  LoaderCircle,
   MessageSquarePlus,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Search,
+  Server,
   Settings,
   Trash2,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import aviIconUrl from '../../../assets/icon/avi.png';
 import { classNames } from '../lib/format.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 
@@ -187,7 +190,10 @@ export function Sidebar({
   return (
     <aside className="sidebar" id="main-sidebar">
       <div className="sidebar-titlebar">
-        <div className="app-name">AIVAX</div>
+        <div className="app-name">
+          <img src={aviIconUrl} alt="" />
+          <span>Avi</span>
+        </div>
         <button
           className="sidebar-toggle"
           type="button"
@@ -325,6 +331,7 @@ export function Sidebar({
                   >
                     Open in explorer
                   </DropdownMenuItem>
+                  <div className="dropdown-menu-divider" role="separator" />
                   <DropdownMenuItem
                     icon={<FolderCog size={14} />}
                     role="menuitem"
@@ -334,6 +341,16 @@ export function Sidebar({
                     }}
                   >
                     Manage Context
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    icon={<Server size={14} />}
+                    role="menuitem"
+                    onClick={() => {
+                      setFolderMenu(null);
+                      onSettings(group.preset.project, 'mcp');
+                    }}
+                  >
+                    Manage MCP Servers
                   </DropdownMenuItem>
                 </DropdownMenu>,
                 document.body,
@@ -425,7 +442,9 @@ function ConversationItem({ conversation, active, running, now, onSelect, onFork
   return (
     <div className={classNames('conversation-item', active && 'active', menuOpen && 'menu-open')}>
       <button className="conversation-main" type="button" onClick={onSelect}>
-        <span className={classNames('run-dot', running && 'live')} />
+        {running && (
+          <LoaderCircle className="run-spinner" size={12} aria-label="Working" />
+        )}
         <span className="conversation-title">{conversation.title || conversation.firstPrompt || 'New chat'}</span>
       </button>
       {ageLabel && <span className="conversation-age">{ageLabel}</span>}

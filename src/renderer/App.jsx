@@ -17,14 +17,12 @@ import { PanelResizer } from './components/PanelResizer.jsx';
 const api = window.chatApp;
 const sidebarWidthStorageKey = 'aivax.layout.sidebar-width';
 const auxiliaryPanelWidthStorageKey = 'aivax.layout.auxiliary-panel-width';
-const workModeStorageKey = 'aivax.composer.work-mode';
-const ultraModeStorageKey = 'aivax.composer.ultra-mode';
 const savedSidebarWidth = Number(window.localStorage.getItem(sidebarWidthStorageKey));
 const savedAuxiliaryPanelWidth = Number(
   window.localStorage.getItem(auxiliaryPanelWidthStorageKey),
 );
-const savedWorkMode = window.localStorage.getItem(workModeStorageKey);
-const savedUltraMode = window.localStorage.getItem(ultraModeStorageKey);
+window.localStorage.removeItem('aivax.composer.work-mode');
+window.localStorage.removeItem('aivax.composer.ultra-mode');
 const minimumAuxiliaryPanelWidth = 280;
 const minimumMainContentWidth = 320;
 const initialSidebarWidth = Number.isFinite(savedSidebarWidth) && savedSidebarWidth > 0
@@ -90,12 +88,8 @@ export default function App() {
   const [approvalRequests, setApprovalRequests] = useState([]);
   const [approvalResolving, setApprovalResolving] = useState(false);
   const [questionRequests, setQuestionRequests] = useState([]);
-  const [workMode, setWorkMode] = useState(
-    ['plan', 'goal'].includes(savedWorkMode) ? savedWorkMode : null,
-  );
-  const [ultraMode, setUltraMode] = useState(
-    savedUltraMode === 'true' && savedWorkMode !== 'plan',
-  );
+  const [workMode, setWorkMode] = useState(null);
+  const [ultraMode, setUltraMode] = useState(false);
   const approvalDialogRef = useRef(null);
 
   const currentConversation = conversations.find((item) => item.id === selectedId) ?? null;
@@ -704,11 +698,6 @@ export default function App() {
       }
     }
     setWorkMode(normalizedWorkMode);
-    if (normalizedWorkMode) {
-      window.localStorage.setItem(workModeStorageKey, normalizedWorkMode);
-    } else {
-      window.localStorage.removeItem(workModeStorageKey);
-    }
     return true;
   }
 
@@ -716,14 +705,8 @@ export default function App() {
     const nextUltraMode = Boolean(enabled);
     if (nextUltraMode && workMode === 'plan') {
       setWorkMode(null);
-      window.localStorage.removeItem(workModeStorageKey);
     }
     setUltraMode(nextUltraMode);
-    if (nextUltraMode) {
-      window.localStorage.setItem(ultraModeStorageKey, 'true');
-    } else {
-      window.localStorage.removeItem(ultraModeStorageKey);
-    }
   }
 
   async function startGoal({
@@ -1088,7 +1071,11 @@ export default function App() {
               setOrchestrationOpen(false);
               setSelectedId(null);
               setDraftProject(preset.project ?? currentProject ?? appState.defaultProject);
-              setDraftModel(preset.modelId ?? appState.lastModel ?? models[0]?.id ?? '');
+              setDraftModel(
+                preset.modelId ?? currentModel ?? appState.lastModel ?? models[0]?.id ?? '',
+              );
+              setWorkMode(null);
+              setUltraMode(false);
             }}
             onSelect={(id) => {
               setOrchestrationOpen(false);
@@ -1108,9 +1095,9 @@ export default function App() {
                 setError(nextError instanceof Error ? nextError.message : String(nextError));
               }
             }}
-            onSettings={(contextFolder = null) => {
+            onSettings={(contextFolder = null, initialView = null) => {
               setSettingsContextFolder(contextFolder);
-              setSettingsInitialView(contextFolder ? 'context-folder' : null);
+              setSettingsInitialView(initialView ?? (contextFolder ? 'context-folder' : null));
               setSettingsOpen(true);
             }}
             collapsed={effectiveSidebarCollapsed}

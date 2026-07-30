@@ -45,54 +45,6 @@
       }
     }
   }
-
-  .token.comment, .token.prolog, .token.doctype, .token.cdata {
-    color: var(--text-4);
-  }
-
-  .token.punctuation {
-    color: var(--text-3);
-  }
-
-  .token.property, .token.tag, .token.boolean, .token.constant, .token.symbol, .token.deleted {
-    color: var(--text-1);
-  }
-
-  .token.selector, .token.attr-name, .token.char, .token.builtin, .token.inserted {
-    color: var(--text-2);
-  }
-
-  .token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string {
-    color: var(--text-1);
-  }
-
-  .token.atrule, .token.attr-value, .token.keyword {
-    color: var(--text-2);
-  }
-
-  .token.function {
-    color: var(--text-2);
-  }
-
-  .token.regex, .token.important, .token.variable, .token.string {
-    color: var(--text-2);
-  }
-
-  .token.number {
-    color: var(--text-1);
-  }
-
-  .token.class-name {
-    color: var(--text-2);
-  }
-
-  .token.important, .token.bold {
-    font-weight: 500;
-  }
-
-  .token.italic {
-    font-style: italic;
-  }
 }
 
 .markdown-body .code-block pre {

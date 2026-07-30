@@ -173,7 +173,9 @@ export function Composer({
   const [reasoningMenuOpen, setReasoningMenuOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [commandStage, setCommandStage] = useState(null);
+  const [commandDraft, setCommandDraft] = useState(null);
   const [commandIndex, setCommandIndex] = useState(0);
+  const [cursorPosition, setCursorPosition] = useState(text.length);
   const [contextCommands, setContextCommands] = useState([]);
   const [reasoningEffort, setReasoningEffort] = useState(null);
   const [recording, setRecording] = useState(null);
@@ -197,7 +199,12 @@ export function Composer({
   const textRef = useRef(text);
   textRef.current = text;
 
-  const commandInvocation = commandStage ? null : text.match(/^([/$])([^\s]*)$/);
+  const commandInvocation = commandStage
+    ? null
+    : text.slice(0, cursorPosition).match(/(?:^|\s)([/$])([^\s]*)$/);
+  const commandStart = commandInvocation
+    ? cursorPosition - commandInvocation[1].length - commandInvocation[2].length
+    : -1;
   const commandMode = commandStage ?? (commandInvocation ? 'commands' : null);
   const commandPrefix = commandInvocation?.[1] ?? '/';
   const commandQuery = commandMode === 'commands'
@@ -224,7 +231,9 @@ export function Composer({
   }, [currentModel, favorites, models, recentModels]);
   const activeReasoningEffort = currentModelConfig?.reasoning.includes(reasoningEffort)
     ? reasoningEffort
-    : currentModelConfig?.reasoning[0] ?? null;
+    : currentModelConfig?.reasoning.includes('medium')
+      ? 'medium'
+      : currentModelConfig?.reasoning[0] ?? null;
   const activePermissionMode = permissionModes.find((mode) => mode.id === permissionMode);
   const commandOptions = useMemo(() => {
     const normalized = commandQuery.trim().toLowerCase();
@@ -497,6 +506,7 @@ export function Composer({
       ultraMode,
     };
     setText('');
+    setCursorPosition(0);
     window.localStorage.removeItem(draftKey);
     setAttachments([]);
     await onSend(payload);
@@ -511,10 +521,25 @@ export function Composer({
   }
 
   function exitCommandMode() {
+    const nextText = commandStage && commandDraft
+      ? commandDraft.text
+      : commandStart >= 0
+        ? `${text.slice(0, commandStart)}${text.slice(cursorPosition)}`
+        : text;
+    const nextCursorPosition = commandStage && commandDraft
+      ? commandDraft.cursorPosition
+      : commandStart >= 0
+        ? commandStart
+        : cursorPosition;
     setCommandStage(null);
+    setCommandDraft(null);
     setCommandIndex(0);
-    setText('');
-    queueMicrotask(() => textAreaRef.current?.focus());
+    setText(nextText);
+    setCursorPosition(nextCursorPosition);
+    queueMicrotask(() => {
+      textAreaRef.current?.focus();
+      textAreaRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
+    });
   }
 
   function activateCommandOption(option) {
@@ -585,9 +610,14 @@ export function Composer({
         });
         return;
       }
+      setCommandDraft({
+        text: `${text.slice(0, commandStart)}${text.slice(cursorPosition)}`,
+        cursorPosition: commandStart,
+      });
       setCommandStage(option.id);
       setCommandIndex(0);
       setText('');
+      setCursorPosition(0);
       queueMicrotask(() => textAreaRef.current?.focus());
       return;
     }
@@ -953,9 +983,12 @@ export function Composer({
               setEditingQueuedMessageId(message.id);
               try {
                 if (!await onCancelQueued(message.id)) return;
-                setText(message.content ?? '');
+                const messageText = message.content ?? '';
+                setText(messageText);
+                setCursorPosition(messageText.length);
                 setAttachments(message.attachments ?? []);
                 setCommandStage(null);
+                setCommandDraft(null);
                 setCommandIndex(0);
                 setQueuedMenu(null);
                 queueMicrotask(() => textAreaRef.current?.focus());
@@ -1033,28 +1066,48 @@ export function Composer({
         {visibleAttachments.length > 0 && (
           <div className="attachment-strip">
             {visibleAttachments.map((attachment) => (
-              <span
-                key={attachment.id}
-                className={`attachment-chip${attachment.kind === 'context_marker' ? ' context-marker' : ''}`}
-              >
-                {attachment.kind === 'context_marker'
-                  ? attachment.markerType === 'workflow'
-                    ? <Workflow size={13} />
-                    : attachment.markerType === 'directory_reference'
-                      ? <FolderOpen size={13} />
-                      : attachment.markerType?.startsWith('file_')
-                        ? <FileText size={13} />
-                        : <Sparkles size={13} />
-                  : <Paperclip size={13} />}
-                <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
-                {attachment.kind !== 'context_marker' && <small>{formatBytes(attachment.size)}</small>}
-                <button
-                  type="button"
-                  onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}
+              attachment.kind === 'image_url' && attachment.dataUrl ? (
+                <figure key={attachment.id} className="attachment-image">
+                  <img src={attachment.dataUrl} alt={attachment.name} draggable="false" />
+                  <figcaption>
+                    <span title={attachment.name}>{attachment.name}</span>
+                    <small>{formatBytes(attachment.size)}</small>
+                  </figcaption>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${attachment.name}`}
+                    title={`Remove ${attachment.name}`}
+                    onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}
+                  >
+                    <X size={13} />
+                  </button>
+                </figure>
+              ) : (
+                <span
+                  key={attachment.id}
+                  className={`attachment-chip${attachment.kind === 'context_marker' ? ' context-marker' : ''}`}
                 >
-                  <X size={12} />
-                </button>
-              </span>
+                  {attachment.kind === 'context_marker'
+                    ? attachment.markerType === 'workflow'
+                      ? <Workflow size={13} />
+                      : attachment.markerType === 'directory_reference'
+                        ? <FolderOpen size={13} />
+                        : attachment.markerType?.startsWith('file_')
+                          ? <FileText size={13} />
+                          : <Sparkles size={13} />
+                    : <Paperclip size={13} />}
+                  <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
+                  {attachment.kind !== 'context_marker' && <small>{formatBytes(attachment.size)}</small>}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${attachment.name}`}
+                    title={`Remove ${attachment.name}`}
+                    onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              )
             ))}
           </div>
         )}
@@ -1062,7 +1115,13 @@ export function Composer({
           <textarea
             ref={textAreaRef}
             value={text}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => {
+              setText(event.target.value);
+              setCursorPosition(event.target.selectionStart ?? event.target.value.length);
+            }}
+            onSelect={(event) => {
+              setCursorPosition(event.currentTarget.selectionStart ?? event.currentTarget.value.length);
+            }}
             onPaste={handlePaste}
             onKeyDown={handleKeyDown}
             rows={1}

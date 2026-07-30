@@ -19,9 +19,23 @@
   }
 
   .app-name {
-    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
     font-weight: 500;
     color: var(--text-1);
+
+    img {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      object-fit: contain;
+
+      @media (prefers-color-scheme: dark) {
+        filter: invert(1);
+      }
+    }
   }
 
   .sidebar-toggle {
@@ -307,17 +321,13 @@
     }
   }
 
-  .run-dot {
-    display: none;
-    border-radius: 999px;
+  .run-spinner {
+    flex: 0 0 auto;
+    color: var(--text-3);
+    animation: sidebar-run-spin 800ms linear infinite;
 
-    &.live {
-      display: block;
-      width: 6px;
-      height: 6px;
-      flex: 0 0 6px;
-      background: var(--text-1);
-      box-shadow: 0 0 0 4px var(--text-4);
+    @media (prefers-reduced-motion: reduce) {
+      animation: none;
     }
   }
 
@@ -382,4 +392,10 @@
 .sidebar-collapsed .settings-button,
 .sidebar-collapsed .conversation-main {
   padding: 9px 0;
+}
+
+@keyframes sidebar-run-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

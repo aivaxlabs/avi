@@ -52,7 +52,8 @@
     min-width: 0;
   }
 
-  h2, p {
+  h2,
+  p {
     margin: 0;
   }
 
@@ -199,29 +200,6 @@
     background: var(--background-3);
     border-radius: 7px;
   }
-
-  .settings-status {
-    padding: 3px 7px;
-    border-radius: 999px;
-    color: var(--text-3);
-    background: var(--background-3);
-    font-size: 10px;
-
-    &.ready {
-      color: var(--text-1);
-      background: var(--background-3);
-    }
-
-    &.starting, &.auth-required {
-      color: var(--text-2);
-      background: var(--background-3);
-    }
-
-    &.error {
-      color: var(--text-1);
-      background: var(--background-3);
-    }
-  }
 }
 
 .settings-page {
@@ -302,7 +280,8 @@
       background: var(--background-3);
     }
 
-    &.starting, &.auth-required {
+    &.starting,
+    &.auth-required {
       color: var(--text-2);
       background: var(--background-3);
     }
@@ -312,7 +291,8 @@
       background: var(--background-3);
     }
 
-    &.idle, &.shadowed {
+    &.idle,
+    &.shadowed {
       color: var(--text-3);
       background: var(--background-3);
     }
@@ -322,7 +302,8 @@
     display: grid;
     gap: 10px;
 
-    h4, p {
+    h4,
+    p {
       margin: 0;
     }
 
@@ -377,7 +358,11 @@
     .settings-field {
       grid-template-columns: minmax(0, 1fr);
 
-      > span, input, select, textarea, small {
+      > span,
+      input,
+      select,
+      textarea,
+      small {
         grid-column: 1;
       }
 

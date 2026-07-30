@@ -39,7 +39,6 @@
     color: var(--text-3);
     background: transparent;
     border-radius: 7px;
-    font-size: 12px;
     text-align: left;
   }
 
@@ -83,7 +82,6 @@
       background: transparent;
       border: 0;
       outline: 0;
-      font-size: 11px;
     }
   }
 
@@ -117,7 +115,6 @@
     > span {
       padding: 8px;
       color: var(--text-4);
-      font-size: 11px;
       font-weight: 500;
     }
 
@@ -130,13 +127,16 @@
       color: var(--text-1);
       background: transparent;
       border-radius: 7px;
-      font-size: 12px;
+      font-size: 1rem;
       text-align: left;
 
-      &.active {
+      & :hover {
+        background-color: --background-4;
+      }
+
+      & .active {
         color: var(--text-1);
         background: var(--item-active);
-        font-weight: 500;
       }
     }
   }
@@ -215,10 +215,9 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    min-height: 32px;
     padding: 7px 10px;
-    border-radius: 7px;
-    font-size: 12px;
+    font-size: .9rem;
+    font-weight: 500;
     white-space: nowrap;
   }
 
@@ -274,67 +273,6 @@
     .settings-section {
       gap: 12px;
     }
-
-    .settings-section-card {
-      gap: 0;
-      padding: 0 16px;
-      overflow: hidden;
-    }
-
-    .settings-field {
-      min-height: 66px;
-      grid-template-columns: minmax(0, 1fr) minmax(150px, auto);
-      column-gap: 24px;
-      row-gap: 3px;
-      padding: 12px 0;
-
-      + .settings-field {
-        border-top: 1px solid var(--border-color);
-      }
-
-      > span {
-        grid-column: 1;
-        grid-row: 1;
-        color: var(--text-1);
-        font-weight: 500;
-      }
-
-      input,
-      select {
-        grid-column: 2;
-        grid-row: 1 / 3;
-        align-self: center;
-        justify-self: end;
-        width: min(280px, 100%);
-        height: 32px;
-        padding-block: 5px;
-      }
-
-      input[type="number"] {
-        width: 120px;
-      }
-
-      small {
-        grid-column: 1;
-        grid-row: 2;
-      }
-
-      @media (max-width: 700px) {
-        grid-template-columns: minmax(0, 1fr);
-
-        input,
-        select {
-          grid-column: 1;
-          grid-row: 3;
-          justify-self: stretch;
-          width: 100%;
-        }
-
-        input[type="number"] {
-          width: 100%;
-        }
-      }
-    }
   }
 
   .settings-section-heading h3 {
@@ -350,7 +288,7 @@
   }
 
   .settings-section-card {
-    padding: 24px;
+    padding: 1em;
     background: var(--background-1);
     border: 1px solid var(--border-color);
     border-radius: 14px;
@@ -358,6 +296,106 @@
     @media (max-width: 700px) {
       padding: 14px;
     }
+  }
+
+  .settings-about {
+    display: grid;
+    gap: 24px;
+  }
+
+  .settings-about-hero {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 22px;
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h3 {
+      font-size: 20px;
+      font-weight: 500;
+    }
+
+    p {
+      max-width: 520px;
+      margin-top: 5px;
+      color: var(--text-3);
+      line-height: 1.55;
+      text-wrap: pretty;
+    }
+  }
+
+  .settings-about-logo {
+    width: 84px;
+    height: 84px;
+    flex: 0 0 auto;
+    border-radius: 20px;
+    object-fit: contain;
+
+    @media (prefers-color-scheme: dark) {
+      filter: invert(1);
+    }
+  }
+
+  .settings-about-details {
+    margin: 0;
+    border-block: 1px solid var(--border-color);
+
+    > div {
+      min-height: 52px;
+      display: grid;
+      grid-template-columns: 132px minmax(0, 1fr);
+      align-items: center;
+      gap: 18px;
+      padding: 10px 4px;
+
+      + div {
+        border-top: 1px solid var(--border-color);
+      }
+    }
+
+    dt {
+      color: var(--text-3);
+    }
+
+    dd {
+      min-width: 0;
+      margin: 0;
+      color: var(--text-1);
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .settings-about-link {
+    width: fit-content;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--text-1);
+    text-decoration-color: transparent;
+    text-underline-offset: 3px;
+    transition: color 180ms var(--base-transition),
+      text-decoration-color 180ms var(--base-transition);
+
+    &:hover {
+      color: var(--link-color);
+      text-decoration-color: currentColor;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      transition: none;
+    }
+  }
+
+  .settings-about-credit {
+    margin: 0;
+    color: var(--text-3);
   }
 
   .models-editor-header {
@@ -450,34 +488,39 @@
 
     strong {
       color: var(--text-1);
-      font-size: 12px;
+      font-size: 1rem;
       font-weight: 500;
     }
 
     small {
       color: var(--text-3);
-      font-size: 10px;
+      font-size: .9rem;
     }
   }
 
   .settings-status {
     padding: 3px 7px;
     border-radius: 999px;
-    font-size: 10px;
-    font-weight: 400;
+    font-size: .85rem;
+    font-weight: 500;
 
     @media (max-width: 700px) {
       display: none;
     }
 
-    &.enabled {
+    & .enabled {
       color: var(--text-1);
       background: var(--background-3);
     }
 
-    &.disabled {
+    & .disabled {
       color: var(--text-3);
       background: var(--background-3);
+    }
+
+    & .error {
+      background-color: --danger-color;
+      color: white;
     }
   }
 
@@ -564,9 +607,6 @@
 
   .settings-context-item-list {
     overflow: hidden;
-    background: var(--background-1);
-    border: 1px solid var(--border-color);
-    border-radius: 9px;
   }
 
   .settings-context-item {
@@ -613,7 +653,6 @@
     strong {
       overflow: hidden;
       color: var(--text-1);
-      font-size: 12px;
       font-weight: 500;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -623,7 +662,7 @@
       display: -webkit-box;
       overflow: hidden;
       color: var(--text-3);
-      font-size: 10px;
+      font-size: .9rem;
       line-height: 1.4;
       -webkit-box-orient: vertical;
       -webkit-line-clamp: 2;
@@ -742,12 +781,12 @@
   .settings-field {
     min-width: 0;
     display: grid;
-    grid-template-columns: 144px minmax(0, 1fr);
+    grid-template-columns: 200px minmax(0, 1fr);
     align-items: center;
     column-gap: 20px;
     row-gap: 6px;
     color: var(--text-1);
-    font-size: 12px;
+    font-size: 1rem;
     font-weight: 400;
 
     > span {
@@ -766,12 +805,12 @@
     grid-row: 1;
     width: 100%;
     min-width: 0;
-    height: 40px;
-    padding: 8px;
+    height: 32px;
+    padding: 6px 10px;
     color: var(--text-1);
     background: var(--background-2);
     border: 1px solid var(--border-color);
-    border-radius: 7px;
+    border-radius: 99px;
     outline: 0;
     font-size: 12px;
   }
@@ -779,13 +818,14 @@
   .settings-field input:focus,
   .settings-field select:focus {
     border-color: var(--text-3);
+    background: var(--background-0);
   }
 
   .settings-field small {
     grid-column: 2;
     grid-row: 2;
     color: var(--text-3);
-    font-size: 11px;
+    font-size: .9rem;
     font-weight: 400;
     line-height: 1.5;
   }
@@ -1072,6 +1112,7 @@
 .settings-entity-row > .icon-button:focus-visible,
 .settings-context-group-header > .icon-button:focus-visible,
 .settings-context-item:focus-visible,
+.settings-about-link:focus-visible,
 .settings-row-menu .dropdown-menu-item:focus-visible,
 .provider-type-card:focus-visible,
 .settings-actions button:focus-visible,

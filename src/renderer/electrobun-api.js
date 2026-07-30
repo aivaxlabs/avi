@@ -22,6 +22,7 @@ const subscribe = (channel, callback) => {
 window.chatApp = {
   app: {
     state: () => invoke('app:state'),
+    openExternal: (url) => invoke('app:open-external', url),
   },
   tuning: {
     shells: () => invoke('tuning:shells'),

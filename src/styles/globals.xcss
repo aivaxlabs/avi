@@ -10,6 +10,7 @@
   --text-3: #686868;
   --text-4: #969696;
   --text-5: #f7f7f7;
+  --background-0: white;
   --background-1: #fafafa;
   --background-2: #f5f5f5;
   --background-3: #eeeeee;
@@ -18,11 +19,14 @@
   --item-hover: var(--background-3);
   --item-active: var(--background-4);
   --border-color: var(--background-4);
-  --link-color: #0969da;
+  --link-color: #12db87;
   --highlight-color: #fff1a8;
-  --git-untracked-status-color: #18794e;
-  --git-modified-status-color: #9a6700;
-  --git-conflict-status-color: #c43c3c;
+  --success-color: #18794e;
+  --warn-color: #9a6700;
+  --danger-color: #c43c3c;
+  --git-untracked-status-color: var(--success-color);
+  --git-modified-status-color: var(--warn-color);
+  --git-conflict-status-color: var(--danger-color);
   --git-ignored-status-color: #727272;
 
   @media (prefers-color-scheme: dark) {
@@ -32,16 +36,17 @@
     --text-3: #a6a6a6;
     --text-4: #787878;
     --text-5: #111111;
+    --background-0: black;
     --background-1: #0d0d0d;
     --background-2: #121212;
     --background-3: #191919;
     --background-4: #232323;
     --background-5: #f3f3f3;
-    --link-color: #81cfff;
+    --link-color: #58fdb8;
     --highlight-color: #665c00;
-    --git-untracked-status-color: #55b985;
-    --git-modified-status-color: #d5a64a;
-    --git-conflict-status-color: #ef7373;
+    --success-color: #55b985;
+    --warn-color: #d5a64a;
+    --danger-color: #ef7373;
     --git-ignored-status-color: #787878;
   }
 }

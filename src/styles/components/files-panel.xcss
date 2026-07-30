@@ -406,6 +406,10 @@
     display: grid;
     grid-template-rows: 48px minmax(0, 1fr);
     background: var(--background-1);
+
+    > .files-panel-state {
+      grid-row: 1 / -1;
+    }
   }
 
   .files-preview-breadcrumb {

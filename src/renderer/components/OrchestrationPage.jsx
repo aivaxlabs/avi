@@ -10,12 +10,12 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
-const compactNumber = new Intl.NumberFormat('pt-BR', {
+const compactNumber = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 1,
 });
-const fullNumber = new Intl.NumberFormat('pt-BR');
-const relativeTime = new Intl.RelativeTimeFormat('pt-BR', { numeric: 'auto' });
+const fullNumber = new Intl.NumberFormat('en-US');
+const relativeTime = new Intl.RelativeTimeFormat('en-US', { numeric: 'auto' });
 
 export function OrchestrationPage({ models, onOpenThread }) {
   const [overview, setOverview] = useState(null);
@@ -51,9 +51,9 @@ export function OrchestrationPage({ models, onOpenThread }) {
     <main className="orchestration-page">
       <header className="orchestration-header">
         <div>
-          <span className="orchestration-eyebrow">Visão operacional</span>
-          <h1>Orquestração</h1>
-          <p>Acompanhe a atividade das threads e o consumo de hoje.</p>
+          <span className="orchestration-eyebrow">Operational overview</span>
+          <h1>Orchestration</h1>
+          <p>Track thread activity and today's consumption.</p>
         </div>
         <button
           className="orchestration-refresh"
@@ -62,30 +62,30 @@ export function OrchestrationPage({ models, onOpenThread }) {
           onClick={loadOverview}
         >
           <RefreshCw size={15} className={loading ? 'spinning' : undefined} />
-          Atualizar
+          Refresh
         </button>
       </header>
 
       {error ? (
         <section className="orchestration-error" role="alert">
-          Não foi possível carregar o painel. {error}
+          Couldn't load the dashboard. {error}
         </section>
       ) : (
         <>
-          <section className="orchestration-kpis" aria-label="Indicadores de hoje">
+          <section className="orchestration-kpis" aria-label="Today's indicators">
             <KpiCard
               icon={<MessageSquare size={17} />}
-              label="Mensagens enviadas"
+              label="Messages sent"
               value={fullNumber.format(overview?.metrics.messagesSent ?? 0)}
             />
             <KpiCard
               icon={<Rows3 size={17} />}
-              label="Threads abertas"
+              label="Threads opened"
               value={fullNumber.format(overview?.metrics.threadsOpened ?? 0)}
             />
             <KpiCard
               icon={<Sparkles size={17} />}
-              label="Volume de tokens"
+              label="Token volume"
               value={compactNumber.format(overview?.metrics.tokens ?? 0)}
               title={fullNumber.format(overview?.metrics.tokens ?? 0)}
             />
@@ -96,7 +96,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
               <div className="orchestration-section-heading">
                 <div>
                   <span className="section-icon active"><Activity size={16} /></span>
-                  <h2>Tarefas em andamento</h2>
+                  <h2>Ongoing tasks</h2>
                 </div>
                 <span className="section-count">{overview?.ongoing.length ?? 0}</span>
               </div>
@@ -112,7 +112,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
                 )) : (
                   <EmptyState
                     icon={<Clock3 size={18} />}
-                    text={loading ? 'Carregando tarefas…' : 'Nenhuma tarefa em andamento.'}
+                    text={loading ? 'Loading tasks…' : 'No ongoing tasks.'}
                   />
                 )}
               </div>
@@ -122,7 +122,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
               <div className="orchestration-section-heading">
                 <div>
                   <span className="section-icon"><CheckCircle2 size={16} /></span>
-                  <h2>Concluídas recentemente</h2>
+                  <h2>Recently completed</h2>
                 </div>
                 <span className="section-count">
                   {overview?.recentlyCompleted.length ?? 0}
@@ -141,7 +141,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
                   : (
                     <EmptyState
                       icon={<CheckCircle2 size={18} />}
-                      text={loading ? 'Carregando histórico…' : 'Nenhuma conclusão recente.'}
+                      text={loading ? 'Loading history…' : 'No recent completions.'}
                     />
                   )}
               </div>
@@ -151,9 +151,9 @@ export function OrchestrationPage({ models, onOpenThread }) {
               <div className="orchestration-section-heading">
                 <div>
                   <span className="section-icon"><Bot size={16} /></span>
-                  <h2>Top 5 modelos mais usados</h2>
+                  <h2>Top 5 most used models</h2>
                 </div>
-                <span className="section-caption">Hoje</span>
+                <span className="section-caption">Today</span>
               </div>
               <div className="model-usage-list">
                 {overview?.metrics.topModels.length
@@ -163,7 +163,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
                       <div className="model-usage-copy">
                         <div>
                           <strong>{modelsById.get(model.id) ?? model.id}</strong>
-                          <span>{model.messages} {model.messages === 1 ? 'resposta' : 'respostas'}</span>
+                          <span>{model.messages} {model.messages === 1 ? 'response' : 'responses'}</span>
                         </div>
                         <div className="model-usage-track" aria-hidden="true">
                           <span style={{ width: `${(model.messages / topModelCount) * 100}%` }} />
@@ -177,7 +177,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
                   : (
                     <EmptyState
                       icon={<Bot size={18} />}
-                      text={loading ? 'Carregando modelos…' : 'Nenhum modelo usado hoje.'}
+                      text={loading ? 'Loading models…' : 'No models used today.'}
                     />
                   )}
               </div>
@@ -197,7 +197,7 @@ function KpiCard({ icon, label, value, title }) {
         <span>{label}</span>
         <strong title={title}>{value}</strong>
       </div>
-      <small>Hoje</small>
+      <small>Today</small>
     </article>
   );
 }
@@ -215,11 +215,11 @@ function TaskRow({ task, modelName, ongoing = false, onOpen }) {
     <button className="task-row" type="button" onClick={onOpen}>
       <span className={`task-status-dot${ongoing ? ' live' : ''}`} />
       <span className="task-copy">
-        <strong>{task.title || task.firstPrompt || 'Nova conversa'}</strong>
-        <span>{task.projectName} · {modelName || 'Sem modelo'}</span>
+        <strong>{task.title || task.firstPrompt || 'New chat'}</strong>
+        <span>{task.projectName} · {modelName || 'No model'}</span>
       </span>
       <span className="task-meta">
-        <strong>{ongoing ? (task.goal?.status === 'paused' ? 'Pausada' : 'Em andamento') : 'Concluída'}</strong>
+        <strong>{ongoing ? (task.goal?.status === 'paused' ? 'Paused' : 'Ongoing') : 'Completed'}</strong>
         <span>{relative}</span>
       </span>
     </button>

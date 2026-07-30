@@ -55,7 +55,7 @@ export function ProviderPanel({
     <div className="provider-panel-shell">
       <header className="provider-panel-provenance">
         <span>
-          Auxiliar panel provided by <strong>{panel.providerName}</strong>
+          Auxiliary panel provided by <strong>{panel.providerName}</strong>
         </span>
         <button
           type="button"

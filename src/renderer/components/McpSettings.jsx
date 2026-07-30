@@ -24,9 +24,9 @@ const statusLabels = {
   shadowed: 'Overridden by folder',
 };
 
-export function McpSettings({ onNavigationChange }) {
+export function McpSettings({ initialFolder = null, onNavigationChange }) {
   const [folders, setFolders] = useState([]);
-  const [selectedFolder, setSelectedFolder] = useState(null);
+  const [selectedFolder, setSelectedFolder] = useState(initialFolder);
   const [folder, setFolder] = useState(null);
   const [draft, setDraft] = useState(null);
   const [inspection, setInspection] = useState(null);
