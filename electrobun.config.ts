@@ -1,11 +1,12 @@
 import type { ElectrobunConfig } from 'electrobun';
+import packageMetadata from './package.json' with { type: 'json' };
 
 export default {
   app: {
-    name: 'AIVAX',
-    identifier: 'net.aivax.chat',
-    version: '0.1.0',
-    description: 'Local desktop client for AI conversations and tools.',
+    name: 'Avi',
+    identifier: 'net.aivax.avi',
+    version: packageMetadata.version,
+    description: packageMetadata.description,
   },
   runtime: {
     exitOnLastWindowClosed: true,
@@ -37,16 +38,18 @@ export default {
     win: {
       bundleCEF: false,
       defaultRenderer: 'native',
-      icon: 'assets/icon/aivchat.ico',
+      icon: 'assets/icon/avi.ico',
     },
     linux: {
       bundleCEF: false,
       defaultRenderer: 'native',
-      icon: 'assets/icon/aivchat.png',
+      icon: 'assets/icon/avi.png',
     },
   },
   scripts: {
     preBuild: 'scripts/build-renderer.mjs',
+    postBuild: 'scripts/embed-windows-icons.mjs',
+    postPackage: 'scripts/embed-windows-icons.mjs',
   },
   release: {
     generatePatch: false,

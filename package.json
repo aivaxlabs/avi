@@ -1,6 +1,13 @@
 {
-  "name": "aivax-chat",
+  "name": "avi",
   "version": "0.1.0",
+  "description": "Local desktop workspace for AI conversations, tools, and orchestration.",
+  "author": "AIVAX Labs",
+  "homepage": "https://avi.aivax.net",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aivaxlabs/avi.git"
+  },
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,6 +24,7 @@
     "test:goal": "bun scripts/test-goal-mode.mjs",
     "test:ultra": "bun scripts/test-ultra-mode.mjs",
     "test:server-retry": "bun scripts/test-server-retry.mjs",
+    "test:provider-auth": "bun scripts/test-openai-subscription-auth.mjs",
     "test:interruptions": "bun scripts/test-interruption-propagation.mjs",
     "test:mcp": "bun scripts/test-mcp-manager.mjs",
     "test:files": "bun scripts/test-files-panel.mjs",
@@ -36,6 +44,7 @@
     "lucide-react": "^0.555.0",
     "postcss": "^8.5.6",
     "prismjs": "^1.30.0",
+    "rcedit": "^4.0.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
