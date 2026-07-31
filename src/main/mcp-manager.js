@@ -446,9 +446,29 @@ export class McpManager {
   }
 
   async initializeScope(rootPath, kind) {
+    const startedAt = Date.now();
+    traceVerbose('mcp.scope-initialization-started', {
+      operation: 'initialize-scope',
+      scope: kind,
+    });
     const scope = await this.loadScope(rootPath, kind);
-    if (scope.initializing) return scope.initializing;
-    if (scope.initialized) return scope;
+    if (scope.initializing) {
+      traceVerbose('mcp.scope-initialization-reused', {
+        operation: 'initialize-scope',
+        scope: kind,
+        duration_ms: Date.now() - startedAt,
+      });
+      return scope.initializing;
+    }
+    if (scope.initialized) {
+      traceVerbose('mcp.scope-initialization-skipped', {
+        operation: 'initialize-scope',
+        scope: kind,
+        duration_ms: Date.now() - startedAt,
+        server_count: scope.records.size,
+      });
+      return scope;
+    }
 
     scope.initializing = Promise.all(
       [...scope.records.values()].map(async (record) => {
@@ -465,18 +485,39 @@ export class McpManager {
     ).then(() => {
       scope.initialized = true;
       scope.initializing = null;
+      traceVerbose('mcp.scope-initialization-completed', {
+        operation: 'initialize-scope',
+        scope: kind,
+        duration_ms: Date.now() - startedAt,
+        server_count: scope.records.size,
+      });
       this.emitState();
       return scope;
+    }).catch((error) => {
+      scope.initializing = null;
+      traceError('mcp.scope-initialization-error', {
+        operation: 'initialize-scope',
+        scope: kind,
+        duration_ms: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     });
     this.emitState();
     return scope.initializing;
   }
 
   async loadScope(rootPath, kind, { reload = false } = {}) {
+    const startedAt = Date.now();
     const normalizedRoot = resolve(rootPath || this.globalRoot);
     const key = this.scopeKey(normalizedRoot);
     const existing = this.scopes.get(key);
     if (existing && !reload) return existing;
+    traceVerbose('mcp.scope-discovery-started', {
+      operation: 'load-scope',
+      scope: kind,
+      phase: reload ? 'reload' : 'load',
+    });
 
     const scope = existing ?? {
       rootPath: normalizedRoot,
@@ -532,10 +573,26 @@ export class McpManager {
     }
 
     this.scopes.set(key, scope);
+    traceVerbose('mcp.scope-discovery-completed', {
+      operation: 'load-scope',
+      scope: kind,
+      phase: reload ? 'reload' : 'load',
+      duration_ms: Date.now() - startedAt,
+      server_count: scope.records.size,
+    });
     return scope;
   }
 
   async connectRecord(record) {
+    const startedAt = Date.now();
+    let phase = 'transport';
+    let phaseStartedAt = startedAt;
+    traceVerbose('mcp.server-connection-started', {
+      operation: 'connect-server',
+      scope: record.scope,
+      mcp_server: record.name,
+      phase,
+    });
     record.status = 'starting';
     record.error = '';
     record.authUrl = '';
@@ -611,7 +668,16 @@ export class McpManager {
           : new StreamableHTTPClientTransport(new URL(record.config.url), options);
       }
 
+      traceVerbose('mcp.server-phase-completed', {
+        operation: 'connect-server',
+        scope: record.scope,
+        mcp_server: record.name,
+        phase,
+        duration_ms: Date.now() - phaseStartedAt,
+      });
       record.transport = transport;
+      phase = 'handshake';
+      phaseStartedAt = Date.now();
       const client = new Client(CLIENT_INFO, {
         listChanged: {
           tools: {
@@ -629,7 +695,16 @@ export class McpManager {
       });
       record.client = client;
       await client.connect(transport);
+      traceVerbose('mcp.server-phase-completed', {
+        operation: 'connect-server',
+        scope: record.scope,
+        mcp_server: record.name,
+        phase,
+        duration_ms: Date.now() - phaseStartedAt,
+      });
 
+      phase = 'list-tools';
+      phaseStartedAt = Date.now();
       const listedTools = [];
       let cursor;
       do {
@@ -639,16 +714,40 @@ export class McpManager {
       } while (cursor);
 
       record.tools = this.mapTools(record, listedTools);
+      traceVerbose('mcp.server-phase-completed', {
+        operation: 'connect-server',
+        scope: record.scope,
+        mcp_server: record.name,
+        phase,
+        duration_ms: Date.now() - phaseStartedAt,
+        tool_count: record.tools.length,
+      });
       record.instructions = client.getInstructions() ?? '';
       record.status = 'ready';
       record.error = '';
       record.authUrl = '';
       this.appendLog(record, 'info', `Connected with ${record.tools.length} tool(s).`);
+      traceVerbose('mcp.server-connection-completed', {
+        operation: 'connect-server',
+        scope: record.scope,
+        mcp_server: record.name,
+        duration_ms: Date.now() - startedAt,
+        tool_count: record.tools.length,
+        status: record.status,
+      });
       record.resolveReady();
       this.emitState();
     } catch (error) {
       if (error instanceof UnauthorizedError && record.oauthProvider) {
         record.status = 'auth-required';
+        traceVerbose('mcp.server-connection-completed', {
+          operation: 'connect-server',
+          scope: record.scope,
+          mcp_server: record.name,
+          phase,
+          duration_ms: Date.now() - startedAt,
+          status: record.status,
+        });
         this.emitState();
         return;
       }
@@ -656,6 +755,15 @@ export class McpManager {
       await this.closeRecord(record, { settle: false });
       record.status = 'error';
       record.error = error instanceof Error ? error.message : String(error);
+      traceError('mcp.server-connection-error', {
+        operation: 'connect-server',
+        scope: record.scope,
+        mcp_server: record.name,
+        phase,
+        duration_ms: Date.now() - startedAt,
+        status: record.status,
+        error: record.error,
+      });
       this.appendLog(record, 'error', record.error);
       record.resolveReady();
       this.sendEvent({

@@ -573,17 +573,35 @@ function registerIpc() {
 
   ipcMain.handle('mcp:state', () => mcpManager.snapshot());
   ipcMain.handle('mcp:folders', async () => {
-    const folderPaths = listConversations().map((conversation) => conversation.projectPath);
-    const folders = await mcpManager.listFolders(folderPaths);
-    return folders.map((folder) => {
-      const project = inspectProjectFolder(folder.path);
-      const global = resolve(folder.path) === resolve(homedir());
-      return {
-        ...folder,
-        name: global ? 'Global' : project.name,
-        displayPath: global ? '~/.agents' : project.displayPath,
-      };
-    });
+    const startedAt = Date.now();
+    traceVerbose('mcp.page-opened', { operation: 'mcp:folders' });
+    try {
+      const folderPaths = listConversations().map((conversation) => conversation.projectPath);
+      const folders = await mcpManager.listFolders(folderPaths);
+      const result = folders.map((folder) => {
+        const project = inspectProjectFolder(folder.path);
+        const global = resolve(folder.path) === resolve(homedir());
+        return {
+          ...folder,
+          name: global ? 'Global' : project.name,
+          displayPath: global ? '~/.agents' : project.displayPath,
+        };
+      });
+      traceVerbose('mcp.page-loaded', {
+        operation: 'mcp:folders',
+        duration_ms: Date.now() - startedAt,
+        folder_count: result.length,
+        server_count: result.reduce((total, folder) => total + folder.serverCount, 0),
+      });
+      return result;
+    } catch (error) {
+      traceError('mcp.page-error', {
+        operation: 'mcp:folders',
+        duration_ms: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   });
   ipcMain.handle('mcp:folder', (_event, folderPath) => mcpManager.listFolder(folderPath));
   ipcMain.handle('mcp:workspace', (_event, folderPath) => mcpManager.listWorkspace(folderPath));
