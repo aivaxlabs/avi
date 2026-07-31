@@ -138,6 +138,8 @@ try {
 
   runStoragePhase('--storage-read');
 
+  const { setTraceLevel } = await import('../src/main/trace-log.js');
+  setTraceLevel('verbose');
   const { openAiSubscriptionProviderType } = await import(
     `../src/providers/openai-subscription.js?test=${randomUUID()}`
   );
@@ -210,10 +212,10 @@ try {
     /refresh_token_expired/,
   );
 
-  const authLog = readFileSync(join(resolvedProfile, '.aivax', 'auth.log'), 'utf8');
-  assert.match(authLog, /"event":"refresh-succeeded"/);
-  assert.match(authLog, /"event":"refresh-failed"/);
-  assert.doesNotMatch(authLog, /refresh-token|Sensitive backend detail/);
+  const traceLog = readFileSync(join(resolvedProfile, '.aivax', 'trace.log'), 'utf8');
+  assert.match(traceLog, /-- INFO -- provider\.auth-refresh-completed:/);
+  assert.match(traceLog, /-- ERROR -- provider\.auth-refresh-error:/);
+  assert.doesNotMatch(traceLog, /refresh-token|Sensitive backend detail/);
 
   console.log('OpenAI subscription auth tests passed.');
 } finally {

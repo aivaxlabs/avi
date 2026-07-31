@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import {
-  appendFile,
   mkdir,
   readFile,
   writeFile,
@@ -13,6 +12,10 @@ import {
   join,
 } from 'node:path';
 import { defineProvider } from '../main/provider-api.js';
+import {
+  traceError,
+  traceVerbose,
+} from '../main/trace-log.js';
 import { responsesApi } from './openai-compatible.js';
 
 const AUTH_BASE_URL = 'https://auth.openai.com';
@@ -187,7 +190,7 @@ function getOpenAiSubscriptionContributions({ provider, services }) {
   const models = modelDefinitions.flatMap((model) => [
     {
       ...model,
-      capabilities: { images: model.imageInput, audio: false },
+      capabilities: { images: model.imageInput, audio: false, pdfFiles: true },
       enabled: true,
     },
     ...(model.fast
@@ -196,7 +199,7 @@ function getOpenAiSubscriptionContributions({ provider, services }) {
           id: `${model.id}-fast`,
           name: `${model.name} (Fast)`,
           description: `${model.description} Uses priority processing for lower latency.`,
-          capabilities: { images: model.imageInput, audio: false },
+          capabilities: { images: model.imageInput, audio: false, pdfFiles: true },
           serviceTier: 'priority',
           enabled: true,
         }]
@@ -306,10 +309,11 @@ async function completeOpenAiSubscriptionLogin(providerId, device, services) {
       });
       if (!tokenResponse.ok) {
         const oauthError = await readOAuthError(tokenResponse);
-        await writeAuthLog('login-failed', {
-          providerId,
+        traceError('provider.auth-login-error', {
+          provider_id: providerId,
           status: tokenResponse.status,
           code: oauthError.code,
+          error: `OAuth code exchange failed (${oauthError.code || tokenResponse.status}).`,
         });
         throw new Error(
           `OAuth code exchange failed (${oauthError.code || tokenResponse.status}).`,
@@ -330,7 +334,7 @@ async function completeOpenAiSubscriptionLogin(providerId, device, services) {
         idToken: tokens.id_token,
         accountId,
       });
-      await writeAuthLog('login-succeeded', { providerId });
+      traceVerbose('provider.auth-login-completed', { provider_id: providerId });
       return { signedIn: true };
     }
 
@@ -353,7 +357,7 @@ async function signOutOpenAiSubscription(providerId, services) {
     throw error;
   }
   refreshPromises.delete(providerId);
-  await writeAuthLog('signed-out', { providerId });
+  traceVerbose('provider.auth-signed-out', { provider_id: providerId });
   return { signedIn: false };
 }
 
@@ -422,10 +426,11 @@ async function getTokens(providerId, services, forceRefresh = false) {
     }).then(async (response) => {
       if (!response.ok) {
         const oauthError = await readOAuthError(response);
-        await writeAuthLog('refresh-failed', {
-          providerId,
+        traceError('provider.auth-refresh-error', {
+          provider_id: providerId,
           status: response.status,
           code: oauthError.code,
+          error: `Token refresh failed (${oauthError.code || response.status}).`,
         });
         const reconnectRequired = response.status === 401 || [
           'refresh_token_expired',
@@ -439,10 +444,11 @@ async function getTokens(providerId, services, forceRefresh = false) {
       }
       const refreshed = await response.json();
       if (typeof refreshed.access_token !== 'string' || !refreshed.access_token) {
-        await writeAuthLog('refresh-failed', {
-          providerId,
+        traceError('provider.auth-refresh-error', {
+          provider_id: providerId,
           status: response.status,
           code: 'missing_access_token',
+          error: 'The token refresh response did not include an access token.',
         });
         throw new Error('The ChatGPT token refresh returned no access token.');
       }
@@ -460,7 +466,7 @@ async function getTokens(providerId, services, forceRefresh = false) {
         throw new Error('The ChatGPT session was disconnected.');
       }
       await services.credentials.set(providerId, nextTokens);
-      await writeAuthLog('refresh-succeeded', { providerId });
+      traceVerbose('provider.auth-refresh-completed', { provider_id: providerId });
       return nextTokens;
     }).finally(() => refreshPromises.delete(providerId)));
   }
@@ -483,19 +489,6 @@ async function readOAuthError(response) {
   } catch {
     return { code: '' };
   }
-}
-
-async function writeAuthLog(event, details = {}) {
-  const directory = join(homedir(), '.aivax');
-  await mkdir(directory, { recursive: true });
-  await appendFile(
-    join(directory, 'auth.log'),
-    `${JSON.stringify({
-      timestamp: new Date().toISOString(),
-      event,
-      ...details,
-    })}\n`,
-  ).catch(() => {});
 }
 
 async function requestAccountJson(providerId, path, services, init = {}) {
