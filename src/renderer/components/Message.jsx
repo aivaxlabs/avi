@@ -24,6 +24,7 @@ import {
   TerminalSquare,
   Wrench,
   Workflow,
+  X,
 } from 'lucide-react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-bash';
@@ -200,6 +201,15 @@ export function Message({
 }
 
 function UserMessage({ message }) {
+  const [lightboxAttachment, setLightboxAttachment] = useState(null);
+  useEffect(() => {
+    if (!lightboxAttachment) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setLightboxAttachment(null);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [lightboxAttachment]);
   const visibleAttachments = message.attachments;
   const content = (message.content ?? '').trim();
   const reportEnvelope = /^<subagent_report\b([^>]*)>\s*([\s\S]*?)\s*<\/subagent_report>$/
@@ -282,41 +292,84 @@ function UserMessage({ message }) {
     );
   }
 
+  const hasBubble = Boolean(message.content) || message.status === 'waiting_mcp';
+
   return (
     <article className="message-row user-row">
-      <div className="user-bubble">
-        <div className="plain-text">{message.content}</div>
-        {visibleAttachments.length > 0 && (
-          <div className="attachment-list">
-            {visibleAttachments.map((attachment) => (
-              <span
-                key={attachment.id}
-                className={`attachment-pill${attachment.kind === 'context_marker' ? ' context-marker' : ''}`}
-              >
-                {attachment.kind === 'context_marker' && (
-                  attachment.markerType === 'workflow'
-                    ? <Workflow size={13} />
-                    : attachment.markerType === 'directory_reference'
-                      ? <FolderTree size={13} />
-                      : attachment.markerType?.startsWith('file_')
-                        ? <FileText size={13} />
-                        : <Sparkles size={13} />
-                )}
-                <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
-                {attachment.kind !== 'context_marker' && <small>{formatBytes(attachment.size)}</small>}
+      <div className="user-message-content">
+        {hasBubble && (
+          <div className="user-bubble">
+            {message.content && <div className="plain-text">{message.content}</div>}
+            {message.status === 'waiting_mcp' && (
+              <span className="user-message-status" role="status">
+                Waiting for MCP servers...
               </span>
-            ))}
+            )}
           </div>
         )}
-        {message.status === 'waiting_mcp' && (
-          <span className="user-message-status" role="status">
-            Waiting for MCP servers...
-          </span>
+        {visibleAttachments.length > 0 && (
+          <div className="attachment-list user-attachment-list" aria-label="Message attachments">
+            {visibleAttachments.map((attachment) => (
+              attachment.kind === 'image_url' && attachment.dataUrl
+                ? (
+                    <button
+                      key={attachment.id}
+                      className="user-attachment-image"
+                      type="button"
+                      aria-label={`Open ${attachment.name}`}
+                      title={attachment.name}
+                      onClick={() => setLightboxAttachment(attachment)}
+                    >
+                      <img src={attachment.dataUrl} alt={attachment.name} />
+                    </button>
+                  )
+                : (
+                    <span
+                      key={attachment.id}
+                      className={`attachment-pill${attachment.kind === 'context_marker' ? ' context-marker' : ''}`}
+                    >
+                      {attachment.kind === 'context_marker' && (
+                        attachment.markerType === 'workflow'
+                          ? <Workflow size={13} />
+                          : attachment.markerType === 'directory_reference'
+                            ? <FolderTree size={13} />
+                            : attachment.markerType?.startsWith('file_')
+                              ? <FileText size={13} />
+                              : <Sparkles size={13} />
+                      )}
+                      <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
+                      {attachment.kind !== 'context_marker' && <small>{formatBytes(attachment.size)}</small>}
+                    </span>
+                  )
+            ))}
+          </div>
         )}
       </div>
       <button className="user-copy-float" type="button" aria-label="Copy message" onClick={() => copyText(message.content)}>
         <Copy size={14} />
       </button>
+      {lightboxAttachment && (
+        <div
+          className="attachment-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Image preview: ${lightboxAttachment.name}`}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setLightboxAttachment(null);
+          }}
+        >
+          <img src={lightboxAttachment.dataUrl} alt={lightboxAttachment.name} />
+          <button
+            type="button"
+            aria-label="Close image preview"
+            title="Close"
+            autoFocus
+            onClick={() => setLightboxAttachment(null)}
+          >
+            <X size={18} />
+          </button>
+        </div>
+      )}
     </article>
   );
 }

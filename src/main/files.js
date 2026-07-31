@@ -36,7 +36,23 @@ const execFileAsync = promisify(execFile);
 const previewSizeLimit = 1024 * 1024;
 const filenameResultLimit = 80;
 const contentResultLimit = 120;
-const temporaryAttachmentDirectory = resolve(tmpdir(), 'avi-attachments');
+const temporaryAttachmentDirectory = resolve(tmpdir(), '.avi', 'chat-attachments');
+const attachmentExtensionsByMime = {
+  'application/pdf': '.pdf',
+  'audio/mpeg': '.mp3',
+  'audio/mp4': '.m4a',
+  'audio/ogg': '.ogg',
+  'audio/wav': '.wav',
+  'image/avif': '.avif',
+  'image/bmp': '.bmp',
+  'image/gif': '.gif',
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'video/mp4': '.mp4',
+  'video/quicktime': '.mov',
+  'video/webm': '.webm',
+};
 
 const mimeTypes = {
   '.png': 'image/png',
@@ -98,7 +114,24 @@ export function filePathToAttachment(filePath) {
 }
 
 export async function normalizeAttachmentsForModel(attachments, capabilities = {}) {
-  return Promise.all(attachments.map(async (attachment) => {
+  const clipboardDirectory = resolve(temporaryAttachmentDirectory, String(Date.now()));
+  return Promise.all(attachments.map(async (originalAttachment) => {
+    let attachment = originalAttachment;
+    if (attachment.source === 'clipboard' && !attachment.temporary) {
+      const buffer = attachmentToBuffer(attachment);
+      if (!buffer) {
+        throw new Error(`Could not create a local copy of "${attachment.name ?? 'attachment'}".`);
+      }
+
+      const extension = extname(attachment.name || '').toLowerCase()
+        || attachmentExtensionsByMime[attachment.mime]
+        || '.bin';
+      await mkdir(clipboardDirectory, { recursive: true });
+      const path = resolve(clipboardDirectory, `${crypto.randomUUID()}${extension}`);
+      await writeFile(path, buffer);
+      attachment = { ...attachment, path, temporary: true };
+    }
+
     const supported = attachment.kind === 'context_marker'
       || attachment.kind === 'file_reference'
       || (attachment.kind === 'text_inline' && attachment.source !== 'pasted_text')
@@ -119,23 +152,9 @@ export async function normalizeAttachmentsForModel(attachments, capabilities = {
       } catch {}
     }
 
-    let temporary = false;
+    let temporary = Boolean(attachment.temporary);
     if (!path) {
-      let buffer = null;
-      if (typeof attachment.text === 'string') {
-        buffer = Buffer.from(attachment.text, 'utf8');
-      } else if (typeof attachment.base64 === 'string') {
-        buffer = Buffer.from(attachment.base64, 'base64');
-      } else if (typeof attachment.dataUrl === 'string') {
-        const separatorIndex = attachment.dataUrl.indexOf(',');
-        if (separatorIndex >= 0) {
-          const metadata = attachment.dataUrl.slice(0, separatorIndex);
-          const encoded = attachment.dataUrl.slice(separatorIndex + 1);
-          buffer = metadata.endsWith(';base64')
-            ? Buffer.from(encoded, 'base64')
-            : Buffer.from(decodeURIComponent(encoded), 'utf8');
-        }
-      }
+      const buffer = attachmentToBuffer(attachment);
       if (!buffer) {
         throw new Error(`Could not create a local copy of "${attachment.name ?? 'attachment'}".`);
       }
@@ -161,6 +180,20 @@ export async function normalizeAttachmentsForModel(attachments, capabilities = {
       temporary,
     };
   }));
+}
+
+function attachmentToBuffer(attachment) {
+  if (typeof attachment.text === 'string') return Buffer.from(attachment.text, 'utf8');
+  if (typeof attachment.base64 === 'string') return Buffer.from(attachment.base64, 'base64');
+  if (typeof attachment.dataUrl !== 'string') return null;
+
+  const separatorIndex = attachment.dataUrl.indexOf(',');
+  if (separatorIndex < 0) return null;
+  const metadata = attachment.dataUrl.slice(0, separatorIndex);
+  const encoded = attachment.dataUrl.slice(separatorIndex + 1);
+  return metadata.endsWith(';base64')
+    ? Buffer.from(encoded, 'base64')
+    : Buffer.from(decodeURIComponent(encoded), 'utf8');
 }
 
 export async function inspectWorkspaceFiles(folderPath) {

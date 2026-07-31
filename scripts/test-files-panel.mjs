@@ -3,14 +3,16 @@ import { spawnSync } from 'node:child_process';
 import {
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import {
   inspectWorkspaceFiles,
   listWorkspaceDirectory,
+  normalizeAttachmentsForModel,
   readWorkspaceFile,
   searchWorkspaceFiles,
 } from '../src/main/files.js';
@@ -133,6 +135,64 @@ try {
   );
 
   await assert.rejects(() => readWorkspaceFile(testRoot, '..\\outside.txt'));
+
+  const imageData = Buffer.from('image-data');
+  const pdfData = Buffer.from('pdf-data');
+  const diskImagePath = join(testRoot, 'image.png');
+  const diskPdfPath = join(testRoot, 'document.pdf');
+  await writeFile(diskImagePath, imageData);
+  await writeFile(diskPdfPath, pdfData);
+  const mixedAttachments = await normalizeAttachmentsForModel([
+    {
+      id: 'disk-image',
+      name: 'image.png',
+      mime: 'image/png',
+      kind: 'image_url',
+      path: diskImagePath,
+      dataUrl: `data:image/png;base64,${imageData.toString('base64')}`,
+    },
+    {
+      id: 'disk-pdf',
+      name: 'document.pdf',
+      mime: 'application/pdf',
+      kind: 'file',
+      path: diskPdfPath,
+      dataUrl: `data:application/pdf;base64,${pdfData.toString('base64')}`,
+    },
+  ], { images: true, pdfFiles: false });
+  assert.equal(mixedAttachments[0].kind, 'image_url');
+  assert.equal(mixedAttachments[1].kind, 'file_reference');
+  assert.equal(mixedAttachments[1].path, resolve(diskPdfPath));
+
+  const clipboardAttachments = await normalizeAttachmentsForModel([
+    {
+      id: 'clipboard-image',
+      source: 'clipboard',
+      name: 'image.png',
+      mime: 'image/png',
+      kind: 'image_url',
+      dataUrl: `data:image/png;base64,${imageData.toString('base64')}`,
+    },
+    {
+      id: 'clipboard-pdf',
+      source: 'clipboard',
+      name: 'document.pdf',
+      mime: 'application/pdf',
+      kind: 'file',
+      dataUrl: `data:application/pdf;base64,${pdfData.toString('base64')}`,
+    },
+  ], { images: true, pdfFiles: false });
+  assert.equal(clipboardAttachments[0].kind, 'image_url');
+  assert.equal(clipboardAttachments[1].kind, 'file_reference');
+  for (const attachment of clipboardAttachments) {
+    assert.match(
+      attachment.path.replaceAll('\\', '/'),
+      /\/.avi\/chat-attachments\/\d+\/[0-9a-f-]+\.(?:png|pdf)$/,
+    );
+  }
+  assert.deepEqual(await readFile(clipboardAttachments[0].path), imageData);
+  assert.deepEqual(await readFile(clipboardAttachments[1].path), pdfData);
+  await rm(dirname(clipboardAttachments[0].path), { recursive: true, force: true });
 
   console.log('Files panel tests passed.');
 } finally {

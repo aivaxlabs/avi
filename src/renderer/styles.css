@@ -1791,8 +1791,16 @@ button, input, textarea, select {
     padding-right: 30px;
 }
 
-.user-bubble {
+.user-message-content {
     max-width: min(620px, 78%);
+    min-width: 0;
+    display: grid;
+    justify-items: end;
+    gap: 8px;
+}
+
+.user-bubble {
+    max-width: 100%;
     color: var(--text-1);
     background: var(--background-2);
     border: 1px solid var(--border-color);
@@ -1800,8 +1808,88 @@ button, input, textarea, select {
     padding: 8px 16px;
 }
 
-.user-bubble .attachment-list {
-    margin: 5px 0 0 0;
+.user-attachment-list {
+    justify-content: flex-end;
+    max-width: 100%;
+    margin: 0;
+}
+
+.user-attachment-image {
+    width: 72px;
+    height: 72px;
+    overflow: hidden;
+    padding: 0;
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    cursor: zoom-in;
+    transition: border-color 160ms var(--base-transition),
+    transform 160ms var(--base-transition);
+}
+
+.user-attachment-image img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+}
+
+.user-attachment-image:hover, .user-attachment-image:focus-visible {
+    border-color: var(--text-3);
+}
+
+.user-attachment-image:active {
+    transform: scale(.96);
+}
+
+.user-attachment-image:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 2px;
+}
+
+.attachment-lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    padding: 48px;
+    background: rgb(0 0 0 / 82%);
+    backdrop-filter: blur(8px);
+}
+
+.attachment-lightbox > img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 20px 70px rgb(0 0 0 / 45%);
+}
+
+.attachment-lightbox > button {
+    position: absolute;
+    top: 18px;
+    right: 66px;
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    padding: 0 0 2px;
+    color: #fff;
+    background: rgb(255 255 255 / 12%);
+    border: 1px solid rgb(255 255 255 / 20%);
+    border-radius: 999px;
+    font-size: 26px;
+    line-height: 1;
+}
+
+.attachment-lightbox > button:hover, .attachment-lightbox > button:focus-visible {
+    background: rgb(255 255 255 / 20%);
+}
+
+.attachment-lightbox > button:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
 }
 
 .plain-text {
@@ -2555,6 +2643,16 @@ button, input, textarea, select {
     background: var(--background-2);
 }
 
+@media (max-width: 560px) {
+    .user-message-content {
+        max-width: 90%;
+    }
+
+    .attachment-lightbox {
+        padding: 56px 16px 16px;
+    }
+}
+
 @media (max-width: 620px) {
     .question-card-header, .question-card-field {
         padding-inline: 14px;
@@ -2587,6 +2685,10 @@ button, input, textarea, select {
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .user-attachment-image {
+        transition: none;
+    }
+
     .question-card-field textarea, .question-card-option, .question-card-footer button {
         transition: none;
     }

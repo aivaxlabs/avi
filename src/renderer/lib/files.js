@@ -20,7 +20,7 @@ const textExtensions = new Set([
   'yml',
 ]);
 
-export async function fileToAttachment(file) {
+export async function fileToAttachment(file, source = null) {
   const kind = kindFromFile(file);
   const attachment = {
     id: crypto.randomUUID(),
@@ -28,6 +28,7 @@ export async function fileToAttachment(file) {
     mime: file.type || 'application/octet-stream',
     size: file.size,
     kind,
+    ...(source ? { source } : {}),
     ...(typeof file.path === 'string' && file.path.trim() ? { path: file.path } : {}),
   };
   if (kind === 'text_inline') {

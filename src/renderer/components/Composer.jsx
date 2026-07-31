@@ -641,7 +641,7 @@ export function Composer({
     const files = Array.from(event.clipboardData.files ?? []);
     if (files.length > 0) {
       event.preventDefault();
-      const next = await Promise.all(files.map(fileToAttachment));
+      const next = await Promise.all(files.map((file) => fileToAttachment(file, 'clipboard')));
       setAttachments((items) => [...items, ...next]);
       return;
     }
