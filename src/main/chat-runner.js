@@ -1698,15 +1698,10 @@ export class ChatRunner {
           } catch (error) {
             isError = true;
             toolError = error instanceof Error ? error.message : String(error);
-            output = JSON.stringify(toolCall.name === 'ask_question'
-              ? {
-                  error: error instanceof Error ? error.message : String(error),
-                  userResponded: false,
-                  instruction: 'No user answer was collected. Correct the arguments and call ask_question again. Do not infer an answer.',
-                }
-              : {
-                  error: error instanceof Error ? error.message : String(error),
-                });
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            output = toolCall.name === 'ask_question'
+              ? `Error: ${errorMessage}\nNo user answer was collected. Correct the arguments and call ask_question again. Do not infer an answer.`
+              : `Error: ${errorMessage}`;
           }
           const toolDetails = traceContext(conversationId, selection, {
             round: roundIndex,

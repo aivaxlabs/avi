@@ -43,26 +43,19 @@ function appendTerminalOutput(terminal, chunk) {
   terminal.events.emit('activity');
 }
 
-function terminalSnapshot(terminal) {
-  let status = 'running';
-  if (!terminal.running) {
-    status = terminal.stopping
-      ? 'stopped'
-      : terminal.exitCode === 0
-        ? 'completed'
-        : 'failed';
+function terminalSnapshot(terminal, { includeId = true } = {}) {
+  const parts = [];
+  if (includeId) parts.push(`Terminal ID: ${terminal.id}`);
+  if (terminal.running) {
+    parts.push('Status: running');
+  } else if (terminal.stopping) {
+    parts.push('Status: stopped');
+  } else if (terminal.exitCode !== 0) {
+    parts.push(`Exit code: ${terminal.exitCode}${terminal.signal ? ` (signal: ${terminal.signal})` : ''}`);
   }
-
-  return {
-    id: terminal.id,
-    command: terminal.command,
-    shell: terminal.shell.label,
-    status,
-    exitCode: terminal.exitCode,
-    signal: terminal.signal,
-    output: terminal.output,
-    truncated: terminal.truncated,
-  };
+  if (terminal.output) parts.push(terminal.output);
+  if (terminal.truncated) parts.push('[output truncated]');
+  return parts.join('\n');
 }
 
 function stopTerminal(terminal) {
@@ -1031,18 +1024,10 @@ export const CLIENT_TOOLS = Object.freeze([
         });
       }
 
-      const snapshot = terminalSnapshot(terminal);
       if (waitResult === 'timeout' && terminal.running) {
-        return {
-          ...snapshot,
-          timedOut: true,
-          timeoutSeconds,
-          message: `The command reached the ${timeoutSeconds}-second timeout and is still running. Use terminal ID "${terminal.id}" to read its partial output or interact with it.`,
-        };
+        return `The command reached the ${timeoutSeconds}-second timeout and is still running. Use terminal ID "${terminal.id}" to read its partial output or interact with it.\n${terminalSnapshot(terminal)}`;
       }
-      return executionMode === 'sync' && !terminal.running
-        ? { ...snapshot, id: undefined }
-        : snapshot;
+      return terminalSnapshot(terminal, { includeId: executionMode === 'async' || terminal.running });
     },
   },
   {

@@ -79,7 +79,7 @@ try {
 
   console.log('Calling prefixed MCP tool...');
   const result = await tool.execute({ n: 2 }, { signal: new AbortController().signal });
-  if (result.content?.[0]?.text !== 'Counted to 2') {
+  if (result !== 'Counted to 2') {
     throw new Error('MCP tool result was not returned.');
   }
 
