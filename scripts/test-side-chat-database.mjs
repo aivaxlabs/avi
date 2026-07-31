@@ -228,6 +228,7 @@ try {
   );
   assert.equal(spawned.status, 'working');
   assert.equal(getConversation(spawned.thread_id).isSubagent, true);
+  assert.equal(getConversation(spawned.thread_id).parentConversationId, parent.id);
   assert.equal(getConversation(spawned.thread_id).initialPrompt, 'Inspect the queue.');
   assert.equal(getConversation(spawned.thread_id).orchestrationMode, 'ultra');
   assert.equal(getConversation(spawned.thread_id).autoForwardToParent, true);
@@ -242,6 +243,7 @@ try {
     ),
   );
   assert.equal(spawnEvents[0].conversationId, parent.id);
+  assert.equal(spawnEvents[0].event.subagent.parentConversationId, parent.id);
   const noResponseCalls = [];
   const optionalSubagent = await spawnTool.execute(
     {
@@ -458,6 +460,10 @@ try {
     forwardingCalls.push(payload);
     return { queued: true, message: { id: `forward-${forwardingCalls.length}` } };
   };
+  const viewedParent = createConversation({
+    model: 'test/model',
+    projectPath: process.cwd(),
+  });
   const managedSubagent = forkConversation(parent.id, {
     subagent: true,
     subagentPrompt: 'Return the managed result.',
@@ -472,6 +478,8 @@ try {
   });
   await forwardingRunner.forwardSubagentResult(managedResult);
   assert.equal(forwardingCalls.length, 1);
+  assert.equal(forwardingCalls[0].conversationId, parent.id);
+  assert.notEqual(forwardingCalls[0].conversationId, viewedParent.id);
   assert.equal(forwardingCalls[0].steer, true);
   assert.match(forwardingCalls[0].text, /Managed final result\./);
   assert.doesNotMatch(forwardingCalls[0].text, /Private reasoning/);

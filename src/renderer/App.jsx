@@ -93,8 +93,10 @@ export default function App() {
   const [ultraMode, setUltraMode] = useState(false);
   const approvalDialogRef = useRef(null);
   const inspectedConversationIdRef = useRef(null);
+  const selectedConversationIdRef = useRef(null);
 
   inspectedConversationIdRef.current = settingsOpen || orchestrationOpen ? null : selectedId;
+  selectedConversationIdRef.current = selectedId;
 
   const currentConversation = conversations.find((item) => item.id === selectedId) ?? null;
   const currentMessages = messagesByConversation[selectedId] ?? [];
@@ -146,21 +148,23 @@ export default function App() {
     tokens: currentConversation?.contextTokens ?? 0,
     limit: currentModelContextLimit,
   }), [currentConversation?.contextTokens, currentModelContextLimit]);
-  const subagentsWithStatus = useMemo(() => subagents.map((subagent) => {
-    const messages = messagesByConversation[subagent.id] ?? [];
-    const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
-    const lastAssistant = messages
-      .slice(lastUserIndex + 1)
-      .findLast((message) => message.role === 'assistant');
-    const status = running[subagent.id]
-      ? 'working'
-      : lastAssistant?.status === 'completed'
-        ? 'finished'
-        : ['error', 'aborted', 'streaming'].includes(lastAssistant?.status)
-          ? 'failed'
-          : 'waiting';
-    return { ...subagent, status };
-  }), [messagesByConversation, running, subagents]);
+  const subagentsWithStatus = useMemo(() => subagents
+    .filter((subagent) => subagent.parentConversationId === selectedId)
+    .map((subagent) => {
+      const messages = messagesByConversation[subagent.id] ?? [];
+      const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
+      const lastAssistant = messages
+        .slice(lastUserIndex + 1)
+        .findLast((message) => message.role === 'assistant');
+      const status = running[subagent.id]
+        ? 'working'
+        : lastAssistant?.status === 'completed'
+          ? 'finished'
+          : ['error', 'aborted', 'streaming'].includes(lastAssistant?.status)
+            ? 'failed'
+            : 'waiting';
+      return { ...subagent, status };
+    }), [messagesByConversation, running, selectedId, subagents]);
   const openProviderPanels = useMemo(() => providerPanels.filter(
     (panel) => openProviderPanelIds.includes(panel.id),
   ), [openProviderPanelIds, providerPanels]);
@@ -266,7 +270,9 @@ export default function App() {
         }
       } else if (event.type === 'conversation') {
         if (event.conversation.isSubagent) {
-          setSubagents((state) => upsertById(state, event.conversation));
+          if (event.conversation.parentConversationId === selectedConversationIdRef.current) {
+            setSubagents((state) => upsertById(state, event.conversation));
+          }
         } else if (event.conversation.isSideChat) {
           setSideChats((state) => (
             state.some((sideChat) => sideChat.id === event.conversation.id)
@@ -277,8 +283,13 @@ export default function App() {
           setConversations((state) => upsertById(state, event.conversation).sort(sortByUpdatedAt));
         }
       } else if (event.type === 'subagent-created') {
-        setSubagents((state) => upsertById(state, event.subagent));
-        setSubagentsTabOpen(true);
+        if (
+          event.conversationId === selectedConversationIdRef.current
+          && event.subagent.parentConversationId === selectedConversationIdRef.current
+        ) {
+          setSubagents((state) => upsertById(state, event.subagent));
+          setSubagentsTabOpen(true);
+        }
       } else if (event.type === 'message-delete') {
         setMessagesByConversation((state) => ({
           ...state,
@@ -437,12 +448,11 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    if (!selectedId) {
-      setSideChats([]);
-      setSubagents([]);
-      setActiveSubagentId(null);
-      return undefined;
-    }
+    setSideChats([]);
+    setSubagents([]);
+    setSubagentsTabOpen(false);
+    setActiveSubagentId(null);
+    if (!selectedId) return undefined;
 
     Promise.all([
       api.sideChats.list(selectedId),
