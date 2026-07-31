@@ -30,16 +30,40 @@ const artifactDir = process.env.ELECTROBUN_ARTIFACT_DIR
 const iconPath = join(projectRoot, 'assets', 'icon', 'avi.ico');
 const rceditPath = join(projectRoot, 'node_modules', 'rcedit', 'bin', 'rcedit-x64.exe');
 const appName = process.env.ELECTROBUN_APP_NAME;
+const appVersion = process.env.ELECTROBUN_APP_VERSION;
 
-const embedIcon = (targetPath) => {
-  execFileSync(rceditPath, [targetPath, '--set-icon', iconPath], {
+const embedAppIdentity = (targetPath) => {
+  execFileSync(rceditPath, [
+    targetPath,
+    '--set-icon',
+    iconPath,
+    '--set-version-string',
+    'CompanyName',
+    'AIVAX Labs',
+    '--set-version-string',
+    'FileDescription',
+    appName,
+    '--set-version-string',
+    'ProductName',
+    appName,
+    '--set-version-string',
+    'ProductVersion',
+    appVersion,
+  ], {
     stdio: 'inherit',
     windowsHide: true,
   });
 };
 
 if (process.env.ELECTROBUN_OS === 'win') {
-  if (!buildDir || !artifactDir || !appName || !existsSync(iconPath) || !existsSync(rceditPath)) {
+  if (
+    !buildDir
+    || !artifactDir
+    || !appName
+    || !appVersion
+    || !existsSync(iconPath)
+    || !existsSync(rceditPath)
+  ) {
     throw new Error('Windows build paths, icon assets, or rcedit are unavailable.');
   }
 
@@ -69,10 +93,10 @@ if (process.env.ELECTROBUN_OS === 'win') {
       }
     }
 
-    for (const targetPath of executableTargets) embedIcon(targetPath);
-    console.log(`Embedded the Avi icon into ${executableTargets.length} application executable(s).`);
+    for (const targetPath of executableTargets) embedAppIdentity(targetPath);
+    console.log(`Embedded the Avi identity into ${executableTargets.length} application executable(s).`);
   } else {
-    for (const setupPath of setupFiles) embedIcon(setupPath);
+    for (const setupPath of setupFiles) embedAppIdentity(setupPath);
 
     const releaseZip = existsSync(artifactDir)
       ? readdirSync(artifactDir)
