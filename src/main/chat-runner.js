@@ -613,7 +613,7 @@ export class ChatRunner {
     const run = this.runs.get(conversationId);
     if (!run) return false;
     run.steerRequested = true;
-    if (['approval', 'question'].includes(run.phase)) {
+    if (['approval', 'question', 'boundary'].includes(run.phase)) {
       run.controller.abort('steer');
     }
     return true;
@@ -1437,11 +1437,9 @@ export class ChatRunner {
             },
             signal: controller.signal,
             onEvent: (event) => {
-              if (
-                firstResponseAt === null
-                && ['content', 'reasoning', 'tool-call'].includes(event.type)
-              ) {
-                firstResponseAt = Date.now();
+              if (['content', 'reasoning', 'tool-call'].includes(event.type)) {
+                run.phase = 'inference';
+                if (firstResponseAt === null) firstResponseAt = Date.now();
               }
               if (event.type === 'usage') {
                 liveContextTokens = (
@@ -1492,8 +1490,15 @@ export class ChatRunner {
                 ));
               }
               persistAssistant({
-                force: ['usage', 'error', 'retry', 'retry-clear'].includes(event.type),
+                force: ['usage', 'error', 'retry', 'retry-clear', 'item-complete']
+                  .includes(event.type),
               });
+              if (event.type === 'item-complete') {
+                run.phase = 'boundary';
+                if (this.shouldEndAtBoundary(run)) {
+                  throw new Error('The run was interrupted.');
+                }
+              }
             },
           });
           retriedAfterContextCompaction = false;

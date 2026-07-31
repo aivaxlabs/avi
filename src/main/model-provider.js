@@ -146,6 +146,7 @@ export class ModelProvider {
         const decoder = new TextDecoder();
         let buffer = '';
         let receivedOutput = false;
+        let activeItemType = null;
         const abortReader = () => {
           reader.cancel(signal.reason).catch(() => {});
         };
@@ -197,10 +198,25 @@ export class ModelProvider {
                   continuationItems.set(event.index ?? continuationItems.size, event.item);
                   continue;
                 }
+                if (event.type === 'item-complete') {
+                  onEvent({
+                    ...event,
+                    itemType: event.itemType ?? activeItemType,
+                  });
+                  activeItemType = null;
+                  continue;
+                }
                 if (event.type === 'continuation') {
                   completedContinuation = event.items;
                   continue;
                 }
+                const semanticItemType = ['content', 'reasoning', 'tool-call'].includes(event.type)
+                  ? event.type
+                  : null;
+                if (semanticItemType && activeItemType && activeItemType !== semanticItemType) {
+                  onEvent({ type: 'item-complete', itemType: activeItemType });
+                }
+                if (semanticItemType) activeItemType = semanticItemType;
                 if (event.type === 'content') {
                   assistantContent += event.text;
                 }

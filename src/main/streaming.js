@@ -61,6 +61,13 @@ export class StreamAccumulator {
       this.segments = this.segments.filter((segment) => segment.type !== 'retry');
       return;
     }
+    if (event.type === 'item-complete') {
+      const last = this.segments.at(-1);
+      if (['content', 'reasoning'].includes(last?.type) && last.status === 'streaming') {
+        last.status = 'completed';
+      }
+      return;
+    }
     if (event.type === 'retry') {
       const existing = this.segments.find((segment) => segment.type === 'retry');
       if (existing) {

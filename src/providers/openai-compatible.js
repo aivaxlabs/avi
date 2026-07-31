@@ -134,21 +134,29 @@ export const responsesApi = {
       }];
     }
     if (payload?.type === 'response.output_item.done') {
-      const events = [{
-        type: 'continuation-item',
-        index: payload.output_index,
-        item: payload.item,
-      }];
-      if (payload.item?.type !== 'function_call') return events;
-      events.push({
-        type: 'tool-call',
-        key: payload.item.id ?? `response:${payload.output_index ?? 0}`,
-        callId: payload.item.call_id ?? null,
-        name: payload.item.name ?? null,
-        argumentsText: payload.item.arguments ?? '',
-        replaceArguments: true,
-      });
-      return events;
+      const itemType = payload.item?.type === 'function_call'
+        ? 'tool-call'
+        : payload.item?.type === 'reasoning'
+          ? 'reasoning'
+          : 'content';
+      return [
+        ...(payload.item?.type === 'function_call'
+          ? [{
+              type: 'tool-call',
+              key: payload.item.id ?? `response:${payload.output_index ?? 0}`,
+              callId: payload.item.call_id ?? null,
+              name: payload.item.name ?? null,
+              argumentsText: payload.item.arguments ?? '',
+              replaceArguments: true,
+            }]
+          : []),
+        {
+          type: 'continuation-item',
+          index: payload.output_index,
+          item: payload.item,
+        },
+        { type: 'item-complete', itemType },
+      ];
     }
     if (payload?.type === 'response.function_call_arguments.done') {
       const item = payload.item ?? payload;
