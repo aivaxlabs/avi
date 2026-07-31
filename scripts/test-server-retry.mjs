@@ -26,6 +26,7 @@ try {
   const { ChatRunner } = await import('../src/main/chat-runner.js');
   const { ModelProvider } = await import('../src/main/model-provider.js');
   const { StreamAccumulator } = await import('../src/main/streaming.js');
+  const { responsesApi } = await import('../src/providers/openai-compatible.js');
   const model = {
     id: 'test:model',
     name: 'Test',
@@ -59,6 +60,61 @@ try {
     signal,
     onEvent,
   });
+
+  const transitionEvents = [];
+  await stream(
+    createProvider(
+      async () => new Response([
+        `data: ${JSON.stringify({ type: 'reasoning', text: 'Reasoning' })}`,
+        `data: ${JSON.stringify({ type: 'content', text: 'Answer' })}`,
+        'data: [DONE]',
+        '',
+      ].join('\n\n'), { status: 200 }),
+      (payload) => [{ type: payload.type, text: payload.text }],
+    ),
+    null,
+    new AbortController().signal,
+    (event) => transitionEvents.push(event),
+  );
+  assert.deepEqual(
+    transitionEvents.map((event) => [event.type, event.itemType ?? null]),
+    [
+      ['reasoning', null],
+      ['item-complete', 'reasoning'],
+      ['content', null],
+    ],
+  );
+
+  const completedToolItem = {
+    type: 'function_call',
+    id: 'item-tool-1',
+    call_id: 'call-tool-1',
+    name: 'completed_tool',
+    arguments: '{"complete":true}',
+  };
+  assert.deepEqual(
+    responsesApi.eventsFrom({
+      type: 'response.output_item.done',
+      output_index: 2,
+      item: completedToolItem,
+    }),
+    [
+      {
+        type: 'tool-call',
+        key: 'item-tool-1',
+        callId: 'call-tool-1',
+        name: 'completed_tool',
+        argumentsText: '{"complete":true}',
+        replaceArguments: true,
+      },
+      {
+        type: 'continuation-item',
+        index: 2,
+        item: completedToolItem,
+      },
+      { type: 'item-complete', itemType: 'tool-call' },
+    ],
+  );
 
   let normalAttempts = 0;
   await assert.rejects(
