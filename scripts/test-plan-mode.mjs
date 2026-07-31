@@ -404,7 +404,7 @@ try {
     stream: async ({ toolHistory }) => {
       invalidQuestionRound += 1;
       if (invalidQuestionRound > 1) {
-        invalidQuestionOutputs.push(JSON.parse(toolHistory[0].results[0].output));
+        invalidQuestionOutputs.push(toolHistory[0].results[0].output);
         return { assistantContent: '', toolCalls: [] };
       }
       return {
@@ -436,8 +436,8 @@ try {
     workMode: 'plan',
   });
   await waitFor(() => !invalidQuestionRunner.runs.has(invalidQuestionConversation.id));
-  assert.equal(invalidQuestionOutputs[0].userResponded, false);
-  assert.match(invalidQuestionOutputs[0].instruction, /Do not infer an answer/);
+  assert.match(invalidQuestionOutputs[0], /^Error:/);
+  assert.match(invalidQuestionOutputs[0], /Do not infer an answer/);
 
   const questionEvents = [];
   const questionResults = [];
