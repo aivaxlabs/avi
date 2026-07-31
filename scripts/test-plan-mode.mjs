@@ -129,8 +129,6 @@ try {
       'chat_inspect_thread',
       'chat_list_folders',
       'chat_list_threads',
-      'file_search',
-      'grep_search',
       'read_file',
       'read_terminal_output',
       'read_url',
@@ -159,6 +157,7 @@ try {
     permissionMode: 'full_access',
     workMode: 'plan',
     ultraMode: false,
+    queuePriority: false,
   }]);
 
   let finishQueuedRun;

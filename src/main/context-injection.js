@@ -1,6 +1,12 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import baseInstructions from '../prompts/base-instructions.md' with { type: 'text' };
+import candidPersonality from '../prompts/personality/candid.md' with { type: 'text' };
+import cynicalPersonality from '../prompts/personality/cynical.md' with { type: 'text' };
+import friendlyPersonality from '../prompts/personality/friendly.md' with { type: 'text' };
+import pragmaticPersonality from '../prompts/personality/pragmatic.md' with { type: 'text' };
+import quirkyPersonality from '../prompts/personality/quirky.md' with { type: 'text' };
 import { resolveTerminalShell } from './terminal-shell.js';
 
 const IGNORED_WORKSPACE_DIRECTORIES = new Set([
@@ -24,8 +30,24 @@ const MAX_ENTRIES_PER_DIRECTORY = 20;
 const MAX_WORKSPACE_DIRECTORIES = 50;
 const MAX_CONTEXT_DIRECTORY_DEPTH = 4;
 const CONTEXT_FILE_PATTERN = /^(?:AGENTS|MEMORY)(?:\.[^.]+)*\.md$/i;
+const POST_INSTRUCTION_CONTEXT_ORDER = [
+  'mcp',
+  'work-mode',
+  'ultra',
+  'goal',
+  'subagents',
+  'environment',
+  'workspace',
+];
 
 export const dynamicContextInjectors = new Map([
+  ['personality', ({ tuning } = {}) => ({
+    candid: candidPersonality,
+    cynical: cynicalPersonality,
+    friendly: friendlyPersonality,
+    pragmatic: pragmaticPersonality,
+    quirky: quirkyPersonality,
+  }[tuning?.personality] ?? '')],
   ['mcp', ({ mcpInstructions = [] } = {}) => (
     mcpInstructions
       .filter((instruction) => instruction?.text)
@@ -183,12 +205,20 @@ export const dynamicContextInjectors = new Map([
   }],
   ['instructions', async ({ workspacePath } = {}) => {
     const roots = [
-      { label: 'workspace', path: path.resolve(workspacePath || process.cwd()) },
-      { label: '$HOME/.agents', path: path.join(homedir(), '.agents') },
+      { id: 'global', label: '$HOME/.agents', path: path.join(homedir(), '.agents') },
+      {
+        id: 'workspace',
+        label: 'workspace',
+        path: path.resolve(workspacePath || process.cwd()),
+      },
     ].filter((root, index, items) => (
       items.findIndex((item) => item.path.toLowerCase() === root.path.toLowerCase()) === index
     ));
-    const sections = [];
+    const instructionContexts = {
+      global: '',
+      workspace: '',
+    };
+    const contextSections = [];
 
     for (const root of roots) {
       const rootContextFiles = await collectFiles(
@@ -242,55 +272,81 @@ export const dynamicContextInjectors = new Map([
         + ` — ${escapeXml(await readDescription(filePath))}`
       )));
 
-      if (
-        rootFiles.length === 0
-        && skillLines.length === 0
-        && workflowLines.length === 0
-        && nestedContextLines.length === 0
-      ) {
-        continue;
-      }
-
-      sections.push(
-        `Source: ${root.label}`,
-        `Root: ${escapeXml(root.path)}`,
-      );
+      const instructionSections = [];
       for (const file of rootFiles) {
-        sections.push(
+        instructionSections.push(
           `--- BEGIN ${file.name} ---`,
           file.content,
           `--- END ${file.name} ---`,
         );
       }
+      if (nestedContextLines.length > 0) {
+        instructionSections.push(
+          'Nested AGENTS and MEMORY files:',
+          ...nestedContextLines,
+        );
+      }
+      if (instructionSections.length > 0) {
+        instructionContexts[root.id] = [
+          `<${root.id}_instructions>`,
+          `Source: ${root.label}`,
+          `Root: ${escapeXml(root.path)}`,
+          ...instructionSections,
+          `</${root.id}_instructions>`,
+        ].join('\n');
+      }
+
+      const catalogSections = [];
       if (skillLines.length > 0) {
-        sections.push('Skills:', ...skillLines);
+        catalogSections.push('Skills:', ...skillLines);
       }
       if (workflowLines.length > 0) {
-        sections.push('Workflows:', ...workflowLines);
+        catalogSections.push('Workflows:', ...workflowLines);
       }
-      if (nestedContextLines.length > 0) {
-        sections.push('Nested AGENTS and MEMORY files:', ...nestedContextLines);
+      if (catalogSections.length > 0) {
+        contextSections.push(
+          `Source: ${root.label}`,
+          `Root: ${escapeXml(root.path)}`,
+          ...catalogSections,
+          '',
+        );
       }
-      sections.push('');
     }
 
-    if (sections.length === 0) return '';
     return [
-      '<available_context>',
-      ...sections,
-      '</available_context>',
-    ].join('\n');
+      instructionContexts.global,
+      instructionContexts.workspace,
+      contextSections.length > 0
+        ? [
+            '<available_context>',
+            ...contextSections,
+            '</available_context>',
+          ].join('\n')
+        : '',
+    ];
   }],
 ]);
 
 export async function resolveDynamicContext(invocationContext = {}) {
+  const personalityInjector = dynamicContextInjectors.get('personality');
   const instructionsInjector = dynamicContextInjectors.get('instructions');
-  const contexts = await Promise.all([
+  const [
+    personalityContext,
+    instructionContexts,
+    ...environmentContexts
+  ] = await Promise.all([
+    personalityInjector?.(invocationContext),
     instructionsInjector?.(invocationContext),
-    ...[...dynamicContextInjectors.entries()]
-      .filter(([name]) => name !== 'instructions')
-      .map(([, injector]) => injector(invocationContext)),
+    ...POST_INSTRUCTION_CONTEXT_ORDER.map((name) => (
+      dynamicContextInjectors.get(name)?.(invocationContext)
+    )),
   ]);
+  const contexts = [
+    baseInstructions,
+    personalityContext,
+    ...instructionContexts,
+    ...environmentContexts,
+  ];
 
   return contexts
     .map((context) => String(context ?? '').trim())

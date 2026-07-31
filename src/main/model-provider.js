@@ -375,6 +375,7 @@ export class ModelProviderRegistry {
               capabilities: {
                 images: Boolean(model?.capabilities?.images),
                 audio: Boolean(model?.capabilities?.audio),
+                pdfFiles: Boolean(model?.capabilities?.pdfFiles),
               },
               context: {
                 input: inputContext,

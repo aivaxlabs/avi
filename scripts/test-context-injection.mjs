@@ -15,10 +15,21 @@ import {
   listInstalledTerminalShells,
   resolveTerminalShell,
 } from '../src/main/terminal-shell.js';
+import baseInstructions from '../src/prompts/base-instructions.md' with { type: 'text' };
+import candidPersonality from '../src/prompts/personality/candid.md' with { type: 'text' };
+import cynicalPersonality from '../src/prompts/personality/cynical.md' with { type: 'text' };
+import friendlyPersonality from '../src/prompts/personality/friendly.md' with { type: 'text' };
+import pragmaticPersonality from '../src/prompts/personality/pragmatic.md' with { type: 'text' };
+import quirkyPersonality from '../src/prompts/personality/quirky.md' with { type: 'text' };
 
 const root = await mkdtemp(path.join(tmpdir(), 'context-variants-'));
+const originalHome = process.env.HOME;
+const originalUserProfile = process.env.USERPROFILE;
 
 try {
+  const testHome = path.join(root, 'home');
+  process.env.HOME = testHome;
+  process.env.USERPROFILE = testHome;
   await Promise.all([
     'AGENTS.md',
     'AGENTS.foobar.md',
@@ -51,11 +62,57 @@ try {
     throw new Error(`Unexpected context editor items: ${JSON.stringify(names)}`);
   }
 
-  const injected = await resolveDynamicContext({ workspacePath: root });
+  await mkdir(path.join(testHome, '.agents', 'skills', 'global-skill'), { recursive: true });
+  await mkdir(path.join(testHome, '.agents', 'workflows'), { recursive: true });
+  await mkdir(path.join(root, 'skills', 'workspace-skill'), { recursive: true });
+  await mkdir(path.join(root, 'workflows'), { recursive: true });
+  await Promise.all([
+    writeFile(
+      path.join(testHome, '.agents', 'AGENTS.md'),
+      '# Global test instructions',
+    ),
+    writeFile(
+      path.join(testHome, '.agents', 'skills', 'global-skill', 'SKILL.md'),
+      '# Global test skill',
+    ),
+    writeFile(
+      path.join(testHome, '.agents', 'workflows', 'global-workflow.md'),
+      '# Global test workflow',
+    ),
+    writeFile(
+      path.join(root, 'skills', 'workspace-skill', 'SKILL.md'),
+      '# Workspace test skill',
+    ),
+    writeFile(
+      path.join(root, 'workflows', 'workspace-workflow.md'),
+      '# Workspace test workflow',
+    ),
+  ]);
+
+  const injected = await resolveDynamicContext({
+    workspacePath: root,
+    mcpInstructions: [{
+      from: 'ordering-test',
+      text: 'MCP ordering test instructions',
+    }],
+  });
   const terminalShell = resolveTerminalShell();
   if (
-    !injected.includes('--- BEGIN AGENTS.foobar.md ---')
+    !injected.startsWith(baseInstructions.trim())
+    || injected.split(baseInstructions.trim()).length !== 2
+    || injected.includes(candidPersonality.trim())
+    || injected.includes(cynicalPersonality.trim())
+    || injected.includes(friendlyPersonality.trim())
+    || injected.includes(pragmaticPersonality.trim())
+    || injected.includes(quirkyPersonality.trim())
+    || !injected.includes('<global_instructions>')
+    || !injected.includes('# Global test instructions')
+    || !injected.includes('<workspace_instructions>')
+    || !injected.includes('--- BEGIN AGENTS.foobar.md ---')
     || !injected.includes('nested/MEMORY.child.md')
+    || !injected.includes('Global test skill')
+    || !injected.includes('Workspace test workflow')
+    || !injected.includes('MCP ordering test instructions')
     || injected.includes('--- BEGIN AGENT.invalid.md ---')
     || injected.includes('--- BEGIN NOTES.md ---')
     || !injected.includes(`Command execution shell: ${terminalShell.label}`)
@@ -64,6 +121,66 @@ try {
     || !injected.includes('Do not wrap the reference in backticks')
   ) {
     throw new Error('Context variants did not follow the expected root and nested rules.');
+  }
+
+  const orderedContext = await resolveDynamicContext({
+    workspacePath: root,
+    tuning: { personality: 'friendly' },
+    mcpInstructions: [{
+      from: 'ordering-test',
+      text: 'MCP ordering test instructions',
+    }],
+  });
+  const orderedMarkers = [
+    baseInstructions.trim(),
+    friendlyPersonality.trim(),
+    '# Global test instructions',
+    '# AGENTS.md',
+    '<available_context>',
+    'MCP ordering test instructions',
+    '<environment_info>',
+    '<current_workspace>',
+  ];
+  for (let index = 1; index < orderedMarkers.length; index += 1) {
+    assert.ok(
+      orderedContext.indexOf(orderedMarkers[index - 1])
+      < orderedContext.indexOf(orderedMarkers[index]),
+      `${orderedMarkers[index - 1]} must precede ${orderedMarkers[index]}`,
+    );
+  }
+
+  const friendlyContext = await resolveDynamicContext({
+    workspacePath: root,
+    tuning: { personality: 'friendly' },
+  });
+  assert.ok(friendlyContext.includes(friendlyPersonality.trim()));
+  assert.ok(!friendlyContext.includes(pragmaticPersonality.trim()));
+  assert.ok(
+    friendlyContext.indexOf(friendlyPersonality.trim())
+    < friendlyContext.indexOf('<available_context>'),
+  );
+
+  const pragmaticContext = await resolveDynamicContext({
+    workspacePath: root,
+    tuning: { personality: 'pragmatic' },
+  });
+  assert.ok(pragmaticContext.includes(pragmaticPersonality.trim()));
+  assert.ok(!pragmaticContext.includes(friendlyPersonality.trim()));
+
+  for (const [personality, prompt] of Object.entries({
+    candid: candidPersonality,
+    cynical: cynicalPersonality,
+    quirky: quirkyPersonality,
+  })) {
+    const personalityContext = await resolveDynamicContext({
+      workspacePath: root,
+      tuning: { personality },
+    });
+    assert.ok(personalityContext.includes(prompt.trim()));
+    assert.ok(
+      personalityContext.indexOf(prompt.trim())
+      < personalityContext.indexOf('<available_context>'),
+    );
   }
 
   await mkdir(path.join(root, 'git', 'bin'), { recursive: true });
@@ -117,6 +234,7 @@ try {
     workspacePath: root,
     workMode: 'plan',
   });
+  assert.ok(planContext.startsWith(baseInstructions.trim()));
   for (const requirement of [
     '<work_mode mode="plan">',
     'Do not edit files',
@@ -140,6 +258,7 @@ try {
     ultraMode: true,
     orchestrationRole: 'orchestrator',
   });
+  assert.ok(ultraContext.startsWith(baseInstructions.trim()));
   for (const requirement of [
     '<work_mode mode="ultra" role="orchestrator">',
     'chat_spawn_subagent',
@@ -197,5 +316,9 @@ try {
 
   console.log('Context variant discovery passed.');
 } finally {
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = originalUserProfile;
   await rm(root, { recursive: true, force: true });
 }
