@@ -1,4 +1,4 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { opendir, readFile, readdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import baseInstructions from '../prompts/base-instructions.md' with { type: 'text' };
@@ -8,9 +8,14 @@ import friendlyPersonality from '../prompts/personality/friendly.md' with { type
 import pragmaticPersonality from '../prompts/personality/pragmatic.md' with { type: 'text' };
 import quirkyPersonality from '../prompts/personality/quirky.md' with { type: 'text' };
 import { resolveTerminalShell } from './terminal-shell.js';
+import {
+  traceError,
+  traceVerbose,
+} from './trace-log.js';
 
 const IGNORED_WORKSPACE_DIRECTORIES = new Set([
   '.git',
+  '.vs',
   '.next',
   '.nuxt',
   '.output',
@@ -29,7 +34,11 @@ const IGNORED_WORKSPACE_DIRECTORIES = new Set([
 const MAX_ENTRIES_PER_DIRECTORY = 20;
 const MAX_WORKSPACE_DIRECTORIES = 50;
 const MAX_CONTEXT_DIRECTORY_DEPTH = 4;
-const CONTEXT_FILE_PATTERN = /^(?:AGENTS|MEMORY)(?:\.[^.]+)*\.md$/i;
+const CONTEXT_SCAN_TIMEOUT_MS = 5_000;
+const CONTEXT_SCAN_CONCURRENCY = 32;
+const CONTEXT_DIRECTORY_NAME = '.agents';
+const INSTALLATION_CONTEXT_DIRECTORY_NAME = 'context';
+const INSTRUCTION_FILE_PATTERN = /^(?:(?:AGENTS|MEMORY)(?:\.[^.]+)*|CLAUDE|GEMINI|.+\.INSTRUCTIONS|.+\.AGENTS)\.md$/i;
 const POST_INSTRUCTION_CONTEXT_ORDER = [
   'mcp',
   'work-mode',
@@ -149,6 +158,14 @@ export const dynamicContextInjectors = new Map([
   }],
   ['workspace', async ({ workspacePath } = {}) => {
     const currentDirectory = path.resolve(workspacePath || process.cwd());
+    if (isHomeDirectory(currentDirectory)) {
+      return [
+        '<current_workspace>',
+        `Current directory: ${escapeXml(currentDirectory)}`,
+        'The home directory is not scanned as a workspace. Global context is loaded only from $HOME/.agents.',
+        '</current_workspace>',
+      ].join('\n');
+    }
     const structure = [];
     let directoryCount = 0;
 
@@ -203,73 +220,79 @@ export const dynamicContextInjectors = new Map([
       '</current_workspace>',
     ].join('\n');
   }],
-  ['instructions', async ({ workspacePath } = {}) => {
+  ['instructions', async ({ workspacePath, installationContextPath } = {}) => {
+    const startedAt = Date.now();
+    traceVerbose('context.injection-discovery-started', {
+      operation: 'resolve-instructions',
+    });
     const roots = [
-      { id: 'global', label: '$HOME/.agents', path: path.join(homedir(), '.agents') },
+      {
+        id: 'installation',
+        label: '$AVI/context',
+        path: path.resolve(installationContextPath || resolveInstallationContextPath()),
+        includeRootCatalog: true,
+      },
+      {
+        id: 'global',
+        label: '$HOME/.agents',
+        path: path.join(homedir(), CONTEXT_DIRECTORY_NAME),
+      },
       {
         id: 'workspace',
-        label: 'workspace',
+        label: '$PWD',
         path: path.resolve(workspacePath || process.cwd()),
       },
     ].filter((root, index, items) => (
-      items.findIndex((item) => item.path.toLowerCase() === root.path.toLowerCase()) === index
+      !(root.id === 'workspace' && isHomeDirectory(root.path))
+      && items.findIndex((item) => normalizePathKey(item.path) === normalizePathKey(root.path)) === index
     ));
     const instructionContexts = {
+      installation: '',
       global: '',
       workspace: '',
     };
     const contextSections = [];
 
     for (const root of roots) {
-      const rootContextFiles = await collectFiles(
-        root.path,
-        0,
-        (fileName) => CONTEXT_FILE_PATTERN.test(fileName),
-      );
+      const rootStartedAt = Date.now();
+      const scan = await scanContextFiles(root.path, {
+        includeRootCatalog: root.includeRootCatalog,
+      });
+      const { instructionFiles, skillFiles, workflowFiles } = scan;
+      const rootInstructionDirectories = new Set([root.path.toLowerCase()]);
+      const rootContextFiles = instructionFiles.filter((filePath) => (
+        rootInstructionDirectories.has(path.dirname(filePath).toLowerCase())
+      ));
+      const nestedContextFiles = instructionFiles.filter((filePath) => (
+        !rootInstructionDirectories.has(path.dirname(filePath).toLowerCase())
+      ));
       const rootFiles = (await Promise.all(rootContextFiles.map(async (filePath) => {
         try {
           return {
-            name: path.basename(filePath),
+            name: path.relative(root.path, filePath).replaceAll('\\', '/'),
             content: await readFile(filePath, 'utf8'),
           };
         } catch {
           return null;
         }
       }))).filter(Boolean);
-      const skillFiles = await collectFiles(
-        path.join(root.path, 'skills'),
-        MAX_CONTEXT_DIRECTORY_DEPTH,
-        (fileName) => fileName.toLowerCase() === 'skill.md',
-      );
-      const workflowFiles = await collectFiles(
-        path.join(root.path, 'workflows'),
-        MAX_CONTEXT_DIRECTORY_DEPTH,
-        () => true,
-      );
-      const nestedContextFiles = await collectFiles(
-        root.path,
-        MAX_CONTEXT_DIRECTORY_DEPTH,
-        (fileName, depth) => (
-          depth > 0 && CONTEXT_FILE_PATTERN.test(fileName)
-        ),
-      );
       const displayPath = (filePath) => {
         const relativePath = path.relative(root.path, filePath).replaceAll('\\', '/');
-        return root.label === 'workspace'
+        return root.id === 'workspace'
           ? relativePath
           : `${root.label}/${relativePath}`;
       };
       const skillLines = await Promise.all(skillFiles.map(async (filePath) => (
         `- ${escapeXml(displayPath(filePath))}`
-        + ` — ${escapeXml(await readDescription(filePath))}`
+        + ` ${'\u2014'} ${escapeXml(await readDescription(filePath))}`
       )));
       const workflowLines = await Promise.all(workflowFiles.map(async (filePath) => (
         `- ${escapeXml(displayPath(filePath))}`
-        + ` — ${escapeXml(await readDescription(filePath))}`
+        + ` ${'\u2014'} ${escapeXml(await readDescription(filePath))}`
       )));
       const nestedContextLines = await Promise.all(nestedContextFiles.map(async (filePath) => (
         `- ${escapeXml(displayPath(filePath))}`
-        + ` — ${escapeXml(await readDescription(filePath))}`
+        + ` ${'\u2014'} ${escapeXml(await readDescription(filePath))}`
       )));
 
       const instructionSections = [];
@@ -282,7 +305,7 @@ export const dynamicContextInjectors = new Map([
       }
       if (nestedContextLines.length > 0) {
         instructionSections.push(
-          'Nested AGENTS and MEMORY files:',
+          'Recursive instruction files:',
           ...nestedContextLines,
         );
       }
@@ -311,9 +334,24 @@ export const dynamicContextInjectors = new Map([
           '',
         );
       }
+      traceVerbose('context.injection-source-completed', {
+        operation: 'resolve-instructions',
+        scope: root.id,
+        duration_ms: Date.now() - rootStartedAt,
+        instruction_count: instructionFiles.length,
+        skill_count: skillFiles.length,
+        workflow_count: workflowFiles.length,
+        directory_count: scan.directoryCount,
+        timed_out: scan.timedOut,
+      });
     }
 
+    traceVerbose('context.injection-discovery-completed', {
+      operation: 'resolve-instructions',
+      duration_ms: Date.now() - startedAt,
+    });
     return [
+      instructionContexts.installation,
       instructionContexts.global,
       instructionContexts.workspace,
       contextSections.length > 0
@@ -354,85 +392,126 @@ export async function resolveDynamicContext(invocationContext = {}) {
     .join('\n\n');
 }
 
-export async function listContextItems(rootPath) {
-  const root = path.resolve(rootPath);
-  const instructionFiles = await collectFiles(
-    root,
-    0,
-    (fileName) => CONTEXT_FILE_PATTERN.test(fileName),
+export function resolveInstallationContextPath(
+  executablePath = process.execPath,
+  platform = process.platform,
+) {
+  const executableDirectory = path.dirname(path.resolve(executablePath));
+  return path.join(
+    path.resolve(executableDirectory, '..', 'Resources'),
+    'app',
+    INSTALLATION_CONTEXT_DIRECTORY_NAME,
   );
-  const skillFiles = await collectFiles(
-    path.join(root, 'skills'),
-    MAX_CONTEXT_DIRECTORY_DEPTH,
-    (fileName) => fileName.toLowerCase() === 'skill.md',
-  );
-  const workflowFiles = await collectFiles(
-    path.join(root, 'workflows'),
-    MAX_CONTEXT_DIRECTORY_DEPTH,
-    () => true,
-  );
-  const groups = await Promise.all([
-    {
-      id: 'instruction',
-      title: 'Instructions',
-      folderPath: root,
-      files: instructionFiles,
-    },
-    {
-      id: 'skill',
-      title: 'Skills',
-      folderPath: path.join(root, 'skills'),
-      files: skillFiles,
-    },
-    {
-      id: 'workflow',
-      title: 'Workflows',
-      folderPath: path.join(root, 'workflows'),
-      files: workflowFiles,
-    },
-  ].map(async ({ files, ...group }) => ({
-    ...group,
-    items: await Promise.all(files.map((filePath) => readContextItem(filePath))),
-  })));
-  const items = groups.flatMap((group) => group.items);
-  const commands = [];
-  const commandKeys = new Set();
-
-  for (const group of groups.filter(({ id }) => id === 'skill' || id === 'workflow')) {
-    for (const item of group.items) {
-      const fileName = path.basename(item.path);
-      const sourceName = group.id === 'skill' && item.title.toLowerCase() === 'skill.md'
-        ? path.basename(path.dirname(item.path))
-        : group.id === 'workflow' && item.title === fileName
-          ? path.basename(fileName, path.extname(fileName))
-          : item.title;
-      const name = sourceName
-        .normalize('NFD')
-        .replace(/\p{Diacritic}/gu, '')
-        .toLowerCase()
-        .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
-        .replace(/^-+|-+$/g, '');
-      const key = `${group.id}:${name}`;
-
-      if (!name || commandKeys.has(key)) continue;
-      commandKeys.add(key);
-      commands.push({
-        id: key,
-        type: group.id,
-        name,
-        description: item.description,
-      });
-    }
-  }
-
-  return {
-    itemCount: items.length,
-    tokenCount: items.reduce((total, item) => total + item.tokenCount, 0),
-    groups,
-    commands,
-  };
 }
 
+export async function listContextItems(
+  rootPath,
+  { includeRootCatalog = false, scope: requestedScope = null } = {},
+) {
+  const startedAt = Date.now();
+  const scope = requestedScope || (includeRootCatalog ? 'installation' : 'folder');
+  traceVerbose('context.discovery-started', {
+    operation: 'list-context-items',
+    scope,
+  });
+
+  try {
+    const root = path.resolve(rootPath);
+    const scan = !includeRootCatalog && isHomeDirectory(root)
+      ? {
+          instructionFiles: [],
+          skillFiles: [],
+          workflowFiles: [],
+          directoryCount: 0,
+          timedOut: false,
+        }
+      : await scanContextFiles(root, { includeRootCatalog });
+    const { instructionFiles, skillFiles, workflowFiles } = scan;
+    const groups = await Promise.all([
+      {
+        id: 'instruction',
+        title: 'Instructions',
+        folderPath: root,
+        files: instructionFiles,
+      },
+      {
+        id: 'skill',
+        title: 'Skills',
+        folderPath: root,
+        files: skillFiles,
+      },
+      {
+        id: 'workflow',
+        title: 'Workflows',
+        folderPath: root,
+        files: workflowFiles,
+      },
+    ].map(async ({ files, ...group }) => ({
+      ...group,
+      items: await Promise.all(files.map((filePath) => readContextItem(filePath))),
+    })));
+    const items = groups.flatMap((group) => group.items);
+    const commands = [];
+    const commandKeys = new Set();
+
+    for (const group of groups.filter(({ id }) => id === 'skill' || id === 'workflow')) {
+      for (const item of group.items) {
+        if (item.userInvocable === false) continue;
+
+        const fileName = path.basename(item.path);
+        const sourceName = group.id === 'skill' && item.title.toLowerCase() === 'skill.md'
+          ? path.basename(path.dirname(item.path))
+          : group.id === 'workflow' && item.title === fileName
+            ? path.basename(fileName, path.extname(fileName))
+            : item.title;
+        const name = sourceName
+          .normalize('NFD')
+          .replace(/\p{Diacritic}/gu, '')
+          .toLowerCase()
+          .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
+          .replace(/^-+|-+$/g, '');
+        const key = `${group.id}:${name}`;
+
+        if (!name || commandKeys.has(key)) continue;
+        commandKeys.add(key);
+        commands.push({
+          id: key,
+          type: group.id,
+          name,
+          description: item.description,
+        });
+      }
+    }
+
+    const result = {
+      itemCount: items.length,
+      tokenCount: items.reduce((total, item) => total + item.tokenCount, 0),
+      groups,
+      commands,
+    };
+    traceVerbose('context.discovery-completed', {
+      operation: 'list-context-items',
+      scope,
+      duration_ms: Date.now() - startedAt,
+      item_count: result.itemCount,
+      instruction_count: instructionFiles.length,
+      skill_count: skillFiles.length,
+      workflow_count: workflowFiles.length,
+      directory_count: scan.directoryCount,
+      timed_out: scan.timedOut,
+    });
+    return result;
+
+  } catch (error) {
+    traceError('context.discovery-error', {
+      operation: 'list-context-items',
+      scope,
+      duration_ms: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
 function escapeXml(value) {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -440,32 +519,118 @@ function escapeXml(value) {
     .replaceAll('>', '&gt;');
 }
 
-async function collectFiles(rootPath, maxDepth, predicate) {
-  const files = [];
+async function scanContextFiles(rootPath, { includeRootCatalog = false } = {}) {
+  const root = path.resolve(rootPath);
+  const instructionFiles = [];
+  const skillFiles = [];
+  const workflowFiles = [];
+  const seenDirectories = new Set();
+  const waitingTasks = [];
+  const deadline = Date.now() + CONTEXT_SCAN_TIMEOUT_MS;
+  let activeTasks = 0;
+  let timedOut = false;
+  let directoryCount = 0;
 
-  async function visit(directoryPath, depth) {
-    let entries;
-    try {
-      entries = await readdir(directoryPath, { withFileTypes: true });
-    } catch {
+  const visit = async (directoryPath, contextRoot = null) => {
+    if (Date.now() >= deadline) {
+      timedOut = true;
       return;
     }
 
-    entries.sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true }));
-    for (const entry of entries) {
-      if (IGNORED_WORKSPACE_DIRECTORIES.has(entry.name.toLowerCase())) continue;
+    const directoryKey = normalizePathKey(directoryPath);
+    if (seenDirectories.has(directoryKey)) return;
+    seenDirectories.add(directoryKey);
+    directoryCount += 1;
 
-      const entryPath = path.join(directoryPath, entry.name);
-      if (entry.isDirectory()) {
-        if (depth < maxDepth) await visit(entryPath, depth + 1);
-      } else if (entry.isFile() && predicate(entry.name, depth)) {
-        files.push(entryPath);
-      }
+    if (activeTasks >= CONTEXT_SCAN_CONCURRENCY) {
+      await new Promise((resolve) => waitingTasks.push(resolve));
     }
-  }
 
-  await visit(rootPath, 0);
-  return files;
+    activeTasks += 1;
+    const effectiveContextRoot = contextRoot
+      ?? (path.basename(directoryPath).toLowerCase() === CONTEXT_DIRECTORY_NAME
+        ? directoryPath
+        : null);
+    const childDirectories = [];
+
+    try {
+      if (Date.now() >= deadline) {
+        timedOut = true;
+        return;
+      }
+
+      const handle = await opendir(directoryPath);
+      for await (const entry of handle) {
+        if (Date.now() >= deadline) {
+          timedOut = true;
+          break;
+        }
+
+        const normalizedName = entry.name.toLowerCase();
+        if (entry.isSymbolicLink() || IGNORED_WORKSPACE_DIRECTORIES.has(normalizedName)) continue;
+
+        const entryPath = path.join(directoryPath, entry.name);
+        if (entry.isDirectory()) {
+          childDirectories.push({
+            path: entryPath,
+            contextRoot: effectiveContextRoot
+              ?? (normalizedName === CONTEXT_DIRECTORY_NAME ? entryPath : null),
+          });
+          continue;
+        }
+        if (!entry.isFile()) continue;
+
+        if (INSTRUCTION_FILE_PATTERN.test(entry.name)) instructionFiles.push(entryPath);
+        if (!effectiveContextRoot) continue;
+
+        const relativeParts = path.relative(effectiveContextRoot, entryPath).split(path.sep);
+        const catalogName = relativeParts[0]?.toLowerCase();
+        const catalogDepth = relativeParts.length - 2;
+        if (catalogDepth < 0 || catalogDepth > MAX_CONTEXT_DIRECTORY_DEPTH) continue;
+        if (catalogName === 'skills' && normalizedName === 'skill.md') skillFiles.push(entryPath);
+        if (catalogName === 'workflows') workflowFiles.push(entryPath);
+      }
+    } catch {
+      return;
+    } finally {
+      activeTasks -= 1;
+      waitingTasks.shift()?.();
+    }
+
+    await Promise.all(childDirectories.map((child) => visit(child.path, child.contextRoot)));
+  };
+
+  await visit(root, includeRootCatalog ? root : null);
+
+  const sortPaths = (paths) => uniqueFiles(paths).sort((left, right) => (
+    left.localeCompare(right, undefined, { numeric: true })
+  ));
+  return {
+    instructionFiles: sortPaths(instructionFiles),
+    skillFiles: sortPaths(skillFiles),
+    workflowFiles: sortPaths(workflowFiles),
+    directoryCount,
+    timedOut,
+  };
+}
+
+function normalizePathKey(filePath) {
+  const resolvedPath = path.resolve(filePath);
+  return process.platform === 'win32' ? resolvedPath.toLowerCase() : resolvedPath;
+}
+
+function isHomeDirectory(directoryPath) {
+  return normalizePathKey(directoryPath) === normalizePathKey(homedir());
+}
+
+function uniqueFiles(files) {
+  const paths = new Set();
+  return files.filter((filePath) => {
+    const key = filePath.toLowerCase();
+    if (paths.has(key)) return false;
+    paths.add(key);
+    return true;
+  });
 }
 
 async function readDescription(filePath) {
@@ -481,6 +646,7 @@ async function readContextItem(filePath) {
       path: filePath,
       title: path.basename(filePath),
       description: 'Unable to read file.',
+      userInvocable: true,
       tokenCount: 0,
     };
   }
@@ -493,6 +659,9 @@ async function readContextItem(filePath) {
     .trim()
     .replace(/^(['"])(.*)\1$/, '$2');
   const descriptionIndex = frontmatterLines.findIndex((line) => /^description\s*:/i.test(line));
+  const userInvocable = !frontmatterLines.some((line) => (
+    /^user-invocable\s*:\s*false(?:\s+#.*)?\s*$/i.test(line)
+  ));
   let description = '';
 
   if (descriptionIndex >= 0) {
@@ -518,6 +687,7 @@ async function readContextItem(filePath) {
     path: filePath,
     title: name || path.basename(filePath),
     description: description.replace(/^#+\s*/, '').replace(/\s+/g, ' ').trim(),
+    userInvocable,
     tokenCount: Math.ceil(content.length / 4),
   };
 }

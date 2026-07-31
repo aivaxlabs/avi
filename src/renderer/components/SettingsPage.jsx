@@ -663,10 +663,7 @@ export function SettingsPage({
                             <strong>{folder.name}</strong>
                             <small>{folder.displayPath}</small>
                           </span>
-                          <span className="settings-context-summary">
-                            {folder.itemCount} context item(s), ~
-                            {compactTokenFormatter.format(folder.tokenCount)} tokens total
-                          </span>
+                          <span className="settings-context-summary">Open to inspect</span>
                           <ArrowRight className="settings-entity-arrow" size={15} />
                         </button>
                       </article>

@@ -5,6 +5,7 @@ import Electrobun, {
 } from 'electrobun/bun';
 import { spawnSync } from 'node:child_process';
 import {
+  access,
   appendFile,
   mkdir,
   readFile,
@@ -45,7 +46,10 @@ import {
 } from './database.js';
 import { ChatRunner } from './chat-runner.js';
 import { stopConversationTerminals } from './client-tools.js';
-import { listContextItems } from './context-injection.js';
+import {
+  listContextItems,
+  resolveInstallationContextPath,
+} from './context-injection.js';
 import {
   filePathToAttachment,
   inspectWorkspaceFiles,
@@ -685,7 +689,10 @@ function registerIpc() {
     return folderPath ? inspectProjectFolder(folderPath) : null;
   });
   ipcMain.handle('context:folders', async () => {
+    const startedAt = Date.now();
+    traceVerbose('context.page-opened', { operation: 'context:folders' });
     const globalPath = join(homedir(), '.agents');
+    const installationPath = resolveInstallationContextPath();
     const folders = new Map([
       [globalPath.toLowerCase(), {
         path: globalPath,
@@ -693,28 +700,93 @@ function registerIpc() {
         displayPath: '~/.agents',
       }],
     ]);
+    try {
+      await access(installationPath);
+      folders.set(installationPath.toLowerCase(), {
+        path: installationPath,
+        name: 'Avi',
+        displayPath: 'AVI/context',
+      });
+    } catch {}
     for (const conversation of listConversations()) {
-      const project = inspectProjectFolder(conversation.projectPath);
-      if (!folders.has(project.path.toLowerCase())) {
-        folders.set(project.path.toLowerCase(), project);
-      }
+      const projectPath = resolve(conversation.projectPath);
+      if (projectPath === resolve(homedir())) continue;
+      const key = projectPath.toLowerCase();
+      if (folders.has(key)) continue;
+      const relativePath = relative(homedir(), projectPath);
+      folders.set(key, {
+        path: projectPath,
+        name: basename(projectPath),
+        displayPath: !relativePath.startsWith('..') && !isAbsolute(relativePath)
+          ? `~/${relativePath.replaceAll('\\', '/')}`
+          : projectPath,
+      });
     }
 
-    return Promise.all([...folders.values()].map(async (folder) => {
-      const { itemCount, tokenCount } = await listContextItems(folder.path);
-      return { ...folder, itemCount, tokenCount };
-    }));
+    try {
+      const result = [...folders.values()];
+      traceVerbose('context.page-loaded', {
+        operation: 'context:folders',
+        duration_ms: Date.now() - startedAt,
+        folder_count: result.length,
+        discovery_deferred: true,
+      });
+      return result;
+    } catch (error) {
+      traceError('context.page-error', {
+        operation: 'context:folders',
+        duration_ms: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   });
-  ipcMain.handle('context:folder', (_event, folderPath) => (
-    listContextItems(folderPath)
-  ));
+  ipcMain.handle('context:folder', async (_event, folderPath) => {
+    const startedAt = Date.now();
+    const installationPath = resolveInstallationContextPath();
+    const scope = resolve(folderPath) === resolve(installationPath) ? 'installation' : 'folder';
+    traceVerbose('context.folder-opened', { operation: 'context:folder', scope });
+    try {
+      const result = await listContextItems(folderPath, {
+        includeRootCatalog: scope === 'installation',
+        scope,
+      });
+      traceVerbose('context.folder-loaded', {
+        operation: 'context:folder',
+        scope,
+        duration_ms: Date.now() - startedAt,
+        item_count: result.itemCount,
+      });
+      return result;
+    } catch (error) {
+      traceError('context.folder-error', {
+        operation: 'context:folder',
+        scope,
+        duration_ms: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  });
   ipcMain.handle('context:commands', async (_event, folderPath) => {
     const globalPath = join(homedir(), '.agents');
-    const roots = [resolve(folderPath || homedir()), globalPath]
+    const installationPath = resolveInstallationContextPath();
+    const workspacePath = folderPath ? resolve(folderPath) : null;
+    const roots = [
+      workspacePath && workspacePath !== resolve(homedir())
+        ? { path: workspacePath, scope: 'workspace' }
+        : null,
+      { path: globalPath, scope: 'global' },
+      { path: installationPath, scope: 'installation' },
+    ]
       .filter((root, index, items) => (
-        items.findIndex((item) => item.toLowerCase() === root.toLowerCase()) === index
+        root
+        && items.findIndex((item) => item?.path.toLowerCase() === root.path.toLowerCase()) === index
       ));
-    const contexts = await Promise.all(roots.map((root) => listContextItems(root)));
+    const contexts = await Promise.all(roots.map((root) => listContextItems(root.path, {
+      includeRootCatalog: resolve(root.path) === resolve(installationPath),
+      scope: root.scope,
+    })));
     const commands = new Map();
 
     for (const command of contexts.flatMap((context) => context.commands)) {
