@@ -2,8 +2,11 @@ import { execFile, spawn } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import {
   lstat,
+  mkdir,
   readFile,
   readdir,
+  realpath,
+  writeFile,
 } from 'node:fs/promises';
 import {
   basename,
@@ -13,6 +16,7 @@ import {
   relative,
   resolve,
 } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 
@@ -32,6 +36,7 @@ const execFileAsync = promisify(execFile);
 const previewSizeLimit = 1024 * 1024;
 const filenameResultLimit = 80;
 const contentResultLimit = 120;
+const temporaryAttachmentDirectory = resolve(tmpdir(), 'avi-attachments');
 
 const mimeTypes = {
   '.png': 'image/png',
@@ -69,26 +74,93 @@ const mimeTypes = {
 };
 
 export function filePathToAttachment(filePath) {
-  const ext = extname(filePath).toLowerCase();
-  const name = basename(filePath);
+  const path = realpathSync.native(filePath);
+  const ext = extname(path).toLowerCase();
+  const name = basename(path);
   const mime = mimeTypes[ext] ?? 'application/octet-stream';
-  const buffer = readFileSync(filePath);
+  const buffer = readFileSync(path);
   const base64 = buffer.toString('base64');
   const dataUrl = `data:${mime};base64,${base64}`;
 
   if (imageExtensions.has(ext)) {
-    return makeAttachment({ name, mime, size: buffer.length, kind: 'image_url', dataUrl });
+    return makeAttachment({ name, mime, size: buffer.length, kind: 'image_url', path, dataUrl });
   }
   if (videoExtensions.has(ext)) {
-    return makeAttachment({ name, mime, size: buffer.length, kind: 'video_url', dataUrl });
+    return makeAttachment({ name, mime, size: buffer.length, kind: 'video_url', path, dataUrl });
   }
   if (audioExtensions.has(ext) && ext === '.mp3') {
-    return makeAttachment({ name, mime, size: buffer.length, kind: 'input_audio', base64, format: 'mp3' });
+    return makeAttachment({ name, mime, size: buffer.length, kind: 'input_audio', path, base64, format: 'mp3' });
   }
   if (textExtensions.has(ext) || mime.startsWith('text/')) {
-    return makeAttachment({ name, mime, size: buffer.length, kind: 'text_inline', text: buffer.toString('utf8') });
+    return makeAttachment({ name, mime, size: buffer.length, kind: 'text_inline', path, text: buffer.toString('utf8') });
   }
-  return makeAttachment({ name, mime, size: buffer.length, kind: 'file', dataUrl });
+  return makeAttachment({ name, mime, size: buffer.length, kind: 'file', path, dataUrl });
+}
+
+export async function normalizeAttachmentsForModel(attachments, capabilities = {}) {
+  return Promise.all(attachments.map(async (attachment) => {
+    const supported = attachment.kind === 'context_marker'
+      || attachment.kind === 'file_reference'
+      || (attachment.kind === 'text_inline' && attachment.source !== 'pasted_text')
+      || (attachment.kind === 'image_url' && capabilities.images)
+      || (attachment.kind === 'input_audio' && capabilities.audio)
+      || (
+        attachment.kind === 'file'
+        && attachment.mime === 'application/pdf'
+        && capabilities.pdfFiles
+      );
+    if (supported) return attachment;
+
+    let path = null;
+    if (typeof attachment.path === 'string' && isAbsolute(attachment.path)) {
+      try {
+        const realPath = await realpath(attachment.path);
+        if ((await lstat(realPath)).isFile()) path = realPath;
+      } catch {}
+    }
+
+    let temporary = false;
+    if (!path) {
+      let buffer = null;
+      if (typeof attachment.text === 'string') {
+        buffer = Buffer.from(attachment.text, 'utf8');
+      } else if (typeof attachment.base64 === 'string') {
+        buffer = Buffer.from(attachment.base64, 'base64');
+      } else if (typeof attachment.dataUrl === 'string') {
+        const separatorIndex = attachment.dataUrl.indexOf(',');
+        if (separatorIndex >= 0) {
+          const metadata = attachment.dataUrl.slice(0, separatorIndex);
+          const encoded = attachment.dataUrl.slice(separatorIndex + 1);
+          buffer = metadata.endsWith(';base64')
+            ? Buffer.from(encoded, 'base64')
+            : Buffer.from(decodeURIComponent(encoded), 'utf8');
+        }
+      }
+      if (!buffer) {
+        throw new Error(`Could not create a local copy of "${attachment.name ?? 'attachment'}".`);
+      }
+
+      await mkdir(temporaryAttachmentDirectory, { recursive: true });
+      const safeName = basename(attachment.name || 'attachment')
+        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
+      path = resolve(temporaryAttachmentDirectory, `${crypto.randomUUID()}-${safeName}`);
+      await writeFile(path, buffer);
+      temporary = true;
+    }
+
+    const {
+      base64: _base64,
+      dataUrl: _dataUrl,
+      text: _text,
+      ...metadata
+    } = attachment;
+    return {
+      ...metadata,
+      kind: 'file_reference',
+      path,
+      temporary,
+    };
+  }));
 }
 
 export async function inspectWorkspaceFiles(folderPath) {

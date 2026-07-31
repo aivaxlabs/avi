@@ -5,6 +5,8 @@
     font-size: 14px;
     color: var(--text-1);
     background: transparent;
+    --primary-color: #00af66;
+    --primary-color-opaque: #00af6622;
     --base-transition: cubic-bezier(0.075, 0.82, 0.165, 1);
     --text-1: #171717;
     --text-2: #404040;
@@ -20,7 +22,7 @@
     --item-hover: var(--background-3);
     --item-active: var(--background-4);
     --border-color: var(--background-4);
-    --link-color: #12db87;
+    --link-color: var(--primary-color);
     --highlight-color: #fff1a8;
     --success-color: #18794e;
     --warn-color: #9a6700;
@@ -43,6 +45,8 @@ mark {
 @media (prefers-color-scheme: dark) {
     :root {
         color-scheme: dark;
+        --primary-color: #58fdb8;
+        --primary-color-opaque: #58fdb822;
         --text-1: #f3f3f3;
         --text-2: #c5c5c5;
         --text-3: #a6a6a6;
@@ -54,7 +58,6 @@ mark {
         --background-3: #191919;
         --background-4: #232323;
         --background-5: #f3f3f3;
-        --link-color: #58fdb8;
         --highlight-color: #665c00;
         --success-color: #55b985;
         --warn-color: #d5a64a;
@@ -134,6 +137,10 @@ html, body, #root {
     outline-offset: -3px;
 }
 
+body {
+    border-top: 1px solid var(--border-color);
+}
+
 body.panel-resizing {
     cursor: col-resize;
     user-select: none;
@@ -178,12 +185,18 @@ button, input, textarea, select {
     left: 0;
     width: 100%;
     padding: 14px 28px 24px;
+    pointer-events: none;
     transition: bottom 360ms var(--base-transition);
 }
 
-.composer-wrap .composer-strip {
+.composer-wrap > * {
+    pointer-events: all;
+}
+
+.composer-wrap .composer-wrap-strip {
     position: relative;
     z-index: 0;
+    top: -10px;
     width: min(680px, 95%);
     margin: 0 auto -10px;
     color: var(--text-1);
@@ -194,7 +207,7 @@ button, input, textarea, select {
     border-radius: 16px 16px 0 0;
 }
 
-.composer-wrap .composer-strip + .composer-strip {
+.composer-wrap .composer-wrap-strip + .composer-wrap-strip {
     margin-top: 10px;
     border-radius: 0;
 }
@@ -280,7 +293,6 @@ button, input, textarea, select {
 }
 
 .composer-wrap .subagent-strip {
-    min-height: 42px;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
@@ -316,7 +328,7 @@ button, input, textarea, select {
     min-width: 0;
     min-height: 34px;
     display: grid;
-    grid-template-columns: 22px 18px minmax(0, 1fr) auto;
+    grid-template-columns: 22px 18px auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 5px;
     padding: 3px 5px;
@@ -349,7 +361,7 @@ button, input, textarea, select {
     background: transparent;
     border-radius: 6px;
     cursor: grab;
-    opacity: 0;
+    opacity: .4;
     transition: color 180ms var(--base-transition),
       background 180ms var(--base-transition),
       opacity 180ms var(--base-transition),
@@ -386,11 +398,32 @@ button, input, textarea, select {
     font-size: 12px;
 }
 
+.composer-wrap .queued-message-status, .composer-wrap .message-delivery-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-3);
+    font-size: 10px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.composer-wrap .queued-message-status {
+    padding: 3px 6px;
+    background: var(--background-3);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+}
+
+.composer-wrap .queued-messages li.steered .queued-message-status {
+    color: var(--link-color);
+}
+
 .composer-wrap .queued-message-actions {
     display: flex;
     align-items: center;
     gap: 2px;
-    opacity: 0;
+    opacity: .4;
     transition: opacity 180ms var(--base-transition);
 }
 
@@ -446,11 +479,13 @@ button, input, textarea, select {
     padding: 10px 8px 8px;
     background: var(--background-3);
     border: 1px solid var(--border-color);
+    outline: 3px solid transparent;
     border-radius: 20px;
 }
 
 .composer-wrap .composer:focus-within {
-    border-color: var(--text-3);
+    border-color: var(--primary-color);
+    outline: 3px solid var(--primary-color-opaque);
 }
 
 .composer-wrap .composer:has(.model-input-menu) {
@@ -600,6 +635,20 @@ button, input, textarea, select {
 .composer-wrap .work-mode-chip:focus-visible {
     outline: 2px solid var(--text-3);
     outline-offset: 1px;
+}
+
+.composer-wrap .message-delivery-indicator {
+    height: 26px;
+    flex: 0 0 auto;
+    padding: 0 8px;
+    background: var(--background-3);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+}
+
+.composer-wrap .message-delivery-indicator.steer {
+    color: var(--link-color);
+    border-color: color-mix(in srgb, var(--link-color) 35%, var(--border-color));
 }
 
 .composer-wrap .permission-mode-menu {
@@ -1863,6 +1912,8 @@ button, input, textarea, select {
 
 .subagent-report-body {
     min-width: 0;
+    max-height: 400px;
+    overflow-y: auto;
     padding: 14px 16px 16px;
 }
 
@@ -2865,13 +2916,12 @@ button, input, textarea, select {
 
 .auxiliary-panel .auxiliary-empty button strong {
     color: var(--text-1);
-    font-size: 12px;
     font-weight: 500;
 }
 
 .auxiliary-panel .auxiliary-empty button small {
     color: var(--text-3);
-    font-size: 10px;
+    font-size: .9rem;
 }
 
 .auxiliary-panel .auxiliary-empty button > svg:last-child {
@@ -3165,13 +3215,12 @@ button, input, textarea, select {
 .auxiliary-panel .provider-section-heading h3 {
     margin: 0;
     color: var(--text-1);
-    font-size: 12px;
+    font-size: 1rem;
     font-weight: 600;
 }
 
 .auxiliary-panel .provider-section-heading small {
     color: var(--text-3);
-    font-size: 10px;
     text-transform: capitalize;
 }
 
@@ -3206,13 +3255,12 @@ button, input, textarea, select {
 
 .auxiliary-panel .provider-limit-copy strong {
     color: var(--text-1);
-    font-size: 11px;
     font-weight: 500;
 }
 
 .auxiliary-panel .provider-limit-copy small {
     color: var(--text-3);
-    font-size: 10px;
+    font-size: .88rem;
 }
 
 .auxiliary-panel .provider-limit-value {
@@ -3273,21 +3321,19 @@ button, input, textarea, select {
 
 .auxiliary-panel .provider-reset-list article strong {
     color: var(--text-1);
-    font-size: 11px;
 }
 
 .auxiliary-panel .provider-reset-list article small {
     color: var(--text-3);
-    font-size: 10px;
+    font-size: .88rem;
 }
 
 .auxiliary-panel .provider-reset-list article button {
     min-height: 30px;
-    padding: 6px 10px;
+    padding: 4px 10px;
     color: var(--background-1);
     background: var(--text-1);
-    border-radius: 7px;
-    font-size: 10px;
+    font-weight: 500;
     transition: opacity 180ms var(--base-transition),
         transform 180ms var(--base-transition);
 }
@@ -4873,8 +4919,8 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .settings-page .settings-about-logo {
-    width: 84px;
-    height: 84px;
+    width: 256px;
+    height: 256px;
     flex: 0 0 auto;
     border-radius: 20px;
     object-fit: contain;
@@ -5262,7 +5308,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 .settings-page .settings-field {
     min-width: 0;
     display: grid;
-    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-columns: 400px minmax(0, 1fr);
     align-items: center;
     column-gap: 20px;
     row-gap: 6px;
@@ -5292,7 +5338,6 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     border: 1px solid var(--border-color);
     border-radius: 99px;
     outline: 0;
-    font-size: 12px;
 }
 
 .settings-page .settings-field input:focus, .settings-page .settings-field select:focus {
@@ -5301,7 +5346,9 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .settings-page .settings-field small {
-    grid-column: 2;
+    position: relative;
+    top: -.5em;
+    grid-column: 1;
     grid-row: 2;
     color: var(--text-3);
     font-size: .9rem;
@@ -6954,7 +7001,11 @@ button {
 }
 /* components\reasoning.xcss */
 .thinking-group {
-    margin-bottom: 6px;
+    margin: 6px 0;
+}
+
+.reasoning-traces-hidden .thinking-group {
+    display: none;
 }
 
 .thinking-summary, .worked-summary {
@@ -6965,7 +7016,11 @@ button {
     color: var(--text-3);
     background: transparent;
     border: 0;
-    font-size: 12px;
+    cursor: pointer;
+}
+
+.thinking-summary:hover, .worked-summary:hover {
+    color: var(--text-2);
 }
 
 .worked-block {
@@ -6992,7 +7047,7 @@ button {
 
 .thinking-group.open .thinking-details, .worked-block.open .worked-details {
     grid-template-rows: 1fr;
-    margin: 11px 0 13px;
+    margin: 2px 0 13px;
     opacity: 1;
 }
 
@@ -7002,7 +7057,7 @@ button {
 }
 
 .thinking-details-inner {
-    gap: 5px;
+    gap: 4px;
 }
 
 .worked-details-inner {
@@ -7011,8 +7066,7 @@ button {
 
 .reasoning-text {
     color: var(--text-3);
-    font-size: 12.6px;
-    line-height: 1.42;
+    line-height: 1.32;
 }
 
 .reasoning-text > :last-child {
@@ -7051,7 +7105,6 @@ button {
     width: 100%;
     gap: 5px;
     color: var(--text-3);
-    font-size: 12.6px;
     line-height: 1.45;
     cursor: pointer;
     list-style: none;
@@ -7070,27 +7123,6 @@ button {
     outline-offset: 2px;
 }
 
-:is(.reasoning-text, .tool-line) {
-    position: relative;
-    padding: 6px 0 6px 14px;
-}
-
-:is(.reasoning-text, .tool-line)::after {
-    content: '\2022';
-    position: absolute;
-    left: 0;
-    top: 5px;
-    opacity: .5;
-}
-
-:is(.reasoning-text + .tool-line, .tool-line + .reasoning-text, .reasoning-text + .tool-entry .tool-line, .tool-entry + .reasoning-text)::before {
-    content: '';
-    position: absolute;
-    border-top: 1px solid var(--border-color);
-    width: 30px;
-    top: -3px;
-}
-
 .tool-line-icon {
     flex: 0 0 auto;
     color: var(--text-3);
@@ -7107,7 +7139,7 @@ button {
 
 .tool-line strong {
     color: var(--text-1);
-    font-weight: 500;
+    font-weight: 400;
 }
 
 .tool-details {
@@ -7163,7 +7195,7 @@ button {
     align-items: center;
     justify-content: space-between;
     gap: 6px;
-    padding: 6px 8px;
+    padding: 6px 8px 6px 18px;
 }
 
 .sidebar .app-name {
@@ -7171,7 +7203,10 @@ button {
     align-items: center;
     gap: 7px;
     font-size: 13px;
-    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    opacity: .5;
     color: var(--text-1);
 }
 
@@ -7454,6 +7489,11 @@ button {
 .sidebar .conversation-show-toggle:hover {
     color: var(--text-1);
     background: var(--item-hover);
+}
+
+.sidebar .completion-indicator {
+    flex: 0 0 auto;
+    color: var(--success-color);
 }
 
 .sidebar .run-spinner {

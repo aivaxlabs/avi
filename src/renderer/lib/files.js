@@ -28,6 +28,7 @@ export async function fileToAttachment(file) {
     mime: file.type || 'application/octet-stream',
     size: file.size,
     kind,
+    ...(typeof file.path === 'string' && file.path.trim() ? { path: file.path } : {}),
   };
   if (kind === 'text_inline') {
     return {
@@ -54,8 +55,9 @@ export function textToAttachment(text, name = 'pasted-text.txt') {
     id: crypto.randomUUID(),
     name,
     mime: 'text/plain',
-    size: text.length,
+    size: new TextEncoder().encode(text).byteLength,
     kind: 'text_inline',
+    source: 'pasted_text',
     text,
   };
 }

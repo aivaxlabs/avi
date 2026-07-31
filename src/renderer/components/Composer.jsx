@@ -317,6 +317,7 @@ export function Composer({
       ? Boolean(text.trim())
       : Boolean(text.trim() || attachments.length > 0)
   );
+  const canResumeQueue = !isRunning && queuedMessages.length > 0;
   const workingSubagents = subagents.filter((subagent) => subagent.status === 'working').length;
   const finishedSubagents = subagents.filter((subagent) => subagent.status === 'finished').length;
   const failedSubagents = subagents.filter((subagent) => subagent.status === 'failed').length;
@@ -646,7 +647,7 @@ export function Composer({
     }
 
     const pastedText = event.clipboardData.getData('text');
-    if (pastedText && pastedText.length > 4000) {
+    if (pastedText && pastedText.length > 2048) {
       event.preventDefault();
       setAttachments((items) => [...items, textToAttachment(pastedText)]);
     }
@@ -848,6 +849,7 @@ export function Composer({
             <li
               key={message.id}
               className={[
+                message.status === 'steered' && 'steered',
                 draggedQueuedMessageId === message.id && 'dragging',
                 queuedMenu?.messageId === message.id && 'menu-open',
               ].filter(Boolean).join(' ')}
@@ -895,6 +897,12 @@ export function Composer({
                 <GripVertical size={14} />
               </button>
               <span className="queued-message-position" aria-hidden="true">{index + 1}</span>
+              <span className="queued-message-status">
+                {message.status === 'steered'
+                  ? <CornerDownLeft size={12} aria-hidden="true" />
+                  : <Clock3 size={12} aria-hidden="true" />}
+                <span>{message.status === 'steered' ? 'Steering' : 'Queued'}</span>
+              </span>
               <span
                 className="queued-message-copy"
                 title={message.content || message.attachments.map((attachment) => attachment.name).join(', ')}
@@ -904,18 +912,20 @@ export function Composer({
                   || 'Message with attachments'}
               </span>
               <div className="queued-message-actions">
-                <button
-                  type="button"
-                  className="queued-message-steer"
-                  title="Stop the current response and send this message next"
-                  onClick={() => onSteerQueued(
-                    message.id,
-                    queuedMessages.map((item) => item.id),
-                  )}
-                >
-                  <CornerDownLeft size={13} />
-                  <span>Steer</span>
-                </button>
+                {message.status !== 'steered' && (
+                  <button
+                    type="button"
+                    className="queued-message-steer"
+                    title="Stop the current response and send this message next"
+                    onClick={() => onSteerQueued(
+                      message.id,
+                      queuedMessages.map((item) => item.id),
+                    )}
+                  >
+                    <CornerDownLeft size={13} />
+                    <span>Steer</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   title="Remove from queue"
@@ -1426,14 +1436,23 @@ export function Composer({
             >
               <Square size={15} />
             </button>
-          ) : canSend ? (
+          ) : canSend || canResumeQueue ? (
             <button
               className="round-button send-button"
               type="button"
-              onClick={(event) => submit({
-                steer: shouldSteerMessage(messageDeliveryMode, isRunning, event.ctrlKey),
-              })}
-              aria-label="Send"
+              onClick={(event) => {
+                if (!canSend) {
+                  onSteerQueued(
+                    queuedMessages[0].id,
+                    queuedMessages.map((message) => message.id),
+                  );
+                  return;
+                }
+                submit({
+                  steer: shouldSteerMessage(messageDeliveryMode, isRunning, event.ctrlKey),
+                });
+              }}
+              aria-label={canSend ? 'Send' : 'Resume queue'}
             >
               <ArrowUp size={18} />
             </button>
@@ -1683,7 +1702,7 @@ function ComposerStrip({
   ...props
 }) {
   return (
-    <Root className={`composer-strip ${className}`.trim()} {...props}>
+    <Root className={`composer-wrap-strip ${className}`.trim()} {...props}>
       {children}
     </Root>
   );

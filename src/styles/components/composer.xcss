@@ -3,12 +3,19 @@
   bottom: var(--composer-bottom);
   left: 0;
   width: 100%;
+
   padding: 14px 28px 24px;
+  pointer-events: none;
   transition: bottom 360ms var(--base-transition);
 
-  .composer-strip {
+  > * {
+    pointer-events: all;
+  }
+
+  .composer-wrap-strip {
     position: relative;
     z-index: 0;
+    top: -10px;
     width: min(680px, 95%);
     margin: 0 auto -10px;
     color: var(--text-1);
@@ -19,7 +26,7 @@
     border-radius: 16px 16px 0 0;
   }
 
-  .composer-strip + .composer-strip {
+  .composer-wrap-strip + .composer-wrap-strip {
     margin-top: 10px;
     border-radius: 0;
   }
@@ -106,7 +113,6 @@
   }
 
   .subagent-strip {
-    min-height: 42px;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
@@ -142,7 +148,7 @@
       min-width: 0;
       min-height: 34px;
       display: grid;
-      grid-template-columns: 22px 18px minmax(0, 1fr) auto;
+      grid-template-columns: 22px 18px auto minmax(0, 1fr) auto;
       align-items: center;
       gap: 5px;
       padding: 3px 5px;
@@ -177,7 +183,7 @@
     background: transparent;
     border-radius: 6px;
     cursor: grab;
-    opacity: 0;
+    opacity: .4;
     transition: color 180ms var(--base-transition),
       background 180ms var(--base-transition),
       opacity 180ms var(--base-transition),
@@ -217,11 +223,33 @@
     font-size: 12px;
   }
 
+  .queued-message-status,
+  .message-delivery-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-3);
+    font-size: 10px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .queued-message-status {
+    padding: 3px 6px;
+    background: var(--background-3);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+  }
+
+  .queued-messages li.steered .queued-message-status {
+    color: var(--link-color);
+  }
+
   .queued-message-actions {
     display: flex;
     align-items: center;
     gap: 2px;
-    opacity: 0;
+    opacity: .4;
     transition: opacity 180ms var(--base-transition);
   }
 
@@ -281,10 +309,12 @@
     padding: 10px 8px 8px;
     background: var(--background-3);
     border: 1px solid var(--border-color);
+    outline: 3px solid transparent;
     border-radius: 20px;
 
     &:focus-within {
-      border-color: var(--text-3);
+      border-color: --primary-color;
+      outline: 3px solid --primary-color-opaque;
     }
 
     &:has(.model-input-menu) {
@@ -438,6 +468,20 @@
     &:focus-visible {
       outline: 2px solid var(--text-3);
       outline-offset: 1px;
+    }
+  }
+
+  .message-delivery-indicator {
+    height: 26px;
+    flex: 0 0 auto;
+    padding: 0 8px;
+    background: var(--background-3);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+
+    &.steer {
+      color: var(--link-color);
+      border-color: color-mix(in srgb, var(--link-color) 35%, var(--border-color));
     }
   }
 
