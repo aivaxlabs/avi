@@ -1,6 +1,10 @@
 .project-picker-row {
   position: relative;
   z-index: 2;
+
+  &:has(.project-picker-menu) {
+    z-index: 4;
+  }
   width: min(680px, 95%);
   margin: 0 auto;
   display: flex;

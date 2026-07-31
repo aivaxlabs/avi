@@ -15,9 +15,8 @@
   .composer-wrap-strip {
     position: relative;
     z-index: 0;
-    top: -10px;
     width: min(680px, 95%);
-    margin: 0 auto -10px;
+    margin: 0 auto;
     color: var(--text-1);
     background: var(--background-2);
     backdrop-filter: blur(4px);
@@ -27,7 +26,6 @@
   }
 
   .composer-wrap-strip + .composer-wrap-strip {
-    margin-top: 10px;
     border-radius: 0;
   }
 
@@ -303,7 +301,7 @@
 
   .composer {
     position: relative;
-    z-index: 1;
+    z-index: 3;
     width: min(720px, 100%);
     margin: 0 auto;
     padding: 10px 8px 8px;

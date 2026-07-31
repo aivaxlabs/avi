@@ -196,9 +196,8 @@ button, input, textarea, select {
 .composer-wrap .composer-wrap-strip {
     position: relative;
     z-index: 0;
-    top: -10px;
     width: min(680px, 95%);
-    margin: 0 auto -10px;
+    margin: 0 auto;
     color: var(--text-1);
     background: var(--background-2);
     backdrop-filter: blur(4px);
@@ -208,7 +207,6 @@ button, input, textarea, select {
 }
 
 .composer-wrap .composer-wrap-strip + .composer-wrap-strip {
-    margin-top: 10px;
     border-radius: 0;
 }
 
@@ -473,7 +471,7 @@ button, input, textarea, select {
 
 .composer-wrap .composer {
     position: relative;
-    z-index: 1;
+    z-index: 3;
     width: min(720px, 100%);
     margin: 0 auto;
     padding: 10px 8px 8px;
@@ -3683,6 +3681,10 @@ button, input, textarea, select {
     border-radius: 0 0 16px 16px;
     padding: 0 10px;
     gap: 12px;
+}
+
+.project-picker-row:has(.project-picker-menu) {
+    z-index: 4;
 }
 
 .project-picker-row .project-picker-holder {
