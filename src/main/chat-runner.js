@@ -1293,6 +1293,12 @@ export class ChatRunner {
           }).tools;
       const availableTools = [
         ...CLIENT_TOOLS
+          .filter((tool) => (
+            tool.name !== 'read_media_file'
+            || selection.model.capabilities?.images
+            || selection.model.capabilities?.audio
+            || selection.model.capabilities?.pdfFiles
+          ))
           .filter((tool) => workMode !== 'plan' || PLAN_TOOL_NAMES.has(tool.name))
           .filter((tool) => tool.name !== 'start_goal' || !goalContinues)
           .filter((tool) => tool.name !== 'update_goal_status' || goalContinues)
@@ -1304,6 +1310,17 @@ export class ChatRunner {
             || (!currentConversation?.isSubagent && !currentConversation?.isSideChat)
           ))
           .map((tool) => {
+            if (tool.name === 'read_media_file') {
+              const supportedMedia = [
+                selection.model.capabilities?.images && 'images',
+                selection.model.capabilities?.audio && 'MP3 audio',
+                selection.model.capabilities?.pdfFiles && 'PDF files',
+              ].filter(Boolean);
+              return {
+                ...tool,
+                description: `Read local ${supportedMedia.join(', ')} using the selected model multimodally. Text files are not supported.`,
+              };
+            }
             if (['chat_create_thread', 'chat_spawn_subagent'].includes(tool.name)) {
               return {
                 ...tool,
@@ -1588,6 +1605,7 @@ export class ChatRunner {
           persistAssistant({ force: true });
 
           let output;
+          let mediaContent;
           let isError = false;
           let toolError = null;
           let toolStartedAt = null;
@@ -1664,8 +1682,19 @@ export class ChatRunner {
               ultraMode,
               goal: goalContext,
               tuning,
+              capabilities: selection.model.capabilities,
             });
-            output = typeof value === 'string' ? value : JSON.stringify(value);
+            if (
+              value
+              && typeof value === 'object'
+              && typeof value.output === 'string'
+              && Array.isArray(value.mediaContent)
+            ) {
+              output = value.output;
+              mediaContent = value.mediaContent;
+            } else {
+              output = typeof value === 'string' ? value : JSON.stringify(value);
+            }
           } catch (error) {
             isError = true;
             toolError = error instanceof Error ? error.message : String(error);
@@ -1702,6 +1731,7 @@ export class ChatRunner {
           results.push({
             callId: toolCall.callId,
             output,
+            ...(mediaContent?.length ? { mediaContent } : {}),
             isError,
           });
           accumulator.apply({

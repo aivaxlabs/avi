@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -138,6 +139,78 @@ try {
     getMessages(planConversation.id).map((message) => message.workMode),
     ['plan', 'plan'],
   );
+
+  const mediaPath = join(resolvedProfile, 'pixel.png');
+  writeFileSync(mediaPath, Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'base64',
+  ));
+  model.capabilities = { images: true, audio: false, pdfFiles: false };
+  const mediaCalls = [];
+  const mediaProvider = {
+    getContributions: () => ({ tools: [] }),
+    stream: async (request) => {
+      mediaCalls.push(request);
+      return mediaCalls.length === 1
+        ? {
+            assistantContent: '',
+            toolCalls: [{
+              callId: 'read-media',
+              name: 'read_media_file',
+              argumentsText: JSON.stringify({
+                path: mediaPath,
+                __invocation_goal: 'Inspect the image.',
+                __requires_human_approval: false,
+              }),
+            }],
+          }
+        : { assistantContent: 'Image inspected.', toolCalls: [] };
+    },
+  };
+  const { runner: mediaRunner } = buildRunner(mediaProvider);
+  const mediaConversation = createConversation({ model: model.id, projectPath: process.cwd() });
+  await mediaRunner.send({
+    conversationId: mediaConversation.id,
+    model: model.id,
+    text: 'Inspect the image',
+    permissionMode: 'full_access',
+  });
+  await waitFor(() => !mediaRunner.runs.has(mediaConversation.id));
+  const exposedMediaTool = mediaCalls[0].tools.find((tool) => tool.name === 'read_media_file');
+  assert.match(exposedMediaTool.description, /images/);
+  assert.doesNotMatch(exposedMediaTool.description, /audio|PDF/);
+  assert.equal(mediaCalls[1].toolHistory[0].results[0].mediaContent[0].type, 'image_url');
+  assert.match(
+    mediaCalls[1].toolHistory[0].results[0].mediaContent[0].image_url.url,
+    /^data:image\/png;base64,/,
+  );
+
+  const readMediaFile = CLIENT_TOOLS.find((tool) => tool.name === 'read_media_file');
+  const textPath = join(resolvedProfile, 'notes.txt');
+  writeFileSync(textPath, 'text is not media');
+  await assert.rejects(
+    readMediaFile.execute({ path: textPath }, { capabilities: model.capabilities }),
+    /does not read text files/,
+  );
+
+  model.capabilities = { images: false, audio: false, pdfFiles: false };
+  const noMediaCalls = [];
+  const noMediaProvider = {
+    getContributions: () => ({ tools: [] }),
+    stream: async (request) => {
+      noMediaCalls.push(request);
+      return { assistantContent: '', toolCalls: [] };
+    },
+  };
+  const { runner: noMediaRunner } = buildRunner(noMediaProvider);
+  const noMediaConversation = createConversation({ model: model.id, projectPath: process.cwd() });
+  await noMediaRunner.send({
+    conversationId: noMediaConversation.id,
+    model: model.id,
+    text: 'No media capability',
+  });
+  await waitFor(() => !noMediaRunner.runs.has(noMediaConversation.id));
+  assert.equal(noMediaCalls[0].tools.some((tool) => tool.name === 'read_media_file'), false);
 
   const restoredConversation = createConversation({ model: model.id, projectPath: process.cwd() });
   const restoredMessage = insertMessage({

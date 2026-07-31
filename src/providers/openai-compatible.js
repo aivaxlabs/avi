@@ -1,5 +1,22 @@
 import { defineProvider, prepareProviderInvocation } from '../main/provider-api.js';
 
+function toResponsesContent(content) {
+  return content.map((item) => {
+    if (item.type === 'text') return { type: 'input_text', text: item.text };
+    if (item.type === 'image_url') {
+      return { type: 'input_image', image_url: item.image_url?.url };
+    }
+    if (item.type === 'file') {
+      return {
+        type: 'input_file',
+        filename: item.file?.filename,
+        file_data: item.file?.file_data,
+      };
+    }
+    return item;
+  });
+}
+
 const reasoningFormatField = {
   id: 'reasoningFormat',
   label: 'Reasoning format',
@@ -42,22 +59,7 @@ export const responsesApi = {
         ...messages.map((message) => ({
           ...message,
           content: Array.isArray(message.content)
-            ? message.content.map((item) => {
-                if (item.type === 'text') {
-                  return { type: 'input_text', text: item.text };
-                }
-                if (item.type === 'image_url') {
-                  return { type: 'input_image', image_url: item.image_url?.url };
-                }
-                if (item.type === 'file') {
-                  return {
-                    type: 'input_file',
-                    filename: item.file?.filename,
-                    file_data: item.file?.file_data,
-                  };
-                }
-                return item;
-              })
+            ? toResponsesContent(message.content)
             : message.content,
         })),
         ...toolHistory.flatMap((round) => [
@@ -80,11 +82,20 @@ export const responsesApi = {
               name: toolCall.name,
               arguments: toolCall.argumentsText,
             })),
-          ...round.results.map((result) => ({
-            type: 'function_call_output',
-            call_id: result.callId,
-            output: result.output,
-          })),
+          ...round.results.flatMap((result) => [
+            {
+              type: 'function_call_output',
+              call_id: result.callId,
+              output: result.output,
+            },
+            ...(result.mediaContent?.length
+              ? [{
+                  type: 'message',
+                  role: 'user',
+                  content: toResponsesContent(result.mediaContent),
+                }]
+              : []),
+          ]),
         ]),
       ],
       ...(prepared.tools.length > 0
@@ -237,11 +248,16 @@ const chatCompletionsApi = {
                 }
               : {}),
           },
-          ...round.results.map((result) => ({
-            role: 'tool',
-            tool_call_id: result.callId,
-            content: result.output,
-          })),
+          ...round.results.flatMap((result) => [
+            {
+              role: 'tool',
+              tool_call_id: result.callId,
+              content: result.output,
+            },
+            ...(result.mediaContent?.length
+              ? [{ role: 'user', content: result.mediaContent }]
+              : []),
+          ]),
         ]),
       ],
       ...(prepared.tools.length > 0

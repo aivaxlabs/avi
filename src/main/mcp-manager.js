@@ -6,9 +6,10 @@ import {
   StdioClientTransport,
 } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import packageMetadata from '../../package.json' with { type: 'json' };
 import {
@@ -705,7 +706,51 @@ export class McpManager {
                 .join('\n');
               throw new Error(message || `MCP tool "${tool.name}" returned an error.`);
             }
-            return result;
+            const parts = [];
+            const mediaFiles = [];
+            const timestamp = Date.now();
+            let mediaDir = null;
+            for (const item of result.content ?? []) {
+              if (item.type === 'text') {
+                parts.push(item.text);
+              } else if (item.type === 'image' || item.type === 'audio') {
+                const ext = (item.mimeType ?? '').split('/')[1]?.split(';')[0] ?? 'bin';
+                const id = randomBytes(6).toString('base64url');
+                if (!mediaDir) {
+                  mediaDir = join(tmpdir(), '.avi', 'media', String(timestamp));
+                  await mkdir(mediaDir, { recursive: true });
+                }
+                const filePath = join(mediaDir, `${id}.${ext}`);
+                await writeFile(filePath, Buffer.from(item.data, 'base64'));
+                mediaFiles.push(filePath);
+              } else if (item.type === 'resource') {
+                if (item.resource?.text) {
+                  parts.push(item.resource.text);
+                } else if (item.resource?.blob) {
+                  const ext = (item.resource.mimeType ?? '').split('/')[1]?.split(';')[0] ?? 'bin';
+                  const id = randomBytes(6).toString('base64url');
+                  if (!mediaDir) {
+                    mediaDir = join(tmpdir(), '.avi', 'media', String(timestamp));
+                    await mkdir(mediaDir, { recursive: true });
+                  }
+                  const filePath = join(mediaDir, `${id}.${ext}`);
+                  await writeFile(filePath, Buffer.from(item.resource.blob, 'base64'));
+                  mediaFiles.push(filePath);
+                } else {
+                  parts.push(`[resource: ${item.resource?.uri ?? 'unknown'}]`);
+                }
+              } else if (item.type === 'resource_link') {
+                parts.push(`[resource_link: ${item.uri ?? 'unknown'}]`);
+              } else {
+                parts.push(`[${item.type}]`);
+              }
+            }
+            let output = parts.join('\n');
+            if (mediaFiles.length > 0) {
+              const fileList = mediaFiles.map((f) => `- ${f.replace(/\\/g, '/')}`).join('\n');
+              output += `\n\nFiles created from tool response:\n${fileList}`;
+            }
+            return output || JSON.stringify(result.structuredContent ?? result);
           } catch (error) {
             this.appendLog(
               record,

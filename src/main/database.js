@@ -1025,7 +1025,7 @@ function messageToApiBlock(message, capabilities = {}) {
   };
 }
 
-function attachmentToApiBlock(attachment, capabilities = {}) {
+export function attachmentToApiBlock(attachment, capabilities = {}) {
   if (attachment.kind === 'context_marker') {
     return {
       type: 'text',

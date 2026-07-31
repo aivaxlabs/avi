@@ -13,6 +13,7 @@ import {
 } from 'node:path';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import {
+  attachmentToApiBlock,
   createConversation,
   forkConversation,
   getConversation,
@@ -20,6 +21,7 @@ import {
   listAllConversations,
   updateConversation,
 } from './database.js';
+import { filePathToAttachment } from './files.js';
 import { resolveTerminalShell } from './terminal-shell.js';
 
 const MAX_READ_URL_CHARS = 100_000;
@@ -112,6 +114,53 @@ async function waitForTerminal(terminal, { untilExit, timeout }) {
 }
 
 export const CLIENT_TOOLS = Object.freeze([
+  {
+    name: 'read_media_file',
+    description: 'Read a local media file using the selected model multimodally. Text files are not supported.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          minLength: 1,
+          description: 'Absolute path to the local media file.',
+        },
+      },
+      required: ['path'],
+      additionalProperties: false,
+    },
+    execute: async ({ path }, { capabilities = {} }) => {
+      if (typeof path !== 'string' || !isAbsolute(path)) {
+        throw new Error('path must be an absolute file path.');
+      }
+
+      const attachment = filePathToAttachment(path);
+      const supported = (attachment.kind === 'image_url' && capabilities.images)
+        || (attachment.kind === 'input_audio' && capabilities.audio)
+        || (
+          attachment.kind === 'file'
+          && attachment.mime === 'application/pdf'
+          && capabilities.pdfFiles
+        );
+      if (!supported) {
+        if (attachment.kind === 'text_inline') {
+          throw new Error('read_media_file does not read text files. Use read_file instead.');
+        }
+        if (attachment.kind === 'video_url') {
+          throw new Error('The selected model does not expose video input capability.');
+        }
+        throw new Error(`The selected model cannot read this media type (${attachment.mime}).`);
+      }
+
+      return {
+        output: `Media file loaded: ${attachment.path}`,
+        mediaContent: [attachmentToApiBlock(attachment, capabilities)],
+      };
+    },
+  },
   {
     name: 'start_goal',
     description: 'Start a Goal only when explicitly requested by the user or system/developer instructions; do not infer Goals from ordinary tasks. Fails if an unfinished Goal exists; use update_goal_status only for status.',
