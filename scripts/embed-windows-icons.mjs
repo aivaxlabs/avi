@@ -29,12 +29,19 @@ const artifactDir = process.env.ELECTROBUN_ARTIFACT_DIR
   : null;
 const iconPath = join(projectRoot, 'assets', 'icon', 'avi.ico');
 const rceditPath = join(projectRoot, 'node_modules', 'rcedit', 'bin', 'rcedit-x64.exe');
+const manifestPaths = {
+  'bun': join(projectRoot, 'scripts', 'windows-bun.manifest'),
+  'bun.exe': join(projectRoot, 'scripts', 'windows-bun.manifest'),
+  'launcher': join(projectRoot, 'scripts', 'windows-launcher.manifest'),
+  'launcher.exe': join(projectRoot, 'scripts', 'windows-launcher.manifest'),
+};
 const appName = process.env.ELECTROBUN_APP_NAME;
 const appVersion = process.env.ELECTROBUN_APP_VERSION;
 
-const embedAppIdentity = (targetPath) => {
+const embedAppIdentity = (targetPath, manifestPath = null) => {
   execFileSync(rceditPath, [
     targetPath,
+    ...(manifestPath ? ['--application-manifest', manifestPath] : []),
     '--set-icon',
     iconPath,
     '--set-version-string',
@@ -63,6 +70,7 @@ if (process.env.ELECTROBUN_OS === 'win') {
     || !appVersion
     || !existsSync(iconPath)
     || !existsSync(rceditPath)
+    || Object.values(manifestPaths).some((manifestPath) => !existsSync(manifestPath))
   ) {
     throw new Error('Windows build paths, icon assets, or rcedit are unavailable.');
   }
@@ -93,7 +101,9 @@ if (process.env.ELECTROBUN_OS === 'win') {
       }
     }
 
-    for (const targetPath of executableTargets) embedAppIdentity(targetPath);
+    for (const targetPath of executableTargets) {
+      embedAppIdentity(targetPath, manifestPaths[basename(targetPath).toLowerCase()]);
+    }
     console.log(`Embedded the Avi identity into ${executableTargets.length} application executable(s).`);
   } else {
     for (const setupPath of setupFiles) embedAppIdentity(setupPath);
