@@ -17,7 +17,6 @@ import {
   MessagesSquare,
   RotateCcw,
   ScanSearch,
-  Search,
   Send,
   Sparkles,
   SquareFunction,
@@ -136,8 +135,6 @@ const TOOL_ICONS = Object.freeze({
   chat_report_to_orchestrator: MessageSquareShare,
   chat_send_prompt: Send,
   chat_spawn_subagent: Bot,
-  file_search: Search,
-  grep_search: Search,
   read_file: FileText,
   read_terminal_output: TerminalSquare,
   read_url: Globe,
@@ -696,7 +693,18 @@ function createMarkdownComponents(finalized, onOpenFileReference) {
       ...props
     }) {
       if (!href?.startsWith('#file-reference=')) {
-        return <a href={href} {...props}>{children}</a>;
+        return (
+          <a
+            href={href}
+            {...props}
+            onClick={href && /^https?:\/\//i.test(href) ? (event) => {
+              event.preventDefault();
+              window.chatApp.app.openExternal(href);
+            } : undefined}
+          >
+            {children}
+          </a>
+        );
       }
 
       let reference;

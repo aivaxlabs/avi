@@ -30,7 +30,8 @@ body,
     grid-template-columns: minmax(0, 1fr);
   }
 
-  &.platform-win32, &.platform-darwin {
+  &.platform-win32,
+  &.platform-darwin {
     background: var(--background-1);
   }
 
@@ -75,6 +76,10 @@ body,
     outline: 2px solid var(--text-3);
     outline-offset: -3px;
   }
+}
+
+body {
+  border-top: 1px solid --border-color;
 }
 
 body.panel-resizing {

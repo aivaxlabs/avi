@@ -1,5 +1,6 @@
 import {
   Check,
+  CheckCircle2,
   Clock,
   CopyPlus,
   Filter,
@@ -26,13 +27,13 @@ import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 
 const GROUP_LIMIT = 5;
 const conversationGroupingKey = 'aivax.sidebar.conversation-grouping';
-const savedConversationGrouping = window.localStorage.getItem(conversationGroupingKey);
 
 export function Sidebar({
   conversations,
   models = [],
   selectedId,
   running,
+  completedUnseen,
   onNewChat,
   onSelect,
   onSearch,
@@ -47,11 +48,10 @@ export function Sidebar({
 }) {
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [filterMenuPosition, setFilterMenuPosition] = useState(null);
-  const [conversationGrouping, setConversationGrouping] = useState(
-    ['model', 'folder'].includes(savedConversationGrouping)
-      ? savedConversationGrouping
-      : 'chronological',
-  );
+  const [conversationGrouping, setConversationGrouping] = useState(() => {
+    const saved = window.localStorage.getItem(conversationGroupingKey);
+    return ['model', 'folder'].includes(saved) ? saved : 'chronological';
+  });
   const [expandedGroups, setExpandedGroups] = useState({});
   const [folderMenu, setFolderMenu] = useState(null);
   const [now, setNow] = useState(() => Date.now());
@@ -361,6 +361,7 @@ export function Sidebar({
                   conversation={conversation}
                   active={conversation.id === selectedId}
                   running={Boolean(running[conversation.id])}
+                  completedUnseen={Boolean(completedUnseen[conversation.id])}
                   now={now}
                   onSelect={() => onSelect(conversation.id)}
                   onFork={() => onFork(conversation.id)}
@@ -391,7 +392,16 @@ export function Sidebar({
   );
 }
 
-function ConversationItem({ conversation, active, running, now, onSelect, onFork, onDelete }) {
+function ConversationItem({
+  conversation,
+  active,
+  running,
+  completedUnseen,
+  now,
+  onSelect,
+  onFork,
+  onDelete,
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
   const menuButtonRef = useRef(null);
@@ -442,9 +452,11 @@ function ConversationItem({ conversation, active, running, now, onSelect, onFork
   return (
     <div className={classNames('conversation-item', active && 'active', menuOpen && 'menu-open')}>
       <button className="conversation-main" type="button" onClick={onSelect}>
-        {running && (
+        {running ? (
           <LoaderCircle className="run-spinner" size={12} aria-label="Working" />
-        )}
+        ) : completedUnseen ? (
+          <CheckCircle2 className="completion-indicator" size={13} aria-label="Completed" />
+        ) : null}
         <span className="conversation-title">{conversation.title || conversation.firstPrompt || 'New chat'}</span>
       </button>
       {ageLabel && <span className="conversation-age">{ageLabel}</span>}

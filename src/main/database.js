@@ -14,6 +14,7 @@ import {
   resolve,
 } from 'node:path';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
+import { traceError } from './trace-log.js';
 
 const storageDir = join(homedir(), '.aivax');
 mkdirSync(storageDir, { recursive: true });
@@ -29,13 +30,16 @@ const secureWrites = new Set();
 let providerCredentialsKey = null;
 
 const defaultTuningSettings = Object.freeze({
+  personality: null,
+  chatReasoningTraces: 'visible',
   automaticCompactionThreshold: 0.9,
-  toolOutputLimit: 120_000,
+  toolOutputLimit: 8_192,
   defaultPermissionMode: 'approve_for_me',
   messageDeliveryMode: 'queue',
   terminalShell: 'auto',
   terminalTimeoutSeconds: 30,
   maxConcurrentSubagents: 128,
+  logLevel: 'minimal',
 });
 
 db.exec(`
@@ -56,6 +60,7 @@ db.exec(`
     parent_conversation_id TEXT,
     initial_prompt TEXT,
     orchestration_mode TEXT,
+    auto_forward_to_parent INTEGER NOT NULL DEFAULT 0,
     context_checkpoint TEXT NOT NULL DEFAULT '',
     checkpoint_message_id TEXT,
     context_tokens INTEGER NOT NULL DEFAULT 0,
@@ -76,6 +81,7 @@ db.exec(`
     ultra_mode INTEGER NOT NULL DEFAULT 0,
     goal_id TEXT,
     hidden INTEGER NOT NULL DEFAULT 0,
+    queue_priority INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
     segments TEXT NOT NULL DEFAULT '[]',
@@ -143,6 +149,9 @@ if (!messageColumns.some((column) => column.name === 'goal_id')) {
 if (!messageColumns.some((column) => column.name === 'hidden')) {
   db.exec('ALTER TABLE messages ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
 }
+if (!messageColumns.some((column) => column.name === 'queue_priority')) {
+  db.exec('ALTER TABLE messages ADD COLUMN queue_priority INTEGER NOT NULL DEFAULT 0');
+}
 const conversationColumns = db.prepare("PRAGMA table_info('conversations')").all();
 if (!conversationColumns.some((column) => column.name === 'project_path')) {
   db.exec('ALTER TABLE conversations ADD COLUMN project_path TEXT');
@@ -161,6 +170,9 @@ if (!conversationColumns.some((column) => column.name === 'initial_prompt')) {
 }
 if (!conversationColumns.some((column) => column.name === 'orchestration_mode')) {
   db.exec('ALTER TABLE conversations ADD COLUMN orchestration_mode TEXT');
+}
+if (!conversationColumns.some((column) => column.name === 'auto_forward_to_parent')) {
+  db.exec('ALTER TABLE conversations ADD COLUMN auto_forward_to_parent INTEGER NOT NULL DEFAULT 0');
 }
 if (!conversationColumns.some((column) => column.name === 'context_checkpoint')) {
   db.exec("ALTER TABLE conversations ADD COLUMN context_checkpoint TEXT NOT NULL DEFAULT ''");
@@ -255,11 +267,13 @@ const statements = {
     INSERT INTO conversations (
       id, title, model, title_status, project_path, git_branch,
       conversation_type, parent_conversation_id, initial_prompt, orchestration_mode,
+      auto_forward_to_parent,
       context_checkpoint, checkpoint_message_id, context_tokens, created_at, updated_at
     )
     VALUES (
       @id, @title, @model, @titleStatus, @projectPath, @gitBranch,
       @conversationType, @parentConversationId, @initialPrompt, @orchestrationMode,
+      @autoForwardToParent,
       @contextCheckpoint, @checkpointMessageId, @contextTokens, @createdAt, @updatedAt
     )
   `),
@@ -337,13 +351,13 @@ const statements = {
   insertMessage: db.prepare(`
     INSERT INTO messages (
       id, conversation_id, role, model, reasoning_effort, permission_mode,
-      work_mode, ultra_mode, goal_id, hidden,
+      work_mode, ultra_mode, goal_id, hidden, queue_priority,
       status, content, segments, attachments,
       continuations, usage, created_at, updated_at
     )
     VALUES (
       @id, @conversationId, @role, @model, @reasoningEffort, @permissionMode,
-      @workMode, @ultraMode, @goalId, @hidden,
+      @workMode, @ultraMode, @goalId, @hidden, @queuePriority,
       @status, @content, @segments, @attachments,
       @continuations, @usage, @createdAt, @updatedAt
     )
@@ -559,6 +573,7 @@ export function createConversation({
   parentConversationId = null,
   initialPrompt = null,
   orchestrationMode = null,
+  autoForwardToParent = false,
   titleStatus = 'pending',
 } = {}) {
   const now = timestamp();
@@ -573,6 +588,7 @@ export function createConversation({
     parentConversationId,
     initialPrompt,
     orchestrationMode: orchestrationMode === 'ultra' ? 'ultra' : null,
+    autoForwardToParent: autoForwardToParent ? 1 : 0,
     contextCheckpoint: '',
     checkpointMessageId: null,
     contextTokens: 0,
@@ -669,6 +685,7 @@ export function insertMessage(message) {
     ultraMode: message.ultraMode ? 1 : 0,
     goalId: message.goalId ?? null,
     hidden: message.hidden ? 1 : 0,
+    queuePriority: message.queuePriority ? 1 : 0,
     status: message.status ?? 'completed',
     content: message.content ?? '',
     segments: stringify(message.segments ?? []),
@@ -760,6 +777,7 @@ export function forkConversation(id, {
   subagent = false,
   subagentPrompt = null,
   orchestrationMode = null,
+  autoForwardToParent = false,
 } = {}) {
   const source = getConversation(id);
   const childThread = sideChat || subagent;
@@ -799,6 +817,7 @@ export function forkConversation(id, {
     parentConversationId: childThread ? source.id : null,
     initialPrompt: subagent ? String(subagentPrompt ?? '').trim() || null : null,
     orchestrationMode: subagent ? orchestrationMode : null,
+    autoForwardToParent: subagent && autoForwardToParent,
     titleStatus: childThread ? 'generated' : 'pending',
   });
   const sourceMessages = getMessages(id);
@@ -861,11 +880,21 @@ function childThreadContext(conversation) {
 
   if (conversation.conversation_type === 'subagent') {
     const parent = statements.getConversation.get(conversation.parent_conversation_id);
+    const deliveryInstructions = conversation.auto_forward_to_parent
+      ? [
+          'Your final assistant response is automatically forwarded to the parent orchestrator by the runtime using steering.',
+          'Do not send or repeat the final response with a communication tool.',
+          'You may still use orchestration communication tools for material progress, blockers, dependencies, or course corrections before the final response.',
+          'Terminal errors are also forwarded automatically.',
+        ]
+      : [
+          'This thread was not started as an automatically reporting task. Its final response is not forwarded to the parent.',
+          'Use orchestration communication tools only when you intentionally want to contact another thread.',
+        ];
     const ultraInstructions = conversation.orchestration_mode === 'ultra'
       ? [
           'You are a specialist on an Ultra team led by the orchestrator in the parent thread.',
           'Own the focused assignment independently, investigate beyond the obvious path, and return evidence rather than assumptions.',
-          'Send material findings, blockers, dependencies, or course corrections promptly with chat_report_to_orchestrator; send a final report when your assignment is complete.',
           'Use chat_send_prompt to coordinate directly with another listed sub-agent when that materially improves the shared result.',
           'Challenge weak assumptions constructively, but stay within your assigned scope and do not duplicate work without a verification purpose.',
           'Do not expose private chain-of-thought. Communicate concise conclusions, decisions, evidence, and remaining uncertainty.',
@@ -873,7 +902,6 @@ function childThreadContext(conversation) {
       : [
           'You are a sub-agent working for the orchestrator in the parent thread.',
           'Complete the assignment in the latest user message independently.',
-          'When the assignment is complete, call chat_report_to_orchestrator exactly once with a concise result, evidence, and any blockers.',
         ];
     return [{
       role: 'system',
@@ -884,6 +912,7 @@ function childThreadContext(conversation) {
         `parent_thread_id: ${conversation.parent_conversation_id}`,
         `parent_thread_title: ${parent?.title ?? 'Unknown'}`,
         ...ultraInstructions,
+        ...deliveryInstructions,
         'You cannot invoke chat_spawn_subagent or create other sub-agents.',
         '</thread_context>',
       ].join('\n'),
@@ -904,7 +933,10 @@ function childThreadContext(conversation) {
   }];
 }
 
-export function toModelMessages(conversationId, { excludeMessageId } = {}) {
+export function toModelMessages(
+  conversationId,
+  { excludeMessageId, capabilities = {} } = {},
+) {
   const conversation = statements.getConversation.get(conversationId);
   const messages = getMessages(conversationId);
   const checkpointIndex = conversation?.checkpoint_message_id
@@ -926,14 +958,14 @@ export function toModelMessages(conversationId, { excludeMessageId } = {}) {
       .filter((message) => message.id !== excludeMessageId)
       .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
       .filter((message) => message.role === 'user' || message.role === 'assistant')
-      .map(messageToApiBlock),
+      .map((message) => messageToApiBlock(message, capabilities)),
   ];
 }
 
 export function toModelMessagesThroughUser(
   conversationId,
   beforeMessageId,
-  { includeFailedUser = false } = {},
+  { includeFailedUser = false, capabilities = {} } = {},
 ) {
   const messages = getMessages(conversationId);
   const conversation = statements.getConversation.get(conversationId);
@@ -973,11 +1005,11 @@ export function toModelMessagesThroughUser(
         || message.id === lastUserMessageId
       ))
       .filter((message) => message.role === 'user' || message.role === 'assistant')
-      .map(messageToApiBlock),
+      .map((message) => messageToApiBlock(message, capabilities)),
   ];
 }
 
-function messageToApiBlock(message) {
+function messageToApiBlock(message, capabilities = {}) {
   return {
     role: message.role,
     content: message.role === 'assistant'
@@ -986,12 +1018,14 @@ function messageToApiBlock(message) {
         ? message.content
         : [
             ...(message.content.trim() ? [{ type: 'text', text: message.content }] : []),
-            ...message.attachments.map(attachmentToApiBlock),
+            ...message.attachments.map((attachment) => (
+              attachmentToApiBlock(attachment, capabilities)
+            )),
           ],
   };
 }
 
-function attachmentToApiBlock(attachment) {
+function attachmentToApiBlock(attachment, capabilities = {}) {
   if (attachment.kind === 'context_marker') {
     return {
       type: 'text',
@@ -1005,33 +1039,52 @@ function attachmentToApiBlock(attachment) {
       text: `Attached file "${filename}":\n${attachment.text ?? ''}`,
     };
   }
+  if (attachment.kind === 'file_reference') {
+    const label = attachment.source === 'pasted_text' ? 'Pasted text' : 'Attachment';
+    return {
+      type: 'text',
+      text: `${label} "${attachment.name ?? 'attachment'}" is available at: ${attachment.path}`,
+    };
+  }
   if (attachment.kind === 'image_url') {
-    return { type: 'image_url', image_url: { url: attachment.dataUrl } };
+    return capabilities.images
+      ? { type: 'image_url', image_url: { url: attachment.dataUrl } }
+      : unsupportedAttachmentToApiBlock(attachment);
   }
   if (attachment.kind === 'video_url') {
-    return { type: 'video_url', video_url: { url: attachment.dataUrl } };
+    return unsupportedAttachmentToApiBlock(attachment);
   }
   if (attachment.kind === 'input_audio') {
-    return {
-      type: 'input_audio',
-      input_audio: {
-        data: attachment.base64,
-        format: attachment.format ?? 'mp3',
-      },
-    };
+    return capabilities.audio
+      ? {
+          type: 'input_audio',
+          input_audio: {
+            data: attachment.base64,
+            format: attachment.format ?? 'mp3',
+          },
+        }
+      : unsupportedAttachmentToApiBlock(attachment);
   }
   if (attachment.kind === 'file') {
-    return {
-      type: 'file',
-      file: {
-        filename: attachment.name ?? 'attachment',
-        file_data: attachment.dataUrl,
-      },
-    };
+    return attachment.mime === 'application/pdf' && capabilities.pdfFiles
+      ? {
+          type: 'file',
+          file: {
+            filename: attachment.name ?? 'attachment',
+            file_data: attachment.dataUrl,
+          },
+        }
+      : unsupportedAttachmentToApiBlock(attachment);
   }
+  return unsupportedAttachmentToApiBlock(attachment);
+}
+
+function unsupportedAttachmentToApiBlock(attachment) {
   return {
     type: 'text',
-    text: `Attachment: ${attachment.name ?? 'unavailable'}`,
+    text: attachment.path
+      ? `Attachment "${attachment.name ?? 'attachment'}" is available at: ${attachment.path}`
+      : `Attachment: ${attachment.name ?? 'unavailable'}`,
   };
 }
 
@@ -1064,10 +1117,18 @@ function normalizeTuningSettings(value, strict = false) {
   const maxConcurrentSubagents = Number(tuning.maxConcurrentSubagents);
 
   const normalized = {
+    personality: ['candid', 'cynical', 'friendly', 'pragmatic', 'quirky'].includes(
+      tuning.personality,
+    )
+      ? tuning.personality
+      : defaultTuningSettings.personality,
+    chatReasoningTraces: ['visible', 'hidden'].includes(tuning.chatReasoningTraces)
+      ? tuning.chatReasoningTraces
+      : defaultTuningSettings.chatReasoningTraces,
     automaticCompactionThreshold: [0.8, 0.9, 0.95].includes(automaticCompactionThreshold)
       ? automaticCompactionThreshold
       : defaultTuningSettings.automaticCompactionThreshold,
-    toolOutputLimit: [30_000, 120_000, 200_000, null].includes(toolOutputLimit)
+    toolOutputLimit: [4_096, 8_192, 32_768, null].includes(toolOutputLimit)
       ? toolOutputLimit
       : defaultTuningSettings.toolOutputLimit,
     defaultPermissionMode: [
@@ -1093,6 +1154,9 @@ function normalizeTuningSettings(value, strict = false) {
       && maxConcurrentSubagents <= 128
       ? maxConcurrentSubagents
       : defaultTuningSettings.maxConcurrentSubagents,
+    logLevel: ['verbose', 'minimal', 'disabled'].includes(tuning.logLevel)
+      ? tuning.logLevel
+      : defaultTuningSettings.logLevel,
   };
 
   if (strict && Object.entries(normalized).some(([key, entry]) => entry !== tuning[key])) {
@@ -1124,6 +1188,7 @@ function mapConversation(row) {
     parentConversationId: row.parent_conversation_id || null,
     initialPrompt: row.initial_prompt || null,
     orchestrationMode: row.orchestration_mode === 'ultra' ? 'ultra' : null,
+    autoForwardToParent: Boolean(row.auto_forward_to_parent),
     contextCheckpoint: row.context_checkpoint || '',
     checkpointMessageId: row.checkpoint_message_id || null,
     contextTokens: Number(row.context_tokens) || 0,
@@ -1152,6 +1217,7 @@ function mapMessage(row) {
     ultraMode: Boolean(row.ultra_mode),
     goalId: row.goal_id || null,
     hidden: Boolean(row.hidden),
+    queuePriority: Boolean(row.queue_priority),
     status: row.status,
     content: row.content,
     segments: parse(row.segments, []),
@@ -1195,7 +1261,10 @@ function persistSecureValue(name, value) {
     name,
     value: JSON.stringify(value),
   }).catch((error) => {
-    console.error(`Could not persist secure value "${name}":`, error);
+    traceError('secure-storage.persist-error', {
+      operation: name,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }).finally(() => {
     secureWrites.delete(write);
   });

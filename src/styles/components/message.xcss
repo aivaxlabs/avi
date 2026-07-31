@@ -144,6 +144,8 @@
 
 .subagent-report-body {
   min-width: 0;
+  max-height: 400px;
+  overflow-y: auto;
   padding: 14px 16px 16px;
 
   .markdown-body table {
@@ -494,6 +496,7 @@
 }
 
 @media (max-width: 620px) {
+
   .question-card-header,
   .question-card-field {
     padding-inline: 14px;
@@ -516,6 +519,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .question-card-field textarea,
   .question-card-option,
   .question-card-footer button {

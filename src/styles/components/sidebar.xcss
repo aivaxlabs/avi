@@ -15,7 +15,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 6px;
-    padding: 6px 8px;
+    padding: 6px 8px 6px 18px;
   }
 
   .app-name {
@@ -23,7 +23,10 @@
     align-items: center;
     gap: 7px;
     font-size: 13px;
-    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    opacity: .5;
     color: var(--text-1);
 
     img {
@@ -319,6 +322,11 @@
       color: var(--text-1);
       background: var(--item-hover);
     }
+  }
+
+  .completion-indicator {
+    flex: 0 0 auto;
+    color: var(--success-color);
   }
 
   .run-spinner {

@@ -332,8 +332,8 @@
   }
 
   .settings-about-logo {
-    width: 84px;
-    height: 84px;
+    width: 256px;
+    height: 256px;
     flex: 0 0 auto;
     border-radius: 20px;
     object-fit: contain;
@@ -781,7 +781,7 @@
   .settings-field {
     min-width: 0;
     display: grid;
-    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-columns: 400px minmax(0, 1fr);
     align-items: center;
     column-gap: 20px;
     row-gap: 6px;
@@ -812,7 +812,6 @@
     border: 1px solid var(--border-color);
     border-radius: 99px;
     outline: 0;
-    font-size: 12px;
   }
 
   .settings-field input:focus,
@@ -822,7 +821,9 @@
   }
 
   .settings-field small {
-    grid-column: 2;
+    position: relative;
+    top: -.5em;
+    grid-column: 1;
     grid-row: 2;
     color: var(--text-3);
     font-size: .9rem;

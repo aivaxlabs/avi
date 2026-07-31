@@ -60,6 +60,11 @@ import {
   listInstalledTerminalShells,
   resolveTerminalShell,
 } from './terminal-shell.js';
+import {
+  setTraceLevel,
+  traceError,
+  traceVerbose,
+} from './trace-log.js';
 import { providerTypes } from '../providers/index.js';
 
 const ipcHandlers = new Map();
@@ -92,16 +97,54 @@ let shutdownStarted = false;
 let shutdownReady = false;
 
 await initializeSecureStorage();
+setTraceLevel(getPreferences().tuning.logLevel);
+traceVerbose('app.started', { log_level: getPreferences().tuning.logLevel });
 registerIpc();
 
 const rpc = BrowserView.defineRPC({
   maxRequestTime: Infinity,
   handlers: {
     requests: {
-      invoke: ({ channel, payload }) => {
+      invoke: async ({ channel, payload }) => {
+        const startedAt = Date.now();
         const handler = ipcHandlers.get(channel);
         if (!handler) throw new Error(`Unknown application request: ${channel}`);
-        return handler(undefined, payload);
+        const threadId = payload?.conversationId
+          ?? payload?.parentConversationId
+          ?? (channel === 'chat:stop' && typeof payload === 'string' ? payload : null);
+        const conversation = threadId ? getConversation(threadId) : null;
+        const selectedModel = typeof payload?.model === 'string'
+          ? providerRegistry.resolve(payload.model)
+          : null;
+        const details = {
+          operation: channel,
+          thread_id: threadId,
+          parent_thread_id: conversation?.parentConversationId,
+          side_chat: conversation?.isSideChat,
+          subagent: conversation?.isSubagent,
+          provider_id: selectedModel?.model.providerId,
+          provider: selectedModel?.model.providerName,
+          model: selectedModel?.model.modelId ?? payload?.model,
+          interface: selectedModel?.model.interface,
+        };
+        traceVerbose('application.request-started', details);
+        try {
+          const result = await handler(undefined, payload);
+          traceVerbose('application.request-completed', {
+            ...details,
+            duration_ms: Date.now() - startedAt,
+          });
+          return result;
+        } catch (error) {
+          traceError('application.request-error', {
+            ...details,
+            duration_ms: Date.now() - startedAt,
+            status: error?.status,
+            code: error?.code,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
       },
     },
     messages: {},
@@ -118,7 +161,9 @@ Electrobun.events.on('before-quit', (event) => {
   Promise.resolve(chatRunner?.shutdown())
     .then(() => mcpManager?.closeAll())
     .then(() => flushSecureStorage())
-    .catch((error) => console.error('Shutdown failed:', error))
+    .catch((error) => traceError('app.shutdown-error', {
+      error: error instanceof Error ? error.message : String(error),
+    }))
     .finally(() => {
       closeDatabase();
       shutdownReady = true;
@@ -197,7 +242,6 @@ function createWindow() {
         }
       },
       stopBackgroundTasks: stopConversationTerminals,
-      debugStream: process.env.CHAT_APP_OPEN_DEVTOOLS === '1',
     });
   }
 
@@ -327,7 +371,9 @@ function registerIpc() {
   }));
   ipcMain.handle('app:open-external', (_event, url) => {
     const target = new URL(url);
-    if (target.protocol !== 'https:') throw new Error('Only HTTPS links can be opened.');
+    if (!['http:', 'https:'].includes(target.protocol)) {
+      throw new Error('Only HTTP and HTTPS links can be opened.');
+    }
     return Utils.openExternal(target.href);
   });
   ipcMain.handle('tuning:shells', () => {
@@ -343,7 +389,10 @@ function registerIpc() {
   });
   ipcMain.handle('tuning:save', (_event, tuning) => {
     resolveTerminalShell(process.env, process.platform, tuning?.terminalShell);
-    return setTuningSettings(tuning);
+    const saved = setTuningSettings(tuning);
+    setTraceLevel(saved.logLevel);
+    traceVerbose('logging.configuration-changed', { log_level: saved.logLevel });
+    return saved;
   });
 
   ipcMain.handle('conversations:list', () => listConversationsWithProjects());

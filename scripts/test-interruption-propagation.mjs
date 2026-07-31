@@ -207,6 +207,12 @@ try {
     text: 'Keep this second parent prompt queued',
     permissionMode: 'full_access',
   });
+  const priorityParent = await fullStopRunner.send({
+    conversationId: parent.id,
+    model: model.id,
+    text: 'Prioritized sub-agent report',
+    queuePriority: true,
+  });
   const queuedSubagent = await fullStopRunner.send({
     conversationId: subagent.id,
     model: model.id,
@@ -219,7 +225,7 @@ try {
   assert.deepEqual(
     fullStopRunner.getQueuedItems(parent.id, model.id)
       .map((item) => item.userMessageId),
-    [queuedParent.message.id, secondQueuedParent.message.id],
+    [priorityParent.message.id, queuedParent.message.id, secondQueuedParent.message.id],
   );
   assert.deepEqual(
     fullStopRunner.getQueuedItems(subagent.id, model.id)
@@ -237,7 +243,7 @@ try {
 
   const reorderedParent = fullStopRunner.reorderQueuedMessages({
     conversationId: parent.id,
-    messageIds: [secondQueuedParent.message.id, queuedParent.message.id],
+    messageIds: [secondQueuedParent.message.id, priorityParent.message.id, queuedParent.message.id],
   });
   assert.equal(reorderedParent.reordered, true);
 
@@ -249,7 +255,7 @@ try {
   await waitFor(() => fullStopSignals.length === 3);
   assert.deepEqual(
     fullStopRunner.runs.get(parent.id).queue.map((item) => item.userMessageId),
-    [secondQueuedParent.message.id, queuedParent.message.id],
+    [secondQueuedParent.message.id, priorityParent.message.id, queuedParent.message.id],
   );
   fullStopRunner.stop(parent.id);
   await waitFor(() => !fullStopRunner.runs.has(parent.id));

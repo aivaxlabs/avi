@@ -15,6 +15,10 @@ import {
   getMcpOAuthSessions,
   setMcpOAuthSessions,
 } from './database.js';
+import {
+  traceError,
+  traceVerbose,
+} from './trace-log.js';
 
 const GLOBAL_ROOT = resolve(homedir());
 const CLIENT_INFO = Object.freeze({ name: 'Avi', version: packageMetadata.version });
@@ -955,6 +959,17 @@ export class McpManager {
     });
     if (record.logs.length > MAX_LOG_ENTRIES) {
       record.logs.splice(0, record.logs.length - MAX_LOG_ENTRIES);
+    }
+    if (level === 'error') {
+      traceError('mcp.error', {
+        mcp_server: record.name,
+        error: String(message),
+      });
+    } else {
+      traceVerbose('mcp.status', {
+        mcp_server: record.name,
+        status: level,
+      });
     }
   }
 

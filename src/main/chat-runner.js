@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import {
   deleteMessage,
   ensureConversation,
@@ -20,27 +21,34 @@ import {
   updateMessage,
 } from './database.js';
 import { CLIENT_TOOLS } from './client-tools.js';
+import { normalizeAttachmentsForModel } from './files.js';
 import { StreamAccumulator } from './streaming.js';
+import {
+  traceError,
+  traceVerbose,
+} from './trace-log.js';
 
 const CONTINUING_GOAL_STATUSES = new Set(['active', 'paused']);
 const TERMINAL_GOAL_STATUSES = new Set(['completed', 'blocked', 'cancelled']);
 const STREAM_PERSIST_INTERVAL_MS = 120;
 const STREAM_RENDER_INTERVAL_MS = 240;
+const RECENT_ASSISTANT_TURN_COUNT = 4;
+const OLDER_TOOL_OUTPUT_LIMIT_RATIO = 0.8;
+const INSPECT_THREAD_TOOL_OUTPUT_LIMIT_RATIO = 0.2;
 const PLAN_TOOL_NAMES = new Set([
   'ask_question',
   'chat_inspect_thread',
   'chat_list_folders',
   'chat_list_threads',
-  'file_search',
-  'grep_search',
   'read_file',
   'read_terminal_output',
   'read_url',
 ]);
-const COMPACTION_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a highly detailed handoff summary for another LLM that will resume this exact task. Do not continue the task itself and do not omit implementation details merely to be concise.
+const COMPACTION_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a self-contained handoff checkpoint for another LLM that will resume this exact task. The checkpoint becomes the sole conversation history; no earlier messages, in-flight assistant content, tool calls, or tool results will remain available. Preserve all critical information from the supplied context while using substantially fewer tokens. Do not continue the task itself.
 
 Include:
 - The user's original objective and the current objective, including how the request evolved
+- Relevant in-flight assistant work, tool calls, and tool results
 - What you were working on, planning, investigating, or exploring immediately before this checkpoint
 - Current progress and every important decision already made, with rationale where it affects future work
 - Important context, constraints, user preferences, project conventions, and explicit instructions that must continue to be followed
@@ -53,6 +61,75 @@ Include:
 
 Make the checkpoint structured, exhaustive, precise, and optimized for seamless continuation by another LLM.`;
 
+function truncateToolOutput(output, limit) {
+  if (limit === null) return output;
+
+  let source = output;
+  try {
+    const parsed = JSON.parse(output);
+    if (
+      parsed
+      && typeof parsed === 'object'
+      && !Array.isArray(parsed)
+      && parsed.truncated === true
+      && typeof parsed.output === 'string'
+      && Object.keys(parsed).every((key) => ['output', 'truncated'].includes(key))
+    ) {
+      source = parsed.output;
+    }
+  } catch {}
+
+  return source.length > limit
+    ? JSON.stringify({
+        output: source.slice(0, limit),
+        truncated: true,
+      })
+    : output;
+}
+
+function limitToolHistoryResults(toolHistory, toolOutputLimit) {
+  if (toolOutputLimit === null) return toolHistory;
+
+  const fullLimitStartIndex = Math.max(
+    0,
+    toolHistory.length - (RECENT_ASSISTANT_TURN_COUNT - 1),
+  );
+  const olderLimit = Math.floor(toolOutputLimit * OLDER_TOOL_OUTPUT_LIMIT_RATIO);
+
+  return toolHistory.map((round, roundIndex) => ({
+    ...round,
+    results: round.results.map((result) => {
+      const toolName = round.toolCalls.find((toolCall) => (
+        toolCall.callId === result.callId
+      ))?.name;
+      return {
+        ...result,
+        output: truncateToolOutput(
+          result.output,
+          toolName === 'chat_inspect_thread'
+            ? Math.floor(toolOutputLimit * INSPECT_THREAD_TOOL_OUTPUT_LIMIT_RATIO)
+            : roundIndex < fullLimitStartIndex ? olderLimit : toolOutputLimit,
+        ),
+      };
+    }),
+  }));
+}
+
+function traceContext(conversationId, selection, details = {}) {
+  const conversation = getConversation(conversationId);
+  return {
+    thread_id: conversationId,
+    parent_thread_id: conversation?.parentConversationId,
+    side_chat: conversation?.isSideChat,
+    subagent: conversation?.isSubagent,
+    provider_id: selection?.model.providerId,
+    provider: selection?.model.providerName,
+    model: selection?.model.modelId,
+    interface: selection?.model.interface,
+    ...details,
+  };
+}
+
 export class ChatRunner {
   constructor({
     registry,
@@ -61,7 +138,6 @@ export class ChatRunner {
     sendEvent,
     savePermissionGuidance,
     stopBackgroundTasks,
-    debugStream = false,
   }) {
     this.registry = registry;
     this.mcpManager = mcpManager;
@@ -69,12 +145,60 @@ export class ChatRunner {
     this.sendEvent = sendEvent;
     this.savePermissionGuidance = savePermissionGuidance;
     this.stopBackgroundTasks = stopBackgroundTasks;
-    this.debugStream = debugStream;
     this.runs = new Map();
     this.pausedQueues = new Map();
     this.pendingApprovals = new Map();
     this.pendingQuestions = new Map();
     this.approvedToolPatterns = new Set();
+  }
+
+  async forwardSubagentResult(message) {
+    const subagent = message ? getConversation(message.conversationId) : null;
+    if (
+      !subagent?.isSubagent
+      || !subagent.autoForwardToParent
+      || !subagent.parentConversationId
+      || !['completed', 'error'].includes(message.status)
+    ) return;
+
+    const parent = getConversation(subagent.parentConversationId);
+    if (!parent) return;
+
+    const sourceMessageMarker = `source_message_id="${message.id}"`;
+    if (getMessages(parent.id).some((item) => item.content.includes(sourceMessageMarker))) return;
+
+    const error = message.segments.findLast((segment) => segment.type === 'error');
+    const content = answerTextFromTextualBlocks(message.content)
+      || error?.message
+      || `Sub-agent task ended with status "${message.status}".`;
+    const activeGoal = parent.goal && CONTINUING_GOAL_STATUSES.has(parent.goal.status)
+      ? parent.goal
+      : null;
+
+    try {
+      await this.send({
+        conversationId: parent.id,
+        model: parent.model,
+        text: [
+          `<subagent_report thread_id="${subagent.id}" title="${subagent.title.replaceAll('"', '&quot;')}" source_message_id="${message.id}" status="${message.status}">`,
+          content,
+          '</subagent_report>',
+        ].join('\n'),
+        steer: true,
+        workMode: activeGoal ? 'goal' : null,
+        goalId: activeGoal?.id,
+        ultraMode: parent.orchestrationMode === 'ultra',
+        project: { path: parent.projectPath },
+      });
+    } catch (forwardError) {
+      traceError('subagent.result-forward-error', {
+        thread_id: subagent.id,
+        parent_thread_id: parent.id,
+        message_id: message.id,
+        status: message.status,
+        error: forwardError instanceof Error ? forwardError.message : String(forwardError),
+      });
+    }
   }
 
   async startGoal({
@@ -313,6 +437,7 @@ export class ChatRunner {
     ultraMode = false,
     goalId = null,
     hidden = false,
+    queuePriority = false,
     project = {},
   }) {
     workMode = ['plan', 'goal'].includes(workMode) ? workMode : null;
@@ -320,6 +445,14 @@ export class ChatRunner {
     if (workMode === 'plan' && ultraMode) {
       throw new Error('Ultra mode cannot be used with Plan mode.');
     }
+    const selectedModel = this.registry.resolve(model);
+    if (!selectedModel) {
+      throw new Error('The selected model is no longer configured. Choose another model in Settings.');
+    }
+    attachments = await normalizeAttachmentsForModel(
+      attachments,
+      selectedModel.model.capabilities,
+    );
     const conversation = ensureConversation(conversationId, model, project);
     const activeGoal = getGoalForConversation(conversation.id);
     if (workMode === 'plan' && activeGoal && CONTINUING_GOAL_STATUSES.has(activeGoal.status)) {
@@ -352,6 +485,7 @@ export class ChatRunner {
         ultraMode,
         goalId,
         hidden,
+        queuePriority,
         text,
         attachments,
         status: steer ? 'steered' : 'queued',
@@ -366,10 +500,11 @@ export class ChatRunner {
           workMode,
           ultraMode,
           ...(goalId ? { goalId } : {}),
+          queuePriority,
         });
         this.requestSteer(conversation.id);
       } else {
-        run.queue.push({
+        const item = {
           userMessageId: queued.id,
           model,
           reasoningEffort,
@@ -377,7 +512,14 @@ export class ChatRunner {
           workMode,
           ultraMode,
           ...(goalId ? { goalId } : {}),
-        });
+          queuePriority,
+        };
+        if (queuePriority) {
+          const insertionIndex = run.queue.findIndex((queuedItem) => !queuedItem.queuePriority);
+          run.queue.splice(insertionIndex < 0 ? run.queue.length : insertionIndex, 0, item);
+        } else {
+          run.queue.push(item);
+        }
       }
       this.emit(conversation.id, { type: 'message', message: queued });
       const queueOrder = run.queue.map((item) => item.userMessageId);
@@ -399,6 +541,7 @@ export class ChatRunner {
       ultraMode,
       goalId,
       hidden,
+      queuePriority,
       text,
       attachments,
       status: workMode === 'plan'
@@ -605,6 +748,10 @@ export class ChatRunner {
     permissionMode = 'approve_for_me',
   }) {
     const conversation = ensureConversation(conversationId, model);
+    const selectedModel = this.registry.resolve(model);
+    if (!selectedModel) {
+      throw new Error('The selected model is no longer configured. Choose another model in Settings.');
+    }
     setLastModel(model);
 
     if (this.runs.has(conversation.id)) {
@@ -635,7 +782,10 @@ export class ChatRunner {
       const messages = toModelMessagesThroughUser(
         conversation.id,
         assistantMessageId,
-        { includeFailedUser: true },
+        {
+          includeFailedUser: true,
+          capabilities: selectedModel.model.capabilities,
+        },
       );
       if (!sourceUser || messages.length === 0) {
         return { conversation: getConversation(conversation.id), message: null, queued: false };
@@ -720,7 +870,11 @@ export class ChatRunner {
       };
     }
 
-    const messages = toModelMessagesThroughUser(conversation.id, assistantMessageId);
+    const messages = toModelMessagesThroughUser(
+      conversation.id,
+      assistantMessageId,
+      { capabilities: selectedModel.model.capabilities },
+    );
     if (messages.length === 0) {
       return { conversation: getConversation(conversation.id), message: null, queued: false };
     }
@@ -759,6 +913,9 @@ export class ChatRunner {
     model,
     automatic = false,
     controller: activeController = null,
+    contextMessages = null,
+    contextToolHistory = [],
+    streamingSegments = [],
   }) {
     const conversation = ensureConversation(conversationId, model);
     const existingRun = this.runs.get(conversation.id);
@@ -771,8 +928,14 @@ export class ChatRunner {
       throw new Error('The selected model is no longer configured. Choose another model in Settings.');
     }
 
-    const messages = toModelMessages(conversation.id);
-    if (messages.length === 0) return conversation;
+    const messages = contextMessages ?? toModelMessages(conversation.id, {
+      capabilities: selection.model.capabilities,
+    });
+    if (
+      messages.length === 0
+      && contextToolHistory.length === 0
+      && streamingSegments.length === 0
+    ) return conversation;
 
     const checkpointMessage = getMessages(conversation.id)
       .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
@@ -780,12 +943,31 @@ export class ChatRunner {
       .at(-1);
     if (!checkpointMessage) return conversation;
 
-    const inputTokens = conversation.contextTokens > 0
-      ? conversation.contextTokens
-      : Math.ceil(JSON.stringify(messages).length / 4);
+    const limitedToolHistory = limitToolHistoryResults(
+      contextToolHistory,
+      this.getPreferences().tuning.toolOutputLimit,
+    );
+    const inFlightContext = limitedToolHistory.length > 0 || streamingSegments.length > 0
+      ? [{
+          role: 'assistant',
+          content: [
+            '<in_flight_context>',
+            JSON.stringify({
+              toolHistory: limitedToolHistory,
+              streamingSegments,
+            }),
+            '</in_flight_context>',
+          ].join('\n'),
+        }]
+      : [];
+    const compressionMessages = [
+      ...messages,
+      ...inFlightContext,
+      { role: 'user', content: COMPACTION_PROMPT },
+    ];
     const compressionSegment = {
       type: 'context-compression',
-      inputTokens,
+      inputTokens: Math.ceil(JSON.stringify(compressionMessages).length / 4),
       outputTokens: null,
     };
     const compressionMessage = insertMessage({
@@ -816,10 +998,7 @@ export class ChatRunner {
       if (run) run.phase = 'inference';
       const turn = await selection.provider.stream({
         model: selection.model,
-        messages: [
-          ...messages,
-          { role: 'user', content: COMPACTION_PROMPT },
-        ],
+        messages: compressionMessages,
         tools: [],
         toolHistory: [],
         invocationContext: { workspacePath: conversation.projectPath },
@@ -851,6 +1030,7 @@ export class ChatRunner {
         status: 'completed',
         segments: [{
           ...compressionSegment,
+          inputTokens: compressionUsage?.inputTokens ?? compressionSegment.inputTokens,
           outputTokens: updatedConversation.contextTokens,
         }],
       });
@@ -889,7 +1069,9 @@ export class ChatRunner {
         workMode: message.workMode,
         ultraMode: message.ultraMode,
         ...(message.goalId ? { goalId: message.goalId } : {}),
-      }));
+        queuePriority: message.queuePriority,
+      }))
+      .sort((left, right) => Number(right.queuePriority) - Number(left.queuePriority));
     const pausedQueue = this.pausedQueues.get(conversationId);
     if (!pausedQueue) return persistedItems;
 
@@ -917,6 +1099,7 @@ export class ChatRunner {
     ultraMode = false,
     goalId = null,
     hidden = false,
+    queuePriority = false,
     text,
     attachments,
     status,
@@ -931,6 +1114,7 @@ export class ChatRunner {
       ultraMode,
       goalId,
       hidden,
+      queuePriority,
       status,
       content: text,
       attachments,
@@ -1050,13 +1234,14 @@ export class ChatRunner {
       }
       return message;
     };
-    this.logChatTiming(conversationId, {
+    this.logChatTiming(conversationId, null, {
       phase: 'request-start',
       assistantMessageId: assistantMessage.id,
       model,
     });
 
     let waitingForMcp = false;
+    let traceSelection = null;
     try {
       const workspacePath = getConversation(conversationId)?.projectPath;
       waitingForMcp = Boolean(
@@ -1086,14 +1271,19 @@ export class ChatRunner {
       if (!selection) {
         throw new Error('The selected model is no longer configured. Choose another model in Settings.');
       }
+      traceSelection = selection;
 
       let messages = retryMessages
-        ?? toModelMessages(conversationId, { excludeMessageId: assistantMessage.id });
+        ?? toModelMessages(conversationId, {
+          excludeMessageId: assistantMessage.id,
+          capabilities: selection.model.capabilities,
+        });
       const models = this.registry.listModels();
       const currentConversation = getConversation(conversationId);
       const currentGoal = goalId ? getGoal(goalId) : getGoalForConversation(conversationId);
       const goalContinues = currentGoal && CONTINUING_GOAL_STATUSES.has(currentGoal.status);
       const tuning = this.getPreferences().tuning;
+      const contextLimit = selection.model.context.input;
       const providerTools = workMode === 'plan'
         ? []
         : selection.provider.getContributions({
@@ -1159,12 +1349,29 @@ export class ChatRunner {
         toolCalls: [...round.toolCalls],
         results: [...round.results],
       }));
-      let lastInputTokens = 0;
+      let liveContextTokens = currentConversation?.contextTokens ?? 0;
+      let finalAssistantContent = '';
       let firstResponseAt = null;
       let retriedAfterContextCompaction = false;
-      this.logChatTiming(conversationId, {
+      let contextCompactionRequested = false;
+      const applyCompactionCheckpoint = (compressedConversation) => {
+        toolHistory.length = 0;
+        accumulator.segments = [];
+        accumulator.usage = null;
+        accumulator.error = null;
+        accumulator.nextSequence = 1;
+        liveContextTokens = compressedConversation.contextTokens;
+        contextCompactionRequested = false;
+        persistAssistant({ force: true });
+        messages = toModelMessages(conversationId, {
+          excludeMessageId: assistantMessage.id,
+          capabilities: selection.model.capabilities,
+        });
+      };
+      this.logChatTiming(conversationId, selection, {
         phase: 'request-ready',
         assistantMessageId: assistantMessage.id,
+        providerId: selection.model.providerId,
         provider: selection.model.providerName,
         interface: selection.model.interface,
         model: selection.model.modelId,
@@ -1174,6 +1381,7 @@ export class ChatRunner {
 
       while (true) {
         const roundIndex = toolHistory.length;
+        const roundSegmentStart = accumulator.segments.length;
         const latestGoal = goalId ? getGoal(goalId) : getGoalForConversation(conversationId);
         const goalContext = latestGoal && CONTINUING_GOAL_STATUSES.has(latestGoal.status)
           ? latestGoal
@@ -1209,7 +1417,7 @@ export class ChatRunner {
             model: selection.model,
             messages,
             tools: availableTools,
-            toolHistory,
+            toolHistory: limitToolHistoryResults(toolHistory, tuning.toolOutputLimit),
             reasoningEffort,
             invocationContext: {
               conversationId,
@@ -1236,7 +1444,20 @@ export class ChatRunner {
                 firstResponseAt = Date.now();
               }
               if (event.type === 'usage') {
-                lastInputTokens = event.usage.inputTokens ?? lastInputTokens;
+                liveContextTokens = (
+                  event.usage.inputTokens ?? liveContextTokens
+                ) + (event.usage.outputTokens ?? 0);
+                const updatedConversation = updateConversation(conversationId, {
+                  contextTokens: liveContextTokens,
+                });
+                this.emit(conversationId, {
+                  type: 'conversation',
+                  conversation: updatedConversation,
+                });
+                contextCompactionRequested = Boolean(
+                  contextLimit
+                  && liveContextTokens / contextLimit > tuning.automaticCompactionThreshold,
+                );
               }
               accumulator.apply(event.type === 'tool-call'
                 ? {
@@ -1247,12 +1468,35 @@ export class ChatRunner {
                     ),
                   }
                 : event);
-              this.logStreamEvent(conversationId, event);
+              if (event.type === 'error') {
+                traceError('api.stream-error', traceContext(
+                  conversationId,
+                  selection,
+                  {
+                    round: roundIndex,
+                    status: event.status,
+                    code: event.code,
+                    error: event.message,
+                  },
+                ));
+              } else if (event.type === 'retry') {
+                traceVerbose('api.retry', traceContext(
+                  conversationId,
+                  selection,
+                  {
+                    round: roundIndex,
+                    attempt: event.attempt,
+                    code: event.code,
+                    error: event.message,
+                  },
+                ));
+              }
               persistAssistant({
                 force: ['usage', 'error', 'retry', 'retry-clear'].includes(event.type),
               });
             },
           });
+          retriedAfterContextCompaction = false;
         } catch (error) {
           const errorText = `${error?.code ?? ''} ${
             error instanceof Error ? error.message : String(error)
@@ -1271,19 +1515,25 @@ export class ChatRunner {
           if (errorSegmentIndex >= 0) accumulator.segments.splice(errorSegmentIndex, 1);
           accumulator.error = null;
           persistAssistant({ force: true });
-          await this.compress({
+          const compressedConversation = await this.compress({
             conversationId,
             model,
             automatic: true,
             controller,
+            contextMessages: messages,
+            contextToolHistory: toolHistory,
+            streamingSegments: accumulator.segments.slice(roundSegmentStart),
           });
           retriedAfterContextCompaction = true;
-          messages = toModelMessages(conversationId, { excludeMessageId: assistantMessage.id });
+          applyCompactionCheckpoint(compressedConversation);
           continue;
         }
         run.phase = 'boundary';
         if (this.shouldEndAtBoundary(run)) throw new Error('The run was interrupted.');
-        if (turn.toolCalls.length === 0) break;
+        if (turn.toolCalls.length === 0) {
+          finalAssistantContent = turn.assistantContent;
+          break;
+        }
 
         const results = [];
         for (const toolCall of turn.toolCalls) {
@@ -1334,6 +1584,8 @@ export class ChatRunner {
 
           let output;
           let isError = false;
+          let toolError = null;
+          let toolStartedAt = null;
           try {
             if (!args || typeof args !== 'object' || Array.isArray(args)) {
               throw new Error('Tool arguments must be a JSON object.');
@@ -1393,6 +1645,7 @@ export class ChatRunner {
             }
 
             run.phase = 'tool';
+            toolStartedAt = Date.now();
             const value = await tool.execute(input, {
               signal: controller.signal,
               workspacePath,
@@ -1410,6 +1663,7 @@ export class ChatRunner {
             output = typeof value === 'string' ? value : JSON.stringify(value);
           } catch (error) {
             isError = true;
+            toolError = error instanceof Error ? error.message : String(error);
             output = JSON.stringify(toolCall.name === 'ask_question'
               ? {
                   error: error instanceof Error ? error.message : String(error),
@@ -1420,13 +1674,26 @@ export class ChatRunner {
                   error: error instanceof Error ? error.message : String(error),
                 });
           }
-
-          if (tuning.toolOutputLimit !== null && output.length > tuning.toolOutputLimit) {
-            output = JSON.stringify({
-              output: output.slice(0, tuning.toolOutputLimit),
-              truncated: true,
-            });
+          const toolDetails = traceContext(conversationId, selection, {
+            round: roundIndex,
+            tool: toolCall.name,
+            tool_type: isMcpTool ? 'mcp' : 'application',
+            duration_ms: toolStartedAt === null ? null : Date.now() - toolStartedAt,
+          });
+          if (toolError) {
+            traceError('tool.error', { ...toolDetails, error: toolError });
+          } else {
+            traceVerbose('tool.completed', toolDetails);
           }
+
+          output = truncateToolOutput(
+            output,
+            toolCall.name === 'chat_inspect_thread' && tuning.toolOutputLimit !== null
+              ? Math.floor(
+                  tuning.toolOutputLimit * INSPECT_THREAD_TOOL_OUTPUT_LIMIT_RATIO,
+                )
+              : tuning.toolOutputLimit,
+          );
           results.push({
             callId: toolCall.callId,
             output,
@@ -1449,6 +1716,33 @@ export class ChatRunner {
           toolCalls: turn.toolCalls,
           results,
         });
+        if (contextCompactionRequested) {
+          this.emit(conversationId, { type: 'run-state', running: true });
+          try {
+            const compressedConversation = await this.compress({
+              conversationId,
+              model,
+              automatic: true,
+              controller,
+              contextMessages: messages,
+              contextToolHistory: toolHistory,
+            });
+            applyCompactionCheckpoint(compressedConversation);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.logChatTiming(conversationId, selection, {
+              phase: 'context-compaction-error',
+              model: selection.model.modelId,
+              error: message,
+            });
+            if (!controller.signal.aborted) {
+              this.emit(conversationId, {
+                type: 'error',
+                message: `Automatic context compaction failed: ${message}`,
+              });
+            }
+          }
+        }
       }
 
       accumulator.finish();
@@ -1463,23 +1757,16 @@ export class ChatRunner {
           ? outputTokens / (generationDurationMs / 1000)
           : null,
       };
-      persistAssistant({ status: 'completed', force: true });
-      const updatedConversation = updateConversation(conversationId, {
-        contextTokens: lastInputTokens,
-      });
-      this.emit(conversationId, { type: 'conversation', conversation: updatedConversation });
-      this.logChatTiming(conversationId, {
+      const completedMessage = persistAssistant({ status: 'completed', force: true });
+      await this.forwardSubagentResult(completedMessage);
+      this.logChatTiming(conversationId, selection, {
         phase: 'message-completed',
         assistantMessageId: assistantMessage.id,
         model: selection.model.modelId,
         usage: accumulator.usage,
         elapsedMs: Date.now() - requestStartedAt,
       });
-      const contextLimit = selection.model.context.input;
-      if (
-        contextLimit
-        && lastInputTokens / contextLimit > tuning.automaticCompactionThreshold
-      ) {
+      if (contextCompactionRequested) {
         this.emit(conversationId, { type: 'run-state', running: true });
         try {
           await this.compress({
@@ -1487,10 +1774,17 @@ export class ChatRunner {
             model,
             automatic: true,
             controller,
+            contextMessages: [
+              ...messages,
+              ...(finalAssistantContent
+                ? [{ role: 'assistant', content: finalAssistantContent }]
+                : []),
+            ],
+            contextToolHistory: toolHistory,
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          this.logChatTiming(conversationId, {
+          this.logChatTiming(conversationId, selection, {
             phase: 'context-compaction-error',
             model: selection.model.modelId,
             error: message,
@@ -1518,10 +1812,11 @@ export class ChatRunner {
         });
       }
       accumulator.finish();
-      persistAssistant({
+      const failedAssistantMessage = persistAssistant({
         status: aborted ? 'aborted' : 'error',
         force: true,
       });
+      await this.forwardSubagentResult(failedAssistantMessage);
       if (userMessageId && (!aborted || getMessage(userMessageId)?.status === 'waiting_mcp')) {
         const failedUserMessage = updateMessage(userMessageId, {
           status: aborted ? 'aborted' : 'error',
@@ -1531,11 +1826,13 @@ export class ChatRunner {
         }
       }
       if (!aborted) {
-        this.logChatTiming(conversationId, {
+        this.logChatTiming(conversationId, traceSelection, {
           phase: 'request-error',
           assistantMessageId: assistantMessage.id,
           model,
           elapsedMs: Date.now() - requestStartedAt,
+          status: error?.status,
+          code: error?.code,
           error: message,
         });
         this.emit(conversationId, { type: 'error', message });
@@ -1798,22 +2095,29 @@ export class ChatRunner {
     });
   }
 
-  logChatTiming(conversationId, details) {
-    console.log('[chat timing]', {
-      conversationId,
-      ...details,
+  logChatTiming(conversationId, selection, details) {
+    const traceDetails = traceContext(conversationId, selection, {
+      phase: details.phase,
+      message_id: details.assistantMessageId,
+      provider_id: details.providerId,
+      provider: details.provider,
+      interface: details.interface,
+      model: selection?.model.modelId ?? details.model,
+      duration_ms: details.elapsedMs ?? details.usage?.durationMs,
+      time_to_first_response_ms: details.usage?.latencyMs,
+      input_tokens: details.usage?.inputTokens,
+      output_tokens: details.usage?.outputTokens,
+      total_tokens: details.usage?.totalTokens,
+      tokens_per_second: details.usage?.tokensPerSecond,
+      status: details.status,
+      code: details.code,
+      error: details.error,
     });
-  }
-
-  logStreamEvent(conversationId, event) {
-    if (!this.debugStream) return;
-    console.log('[chat stream]', {
-      conversationId,
-      type: event.type,
-      textLength: event.text?.length ?? 0,
-      usage: event.usage ?? null,
-      code: event.code ?? null,
-    });
+    if (details.error) {
+      traceError(`chat.${details.phase}`, traceDetails);
+    } else {
+      traceVerbose(`chat.${details.phase}`, traceDetails);
+    }
   }
 
   emit(conversationId, payload) {

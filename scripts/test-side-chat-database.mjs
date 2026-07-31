@@ -32,15 +32,20 @@ try {
     updateConversation,
   } = database;
   assert.deepEqual(getPreferences().tuning, {
+    personality: null,
+    chatReasoningTraces: 'visible',
     automaticCompactionThreshold: 0.9,
-    toolOutputLimit: 120_000,
+    toolOutputLimit: 8_192,
     defaultPermissionMode: 'approve_for_me',
     messageDeliveryMode: 'queue',
     terminalShell: 'auto',
     terminalTimeoutSeconds: 30,
     maxConcurrentSubagents: 128,
+    logLevel: 'minimal',
   });
   assert.deepEqual(setTuningSettings({
+    personality: 'friendly',
+    chatReasoningTraces: 'hidden',
     automaticCompactionThreshold: 0.8,
     toolOutputLimit: null,
     defaultPermissionMode: 'ask_for_approval',
@@ -48,7 +53,10 @@ try {
     terminalShell: 'pwsh',
     terminalTimeoutSeconds: 45,
     maxConcurrentSubagents: 4,
+    logLevel: 'verbose',
   }), {
+    personality: 'friendly',
+    chatReasoningTraces: 'hidden',
     automaticCompactionThreshold: 0.8,
     toolOutputLimit: null,
     defaultPermissionMode: 'ask_for_approval',
@@ -56,8 +64,24 @@ try {
     terminalShell: 'pwsh',
     terminalTimeoutSeconds: 45,
     maxConcurrentSubagents: 4,
+    logLevel: 'verbose',
   });
+  assert.equal(getPreferences().tuning.personality, 'friendly');
+  assert.equal(getPreferences().tuning.chatReasoningTraces, 'hidden');
   assert.equal(getPreferences().tuning.terminalTimeoutSeconds, 45);
+  assert.equal(getPreferences().tuning.logLevel, 'verbose');
+  for (const toolOutputLimit of [4_096, 8_192, 32_768]) {
+    assert.equal(setTuningSettings({
+      ...getPreferences().tuning,
+      toolOutputLimit,
+    }).toolOutputLimit, toolOutputLimit);
+  }
+  for (const personality of ['candid', 'cynical', 'quirky']) {
+    assert.equal(setTuningSettings({
+      ...getPreferences().tuning,
+      personality,
+    }).personality, personality);
+  }
   assert.throws(
     () => setTuningSettings({
       ...getPreferences().tuning,
@@ -69,6 +93,27 @@ try {
     () => setTuningSettings({
       ...getPreferences().tuning,
       messageDeliveryMode: 'invalid',
+    }),
+    /outside their allowed range/,
+  );
+  assert.throws(
+    () => setTuningSettings({
+      ...getPreferences().tuning,
+      personality: 'invalid',
+    }),
+    /outside their allowed range/,
+  );
+  assert.throws(
+    () => setTuningSettings({
+      ...getPreferences().tuning,
+      chatReasoningTraces: 'invalid',
+    }),
+    /outside their allowed range/,
+  );
+  assert.throws(
+    () => setTuningSettings({
+      ...getPreferences().tuning,
+      logLevel: 'invalid',
     }),
     /outside their allowed range/,
   );
@@ -145,24 +190,20 @@ try {
   assert.ok(subagentModelMessages[0].content.includes('thread_type: subagent'));
   assert.ok(subagentModelMessages[0].content.includes(`thread_id: ${subagent.conversation.id}`));
   assert.ok(subagentModelMessages[0].content.includes(`parent_thread_id: ${parent.id}`));
-  assert.ok(subagentModelMessages[0].content.includes('chat_report_to_orchestrator'));
+  assert.ok(subagentModelMessages[0].content.includes('final response is not forwarded'));
   assert.equal(forkConversation(subagent.conversation.id, { subagent: true }), null);
   const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
   const spawnTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_spawn_subagent');
   const reportTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_report_to_orchestrator');
   const sendPromptTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_send_prompt');
   assert.deepEqual(spawnTool.inputSchema.required, ['prompt']);
-  assert.deepEqual(
-    spawnTool.inputSchema.properties.response_mode.enum,
-    ['steer', 'queue', 'none'],
-  );
+  assert.equal(spawnTool.inputSchema.properties.response_mode, undefined);
   const spawnEvents = [];
   const spawnCalls = [];
   const spawnRuns = new Map();
   const spawned = await spawnTool.execute(
     {
       prompt: 'Inspect the queue.',
-      response_mode: 'steer',
     },
     {
       chatRunner: {
@@ -189,52 +230,18 @@ try {
   assert.equal(getConversation(spawned.thread_id).isSubagent, true);
   assert.equal(getConversation(spawned.thread_id).initialPrompt, 'Inspect the queue.');
   assert.equal(getConversation(spawned.thread_id).orchestrationMode, 'ultra');
+  assert.equal(getConversation(spawned.thread_id).autoForwardToParent, true);
   assert.equal(spawnCalls[0].conversationId, spawned.thread_id);
   assert.equal(spawnCalls[0].reasoningEffort, 'high');
   assert.equal(spawnCalls[0].ultraMode, true);
-  assert.equal(
-    spawnCalls[0].text,
-    [
-      'Inspect the queue.',
-      `When the assignment is complete, send the final result to orchestrator thread "${parent.id}" with chat_send_prompt using mode "steer".`,
-    ].join('\n\n'),
-  );
+  assert.equal(spawnCalls[0].text, 'Inspect the queue.');
   assert.ok(toModelMessages(spawned.thread_id)[0].content.includes('Ultra team'));
-  assert.ok(toModelMessages(spawned.thread_id)[0].content.includes('chat_send_prompt'));
+  assert.ok(
+    toModelMessages(spawned.thread_id)[0].content.includes(
+      'final assistant response is automatically forwarded',
+    ),
+  );
   assert.equal(spawnEvents[0].conversationId, parent.id);
-  const queueCalls = [];
-  const queuedSubagent = await spawnTool.execute(
-    {
-      prompt: 'Inspect the queued work.',
-      response_mode: 'queue',
-    },
-    {
-      chatRunner: {
-        runs: new Map(),
-        emit: () => {},
-        send: async (payload) => {
-          queueCalls.push(payload);
-          return { queued: false, message: { id: 'queue-prompt' } };
-        },
-      },
-      conversationId: parent.id,
-      model: 'test/model',
-      models: [{
-        id: 'test/model',
-        name: 'Test model',
-        reasoning: ['high'],
-      }],
-      reasoningEffort: 'high',
-    },
-  );
-  assert.equal(
-    queueCalls[0].text,
-    [
-      'Inspect the queued work.',
-      'When the assignment is complete, use chat_report_to_orchestrator to queue the final result for the orchestrator.',
-    ].join('\n\n'),
-  );
-  deleteConversation(queuedSubagent.thread_id, { hard: true });
   const noResponseCalls = [];
   const optionalSubagent = await spawnTool.execute(
     {
@@ -278,11 +285,11 @@ try {
     },
   );
   assert.equal(crossAgentCalls[0].ultraMode, true);
+  assert.equal(crossAgentCalls[0].queuePriority, false);
   await assert.rejects(
     () => spawnTool.execute(
       {
         prompt: 'Inspect another queue.',
-        response_mode: 'queue',
       },
       {
         chatRunner: {
@@ -307,7 +314,6 @@ try {
     () => spawnTool.execute(
       {
         prompt: 'Spawn another agent.',
-        response_mode: 'queue',
       },
       {
         chatRunner: { emit: () => {}, send: async () => ({ queued: false }) },
@@ -437,6 +443,136 @@ try {
     'in_progress',
   );
 
+  const forwardingCalls = [];
+  const forwardingRunner = new ChatRunner({
+    registry: {
+      resolve: () => ({
+        model: runtimeModel,
+        provider: { getContributions: () => ({ tools: [] }) },
+      }),
+      listModels: () => [runtimeModel],
+    },
+    sendEvent: () => {},
+  });
+  forwardingRunner.send = async (payload) => {
+    forwardingCalls.push(payload);
+    return { queued: true, message: { id: `forward-${forwardingCalls.length}` } };
+  };
+  const managedSubagent = forkConversation(parent.id, {
+    subagent: true,
+    subagentPrompt: 'Return the managed result.',
+    autoForwardToParent: true,
+  });
+  const managedResult = insertMessage({
+    conversationId: managedSubagent.conversation.id,
+    role: 'assistant',
+    model: 'test/model',
+    status: 'completed',
+    content: '<think>Private reasoning</think>Managed final result.',
+  });
+  await forwardingRunner.forwardSubagentResult(managedResult);
+  assert.equal(forwardingCalls.length, 1);
+  assert.equal(forwardingCalls[0].steer, true);
+  assert.match(forwardingCalls[0].text, /Managed final result\./);
+  assert.doesNotMatch(forwardingCalls[0].text, /Private reasoning/);
+  assert.match(forwardingCalls[0].text, new RegExp(`source_message_id="${managedResult.id}"`));
+
+  insertMessage({
+    conversationId: parent.id,
+    role: 'user',
+    status: 'sent',
+    content: forwardingCalls[0].text,
+  });
+  await forwardingRunner.forwardSubagentResult(managedResult);
+  assert.equal(forwardingCalls.length, 1);
+
+  const managedError = insertMessage({
+    conversationId: managedSubagent.conversation.id,
+    role: 'assistant',
+    model: 'test/model',
+    status: 'error',
+    content: '**Streaming error (provider_error):** Managed worker failed.',
+    segments: [{
+      type: 'error',
+      code: 'provider_error',
+      message: 'Managed worker failed.',
+      status: 'completed',
+    }],
+  });
+  await forwardingRunner.forwardSubagentResult(managedError);
+  assert.equal(forwardingCalls.length, 2);
+  assert.equal(forwardingCalls[1].steer, true);
+  assert.match(forwardingCalls[1].text, /Managed worker failed\./);
+  assert.match(forwardingCalls[1].text, /status="error"/);
+
+  const manualResult = insertMessage({
+    conversationId: subagent.conversation.id,
+    role: 'assistant',
+    model: 'test/model',
+    status: 'completed',
+    content: 'Manual result must remain local.',
+  });
+  assert.equal(getConversation(subagent.conversation.id).autoForwardToParent, false);
+  assert.ok(
+    toModelMessages(subagent.conversation.id)[0].content.includes(
+      'final response is not forwarded',
+    ),
+  );
+  await forwardingRunner.forwardSubagentResult(manualResult);
+  assert.equal(forwardingCalls.length, 2);
+
+  const lifecycleResults = [];
+  const lifecycleErrorSubagent = forkConversation(parent.id, {
+    subagent: true,
+    subagentPrompt: 'Fail during execution.',
+    autoForwardToParent: true,
+  });
+  const lifecycleRunner = new ChatRunner({
+    registry: {
+      resolve: () => ({
+        model: runtimeModel,
+        provider: {
+          getContributions: () => ({ tools: [] }),
+          stream: async ({ invocationContext, onEvent }) => {
+            if (invocationContext.conversationId === lifecycleErrorSubagent.conversation.id) {
+              throw new Error('Lifecycle failure.');
+            }
+            onEvent({ type: 'content', text: 'Lifecycle result.' });
+            return {
+              assistantContent: 'Lifecycle result.',
+              continuation: [],
+              toolCalls: [],
+            };
+          },
+        },
+      }),
+      listModels: () => [runtimeModel],
+    },
+    sendEvent: () => {},
+  });
+  lifecycleRunner.forwardSubagentResult = async (message) => lifecycleResults.push(message);
+  await lifecycleRunner.send({
+    conversationId: managedSubagent.conversation.id,
+    model: runtimeModel.id,
+    text: 'Complete the lifecycle task.',
+  });
+  while (lifecycleRunner.runs.has(managedSubagent.conversation.id)) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+  }
+  assert.equal(lifecycleResults.at(-1).status, 'completed');
+  assert.match(lifecycleResults.at(-1).content, /Lifecycle result\./);
+
+  await lifecycleRunner.send({
+    conversationId: lifecycleErrorSubagent.conversation.id,
+    model: runtimeModel.id,
+    text: 'Trigger the lifecycle error.',
+  });
+  while (lifecycleRunner.runs.has(lifecycleErrorSubagent.conversation.id)) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+  }
+  assert.equal(lifecycleResults.at(-1).status, 'error');
+  assert.match(lifecycleResults.at(-1).content, /Lifecycle failure\./);
+
   const reportCalls = [];
   const report = await reportTool.execute(
     { message: 'Queue inspection completed.' },
@@ -454,6 +590,7 @@ try {
   assert.equal(report.status, 'queued');
   assert.ok(reportCalls[0].text.includes(spawned.thread_id));
   assert.equal(reportCalls[0].ultraMode, true);
+  assert.equal(reportCalls[0].queuePriority, true);
   deleteConversation(parent.id);
   assert.equal(getConversation(second.conversation.id), null);
   assert.equal(getConversation(third.conversation.id), null);

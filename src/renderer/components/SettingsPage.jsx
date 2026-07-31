@@ -36,6 +36,14 @@ const compactTokenFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 1,
 });
+const personalityDescriptions = Object.freeze({
+  none: 'Uses only Avi base instructions without an additional personality.',
+  candid: 'Direct and encouraging, with clear feedback and concrete next steps.',
+  cynical: 'Critical and dryly sarcastic, questioning weak assumptions without hostility.',
+  friendly: 'Warm, supportive, and collaborative while remaining honest and direct.',
+  pragmatic: 'Concise, factual, and focused on technical clarity and momentum.',
+  quirky: 'Playful and imaginative, using memorable explanations without losing precision.',
+});
 
 function ActionMenu({
   disabled = false,
@@ -332,7 +340,7 @@ export function SettingsPage({
     'context-folder': selectedContextFolder?.displayPath || '',
     mcp: mcpNavigation?.description
       || 'Manage global and per-folder Model Context Protocol servers.',
-    tuning: 'Adjust how the app manages context, tool execution, and parallel work.',
+    tuning: 'Adjust agent behavior, context, tool execution, and parallel work.',
     about: 'Project information, version, and links.',
   }[view];
   const showInlineBack = !['list', 'context-folders', 'mcp', 'tuning', 'about'].includes(view)
@@ -409,7 +417,9 @@ export function SettingsPage({
             !settingsQuery
             || (
               'tuning compaction output permission message queue steer enter '
-              + 'shell terminal timeout sub-agents'
+              + 'shell terminal timeout sub-agents personality candid cynical friendly '
+              + 'pragmatic quirky behavior reasoning traces visible hidden logging logs '
+              + 'verbose minimal disabled diagnostics'
             ).includes(settingsQuery)
           ) && (
             <button
@@ -805,6 +815,59 @@ export function SettingsPage({
               <div className="settings-tuning">
                 <section className="settings-section">
                   <div className="settings-section-heading">
+                    <h3>Agent behavior</h3>
+                    <p>Choose the communication style applied globally to every conversation.</p>
+                  </div>
+                  <div className="settings-section-card settings-form">
+                    <label className="settings-field settings-field-wide">
+                      <span>Personality</span>
+                      <select
+                        value={tuningDraft.personality ?? 'none'}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            personality: event.target.value === 'none'
+                              ? null
+                              : event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="none">None</option>
+                        <option value="candid">Candid</option>
+                        <option value="cynical">Cynical</option>
+                        <option value="friendly">Friendly</option>
+                        <option value="pragmatic">Pragmatic</option>
+                        <option value="quirky">Quirky</option>
+                      </select>
+                      <small>
+                        {personalityDescriptions[tuningDraft.personality ?? 'none']}
+                      </small>
+                    </label>
+                    <label className="settings-field settings-field-wide">
+                      <span>Chat reasoning traces</span>
+                      <select
+                        value={tuningDraft.chatReasoningTraces}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            chatReasoningTraces: event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="visible">Visible</option>
+                        <option value="hidden">Hidden</option>
+                      </select>
+                      <small>
+                        Controls whether reasoning and tool trace blocks appear in chats.
+                      </small>
+                    </label>
+                  </div>
+                </section>
+
+                <section className="settings-section">
+                  <div className="settings-section-heading">
                     <h3>Context and output</h3>
                     <p>Control when context is compacted and how much tool output is retained.</p>
                   </div>
@@ -843,13 +906,13 @@ export function SettingsPage({
                           }));
                         }}
                       >
-                        <option value={30_000}>Short · 30K characters</option>
-                        <option value={120_000}>Medium · 120K characters</option>
-                        <option value={200_000}>Long · 200K characters</option>
-                        <option value="none">None · Dangerous</option>
+                        <option value={4_096}>Small · 1,024 tokens</option>
+                        <option value={8_192}>Medium · 2,048 tokens</option>
+                        <option value={32_768}>Long · 8,192 tokens</option>
+                        <option value="none">Disabled · No limit</option>
                       </select>
                       <small>
-                        Limits tool results added to the conversation. Disabling truncation can exhaust the context window.
+                        Token count is estimated as output length divided by 4. Disabling truncation can exhaust the context window.
                       </small>
                     </label>
                   </div>
@@ -983,6 +1046,35 @@ export function SettingsPage({
                       />
                       <small>
                         Global maximum of sub-agents that may run at the same time. From 1 to 128.
+                      </small>
+                    </label>
+                  </div>
+                </section>
+
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>Diagnostics</h3>
+                    <p>Choose how much operational detail is written to ~/.aivax/trace.log.</p>
+                  </div>
+                  <div className="settings-section-card settings-form">
+                    <label className="settings-field settings-field-wide">
+                      <span>Log level</span>
+                      <select
+                        value={tuningDraft.logLevel}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            logLevel: event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="verbose">Verbose · Detailed timings and errors</option>
+                        <option value="minimal">Minimal · Errors only</option>
+                        <option value="disabled">Disabled · No logging</option>
+                      </select>
+                      <small>
+                        Logs never include prompts, messages, tool inputs, attachments, API keys, or user file paths.
                       </small>
                     </label>
                   </div>
@@ -1223,7 +1315,7 @@ export function SettingsPage({
                           id: '',
                           name: '',
                           enabled: true,
-                          capabilities: { images: false, audio: false },
+                          capabilities: { images: false, audio: false, pdfFiles: false },
                           context: { input: '', output: '' },
                           reasoning: [],
                         });
@@ -1422,6 +1514,19 @@ export function SettingsPage({
                             })}
                           />
                           Audio
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={modelDraft.capabilities.pdfFiles}
+                            onChange={(event) => updateModelDraft({
+                              capabilities: {
+                                ...modelDraft.capabilities,
+                                pdfFiles: event.target.checked,
+                              },
+                            })}
+                          />
+                          PDF files
                         </label>
                       </div>
                     </div>

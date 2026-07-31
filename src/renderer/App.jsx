@@ -56,6 +56,7 @@ export default function App() {
   const [models, setModels] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [running, setRunning] = useState({});
+  const [completedUnseen, setCompletedUnseen] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
   const [settingsContextFolder, setSettingsContextFolder] = useState(null);
@@ -91,6 +92,9 @@ export default function App() {
   const [workMode, setWorkMode] = useState(null);
   const [ultraMode, setUltraMode] = useState(false);
   const approvalDialogRef = useRef(null);
+  const inspectedConversationIdRef = useRef(null);
+
+  inspectedConversationIdRef.current = settingsOpen || orchestrationOpen ? null : selectedId;
 
   const currentConversation = conversations.find((item) => item.id === selectedId) ?? null;
   const currentMessages = messagesByConversation[selectedId] ?? [];
@@ -228,6 +232,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!selectedId || settingsOpen || orchestrationOpen) return;
+    setCompletedUnseen((state) => {
+      if (!state[selectedId]) return state;
+      const next = { ...state };
+      delete next[selectedId];
+      return next;
+    });
+  }, [orchestrationOpen, selectedId, settingsOpen]);
+
+  useEffect(() => {
     if (
       workMode === 'plan'
       && currentConversation?.goal
@@ -283,6 +297,9 @@ export default function App() {
         }));
       } else if (event.type === 'run-state') {
         setRunning((state) => ({ ...state, [event.conversationId]: event.running }));
+        if (!event.running && event.conversationId !== inspectedConversationIdRef.current) {
+          setCompletedUnseen((state) => ({ ...state, [event.conversationId]: true }));
+        }
       } else if (event.type === 'mcp-waiting') {
         setMcpWaiting((state) => {
           if (event.waiting) {
@@ -486,6 +503,13 @@ export default function App() {
   }, []);
 
   async function selectConversation(id) {
+    inspectedConversationIdRef.current = id;
+    setCompletedUnseen((state) => {
+      if (!state[id]) return state;
+      const next = { ...state };
+      delete next[id];
+      return next;
+    });
     setSelectedId(id);
     if (!messagesByConversation[id]) {
       const messages = await api.conversations.messages(id);
@@ -934,7 +958,11 @@ export default function App() {
       ...state,
       [conversationId]: (state[conversationId] ?? []).map((message) => (
         positions.has(message.id)
-          ? { ...message, queuePosition: positions.get(message.id) }
+          ? {
+              ...message,
+              queuePosition: positions.get(message.id),
+              status: message.id === steerMessageId ? 'steered' : message.status,
+            }
           : message
       )),
     }));
@@ -990,6 +1018,7 @@ export default function App() {
     appState?.platform && `platform-${appState.platform}`,
     effectiveSidebarCollapsed && 'sidebar-collapsed',
     settingsOpen && 'settings-active',
+    appState?.tuning?.chatReasoningTraces === 'hidden' && 'reasoning-traces-hidden',
   ]
     .filter(Boolean)
     .join(' ');
@@ -1067,6 +1096,7 @@ export default function App() {
             models={models}
             selectedId={selectedId}
             running={running}
+            completedUnseen={completedUnseen}
             onNewChat={(preset = {}) => {
               setOrchestrationOpen(false);
               setSelectedId(null);

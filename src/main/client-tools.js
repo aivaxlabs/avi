@@ -2,7 +2,6 @@ import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import {
   readFile,
-  readdir,
   stat,
   writeFile,
 } from 'node:fs/promises';
@@ -10,7 +9,6 @@ import { EOL } from 'node:os';
 import {
   basename,
   isAbsolute,
-  join,
   resolve,
 } from 'node:path';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
@@ -29,144 +27,10 @@ const MAX_TERMINAL_OUTPUT_CHARS = 2_000_000;
 const MIN_TERMINAL_TIMEOUT_SECONDS = 1;
 const MAX_TERMINAL_TIMEOUT_SECONDS = 300;
 const DEFAULT_TERMINAL_TIMEOUT_SECONDS = 30;
-const MAX_SEARCH_FILE_BYTES = 5_000_000;
-const DEFAULT_SEARCH_RESULTS = 200;
 const MAX_INSPECTED_TURNS = 4;
 const MAX_ASSISTANT_MESSAGES_BEFORE_FINAL = 6;
 const MAX_INSPECTED_TOOL_RESULT_CHARS = 512 * 4;
-const ignoredDirectories = new Set(['.git', 'dist', 'node_modules', 'out', 'release']);
 const terminals = new Map();
-
-async function resolveSearchScope(value, substringWhenPlain) {
-  const query = String(value ?? '').trim();
-  const defaultRoot = process.cwd();
-  if (!query) {
-    return { root: defaultRoot, pattern: '**/*', exactFile: null };
-  }
-
-  const resolved = resolve(query);
-  try {
-    const details = await stat(resolved);
-    if (details.isDirectory()) {
-      return { root: resolved, pattern: '**/*', exactFile: null };
-    }
-    if (details.isFile() && isAbsolute(query)) {
-      return { root: defaultRoot, pattern: '', exactFile: resolved };
-    }
-  } catch {}
-
-  const normalized = query.replaceAll('\\', '/');
-  const wildcardIndex = normalized.search(/[*?[]/);
-  if (isAbsolute(query) && wildcardIndex >= 0) {
-    const separatorIndex = normalized.lastIndexOf('/', wildcardIndex);
-    return {
-      root: resolve(normalized.slice(0, separatorIndex)),
-      pattern: normalized.slice(separatorIndex + 1),
-      exactFile: null,
-    };
-  }
-
-  const hasWildcard = wildcardIndex >= 0;
-  return {
-    root: defaultRoot,
-    pattern: !hasWildcard && substringWhenPlain
-      ? normalized.includes('/') ? `**/${normalized}*` : `**/*${normalized}*`
-      : normalized,
-    exactFile: null,
-  };
-}
-
-async function collectFiles({ root, pattern, exactFile, includeIgnoredFiles, limit = Infinity }) {
-  if (exactFile) return [exactFile];
-
-  const normalizedPattern = String(pattern || '**/*').replaceAll('\\', '/');
-  let expression = '^';
-  for (let index = 0; index < normalizedPattern.length; index += 1) {
-    const char = normalizedPattern[index];
-    if (char === '*' && normalizedPattern[index + 1] === '*') {
-      const followedBySlash = normalizedPattern[index + 2] === '/';
-      expression += followedBySlash ? '(?:.*/)?' : '.*';
-      index += followedBySlash ? 2 : 1;
-    } else if (char === '*') {
-      expression += '[^/]*';
-    } else if (char === '?') {
-      expression += '[^/]';
-    } else {
-      expression += /[.+^${}()|[\]\\]/.test(char) ? `\\${char}` : char;
-    }
-  }
-  const matcher = new RegExp(`${expression}$`, 'i');
-
-  if (!includeIgnoredFiles) {
-    const gitFiles = await new Promise((resolveFiles) => {
-      const child = spawn(
-        'git',
-        ['-C', root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
-        { shell: false, windowsHide: true },
-      );
-      let output = '';
-      child.stdout.on('data', (chunk) => {
-        output += String(chunk);
-      });
-      child.once('error', () => resolveFiles(null));
-      child.once('close', (exitCode) => {
-        resolveFiles(exitCode === 0 ? output.split('\0').filter(Boolean) : null);
-      });
-    });
-
-    if (gitFiles) {
-      const matchedFiles = [];
-      for (const path of gitFiles) {
-        const normalizedPath = path.replaceAll('\\', '/');
-        if (!matcher.test(normalizedPath) && !matcher.test(normalizedPath.split('/').at(-1))) {
-          continue;
-        }
-        const absolutePath = resolve(root, path);
-        try {
-          if ((await stat(absolutePath)).isFile()) {
-            matchedFiles.push(absolutePath);
-          }
-        } catch {}
-        if (matchedFiles.length >= limit) break;
-      }
-      return matchedFiles;
-    }
-  }
-
-  const files = [];
-
-  async function visit(directory) {
-    if (files.length >= limit) return;
-
-    let entries;
-    try {
-      entries = await readdir(directory, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    for (const entry of entries) {
-      if (files.length >= limit) return;
-      if (entry.isSymbolicLink()) continue;
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        if (includeIgnoredFiles || !ignoredDirectories.has(entry.name)) {
-          await visit(path);
-        }
-        continue;
-      }
-      if (!entry.isFile()) continue;
-
-      const relativePath = path.slice(root.length).replace(/^[/\\]+/, '').replaceAll('\\', '/');
-      if (matcher.test(relativePath) || matcher.test(entry.name)) {
-        files.push(path);
-      }
-    }
-  }
-
-  await visit(root);
-  return files;
-}
 
 function appendTerminalOutput(terminal, chunk) {
   terminal.output += String(chunk);
@@ -615,7 +479,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'chat_spawn_subagent',
-    description: 'Start an asynchronous sub-agent for a focused task in the current workspace. Returns immediately with its thread_id.',
+    description: 'Start an asynchronous sub-agent for a focused task in the current workspace. Returns immediately with its thread_id. Its final response or terminal error is automatically steered to the orchestrator.',
     canEditFile: false,
     canPerformDestructiveActions: true,
     inputSchema: {
@@ -633,11 +497,6 @@ export const CLIENT_TOOLS = Object.freeze([
           type: 'string',
           description: 'The focused task the sub-agent must complete.',
         },
-        response_mode: {
-          type: 'string',
-          enum: ['steer', 'queue', 'none'],
-          description: 'Optional delivery preference for the final result: steer prioritizes it at the next safe boundary, queue waits behind active work, and none leaves reporting to the sub-agent. Defaults to none.',
-        },
       },
       required: ['prompt'],
     },
@@ -646,7 +505,6 @@ export const CLIENT_TOOLS = Object.freeze([
         model_name,
         reasoning_effort,
         prompt,
-        response_mode = 'none',
       },
       {
         chatRunner,
@@ -673,15 +531,6 @@ export const CLIENT_TOOLS = Object.freeze([
       }
       const normalizedPrompt = String(prompt ?? '').trim();
       if (!normalizedPrompt) throw new Error('prompt is required.');
-      if (!['steer', 'queue', 'none'].includes(response_mode)) {
-        throw new Error('response_mode must be steer, queue, or none.');
-      }
-      let responseAppendix = '';
-      if (response_mode === 'steer') {
-        responseAppendix = `When the assignment is complete, send the final result to orchestrator thread "${parent.id}" with chat_send_prompt using mode "steer".`;
-      } else if (response_mode === 'queue') {
-        responseAppendix = 'When the assignment is complete, use chat_report_to_orchestrator to queue the final result for the orchestrator.';
-      }
 
       const selectedModelId = model_name === undefined ? model : String(model_name).trim();
       const selectedModel = models.find((item) => item.id === selectedModelId);
@@ -704,6 +553,7 @@ export const CLIENT_TOOLS = Object.freeze([
         subagent: true,
         subagentPrompt: normalizedPrompt,
         orchestrationMode: ultraMode ? 'ultra' : null,
+        autoForwardToParent: true,
       });
       if (!result) throw new Error('The sub-agent thread could not be created.');
       const subagent = selectedModel.id === result.conversation.model
@@ -714,9 +564,7 @@ export const CLIENT_TOOLS = Object.freeze([
         conversationId: subagent.id,
         model: selectedModel.id,
         reasoningEffort: selectedReasoningEffort,
-        text: responseAppendix
-          ? `${normalizedPrompt}\n\n${responseAppendix}`
-          : normalizedPrompt,
+        text: normalizedPrompt,
         ultraMode,
         project: { path: parent.projectPath },
       });
@@ -729,7 +577,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'chat_report_to_orchestrator',
-    description: 'Queue a material progress update, blocker, course correction, or final result for the parent orchestrator thread.',
+    description: 'Send a material progress update, blocker, dependency, or course correction to the parent orchestrator. The final response is forwarded automatically and should not be duplicated with this tool.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -769,6 +617,7 @@ export const CLIENT_TOOLS = Object.freeze([
         workMode: activeGoal ? 'goal' : null,
         goalId: activeGoal?.id,
         ultraMode,
+        queuePriority: true,
         project: { path: parent.projectPath },
       });
 
@@ -803,7 +652,7 @@ export const CLIENT_TOOLS = Object.freeze([
       },
       required: ['threadId', 'prompt', 'mode'],
     },
-    execute: async ({ threadId, prompt, mode }, { chatRunner }) => {
+    execute: async ({ threadId, prompt, mode }, { chatRunner, conversationId }) => {
       const conversation = getConversation(String(threadId));
       if (!conversation) throw new Error('The thread was not found.');
       const normalizedPrompt = String(prompt ?? '').trim();
@@ -811,12 +660,14 @@ export const CLIENT_TOOLS = Object.freeze([
       if (!['queue', 'steer'].includes(mode)) {
         throw new Error('mode must be queue or steer.');
       }
+      const sourceConversation = getConversation(conversationId);
       const result = await chatRunner.send({
         conversationId: conversation.id,
         model: conversation.model,
         text: normalizedPrompt,
         steer: mode === 'steer',
         ultraMode: conversation.orchestrationMode === 'ultra',
+        queuePriority: sourceConversation?.isSubagent === true,
         project: { path: conversation.projectPath },
       });
 
@@ -1277,129 +1128,6 @@ export const CLIENT_TOOLS = Object.freeze([
         endLine: Math.min(endLine, lines.length),
         totalLines: lines.length,
         content: lines.slice(startLine - 1, endLine).join('\n'),
-      };
-    },
-  },
-  {
-    name: 'file_search',
-    description: 'Search for local files whose names or paths match a glob pattern.',
-    canEditFile: false,
-    canPerformDestructiveActions: false,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'Search for files with names or paths matching this glob pattern. Can also be an absolute path to a workspace folder to scope the search in a multi-root workspace.',
-        },
-        maxResults: {
-          type: 'number',
-          description: 'The maximum number of results to return. Do not use this unless necessary, it can slow things down. By default, only some matches are returned. If you use this and do not see what you are looking for, try again with a more specific query or a larger maxResults.',
-        },
-      },
-      required: ['query'],
-    },
-    execute: async ({ query, maxResults }) => {
-      const limit = maxResults === undefined ? DEFAULT_SEARCH_RESULTS : Number(maxResults);
-      if (!Number.isInteger(limit) || limit < 1) {
-        throw new Error('maxResults must be a positive integer.');
-      }
-
-      const scope = await resolveSearchScope(query, true);
-      const files = await collectFiles({ ...scope, includeIgnoredFiles: false, limit });
-      return {
-        query,
-        results: files,
-        truncated: files.length >= limit,
-      };
-    },
-  },
-  {
-    name: 'grep_search',
-    description: 'Search local text files for a case-insensitive plain-text or regular-expression pattern.',
-    canEditFile: false,
-    canPerformDestructiveActions: false,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        query: {
-          type: 'string',
-          description: 'The pattern to search for in files in the workspace. Use regex with alternation (e.g., "word1|word2|word3") or character classes to find multiple potential words in a single search. Be sure to set isRegexp correctly. Search is case-insensitive.',
-        },
-        isRegexp: {
-          type: 'boolean',
-          description: 'Whether the pattern is a regular expression.',
-        },
-        includePattern: {
-          type: 'string',
-          description: 'Search files matching this glob pattern. To search recursively inside a folder, use a pattern like "src/folder/**". Can also be an absolute path to a workspace folder to scope the search in a multi-root workspace.',
-        },
-        maxResults: {
-          type: 'number',
-          description: 'The maximum number of results to return. Do not use this unless necessary, it can slow things down. By default, only some matches are returned.',
-        },
-        includeIgnoredFiles: {
-          type: 'boolean',
-          description: 'Whether to include files that would normally be ignored according to ignore settings. Warning: this may be slower for folders such as node_modules or build outputs.',
-        },
-      },
-      required: ['query', 'isRegexp'],
-    },
-    execute: async ({ query, isRegexp, includePattern, maxResults, includeIgnoredFiles }) => {
-      const limit = maxResults === undefined ? DEFAULT_SEARCH_RESULTS : Number(maxResults);
-      if (!Number.isInteger(limit) || limit < 1) {
-        throw new Error('maxResults must be a positive integer.');
-      }
-
-      let matcher;
-      try {
-        matcher = new RegExp(isRegexp ? String(query) : String(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      } catch (error) {
-        throw new Error(`query is not a valid regular expression: ${error.message}`);
-      }
-
-      const scope = await resolveSearchScope(includePattern || '**/*', false);
-      const files = await collectFiles({
-        ...scope,
-        includeIgnoredFiles: Boolean(includeIgnoredFiles),
-      });
-      const matches = [];
-
-      for (const filePath of files) {
-        if (matches.length >= limit) break;
-
-        let details;
-        try {
-          details = await stat(filePath);
-        } catch {
-          continue;
-        }
-        if (details.size > MAX_SEARCH_FILE_BYTES) continue;
-
-        let content;
-        try {
-          content = await readFile(filePath, 'utf8');
-        } catch {
-          continue;
-        }
-        if (content.includes('\0')) continue;
-
-        const lines = content.replaceAll('\r\n', '\n').split('\n');
-        for (let index = 0; index < lines.length; index += 1) {
-          if (!matcher.test(lines[index])) continue;
-          matches.push({
-            filePath,
-            line: index + 1,
-            text: lines[index],
-          });
-          if (matches.length >= limit) break;
-        }
-      }
-
-      return {
-        query,
-        matches,
-        truncated: matches.length >= limit,
       };
     },
   },

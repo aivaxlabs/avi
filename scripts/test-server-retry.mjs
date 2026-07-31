@@ -193,6 +193,286 @@ try {
     }
   }
 
+  const adaptiveToolOutputLimit = 100;
+  const inspectedConversation = database.createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  database.insertMessage({
+    conversationId: inspectedConversation.id,
+    role: 'user',
+    content: 'Inspect this result. '.repeat(adaptiveToolOutputLimit),
+  });
+  const adaptiveRequests = [];
+  let adaptiveCompressionRequest;
+  const adaptiveProvider = {
+    getContributions: () => ({
+      tools: [{
+        name: 'adaptive_context',
+        description: 'Return a fixed-size result for adaptive context testing.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            value: { type: 'string' },
+          },
+          required: ['value'],
+          additionalProperties: false,
+        },
+        execute: async ({ value }) => value.repeat(adaptiveToolOutputLimit),
+      }],
+    }),
+    stream: async ({ messages, toolHistory, onEvent }) => {
+      if (messages.at(-1)?.content.includes('CONTEXT CHECKPOINT COMPACTION')) {
+        adaptiveCompressionRequest = messages;
+        onEvent({
+          type: 'usage',
+          usage: { inputTokens: 500, outputTokens: 50 },
+        });
+        return {
+          assistantContent: 'Adaptive checkpoint.',
+          continuation: [],
+          toolCalls: [],
+        };
+      }
+
+      adaptiveRequests.push(structuredClone(toolHistory));
+      const round = toolHistory.length;
+      if (round === 5) {
+        onEvent({ type: 'content', text: 'Adaptive truncation completed.' });
+        onEvent({
+          type: 'usage',
+          usage: { inputTokens: 100, outputTokens: 10 },
+        });
+        return {
+          assistantContent: 'Adaptive truncation completed.',
+          continuation: [],
+          toolCalls: [],
+        };
+      }
+
+      const toolCall = {
+        key: `adaptive-${round}`,
+        callId: `adaptive-${round}`,
+        name: round === 0 ? 'chat_inspect_thread' : 'adaptive_context',
+        argumentsText: JSON.stringify(round === 0
+          ? {
+              threadId: inspectedConversation.id,
+              __invocation_goal: 'Verify inspected task result truncation',
+              __requires_human_approval: false,
+            }
+          : {
+              value: String(round),
+              __invocation_goal: 'Verify adaptive tool result truncation',
+              __requires_human_approval: false,
+            }),
+      };
+      onEvent({ type: 'content', text: `Adaptive round ${round}.` });
+      onEvent({ type: 'tool-call', ...toolCall });
+      return {
+        assistantContent: `Adaptive round ${round}.`,
+        continuation: [],
+        toolCalls: [toolCall],
+      };
+    },
+  };
+  const adaptiveRunner = new ChatRunner({
+    registry: {
+      resolve: () => ({ model, provider: adaptiveProvider }),
+      listModels: () => [model],
+    },
+    mcpManager: null,
+    getPreferences: () => ({
+      ...database.getPreferences(),
+      tuning: {
+        ...database.getPreferences().tuning,
+        toolOutputLimit: adaptiveToolOutputLimit,
+      },
+    }),
+    sendEvent: () => {},
+  });
+  const adaptiveConversation = database.createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  await adaptiveRunner.send({
+    conversationId: adaptiveConversation.id,
+    model: model.id,
+    text: 'Exercise adaptive tool result truncation.',
+    permissionMode: 'full_access',
+  });
+  await waitFor(() => !adaptiveRunner.runs.has(adaptiveConversation.id));
+  assert.equal(adaptiveRequests.length, 6);
+  assert.equal(JSON.parse(adaptiveRequests[3][0].results[0].output).output.length, 20);
+  assert.deepEqual(
+    adaptiveRequests[3].slice(1).map((round) => round.results[0].output.length),
+    [100, 100],
+  );
+  const firstOlderResult = JSON.parse(adaptiveRequests[4][0].results[0].output);
+  assert.equal(firstOlderResult.truncated, true);
+  assert.equal(firstOlderResult.output.length, 20);
+  assert.deepEqual(
+    adaptiveRequests[4].slice(1).map((round) => round.results[0].output.length),
+    [100, 100, 100],
+  );
+  const secondOlderResult = JSON.parse(adaptiveRequests[5][1].results[0].output);
+  assert.equal(secondOlderResult.truncated, true);
+  assert.equal(secondOlderResult.output.length, 80);
+  assert.deepEqual(
+    adaptiveRequests[5].slice(2).map((round) => round.results[0].output.length),
+    [100, 100, 100],
+  );
+  await adaptiveRunner.compress({
+    conversationId: adaptiveConversation.id,
+    model: model.id,
+    contextMessages: [{ role: 'user', content: 'Compact adaptive tool history.' }],
+    contextToolHistory: Array.from({ length: 5 }, (_, round) => ({
+      assistantContent: `Compaction round ${round}.`,
+      continuation: [],
+      toolCalls: [{
+        callId: `compaction-${round}`,
+        name: round === 0 ? 'chat_inspect_thread' : 'adaptive_context',
+      }],
+      results: [{
+        callId: `compaction-${round}`,
+        output: String(round).repeat(adaptiveToolOutputLimit),
+        isError: false,
+      }],
+    })),
+    streamingSegments: [{ type: 'content', text: 'Current streaming turn.' }],
+  });
+  const adaptiveInFlightMessage = adaptiveCompressionRequest.at(-2).content;
+  const adaptiveInFlightContext = JSON.parse(
+    adaptiveInFlightMessage
+      .replace('<in_flight_context>\n', '')
+      .replace('\n</in_flight_context>', ''),
+  );
+  assert.equal(
+    JSON.parse(adaptiveInFlightContext.toolHistory[0].results[0].output).output.length,
+    20,
+  );
+  assert.equal(
+    JSON.parse(adaptiveInFlightContext.toolHistory[1].results[0].output).output.length,
+    80,
+  );
+  assert.deepEqual(
+    adaptiveInFlightContext.toolHistory
+      .slice(2)
+      .map((round) => round.results[0].output.length),
+    [100, 100, 100],
+  );
+
+  let perInferenceAttempts = 0;
+  let perInferenceCompressionAttempts = 0;
+  let perInferenceCompressionRequest;
+  let postCheckpointRequest;
+  const perInferenceConversationUpdates = [];
+  const perInferenceProvider = {
+    getContributions: () => ({
+      tools: [{
+        name: 'per_inference_context',
+        description: 'Return context for per-inference compaction.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        },
+        execute: async () => 'Intermediate tool result before checkpoint.',
+      }],
+    }),
+    stream: async ({ messages, toolHistory, onEvent }) => {
+      if (messages.at(-1)?.content.includes('CONTEXT CHECKPOINT COMPACTION')) {
+        perInferenceCompressionAttempts += 1;
+        perInferenceCompressionRequest = messages;
+        onEvent({
+          type: 'usage',
+          usage: { inputTokens: 96_000, outputTokens: 250 },
+        });
+        return {
+          assistantContent: 'Per-inference checkpoint.',
+          continuation: [],
+          toolCalls: [],
+        };
+      }
+
+      perInferenceAttempts += 1;
+      if (perInferenceAttempts === 1) {
+        const toolCall = {
+          key: 'per-inference',
+          callId: 'per-inference',
+          name: 'per_inference_context',
+          argumentsText: JSON.stringify({
+            __invocation_goal: 'Verify compaction after an intermediate inference',
+            __requires_human_approval: false,
+          }),
+        };
+        onEvent({ type: 'content', text: 'Intermediate inference.' });
+        onEvent({ type: 'tool-call', ...toolCall });
+        onEvent({
+          type: 'usage',
+          usage: { inputTokens: 95_000, outputTokens: 100 },
+        });
+        return {
+          assistantContent: 'Intermediate inference.',
+          continuation: [],
+          toolCalls: [toolCall],
+        };
+      }
+
+      postCheckpointRequest = {
+        messages: structuredClone(messages),
+        toolHistory: structuredClone(toolHistory),
+      };
+      onEvent({ type: 'content', text: 'Completed after intermediate compaction.' });
+      onEvent({
+        type: 'usage',
+        usage: { inputTokens: 300, outputTokens: 10 },
+      });
+      return {
+        assistantContent: 'Completed after intermediate compaction.',
+        continuation: [],
+        toolCalls: [],
+      };
+    },
+  };
+  const perInferenceRunner = new ChatRunner({
+    registry: {
+      resolve: () => ({ model, provider: perInferenceProvider }),
+      listModels: () => [model],
+    },
+    mcpManager: null,
+    sendEvent: (event) => {
+      if (event.type === 'conversation') {
+        perInferenceConversationUpdates.push(event.conversation.contextTokens);
+      }
+    },
+  });
+  const perInferenceConversation = database.createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  await perInferenceRunner.send({
+    conversationId: perInferenceConversation.id,
+    model: model.id,
+    text: 'Compact as soon as an intermediate inference crosses the threshold.',
+    permissionMode: 'full_access',
+  });
+  await waitFor(() => !perInferenceRunner.runs.has(perInferenceConversation.id));
+  assert.equal(perInferenceAttempts, 2);
+  assert.equal(perInferenceCompressionAttempts, 1);
+  assert.match(
+    JSON.stringify(perInferenceCompressionRequest),
+    /Intermediate tool result before checkpoint/,
+  );
+  assert.deepEqual(postCheckpointRequest.toolHistory, []);
+  assert.deepEqual(postCheckpointRequest.messages, [{
+    role: 'system',
+    content: '<conversation_checkpoint>\n'
+      + 'Per-inference checkpoint.\n'
+      + '</conversation_checkpoint>',
+  }]);
+  assert.deepEqual(perInferenceConversationUpdates.slice(-3), [95_100, 250, 310]);
+  assert.equal(database.getConversation(perInferenceConversation.id).contextTokens, 310);
+
   let goalRunAttempts = 0;
   let activeStreamCancelled = false;
   const goalProvider = createProvider(
@@ -261,11 +541,27 @@ try {
 
   let contextAttempts = 0;
   let compressionAttempts = 0;
+  let compressionRequest;
   const contextProvider = {
-    getContributions: () => ({ tools: [] }),
-    stream: async ({ messages, onEvent }) => {
+    getContributions: () => ({
+      tools: [{
+        name: 'collect_context',
+        description: 'Return context that must survive compaction.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            value: { type: 'string' },
+          },
+          required: ['value'],
+          additionalProperties: false,
+        },
+        execute: async () => 'Tool result that must survive compaction.',
+      }],
+    }),
+    stream: async ({ messages, toolHistory, onEvent }) => {
       if (messages.at(-1)?.content.includes('CONTEXT CHECKPOINT COMPACTION')) {
         compressionAttempts += 1;
+        compressionRequest = { messages, toolHistory };
         onEvent({
           type: 'usage',
           usage: { inputTokens: 90_000, outputTokens: 500 },
@@ -279,13 +575,50 @@ try {
 
       contextAttempts += 1;
       if (contextAttempts === 1) {
+        onEvent({ type: 'content', text: 'Working context before the tool call.' });
+        onEvent({
+          type: 'tool-call',
+          key: 'collect-context',
+          callId: 'collect-context-call',
+          name: 'collect_context',
+          argumentsText: JSON.stringify({
+            value: 'important',
+            __invocation_goal: 'Preserve the tool result through compaction',
+            __requires_human_approval: false,
+          }),
+        });
+        return {
+          assistantContent: 'Working context before the tool call.',
+          continuation: [],
+          toolCalls: [{
+            key: 'collect-context',
+            callId: 'collect-context-call',
+            name: 'collect_context',
+            argumentsText: JSON.stringify({
+              value: 'important',
+              __invocation_goal: 'Preserve the tool result through compaction',
+              __requires_human_approval: false,
+            }),
+          }],
+        };
+      }
+      if (contextAttempts === 2) {
         const error = new Error('Your input exceeds the context window of this model.');
         error.code = 'context_length_exceeded';
         error.status = 400;
+        onEvent({ type: 'content', text: 'Partial streaming content before compaction.' });
         onEvent({ type: 'error', code: error.code, message: error.message });
         throw error;
       }
+      assert.deepEqual(toolHistory, []);
+      assert.equal(messages.length, 1);
+      assert.equal(messages[0].role, 'system');
+      assert.match(messages[0].content, /Compressed conversation checkpoint/);
       onEvent({ type: 'content', text: 'Recovered after compaction.' });
+      onEvent({
+        type: 'usage',
+        usage: { inputTokens: 500, outputTokens: 20 },
+      });
       return {
         assistantContent: 'Recovered after compaction.',
         continuation: [],
@@ -311,8 +644,14 @@ try {
     text: 'Recover this request.',
   });
   await waitFor(() => !contextRunner.runs.has(contextConversation.id));
-  assert.equal(contextAttempts, 2);
+  assert.equal(contextAttempts, 3);
   assert.equal(compressionAttempts, 1);
+  assert.deepEqual(compressionRequest.toolHistory, []);
+  const compressedInput = JSON.stringify(compressionRequest.messages);
+  assert.match(compressedInput, /Working context before the tool call/);
+  assert.match(compressedInput, /collect_context/);
+  assert.match(compressedInput, /Tool result that must survive compaction/);
+  assert.match(compressedInput, /Partial streaming content before compaction/);
   assert.equal(
     database.getConversation(contextConversation.id).contextCheckpoint,
     'Compressed conversation checkpoint.',
@@ -328,6 +667,132 @@ try {
       .findLast((message) => message.role === 'assistant')
       ?.content,
     'Recovered after compaction.',
+  );
+  assert.deepEqual(
+    database.toModelMessages(contextConversation.id).map(({ role, content }) => ({
+      role,
+      content,
+    })),
+    [
+      {
+        role: 'system',
+        content: '<conversation_checkpoint>\n'
+          + 'Compressed conversation checkpoint.\n'
+          + '</conversation_checkpoint>',
+      },
+      {
+        role: 'assistant',
+        content: 'Recovered after compaction.',
+      },
+    ],
+  );
+  const compressionMessage = database.getMessages(contextConversation.id)
+    .find((message) => message.segments.some((segment) => (
+      segment.type === 'context-compression'
+    )));
+  assert.equal(compressionMessage.segments[0].inputTokens, 90_000);
+  assert.equal(compressionMessage.segments[0].outputTokens, 500);
+
+  let thresholdAttempts = 0;
+  let thresholdCompressionRequest;
+  const thresholdProvider = {
+    getContributions: () => ({
+      tools: [{
+        name: 'threshold_context',
+        description: 'Return context for threshold compaction.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        },
+        execute: async () => 'Threshold tool result.',
+      }],
+    }),
+    stream: async ({ messages, toolHistory, onEvent }) => {
+      if (messages.at(-1)?.content.includes('CONTEXT CHECKPOINT COMPACTION')) {
+        thresholdCompressionRequest = { messages, toolHistory };
+        onEvent({
+          type: 'usage',
+          usage: { inputTokens: 96_000, outputTokens: 300 },
+        });
+        return {
+          assistantContent: 'Threshold checkpoint.',
+          continuation: [],
+          toolCalls: [],
+        };
+      }
+
+      thresholdAttempts += 1;
+      if (thresholdAttempts === 1) {
+        onEvent({ type: 'content', text: 'Threshold work before the tool.' });
+        onEvent({
+          type: 'tool-call',
+          key: 'threshold-context',
+          callId: 'threshold-context-call',
+          name: 'threshold_context',
+          argumentsText: JSON.stringify({
+            __invocation_goal: 'Preserve threshold tool context',
+            __requires_human_approval: false,
+          }),
+        });
+        return {
+          assistantContent: 'Threshold work before the tool.',
+          continuation: [],
+          toolCalls: [{
+            key: 'threshold-context',
+            callId: 'threshold-context-call',
+            name: 'threshold_context',
+            argumentsText: JSON.stringify({
+              __invocation_goal: 'Preserve threshold tool context',
+              __requires_human_approval: false,
+            }),
+          }],
+        };
+      }
+
+      onEvent({ type: 'content', text: 'Threshold final response.' });
+      onEvent({
+        type: 'usage',
+        usage: { inputTokens: 95_000, outputTokens: 25 },
+      });
+      return {
+        assistantContent: 'Threshold final response.',
+        continuation: [],
+        toolCalls: [],
+      };
+    },
+  };
+  const thresholdRunner = new ChatRunner({
+    registry: {
+      resolve: () => ({ model, provider: thresholdProvider }),
+      listModels: () => [model],
+    },
+    mcpManager: null,
+    sendEvent: () => {},
+  });
+  const thresholdConversation = database.createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  await thresholdRunner.send({
+    conversationId: thresholdConversation.id,
+    model: model.id,
+    text: 'Compact the completed tool context.',
+  });
+  await waitFor(() => !thresholdRunner.runs.has(thresholdConversation.id));
+  assert.equal(thresholdAttempts, 2);
+  assert.deepEqual(thresholdCompressionRequest.toolHistory, []);
+  const thresholdCompressedInput = JSON.stringify(thresholdCompressionRequest.messages);
+  assert.match(thresholdCompressedInput, /Threshold work before the tool/);
+  assert.match(thresholdCompressedInput, /threshold_context/);
+  assert.match(thresholdCompressedInput, /Threshold tool result/);
+  assert.match(thresholdCompressedInput, /Threshold final response/);
+  assert.deepEqual(
+    database.toModelMessages(thresholdConversation.id),
+    [{
+      role: 'system',
+      content: '<conversation_checkpoint>\nThreshold checkpoint.\n</conversation_checkpoint>',
+    }],
   );
 
   let repeatedContextAttempts = 0;

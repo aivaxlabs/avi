@@ -4,6 +4,8 @@
   font-size: 14px;
   color: var(--text-1);
   background: transparent;
+  --primary-color: #00af66;
+  --primary-color-opaque: #00af6622;
   --base-transition: cubic-bezier(0.075, 0.82, 0.165, 1);
   --text-1: #171717;
   --text-2: #404040;
@@ -19,7 +21,7 @@
   --item-hover: var(--background-3);
   --item-active: var(--background-4);
   --border-color: var(--background-4);
-  --link-color: #12db87;
+  --link-color: #00af66;
   --highlight-color: #fff1a8;
   --success-color: #18794e;
   --warn-color: #9a6700;
@@ -28,9 +30,12 @@
   --git-modified-status-color: var(--warn-color);
   --git-conflict-status-color: var(--danger-color);
   --git-ignored-status-color: #727272;
+  --link-color: --primary-color;
 
   @media (prefers-color-scheme: dark) {
     color-scheme: dark;
+    --primary-color: #58fdb8;
+    --primary-color-opaque: #58fdb822;
     --text-1: #f3f3f3;
     --text-2: #c5c5c5;
     --text-3: #a6a6a6;
@@ -42,7 +47,6 @@
     --background-3: #191919;
     --background-4: #232323;
     --background-5: #f3f3f3;
-    --link-color: #58fdb8;
     --highlight-color: #665c00;
     --success-color: #55b985;
     --warn-color: #d5a64a;
