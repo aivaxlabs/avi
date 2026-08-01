@@ -67,10 +67,12 @@ try {
 
   let finishInference;
   const inferenceCalls = [];
+  const inferenceRequests = [];
   const inferenceProvider = {
     getContributions: () => ({ tools: [] }),
-    stream: ({ signal }) => {
+    stream: ({ signal, messages }) => {
       inferenceCalls.push(signal);
+      inferenceRequests.push(messages);
       if (inferenceCalls.length > 1) {
         return Promise.resolve({ assistantContent: 'Steered response', toolCalls: [] });
       }
@@ -96,13 +98,37 @@ try {
   await inferenceRunner.send({
     conversationId: inferenceConversation.id,
     model: model.id,
-    text: 'Steer prompt',
+    text: 'First steer prompt',
+    steer: true,
+  });
+  await inferenceRunner.send({
+    conversationId: inferenceConversation.id,
+    model: model.id,
+    text: 'Second steer prompt',
+    steer: true,
+  });
+  await inferenceRunner.send({
+    conversationId: inferenceConversation.id,
+    model: model.id,
+    text: 'Third steer prompt',
     steer: true,
   });
   assert.equal(inferenceCalls[0].aborted, false);
   finishInference();
   await waitFor(() => !inferenceRunner.runs.has(inferenceConversation.id));
   assert.equal(inferenceCalls[0].reason, 'steer');
+  assert.equal(inferenceCalls.length, 2);
+  assert.deepEqual(
+    inferenceRequests[1]
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content),
+    [
+      'Original prompt',
+      'First steer prompt',
+      'Second steer prompt',
+      'Third steer prompt',
+    ],
+  );
   assert.deepEqual(
     getMessages(inferenceConversation.id)
       .filter((message) => message.role === 'assistant')

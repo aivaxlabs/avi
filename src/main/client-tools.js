@@ -21,6 +21,7 @@ import {
   listAllConversations,
   updateConversation,
 } from './database.js';
+import { resolveSubagentModel } from './default-models.js';
 import { filePathToAttachment } from './files.js';
 import { resolveTerminalShell } from './terminal-shell.js';
 
@@ -375,7 +376,7 @@ export const CLIENT_TOOLS = Object.freeze([
         },
       },
     },
-    execute: async ({ folderPath }, { chatRunner }) => {
+    execute: async ({ folderPath }, { chatRunner, conversationId }) => {
       if (folderPath && !isAbsolute(String(folderPath))) {
         throw new Error('folderPath must be absolute.');
       }
@@ -385,7 +386,9 @@ export const CLIENT_TOOLS = Object.freeze([
       const folderKey = process.platform === 'win32'
         ? normalizedFolder?.toLowerCase()
         : normalizedFolder;
+      const sourceConversation = getConversation(conversationId);
       const threads = listAllConversations()
+        .filter((conversation) => sourceConversation?.isSideChat || !conversation.isSideChat)
         .filter((conversation) => {
           if (!folderKey) return true;
           const conversationPath = resolve(conversation.projectPath);
@@ -425,9 +428,17 @@ export const CLIENT_TOOLS = Object.freeze([
           type: 'string',
           description: 'Optional configured model to invoke. Defaults to the last model used in the folder.',
         },
+        model_level: {
+          type: 'string',
+          description: 'Configured model level for this task when sub-agent model levels are enabled.',
+        },
         reasoning_effort: {
           type: 'string',
           description: 'Optional reasoning effort to invoke. Defaults to the last reasoning effort used in the folder.',
+        },
+        wait_for_response: {
+          type: 'boolean',
+          description: 'When true, waits for the prompted thread to finish and returns its final response.',
         },
       },
     },
@@ -436,13 +447,17 @@ export const CLIENT_TOOLS = Object.freeze([
         prompt,
         folderPath,
         model_name,
+        model_level,
         reasoning_effort,
+        wait_for_response,
       },
       {
         chatRunner,
         model,
         models,
+        reasoningEffort,
         workspacePath,
+        defaultModels,
       },
     ) => {
       if (folderPath && !isAbsolute(String(folderPath))) {
@@ -461,9 +476,15 @@ export const CLIENT_TOOLS = Object.freeze([
         return (process.platform === 'win32' ? conversationPath.toLowerCase() : conversationPath)
           === projectKey;
       });
-      const selectedModelId = model_name === undefined
+      const levelSelection = defaultModels?.subagents?.enabled
+        ? resolveSubagentModel(model_level, defaultModels, models, {
+          modelId: model,
+          reasoningEffort,
+        })
+        : null;
+      const selectedModelId = levelSelection?.modelId ?? (model_name === undefined
         ? folderConversations[0]?.model ?? model
-        : String(model_name).trim();
+        : String(model_name).trim());
       const selectedModel = models.find((item) => item.id === selectedModelId);
       if (!selectedModel) {
         throw new Error(
@@ -477,9 +498,11 @@ export const CLIENT_TOOLS = Object.freeze([
         .filter((messageItem) => messageItem.reasoningEffort)
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
         ?.reasoningEffort ?? null;
-      const selectedReasoningEffort = reasoning_effort === undefined
-        ? lastReasoningEffort
-        : String(reasoning_effort).trim();
+      const selectedReasoningEffort = levelSelection
+        ? levelSelection.reasoningEffort
+        : reasoning_effort === undefined
+          ? lastReasoningEffort
+          : String(reasoning_effort).trim();
       if (
         selectedReasoningEffort
         && !selectedModel.reasoning.includes(selectedReasoningEffort)
@@ -494,6 +517,7 @@ export const CLIENT_TOOLS = Object.freeze([
         projectPath,
       });
       let message = null;
+      let response = null;
 
       if (normalizedPrompt) {
         const result = await chatRunner.send({
@@ -504,6 +528,19 @@ export const CLIENT_TOOLS = Object.freeze([
           project: { path: projectPath },
         });
         message = result.message;
+        const run = chatRunner.runs.get(conversation.id);
+        if (wait_for_response === true && run) {
+          await run.completion;
+          const responseMessage = getMessages(conversation.id)
+            .find((item) => item.id === run.assistantMessageId);
+          if (responseMessage) {
+            response = {
+              messageId: responseMessage.id,
+              status: responseMessage.status,
+              text: answerTextFromTextualBlocks(responseMessage.content),
+            };
+          }
+        }
       }
 
       return {
@@ -513,15 +550,16 @@ export const CLIENT_TOOLS = Object.freeze([
           folderPath: projectPath,
           model: selectedModel.id,
           reasoningEffort: selectedReasoningEffort,
-          status: message ? 'running' : 'idle',
+          status: message ? wait_for_response === true ? 'completed' : 'running' : 'idle',
         },
         promptMessageId: message?.id ?? null,
+        response,
       };
     },
   },
   {
     name: 'chat_spawn_subagent',
-    description: 'Start an asynchronous sub-agent for a focused task in the current workspace. Returns immediately with its thread_id. Its final response or terminal error is automatically steered to the orchestrator.',
+    description: 'Start an asynchronous sub-agent for a focused task in the current workspace. Returns immediately with its thread_id. A Plan-mode sub-agent remains in Plan mode; its final response or terminal error is automatically steered to the orchestrator.',
     canEditFile: false,
     canPerformDestructiveActions: true,
     inputSchema: {
@@ -530,6 +568,10 @@ export const CLIENT_TOOLS = Object.freeze([
         model_name: {
           type: 'string',
           description: 'Optional configured model. Defaults to the orchestrator model.',
+        },
+        model_level: {
+          type: 'string',
+          description: 'Configured model level for this task when sub-agent model levels are enabled.',
         },
         reasoning_effort: {
           type: 'string',
@@ -545,6 +587,7 @@ export const CLIENT_TOOLS = Object.freeze([
     execute: async (
       {
         model_name,
+        model_level,
         reasoning_effort,
         prompt,
       },
@@ -555,6 +598,8 @@ export const CLIENT_TOOLS = Object.freeze([
         models,
         reasoningEffort,
         tuning,
+        defaultModels,
+        workMode,
         ultraMode,
       },
     ) => {
@@ -574,14 +619,23 @@ export const CLIENT_TOOLS = Object.freeze([
       const normalizedPrompt = String(prompt ?? '').trim();
       if (!normalizedPrompt) throw new Error('prompt is required.');
 
-      const selectedModelId = model_name === undefined ? model : String(model_name).trim();
+      const levelSelection = defaultModels?.subagents?.enabled
+        ? resolveSubagentModel(model_level, defaultModels, models, {
+          modelId: model,
+          reasoningEffort,
+        })
+        : null;
+      const selectedModelId = levelSelection?.modelId
+        ?? (model_name === undefined ? model : String(model_name).trim());
       const selectedModel = models.find((item) => item.id === selectedModelId);
       if (!selectedModel) {
         throw new Error(`Model "${selectedModelId}" is not configured.`);
       }
-      const selectedReasoningEffort = reasoning_effort === undefined
-        ? reasoningEffort
-        : String(reasoning_effort).trim();
+      const selectedReasoningEffort = levelSelection
+        ? levelSelection.reasoningEffort
+        : reasoning_effort === undefined
+          ? reasoningEffort
+          : String(reasoning_effort).trim();
       if (
         selectedReasoningEffort
         && !selectedModel.reasoning.includes(selectedReasoningEffort)
@@ -594,7 +648,7 @@ export const CLIENT_TOOLS = Object.freeze([
       const result = forkConversation(parent.id, {
         subagent: true,
         subagentPrompt: normalizedPrompt,
-        orchestrationMode: ultraMode ? 'ultra' : null,
+        orchestrationMode: workMode === 'plan' ? 'plan' : ultraMode ? 'ultra' : null,
         autoForwardToParent: true,
       });
       if (!result) throw new Error('The sub-agent thread could not be created.');
@@ -607,6 +661,7 @@ export const CLIENT_TOOLS = Object.freeze([
         model: selectedModel.id,
         reasoningEffort: selectedReasoningEffort,
         text: normalizedPrompt,
+        workMode,
         ultraMode,
         project: { path: parent.projectPath },
       });
@@ -618,61 +673,8 @@ export const CLIENT_TOOLS = Object.freeze([
     },
   },
   {
-    name: 'chat_report_to_orchestrator',
-    description: 'Send a material progress update, blocker, dependency, or course correction to the parent orchestrator. The final response is forwarded automatically and should not be duplicated with this tool.',
-    canEditFile: false,
-    canPerformDestructiveActions: false,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        message: {
-          type: 'string',
-          description: 'A concise update or result with evidence, implications, and any blockers.',
-        },
-      },
-      required: ['message'],
-    },
-    execute: async ({ message }, { chatRunner, conversationId }) => {
-      const subagent = getConversation(conversationId);
-      if (!subagent?.isSubagent || !subagent.parentConversationId) {
-        throw new Error('Only a sub-agent can report to an orchestrator.');
-      }
-      const parent = getConversation(subagent.parentConversationId);
-      if (!parent) throw new Error('The orchestrator thread was not found.');
-      const normalizedMessage = String(message ?? '').trim();
-      if (!normalizedMessage) throw new Error('message is required.');
-      const ultraMode = subagent.orchestrationMode === 'ultra';
-      const activeGoal = ultraMode
-        && parent.goal
-        && ['active', 'paused'].includes(parent.goal.status)
-        ? parent.goal
-        : null;
-
-      const result = await chatRunner.send({
-        conversationId: parent.id,
-        model: parent.model,
-        text: [
-          `<subagent_report thread_id="${subagent.id}" title="${subagent.title}">`,
-          normalizedMessage,
-          '</subagent_report>',
-        ].join('\n'),
-        workMode: activeGoal ? 'goal' : null,
-        goalId: activeGoal?.id,
-        ultraMode,
-        queuePriority: true,
-        project: { path: parent.projectPath },
-      });
-
-      return {
-        thread_id: parent.id,
-        message_id: result.message.id,
-        status: result.queued ? 'queued' : 'running',
-      };
-    },
-  },
-  {
     name: 'chat_send_prompt',
-    description: 'Send a prompt to a chat thread using queue or steer delivery.',
+    description: 'Send a prompt to a chat thread using queue or steer delivery. In Plan mode, messages stay in Plan mode and are limited to the current orchestration team.',
     canEditFile: false,
     canPerformDestructiveActions: true,
     inputSchema: {
@@ -694,7 +696,11 @@ export const CLIENT_TOOLS = Object.freeze([
       },
       required: ['threadId', 'prompt', 'mode'],
     },
-    execute: async ({ threadId, prompt, mode }, { chatRunner, conversationId }) => {
+    execute: async ({ threadId, prompt, mode }, {
+      chatRunner,
+      conversationId,
+      workMode,
+    }) => {
       const conversation = getConversation(String(threadId));
       if (!conversation) throw new Error('The thread was not found.');
       const normalizedPrompt = String(prompt ?? '').trim();
@@ -703,12 +709,29 @@ export const CLIENT_TOOLS = Object.freeze([
         throw new Error('mode must be queue or steer.');
       }
       const sourceConversation = getConversation(conversationId);
+      if (conversation.isSideChat && !sourceConversation?.isSideChat) {
+        throw new Error('Side chats are private to side-chat threads.');
+      }
+      const planMode = workMode === 'plan' || sourceConversation?.orchestrationMode === 'plan';
+      if (planMode) {
+        const teamRootId = sourceConversation?.isSubagent
+          ? sourceConversation.parentConversationId
+          : sourceConversation?.id;
+        if (
+          !teamRootId
+          || (conversation.id !== teamRootId && conversation.parentConversationId !== teamRootId)
+        ) {
+          throw new Error('Plan-mode prompts are limited to the current orchestration team.');
+        }
+      }
       const result = await chatRunner.send({
         conversationId: conversation.id,
         model: conversation.model,
         text: normalizedPrompt,
         steer: mode === 'steer',
-        ultraMode: conversation.orchestrationMode === 'ultra',
+        workMode: planMode ? 'plan' : workMode,
+        ultraMode: sourceConversation?.orchestrationMode === 'ultra'
+          || conversation.orchestrationMode === 'ultra',
         queuePriority: sourceConversation?.isSubagent === true,
         project: { path: conversation.projectPath },
       });
@@ -736,9 +759,12 @@ export const CLIENT_TOOLS = Object.freeze([
       },
       required: ['threadId'],
     },
-    execute: async ({ threadId }, { chatRunner }) => {
+    execute: async ({ threadId }, { chatRunner, conversationId }) => {
       const conversation = getConversation(String(threadId));
       if (!conversation) throw new Error('The thread was not found.');
+      if (conversation.isSideChat && !getConversation(conversationId)?.isSideChat) {
+        throw new Error('Side chats are private to side-chat threads.');
+      }
       const interrupted = chatRunner.runs.has(conversation.id);
       chatRunner.requestSteer(conversation.id);
       return {
@@ -762,9 +788,12 @@ export const CLIENT_TOOLS = Object.freeze([
       },
       required: ['threadId'],
     },
-    execute: async ({ threadId }, { chatRunner }) => {
+    execute: async ({ threadId }, { chatRunner, conversationId }) => {
       const conversation = getConversation(String(threadId));
       if (!conversation) throw new Error('The thread was not found.');
+      if (conversation.isSideChat && !getConversation(conversationId)?.isSideChat) {
+        throw new Error('Side chats are private to side-chat threads.');
+      }
       const turns = [];
 
       for (const message of getMessages(conversation.id)) {

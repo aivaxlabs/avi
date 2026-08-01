@@ -14,6 +14,7 @@ import {
   resolve,
 } from 'node:path';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
+import { normalizeDefaultModels } from './default-models.js';
 import { traceError } from './trace-log.js';
 
 const storageDir = join(homedir(), '.aivax');
@@ -400,8 +401,15 @@ const statements = {
 export function getPreferences() {
   return {
     lastModel: readJson('lastModel'),
+    defaultModels: normalizeDefaultModels(readJson('defaultModels')),
     tuning: normalizeTuningSettings(readJson('tuningSettings')),
   };
+}
+
+export function setDefaultModels(value) {
+  const settings = normalizeDefaultModels(value, true);
+  writeJson('defaultModels', settings);
+  return settings;
 }
 
 export function setTuningSettings(value) {
@@ -626,7 +634,7 @@ export function createConversation({
     conversationType,
     parentConversationId,
     initialPrompt,
-    orchestrationMode: orchestrationMode === 'ultra' ? 'ultra' : null,
+    orchestrationMode: ['plan', 'ultra'].includes(orchestrationMode) ? orchestrationMode : null,
     autoForwardToParent: autoForwardToParent ? 1 : 0,
     contextCheckpoint: '',
     checkpointMessageId: null,
@@ -859,42 +867,40 @@ export function forkConversation(id, {
     autoForwardToParent: subagent && autoForwardToParent,
     titleStatus: childThread ? 'generated' : 'pending',
   });
-  const sourceMessages = getMessages(id);
-  const throughIndex = throughMessageId
-    ? sourceMessages.findIndex((message) => message.id === throughMessageId)
-    : -1;
-  const messages = (
-    throughIndex >= 0
-      ? sourceMessages.slice(0, throughIndex + 1)
-      : sourceMessages.filter((message) => (
-          !childThread
-          || (
-            !['queued', 'steered'].includes(message.status)
-            && (!subagent || message.status !== 'streaming')
-          )
-        ))
-  ).filter((message) => !message.hidden);
-  const now = Date.now();
-  const copiedMessageIds = new Map();
-  for (let index = 0; index < messages.length; index += 1) {
-    const messageId = crypto.randomUUID();
-    copiedMessageIds.set(messages[index].id, messageId);
-    insertMessage({
-      ...messages[index],
-      id: messageId,
-      conversationId: target.id,
-      goalId: null,
-      status: sideChat && messages[index].status === 'streaming'
-        ? 'completed'
-        : messages[index].status,
-      createdAt: new Date(now + index).toISOString(),
+  if (!subagent) {
+    const sourceMessages = getMessages(id);
+    const throughIndex = throughMessageId
+      ? sourceMessages.findIndex((message) => message.id === throughMessageId)
+      : -1;
+    const messages = (
+      throughIndex >= 0
+        ? sourceMessages.slice(0, throughIndex + 1)
+        : sourceMessages.filter((message) => (
+            !childThread || !['queued', 'steered'].includes(message.status)
+          ))
+    ).filter((message) => !message.hidden);
+    const now = Date.now();
+    const copiedMessageIds = new Map();
+    for (let index = 0; index < messages.length; index += 1) {
+      const messageId = crypto.randomUUID();
+      copiedMessageIds.set(messages[index].id, messageId);
+      insertMessage({
+        ...messages[index],
+        id: messageId,
+        conversationId: target.id,
+        goalId: null,
+        status: sideChat && messages[index].status === 'streaming'
+          ? 'completed'
+          : messages[index].status,
+        createdAt: new Date(now + index).toISOString(),
+      });
+    }
+    updateConversation(target.id, {
+      contextCheckpoint: source.contextCheckpoint,
+      checkpointMessageId: copiedMessageIds.get(source.checkpointMessageId) ?? null,
+      contextTokens: source.contextTokens,
     });
   }
-  updateConversation(target.id, {
-    contextCheckpoint: source.contextCheckpoint,
-    checkpointMessageId: copiedMessageIds.get(source.checkpointMessageId) ?? null,
-    contextTokens: source.contextTokens,
-  });
   return {
     conversation: getConversation(target.id),
     messages: getMessages(target.id),
@@ -923,14 +929,14 @@ function childThreadContext(conversation) {
       ? [
           'Your final assistant response is automatically forwarded to the parent orchestrator by the runtime using steering.',
           'Do not send or repeat the final response with a communication tool.',
-          'You may still use orchestration communication tools for material progress, blockers, dependencies, or course corrections before the final response.',
+          'Use chat_send_prompt for material progress, blockers, dependencies, course corrections, or coordination before the final response.',
           'Terminal errors are also forwarded automatically.',
         ]
       : [
           'This thread was not started as an automatically reporting task. Its final response is not forwarded to the parent.',
-          'Use orchestration communication tools only when you intentionally want to contact another thread.',
+          'Use chat_send_prompt only when you intentionally want to contact another thread.',
         ];
-    const ultraInstructions = conversation.orchestration_mode === 'ultra'
+    const teamInstructions = conversation.orchestration_mode === 'ultra'
       ? [
           'You are a specialist on an Ultra team led by the orchestrator in the parent thread.',
           'Own the focused assignment independently, investigate beyond the obvious path, and return evidence rather than assumptions.',
@@ -938,10 +944,18 @@ function childThreadContext(conversation) {
           'Challenge weak assumptions constructively, but stay within your assigned scope and do not duplicate work without a verification purpose.',
           'Do not expose private chain-of-thought. Communicate concise conclusions, decisions, evidence, and remaining uncertainty.',
         ]
-      : [
-          'You are a sub-agent working for the orchestrator in the parent thread.',
-          'Complete the assignment in the latest user message independently.',
-        ];
+      : conversation.orchestration_mode === 'plan'
+        ? [
+            'You are a read-only Plan-mode specialist working for the orchestrator in the parent thread.',
+            'Explore, research, analyze, or consolidate the focused assignment in the latest user message and return evidence for the execution plan.',
+            'Actively use chat_send_prompt to coordinate directly with the parent or listed sibling sub-agents when sharing findings or resolving dependencies improves the plan.',
+            'Do not edit files, run commands, mutate data, create conversations, or perform implementation work.',
+            'Do not expose private chain-of-thought. Communicate concise conclusions, evidence, implications, and remaining uncertainty.',
+          ]
+        : [
+            'You are a sub-agent working for the orchestrator in the parent thread.',
+            'Complete the assignment in the latest user message independently.',
+          ];
     return [{
       role: 'system',
       content: [
@@ -950,7 +964,7 @@ function childThreadContext(conversation) {
         `thread_id: ${conversation.id}`,
         `parent_thread_id: ${conversation.parent_conversation_id}`,
         `parent_thread_title: ${parent?.title ?? 'Unknown'}`,
-        ...ultraInstructions,
+        ...teamInstructions,
         ...deliveryInstructions,
         'You cannot invoke chat_spawn_subagent or create other sub-agents.',
         '</thread_context>',
@@ -1246,7 +1260,7 @@ function mapConversation(row) {
     isSubagent: row.conversation_type === 'subagent',
     parentConversationId: row.parent_conversation_id || null,
     initialPrompt: row.initial_prompt || null,
-    orchestrationMode: row.orchestration_mode === 'ultra' ? 'ultra' : null,
+    orchestrationMode: ['plan', 'ultra'].includes(row.orchestration_mode) ? row.orchestration_mode : null,
     autoForwardToParent: Boolean(row.auto_forward_to_parent),
     contextCheckpoint: row.context_checkpoint || '',
     checkpointMessageId: row.checkpoint_message_id || null,

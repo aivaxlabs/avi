@@ -11,6 +11,7 @@ import {
   getPreferences as readPreferences,
   insertGoal,
   insertMessage,
+  listAllConversations,
   listContinuingGoals,
   listSubagents,
   setLastModel,
@@ -21,6 +22,7 @@ import {
   updateMessage,
 } from './database.js';
 import { CLIENT_TOOLS } from './client-tools.js';
+import { applySubagentModelSchema } from './default-models.js';
 import { normalizeAttachmentsForModel } from './files.js';
 import { StreamAccumulator } from './streaming.js';
 import {
@@ -40,6 +42,8 @@ const PLAN_TOOL_NAMES = new Set([
   'chat_inspect_thread',
   'chat_list_folders',
   'chat_list_threads',
+  'chat_send_prompt',
+  'chat_spawn_subagent',
   'read_file',
   'read_terminal_output',
   'read_url',
@@ -185,7 +189,7 @@ export class ChatRunner {
           '</subagent_report>',
         ].join('\n'),
         steer: true,
-        workMode: activeGoal ? 'goal' : null,
+        workMode: activeGoal ? 'goal' : subagent.orchestrationMode === 'plan' ? 'plan' : null,
         goalId: activeGoal?.id,
         ultraMode: parent.orchestrationMode === 'ultra',
         project: { path: parent.projectPath },
@@ -1303,9 +1307,6 @@ export class ChatRunner {
           .filter((tool) => tool.name !== 'start_goal' || !goalContinues)
           .filter((tool) => tool.name !== 'update_goal_status' || goalContinues)
           .filter((tool) => (
-            tool.name !== 'chat_report_to_orchestrator' || currentConversation?.isSubagent
-          ))
-          .filter((tool) => (
             tool.name !== 'chat_spawn_subagent'
             || (!currentConversation?.isSubagent && !currentConversation?.isSideChat)
           ))
@@ -1324,20 +1325,11 @@ export class ChatRunner {
             if (['chat_create_thread', 'chat_spawn_subagent'].includes(tool.name)) {
               return {
                 ...tool,
-                inputSchema: {
-                  ...tool.inputSchema,
-                  properties: {
-                    ...tool.inputSchema.properties,
-                    model_name: {
-                      ...tool.inputSchema.properties.model_name,
-                      enum: models.map((item) => item.id),
-                    },
-                    reasoning_effort: {
-                      ...tool.inputSchema.properties.reasoning_effort,
-                      enum: [...new Set(models.flatMap((item) => item.reasoning))],
-                    },
-                  },
-                },
+                inputSchema: applySubagentModelSchema(
+                  tool,
+                  models,
+                  this.getPreferences().defaultModels,
+                ),
               };
             }
             if (tool.name === 'run_in_terminal') {
@@ -1408,24 +1400,37 @@ export class ChatRunner {
           : currentConversation?.isSideChat
             ? null
             : currentConversation?.id;
+        const visibleConversations = listAllConversations()
+          .filter((conversation) => currentConversation?.isSideChat || !conversation.isSideChat);
+        const threadContext = visibleConversations.map((conversation) => {
+          const threadMessages = getMessages(conversation.id);
+          const lastUserIndex = threadMessages
+            .findLastIndex((message) => message.role === 'user');
+          const lastAssistant = threadMessages
+            .slice(lastUserIndex + 1)
+            .findLast((message) => message.role === 'assistant');
+          return {
+            threadId: conversation.id,
+            role: conversation.isSideChat
+              ? 'side_chat'
+              : conversation.isSubagent
+                ? 'subagent'
+                : 'orchestrator',
+            parentThreadId: conversation.parentConversationId,
+            initialPrompt: conversation.initialPrompt ?? conversation.firstPrompt,
+            status: this.runs.has(conversation.id)
+              ? 'in_progress'
+              : lastAssistant?.status === 'completed'
+                ? 'completed'
+                : conversation.isSubagent
+                  ? 'failed'
+                  : 'idle',
+          };
+        });
         const subagentContext = subagentParentId
-          ? listSubagents(subagentParentId).map((subagent) => {
-              const subagentMessages = getMessages(subagent.id);
-              const lastUserIndex = subagentMessages
-                .findLastIndex((message) => message.role === 'user');
-              const lastAssistant = subagentMessages
-                .slice(lastUserIndex + 1)
-                .findLast((message) => message.role === 'assistant');
-              return {
-                threadId: subagent.id,
-                initialPrompt: subagent.initialPrompt ?? subagent.firstPrompt,
-                status: this.runs.has(subagent.id)
-                  ? 'in_progress'
-                  : lastAssistant?.status === 'completed'
-                    ? 'completed'
-                    : 'failed',
-              };
-            })
+          ? listSubagents(subagentParentId)
+            .map((subagent) => threadContext.find((thread) => thread.threadId === subagent.id))
+            .filter(Boolean)
           : [];
         run.phase = 'inference';
         let turn;
@@ -1450,6 +1455,16 @@ export class ChatRunner {
                   : 'orchestrator',
               goal: goalContext,
               subagents: subagentContext,
+              currentThread: {
+                threadId: currentConversation?.id ?? conversationId,
+                role: currentConversation?.isSideChat
+                  ? 'side_chat'
+                  : currentConversation?.isSubagent
+                    ? 'subagent'
+                    : 'orchestrator',
+                parentThreadId: currentConversation?.parentConversationId ?? null,
+              },
+              threads: threadContext,
               tuning,
             },
             signal: controller.signal,
@@ -1682,6 +1697,7 @@ export class ChatRunner {
               ultraMode,
               goal: goalContext,
               tuning,
+              defaultModels: this.getPreferences().defaultModels,
               capabilities: selection.model.capabilities,
             });
             if (
@@ -2087,7 +2103,10 @@ export class ChatRunner {
         this.emit(conversationId, { type: 'message-delete', messageId: item.userMessageId });
       }
     }
-    const next = pendingQueue.shift();
+    const steeredItems = pendingQueue.filter((item) => (
+      getMessage(item.userMessageId)?.status === 'steered'
+    ));
+    const next = steeredItems[0] ?? pendingQueue[0];
     if (!next) {
       const continuingGoal = current?.kind === 'chat'
         ? current.goalId
@@ -2099,19 +2118,24 @@ export class ChatRunner {
       return;
     }
 
+    const dispatchedItems = steeredItems.length > 0 ? steeredItems : [next];
+    const dispatchedIds = new Set(dispatchedItems.map((item) => item.userMessageId));
+    pendingQueue = pendingQueue.filter((item) => !dispatchedIds.has(item.userMessageId));
     this.emit(conversationId, {
       type: 'queue-order',
       messageIds: pendingQueue.map((item) => item.userMessageId),
     });
     const workspacePath = getConversation(conversationId)?.projectPath;
-    const nextMessage = updateMessage(next.userMessageId, {
-      status: next.workMode === 'plan'
-        || !this.mcpManager
-        || this.mcpManager.isWorkspaceReady(workspacePath)
-        ? 'sent'
-        : 'waiting_mcp',
-    });
-    this.emit(conversationId, { type: 'message', message: nextMessage });
+    for (const item of dispatchedItems) {
+      const nextMessage = updateMessage(item.userMessageId, {
+        status: item.workMode === 'plan'
+          || !this.mcpManager
+          || this.mcpManager.isWorkspaceReady(workspacePath)
+          ? 'sent'
+          : 'waiting_mcp',
+      });
+      this.emit(conversationId, { type: 'message', message: nextMessage });
+    }
     this.start({
       conversationId,
       model: next.model,

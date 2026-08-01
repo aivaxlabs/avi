@@ -168,6 +168,31 @@ try {
   assert.equal(listConversations().length, 1);
   assert.equal(forkConversation(first.conversation.id, { sideChat: true }), null);
 
+  const visibleThreads = await listThreadsTool.execute({}, {
+    chatRunner: { runs: new Map() },
+    conversationId: parent.id,
+  });
+  assert.equal(visibleThreads.threads.some((thread) => thread.id === first.conversation.id), false);
+  const sideChatThreads = await listThreadsTool.execute({}, {
+    chatRunner: { runs: new Map() },
+    conversationId: first.conversation.id,
+  });
+  assert.equal(sideChatThreads.threads.some((thread) => thread.id === second.conversation.id), true);
+  await assert.rejects(
+    () => inspectThreadTool.execute(
+      { threadId: first.conversation.id },
+      { chatRunner: { runs: new Map() }, conversationId: parent.id },
+    ),
+    /Side chats are private/,
+  );
+  await assert.rejects(
+    () => interruptThreadTool.execute(
+      { threadId: first.conversation.id },
+      { chatRunner: { runs: new Map(), requestSteer: () => {} }, conversationId: parent.id },
+    ),
+    /Side chats are private/,
+  );
+
   deleteConversation(first.conversation.id, { hard: true });
   assert.equal(getConversation(first.conversation.id), null);
   assert.equal(listSideChats(parent.id).length, 1);
@@ -181,6 +206,10 @@ try {
   assert.equal(subagent.conversation.parentConversationId, parent.id);
   assert.equal(subagent.conversation.title, 'Sub-agent 1');
   assert.equal(subagent.conversation.initialPrompt, 'Inspect the initial queue state.');
+  assert.equal(subagent.conversation.contextCheckpoint, '');
+  assert.equal(subagent.conversation.checkpointMessageId, null);
+  assert.equal(subagent.conversation.contextTokens, 0);
+  assert.deepEqual(getMessages(subagent.conversation.id), []);
   assert.deepEqual(
     listSubagents(parent.id).map((agent) => agent.title),
     ['Sub-agent 1'],
@@ -191,11 +220,18 @@ try {
   assert.ok(subagentModelMessages[0].content.includes(`thread_id: ${subagent.conversation.id}`));
   assert.ok(subagentModelMessages[0].content.includes(`parent_thread_id: ${parent.id}`));
   assert.ok(subagentModelMessages[0].content.includes('final response is not forwarded'));
+  assert.equal(subagentModelMessages.length, 1);
+  assert.equal(subagentModelMessages.some((message) => message.content === 'Parent context'), false);
+  assert.equal(subagentModelMessages.some((message) => message.content === 'Parent answer'), false);
+  assert.equal(subagentModelMessages.some((message) => message.content.includes('Checkpoint snapshot')), false);
   assert.equal(forkConversation(subagent.conversation.id, { subagent: true }), null);
   const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
   const spawnTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_spawn_subagent');
-  const reportTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_report_to_orchestrator');
+  assert.equal(CLIENT_TOOLS.some((tool) => tool.name === 'chat_report_to_orchestrator'), false);
   const sendPromptTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_send_prompt');
+  const listThreadsTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_list_threads');
+  const inspectThreadTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_inspect_thread');
+  const interruptThreadTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_interrupt_thread');
   assert.deepEqual(spawnTool.inputSchema.required, ['prompt']);
   assert.equal(spawnTool.inputSchema.properties.response_mode, undefined);
   const spawnEvents = [];
@@ -288,6 +324,13 @@ try {
   );
   assert.equal(crossAgentCalls[0].ultraMode, true);
   assert.equal(crossAgentCalls[0].queuePriority, false);
+  await assert.rejects(
+    () => sendPromptTool.execute(
+      { threadId: second.conversation.id, prompt: 'Reveal the side chat.', mode: 'queue' },
+      { chatRunner: { send: async () => ({ queued: false, message: { id: 'unexpected' } }) }, conversationId: parent.id },
+    ),
+    /Side chats are private/,
+  );
   await assert.rejects(
     () => spawnTool.execute(
       {
@@ -581,24 +624,102 @@ try {
   assert.equal(lifecycleResults.at(-1).status, 'error');
   assert.match(lifecycleResults.at(-1).content, /Lifecycle failure\./);
 
-  const reportCalls = [];
-  const report = await reportTool.execute(
-    { message: 'Queue inspection completed.' },
+  const orchestratorMessageCalls = [];
+  const orchestratorMessage = await sendPromptTool.execute(
+    { threadId: parent.id, prompt: 'Queue inspection completed.', mode: 'queue' },
     {
       chatRunner: {
         send: async (payload) => {
-          reportCalls.push(payload);
-          return { queued: true, message: { id: 'report-message' } };
+          orchestratorMessageCalls.push(payload);
+          return { queued: true, message: { id: 'orchestrator-message' } };
         },
       },
       conversationId: spawned.thread_id,
     },
   );
-  assert.equal(report.thread_id, parent.id);
-  assert.equal(report.status, 'queued');
-  assert.ok(reportCalls[0].text.includes(spawned.thread_id));
-  assert.equal(reportCalls[0].ultraMode, true);
-  assert.equal(reportCalls[0].queuePriority, true);
+  assert.equal(orchestratorMessage.threadId, parent.id);
+  assert.equal(orchestratorMessage.status, 'queued');
+  assert.equal(orchestratorMessageCalls[0].text, 'Queue inspection completed.');
+  assert.equal(orchestratorMessageCalls[0].ultraMode, true);
+  assert.equal(orchestratorMessageCalls[0].queuePriority, true);
+
+  const planParent = createConversation({ model: 'test/model', projectPath: process.cwd() });
+  const planSpawnCalls = [];
+  const planSpawn = await spawnTool.execute(
+    { prompt: 'Research the Plan-mode behavior.' },
+    {
+      chatRunner: {
+        runs: new Map(),
+        emit: () => {},
+        send: async (payload) => {
+          planSpawnCalls.push(payload);
+          return { queued: false, message: { id: 'plan-spawn-prompt' } };
+        },
+      },
+      conversationId: planParent.id,
+      model: 'test/model',
+      models: [{ id: 'test/model', name: 'Test model', reasoning: ['high'] }],
+      reasoningEffort: 'high',
+      workMode: 'plan',
+    },
+  );
+  const planSubagent = getConversation(planSpawn.thread_id);
+  assert.equal(planSubagent.orchestrationMode, 'plan');
+  assert.equal(planSpawnCalls[0].workMode, 'plan');
+  const planContext = toModelMessages(planSubagent.id)[0].content;
+  assert.match(planContext, /read-only Plan-mode specialist/);
+  assert.match(planContext, /coordinate directly with the parent or listed sibling sub-agents/);
+  assert.match(planContext, /Do not edit files, run commands, mutate data/);
+
+  const planMessageCalls = [];
+  await sendPromptTool.execute(
+    { threadId: planParent.id, prompt: 'Consolidate the findings.', mode: 'queue' },
+    {
+      chatRunner: {
+        send: async (payload) => {
+          planMessageCalls.push(payload);
+          return { queued: true, message: { id: 'plan-message' } };
+        },
+      },
+      conversationId: planSubagent.id,
+    },
+  );
+  assert.equal(planMessageCalls[0].workMode, 'plan');
+  await assert.rejects(
+    () => sendPromptTool.execute(
+      { threadId: parent.id, prompt: 'Leave the team.', mode: 'queue' },
+      { chatRunner: { send: async () => ({ queued: false, message: { id: 'unexpected' } }) }, conversationId: planSubagent.id },
+    ),
+    /limited to the current orchestration team/,
+  );
+
+  const planStatusCalls = [];
+  await sendPromptTool.execute(
+    { threadId: planParent.id, prompt: 'Plan research is complete.', mode: 'queue' },
+    {
+      chatRunner: {
+        send: async (payload) => {
+          planStatusCalls.push(payload);
+          return { queued: true, message: { id: 'plan-status' } };
+        },
+      },
+      conversationId: planSubagent.id,
+    },
+  );
+  assert.equal(planStatusCalls[0].workMode, 'plan');
+
+  const planResult = insertMessage({
+    conversationId: planSubagent.id,
+    role: 'assistant',
+    model: 'test/model',
+    status: 'completed',
+    content: 'Plan result.',
+  });
+  await forwardingRunner.forwardSubagentResult(planResult);
+  assert.equal(forwardingCalls.at(-1).conversationId, planParent.id);
+  assert.equal(forwardingCalls.at(-1).workMode, 'plan');
+
+  deleteConversation(planParent.id);
   deleteConversation(parent.id);
   assert.equal(getConversation(second.conversation.id), null);
   assert.equal(getConversation(third.conversation.id), null);

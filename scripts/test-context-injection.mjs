@@ -3,6 +3,7 @@ import {
   mkdtemp,
   mkdir,
   rm,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -34,9 +35,11 @@ try {
   process.env.HOME = testHome;
   process.env.USERPROFILE = testHome;
   const deepInstructionDirectory = path.join(root, 'nested', 'a', 'b', 'c', 'd', 'e');
+  const tooDeepInstructionDirectory = path.join(deepInstructionDirectory, 'f');
   const globalAgentsDirectory = path.join(testHome, '.agents');
   await Promise.all([
     mkdir(deepInstructionDirectory, { recursive: true }),
+    mkdir(tooDeepInstructionDirectory, { recursive: true }),
     mkdir(path.join(installationContextDirectory, 'skills', 'avi-skill'), { recursive: true }),
     mkdir(path.join(installationContextDirectory, 'workflows'), { recursive: true }),
     mkdir(path.join(installationContextDirectory, 'rules'), { recursive: true }),
@@ -74,6 +77,7 @@ try {
     ].map((name) => writeFile(path.join(root, name), `# ${name}`)),
     writeFile(path.join(root, 'frontend', 'agents.md'), '# Frontend instructions'),
     writeFile(path.join(root, 'nested', 'MEMORY.child.md'), '# Nested memory'),
+    writeFile(path.join(tooDeepInstructionDirectory, 'ignored-depth.instructions.md'), '# Beyond maximum recursion'),
     writeFile(path.join(deepInstructionDirectory, 'deep.instructions.md'), [
       '---',
       'description: Deep recursive instructions',
@@ -195,6 +199,7 @@ try {
     'Frontend instructions',
   );
   assert.ok(!instructionItems.some((item) => item.description.includes('Ignored')));
+  assert.ok(!instructionItems.some((item) => item.title === 'ignored-depth.instructions.md'));
 
   const skillItems = context.groups.find((group) => group.id === 'skill').items;
   assert.deepEqual(
@@ -460,6 +465,10 @@ try {
     '<work_mode mode="plan">',
     'Do not edit files',
     'No permission level overrides these restrictions',
+    'chat_spawn_subagent',
+    'chat_send_prompt',
+    'exploration, consolidation, research, and analysis',
+    'Sub-agents may use chat_send_prompt',
     'exactly one non-empty <execution-plan>...</execution-plan> block',
     'affected files',
     'public contracts',
@@ -534,6 +543,136 @@ try {
   assert.ok(subagentContext.includes(
     '<subagent thread_id="thread-failed" status="failed">',
   ));
+
+  const workspaceTreeRoot = await mkdtemp(path.join(tmpdir(), 'context-workspace-tree-'));
+  try {
+    await Promise.all([
+      mkdir(path.join(workspaceTreeRoot, 'a-empty')),
+      mkdir(path.join(workspaceTreeRoot, 'b-visible')),
+      mkdir(path.join(workspaceTreeRoot, 'c-visible')),
+      mkdir(path.join(workspaceTreeRoot, 'd-truncated')),
+      mkdir(path.join(workspaceTreeRoot, 'node_modules')),
+    ]);
+    await Promise.all([
+      writeFile(path.join(workspaceTreeRoot, 'b-visible', '1.txt'), ''),
+      writeFile(path.join(workspaceTreeRoot, 'b-visible', '2.txt'), ''),
+      writeFile(path.join(workspaceTreeRoot, 'b-visible', '3.txt'), ''),
+      writeFile(path.join(workspaceTreeRoot, 'b-visible', '4.txt'), ''),
+      writeFile(path.join(workspaceTreeRoot, 'node_modules', 'ignored.txt'), ''),
+    ]);
+
+    let chainDirectory = workspaceTreeRoot;
+    for (let index = 0; index <= 101; index += 1) {
+      chainDirectory = path.join(chainDirectory, `chain-${String(index).padStart(3, '0')}`);
+      await mkdir(chainDirectory);
+    }
+    await writeFile(path.join(chainDirectory, 'beyond-limit.txt'), '');
+
+    const workspaceTreeContext = await resolveDynamicContext({
+      workspacePath: workspaceTreeRoot,
+      installationContextPath: path.join(installationRoot, 'missing-context'),
+    });
+    const workspaceTree = workspaceTreeContext.match(/<current_workspace>[\s\S]*?<\/current_workspace>/)?.[0] ?? '';
+    assert.ok(workspaceTree.includes('a-empty/'));
+    assert.ok(workspaceTree.includes('b-visible/'));
+    assert.ok(workspaceTree.includes('\t1.txt\n\t2.txt\n\t3.txt\n\t...'));
+    assert.ok(!workspaceTree.includes('4.txt'));
+    assert.ok(!workspaceTree.includes('node_modules/'));
+    assert.ok(!workspaceTree.includes('ignored.txt'));
+    const directoryLimitContext = await resolveDynamicContext({
+      workspacePath: path.join(workspaceTreeRoot, 'chain-000'),
+      installationContextPath: path.join(installationRoot, 'missing-context'),
+    });
+    const directoryLimitTree = directoryLimitContext.match(/<current_workspace>[\s\S]*?<\/current_workspace>/)?.[0] ?? '';
+    assert.ok(directoryLimitTree.includes('chain-100/'));
+    assert.ok(!directoryLimitTree.includes('chain-101/'));
+    assert.ok(!directoryLimitTree.includes('beyond-limit.txt'));
+  } finally {
+    await rm(workspaceTreeRoot, { recursive: true, force: true });
+  }
+  const symlinkWorkspace = await mkdtemp(path.join(tmpdir(), 'context-symlink-workspace-'));
+  const symlinkTarget = await mkdtemp(path.join(tmpdir(), 'context-symlink-target-'));
+  try {
+    await Promise.all([
+      mkdir(path.join(symlinkTarget, '.agents', 'skills', 'linked-skill', 'a', 'b'), { recursive: true }),
+      mkdir(path.join(symlinkTarget, '.agents', 'skills', 'too-deep', 'a', 'b', 'c'), { recursive: true }),
+      mkdir(path.join(symlinkTarget, '.agents', 'workflows'), { recursive: true }),
+    ]);
+    await Promise.all([
+      writeFile(path.join(symlinkTarget, 'AGENTS.linked.md'), '# Linked instructions'),
+      writeFile(
+        path.join(symlinkTarget, '.agents', 'skills', 'linked-skill', 'a', 'b', 'SKILL.md'),
+        '---\ndescription: Linked skill at maximum depth\n---',
+      ),
+      writeFile(
+        path.join(symlinkTarget, '.agents', 'skills', 'too-deep', 'a', 'b', 'c', 'SKILL.md'),
+        '---\ndescription: Linked skill beyond maximum depth\n---',
+      ),
+      writeFile(path.join(symlinkTarget, '.agents', 'workflows', 'linked.md'), '# Linked workflow'),
+    ]);
+    await symlink(symlinkTarget, path.join(symlinkWorkspace, 'linked-context'), 'junction');
+    await symlink(symlinkWorkspace, path.join(symlinkTarget, 'workspace-cycle'), 'junction');
+
+    const symlinkItems = await listContextItems(symlinkWorkspace);
+    assert.ok(symlinkItems.groups.find(({ id }) => id === 'instruction').items
+      .some(({ description }) => description === 'Linked instructions'));
+    assert.ok(symlinkItems.groups.find(({ id }) => id === 'skill').items
+      .some(({ description }) => description === 'Linked skill at maximum depth'));
+    assert.ok(!symlinkItems.groups.find(({ id }) => id === 'skill').items
+      .some(({ description }) => description === 'Linked skill beyond maximum depth'));
+    assert.ok(symlinkItems.groups.find(({ id }) => id === 'workflow').items
+      .some(({ description }) => description === 'Linked workflow'));
+
+    const symlinkContext = await resolveDynamicContext({
+      workspacePath: symlinkWorkspace,
+      installationContextPath: path.join(installationRoot, 'missing-context'),
+    });
+    assert.ok(symlinkContext.includes('linked-context/AGENTS.linked.md'));
+    assert.ok(symlinkContext.includes('linked-context/'));
+  } finally {
+    await Promise.all([
+      rm(symlinkWorkspace, { recursive: true, force: true }),
+      rm(symlinkTarget, { recursive: true, force: true }),
+    ]);
+  }
+
+  const threadDirectory = await resolveDynamicContext({
+    workspacePath: root,
+    currentThread: {
+      threadId: 'subagent-id',
+      role: 'subagent',
+      parentThreadId: 'orchestrator-id',
+    },
+    threads: [
+      {
+        threadId: 'orchestrator-id',
+        role: 'orchestrator',
+        initialPrompt: 'Coordinate the work.',
+        status: 'in_progress',
+      },
+      {
+        threadId: 'subagent-id',
+        role: 'subagent',
+        parentThreadId: 'orchestrator-id',
+        initialPrompt: 'Analyze the implementation.',
+        status: 'idle',
+      },
+      {
+        threadId: 'side-chat-id',
+        role: 'side_chat',
+        parentThreadId: 'orchestrator-id',
+        initialPrompt: 'Explore an alternative.',
+        status: 'completed',
+      },
+    ],
+  });
+  assert.ok(threadDirectory.includes('<current_thread id="subagent-id" role="subagent" parent_thread_id="orchestrator-id">'));
+  assert.ok(threadDirectory.includes('Side chats are private and are intentionally absent'));
+  assert.ok(threadDirectory.includes('<thread_directory>'));
+  assert.ok(threadDirectory.includes('<thread id="orchestrator-id" role="orchestrator" status="in_progress">'));
+  assert.ok(threadDirectory.includes('<thread id="subagent-id" role="subagent" status="idle" parent_thread_id="orchestrator-id">'));
+  assert.ok(threadDirectory.includes('<thread id="side-chat-id" role="side_chat" status="completed" parent_thread_id="orchestrator-id">'));
+  assert.ok(threadDirectory.includes('<initial_prompt>Analyze the implementation.</initial_prompt>'));
 
   console.log('Context variant discovery passed.');
 } finally {

@@ -7,6 +7,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { CLIENT_TOOLS } from './client-tools.js';
+import { applySubagentModelSchema } from './default-models.js';
 
 const REMOTE_TOOL_NAMES = new Set([
   'chat_list_folders',
@@ -108,6 +109,7 @@ export class RemoteMcpServer {
           conversationId: null,
           model: this.getPreferences().lastModel,
           models: this.providerRegistry.listModels(),
+          defaultModels: this.getPreferences().defaultModels,
           workspacePath: homedir(),
         });
         return {
@@ -145,13 +147,11 @@ export class RemoteMcpServer {
   listTools() {
     const models = this.providerRegistry.listModels();
     return remoteTools.map((tool) => {
-      const inputSchema = structuredClone(tool.inputSchema);
-      if (tool.name === 'chat_create_thread') {
-        inputSchema.properties.model_name.enum = models.map((model) => model.id);
-        inputSchema.properties.reasoning_effort.enum = [
-          ...new Set(models.flatMap((model) => model.reasoning ?? [])),
-        ];
-      }
+      const inputSchema = applySubagentModelSchema(
+        tool,
+        models,
+        this.getPreferences().defaultModels,
+      );
       return {
         name: tool.name,
         description: tool.description,

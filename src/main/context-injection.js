@@ -1,4 +1,4 @@
-import { opendir, readFile, readdir } from 'node:fs/promises';
+import { opendir, readFile, readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import baseInstructions from '../prompts/base-instructions.md' with { type: 'text' };
@@ -31,9 +31,9 @@ const IGNORED_WORKSPACE_DIRECTORIES = new Set([
   'vendor',
   'venv',
 ]);
-const MAX_ENTRIES_PER_DIRECTORY = 20;
-const MAX_WORKSPACE_DIRECTORIES = 50;
-const MAX_CONTEXT_DIRECTORY_DEPTH = 4;
+const MAX_ENTRIES_PER_DIRECTORY = 3;
+const MAX_WORKSPACE_DIRECTORIES = 100;
+const MAX_CONTEXT_RECURSION_DEPTH = 6;
 const CONTEXT_SCAN_TIMEOUT_MS = 5_000;
 const CONTEXT_SCAN_CONCURRENCY = 32;
 const CONTEXT_DIRECTORY_NAME = '.agents';
@@ -45,6 +45,8 @@ const POST_INSTRUCTION_CONTEXT_ORDER = [
   'ultra',
   'goal',
   'subagents',
+  'current-thread',
+  'threads',
   'environment',
   'workspace',
 ];
@@ -72,7 +74,11 @@ export const dynamicContextInjectors = new Map([
       ? [
           '<work_mode mode="plan">',
           'You are in Plan mode. This run is exclusively for investigation, clarification, and creation of an execution plan.',
-          'Do not edit files, run commands, mutate data, create or interrupt conversations, use subagents, call provider tools, call MCP tools, or take destructive actions. No permission level overrides these restrictions.',
+          'Do not edit files, run commands, mutate workspace data, create or interrupt ordinary conversations, call provider tools, call MCP tools, or take destructive actions. No permission level overrides these restrictions.',
+          'You may orchestrate read-only Plan work: as the orchestrator, use chat_spawn_subagent for focused exploration, consolidation, research, and analysis when delegation improves coverage or speed. Give each sub-agent a self-contained task and expected evidence.',
+          'Maintain active collaboration rather than waiting passively: inspect sub-agent threads, send useful follow-ups with chat_send_prompt, share relevant discoveries, and synthesize their evidence. Sub-agents may use chat_send_prompt to discuss findings directly with their parent and sibling sub-agents.',
+          'Plan-mode conversation tools are limited to the current orchestration team and keep every prompted sub-agent in Plan mode. Prefer queue for normal coordination; use steer only for an urgent correction. Sub-agents cannot spawn nested sub-agents.',
+          'Do not create agents merely to appear busy. Use them when their investigation, comparison, research, analysis, or consolidation has clear value to the plan.',
           'Investigate the repository and available read-only context before asking questions. Ask as many focused questions as necessary to eliminate every material ambiguity, but do not repeat questions or ask for facts that can be discovered from the repository.',
           'Do not present alternatives, unresolved decisions, or implementation work. Refine the plan until no material detail is left open to interpretation.',
           'When and only when the plan is complete, emit exactly one non-empty <execution-plan>...</execution-plan> block. The block must detail the objective, affected files, specific changes, public contracts, execution sequence, risks, validations, how each validation will be performed, and measurable success criteria.',
@@ -137,6 +143,33 @@ export const dynamicContextInjectors = new Map([
         ].join('\n')
       : ''
   )],
+  ['current-thread', ({ currentThread } = {}) => (
+    currentThread?.threadId && currentThread?.role
+      ? [
+          `<current_thread id="${escapeXml(currentThread.threadId)}" role="${escapeXml(currentThread.role)}"${currentThread.parentThreadId ? ` parent_thread_id="${escapeXml(currentThread.parentThreadId)}"` : ''}>`,
+          'This identifies the current conversation. The thread directory lists visible conversations, including their roles, relationships, and initial prompts.',
+          currentThread.role === 'side_chat'
+            ? 'As a side chat, you can see side chats and other visible conversations. Other conversation types cannot discover side chats.'
+            : 'Side chats are private and are intentionally absent from your thread directory.',
+          '</current_thread>',
+        ].join('\n')
+      : ''
+  )],
+  ['threads', ({ threads = [] } = {}) => (
+    Array.isArray(threads) && threads.length > 0
+      ? [
+          '<thread_directory>',
+          ...threads.flatMap((thread) => [
+            `<thread id="${escapeXml(thread.threadId)}" role="${escapeXml(thread.role)}" status="${escapeXml(thread.status)}"${thread.parentThreadId ? ` parent_thread_id="${escapeXml(thread.parentThreadId)}"` : ''}>`,
+            `<initial_prompt>${escapeXml(
+              String(thread.initialPrompt ?? '').replace(/\s+/g, ' ').trim().slice(0, 256),
+            )}</initial_prompt>`,
+            '</thread>',
+          ]),
+          '</thread_directory>',
+        ].join('\n')
+      : ''
+  )],
   ['environment', ({ tuning } = {}) => {
     const operatingSystem = {
       win32: 'Windows',
@@ -169,28 +202,43 @@ export const dynamicContextInjectors = new Map([
     const structure = [];
     let directoryCount = 0;
 
-    async function appendDirectory(directoryPath, depth) {
+    async function appendDirectory(directoryPath, depth, ancestorDirectories) {
       let entries;
+      let directoryKey;
       try {
+        directoryKey = normalizePathKey(await realpath(directoryPath));
+        if (ancestorDirectories.has(directoryKey)) {
+          structure.push(`${'\t'.repeat(depth)}...`);
+          return;
+        }
         entries = await readdir(directoryPath, { withFileTypes: true });
       } catch {
         structure.push(`${'\t'.repeat(depth)}...`);
         return;
       }
 
-      const filteredEntries = entries
+      const nextAncestorDirectories = new Set(ancestorDirectories).add(directoryKey);
+      const filteredEntries = (await Promise.all(entries
         .filter((entry) => !IGNORED_WORKSPACE_DIRECTORIES.has(entry.name.toLowerCase()))
+        .map(async (entry) => {
+          if (!entry.isSymbolicLink()) return { entry, isDirectory: entry.isDirectory() };
+          try {
+            return { entry, isDirectory: (await stat(path.join(directoryPath, entry.name))).isDirectory() };
+          } catch {
+            return { entry, isDirectory: false };
+          }
+        })))
         .sort((left, right) => (
-          Number(left.isDirectory()) - Number(right.isDirectory())
-          || left.name.localeCompare(right.name, undefined, { numeric: true })
+          Number(left.isDirectory) - Number(right.isDirectory)
+          || left.entry.name.localeCompare(right.entry.name, undefined, { numeric: true })
         ));
       const visibleEntries = filteredEntries.slice(0, MAX_ENTRIES_PER_DIRECTORY);
       let truncated = filteredEntries.length > visibleEntries.length;
 
-      for (const entry of visibleEntries) {
+      for (const { entry, isDirectory } of visibleEntries) {
         const indentation = '\t'.repeat(depth);
         const name = escapeXml(entry.name);
-        if (!entry.isDirectory()) {
+        if (!isDirectory) {
           structure.push(`${indentation}${name}`);
           continue;
         }
@@ -201,7 +249,11 @@ export const dynamicContextInjectors = new Map([
 
         directoryCount += 1;
         structure.push(`${indentation}${name}/`);
-        await appendDirectory(path.join(directoryPath, entry.name), depth + 1);
+        await appendDirectory(
+          path.join(directoryPath, entry.name),
+          depth + 1,
+          nextAncestorDirectories,
+        );
       }
 
       if (truncated) {
@@ -209,7 +261,7 @@ export const dynamicContextInjectors = new Map([
       }
     }
 
-    await appendDirectory(currentDirectory, 0);
+    await appendDirectory(currentDirectory, 0, new Set());
 
     return [
       '<current_workspace>',
@@ -531,26 +583,33 @@ async function scanContextFiles(rootPath, { includeRootCatalog = false } = {}) {
   let timedOut = false;
   let directoryCount = 0;
 
-  const visit = async (directoryPath, contextRoot = null) => {
+  const visit = async (directoryPath, contextRoot = null, depth = 0) => {
     if (Date.now() >= deadline) {
       timedOut = true;
       return;
     }
 
-    const directoryKey = normalizePathKey(directoryPath);
+    const effectiveContextRoot = contextRoot
+      ?? (path.basename(directoryPath).toLowerCase() === CONTEXT_DIRECTORY_NAME
+        ? directoryPath
+        : null);
+    let directoryKey;
+    try {
+      directoryKey = [
+        normalizePathKey(await realpath(directoryPath)),
+        effectiveContextRoot ? normalizePathKey(effectiveContextRoot) : '',
+      ].join('|');
+    } catch {
+      return;
+    }
     if (seenDirectories.has(directoryKey)) return;
     seenDirectories.add(directoryKey);
     directoryCount += 1;
-
     if (activeTasks >= CONTEXT_SCAN_CONCURRENCY) {
       await new Promise((resolve) => waitingTasks.push(resolve));
     }
 
     activeTasks += 1;
-    const effectiveContextRoot = contextRoot
-      ?? (path.basename(directoryPath).toLowerCase() === CONTEXT_DIRECTORY_NAME
-        ? directoryPath
-        : null);
     const childDirectories = [];
 
     try {
@@ -567,10 +626,21 @@ async function scanContextFiles(rootPath, { includeRootCatalog = false } = {}) {
         }
 
         const normalizedName = entry.name.toLowerCase();
-        if (entry.isSymbolicLink() || IGNORED_WORKSPACE_DIRECTORIES.has(normalizedName)) continue;
+        if (IGNORED_WORKSPACE_DIRECTORIES.has(normalizedName)) continue;
 
         const entryPath = path.join(directoryPath, entry.name);
-        if (entry.isDirectory()) {
+        let isDirectory = entry.isDirectory();
+        let isFile = entry.isFile();
+        if (entry.isSymbolicLink()) {
+          try {
+            const target = await stat(entryPath);
+            isDirectory = target.isDirectory();
+            isFile = target.isFile();
+          } catch {
+            continue;
+          }
+        }
+        if (isDirectory) {
           childDirectories.push({
             path: entryPath,
             contextRoot: effectiveContextRoot
@@ -578,7 +648,7 @@ async function scanContextFiles(rootPath, { includeRootCatalog = false } = {}) {
           });
           continue;
         }
-        if (!entry.isFile()) continue;
+        if (!isFile) continue;
 
         if (INSTRUCTION_FILE_PATTERN.test(entry.name)) instructionFiles.push(entryPath);
         if (!effectiveContextRoot) continue;
@@ -586,7 +656,7 @@ async function scanContextFiles(rootPath, { includeRootCatalog = false } = {}) {
         const relativeParts = path.relative(effectiveContextRoot, entryPath).split(path.sep);
         const catalogName = relativeParts[0]?.toLowerCase();
         const catalogDepth = relativeParts.length - 2;
-        if (catalogDepth < 0 || catalogDepth > MAX_CONTEXT_DIRECTORY_DEPTH) continue;
+        if (catalogDepth < 0 || catalogDepth > MAX_CONTEXT_RECURSION_DEPTH) continue;
         if (catalogName === 'skills' && normalizedName === 'skill.md') skillFiles.push(entryPath);
         if (catalogName === 'workflows') workflowFiles.push(entryPath);
       }
@@ -597,7 +667,8 @@ async function scanContextFiles(rootPath, { includeRootCatalog = false } = {}) {
       waitingTasks.shift()?.();
     }
 
-    await Promise.all(childDirectories.map((child) => visit(child.path, child.contextRoot)));
+    if (depth >= MAX_CONTEXT_RECURSION_DEPTH) return;
+    await Promise.all(childDirectories.map((child) => visit(child.path, child.contextRoot, depth + 1)));
   };
 
   await visit(root, includeRootCatalog ? root : null);

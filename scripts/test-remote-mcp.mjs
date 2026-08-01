@@ -4,6 +4,10 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { RemoteMcpServer } from '../src/main/remote-mcp-server.js';
 
 const apiKey = 'remote-test-key';
+const preferences = {
+  lastModel: 'test:model',
+  defaultModels: { subagents: { enabled: false } },
+};
 const server = new RemoteMcpServer({
   chatRunner: { runs: new Map() },
   providerRegistry: {
@@ -13,7 +17,7 @@ const server = new RemoteMcpServer({
       reasoning: ['low', 'high'],
     }],
   },
-  getPreferences: () => ({ lastModel: 'test:model' }),
+  getPreferences: () => preferences,
   getApiKey: () => apiKey,
 });
 
@@ -93,6 +97,26 @@ try {
   const createThread = listed.tools.find((tool) => tool.name === 'chat_create_thread');
   assert.deepEqual(createThread.inputSchema.properties.model_name.enum, ['test:model']);
   assert.deepEqual(createThread.inputSchema.properties.reasoning_effort.enum, ['low', 'high']);
+  assert.equal(createThread.inputSchema.properties.wait_for_response.type, 'boolean');
+
+  preferences.defaultModels = {
+    subagents: {
+      enabled: true,
+      small: { modelId: 'test:model', reasoningEffort: 'low' },
+      medium: { modelId: 'test:model', reasoningEffort: 'low' },
+      large: { modelId: 'test:model', reasoningEffort: 'high' },
+    },
+  };
+  const levelTools = await client.listTools();
+  const levelCreateThread = levelTools.tools.find((tool) => tool.name === 'chat_create_thread');
+  assert.deepEqual(levelCreateThread.inputSchema.properties.model_level.enum, [
+    'small',
+    'medium',
+    'large',
+  ]);
+  assert.ok(levelCreateThread.inputSchema.required.includes('model_level'));
+  assert.equal(levelCreateThread.inputSchema.properties.model_name, undefined);
+  assert.equal(levelCreateThread.inputSchema.properties.reasoning_effort, undefined);
 
   const result = await client.callTool({
     name: 'chat_list_threads',

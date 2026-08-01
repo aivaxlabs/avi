@@ -130,6 +130,8 @@ try {
       'chat_inspect_thread',
       'chat_list_folders',
       'chat_list_threads',
+      'chat_send_prompt',
+      'chat_spawn_subagent',
       'read_file',
       'read_terminal_output',
       'read_url',

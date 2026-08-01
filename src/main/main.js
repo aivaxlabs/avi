@@ -41,6 +41,7 @@ import {
   listSideChats,
   listSubagents,
   searchChats,
+  setDefaultModels,
   setFavorite,
   setProviderCredentials,
   setProviders,
@@ -50,6 +51,7 @@ import {
   updateConversation,
 } from './database.js';
 import { ChatRunner } from './chat-runner.js';
+import { validateDefaultModels } from './default-models.js';
 import { stopConversationTerminals } from './client-tools.js';
 import {
   listContextItems,
@@ -110,6 +112,7 @@ let shutdownReady = false;
 await initializeSecureStorage();
 setTraceLevel(getPreferences().tuning.logLevel);
 traceVerbose('app.started', { log_level: getPreferences().tuning.logLevel });
+logDefaultModelWarnings('startup');
 registerIpc();
 
 const rpc = BrowserView.defineRPC({
@@ -394,9 +397,31 @@ function getNativeWindowOptions() {
   };
 }
 
+
+function logDefaultModelWarnings(operation) {
+  const warnings = validateDefaultModels(
+    getPreferences().defaultModels,
+    providerRegistry.listModels(),
+  );
+  for (const warning of warnings) {
+    traceError('model.default-unavailable', {
+      operation,
+      model_role: warning.role,
+      requested_model: warning.modelId,
+      fallback_model: warning.fallback?.modelId ?? 'unavailable',
+      error: warning.reason,
+    });
+  }
+  return warnings;
+}
+
 function registerIpc() {
   ipcMain.handle('app:state', () => ({
     ...getPreferences(),
+    defaultModelWarnings: validateDefaultModels(
+      getPreferences().defaultModels,
+      providerRegistry.listModels(),
+    ),
     platform: process.platform,
     defaultProject: inspectProjectFolder(homedir()),
     windowMaterial: getNativeWindowOptions().backgroundMaterial ?? null,
@@ -426,6 +451,18 @@ function registerIpc() {
     traceVerbose('logging.configuration-changed', { log_level: saved.logLevel });
     return saved;
   });
+  ipcMain.handle('default-models:save', (_event, settings) => {
+    const saved = setDefaultModels(settings);
+    const warnings = logDefaultModelWarnings('settings-saved');
+    return { settings: saved, warnings };
+  });
+  ipcMain.handle('default-models:status', () => ({
+    settings: getPreferences().defaultModels,
+    warnings: validateDefaultModels(
+      getPreferences().defaultModels,
+      providerRegistry.listModels(),
+    ),
+  }));
 
   const remoteState = () => {
     const settings = getRemoteSettings();
@@ -595,14 +632,18 @@ function registerIpc() {
     const provider = providerRegistry.normalizeConfig(payload);
     const providers = listProviders();
     const index = providers.findIndex((item) => item.id === provider.id);
-    return setProviders(index < 0
+    const saved = setProviders(index < 0
       ? [...providers, provider]
       : providers.map((item) => item.id === provider.id ? provider : item));
+    logDefaultModelWarnings('provider-saved');
+    return saved;
   });
   ipcMain.handle('providers:remove', async (_event, providerId) => {
     const providers = listProviders();
     await providerRegistry.remove(providerId);
-    return setProviders(providers.filter((provider) => provider.id !== providerId));
+    const saved = setProviders(providers.filter((provider) => provider.id !== providerId));
+    logDefaultModelWarnings('provider-removed');
+    return saved;
   });
   ipcMain.handle('providers:state', (_event, providerId) => providerRegistry.getState(providerId));
   ipcMain.handle('providers:action', (_event, payload = {}) => (
