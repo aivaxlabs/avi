@@ -12,6 +12,7 @@ import {
   GitFork,
   Globe,
   Info,
+  ListChecks,
   MessageSquarePlus,
   MessagesSquare,
   RotateCcw,
@@ -167,6 +168,7 @@ const TOOL_ICONS = Object.freeze({
   send_to_terminal: TerminalSquare,
   start_goal: Target,
   update_goal_status: Target,
+  update_tasks: ListChecks,
   write_file: FilePenLine,
 });
 

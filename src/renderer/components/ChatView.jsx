@@ -32,6 +32,8 @@ export function ChatView({
   onCompress,
   onCreateSideChat,
   subagents,
+  tasks = [],
+  onOpenTasks,
   onOpenSubagents,
   onFork,
   onRetry,
@@ -503,6 +505,8 @@ export function ChatView({
         onCompress={onCompress}
         onCreateSideChat={onCreateSideChat}
         subagents={subagents}
+        tasks={tasks}
+        onOpenTasks={onOpenTasks}
         onOpenSubagents={onOpenSubagents}
         queuedMessages={queuedMessages}
         onCancelQueued={onCancelQueued}

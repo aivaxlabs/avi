@@ -129,6 +129,8 @@ export function Composer({
   onCompress,
   onCreateSideChat,
   subagents = [],
+  tasks = [],
+  onOpenTasks,
   onOpenSubagents,
   queuedMessages = [],
   onCancelQueued,
@@ -825,6 +827,13 @@ export function Composer({
               <Square size={13} aria-hidden="true" />
             </button>
           </span>
+        </ComposerStrip>
+      )}
+      {tasks.length > 0 && (
+        <ComposerStrip as="button" className="tasks-strip" type="button" aria-label="Open thread tasks" onClick={onOpenTasks}>
+          <ListChecks size={15} aria-hidden="true" />
+          <span aria-live="polite">{tasks.filter((task) => task.done).length}/{tasks.length} tasks completed</span>
+          <ChevronRight size={15} aria-hidden="true" />
         </ComposerStrip>
       )}
       {subagents.length > 0 && (

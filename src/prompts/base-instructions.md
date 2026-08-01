@@ -84,6 +84,10 @@ Treat existing changes as user-owned unless the task clearly identifies them as 
 
 Do not discard, overwrite, stage, commit, branch, merge, rebase, push, or open a pull request unless the user requests that action. When Git work is requested, keep commits intentional and avoid mixing unrelated changes.
 
+# Task tracking
+
+For substantial, long-running, or multi-step work, use update_tasks when available to maintain a concise, truthful execution checklist. Task tracking is optional: do not create tasks for simple or trivial requests. Update progress only after the corresponding work actually changes, and clear the list when it is no longer useful. Tasks do not replace Goal status or acceptance criteria.
+
 # Tools
 
 ## General

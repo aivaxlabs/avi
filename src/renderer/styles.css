@@ -5851,6 +5851,83 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     background: var(--item-hover);
 }
 
+.auxiliary-panel .task-list {
+    min-height: 0;
+    padding: 14px;
+    overflow: auto;
+}
+
+.auxiliary-panel .task-list > header {
+    display: grid;
+    gap: 3px;
+    padding: 2px 4px 12px;
+}
+
+.auxiliary-panel .task-list > header strong {
+    color: var(--text-1);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.auxiliary-panel .task-list > header span {
+    color: var(--text-3);
+    font-size: 11px;
+}
+
+.auxiliary-panel .task-list-item {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 10px;
+    padding: 11px 4px;
+    border-top: 1px solid var(--border-color);
+}
+
+.auxiliary-panel .task-list-item > span:last-child {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+}
+
+.auxiliary-panel .task-list-item strong {
+    color: var(--text-1);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.auxiliary-panel .task-list-item p, .auxiliary-panel .task-list-item small {
+    margin: 0;
+    color: var(--text-3);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.auxiliary-panel .task-list-item small {
+    color: var(--text-2);
+}
+
+.auxiliary-panel .task-list-item.done strong {
+    color: var(--text-3);
+    text-decoration: line-through;
+}
+
+.auxiliary-panel .task-check {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    color: var(--text-3);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+}
+
+.auxiliary-panel .task-list-item.done .task-check {
+    color: var(--background-1);
+    background: var(--text-1);
+    border-color: var(--text-1);
+}
+
 .auxiliary-panel .subagent-list {
     min-height: 0;
     padding: 10px;
@@ -6445,6 +6522,28 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .composer-wrap .subagent-strip:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: -2px;
+}
+
+.composer-wrap .tasks-strip {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    color: var(--text-2);
+    text-align: left;
+    font-size: 12px;
+    transition: color 180ms var(--base-transition), background 180ms var(--base-transition);
+}
+
+.composer-wrap .tasks-strip:hover, .composer-wrap .tasks-strip:focus-visible {
+    color: var(--text-1);
+    background: var(--background-2);
+}
+
+.composer-wrap .tasks-strip:focus-visible {
     outline: 2px solid var(--text-3);
     outline-offset: -2px;
 }

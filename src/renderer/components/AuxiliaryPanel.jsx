@@ -6,6 +6,7 @@ import {
   Files,
   Gauge,
   MessageSquarePlus,
+  ListChecks,
   Plus,
   X,
 } from 'lucide-react';
@@ -16,6 +17,7 @@ import { ProviderPanel } from './ProviderPanel.jsx';
 
 const subagentsTabId = 'subagents';
 const filesTabId = 'files';
+const tasksTabId = 'tasks';
 
 function AuxiliaryAddMenu({
   providerPanels,
@@ -121,6 +123,7 @@ function AuxiliaryAddMenu({
 export function AuxiliaryPanel({
   sideChats,
   subagents,
+  tasks = [],
   activeTab,
   activeSubagentId,
   messagesByConversation,
@@ -136,11 +139,13 @@ export function AuxiliaryPanel({
   openProviderPanels = [],
   filesTabOpen,
   subagentsTabOpen,
+  tasksTabOpen,
   canCreateSideChat,
   onSelectTab,
   onCloseSideChat,
   onCloseFilesTab,
   onCloseSubagentsTab,
+  onCloseTasksTab,
   onOpenFilesTab,
   onOpenSubagentsTab,
   onOpenProviderPanel,
@@ -186,6 +191,9 @@ export function AuxiliaryPanel({
           type: 'files',
         }]
       : []),
+    ...(tasksTabOpen
+      ? [{ id: tasksTabId, label: 'Tasks', running: false, type: 'tasks' }]
+      : []),
     ...(subagentsTabOpen
       ? [{
           id: subagentsTabId,
@@ -203,6 +211,7 @@ export function AuxiliaryPanel({
   const activeSideChat = sideChats.find((sideChat) => sideChat.id === activeTab) ?? null;
   const showingFiles = activeTab === filesTabId;
   const showingSubagents = activeTab === subagentsTabId;
+  const showingTasks = activeTab === tasksTabId;
   const activeProviderPanel = openProviderPanels.find((panel) => panel.id === activeTab) ?? null;
   const activeSubagent = showingSubagents
     ? subagents.find((subagent) => subagent.id === activeSubagentId) ?? null
@@ -256,7 +265,9 @@ export function AuxiliaryPanel({
                       ));
                     }}
                   >
-                    {tab.type === 'subagents' ? (
+                    {tab.type === 'tasks' ? (
+                      <ListChecks size={14} aria-hidden="true" />
+                    ) : tab.type === 'subagents' ? (
                       <Bot size={14} aria-hidden="true" />
                     ) : tab.type === 'files' ? (
                       <Files size={14} aria-hidden="true" />
@@ -280,8 +291,10 @@ export function AuxiliaryPanel({
                       ? 'Close Sub-agents tab'
                       : `Close ${tab.label}`}
                     onClick={() => (
-                      tab.type === 'subagents'
-                        ? onCloseSubagentsTab()
+                      tab.type === 'tasks'
+                        ? onCloseTasksTab()
+                        : tab.type === 'subagents'
+                          ? onCloseSubagentsTab()
                         : tab.type === 'files'
                           ? onCloseFilesTab()
                         : tab.type === 'provider'
@@ -344,7 +357,17 @@ export function AuxiliaryPanel({
             </button>
           </div>
         )}
-        {showingFiles ? (
+        {showingTasks ? (
+          <div className="task-list">
+            <header><strong>{tasks.filter((task) => task.done).length}/{tasks.length} completed</strong><span>Defined and updated by the agent</span></header>
+            {tasks.map((task, index) => (
+              <article className={`task-list-item${task.done ? ' done' : ''}`} key={`${index}-${task.title}`}>
+                <span className="task-check" aria-label={task.done ? 'Completed' : 'Pending'}>{task.done ? '?' : index + 1}</span>
+                <span><strong>{task.title}</strong>{task.description && <p>{task.description}</p>}{task.result && <small>{task.result}</small>}</span>
+              </article>
+            ))}
+          </div>
+        ) : showingFiles ? (
           <FilesPanel
             project={project}
             onAddToChat={onAddToChat}

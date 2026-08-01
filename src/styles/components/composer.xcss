@@ -134,6 +134,29 @@
     }
   }
 
+  .tasks-strip {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    color: var(--text-2);
+    text-align: left;
+    font-size: 12px;
+    transition: color 180ms var(--base-transition), background 180ms var(--base-transition);
+
+    &:hover,
+    &:focus-visible {
+      color: var(--text-1);
+      background: var(--background-2);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: -2px;
+    }
+  }
+
   .queued-messages {
     max-height: min(210px, 28vh);
     margin-bottom: -4px;

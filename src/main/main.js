@@ -40,6 +40,7 @@ import {
   listProviders,
   listSideChats,
   listSubagents,
+  listTasks,
   searchChats,
   setDefaultModels,
   setFavorite,
@@ -518,6 +519,7 @@ function registerIpc() {
     refreshConversationProject(updateConversation(payload.id, payload))
   ));
   ipcMain.handle('conversations:messages', (_event, conversationId) => getMessages(conversationId));
+  ipcMain.handle('tasks:list', (_event, conversationId) => listTasks(conversationId));
   ipcMain.handle('conversations:delete', (_event, conversationId) => {
     chatRunner.stop(conversationId, { includeSubagents: true });
     for (const sideChat of listSideChats(conversationId)) {

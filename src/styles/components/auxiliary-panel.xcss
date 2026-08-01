@@ -422,6 +422,54 @@
     }
   }
 
+  .task-list {
+    min-height: 0;
+    padding: 14px;
+    overflow: auto;
+
+    > header {
+      display: grid;
+      gap: 3px;
+      padding: 2px 4px 12px;
+
+      strong { color: var(--text-1); font-size: 12px; font-weight: 500; }
+      span { color: var(--text-3); font-size: 11px; }
+    }
+  }
+
+  .task-list-item {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 10px;
+    padding: 11px 4px;
+    border-top: 1px solid var(--border-color);
+
+    > span:last-child { min-width: 0; display: grid; gap: 4px; }
+    strong { color: var(--text-1); font-size: 12px; font-weight: 500; }
+    p, small { margin: 0; color: var(--text-3); font-size: 11px; line-height: 1.45; }
+    small { color: var(--text-2); }
+
+    &.done strong { color: var(--text-3); text-decoration: line-through; }
+  }
+
+  .task-check {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    color: var(--text-3);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .task-list-item.done .task-check {
+    color: var(--background-1);
+    background: var(--text-1);
+    border-color: var(--text-1);
+  }
+
   .subagent-list {
     min-height: 0;
     padding: 10px;

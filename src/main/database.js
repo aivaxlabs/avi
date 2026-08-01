@@ -70,6 +70,7 @@ db.exec(`
     context_checkpoint TEXT NOT NULL DEFAULT '',
     checkpoint_message_id TEXT,
     context_tokens INTEGER NOT NULL DEFAULT 0,
+    tasks TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     deleted_at TEXT,
@@ -193,6 +194,9 @@ if (!conversationColumns.some((column) => column.name === 'checkpoint_message_id
 if (!conversationColumns.some((column) => column.name === 'context_tokens')) {
   db.exec('ALTER TABLE conversations ADD COLUMN context_tokens INTEGER NOT NULL DEFAULT 0');
 }
+if (!conversationColumns.some((column) => column.name === 'tasks')) {
+  db.exec("ALTER TABLE conversations ADD COLUMN tasks TEXT NOT NULL DEFAULT '[]'");
+}
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_conversations_parent
     ON conversations(parent_conversation_id, conversation_type, created_at);
@@ -233,6 +237,8 @@ const statements = {
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
   `),
   getValue: db.prepare('SELECT value FROM session_values WHERE key = ?'),
+  listTasks: db.prepare('SELECT tasks FROM conversations WHERE id = ?'),
+  replaceTasks: db.prepare('UPDATE conversations SET tasks = ? WHERE id = ?'),
   insertGoal: db.prepare(`
     INSERT INTO goals (
       id, conversation_id, specification, status, revision, model, reasoning_effort,
@@ -594,6 +600,15 @@ export function closeDatabase() {
   }
   backfillContextUsage.finalize();
   db.close();
+}
+
+export function listTasks(conversationId) {
+  return parse(statements.listTasks.get(conversationId)?.tasks, []);
+}
+
+export function replaceTasks(conversationId, tasks) {
+  statements.replaceTasks.run(stringify(tasks), conversationId);
+  return listTasks(conversationId);
 }
 
 export function insertGoal(goal) {

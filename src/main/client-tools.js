@@ -19,6 +19,7 @@ import {
   getConversation,
   getMessages,
   listAllConversations,
+  replaceTasks,
   updateConversation,
 } from './database.js';
 import { resolveSubagentModel } from './default-models.js';
@@ -153,6 +154,69 @@ export const CLIENT_TOOLS = Object.freeze([
         output: `Media file loaded: ${attachment.path}`,
         mediaContent: [attachmentToApiBlock(attachment, capabilities)],
       };
+    },
+  },
+  {
+    name: 'update_tasks',
+    description: 'Replace the current thread task list with the complete provided snapshot. Use optionally for substantial multi-step work, not trivial tasks. Send an empty list to clear it.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tasks: {
+          type: 'array',
+          maxItems: 100,
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', minLength: 1, maxLength: 200 },
+              description: { type: 'string', maxLength: 2000 },
+              done: { type: 'boolean' },
+              result: { type: ['string', 'null'], maxLength: 4000 },
+            },
+            required: ['title', 'description', 'done', 'result'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['tasks'],
+      additionalProperties: false,
+    },
+    execute: async ({ tasks }, { chatRunner, conversationId, workMode }) => {
+      if (workMode === 'plan') throw new Error('update_tasks is unavailable in Plan mode.');
+      if (!Array.isArray(tasks) || tasks.length > 100) {
+        throw new Error('tasks must be an array with at most 100 items.');
+      }
+      if (tasks.some((task) => (
+        !task
+        || typeof task !== 'object'
+        || Array.isArray(task)
+        || typeof task.title !== 'string'
+        || typeof task.description !== 'string'
+        || typeof task.done !== 'boolean'
+        || (task.result !== null && typeof task.result !== 'string')
+      ))) {
+        throw new Error('Each task must contain a string title and description, boolean done, and string or null result.');
+      }
+      const normalized = tasks.map((task) => ({
+        title: task.title.trim(),
+        description: task.description.trim(),
+        done: task.done,
+        result: task.result?.trim() || null,
+      }));
+      if (normalized.some((task) => (
+        !task.title
+        || task.title.length > 200
+        || task.description.length > 2000
+        || (task.result?.length ?? 0) > 4000
+      ))) {
+        throw new Error('One or more tasks exceed the allowed field limits.');
+      }
+      const persisted = replaceTasks(conversationId, normalized);
+      chatRunner.emit(conversationId, { type: 'tasks', tasks: persisted });
+      return { tasks: persisted };
     },
   },
   {

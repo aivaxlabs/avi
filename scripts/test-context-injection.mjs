@@ -510,6 +510,20 @@ try {
   })).includes('role="orchestrator"'));
 
   const longSubagentPrompt = 'x'.repeat(300);
+  const tasksContext = await resolveDynamicContext({
+    tasks: [{
+      title: 'Inspect <unsafe>',
+      description: 'Review & validate',
+      done: false,
+      result: null,
+    }],
+  });
+  assert.ok(tasksContext.includes('<thread_tasks>'));
+  assert.ok(tasksContext.includes('<title>Inspect &lt;unsafe&gt;</title>'));
+  assert.ok(tasksContext.includes('<description>Review &amp; validate</description>'));
+  assert.ok(tasksContext.includes('done="false"'));
+  assert.equal((await resolveDynamicContext({ tasks: [] })).includes('<thread_tasks>'), false);
+
   const subagentContext = await resolveDynamicContext({
     workspacePath: root,
     subagents: [

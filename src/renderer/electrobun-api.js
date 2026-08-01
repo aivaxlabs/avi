@@ -98,6 +98,9 @@ window.chatApp = {
     reorderQueued: (payload) => invoke('chat:reorder-queued', payload),
     stop: (conversationId) => invoke('chat:stop', conversationId),
   },
+  tasks: {
+    list: (conversationId) => invoke('tasks:list', conversationId),
+  },
   goals: {
     start: (payload) => invoke('goals:start', payload),
     change: (payload) => invoke('goals:change', payload),

@@ -26,6 +26,8 @@ try {
     listConversations,
     listSideChats,
     listSubagents,
+    listTasks,
+    replaceTasks,
     setTuningSettings,
     toModelMessages,
     toModelMessagesThroughUser,
@@ -119,6 +121,21 @@ try {
   );
 
   const parent = createConversation({ model: 'test/model', projectPath: process.cwd() });
+  const taskPeer = createConversation({ model: 'test/model', projectPath: process.cwd() });
+  const initialTasks = [
+    { title: 'Inspect', description: 'Read the relevant code.', done: true, result: 'Flow mapped.' },
+    { title: 'Implement', description: 'Apply the focused change.', done: false, result: null },
+  ];
+  assert.deepEqual(replaceTasks(parent.id, initialTasks), initialTasks);
+  assert.deepEqual(listTasks(parent.id), initialTasks);
+  assert.deepEqual(listTasks(taskPeer.id), []);
+  const updatedTasks = [
+    { title: 'Validate', description: 'Run focused checks.', done: false, result: null },
+  ];
+  assert.deepEqual(replaceTasks(parent.id, updatedTasks), updatedTasks);
+  assert.deepEqual(listTasks(parent.id), updatedTasks);
+  assert.deepEqual(replaceTasks(parent.id, []), []);
+  assert.deepEqual(listTasks(parent.id), []);
   const user = insertMessage({
     conversationId: parent.id,
     role: 'user',
@@ -226,6 +243,40 @@ try {
   assert.equal(subagentModelMessages.some((message) => message.content.includes('Checkpoint snapshot')), false);
   assert.equal(forkConversation(subagent.conversation.id, { subagent: true }), null);
   const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
+  const updateTasksTool = CLIENT_TOOLS.find((tool) => tool.name === 'update_tasks');
+  const taskEvents = [];
+  const toolTasks = [{
+    title: 'Track tool progress',
+    description: 'Verify the tool contract.',
+    done: true,
+    result: 'Persisted and emitted.',
+  }];
+  assert.deepEqual(await updateTasksTool.execute({ tasks: toolTasks }, {
+    chatRunner: { emit: (conversationId, event) => taskEvents.push({ conversationId, event }) },
+    conversationId: parent.id,
+    workMode: null,
+  }), { tasks: toolTasks });
+  assert.deepEqual(listTasks(parent.id), toolTasks);
+  await assert.rejects(() => updateTasksTool.execute({
+    tasks: [{ title: 'Invalid', description: '', done: 'false', result: null }],
+  }, {
+    chatRunner: { emit: () => assert.fail('Invalid tasks must not emit changes.') },
+    conversationId: parent.id,
+    workMode: null,
+  }), /Each task must contain/);
+  assert.deepEqual(listTasks(parent.id), toolTasks);
+  assert.deepEqual(taskEvents, [{
+    conversationId: parent.id,
+    event: { type: 'tasks', tasks: toolTasks },
+  }]);
+  await assert.rejects(() => updateTasksTool.execute({ tasks: [] }, {
+    chatRunner: { emit: () => assert.fail('Plan mode must not emit task changes.') },
+    conversationId: parent.id,
+    workMode: 'plan',
+  }), /unavailable in Plan mode/);
+  assert.deepEqual(listTasks(parent.id), toolTasks);
+  replaceTasks(parent.id, []);
+
   const spawnTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_spawn_subagent');
   assert.equal(CLIENT_TOOLS.some((tool) => tool.name === 'chat_report_to_orchestrator'), false);
   const sendPromptTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_send_prompt');

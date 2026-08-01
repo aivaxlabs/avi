@@ -44,6 +44,7 @@ const POST_INSTRUCTION_CONTEXT_ORDER = [
   'work-mode',
   'ultra',
   'goal',
+  'tasks',
   'subagents',
   'current-thread',
   'threads',
@@ -125,6 +126,22 @@ export const dynamicContextInjectors = new Map([
             ? 'The user paused automatic Goal iterations. Finish the current iteration responsibly, but do not assume the pause cancels the goal.'
             : 'Automatic Goal iterations are active.',
           '</goal_mode>',
+        ].join('\n')
+      : ''
+  )],
+  ['tasks', ({ tasks = [] } = {}) => (
+    Array.isArray(tasks) && tasks.length > 0
+      ? [
+          '<thread_tasks>',
+          'This is the persistent task list for the current thread. Keep it accurate with update_tasks when progress changes. Tasks do not replace Goal status or its acceptance criteria.',
+          ...tasks.flatMap((task, index) => [
+            `<task index="${index + 1}" done="${Boolean(task.done)}">`,
+            `<title>${escapeXml(task.title)}</title>`,
+            task.description ? `<description>${escapeXml(task.description)}</description>` : '',
+            task.result ? `<result>${escapeXml(task.result)}</result>` : '',
+            '</task>',
+          ]).filter(Boolean),
+          '</thread_tasks>',
         ].join('\n')
       : ''
   )],

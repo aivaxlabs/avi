@@ -14,6 +14,7 @@ import {
   listAllConversations,
   listContinuingGoals,
   listSubagents,
+  listTasks,
   setLastModel,
   toModelMessages,
   toModelMessagesThroughUser,
@@ -1472,6 +1473,7 @@ export class ChatRunner {
                   ? 'side_chat'
                   : 'orchestrator',
               goal: goalContext,
+              tasks: listTasks(conversationId),
               subagents: subagentContext,
               currentThread: {
                 threadId: currentConversation?.id ?? conversationId,

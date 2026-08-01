@@ -74,10 +74,12 @@ export default function App() {
   const [draftProject, setDraftProject] = useState(null);
   const [sideChats, setSideChats] = useState([]);
   const [subagents, setSubagents] = useState([]);
+  const [tasksByConversation, setTasksByConversation] = useState({});
   const [providerPanels, setProviderPanels] = useState([]);
   const [openProviderPanelIds, setOpenProviderPanelIds] = useState([]);
   const [filesTabOpen, setFilesTabOpen] = useState(false);
   const [subagentsTabOpen, setSubagentsTabOpen] = useState(false);
+  const [tasksTabOpen, setTasksTabOpen] = useState(false);
   const [auxiliaryPanelVisible, setAuxiliaryPanelVisible] = useState(false);
   const [activeAuxiliaryTab, setActiveAuxiliaryTab] = useState(null);
   const [activeSubagentId, setActiveSubagentId] = useState(null);
@@ -304,6 +306,11 @@ export default function App() {
           setSubagents((state) => upsertById(state, event.subagent));
           setSubagentsTabOpen(true);
         }
+      } else if (event.type === 'tasks') {
+        setTasksByConversation((state) => ({ ...state, [event.conversationId]: event.tasks }));
+        if (event.conversationId === selectedConversationIdRef.current) {
+          setTasksTabOpen(event.tasks.length > 0);
+        }
       } else if (event.type === 'message-delete') {
         setMessagesByConversation((state) => ({
           ...state,
@@ -465,14 +472,16 @@ export default function App() {
     setSideChats([]);
     setSubagents([]);
     setSubagentsTabOpen(false);
+    setTasksTabOpen(false);
     setActiveSubagentId(null);
     if (!selectedId) return undefined;
 
     Promise.all([
       api.sideChats.list(selectedId),
       api.subagents.list(selectedId),
+      api.tasks.list(selectedId),
     ])
-      .then(async ([nextSideChats, nextSubagents]) => {
+      .then(async ([nextSideChats, nextSubagents, nextTasks]) => {
         const entries = await Promise.all(
           [...nextSideChats, ...nextSubagents].map(async (childThread) => (
             [childThread.id, await api.conversations.messages(childThread.id)]
@@ -482,6 +491,8 @@ export default function App() {
         setSideChats(nextSideChats);
         setSubagents(nextSubagents);
         setSubagentsTabOpen(nextSubagents.length > 0);
+        setTasksByConversation((state) => ({ ...state, [selectedId]: nextTasks }));
+        setTasksTabOpen(nextTasks.length > 0);
         setMessagesByConversation((state) => ({
           ...state,
           ...Object.fromEntries(entries),
@@ -509,15 +520,17 @@ export default function App() {
         sideChats.some((sideChat) => sideChat.id === current)
         || (current === 'files' && filesTabOpen)
         || (current === 'subagents' && subagentsTabOpen)
+        || (current === 'tasks' && tasksTabOpen)
         || openProviderPanels.some((panel) => panel.id === current)
       ) {
         return current;
       }
       return sideChats[0]?.id
         ?? (filesTabOpen ? 'files' : null)
+        ?? (tasksTabOpen ? 'tasks' : null)
         ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null);
     });
-  }, [filesTabOpen, openProviderPanels, sideChats, subagentsTabOpen]);
+  }, [filesTabOpen, openProviderPanels, sideChats, subagentsTabOpen, tasksTabOpen]);
 
   useEffect(() => {
     const syncWindowWidth = () => setWindowWidth(window.innerWidth);
@@ -1250,6 +1263,13 @@ export default function App() {
               onCompress={compressConversation}
               onCreateSideChat={currentConversation ? createSideChat : undefined}
               subagents={subagentsWithStatus}
+              tasks={tasksByConversation[selectedId] ?? []}
+              onOpenTasks={() => {
+                setAuxiliaryPanelVisible(true);
+                setTasksTabOpen(true);
+                setActiveSubagentId(null);
+                setActiveAuxiliaryTab('tasks');
+              }}
               onOpenSubagents={() => {
                 setAuxiliaryPanelVisible(true);
                 setSubagentsTabOpen(true);
@@ -1324,10 +1344,12 @@ export default function App() {
                     sideChats.some((sideChat) => sideChat.id === current)
                     || (current === 'files' && filesTabOpen)
                     || (current === 'subagents' && subagentsTabOpen)
+                    || (current === 'tasks' && tasksTabOpen)
                     || openProviderPanels.some((panel) => panel.id === current)
                       ? current
                       : sideChats[0]?.id
                         ?? (filesTabOpen ? 'files' : null)
+                        ?? (tasksTabOpen ? 'tasks' : null)
                         ?? (subagentsTabOpen
                           ? 'subagents'
                           : openProviderPanels[0]?.id ?? null)
@@ -1342,6 +1364,7 @@ export default function App() {
               <AuxiliaryPanel
                 sideChats={sideChats}
                 subagents={subagentsWithStatus}
+                tasks={tasksByConversation[selectedId] ?? []}
                 activeTab={activeAuxiliaryTab}
                 activeSubagentId={activeSubagentId}
                 messagesByConversation={messagesByConversation}
@@ -1357,6 +1380,7 @@ export default function App() {
                 openProviderPanels={openProviderPanels}
                 filesTabOpen={filesTabOpen}
                 subagentsTabOpen={subagentsTabOpen}
+                tasksTabOpen={tasksTabOpen}
                 canCreateSideChat={Boolean(currentConversation)}
                 onSelectTab={async (tabId) => {
                   setActiveAuxiliaryTab(tabId);
@@ -1381,6 +1405,10 @@ export default function App() {
                         ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null),
                     );
                   }
+                }}
+                onCloseTasksTab={() => {
+                  setTasksTabOpen(false);
+                  setActiveAuxiliaryTab(null);
                 }}
                 onCloseSubagentsTab={() => {
                   setActiveSubagentId(null);
