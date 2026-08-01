@@ -1,76 +1,69 @@
 ---
 name: multi-commit
-description: Use when the user asks to split current workspace changes into multiple local semantic commits, with an approved grouping plan, exact staging, validation, and Conventional Commit messages in English.
+description: Use when the user asks to organize current workspace changes into multiple coherent local commits autonomously, with exact staging, proportionate validation, and Conventional Commit messages in English.
 ---
 # Multiple semantic commits
 
-Organize current changes into cohesive local commits without mixing unrelated user work.
+Inspect the current worktree, choose the most coherent commit split, and create the local commits without making the user manage the process.
 
-## Safety contract
+## Autonomy contract
 
-- This workflow authorizes local commits only after the user confirms the proposed groups.
-- Do not push, create a branch, rebase, merge, amend, or rewrite existing history unless separately requested.
-- Preserve pre-existing staged changes. Do not unstage, restore, discard, or delete them silently.
-- Group by intent and hunk, not only by filename. A mixed file may require careful patch staging or user direction.
-- Do not claim a commit is valid unless the relevant checks actually ran successfully.
+- Invoking this workflow authorizes inspecting all current changes, reorganizing the Git index as needed, staging exact files or hunks, and creating the resulting local commits.
+- Do not ask the user to approve the plan, number of commits, grouping, order, scopes, messages, staging, or each individual commit.
+- Resolve routine uncertainty by inspecting the diff, surrounding code, repository conventions, tests, and dependencies.
+- Ask a focused question only when a material ambiguity remains after inspection and choosing incorrectly could mix unrelated ownership, expose sensitive data, lose work, or produce a meaningfully wrong history.
+- Do not push, create a branch, merge, rebase, amend, or rewrite existing commits unless separately requested.
+- Never discard working-tree content. Preserve all changes, including pre-existing staged changes, while reorganizing them into the appropriate commits.
+- If the worktree has no committable changes, report that and stop without creating an empty commit.
 
 ## Procedure
 
-### 1. Inspect all change states
+### 1. Understand the complete change set
 
-Run read-only Git checks such as:
+Inspect at least:
 
 ```text
 git status --short
 git diff --stat
 git diff
+git diff --cached --stat
 git diff --cached
 ```
 
-Inspect untracked files deliberately. Do not assume generated, ignored, or unfamiliar files belong to the requested work.
+Inspect untracked files deliberately. Read relevant surrounding code, tests, manifests, and project instructions when the diff alone does not explain intent.
 
-Identify:
+Determine:
 
-- staged changes that existed before this workflow;
-- unstaged and untracked changes;
-- files containing more than one logical change;
-- dependencies between changes that constrain commit order;
-- changes that should not be committed.
+- the distinct user-facing or technical intentions;
+- implementation, tests, documentation, and configuration that belong together;
+- dependency order between groups;
+- mixed files that require hunk-level separation;
+- generated artifacts, secrets, or unrelated changes that must not enter a commit.
 
-### 2. Build the commit plan
+### 2. Choose the split autonomously
 
-For each proposed commit, list:
+Create the smallest useful set of cohesive commits. Each commit should represent one understandable intention and, when practical, leave the repository in a valid state.
 
-- purpose and category;
-- exact files or hunks;
-- dependencies and intended order;
-- relevant validation;
-- proposed English message in `type(scope): concise description` form.
+Do not split tightly coupled implementation and tests. Do not create tiny commits merely because files differ. Do not combine unrelated fixes merely because they are in the same file.
 
-Keep each commit independently understandable and buildable when practical. Do not split tightly coupled implementation and tests merely to increase the number of commits.
+Choose English Conventional Commit messages using the repository's existing style. Use a scope only when it improves clarity.
 
-Call out ambiguous or mixed files explicitly. If existing staged changes cannot safely be incorporated or separated, pause for user direction.
+### 3. Validate and commit
 
-### 3. Obtain confirmation
+Reorganize the index non-destructively when necessary, then process groups in dependency order:
 
-Present the complete plan before staging new changes or committing. Wait for the user's actual confirmation. If the user revises a group, update the plan before proceeding.
-
-### 4. Validate and create each commit
-
-For each approved group, in dependency order:
-
-1. Run the narrowest relevant validation against the working tree.
-2. Stage the exact approved files or hunks with `git add -- <paths>` or a safe patch-staging method.
+1. Run the narrowest useful validation for the group or the integrated worktree.
+2. Stage exactly the intended files or hunks.
 3. Inspect `git diff --cached --stat` and `git diff --cached`.
-4. Confirm the index contains only that group, including any pre-existing staged content intentionally assigned to it.
-5. Create the commit with `git commit -m "<message>"`.
-6. Record the resulting hash and verify the remaining working tree with `git status --short`.
+4. Correct the index yourself if it contains content from another group.
+5. Create the commit.
+6. Verify the remaining worktree and continue immediately with the next group.
 
-The order is always **stage, inspect, then commit**.
+Do not pause for confirmation between these steps or commits.
 
-If validation fails, stop before committing that group. Fix only when the user requested implementation; otherwise report the blocker and preserve the working tree.
+If a validation fails, determine whether the failure was caused by the current changes. Fix it when that is within the requested work; otherwise preserve the changes, avoid making a knowingly invalid commit when material, and report the concrete blocker.
 
-### 5. Final verification
+### 4. Verify the result
 
 Run:
 
@@ -79,23 +72,14 @@ git log --oneline -n <created-count>
 git status --short
 ```
 
-Verify that no approved change was omitted, no unrelated change entered a commit, and no unrequested staged state was lost.
-
-## Commit message rules
-
-- Use English Conventional Commits: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `build`, `ci`, or another established project type.
-- Use a meaningful scope only when it improves clarity.
-- Keep the subject imperative, concise, and normally at most 72 characters.
-- Describe the reason in a body when the change, migration, risk, or trade-off is not obvious.
+Confirm that every intended change was committed once, no content was lost, no unrelated content entered a commit, and any remaining worktree changes are understood.
 
 ## Completion report
 
-List:
+Report concisely:
 
 - each created hash and message;
-- the files or intent included in each commit;
+- the intent covered by each commit;
 - validation run and its result;
-- remaining unstaged, staged, or untracked changes;
+- any remaining changes or blocker;
 - confirmation that nothing was pushed.
-
-If there are no changes, report that and stop without creating an empty commit.
