@@ -77,6 +77,13 @@ window.chatApp = {
     inspect: (serverKey) => invoke('mcp:inspect', serverKey),
     authenticate: (serverKey) => invoke('mcp:authenticate', serverKey),
   },
+  remote: {
+    state: () => invoke('remote:state'),
+    save: (settings) => invoke('remote:save', settings),
+    regenerateKey: () => invoke('remote:regenerate-key'),
+    copyKey: () => invoke('remote:copy-key'),
+    removeKey: () => invoke('remote:remove-key'),
+  },
   chat: {
     send: (payload) => invoke('chat:send', payload),
     retry: (payload) => invoke('chat:retry', payload),

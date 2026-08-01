@@ -27,6 +27,7 @@
     "test:provider-auth": "bun scripts/test-openai-subscription-auth.mjs",
     "test:interruptions": "bun scripts/test-interruption-propagation.mjs",
     "test:mcp": "bun scripts/test-mcp-manager.mjs",
+    "test:remote": "bun scripts/test-remote-mcp.mjs",
     "test:files": "bun scripts/test-files-panel.mjs",
     "test:side-chat": "bun scripts/test-side-chat-database.mjs",
     "package": "bun run build"

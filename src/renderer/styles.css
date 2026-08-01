@@ -5722,6 +5722,249 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     outline-offset: 2px;
 }
 
+.settings-page .remote-settings {
+    gap: 10px;
+}
+
+.settings-page .remote-card {
+    padding: 0;
+    overflow: hidden;
+}
+
+.settings-page .remote-header, .settings-page .remote-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 17px 18px;
+}
+
+.settings-page .remote-header {
+    min-height: 72px;
+    background: var(--background-2);
+}
+
+.settings-page .remote-row {
+    min-height: 67px;
+    border-top: 1px solid var(--border-color);
+}
+
+.settings-page .remote-heading, .settings-page .remote-row-copy {
+    min-width: 0;
+}
+
+.settings-page .remote-heading h3, .settings-page .remote-row-copy > strong {
+    display: block;
+    margin: 0;
+    color: var(--text-1);
+    font-size: 13px;
+    font-weight: 550;
+    line-height: 1.35;
+}
+
+.settings-page .remote-heading p, .settings-page .remote-row-copy > span {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 4px 0 0;
+    color: var(--text-3);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.settings-page .remote-switch {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.settings-page .remote-switch input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.settings-page .remote-switch-track {
+    position: relative;
+    width: 34px;
+    height: 20px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--background-4);
+    transition: background-color .16s ease, border-color .16s ease;
+}
+
+.settings-page .remote-switch-track::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-3);
+    transition: transform .16s ease, background-color .16s ease;
+}
+
+.settings-page .remote-switch input:checked + .remote-switch-track {
+    border-color: var(--primary-color);
+    background: var(--primary-color-opaque);
+}
+
+.settings-page .remote-switch input:checked + .remote-switch-track::after {
+    background: var(--primary-color);
+    transform: translateX(14px);
+}
+
+.settings-page .remote-switch input:focus-visible + .remote-switch-track {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+.settings-page .remote-switch input:disabled + .remote-switch-track, .settings-page .remote-switch:has(input:disabled) strong {
+    opacity: .55;
+}
+
+.settings-page .remote-switch strong {
+    min-width: 18px;
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 550;
+}
+
+.settings-page .remote-port-input {
+    width: 106px;
+    min-width: 106px;
+    padding: 8px 10px;
+    color: var(--text-1);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    background: var(--background-0);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+}
+
+.settings-page .remote-port-input:focus {
+    border-color: var(--text-3);
+    outline: none;
+}
+
+.settings-page .remote-port-input:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 2px;
+}
+
+.settings-page .remote-port-input:disabled {
+    opacity: .55;
+}
+
+.settings-page .remote-endpoint-row code {
+    min-width: 0;
+    padding: 6px 9px;
+    color: var(--text-2);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+}
+
+.settings-page .remote-status i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-4);
+}
+
+.settings-page .remote-status.running {
+    color: var(--success-color);
+}
+
+.settings-page .remote-status.running i {
+    background: var(--success-color);
+}
+
+.settings-page .remote-key-controls {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.settings-page .remote-key-status {
+    color: var(--text-3);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.settings-page .remote-key-status.configured {
+    color: var(--success-color);
+}
+
+.settings-page .remote-key-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.settings-page .remote-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 30px;
+    padding: 6px 9px;
+    color: var(--text-2);
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    transition: color .16s ease, background-color .16s ease, border-color .16s ease;
+}
+
+.settings-page .remote-action:hover:not(:disabled) {
+    color: var(--text-1);
+    background: var(--item-hover);
+}
+
+.settings-page .remote-action:active:not(:disabled) {
+    background: var(--item-active);
+}
+
+.settings-page .remote-action:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 2px;
+}
+
+.settings-page .remote-action:disabled {
+    cursor: not-allowed;
+    opacity: .45;
+}
+
+.settings-page .remote-action.primary {
+    color: var(--text-1);
+    background: var(--background-3);
+}
+
+.settings-page .remote-action.danger:hover:not(:disabled) {
+    color: var(--danger-color);
+}
+
+.settings-page .remote-footnote {
+    margin: 0;
+    padding: 0 2px;
+    color: var(--text-3);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
 @media (prefers-color-scheme: dark) {
     .settings-page .settings-about-logo {
         filter: invert(1);
@@ -5838,6 +6081,33 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
         align-items: stretch;
         flex-direction: column;
         padding: 10px 20px;
+    }
+}
+
+@media (max-width: 760px) {
+    .settings-page .remote-header, .settings-page .remote-row {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .settings-page .remote-header {
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .settings-page .remote-endpoint-row code, .settings-page .remote-key-controls {
+        width: 100%;
+    }
+
+    .settings-page .remote-key-controls {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .settings-page .remote-key-actions {
+        flex-wrap: wrap;
     }
 }
 /* components\files-panel.xcss */

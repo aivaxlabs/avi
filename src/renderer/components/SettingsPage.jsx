@@ -30,6 +30,7 @@ import aviIconUrl from '../../../assets/icon/avi.png';
 import { classNames } from '../lib/format.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { McpSettings } from './McpSettings.jsx';
+import { RemoteSettings } from './RemoteSettings.jsx';
 
 const reasoningEfforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const compactTokenFormatter = new Intl.NumberFormat('en-US', {
@@ -326,6 +327,7 @@ export function SettingsPage({
     'context-folders': 'Context management',
     'context-folder': selectedContextFolder?.name || 'Context',
     mcp: mcpNavigation?.title || 'MCP servers',
+    remote: 'Remote',
     tuning: 'Tuning',
     about: 'About Avi',
   }[view];
@@ -340,10 +342,11 @@ export function SettingsPage({
     'context-folder': selectedContextFolder?.displayPath || '',
     mcp: mcpNavigation?.description
       || 'Manage global and per-folder Model Context Protocol servers.',
+    remote: 'Expose Avi orchestration through a local authenticated MCP server.',
     tuning: 'Adjust agent behavior, context, tool execution, and parallel work.',
     about: 'Project information, version, and links.',
   }[view];
-  const showInlineBack = !['list', 'context-folders', 'mcp', 'tuning', 'about'].includes(view)
+  const showInlineBack = !['list', 'context-folders', 'mcp', 'remote', 'tuning', 'about'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
 
   return (
@@ -411,6 +414,20 @@ export function SettingsPage({
             >
               <RadioTower size={16} />
               MCP servers
+            </button>
+          )}
+          {(!settingsQuery || 'remote mcp http api key bearer token port'.includes(settingsQuery)) && (
+            <button
+              className={view === 'remote' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'remote' ? 'page' : undefined}
+              onClick={() => {
+                setView('remote');
+                setError('');
+              }}
+            >
+              <Globe2 size={16} />
+              Remote
             </button>
           )}
           {(
@@ -744,6 +761,7 @@ export function SettingsPage({
               </section>
             )}
 
+            {view === 'remote' && <RemoteSettings />}
             {view === 'mcp' && (
               <McpSettings
                 initialFolder={initialContextFolder}

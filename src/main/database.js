@@ -25,6 +25,7 @@ const credentialService = process.env.CHAT_APP_CREDENTIAL_SERVICE || 'net.aivax.
 const secureStorage = {
   mcpOAuthSessions: {},
   providerCredentials: {},
+  remoteApiKey: null,
 };
 const secureWrites = new Set();
 let providerCredentialsKey = null;
@@ -40,6 +41,10 @@ const defaultTuningSettings = Object.freeze({
   terminalTimeoutSeconds: 30,
   maxConcurrentSubagents: 128,
   logLevel: 'minimal',
+});
+const defaultRemoteSettings = Object.freeze({
+  enabled: false,
+  port: 18992,
 });
 
 db.exec(`
@@ -405,6 +410,38 @@ export function setTuningSettings(value) {
   return tuning;
 }
 
+export function getRemoteSettings() {
+  return normalizeRemoteSettings(readJson('remoteSettings'));
+}
+
+export function setRemoteSettings(value) {
+  const settings = normalizeRemoteSettings(value, true);
+  writeJson('remoteSettings', settings);
+  return settings;
+}
+
+export function getRemoteApiKey() {
+  return secureStorage.remoteApiKey;
+}
+
+export async function setRemoteApiKey(value = randomBytes(32).toString('base64url')) {
+  await Bun.secrets.set({
+    service: credentialService,
+    name: 'remote-api-key',
+    value,
+  });
+  secureStorage.remoteApiKey = value;
+  return value;
+}
+
+export async function deleteRemoteApiKey() {
+  await Bun.secrets.delete({
+    service: credentialService,
+    name: 'remote-api-key',
+  });
+  secureStorage.remoteApiKey = null;
+}
+
 export function listProviders() {
   const providers = readJson('modelProviders');
   return Array.isArray(providers) ? providers : [];
@@ -459,12 +496,14 @@ export async function deleteProviderCredentials(providerId) {
 }
 
 export async function initializeSecureStorage() {
-  const [mcpOAuthSessions, storedKey, legacyProviderCredentials] = await Promise.all([
+  const [mcpOAuthSessions, storedKey, legacyProviderCredentials, remoteApiKey] = await Promise.all([
     Bun.secrets.get({ service: credentialService, name: 'mcp-oauth-sessions' }),
     Bun.secrets.get({ service: credentialService, name: 'provider-credentials-key' }),
     Bun.secrets.get({ service: credentialService, name: 'provider-credentials' }),
+    Bun.secrets.get({ service: credentialService, name: 'remote-api-key' }),
   ]);
   secureStorage.mcpOAuthSessions = mcpOAuthSessions ? parse(mcpOAuthSessions, {}) : {};
+  secureStorage.remoteApiKey = remoteApiKey || null;
   const encryptedCredentials = readJson('providerCredentialsV2');
 
   if (storedKey) {
@@ -1105,6 +1144,26 @@ function writeJson(key, value) {
 function readJson(key) {
   const row = statements.getValue.get(key);
   return row ? parse(row.value, null) : null;
+}
+
+function normalizeRemoteSettings(value, strict = false) {
+  const settings = value && typeof value === 'object' ? value : {};
+  const port = Number(settings.port ?? defaultRemoteSettings.port);
+  const normalized = {
+    enabled: settings.enabled === true,
+    port: Number.isInteger(port) && port >= 1 && port <= 65_535
+      ? port
+      : defaultRemoteSettings.port,
+  };
+  if (strict && (
+    typeof settings.enabled !== 'boolean'
+    || !Number.isInteger(port)
+    || port < 1
+    || port > 65_535
+  )) {
+    throw new Error('Remote settings are invalid.');
+  }
+  return normalized;
 }
 
 function normalizeTuningSettings(value, strict = false) {

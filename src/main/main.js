@@ -24,12 +24,15 @@ import {
   createConversation,
   deleteConversation,
   deleteProviderCredentials,
+  deleteRemoteApiKey,
   forkConversation,
   flushSecureStorage,
   getConversation,
   getMessages,
   getPreferences,
   getProviderCredentials,
+  getRemoteApiKey,
+  getRemoteSettings,
   initializeSecureStorage,
   listAllConversations,
   listConversations,
@@ -41,6 +44,8 @@ import {
   setFavorite,
   setProviderCredentials,
   setProviders,
+  setRemoteApiKey,
+  setRemoteSettings,
   setTuningSettings,
   updateConversation,
 } from './database.js';
@@ -60,6 +65,7 @@ import {
 } from './files.js';
 import { ModelProviderRegistry } from './model-provider.js';
 import { McpManager } from './mcp-manager.js';
+import { RemoteMcpServer } from './remote-mcp-server.js';
 import {
   listInstalledTerminalShells,
   resolveTerminalShell,
@@ -97,6 +103,7 @@ const providerRegistry = new ModelProviderRegistry({
 let mainWindow;
 let chatRunner;
 let mcpManager;
+let remoteMcpServer;
 let shutdownStarted = false;
 let shutdownReady = false;
 
@@ -164,6 +171,7 @@ Electrobun.events.on('before-quit', (event) => {
   shutdownStarted = true;
   Promise.resolve(chatRunner?.shutdown())
     .then(() => mcpManager?.closeAll())
+    .then(() => remoteMcpServer?.close())
     .then(() => flushSecureStorage())
     .catch((error) => traceError('app.shutdown-error', {
       error: error instanceof Error ? error.message : String(error),
@@ -247,6 +255,26 @@ function createWindow() {
       },
       stopBackgroundTasks: stopConversationTerminals,
     });
+  }
+
+  if (!remoteMcpServer) {
+    remoteMcpServer = new RemoteMcpServer({
+      chatRunner,
+      providerRegistry,
+      getPreferences,
+      getApiKey: getRemoteApiKey,
+    });
+    const remoteSettings = getRemoteSettings();
+    if (remoteSettings.enabled && !getRemoteApiKey()) {
+      setRemoteSettings({ ...remoteSettings, enabled: false });
+    } else if (remoteSettings.enabled) {
+      remoteMcpServer.start(remoteSettings.port).catch((error) => {
+        setRemoteSettings({ ...remoteSettings, enabled: false });
+        traceError('remote.start-error', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
   }
 
   if (smokeTest) {
@@ -397,6 +425,52 @@ function registerIpc() {
     setTraceLevel(saved.logLevel);
     traceVerbose('logging.configuration-changed', { log_level: saved.logLevel });
     return saved;
+  });
+
+  const remoteState = () => {
+    const settings = getRemoteSettings();
+    return {
+      ...settings,
+      hasApiKey: Boolean(getRemoteApiKey()),
+      running: Boolean(remoteMcpServer?.running),
+      endpoint: `http://127.0.0.1:${settings.port}/mcp${getRemoteApiKey() ? `/${getRemoteApiKey()}` : ''}`,
+    };
+  };
+  ipcMain.handle('remote:state', remoteState);
+  ipcMain.handle('remote:save', async (_event, value) => {
+    const current = getRemoteSettings();
+    const next = { ...current, ...value };
+    const validated = setRemoteSettings({ ...next, enabled: false });
+    if (!next.enabled) {
+      await remoteMcpServer?.close();
+      setRemoteSettings(validated);
+      return remoteState();
+    }
+    if (!getRemoteApiKey()) await setRemoteApiKey();
+    try {
+      await remoteMcpServer.start(validated.port);
+      setRemoteSettings({ ...validated, enabled: true });
+      return remoteState();
+    } catch (error) {
+      setRemoteSettings(current);
+      throw error;
+    }
+  });
+  ipcMain.handle('remote:regenerate-key', async () => {
+    await setRemoteApiKey();
+    return remoteState();
+  });
+  ipcMain.handle('remote:copy-key', () => {
+    const apiKey = getRemoteApiKey();
+    if (!apiKey) throw new Error('No Remote API key is configured.');
+    Utils.clipboardWriteText(apiKey);
+    return { copied: true };
+  });
+  ipcMain.handle('remote:remove-key', async () => {
+    await remoteMcpServer?.close();
+    setRemoteSettings({ ...getRemoteSettings(), enabled: false });
+    await deleteRemoteApiKey();
+    return remoteState();
   });
 
   ipcMain.handle('conversations:list', () => listConversationsWithProjects());
