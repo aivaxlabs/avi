@@ -1249,7 +1249,7 @@ button, input, textarea, select {
     }
 }
 /* components\prism.xcss */
-.code-block {
+.code-block, .files-code {
     --prism-comment: #656d76;
     --prism-punctuation: #57606a;
     --prism-property: #953800;
@@ -1262,56 +1262,56 @@ button, input, textarea, select {
     --prism-class: #953800;
 }
 
-.code-block .token.comment, .code-block .token.prolog, .code-block .token.doctype, .code-block .token.cdata {
+.code-block .token.comment, .files-code .token.comment, .code-block .token.prolog, .files-code .token.prolog, .code-block .token.doctype, .files-code .token.doctype, .code-block .token.cdata, .files-code .token.cdata {
     color: var(--prism-comment);
 }
 
-.code-block .token.punctuation {
+.code-block .token.punctuation, .files-code .token.punctuation {
     color: var(--prism-punctuation);
 }
 
-.code-block .token.property, .code-block .token.tag, .code-block .token.boolean, .code-block .token.constant, .code-block .token.symbol, .code-block .token.deleted {
+.code-block .token.property, .files-code .token.property, .code-block .token.tag, .files-code .token.tag, .code-block .token.boolean, .files-code .token.boolean, .code-block .token.constant, .files-code .token.constant, .code-block .token.symbol, .files-code .token.symbol, .code-block .token.deleted, .files-code .token.deleted {
     color: var(--prism-property);
 }
 
-.code-block .token.selector, .code-block .token.attr-name, .code-block .token.char, .code-block .token.builtin, .code-block .token.inserted {
+.code-block .token.selector, .files-code .token.selector, .code-block .token.attr-name, .files-code .token.attr-name, .code-block .token.char, .files-code .token.char, .code-block .token.builtin, .files-code .token.builtin, .code-block .token.inserted, .files-code .token.inserted {
     color: var(--prism-selector);
 }
 
-.code-block .token.operator, .code-block .token.entity, .code-block .token.url, .code-block .language-css .token.string, .code-block .style .token.string {
+.code-block .token.operator, .files-code .token.operator, .code-block .token.entity, .files-code .token.entity, .code-block .token.url, .files-code .token.url, .code-block .language-css .token.string, .files-code .language-css .token.string, .code-block .style .token.string, .files-code .style .token.string {
     color: var(--prism-operator);
 }
 
-.code-block .token.atrule, .code-block .token.attr-value, .code-block .token.keyword {
+.code-block .token.atrule, .files-code .token.atrule, .code-block .token.attr-value, .files-code .token.attr-value, .code-block .token.keyword, .files-code .token.keyword {
     color: var(--prism-keyword);
 }
 
-.code-block .token.function {
+.code-block .token.function, .files-code .token.function {
     color: var(--prism-function);
 }
 
-.code-block .token.regex, .code-block .token.important, .code-block .token.variable, .code-block .token.string {
+.code-block .token.regex, .files-code .token.regex, .code-block .token.important, .files-code .token.important, .code-block .token.variable, .files-code .token.variable, .code-block .token.string, .files-code .token.string {
     color: var(--prism-string);
 }
 
-.code-block .token.number {
+.code-block .token.number, .files-code .token.number {
     color: var(--prism-number);
 }
 
-.code-block .token.class-name {
+.code-block .token.class-name, .files-code .token.class-name {
     color: var(--prism-class);
 }
 
-.code-block .token.important, .code-block .token.bold {
+.code-block .token.important, .files-code .token.important, .code-block .token.bold, .files-code .token.bold {
     font-weight: 500;
 }
 
-.code-block .token.italic {
+.code-block .token.italic, .files-code .token.italic {
     font-style: italic;
 }
 
 @media (prefers-color-scheme: dark) {
-    .code-block {
+    .code-block, .files-code {
         --prism-comment: #8b949e;
         --prism-punctuation: #c9d1d9;
         --prism-property: #ffa657;
