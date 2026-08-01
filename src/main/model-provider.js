@@ -186,8 +186,10 @@ export class ModelProvider {
               for (const event of this.implementation.eventsFrom(json)) {
                 if (
                   event.type === 'error'
-                  && event.code === 'server_is_overloaded'
-                  && !receivedOutput
+                  && (
+                    event.code === 'server_error'
+                    || (event.code === 'server_is_overloaded' && !receivedOutput)
+                  )
                 ) {
                   retryError = event;
                   break;

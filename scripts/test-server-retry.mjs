@@ -241,6 +241,50 @@ try {
   assert.equal(overloadedAccumulator.segments[0].type, 'error');
   assert.match(overloadedAccumulator.content, /Retry attempt 5\/5/);
 
+  let serverErrorAttempts = 0;
+  const serverErrorEvents = [];
+  const serverErrorResult = await stream(
+    createProvider(
+      async () => {
+        serverErrorAttempts += 1;
+        return new Response(serverErrorAttempts === 1
+          ? [
+              `data: ${JSON.stringify({ type: 'reasoning', text: 'Partial reasoning' })}`,
+              `data: ${JSON.stringify({ type: 'content', text: 'Partial answer' })}`,
+              `data: ${JSON.stringify({
+                type: 'tool-call',
+                key: 'partial-tool',
+                callId: 'partial-tool',
+                name: 'partial_tool',
+                replaceArguments: true,
+                argumentsText: '{\"partial\":true}',
+              })}`,
+              `data: ${JSON.stringify({
+                type: 'error',
+                code: 'server_error',
+                message: 'The server failed after partial output.',
+              })}`,
+              '',
+            ].join('\n\n')
+          : 'data: [DONE]\n\n', { status: 200 });
+      },
+      (payload) => [payload],
+    ),
+    null,
+    new AbortController().signal,
+    (event) => serverErrorEvents.push(event),
+  );
+  assert.equal(serverErrorAttempts, 2);
+  assert.equal(serverErrorEvents.filter((event) => event.type === 'retry').length, 1);
+  assert.equal(serverErrorEvents.filter((event) => event.type === 'error').length, 0);
+  assert.equal(serverErrorResult.assistantContent, 'Partial answer');
+  assert.deepEqual(serverErrorResult.toolCalls, [{
+    key: 'partial-tool',
+    callId: 'partial-tool',
+    name: 'partial_tool',
+    argumentsText: '{\"partial\":true}',
+  }]);
+
   async function waitFor(predicate) {
     const deadline = Date.now() + 5_000;
     while (!predicate()) {
