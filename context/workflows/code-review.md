@@ -145,7 +145,7 @@ Do not report vague preferences such as “could be cleaner” without a concret
 Lead with findings in priority order. For each finding use a compact structure:
 
 ```markdown
-### P1 — Short title
+#finding:P1 Short title
 
 **Evidence:** `path:line` or symbol and observed behavior.
 **Impact:** realistic consequence and affected users or systems.

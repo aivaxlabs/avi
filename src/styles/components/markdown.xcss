@@ -83,6 +83,42 @@
     font-weight: 500;
   }
 
+  .finding-heading {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 10px;
+    border-left: 3px solid currentColor;
+    border-radius: 4px;
+    background: color-mix(in srgb, currentColor 9%, transparent);
+    font-size: 1.05em;
+    font-weight: 600;
+
+    &::before {
+      content: attr(data-finding-priority);
+      flex: 0 0 auto;
+      font-family: var(--font-code);
+      font-size: .78em;
+      font-weight: 700;
+    }
+
+    &.finding-p0 {
+      color: var(--danger-color);
+    }
+
+    &.finding-p1 {
+      color: var(--warn-color);
+    }
+
+    &.finding-p2 {
+      color: var(--primary-color);
+    }
+
+    &.finding-p3 {
+      color: var(--text-3);
+    }
+  }
+
   code {
     padding: 2px 4px;
     border-radius: 4px;

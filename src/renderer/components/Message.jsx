@@ -13,7 +13,6 @@ import {
   Globe,
   Info,
   MessageSquarePlus,
-  MessageSquareShare,
   MessagesSquare,
   RotateCcw,
   ScanSearch,
@@ -59,6 +58,32 @@ const compactTokenFormatter = new Intl.NumberFormat('en-US', {
 const STANDARD_MARKDOWN_PLUGINS = Object.freeze([remarkGfm]);
 const MARKDOWN_PLUGINS = Object.freeze([
   ...STANDARD_MARKDOWN_PLUGINS,
+  () => (tree) => {
+    for (const node of tree.children ?? []) {
+      const firstChild = node.children?.[0];
+      if (
+        node.type !== 'paragraph'
+        || firstChild?.type !== 'text'
+        || node.children.some((child) => child.type === 'break' || /[\r\n]/.test(child.value ?? ''))
+      ) {
+        continue;
+      }
+      const match = /^#finding:(P[0-3])\s+/.exec(firstChild.value);
+      if (!match) continue;
+
+      const priority = match[1];
+      node.type = 'heading';
+      node.depth = 3;
+      firstChild.value = firstChild.value.slice(match[0].length);
+      if (!firstChild.value) node.children.shift();
+      node.data = {
+        hProperties: {
+          className: `finding-heading finding-${priority.toLowerCase()}`,
+          'data-finding-priority': priority,
+        },
+      };
+    }
+  },
   () => (tree) => {
     const walk = (node) => {
       if (
@@ -133,7 +158,6 @@ const TOOL_ICONS = Object.freeze({
   chat_interrupt_thread: CircleStop,
   chat_list_folders: FolderTree,
   chat_list_threads: MessagesSquare,
-  chat_report_to_orchestrator: MessageSquareShare,
   chat_send_prompt: Send,
   chat_spawn_subagent: Bot,
   read_file: FileText,
