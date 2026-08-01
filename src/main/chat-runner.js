@@ -20,6 +20,7 @@ import {
   updateConversation,
   updateGoal as updateGoalRecord,
   updateMessage,
+  updateQueuedMessageOrder,
 } from './database.js';
 import { CLIENT_TOOLS } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
@@ -527,6 +528,7 @@ export class ChatRunner {
       }
       this.emit(conversation.id, { type: 'message', message: queued });
       const queueOrder = run.queue.map((item) => item.userMessageId);
+      updateQueuedMessageOrder(conversation.id, queueOrder);
       this.emit(conversation.id, { type: 'queue-order', messageIds: queueOrder });
       return {
         conversation: getConversation(conversation.id),
@@ -672,6 +674,7 @@ export class ChatRunner {
       const orderedQueue = requestedIds.map((messageId) => queuedById.get(messageId));
       if (!steerMessageId) {
         this.pausedQueues.set(conversationId, orderedQueue);
+        updateQueuedMessageOrder(conversationId, requestedIds);
         this.emit(conversationId, {
           type: 'queue-order',
           messageIds: requestedIds,
@@ -685,6 +688,10 @@ export class ChatRunner {
 
       const next = orderedQueue.shift();
       this.pausedQueues.delete(conversationId);
+      updateQueuedMessageOrder(
+        conversationId,
+        orderedQueue.map((item) => item.userMessageId),
+      );
       const sentMessage = updateMessage(next.userMessageId, {
         status: next.workMode === 'plan'
           || !this.mcpManager
@@ -729,6 +736,7 @@ export class ChatRunner {
     }
 
     run.queue = requestedIds.map((messageId) => queuedById.get(messageId));
+    updateQueuedMessageOrder(conversationId, requestedIds);
     this.emit(conversationId, { type: 'queue-order', messageIds: requestedIds });
     if (steerMessageId) {
       const steeredMessage = updateMessage(steerMessageId, { status: 'steered' });
@@ -1074,8 +1082,16 @@ export class ChatRunner {
         ultraMode: message.ultraMode,
         ...(message.goalId ? { goalId: message.goalId } : {}),
         queuePriority: message.queuePriority,
+        queuePosition: message.queuePosition,
       }))
-      .sort((left, right) => Number(right.queuePriority) - Number(left.queuePriority));
+      .sort((left, right) => {
+        if (left.queuePosition !== null && right.queuePosition !== null) {
+          return left.queuePosition - right.queuePosition;
+        }
+        if (left.queuePosition !== null) return -1;
+        if (right.queuePosition !== null) return 1;
+        return Number(right.queuePriority) - Number(left.queuePriority);
+      });
     const pausedQueue = this.pausedQueues.get(conversationId);
     if (!pausedQueue) return persistedItems;
 
@@ -1146,6 +1162,7 @@ export class ChatRunner {
     conversationId,
     model,
     userMessageId = null,
+    userMessageIds = userMessageId ? [userMessageId] : [],
     queue = [],
     retryMessages = null,
     initialToolHistory = [],
@@ -1205,6 +1222,7 @@ export class ChatRunner {
       kind: 'chat',
       phase: 'mcp',
       steerRequested: false,
+      userMessageIds,
     };
     const completion = Promise.withResolvers();
     run.completion = completion.promise;
@@ -1863,8 +1881,9 @@ export class ChatRunner {
         force: true,
       });
       await this.forwardSubagentResult(failedAssistantMessage);
-      if (userMessageId && (!aborted || getMessage(userMessageId)?.status === 'waiting_mcp')) {
-        const failedUserMessage = updateMessage(userMessageId, {
+      for (const failedUserMessageId of run.userMessageIds) {
+        if (aborted && getMessage(failedUserMessageId)?.status !== 'waiting_mcp') continue;
+        const failedUserMessage = updateMessage(failedUserMessageId, {
           status: aborted ? 'aborted' : 'error',
         });
         if (failedUserMessage) {
@@ -1872,6 +1891,7 @@ export class ChatRunner {
         }
       }
       if (!aborted) {
+        run.queuePaused = true;
         this.logChatTiming(conversationId, traceSelection, {
           phase: 'request-error',
           assistantMessageId: assistantMessage.id,
@@ -2103,9 +2123,20 @@ export class ChatRunner {
         this.emit(conversationId, { type: 'message-delete', messageId: item.userMessageId });
       }
     }
-    const steeredItems = pendingQueue.filter((item) => (
+    const allSteeredItems = pendingQueue.filter((item) => (
       getMessage(item.userMessageId)?.status === 'steered'
     ));
+    const firstSteeredItem = allSteeredItems[0];
+    const steeredItems = firstSteeredItem
+      ? allSteeredItems.filter((item) => (
+          item.model === firstSteeredItem.model
+          && item.reasoningEffort === firstSteeredItem.reasoningEffort
+          && item.permissionMode === firstSteeredItem.permissionMode
+          && item.workMode === firstSteeredItem.workMode
+          && item.ultraMode === firstSteeredItem.ultraMode
+          && item.goalId === firstSteeredItem.goalId
+        ))
+      : [];
     const next = steeredItems[0] ?? pendingQueue[0];
     if (!next) {
       const continuingGoal = current?.kind === 'chat'
@@ -2121,9 +2152,11 @@ export class ChatRunner {
     const dispatchedItems = steeredItems.length > 0 ? steeredItems : [next];
     const dispatchedIds = new Set(dispatchedItems.map((item) => item.userMessageId));
     pendingQueue = pendingQueue.filter((item) => !dispatchedIds.has(item.userMessageId));
+    const pendingMessageIds = pendingQueue.map((item) => item.userMessageId);
+    updateQueuedMessageOrder(conversationId, pendingMessageIds);
     this.emit(conversationId, {
       type: 'queue-order',
-      messageIds: pendingQueue.map((item) => item.userMessageId),
+      messageIds: pendingMessageIds,
     });
     const workspacePath = getConversation(conversationId)?.projectPath;
     for (const item of dispatchedItems) {
@@ -2140,6 +2173,7 @@ export class ChatRunner {
       conversationId,
       model: next.model,
       userMessageId: next.userMessageId,
+      userMessageIds: dispatchedItems.map((item) => item.userMessageId),
       queue: pendingQueue,
       reasoningEffort: next.reasoningEffort,
       permissionMode: next.permissionMode,

@@ -16,11 +16,21 @@ const composerSource = readFileSync(
   new URL('../src/renderer/components/Composer.jsx', import.meta.url),
   'utf8',
 );
+const appSource = readFileSync(
+  new URL('../src/renderer/App.jsx', import.meta.url),
+  'utf8',
+);
 assert.match(
   composerSource,
   /onClick=\{\(\) => onStop\(\)\}\s+aria-label="Stop"/,
 );
+assert.match(
+  appSource,
+  /result\?\.reordered && result\?\.steered && message\.id === steerMessageId/,
+);
+assert.match(composerSource, /disabled=\{queueMutationPending\}/);
 
+const queueSteerOnly = process.argv.includes('--queue-steer-only');
 let database;
 let stopTerminalOwner;
 let stopTerminals;
@@ -35,6 +45,8 @@ try {
     createConversation,
     forkConversation,
     getMessages,
+    insertMessage,
+    updateQueuedMessageOrder,
   } = database;
   const model = {
     id: 'test:model',
@@ -136,7 +148,134 @@ try {
     ['aborted', 'completed'],
   );
 
-  let finishReasoningItem;
+  const persistedQueueConversation = createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  const persistedQueueMessages = ['First queued', 'Second queued', 'Third queued'].map((content) => (
+    insertMessage({
+      conversationId: persistedQueueConversation.id,
+      role: 'user',
+      model: model.id,
+      status: 'queued',
+      content,
+    })
+  ));
+  updateQueuedMessageOrder(persistedQueueConversation.id, [
+    persistedQueueMessages[2].id,
+    persistedQueueMessages[0].id,
+    persistedQueueMessages[1].id,
+  ]);
+  const reconstructedQueueRunner = buildRunner(inferenceProvider);
+  assert.deepEqual(
+    reconstructedQueueRunner.getQueuedItems(persistedQueueConversation.id, model.id)
+      .map((item) => item.userMessageId),
+    [
+      persistedQueueMessages[2].id,
+      persistedQueueMessages[0].id,
+      persistedQueueMessages[1].id,
+    ],
+  );
+
+  let finishConfiguredInference;
+  const configuredInferenceRequests = [];
+  const configuredInferenceProvider = {
+    getContributions: () => ({ tools: [] }),
+    stream: ({ messages }) => {
+      configuredInferenceRequests.push(messages);
+      if (configuredInferenceRequests.length === 1) {
+        return new Promise((resolveStream) => {
+          finishConfiguredInference = () => resolveStream({
+            assistantContent: 'Initial configured response',
+            toolCalls: [],
+          });
+        });
+      }
+      return Promise.resolve({ assistantContent: 'Configured steer response', toolCalls: [] });
+    },
+  };
+  const configuredInferenceRunner = buildRunner(configuredInferenceProvider);
+  const configuredStarts = [];
+  const configuredStart = configuredInferenceRunner.start.bind(configuredInferenceRunner);
+  configuredInferenceRunner.start = (options) => {
+    configuredStarts.push(options);
+    return configuredStart(options);
+  };
+  const configuredInferenceConversation = createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  await configuredInferenceRunner.send({
+    conversationId: configuredInferenceConversation.id,
+    model: model.id,
+    text: 'Configured original prompt',
+  });
+  await waitFor(() => Boolean(finishConfiguredInference));
+  await configuredInferenceRunner.send({
+    conversationId: configuredInferenceConversation.id,
+    model: model.id,
+    text: 'Approve-for-me steer',
+    steer: true,
+    permissionMode: 'approve_for_me',
+  });
+  await configuredInferenceRunner.send({
+    conversationId: configuredInferenceConversation.id,
+    model: model.id,
+    text: 'Full-access steer',
+    steer: true,
+    permissionMode: 'full_access',
+  });
+  finishConfiguredInference();
+  await waitFor(() => !configuredInferenceRunner.runs.has(configuredInferenceConversation.id));
+  assert.equal(configuredInferenceRequests.length, 3);
+  assert.deepEqual(
+    configuredStarts.slice(1).map(({ permissionMode, userMessageIds }) => ({
+      permissionMode,
+      dispatchedCount: userMessageIds.length,
+    })),
+    [
+      { permissionMode: 'full_access', dispatchedCount: 1 },
+      { permissionMode: 'approve_for_me', dispatchedCount: 1 },
+    ],
+  );
+
+  let finishFailingInference;
+  let failingInferenceCalls = 0;
+  const failingInferenceRunner = buildRunner({
+    getContributions: () => ({ tools: [] }),
+    stream: () => {
+      failingInferenceCalls += 1;
+      return new Promise((resolveStream, rejectStream) => {
+        finishFailingInference = () => rejectStream(new Error('Provider unavailable'));
+      });
+    },
+  });
+  const failingInferenceConversation = createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  await failingInferenceRunner.send({
+    conversationId: failingInferenceConversation.id,
+    model: model.id,
+    text: 'Failing original prompt',
+  });
+  await waitFor(() => Boolean(finishFailingInference));
+  await failingInferenceRunner.send({
+    conversationId: failingInferenceConversation.id,
+    model: model.id,
+    text: 'Must remain queued',
+  });
+  finishFailingInference();
+  await waitFor(() => !failingInferenceRunner.runs.has(failingInferenceConversation.id));
+  assert.equal(failingInferenceCalls, 1);
+  assert.equal(
+    getMessages(failingInferenceConversation.id)
+      .find((message) => message.content === 'Must remain queued')?.status,
+    'queued',
+  );
+
+  if (!queueSteerOnly) {
+    let finishReasoningItem;
   let reasoningStreamCount = 0;
   let emittedContentAfterReasoning = false;
   const reasoningBoundaryProvider = {
@@ -595,10 +734,13 @@ try {
     stoppedTerminal = await readTerminalOutput.execute({ id: backgroundTerminal.id });
   }
   assert.equal(stoppedTerminal.status, 'stopped');
+  }
 
   closeDatabase();
   database = null;
-  console.log('Interruption propagation tests passed.');
+  console.log(queueSteerOnly
+    ? 'Queue and steer regression tests passed.'
+    : 'Interruption propagation tests passed.');
 } finally {
   if (stopTerminalOwner && stopTerminals) stopTerminals(stopTerminalOwner);
   database?.closeDatabase?.();

@@ -88,6 +88,7 @@ db.exec(`
     goal_id TEXT,
     hidden INTEGER NOT NULL DEFAULT 0,
     queue_priority INTEGER NOT NULL DEFAULT 0,
+    queue_position INTEGER,
     status TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
     segments TEXT NOT NULL DEFAULT '[]',
@@ -157,6 +158,9 @@ if (!messageColumns.some((column) => column.name === 'hidden')) {
 }
 if (!messageColumns.some((column) => column.name === 'queue_priority')) {
   db.exec('ALTER TABLE messages ADD COLUMN queue_priority INTEGER NOT NULL DEFAULT 0');
+}
+if (!messageColumns.some((column) => column.name === 'queue_position')) {
+  db.exec('ALTER TABLE messages ADD COLUMN queue_position INTEGER');
 }
 const conversationColumns = db.prepare("PRAGMA table_info('conversations')").all();
 if (!conversationColumns.some((column) => column.name === 'project_path')) {
@@ -357,13 +361,13 @@ const statements = {
   insertMessage: db.prepare(`
     INSERT INTO messages (
       id, conversation_id, role, model, reasoning_effort, permission_mode,
-      work_mode, ultra_mode, goal_id, hidden, queue_priority,
+      work_mode, ultra_mode, goal_id, hidden, queue_priority, queue_position,
       status, content, segments, attachments,
       continuations, usage, created_at, updated_at
     )
     VALUES (
       @id, @conversationId, @role, @model, @reasoningEffort, @permissionMode,
-      @workMode, @ultraMode, @goalId, @hidden, @queuePriority,
+      @workMode, @ultraMode, @goalId, @hidden, @queuePriority, @queuePosition,
       @status, @content, @segments, @attachments,
       @continuations, @usage, @createdAt, @updatedAt
     )
@@ -380,6 +384,11 @@ const statements = {
     WHERE id = @id
   `),
   deleteMessage: db.prepare('DELETE FROM messages WHERE id = ?'),
+  updateQueuePosition: db.prepare(`
+    UPDATE messages
+    SET queue_position = ?, updated_at = ?
+    WHERE id = ? AND conversation_id = ? AND status IN ('queued', 'steered')
+  `),
   getMessages: db.prepare(`
     SELECT * FROM messages
     WHERE conversation_id = ?
@@ -733,6 +742,7 @@ export function insertMessage(message) {
     goalId: message.goalId ?? null,
     hidden: message.hidden ? 1 : 0,
     queuePriority: message.queuePriority ? 1 : 0,
+    queuePosition: Number.isInteger(message.queuePosition) ? message.queuePosition : null,
     status: message.status ?? 'completed',
     content: message.content ?? '',
     segments: stringify(message.segments ?? []),
@@ -763,6 +773,15 @@ export function updateMessage(id, patch) {
     touchConversation(message.conversationId);
   }
   return message;
+}
+
+export function updateQueuedMessageOrder(conversationId, messageIds) {
+  const now = timestamp();
+  db.transaction(() => {
+    messageIds.forEach((messageId, index) => {
+      statements.updateQueuePosition.run(index, now, messageId, conversationId);
+    });
+  })();
 }
 
 export function deleteMessage(id) {
@@ -1291,6 +1310,7 @@ function mapMessage(row) {
     goalId: row.goal_id || null,
     hidden: Boolean(row.hidden),
     queuePriority: Boolean(row.queue_priority),
+    queuePosition: Number.isInteger(row.queue_position) ? row.queue_position : null,
     status: row.status,
     content: row.content,
     segments: parse(row.segments, []),

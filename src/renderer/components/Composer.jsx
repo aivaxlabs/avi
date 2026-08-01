@@ -184,6 +184,7 @@ export function Composer({
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectQuery, setProjectQuery] = useState('');
   const [draggedQueuedMessageId, setDraggedQueuedMessageId] = useState(null);
+  const [queueMutationPending, setQueueMutationPending] = useState(false);
   const [queuedMenu, setQueuedMenu] = useState(null);
   const [editingQueuedMessageId, setEditingQueuedMessageId] = useState(null);
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
@@ -854,25 +855,28 @@ export function Composer({
                 queuedMenu?.messageId === message.id && 'menu-open',
               ].filter(Boolean).join(' ')}
               onDragOver={(event) => {
-                if (!draggedQueuedMessageId || draggedQueuedMessageId === message.id) return;
+                if (queueMutationPending || !draggedQueuedMessageId || draggedQueuedMessageId === message.id) return;
                 event.preventDefault();
                 event.dataTransfer.dropEffect = 'move';
               }}
               onDrop={(event) => {
                 event.preventDefault();
-                if (!draggedQueuedMessageId || draggedQueuedMessageId === message.id) return;
+                if (queueMutationPending || !draggedQueuedMessageId || draggedQueuedMessageId === message.id) return;
                 const messageIds = queuedMessages
                   .map((item) => item.id)
                   .filter((messageId) => messageId !== draggedQueuedMessageId);
                 messageIds.splice(index, 0, draggedQueuedMessageId);
                 setDraggedQueuedMessageId(null);
-                onReorderQueued(messageIds);
+                setQueueMutationPending(true);
+                Promise.resolve(onReorderQueued(messageIds))
+                  .finally(() => setQueueMutationPending(false));
               }}
             >
               <button
                 className="queued-message-grip"
                 type="button"
-                draggable
+                draggable={!queueMutationPending}
+                disabled={queueMutationPending}
                 title="Drag or use the arrow keys to reorder"
                 aria-label={`Reorder queued message ${index + 1}`}
                 onKeyDown={(event) => {
@@ -885,7 +889,9 @@ export function Composer({
                     messageIds[nextIndex],
                     messageIds[index],
                   ];
-                  onReorderQueued(messageIds);
+                  setQueueMutationPending(true);
+                  Promise.resolve(onReorderQueued(messageIds))
+                    .finally(() => setQueueMutationPending(false));
                 }}
                 onDragStart={(event) => {
                   setDraggedQueuedMessageId(message.id);
@@ -917,10 +923,14 @@ export function Composer({
                     type="button"
                     className="queued-message-steer"
                     title="Stop the current response and send this message next"
-                    onClick={() => onSteerQueued(
-                      message.id,
-                      queuedMessages.map((item) => item.id),
-                    )}
+                    disabled={queueMutationPending}
+                    onClick={() => {
+                      setQueueMutationPending(true);
+                      Promise.resolve(onSteerQueued(
+                        message.id,
+                        queuedMessages.map((item) => item.id),
+                      )).finally(() => setQueueMutationPending(false));
+                    }}
                   >
                     <CornerDownLeft size={13} />
                     <span>Steer</span>
@@ -930,7 +940,12 @@ export function Composer({
                   type="button"
                   title="Remove from queue"
                   aria-label={`Remove queued message ${index + 1}`}
-                  onClick={() => onCancelQueued(message.id)}
+                  disabled={queueMutationPending}
+                  onClick={() => {
+                    setQueueMutationPending(true);
+                    Promise.resolve(onCancelQueued(message.id))
+                      .finally(() => setQueueMutationPending(false));
+                  }}
                 >
                   <Trash2 size={13} />
                 </button>

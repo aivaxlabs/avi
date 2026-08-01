@@ -697,18 +697,32 @@ export default function App() {
 
   async function cancelQueuedMessage(messageId, conversationId = selectedId) {
     if (!conversationId || !messageId) return false;
-    const result = await api.chat.cancelQueued({
-      conversationId,
-      messageId,
-    });
-    if (result?.cancelled) {
+    try {
+      const result = await api.chat.cancelQueued({
+        conversationId,
+        messageId,
+      });
+      const positions = new Map(
+        (result?.queueOrder ?? []).map((queuedMessageId, index) => [queuedMessageId, index]),
+      );
       setMessagesByConversation((state) => ({
         ...state,
         [conversationId]: (state[conversationId] ?? [])
-          .filter((message) => message.id !== messageId),
+          .filter((message) => !result?.cancelled || message.id !== messageId)
+          .map((message) => (
+            positions.has(message.id)
+              ? { ...message, queuePosition: positions.get(message.id) }
+              : message
+          )),
       }));
+      if (!result?.cancelled) {
+        setError('The queued message changed before it could be removed.');
+      }
+      return Boolean(result?.cancelled);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return false;
     }
-    return Boolean(result?.cancelled);
   }
 
   async function resolveToolApproval(decision) {
@@ -969,31 +983,42 @@ export default function App() {
   }
 
   async function reorderQueuedMessages(conversationId, messageIds, steerMessageId = null) {
-    if (!conversationId) return;
-    const result = await api.chat.reorderQueued({
-      conversationId,
-      messageIds,
-      steerMessageId,
-    });
-    const positions = new Map(
-      (result?.queueOrder ?? []).map((messageId, index) => [messageId, index]),
-    );
-    setMessagesByConversation((state) => ({
-      ...state,
-      [conversationId]: (state[conversationId] ?? []).map((message) => (
-        positions.has(message.id)
-          ? {
-              ...message,
-              queuePosition: positions.get(message.id),
-              status: message.id === steerMessageId ? 'steered' : message.status,
-            }
-          : message
-      )),
-    }));
+    if (!conversationId) return false;
+    try {
+      const result = await api.chat.reorderQueued({
+        conversationId,
+        messageIds,
+        steerMessageId,
+      });
+      const positions = new Map(
+        (result?.queueOrder ?? []).map((messageId, index) => [messageId, index]),
+      );
+      setMessagesByConversation((state) => ({
+        ...state,
+        [conversationId]: (state[conversationId] ?? []).map((message) => (
+          positions.has(message.id)
+            ? {
+                ...message,
+                queuePosition: positions.get(message.id),
+                status: result?.reordered && result?.steered && message.id === steerMessageId
+                  ? 'steered'
+                  : message.status,
+              }
+            : message
+        )),
+      }));
+      if (!result?.reordered) {
+        setError('The queue changed before the action completed. Review its order and try again.');
+      }
+      return Boolean(result?.reordered);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return false;
+    }
   }
 
   async function steerQueuedMessage(conversationId, messageId, messageIds) {
-    await reorderQueuedMessages(
+    return reorderQueuedMessages(
       conversationId,
       [messageId, ...messageIds.filter((queuedMessageId) => queuedMessageId !== messageId)],
       messageId,
