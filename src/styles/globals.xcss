@@ -1,65 +1,30 @@
 :root {
   color-scheme: light;
-  font-family: "Segoe UI", system-ui, sans-serif;
-  font-size: 14px;
-  color: var(--text-1);
-  background: transparent;
-  --primary-color: #00af66;
-  --primary-color-opaque: #00af6622;
+  --font-ui: "Segoe UI", system-ui, sans-serif;
+  --font-code: ui-monospace, "Cascadia Code", Consolas, monospace;
   --base-transition: cubic-bezier(0.075, 0.82, 0.165, 1);
-  --text-1: #171717;
-  --text-2: #404040;
-  --text-3: #686868;
-  --text-4: #969696;
-  --text-5: #f7f7f7;
-  --background-0: white;
-  --background-1: #fafafa;
-  --background-2: #f5f5f5;
-  --background-3: #eeeeee;
-  --background-4: #e5e5e5;
-  --background-5: #171717;
   --item-hover: var(--background-3);
   --item-active: var(--background-4);
   --border-color: var(--background-4);
-  --link-color: #00af66;
-  --highlight-color: #fff1a8;
-  --success-color: #18794e;
-  --warn-color: #9a6700;
-  --danger-color: #c43c3c;
+  --link-color: var(--primary-color);
   --git-untracked-status-color: var(--success-color);
   --git-modified-status-color: var(--warn-color);
   --git-conflict-status-color: var(--danger-color);
-  --git-ignored-status-color: #727272;
-  --link-color: --primary-color;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  color: var(--text-1);
+  background: transparent;
 
-  @media (prefers-color-scheme: dark) {
+  &[data-color-scheme="dark"] {
     color-scheme: dark;
-    --primary-color: #58fdb8;
-    --primary-color-opaque: #58fdb822;
-    --text-1: #f3f3f3;
-    --text-2: #c5c5c5;
-    --text-3: #a6a6a6;
-    --text-4: #787878;
-    --text-5: #111111;
-    --background-0: black;
-    --background-1: #0d0d0d;
-    --background-2: #121212;
-    --background-3: #191919;
-    --background-4: #232323;
-    --background-5: #f3f3f3;
-    --highlight-color: #665c00;
-    --success-color: #55b985;
-    --warn-color: #d5a64a;
-    --danger-color: #ef7373;
-    --git-ignored-status-color: #787878;
   }
 }
 
 ::selection {
-  background: --highlight-color;
+  background: var(--highlight-color);
 }
 
 mark {
   color: inherit;
-  background: --highlight-color;
+  background: var(--highlight-color);
 }

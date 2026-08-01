@@ -35,7 +35,7 @@
       border-radius: 6px;
       object-fit: contain;
 
-      @media (prefers-color-scheme: dark) {
+      :root[data-color-scheme="dark"] & {
         filter: invert(1);
       }
     }
@@ -310,7 +310,7 @@
 
   .conversation-show-toggle {
     width: fit-content;
-    margin: 2px 0 4px 13px;
+    margin: 2px 0 4px 4px;
     padding: 4px 6px;
     color: var(--text-3);
     background: transparent;

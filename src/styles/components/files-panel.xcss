@@ -436,7 +436,7 @@
     overflow: auto;
     color: var(--text-1);
     background: var(--background-2);
-    font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    font-family: var(--font-code);
     font-size: 11px;
     line-height: 1.55;
     tab-size: 2;

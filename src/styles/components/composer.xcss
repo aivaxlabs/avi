@@ -311,6 +311,7 @@
     border-radius: 20px;
 
     &:focus-within {
+      background: var(--background-0);
       border-color: --primary-color;
       outline: 3px solid --primary-color-opaque;
     }
@@ -495,6 +496,7 @@
 
   .permission-mode-copy {
     display: grid;
+    margin-block: -2px;
     gap: 2px;
 
     strong,
@@ -504,13 +506,12 @@
 
     strong {
       color: var(--text-1);
-      font-size: 12px;
-      font-weight: 500;
+      font-weight: 400;
     }
 
     small {
       color: var(--text-3);
-      font-size: 10px;
+      font-size: .88rem;
       line-height: 1.35;
     }
   }
@@ -642,13 +643,12 @@
 
     strong {
       color: var(--text-1);
-      font-size: 12px;
-      font-weight: 500;
+      font-weight: 400;
     }
 
     small {
       color: var(--text-3);
-      font-size: 10px;
+      font-size: .88rem;
       font-weight: 400;
     }
   }

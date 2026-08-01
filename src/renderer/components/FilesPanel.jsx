@@ -103,15 +103,18 @@ export function FilesPanel({
   const [selectionAction, setSelectionAction] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [contextMenu, setContextMenu] = useState(null);
-  const [dark, setDark] = useState(window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const [dark, setDark] = useState(
+    () => document.documentElement.getAttribute('data-color-scheme') === 'dark',
+  );
   const contextTargetRef = useRef(null);
   const panelRef = useRef(null);
 
   useEffect(() => {
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const updateTheme = (event) => setDark(event.matches);
-    media.addEventListener('change', updateTheme);
-    return () => media.removeEventListener('change', updateTheme);
+    const observer = new MutationObserver(() => {
+      setDark(document.documentElement.getAttribute('data-color-scheme') === 'dark');
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-color-scheme'] });
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {

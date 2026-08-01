@@ -8,7 +8,7 @@
   .chat-scroll {
     height: 100%;
     overflow: auto;
-    padding: 22px 5px calc(var(--composer-clearance, 176px) + 24px) 20px;
+    padding: 22px 5px calc(var(--composer-clearance, 176px) + 54px) 20px;
     scrollbar-gutter: stable;
   }
 

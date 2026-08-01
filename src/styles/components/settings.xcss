@@ -18,15 +18,14 @@
 
   .settings-sidebar {
     min-height: 0;
+    padding: 0 4px;
     display: flex;
     flex-direction: column;
-    background: var(--background-3);
-    border-right: 1px solid var(--border-color);
     overflow: hidden;
   }
 
   .settings-sidebar-titlebar {
-    flex: 0 0 34px;
+    flex: 0 0 24px;
   }
 
   .settings-back {
@@ -119,14 +118,13 @@
     }
 
     button {
-      min-height: 34px;
       display: flex;
       align-items: center;
       gap: 9px;
-      padding: 0 9px;
+      padding: 6px 12px;
       color: var(--text-1);
       background: transparent;
-      border-radius: 7px;
+      border-radius: 10px;
       font-size: 1rem;
       text-align: left;
 
@@ -338,7 +336,7 @@
     border-radius: 20px;
     object-fit: contain;
 
-    @media (prefers-color-scheme: dark) {
+    :root[data-color-scheme="dark"] & {
       filter: invert(1);
     }
   }
@@ -799,6 +797,43 @@
     grid-column: auto;
   }
 
+  .default-model-row {
+    grid-column: 2;
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr);
+    gap: 8px;
+
+  }
+
+  .settings-field .default-model-row > select {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .settings-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    color: var(--text-1);
+
+    > span {
+      display: grid;
+      gap: 4px;
+    }
+
+    small {
+      color: var(--text-3);
+      font-size: .9rem;
+      font-weight: 400;
+      line-height: 1.5;
+    }
+
+    input {
+      flex: 0 0 auto;
+    }
+  }
+
   .settings-field input,
   .settings-field select {
     grid-column: 2;
@@ -833,6 +868,33 @@
 
   .settings-field small.settings-field-warning {
     color: var(--text-1);
+  }
+
+  @media (max-width: 860px) {
+    .default-model-field {
+      grid-template-columns: minmax(0, 1fr);
+
+      > span,
+      .default-model-row,
+      small {
+        grid-column: 1;
+      }
+
+      .default-model-row {
+        grid-row: 2;
+      }
+
+      small {
+        position: static;
+        grid-row: 3;
+      }
+    }
+  }
+
+  @media (max-width: 700px) {
+    .default-model-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 
   .subscription-auth {
@@ -1124,6 +1186,7 @@
   outline: 2px solid var(--text-3);
   outline-offset: 2px;
 }
+
 .settings-page {
   .remote-settings {
     gap: 10px;
@@ -1374,6 +1437,7 @@
   }
 
   @media (max-width: 760px) {
+
     .remote-header,
     .remote-row {
       align-items: flex-start;

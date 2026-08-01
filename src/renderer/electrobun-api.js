@@ -24,6 +24,10 @@ window.chatApp = {
     state: () => invoke('app:state'),
     openExternal: (url) => invoke('app:open-external', url),
   },
+  defaultModels: {
+    status: () => invoke('default-models:status'),
+    save: (settings) => invoke('default-models:save', settings),
+  },
   tuning: {
     shells: () => invoke('tuning:shells'),
     save: (settings) => invoke('tuning:save', settings),

@@ -220,7 +220,7 @@
     border: 1px solid var(--border-color);
     border-radius: 7px;
     outline: 0;
-    font: 12px/1.5 "Cascadia Mono", Consolas, monospace;
+    font: 12px/1.5 var(--font-code);
 
     &:focus {
       border-color: var(--text-3);
@@ -348,7 +348,7 @@
       color: var(--text-1);
       background: var(--background-2);
       border-radius: 7px;
-      font: 10px/1.55 "Cascadia Mono", Consolas, monospace;
+      font: 10px/1.55 var(--font-code);
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }

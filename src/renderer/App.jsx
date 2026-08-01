@@ -13,6 +13,7 @@ import { McpOverlay } from './components/McpOverlay.jsx';
 import { OrchestrationPage } from './components/OrchestrationPage.jsx';
 import { AuxiliaryPanel } from './components/AuxiliaryPanel.jsx';
 import { PanelResizer } from './components/PanelResizer.jsx';
+import { applyTheme, onSystemSchemeChange, readAppearance, saveAppearance } from './lib/apply-theme.js';
 
 const api = window.chatApp;
 const sidebarWidthStorageKey = 'aivax.layout.sidebar-width';
@@ -168,6 +169,16 @@ export default function App() {
   const openProviderPanels = useMemo(() => providerPanels.filter(
     (panel) => openProviderPanelIds.includes(panel.id),
   ), [openProviderPanelIds, providerPanels]);
+  const [appearance, setAppearance] = useState(readAppearance);
+
+  useEffect(() => {
+    applyTheme(appearance);
+    saveAppearance(appearance);
+  }, [appearance]);
+
+  useEffect(() => onSystemSchemeChange(() => {
+    setAppearance((current) => (current.scheme === 'system' ? { ...current } : current));
+  }), []);
 
   useEffect(() => {
     let active = true;
@@ -191,6 +202,9 @@ export default function App() {
       ]) => {
         if (!active) return;
         setAppState(nextAppState);
+        if (nextAppState.defaultModelWarnings?.length) {
+          setError(nextAppState.defaultModelWarnings.map((warning) => warning.message).join(' '));
+        }
         setConversations(nextConversations);
         setProviders(nextProviders);
         setProviderTypes(nextProviderTypes);
@@ -996,8 +1010,17 @@ export default function App() {
 
   async function applyProviders(nextProviders) {
     setProviders(nextProviders);
-    const nextModels = await api.models.list();
+    const [nextModels, defaultModelStatus] = await Promise.all([
+      api.models.list(),
+      api.defaultModels.status(),
+    ]);
     setModels(nextModels);
+    setAppState((current) => ({
+      ...current,
+      defaultModels: defaultModelStatus.settings,
+      defaultModelWarnings: defaultModelStatus.warnings,
+    }));
+    setError(defaultModelStatus.warnings.map((warning) => warning.message).join(' '));
     return nextProviders;
   }
 
@@ -1080,8 +1103,12 @@ export default function App() {
           providers={providers}
           providerTypes={providerTypes}
           tuning={appState.tuning}
+          models={models}
+          defaultModels={appState.defaultModels}
           initialContextFolder={settingsContextFolder}
           initialView={settingsInitialView}
+          appearance={appearance}
+          onAppearanceChange={setAppearance}
           onClose={() => {
             setSettingsContextFolder(null);
             setSettingsInitialView(null);
@@ -1089,6 +1116,16 @@ export default function App() {
           }}
           onSave={async (provider) => applyProviders(await api.providers.save(provider))}
           onRemove={async (providerId) => applyProviders(await api.providers.remove(providerId))}
+          onSaveDefaultModels={async (settings) => {
+            const result = await api.defaultModels.save(settings);
+            setAppState((current) => ({
+              ...current,
+              defaultModels: result.settings,
+              defaultModelWarnings: result.warnings,
+            }));
+            setError(result.warnings.map((warning) => warning.message).join(' '));
+            return result;
+          }}
           onSaveTuning={async (tuning) => {
             const savedTuning = await api.tuning.save(tuning);
             window.localStorage.setItem(

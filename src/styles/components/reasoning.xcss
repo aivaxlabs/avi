@@ -175,7 +175,7 @@
     border-radius: 8px;
     background: var(--background-2);
     color: var(--text-1);
-    font: 11.5px/1.45 Consolas, "Cascadia Code", monospace;
+    font: 11.5px/1.45 var(--font-code);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }

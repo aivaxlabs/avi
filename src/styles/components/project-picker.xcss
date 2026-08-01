@@ -1,22 +1,17 @@
 .project-picker-row {
   position: relative;
   z-index: 2;
-
-  &:has(.project-picker-menu) {
-    z-index: 4;
-  }
   width: min(680px, 95%);
   margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--background-2);
-  backdrop-filter: blur(4px);
-  border: 1px solid var(--border-color);
-  border-top: none;
-  border-radius: 0 0 16px 16px;
-  padding: 0 10px;
+  padding: 2px 0 0 0;
   gap: 12px;
+
+  &:has(.project-picker-menu) {
+    z-index: 4;
+  }
 
   .project-picker-holder {
     position: relative;
@@ -26,15 +21,14 @@
   .project-picker {
     min-width: 0;
     max-width: min(420px, 70vw);
-    height: 28px;
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 0 8px;
+    padding: 4px 8px;
     color: var(--text-3);
     border-radius: 7px;
     font-size: 11px;
-    background: var(--background-2);
+    background: transparent;
     transition: color 180ms var(--base-transition),
       background 180ms var(--base-transition),
       border-color 180ms var(--base-transition),
@@ -65,6 +59,12 @@
       cursor: not-allowed;
       opacity: .72;
     }
+  }
+
+  > * {
+    border-radius: 32px;
+    padding: 0 8px;
+    backdrop-filter: blur(4px);
   }
 
   .project-picker-menu {
@@ -186,8 +186,8 @@
     flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
+    padding-block: 4px;
     gap: 5px;
-    padding: 2px 0;
     color: var(--text-3);
     font-size: 11px;
     font-variant-numeric: tabular-nums;

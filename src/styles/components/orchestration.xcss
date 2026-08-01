@@ -39,21 +39,19 @@
   }
 
   .orchestration-refresh {
-    min-height: 36px;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 12px;
-    color: var(--text-1);
-    background: var(--background-2);
-    border: 1px solid var(--border-color);
-    border-radius: 9px;
+    padding: 6px 12px;
+    color: var(--background-0);
+    background: var(--text-1);
+    border-radius: 999px;
     font-weight: 500;
     transition: background 160ms var(--base-transition),
       transform 160ms var(--base-transition);
 
     &:hover:not(:disabled) {
-      background: var(--item-hover);
+      background: var(--text-2);
     }
 
     &:active:not(:disabled) {
@@ -61,7 +59,7 @@
     }
 
     &:disabled {
-      color: var(--text-4);
+      color: var(--background-1);
     }
 
     &:focus-visible {
@@ -262,13 +260,12 @@
 
     strong {
       color: var(--text-1);
-      font-size: 13px;
       font-weight: 580;
     }
 
     span {
       color: var(--text-3);
-      font-size: 11px;
+      font-size: .9rem;
     }
   }
 
@@ -277,13 +274,12 @@
 
     strong {
       color: var(--text-2);
-      font-size: 11px;
       font-weight: 570;
     }
 
     span {
       color: var(--text-4);
-      font-size: 11px;
+      font-size: .85rem;
     }
   }
 

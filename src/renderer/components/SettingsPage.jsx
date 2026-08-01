@@ -13,6 +13,8 @@ import {
   Github,
   Globe2,
   Info,
+  Network,
+  Palette,
   Pencil,
   Plus,
   RadioTower,
@@ -28,6 +30,7 @@ import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import aviIconUrl from '../../../assets/icon/avi.png';
 import { classNames } from '../lib/format.js';
+import { AppearanceSettings } from './AppearanceSettings.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { McpSettings } from './McpSettings.jsx';
 import { RemoteSettings } from './RemoteSettings.jsx';
@@ -45,6 +48,78 @@ const personalityDescriptions = Object.freeze({
   pragmatic: 'Concise, factual, and focused on technical clarity and momentum.',
   quirky: 'Playful and imaginative, using memorable explanations without losing precision.',
 });
+
+
+function DefaultModelField({
+  description,
+  label,
+  models,
+  onChange,
+  required = false,
+  value,
+}) {
+  const selectedModel = models.find((model) => model.id === value?.modelId) ?? null;
+  const supportedReasoning = Array.isArray(selectedModel?.reasoning)
+    ? selectedModel.reasoning
+    : [];
+  const modelsByProvider = models.reduce((groups, model) => {
+    const providerId = model.providerId ?? '';
+    const group = groups.get(providerId);
+    if (group) {
+      group.models.push(model);
+    } else {
+      groups.set(providerId, {
+        label: model.providerName ?? providerId,
+        models: [model],
+      });
+    }
+    return groups;
+  }, new Map());
+  return (
+    <div className="settings-field settings-field-wide default-model-field">
+      <span>{label}</span>
+      <div className="default-model-row">
+        <select
+          value={value?.modelId ?? ''}
+          onChange={(event) => {
+            const model = models.find((item) => item.id === event.target.value);
+            onChange(model ? {
+              modelId: model.id,
+              reasoningEffort: (Array.isArray(model.reasoning) ? model.reasoning : [])
+                .includes(value?.reasoningEffort)
+                ? value.reasoningEffort
+                : null,
+            } : null);
+          }}
+        >
+          <option value="">{required ? 'Select a model' : 'None'}</option>
+          {[...modelsByProvider].map(([providerId, group]) => (
+            <optgroup key={providerId} label={group.label}>
+              {group.models.map((model) => (
+                <option key={model.id} value={model.id}>{model.name}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        <select
+          aria-label={`${label} reasoning effort`}
+          disabled={!selectedModel}
+          value={value?.reasoningEffort ?? ''}
+          onChange={(event) => onChange({
+            ...value,
+            reasoningEffort: event.target.value || null,
+          })}
+        >
+          <option value="">Default reasoning</option>
+          {supportedReasoning.map((effort) => (
+            <option key={effort} value={effort}>{effort}</option>
+          ))}
+        </select>
+      </div>
+      <small>{description}</small>
+    </div>
+  );
+}
 
 function ActionMenu({
   disabled = false,
@@ -153,11 +228,16 @@ export function SettingsPage({
   providers,
   providerTypes,
   tuning,
+  models,
+  defaultModels,
   initialContextFolder = null,
   initialView = null,
+  appearance,
+  onAppearanceChange,
   onClose,
   onSave,
   onRemove,
+  onSaveDefaultModels,
   onSaveTuning,
 }) {
   const [view, setView] = useState(
@@ -177,7 +257,10 @@ export function SettingsPage({
   const [providerState, setProviderState] = useState(null);
   const [copiedProviderValue, setCopiedProviderValue] = useState('');
   const [settingsQuery, setSettingsQuery] = useState('');
+  const [previewScheme, setPreviewScheme] = useState(appearance.scheme);
   const [tuningDraft, setTuningDraft] = useState(tuning);
+  const [defaultModelsDraft, setDefaultModelsDraft] = useState(defaultModels);
+  const [defaultModelsSaved, setDefaultModelsSaved] = useState(false);
   const [tuningSaved, setTuningSaved] = useState(false);
   const [terminalShells, setTerminalShells] = useState(null);
   const selectedProvider = providers.find((provider) => provider.id === selectedId) ?? null;
@@ -328,7 +411,9 @@ export function SettingsPage({
     'context-folder': selectedContextFolder?.name || 'Context',
     mcp: mcpNavigation?.title || 'MCP servers',
     remote: 'Remote',
+    'default-models': 'Default models',
     tuning: 'Tuning',
+    appearance: 'Appearance',
     about: 'About Avi',
   }[view];
   const pageDescription = {
@@ -343,10 +428,12 @@ export function SettingsPage({
     mcp: mcpNavigation?.description
       || 'Manage global and per-folder Model Context Protocol servers.',
     remote: 'Expose Avi orchestration through a local authenticated MCP server.',
+    'default-models': 'Choose models for supporting tasks, supervision, and sub-agent orchestration.',
     tuning: 'Adjust agent behavior, context, tool execution, and parallel work.',
+    appearance: 'Choose a theme and color scheme, with a live preview.',
     about: 'Project information, version, and links.',
   }[view];
-  const showInlineBack = !['list', 'context-folders', 'mcp', 'remote', 'tuning', 'about'].includes(view)
+  const showInlineBack = !['list', 'context-folders', 'mcp', 'remote', 'default-models', 'tuning', 'about'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
 
   return (
@@ -430,6 +517,21 @@ export function SettingsPage({
               Remote
             </button>
           )}
+          {(!settingsQuery || 'default models auxiliary supervision quick chat sub-agent orchestration fallback reasoning'.includes(settingsQuery)) && (
+            <button
+              className={view === 'default-models' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'default-models' ? 'page' : undefined}
+              onClick={() => {
+                setView('default-models');
+                setError('');
+                setDefaultModelsSaved(false);
+              }}
+            >
+              <Network size={16} />
+              Default models
+            </button>
+          )}
           {(
             !settingsQuery
             || (
@@ -451,6 +553,24 @@ export function SettingsPage({
             >
               <SlidersHorizontal size={16} />
               Tuning
+            </button>
+          )}
+          {(
+            !settingsQuery
+            || 'appearance theme themes color scheme light dark monokai absolute code goblin axion preview'.includes(settingsQuery)
+          ) && (
+            <button
+              className={view === 'appearance' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'appearance' ? 'page' : undefined}
+              onClick={() => {
+                setView('appearance');
+                setPreviewScheme(appearance.scheme);
+                setError('');
+              }}
+            >
+              <Palette size={16} />
+              Appearance
             </button>
           )}
           {(!settingsQuery || 'about avi version website github repository project'.includes(settingsQuery)) && (
@@ -762,6 +882,16 @@ export function SettingsPage({
             )}
 
             {view === 'remote' && <RemoteSettings />}
+            {view === 'appearance' && (
+              <AppearanceSettings
+                appearance={appearance}
+                previewScheme={previewScheme}
+                onChange={(next) => {
+                  setPreviewScheme(next.scheme);
+                  onAppearanceChange(next);
+                }}
+              />
+            )}
             {view === 'mcp' && (
               <McpSettings
                 initialFolder={initialContextFolder}
@@ -824,6 +954,95 @@ export function SettingsPage({
                   Created and maintained by <strong>AIVAX Labs</strong>.
                 </p>
               </section>
+            )}
+
+            {view === 'default-models' && defaultModelsDraft && (
+              <div className="settings-tuning">
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>General tasks</h3>
+                    <p>Optional models used for supporting tasks, Quick Chat, and agent supervision.</p>
+                  </div>
+                  <div className="settings-section-card settings-form">
+                    <DefaultModelField
+                      label="Auxiliary model"
+                      description="Used for goal analysis, task titles, and other supporting tasks. Choose None to disable it."
+                      models={models}
+                      value={defaultModelsDraft.auxiliary}
+                      onChange={(value) => {
+                        setDefaultModelsSaved(false);
+                        setDefaultModelsDraft((current) => ({ ...current, auxiliary: value }));
+                      }}
+                    />
+                    <DefaultModelField
+                      label="Supervision model"
+                      description="Used to supervise agents and look for new tasks. Choose None to disable supervision."
+                      models={models}
+                      value={defaultModelsDraft.supervision}
+                      onChange={(value) => {
+                        setDefaultModelsSaved(false);
+                        setDefaultModelsDraft((current) => ({ ...current, supervision: value }));
+                      }}
+                    />
+                    <DefaultModelField
+                      label="Quick chat model"
+                      description="Reserved for the upcoming Quick Chat experience. Choose None to leave it unconfigured."
+                      models={models}
+                      value={defaultModelsDraft.quickChat}
+                      onChange={(value) => {
+                        setDefaultModelsSaved(false);
+                        setDefaultModelsDraft((current) => ({ ...current, quickChat: value }));
+                      }}
+                    />
+                  </div>
+                </section>
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>Sub-agent model levels</h3>
+                    <p>When enabled, orchestration tools request a task level instead of a model and reasoning effort.</p>
+                  </div>
+                  <div className="settings-section-card settings-form">
+                    <label className="settings-toggle-row">
+                      <span>
+                        <strong>Use model levels</strong>
+                        <small>Requires small, medium, and large models. If one is unavailable, Avi uses the orchestrator or last-used model.</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={defaultModelsDraft.subagents.enabled}
+                        onChange={(event) => {
+                          setDefaultModelsSaved(false);
+                          setDefaultModelsDraft((current) => ({
+                            ...current,
+                            subagents: { ...current.subagents, enabled: event.target.checked },
+                          }));
+                        }}
+                      />
+                    </label>
+                    {defaultModelsDraft.subagents.enabled && [
+                      ['small', 'Small model', 'Code exploration, context aggregation, and research.'],
+                      ['medium', 'Medium model', 'Reports, deeper research, and bug analysis.'],
+                      ['large', 'Large model', 'Complex implementations and detailed exploration.'],
+                    ].map(([key, label, description]) => (
+                      <DefaultModelField
+                        key={key}
+                        label={label}
+                        description={description}
+                        models={models}
+                        required
+                        value={defaultModelsDraft.subagents[key]}
+                        onChange={(value) => {
+                          setDefaultModelsSaved(false);
+                          setDefaultModelsDraft((current) => ({
+                            ...current,
+                            subagents: { ...current.subagents, [key]: value },
+                          }));
+                        }}
+                      />
+                    ))}
+                  </div>
+                </section>
+              </div>
             )}
 
             {view === 'tuning' && tuningDraft && (
@@ -1577,7 +1796,7 @@ export function SettingsPage({
           </div>
         </div>
 
-        {(view === 'provider' || view === 'model' || view === 'tuning') && (
+        {(view === 'provider' || view === 'model' || view === 'tuning' || view === 'default-models') && (
           <footer className="settings-actions">
             <span className="settings-error" role="alert">{error}</span>
             <div>
@@ -1589,7 +1808,14 @@ export function SettingsPage({
                     ? !providerDraft
                     : view === 'model'
                       ? !modelDraft
-                      : !tuningDraft
+                      : view === 'default-models'
+                        ? !defaultModelsDraft
+                          || (defaultModelsDraft.subagents.enabled && [
+                            defaultModelsDraft.subagents.small,
+                            defaultModelsDraft.subagents.medium,
+                            defaultModelsDraft.subagents.large,
+                          ].some((selection) => !selection))
+                        : !tuningDraft
                         || !selectedTerminalShell
                         || !Number.isInteger(tuningDraft.terminalTimeoutSeconds)
                         || tuningDraft.terminalTimeoutSeconds < 5
@@ -1599,6 +1825,12 @@ export function SettingsPage({
                         || tuningDraft.maxConcurrentSubagents > 128
                 )}
                 onClick={() => runProviderMutation(async () => {
+                  if (view === 'default-models') {
+                    const result = await onSaveDefaultModels(defaultModelsDraft);
+                    setDefaultModelsDraft(result.settings);
+                    setDefaultModelsSaved(true);
+                    return;
+                  }
                   if (view === 'tuning') {
                     const saved = await onSaveTuning(tuningDraft);
                     setTuningDraft(saved);
@@ -1634,7 +1866,7 @@ export function SettingsPage({
                   }
                 })}
               >
-                {tuningSaved && view === 'tuning'
+                {(tuningSaved && view === 'tuning') || (defaultModelsSaved && view === 'default-models')
                   ? <CheckCircle2 size={14} />
                   : <Save size={14} />}
                 {busy
@@ -1643,9 +1875,9 @@ export function SettingsPage({
                     ? 'Save provider'
                     : view === 'model'
                       ? 'Save model'
-                      : tuningSaved
-                        ? 'Saved'
-                        : 'Save tuning'}
+                      : view === 'default-models'
+                      ? defaultModelsSaved ? 'Saved' : 'Save default models'
+                      : tuningSaved ? 'Saved' : 'Save tuning'}
               </button>
             </div>
           </footer>

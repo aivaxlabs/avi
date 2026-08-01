@@ -1,0 +1,70 @@
+[data-theme="goblin"] {
+  --font-ui: "Segoe UI", system-ui, sans-serif;
+  --font-code: "Cascadia Code", Consolas, "Courier New", monospace;
+  --primary-color: #0878d1;
+  --primary-color-opaque: #0878d122;
+  --text-1: #172033;
+  --text-2: #3f4b61;
+  --text-3: #667189;
+  --text-4: #9199aa;
+  --text-5: #f7faff;
+  --background-0: #ffffff;
+  --background-1: #f7f9fc;
+  --background-2: #eef3f9;
+  --background-3: #e2e9f2;
+  --background-4: #d2dce9;
+  --background-5: #172033;
+  --highlight-color: #dceeff;
+  --success-color: #20865a;
+  --warn-color: #a26100;
+  --danger-color: #c43d4d;
+  --git-ignored-status-color: #9199aa;
+  --prism-comment: #718096;
+  --prism-punctuation: #526179;
+  --prism-property: #0878d1;
+  --prism-selector: #20865a;
+  --prism-operator: #8b5fbf;
+  --prism-keyword: #075eb0;
+  --prism-function: #7a4cc2;
+  --prism-string: #147d64;
+  --prism-number: #b45728;
+  --prism-class: #0878d1;
+
+  &[data-color-scheme="dark"] {
+    --primary-color: #58a6ff;
+    --primary-color-opaque: #58a6ff26;
+    --text-1: #edf5ff;
+    --text-2: #bdc9d9;
+    --text-3: #8998ad;
+    --text-4: #5f6f85;
+    --text-5: #09111f;
+    --background-0: #09111f;
+    --background-1: #0d1728;
+    --background-2: #121e31;
+    --background-3: #192840;
+    --background-4: #253753;
+    --background-5: #edf5ff;
+    --highlight-color: #143b66;
+    --success-color: #56d39b;
+    --warn-color: #efbd65;
+    --danger-color: #ff7b8b;
+    --git-ignored-status-color: #5f6f85;
+    --prism-comment: #71829b;
+    --prism-punctuation: #bdc9d9;
+    --prism-property: #79c0ff;
+    --prism-selector: #7ee2b8;
+    --prism-operator: #d2a8ff;
+    --prism-keyword: #58a6ff;
+    --prism-function: #b392f0;
+    --prism-string: #7ee2b8;
+    --prism-number: #ffa657;
+    --prism-class: #79c0ff;
+  }
+
+  .code-block,
+  .files-code,
+  .theme-preview-code {
+    background: #081120;
+    color: #dbe9f8;
+  }
+}

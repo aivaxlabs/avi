@@ -1,5 +1,4 @@
-.code-block,
-.files-code {
+:root {
   --prism-comment: #656d76;
   --prism-punctuation: #57606a;
   --prism-property: #953800;
@@ -11,7 +10,7 @@
   --prism-number: #0550ae;
   --prism-class: #953800;
 
-  @media (prefers-color-scheme: dark) {
+  &[data-color-scheme="dark"] {
     --prism-comment: #8b949e;
     --prism-punctuation: #c9d1d9;
     --prism-property: #ffa657;
@@ -23,6 +22,11 @@
     --prism-number: #79c0ff;
     --prism-class: #ffa657;
   }
+}
+
+.code-block,
+.files-code {
+  font-family: var(--font-code);
 
   .token.comment,
   .token.prolog,

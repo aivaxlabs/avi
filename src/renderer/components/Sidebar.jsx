@@ -452,12 +452,12 @@ function ConversationItem({
   return (
     <div className={classNames('conversation-item', active && 'active', menuOpen && 'menu-open')}>
       <button className="conversation-main" type="button" onClick={onSelect}>
+        <span className="conversation-title">{conversation.title || conversation.firstPrompt || 'New chat'}</span>
         {running ? (
           <LoaderCircle className="run-spinner" size={12} aria-label="Working" />
         ) : completedUnseen ? (
           <CheckCircle2 className="completion-indicator" size={13} aria-label="Completed" />
         ) : null}
-        <span className="conversation-title">{conversation.title || conversation.firstPrompt || 'New chat'}</span>
       </button>
       {ageLabel && <span className="conversation-age">{ageLabel}</span>}
       <button ref={menuButtonRef} className="icon-button tiny" type="button" onClick={toggleMenu}>
