@@ -21,11 +21,10 @@ Use instructions for behavior that should apply repeatedly. Use a workflow or sk
 
 ## Supported locations
 
-`$AVI` means the Avi installation directory, `$HOME` the user's home directory, and `$PWD` the active project folder.
+`$HOME` the user's home directory, and `$PWD` the active project folder.
 
 | Scope | Instructions | Workflows | Skills | MCP |
 |---|---|---|---|---|
-| Avi installation | `$AVI/context/AGENTS.md` | `$AVI/context/workflows/*.md` | `$AVI/context/skills/<name>/SKILL.md` | Not an installation-context primitive |
 | User-global | `$HOME/.agents/AGENTS.md` | `$HOME/.agents/workflows/*.md` | `$HOME/.agents/skills/<name>/SKILL.md` | `$HOME/.agents/mcpconfig.json` |
 | Project | `$PWD/AGENTS.md` | `$PWD/.agents/workflows/*.md` | `$PWD/.agents/skills/<name>/SKILL.md` | `$PWD/.agents/mcpconfig.json` |
 | Project subdirectory | `<dir>/AGENTS.md` | `<dir>/.agents/workflows/*.md` | `<dir>/.agents/skills/<name>/SKILL.md` | Configure the project scope |
@@ -36,9 +35,8 @@ The repository-level `context/` directory is special only because it is packaged
 
 Avi assembles context from three sources:
 
-1. The installed `$AVI/context` bundle.
-2. User-global `$HOME/.agents` context.
-3. The active workspace and its nested `.agents` directories.
+1. User-global `$HOME/.agents` context.
+2. The active workspace and its nested `.agents` directories.
 
 Use the narrowest suitable scope. A project item can override a global or installation command with the same type and normalized name; global commands override installation commands. Avoid accidental name collisions.
 
