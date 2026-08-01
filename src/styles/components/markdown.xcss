@@ -86,19 +86,23 @@
   .finding-heading {
     display: flex;
     align-items: baseline;
+    margin: 2.5em 0 .5em 0;
+    padding-bottom: .5em;
+    border-bottom: 2px solid --border-color;
     gap: 8px;
-    padding: 8px 10px;
-    border-left: 3px solid currentColor;
-    border-radius: 4px;
-    background: color-mix(in srgb, currentColor 9%, transparent);
-    font-size: 1.05em;
-    font-weight: 600;
+    font-size: 1.15em;
+    font-weight: 500;
 
     &::before {
       content: attr(data-finding-priority);
+      background: color-mix(in srgb, currentColor 9%, transparent);
+      border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+      width: 36px;
+      text-align: center;
+      border-radius: 4px;
       flex: 0 0 auto;
       font-family: var(--font-code);
-      font-size: .78em;
+      font-size: .95em;
       font-weight: 700;
     }
 
@@ -108,14 +112,6 @@
 
     &.finding-p1 {
       color: var(--warn-color);
-    }
-
-    &.finding-p2 {
-      color: var(--primary-color);
-    }
-
-    &.finding-p3 {
-      color: var(--text-3);
     }
   }
 
