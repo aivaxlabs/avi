@@ -4,8 +4,49 @@
   --composer-bottom: 0;
   background: var(--background-1);
   overflow: hidden;
+  isolation: isolate;
+
+  .empty-chat-background {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    background-image:
+      radial-gradient(
+        ellipse 58% 48% at 50% 78%,
+        color-mix(in srgb, var(--primary-color) 9%, transparent),
+        transparent 72%
+      ),
+      radial-gradient(
+        ellipse 34% 32% at 18% 68%,
+        color-mix(in srgb, var(--primary-color) 3%, transparent),
+        transparent 74%
+      ),
+      radial-gradient(
+        circle at center,
+        color-mix(in srgb, var(--primary-color) 7%, transparent) 0 .7px,
+        transparent .9px
+      );
+    background-size: auto, auto, 24px 24px;
+    pointer-events: none;
+    contain: strict;
+    transition: opacity 1800ms var(--base-transition);
+
+    &[data-webgpu-ready="true"] {
+      background-image: none;
+    }
+  }
+
+  &.chat-empty .empty-chat-background {
+    opacity: 1;
+  }
 
   .chat-scroll {
+    position: relative;
+    z-index: 1;
     height: 100%;
     overflow: auto;
     padding: 22px 5px calc(var(--composer-clearance, 176px) + 54px) 20px;
@@ -55,6 +96,10 @@
     --composer-bottom: calc(50% - 60px);
   }
 
+  > .composer-wrap {
+    z-index: 2;
+  }
+
   .copilot-orb,
   .brand-mark {
     width: 32px;
@@ -81,6 +126,12 @@
 
 .platform-linux .sidebar {
   background: var(--background-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-area .empty-chat-background {
+    transition: none;
+  }
 }
 
 .empty-chat p,

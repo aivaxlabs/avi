@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Bot,
+  Check,
   ChevronRight,
   Files,
   Gauge,
@@ -24,6 +25,7 @@ function AuxiliaryAddMenu({
   canCreateSideChat,
   onCreateSideChat,
   onOpenFilesTab,
+  onOpenTasksTab,
   onOpenSubagentsTab,
   onOpenProviderPanel,
 }) {
@@ -91,6 +93,20 @@ function AuxiliaryAddMenu({
             Files
           </DropdownMenuItem>
           <DropdownMenuItem
+            icon={<ListChecks size={14} />}
+            role="menuitem"
+            disabled={!canCreateSideChat}
+            title={canCreateSideChat
+              ? 'View tasks for this conversation'
+              : 'Start a conversation before opening tasks'}
+            onClick={() => {
+              setOpen(false);
+              onOpenTasksTab();
+            }}
+          >
+            Tasks
+          </DropdownMenuItem>
+          <DropdownMenuItem
             icon={<Bot size={14} />}
             role="menuitem"
             onClick={() => {
@@ -147,6 +163,7 @@ export function AuxiliaryPanel({
   onCloseSubagentsTab,
   onCloseTasksTab,
   onOpenFilesTab,
+  onOpenTasksTab,
   onOpenSubagentsTab,
   onOpenProviderPanel,
   onCloseProviderPanel,
@@ -312,6 +329,7 @@ export function AuxiliaryPanel({
               canCreateSideChat={canCreateSideChat}
               onCreateSideChat={onCreateSideChat}
               onOpenFilesTab={onOpenFilesTab}
+              onOpenTasksTab={onOpenTasksTab}
               onOpenSubagentsTab={onOpenSubagentsTab}
               onOpenProviderPanel={onOpenProviderPanel}
             />
@@ -325,6 +343,7 @@ export function AuxiliaryPanel({
                 canCreateSideChat={canCreateSideChat}
                 onCreateSideChat={onCreateSideChat}
                 onOpenFilesTab={onOpenFilesTab}
+                onOpenTasksTab={onOpenTasksTab}
                 onOpenSubagentsTab={onOpenSubagentsTab}
                 onOpenProviderPanel={onOpenProviderPanel}
               />
@@ -362,7 +381,9 @@ export function AuxiliaryPanel({
             <header><strong>{tasks.filter((task) => task.done).length}/{tasks.length} completed</strong><span>Defined and updated by the agent</span></header>
             {tasks.map((task, index) => (
               <article className={`task-list-item${task.done ? ' done' : ''}`} key={`${index}-${task.title}`}>
-                <span className="task-check" aria-label={task.done ? 'Completed' : 'Pending'}>{task.done ? '?' : index + 1}</span>
+                <span className="task-check" aria-label={task.done ? 'Completed' : 'Pending'}>
+                  {task.done ? <Check size={13} aria-hidden="true" /> : index + 1}
+                </span>
                 <span><strong>{task.title}</strong>{task.description && <p>{task.description}</p>}{task.result && <small>{task.result}</small>}</span>
               </article>
             ))}
@@ -402,6 +423,21 @@ export function AuxiliaryPanel({
               <span>
                 <strong>Files</strong>
                 <small>Browse the current directory</small>
+              </span>
+              <ChevronRight size={15} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              disabled={!canCreateSideChat}
+              title={canCreateSideChat
+                ? 'View tasks for this conversation'
+                : 'Start a conversation before opening tasks'}
+              onClick={onOpenTasksTab}
+            >
+              <ListChecks size={16} aria-hidden="true" />
+              <span>
+                <strong>Tasks</strong>
+                <small>View this conversation's task list</small>
               </span>
               <ChevronRight size={15} aria-hidden="true" />
             </button>

@@ -18,6 +18,7 @@ import {
   Server,
   Settings,
   Trash2,
+  TriangleAlert,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -362,6 +363,7 @@ export function Sidebar({
                   active={conversation.id === selectedId}
                   running={Boolean(running[conversation.id])}
                   completedUnseen={Boolean(completedUnseen[conversation.id])}
+                  needsAttention={Boolean(conversation.needsAttention)}
                   now={now}
                   onSelect={() => onSelect(conversation.id)}
                   onFork={() => onFork(conversation.id)}
@@ -397,6 +399,7 @@ function ConversationItem({
   active,
   running,
   completedUnseen,
+  needsAttention,
   now,
   onSelect,
   onFork,
@@ -455,6 +458,8 @@ function ConversationItem({
         <span className="conversation-title">{conversation.title || conversation.firstPrompt || 'New chat'}</span>
         {running ? (
           <LoaderCircle className="run-spinner" size={12} aria-label="Working" />
+        ) : needsAttention ? (
+          <TriangleAlert className="attention-indicator" size={13} aria-label="Needs attention" />
         ) : completedUnseen ? (
           <CheckCircle2 className="completion-indicator" size={13} aria-label="Completed" />
         ) : null}

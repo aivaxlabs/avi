@@ -329,6 +329,11 @@
     color: var(--success-color);
   }
 
+  .attention-indicator {
+    flex: 0 0 auto;
+    color: var(--warn-color);
+  }
+
   .run-spinner {
     flex: 0 0 auto;
     color: var(--text-3);

@@ -13,7 +13,14 @@ import { McpOverlay } from './components/McpOverlay.jsx';
 import { OrchestrationPage } from './components/OrchestrationPage.jsx';
 import { AuxiliaryPanel } from './components/AuxiliaryPanel.jsx';
 import { PanelResizer } from './components/PanelResizer.jsx';
-import { applyTheme, onSystemSchemeChange, readAppearance, saveAppearance } from './lib/apply-theme.js';
+import {
+  applyTheme,
+  onSystemSchemeChange,
+  readAppearance,
+  resolvedScheme,
+  saveAppearance,
+} from './lib/apply-theme.js';
+import { getTheme } from './lib/themes.js';
 
 const api = window.chatApp;
 const sidebarWidthStorageKey = 'aivax.layout.sidebar-width';
@@ -150,8 +157,8 @@ export default function App() {
   const currentModel = useMemo(() => {
     const configuredModelIds = new Set(models.map((model) => model.id));
     return [
-      currentConversation?.model,
       draftModel,
+      currentConversation?.model,
       appState?.lastModel,
       models[0]?.id,
     ].find((modelId) => modelId && configuredModelIds.has(modelId)) ?? '';
@@ -245,6 +252,7 @@ export default function App() {
         setSettingsOpen(nextModels.length === 0);
 
         if (nextConversations[0]) {
+          setDraftModel(nextConversations[0].model);
           const messages = await api.conversations.messages(nextConversations[0].id);
           if (!active) return;
           setSelectedId(nextConversations[0].id);
@@ -295,6 +303,21 @@ export default function App() {
             ...state,
             [event.conversationId]: event.message.status === 'streaming',
           }));
+        }
+        if (
+          ['assistant', 'user'].includes(event.message.role)
+          && !['queued', 'steered'].includes(event.message.status)
+        ) {
+          setConversations((state) => state.map((conversation) => (
+            conversation.id === event.conversationId
+              ? {
+                  ...conversation,
+                  needsAttention: ['error', 'aborted'].includes(event.message.status)
+                    || event.message.status === 'streaming'
+                    || event.message.role === 'user',
+                }
+              : conversation
+          )));
         }
       } else if (event.type === 'conversation') {
         if (event.conversation.isSubagent) {
@@ -550,6 +573,8 @@ export default function App() {
   }, []);
 
   async function selectConversation(id) {
+    const conversation = conversations.find((item) => item.id === id);
+    if (conversation?.model) setDraftModel(conversation.model);
     inspectedConversationIdRef.current = id;
     setCompletedUnseen((state) => {
       if (!state[id]) return state;
@@ -898,6 +923,7 @@ export default function App() {
     if (!result) return;
     setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
     setMessagesByConversation((state) => ({ ...state, [result.conversation.id]: result.messages }));
+    setDraftModel(result.conversation.model);
     setSelectedId(result.conversation.id);
   }
 
@@ -952,6 +978,7 @@ export default function App() {
       setActiveAuxiliaryTab(null);
       setActiveSubagentId(null);
       const fallback = next[0]?.id ?? null;
+      if (next[0]?.model) setDraftModel(next[0].model);
       setSelectedId(fallback);
       if (!fallback) setDraftProject(appState.defaultProject);
       if (fallback && !messagesByConversation[fallback]) {
@@ -962,8 +989,8 @@ export default function App() {
   }
 
   async function chooseModel(modelId, conversationId = selectedId) {
+    setDraftModel(modelId);
     if (!conversationId) {
-      setDraftModel(modelId);
       return;
     }
     const conversation = await api.conversations.update({ id: conversationId, model: modelId });
@@ -1142,7 +1169,12 @@ export default function App() {
           initialContextFolder={settingsContextFolder}
           initialView={settingsInitialView}
           appearance={appearance}
+          desktop={appState.desktop}
           onAppearanceChange={setAppearance}
+          onDesktopChange={async (desktop) => {
+            const saved = await api.desktop.save(desktop);
+            setAppState((current) => ({ ...current, desktop: saved }));
+          }}
           onClose={() => {
             setSettingsContextFolder(null);
             setSettingsInitialView(null);
@@ -1246,6 +1278,8 @@ export default function App() {
             ) : (
               <ChatView
               {...shell}
+              emptyBackgroundEnabled={getTheme(appearance.themeId).emptyChatBackground !== false}
+              emptyBackgroundThemeKey={`${appearance.themeId}:${resolvedScheme(appearance.scheme)}`}
               currentProject={currentProject}
               models={models}
               favorites={favorites}
@@ -1292,6 +1326,7 @@ export default function App() {
                 steerQueuedMessage(selectedId, messageId, messageIds)
               )}
               onSendContinuation={(text) => sendMessage({ text, attachments: [] })}
+              onUndoEdits={(text) => sendMessage({ text, attachments: [], steer: false })}
               onChooseModel={chooseModel}
               onChooseProject={async (project) => {
                 if (currentConversation) return;
@@ -1428,6 +1463,11 @@ export default function App() {
                   setFilesTabOpen(true);
                   setActiveSubagentId(null);
                   setActiveAuxiliaryTab('files');
+                }}
+                onOpenTasksTab={() => {
+                  setTasksTabOpen(true);
+                  setActiveSubagentId(null);
+                  setActiveAuxiliaryTab('tasks');
                 }}
                 onOpenSubagentsTab={() => {
                   setSubagentsTabOpen(true);

@@ -6,6 +6,7 @@ import {
   CircleHelp,
   CircleStop,
   Copy,
+  FileDiff,
   FilePenLine,
   FileText,
   FolderTree,
@@ -49,6 +50,8 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatBytes } from '../lib/files.js';
+import { consolidateFileEdits, createUndoPrompt } from '../lib/file-edits.js';
+import { parseStructuredUserMessage } from '../lib/message-groups.js';
 import { classNames } from '../lib/format.js';
 import { answerTextFromTextualBlocks } from '../../shared/textual-blocks.js';
 
@@ -175,12 +178,15 @@ const TOOL_ICONS = Object.freeze({
 export function Message({
   message,
   modelName,
+  workedMessages,
+  workedStartedAt,
   onFork,
   onRetry,
   onResume,
   runActive,
   questionPending,
   onSendContinuation,
+  onUndoEdits,
   onImplementPlan,
   onOpenFileReference,
   showContinuations,
@@ -213,16 +219,52 @@ export function Message({
     <AssistantMessage
       message={message}
       modelName={modelName}
+      workedMessages={workedMessages}
+      workedStartedAt={workedStartedAt}
       onFork={onFork}
       onRetry={onRetry}
       onResume={onResume}
       runActive={runActive}
       questionPending={questionPending}
       onSendContinuation={onSendContinuation}
+      onUndoEdits={onUndoEdits}
       onImplementPlan={onImplementPlan}
       onOpenFileReference={onOpenFileReference}
       showContinuations={showContinuations}
     />
+  );
+}
+
+export function parseSubagentReport(message) {
+  const structured = parseStructuredUserMessage(message);
+  return structured?.type === 'subagent-report' ? structured : null;
+}
+
+function SubagentReportCard({ report }) {
+  return (
+    <section className="subagent-report-card" aria-label={`Report from ${report.title}`}>
+      <header className="subagent-report-header">
+        <span className="subagent-report-icon" aria-hidden="true">
+          <Bot size={15} />
+        </span>
+        <span className="subagent-report-heading">
+          <small>Sub-agent report</small>
+          <strong>{report.title}</strong>
+        </span>
+        <code title={report.threadId}>{report.threadId.slice(0, 8)}</code>
+        <button
+          type="button"
+          aria-label={`Copy report from ${report.title}`}
+          title="Copy report"
+          onClick={() => copyText(report.body)}
+        >
+          <Copy size={14} />
+        </button>
+      </header>
+      <div className="subagent-report-body">
+        <MarkdownSegment text={report.body} finalized />
+      </div>
+    </section>
   );
 }
 
@@ -238,42 +280,12 @@ function UserMessage({ message }) {
   }, [lightboxAttachment]);
   const visibleAttachments = message.attachments;
   const content = (message.content ?? '').trim();
-  const reportEnvelope = /^<subagent_report\b([^>]*)>\s*([\s\S]*?)\s*<\/subagent_report>$/
-    .exec(content);
-  const reportThreadId = reportEnvelope
-    ? /\bthread_id="([^"]+)"/.exec(reportEnvelope[1])?.[1]
-    : null;
-  const reportTitle = reportEnvelope
-    ? /\btitle="([^"]+)"/.exec(reportEnvelope[1])?.[1]
-    : null;
+  const report = parseSubagentReport(message);
 
-  if (reportEnvelope && reportThreadId && reportTitle) {
-    const reportBody = reportEnvelope[2].trim();
+  if (report) {
     return (
       <article className="message-row subagent-report-row">
-        <section className="subagent-report-card" aria-label={`Report from ${reportTitle}`}>
-          <header className="subagent-report-header">
-            <span className="subagent-report-icon" aria-hidden="true">
-              <Bot size={15} />
-            </span>
-            <span className="subagent-report-heading">
-              <small>Sub-agent report</small>
-              <strong>{reportTitle}</strong>
-            </span>
-            <code title={reportThreadId}>{reportThreadId.slice(0, 8)}</code>
-            <button
-              type="button"
-              aria-label={`Copy report from ${reportTitle}`}
-              title="Copy report"
-              onClick={() => copyText(reportBody)}
-            >
-              <Copy size={14} />
-            </button>
-          </header>
-          <div className="subagent-report-body">
-            <MarkdownSegment text={reportBody} finalized />
-          </div>
-        </section>
+        <SubagentReportCard report={report} />
       </article>
     );
   }
@@ -403,53 +415,33 @@ function UserMessage({ message }) {
 function AssistantMessage({
   message,
   modelName,
+  workedMessages = [],
+  workedStartedAt,
   onFork,
   onRetry,
   onResume,
   runActive,
   questionPending,
   onSendContinuation,
+  onUndoEdits,
   onImplementPlan,
   onOpenFileReference,
   showContinuations,
 }) {
   const [usageOpen, setUsageOpen] = useState(false);
+  const [selectedEdit, setSelectedEdit] = useState(null);
+  const [showAllEdits, setShowAllEdits] = useState(false);
   const [resuming, setResuming] = useState(false);
   const usageRef = useRef(null);
   const content = message.content || '';
   const activelyStreaming = message.status === 'streaming' && runActive;
-  const timeline = useMemo(() => {
-    const parsedTimeline = buildTimelineFromContent(content);
-    const toolSegments = (message.segments ?? [])
-      .filter((segment) => segment.type === 'tool-call');
-
-    for (const timelineItem of parsedTimeline) {
-      if (timelineItem.type !== 'thinking') continue;
-      for (const item of timelineItem.items) {
-        if (!['tool', 'tool-call', 'server-tool'].includes(item.type)) continue;
-        const matchingIndex = toolSegments.findIndex((segment) => segment.name === item.name);
-        if (matchingIndex < 0) continue;
-        Object.assign(item, toolSegments.splice(matchingIndex, 1)[0]);
-      }
-    }
-
-    return parsedTimeline
-      .map((item) => (
-        item.type === 'thinking'
-          ? {
-              ...item,
-              items: item.items.filter((segment) => segment.name !== 'ask_question'),
-            }
-          : item
-      ))
-      .filter((item) => item.type !== 'thinking' || item.items.length > 0);
-  }, [content, message.segments]);
+  const timeline = useMemo(() => buildMessageTimeline(message), [content, message.segments]);
   const timelinePartition = useMemo(
     () => partitionTimeline(timeline, activelyStreaming),
     [activelyStreaming, timeline],
   );
   const durationLabel = formatWorkedDuration(
-    message.createdAt,
+    workedStartedAt ?? message.createdAt,
     activelyStreaming ? null : message.updatedAt,
   );
   const answerText = useMemo(() => answerTextFromTextualBlocks(content), [content]);
@@ -468,6 +460,10 @@ function AssistantMessage({
   const canResumeFromFailure = showContinuations
     && message.status !== 'completed'
     && !activelyStreaming;
+  const edits = useMemo(
+    () => consolidateFileEdits([...workedMessages, message]),
+    [message, workedMessages],
+  );
 
   useEffect(() => {
     if (!usageOpen) return undefined;
@@ -484,12 +480,13 @@ function AssistantMessage({
   return (
     <article className="message-row assistant-row">
       <div className="assistant-message">
-        {timeline.length > 0 ? (
+        {timeline.length > 0 || workedMessages.length > 0 ? (
           <div className="assistant-timeline">
-            {timelinePartition.workedItems.length > 0 && (
+            {(timelinePartition.workedItems.length > 0 || workedMessages.length > 0) && (
               <WorkedBlock
-                key={workedBlockKey(timelinePartition)}
+                key={workedBlockKey(timelinePartition, workedMessages)}
                 items={timelinePartition.workedItems}
+                messages={workedMessages}
                 label={durationLabel}
                 onOpenFileReference={onOpenFileReference}
               />
@@ -512,6 +509,18 @@ function AssistantMessage({
         ) : null}
         {activelyStreaming && !questionPending && (
           <div className="assistant-placeholder">Thinking</div>
+        )}
+        {!activelyStreaming && message.status === 'completed' && edits.length > 0 && (
+          <EditSummary
+            edits={edits}
+            expanded={showAllEdits}
+            onToggleExpanded={() => setShowAllEdits((expanded) => !expanded)}
+            onOpen={setSelectedEdit}
+            onUndo={() => onUndoEdits(createUndoPrompt(edits))}
+          />
+        )}
+        {selectedEdit && (
+          <EditDiffDialog edit={selectedEdit} onClose={() => setSelectedEdit(null)} />
         )}
         {!activelyStreaming && (
           <div className="message-footer">
@@ -646,6 +655,81 @@ function AssistantMessage({
         )}
       </div>
     </article>
+  );
+}
+
+
+function EditSummary({ edits, expanded, onToggleExpanded, onOpen, onUndo }) {
+  const visibleEdits = expanded ? edits : edits.slice(0, 3);
+  return (
+    <section className="edit-summary" aria-label="Edit summary">
+      <header className="edit-summary-header">
+        <span className="edit-summary-icon" aria-hidden="true"><FileDiff size={17} /></span>
+        <strong>Edited {edits.length} {edits.length === 1 ? 'file' : 'files'}</strong>
+        <button className="edit-summary-undo" type="button" onClick={onUndo}>
+          Undo <RotateCcw size={14} />
+        </button>
+      </header>
+      <div className="edit-summary-files">
+        {visibleEdits.map((edit) => (
+          <button key={edit.filePath} type="button" onClick={() => onOpen(edit)}>
+            <span title={edit.filePath}>{edit.filePath}</span>
+            <span className="edit-summary-stats">
+              <ins>+{edit.additions}</ins> <del>-{edit.deletions}</del>
+            </span>
+          </button>
+        ))}
+      </div>
+      {edits.length > 3 && (
+        <button className="edit-summary-more" type="button" onClick={onToggleExpanded}>
+          {expanded ? 'Show fewer files' : `Show ${edits.length - 3} more files`}
+          <ChevronDown size={14} className={expanded ? 'is-open' : ''} />
+        </button>
+      )}
+    </section>
+  );
+}
+
+function EditDiffDialog({ edit, onClose }) {
+  useEffect(() => {
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
+
+  return (
+    <div className="edit-diff-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="edit-diff-dialog" role="dialog" aria-modal="true" aria-label={`Changes to ${edit.filePath}`}>
+        <header>
+          <span><FileDiff size={17} /><strong>{edit.filePath}</strong></span>
+          <button type="button" aria-label="Close diff" onClick={onClose}><X size={17} /></button>
+        </header>
+        <div className="edit-diff-columns">
+          <EditDiffPane title="Before" lines={edit.beforeLines} start={edit.beforeStartLine} end={edit.beforeEndLine} emptyLabel="File did not exist" />
+          <EditDiffPane title="After" lines={edit.afterLines} start={edit.afterStartLine} end={edit.afterEndLine} emptyLabel="Empty file" />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function EditDiffPane({ title, lines, start, end, emptyLabel }) {
+  return (
+    <section className="edit-diff-pane">
+      <header>{title}</header>
+      <pre>{lines.length === 0 ? <span className="edit-diff-empty">{emptyLabel}</span> : lines.map((line, index) => {
+        const lineNumber = index + 1;
+        return (
+          <span key={lineNumber} className={classNames('edit-diff-line', lineNumber >= start && lineNumber <= end && 'is-changed')}>
+            <span>{lineNumber}</span><code>{line || ' '}</code>
+          </span>
+        );
+      })}</pre>
+    </section>
   );
 }
 
@@ -895,7 +979,45 @@ function normalizeLanguage(className) {
   }[language] ?? language;
 }
 
-function WorkedBlock({ items, label, onOpenFileReference }) {
+function WorkedMessage({ message, onOpenFileReference }) {
+  const structured = parseStructuredUserMessage(message);
+  if (structured?.type === 'subagent-report') return <SubagentReportCard report={structured} />;
+  if (structured?.type === 'cross-thread-message') {
+    return (
+      <section className="subagent-report-card cross-thread-message-card">
+        <header className="subagent-report-header">
+          <span className="subagent-report-icon" aria-hidden="true"><ArrowRightLeft size={15} /></span>
+          <span className="subagent-report-heading"><small>Cross-thread message</small><strong>From thread</strong></span>
+          <code title={structured.sourceThreadId}>{structured.sourceThreadId.slice(0, 8)}</code>
+        </header>
+        <div className="subagent-report-body"><MarkdownSegment text={structured.body} finalized /></div>
+      </section>
+    );
+  }
+  return buildMessageTimeline(message).map((item, index, timeline) => (
+    <TimelineItem key={message.id + ':' + item.id} item={item} streaming={false}
+      trailing={index === timeline.length - 1} onOpenFileReference={onOpenFileReference} />
+  ));
+}
+
+function buildMessageTimeline(message) {
+  const parsedTimeline = buildTimelineFromContent(message.content || '');
+  const toolSegments = (message.segments ?? []).filter((segment) => segment.type === 'tool-call');
+  for (const timelineItem of parsedTimeline) {
+    if (timelineItem.type !== 'thinking') continue;
+    for (const item of timelineItem.items) {
+      if (!['tool', 'tool-call', 'server-tool'].includes(item.type)) continue;
+      const matchingIndex = toolSegments.findIndex((segment) => segment.name === item.name);
+      if (matchingIndex >= 0) Object.assign(item, toolSegments.splice(matchingIndex, 1)[0]);
+    }
+  }
+  return parsedTimeline.map((item) => item.type === 'thinking' ? {
+    ...item,
+    items: item.items.filter((segment) => segment.name !== 'ask_question'),
+  } : item).filter((item) => item.type !== 'thinking' || item.items.length > 0);
+}
+
+function WorkedBlock({ items, messages, label, onOpenFileReference }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -907,6 +1029,13 @@ function WorkedBlock({ items, label, onOpenFileReference }) {
       <div className="worked-details" aria-hidden={!open}>
         {open && (
           <div className="worked-details-inner">
+            {messages.map((message) => (
+              <WorkedMessage
+                key={message.id}
+                message={message}
+                onOpenFileReference={onOpenFileReference}
+              />
+            ))}
             {items.map((item, index) => (
               <TimelineItem
                 key={item.id}
@@ -1057,8 +1186,9 @@ function partitionTimeline(timeline, streaming) {
   };
 }
 
-function workedBlockKey({ workedItems, finalItems }) {
+function workedBlockKey({ workedItems, finalItems }, messages) {
   return [
+    messages.map((message) => message.id).join(','),
     workedItems.at(-1)?.id ?? 'none',
     finalItems[0]?.id ?? 'none',
   ].join(':');
