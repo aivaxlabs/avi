@@ -1,6 +1,6 @@
 [data-theme="axion"] {
-  --primary-color: #00af66;
-  --primary-color-opaque: #00af6622;
+  --primary-color: #b97900;
+  --primary-color-opaque: #b9790022;
   --text-1: #171717;
   --text-2: #404040;
   --text-3: #686868;
@@ -29,8 +29,8 @@
   --prism-class: #953800;
 
   &[data-color-scheme="dark"] {
-    --primary-color: #58fdb8;
-    --primary-color-opaque: #58fdb822;
+    --primary-color: #f9b635;
+    --primary-color-opaque: #f9b63522;
     --text-1: #f3f3f3;
     --text-2: #c5c5c5;
     --text-3: #a6a6a6;

@@ -233,7 +233,9 @@ export function SettingsPage({
   initialContextFolder = null,
   initialView = null,
   appearance,
+  desktop,
   onAppearanceChange,
+  onDesktopChange,
   onClose,
   onSave,
   onRemove,
@@ -241,7 +243,7 @@ export function SettingsPage({
   onSaveTuning,
 }) {
   const [view, setView] = useState(
-    initialView ?? (initialContextFolder ? 'context-folder' : 'list'),
+    initialView ?? (initialContextFolder ? 'context-folder' : 'general'),
   );
   const [selectedId, setSelectedId] = useState(null);
   const [providerDraft, setProviderDraft] = useState(null);
@@ -407,13 +409,14 @@ export function SettingsPage({
     type: 'Add provider',
     provider: providerDraft?.name || 'New provider',
     model: modelDraft?.name || (modelIndex < 0 ? 'New model' : 'Edit model'),
-    'context-folders': 'Context management',
+    'context-folders': 'Context',
     'context-folder': selectedContextFolder?.name || 'Context',
     mcp: mcpNavigation?.title || 'MCP servers',
-    remote: 'Remote',
+    remote: 'Remote control',
     'default-models': 'Default models',
+    general: 'General',
     tuning: 'Tuning',
-    appearance: 'Appearance',
+    personalization: 'Personalization',
     about: 'About Avi',
   }[view];
   const pageDescription = {
@@ -429,11 +432,12 @@ export function SettingsPage({
       || 'Manage global and per-folder Model Context Protocol servers.',
     remote: 'Expose Avi orchestration through a local authenticated MCP server.',
     'default-models': 'Choose models for supporting tasks, supervision, and sub-agent orchestration.',
-    tuning: 'Adjust agent behavior, context, tool execution, and parallel work.',
-    appearance: 'Choose a theme and color scheme, with a live preview.',
+    general: 'Configure chat behavior and desktop integration.',
+    tuning: 'Adjust context, tool execution, parallel work, and diagnostics.',
+    personalization: 'Choose Avi’s personality, theme, and color scheme.',
     about: 'Project information, version, and links.',
   }[view];
-  const showInlineBack = !['list', 'context-folders', 'mcp', 'remote', 'default-models', 'tuning', 'about'].includes(view)
+  const showInlineBack = !['list', 'context-folders', 'mcp', 'remote', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
 
   return (
@@ -455,8 +459,56 @@ export function SettingsPage({
           />
         </div>
         <nav className="settings-navigation" aria-label="Settings sections">
-          <span>Configuration</span>
-          {(!settingsQuery || 'providers models api'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'general reasoning traces permission message delivery shell terminal background tray login logon'.includes(settingsQuery)) && (
+            <button
+              className={view === 'general' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'general' ? 'page' : undefined}
+              onClick={() => {
+                setView('general');
+                setError('');
+                setTuningSaved(false);
+              }}
+            >
+              <Boxes size={16} />
+              General
+            </button>
+          )}
+          {(!settingsQuery || 'tuning compaction output terminal timeout sub-agents diagnostics logging logs'.includes(settingsQuery)) && (
+            <button
+              className={view === 'tuning' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'tuning' ? 'page' : undefined}
+              onClick={() => {
+                setView('tuning');
+                setError('');
+                setTuningSaved(false);
+              }}
+            >
+              <SlidersHorizontal size={16} />
+              Tuning
+            </button>
+          )}
+          {(!settingsQuery || 'personalization personality theme themes color scheme light dark monokai absolute code goblin axion preview'.includes(settingsQuery)) && (
+            <button
+              className={view === 'personalization' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'personalization' ? 'page' : undefined}
+              onClick={() => {
+                setView('personalization');
+                setPreviewScheme(appearance.scheme);
+                setError('');
+                setTuningSaved(false);
+              }}
+            >
+              <Palette size={16} />
+              Personalization
+            </button>
+          )}
+
+          <div className="settings-navigation-separator" role="separator" />
+          <span>Models</span>
+          {(!settingsQuery || 'models providers api'.includes(settingsQuery)) && (
             <button
               className={['list', 'type', 'provider', 'model'].includes(view) ? 'active' : undefined}
               type="button"
@@ -473,51 +525,7 @@ export function SettingsPage({
               Providers
             </button>
           )}
-          {(!settingsQuery || 'context management instructions skills workflows'.includes(settingsQuery)) && (
-            <button
-              className={view.startsWith('context-') ? 'active' : undefined}
-              type="button"
-              aria-current={view.startsWith('context-') ? 'page' : undefined}
-              onClick={() => {
-                setView('context-folders');
-                setSelectedContextFolder(null);
-                setContextFolder(null);
-                setError('');
-              }}
-            >
-              <FolderCog size={16} />
-              Context management
-            </button>
-          )}
-          {(!settingsQuery || 'mcp servers integrations tools'.includes(settingsQuery)) && (
-            <button
-              className={view === 'mcp' ? 'active' : undefined}
-              type="button"
-              aria-current={view === 'mcp' ? 'page' : undefined}
-              onClick={() => {
-                setView('mcp');
-                setError('');
-              }}
-            >
-              <RadioTower size={16} />
-              MCP servers
-            </button>
-          )}
-          {(!settingsQuery || 'remote mcp http api key bearer token port'.includes(settingsQuery)) && (
-            <button
-              className={view === 'remote' ? 'active' : undefined}
-              type="button"
-              aria-current={view === 'remote' ? 'page' : undefined}
-              onClick={() => {
-                setView('remote');
-                setError('');
-              }}
-            >
-              <Globe2 size={16} />
-              Remote
-            </button>
-          )}
-          {(!settingsQuery || 'default models auxiliary supervision quick chat sub-agent orchestration fallback reasoning'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'models default auxiliary supervision quick chat sub-agent orchestration fallback reasoning'.includes(settingsQuery)) && (
             <button
               className={view === 'default-models' ? 'active' : undefined}
               type="button"
@@ -532,63 +540,67 @@ export function SettingsPage({
               Default models
             </button>
           )}
-          {(
-            !settingsQuery
-            || (
-              'tuning compaction output permission message queue steer enter '
-              + 'shell terminal timeout sub-agents personality candid cynical friendly '
-              + 'pragmatic quirky behavior reasoning traces visible hidden logging logs '
-              + 'verbose minimal disabled diagnostics'
-            ).includes(settingsQuery)
-          ) && (
+          {(!settingsQuery || 'context instructions skills workflows'.includes(settingsQuery)) && (
             <button
-              className={view === 'tuning' ? 'active' : undefined}
+              className={view.startsWith('context-') ? 'active' : undefined}
               type="button"
-              aria-current={view === 'tuning' ? 'page' : undefined}
+              aria-current={view.startsWith('context-') ? 'page' : undefined}
               onClick={() => {
-                setView('tuning');
-                setError('');
-                setTuningSaved(false);
-              }}
-            >
-              <SlidersHorizontal size={16} />
-              Tuning
-            </button>
-          )}
-          {(
-            !settingsQuery
-            || 'appearance theme themes color scheme light dark monokai absolute code goblin axion preview'.includes(settingsQuery)
-          ) && (
-            <button
-              className={view === 'appearance' ? 'active' : undefined}
-              type="button"
-              aria-current={view === 'appearance' ? 'page' : undefined}
-              onClick={() => {
-                setView('appearance');
-                setPreviewScheme(appearance.scheme);
+                setView('context-folders');
+                setSelectedContextFolder(null);
+                setContextFolder(null);
                 setError('');
               }}
             >
-              <Palette size={16} />
-              Appearance
+              <FolderCog size={16} />
+              Context
             </button>
           )}
+          {(!settingsQuery || 'mcp servers integrations tools'.includes(settingsQuery)) && (
+            <button
+              className={view === 'mcp' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'mcp' ? 'page' : undefined}
+              onClick={() => {
+                setView('mcp');
+                setError('');
+              }}
+            >
+              <RadioTower size={16} />
+              MCP Servers
+            </button>
+          )}
+
+          <div className="settings-navigation-separator" role="separator" />
+          {(!settingsQuery || 'remote control mcp http api key bearer token port'.includes(settingsQuery)) && (
+            <button
+              className={view === 'remote' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'remote' ? 'page' : undefined}
+              onClick={() => {
+                setView('remote');
+                setError('');
+              }}
+            >
+              <Globe2 size={16} />
+              Remote control
+            </button>
+          )}
+
+          <div className="settings-navigation-separator" role="separator" />
           {(!settingsQuery || 'about avi version website github repository project'.includes(settingsQuery)) && (
-            <>
-              <span>Product</span>
-              <button
-                className={view === 'about' ? 'active' : undefined}
-                type="button"
-                aria-current={view === 'about' ? 'page' : undefined}
-                onClick={() => {
-                  setView('about');
-                  setError('');
-                }}
-              >
-                <Info size={16} />
-                About
-              </button>
-            </>
+            <button
+              className={view === 'about' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'about' ? 'page' : undefined}
+              onClick={() => {
+                setView('about');
+                setError('');
+              }}
+            >
+              <Info size={16} />
+              About
+            </button>
           )}
         </nav>
       </aside>
@@ -882,16 +894,6 @@ export function SettingsPage({
             )}
 
             {view === 'remote' && <RemoteSettings />}
-            {view === 'appearance' && (
-              <AppearanceSettings
-                appearance={appearance}
-                previewScheme={previewScheme}
-                onChange={(next) => {
-                  setPreviewScheme(next.scheme);
-                  onAppearanceChange(next);
-                }}
-              />
-            )}
             {view === 'mcp' && (
               <McpSettings
                 initialFolder={initialContextFolder}
@@ -1045,246 +1047,255 @@ export function SettingsPage({
               </div>
             )}
 
+            {view === 'general' && tuningDraft && (
+              <div className="settings-tuning">
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>Chat</h3>
+                    <p>Set the defaults used by conversations and terminal commands.</p>
+                  </div>
+                  <div className="settings-section-card settings-form">
+                    <label className="settings-field settings-field-wide">
+                    <span>Chat reasoning traces</span>
+                    <select
+                    value={tuningDraft.chatReasoningTraces}
+                    onChange={(event) => {
+                    setTuningSaved(false);
+                    setTuningDraft((current) => ({
+                    ...current,
+                    chatReasoningTraces: event.target.value,
+                    }));
+                    }}
+                    >
+                    <option value="visible">Visible</option>
+                    <option value="hidden">Hidden</option>
+                    </select>
+                    <small>
+                    Controls whether reasoning and tool trace blocks appear in chats.
+                    </small>
+                    </label>
+                    <label className="settings-field settings-field-wide">
+                    <span>Default permission mode</span>
+                    <select
+                    value={tuningDraft.defaultPermissionMode}
+                    onChange={(event) => {
+                    setTuningSaved(false);
+                    setTuningDraft((current) => ({
+                    ...current,
+                    defaultPermissionMode: event.target.value,
+                    }));
+                    }}
+                    >
+                    <option value="ask_for_approval">Ask for approval</option>
+                    <option value="approve_for_me">Approve for me</option>
+                    <option value="full_access">Full access</option>
+                    </select>
+                    <small>
+                    Used as the initial permission mode when a new conversation is created.
+                    </small>
+                    </label>
+                    <label className="settings-field settings-field-wide">
+                    <span>Message delivery mode</span>
+                    <select
+                    value={tuningDraft.messageDeliveryMode}
+                    onChange={(event) => {
+                    setTuningSaved(false);
+                    setTuningDraft((current) => ({
+                    ...current,
+                    messageDeliveryMode: event.target.value,
+                    }));
+                    }}
+                    >
+                    <option value="queue">Queue · Enter queues</option>
+                    <option value="steer">Steer · Enter steers</option>
+                    </select>
+                    <small>
+                    Queue uses Enter to enqueue and Ctrl+Enter to steer. Steer reverses these shortcuts.
+                    </small>
+                    </label>
+                    <label className="settings-field settings-field-wide">
+                    <span>Terminal shell</span>
+                    <select
+                    value={tuningDraft.terminalShell}
+                    disabled={!terminalShells}
+                    onChange={(event) => {
+                    setTuningSaved(false);
+                    setTuningDraft((current) => ({
+                    ...current,
+                    terminalShell: event.target.value,
+                    }));
+                    }}
+                    >
+                    {!selectedTerminalShell && tuningDraft.terminalShell !== 'auto' && (
+                    <option value={tuningDraft.terminalShell} disabled>
+                    {tuningDraft.terminalShell} · Not installed
+                    </option>
+                    )}
+                    {terminalShells?.map((shell) => (
+                    <option key={shell.id} value={shell.id}>
+                    {shell.label}
+                    </option>
+                    ))}
+                    </select>
+                    <small className={
+                    terminalShells && !selectedTerminalShell
+                    ? 'settings-field-warning'
+                    : undefined
+                    }>
+                    {!terminalShells
+                    ? 'Detecting installed shells...'
+                    : selectedTerminalShell
+                    ? `Commands run with ${selectedTerminalShell.label}. The installation is checked again before every command.`
+                    : 'This shell is no longer installed. Choose an available option to continue.'}
+                    </small>
+                    </label>
+                  </div>
+                </section>
+
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>Desktop</h3>
+                    <p>Control how Avi behaves when the window closes and when you sign in.</p>
+                  </div>
+                  <div className="settings-section-card appearance-desktop-card">
+                    <label className="appearance-desktop-option">
+                      <span className="appearance-desktop-copy">
+                        <strong>Keep Avi in the background</strong>
+                        <small>Continue running in the tray when the window is closed.</small>
+                      </span>
+                      <input
+                        className="appearance-desktop-switch"
+                        type="checkbox"
+                        checked={desktop?.closeToTray === true}
+                        onChange={(event) => onDesktopChange({ ...desktop, closeToTray: event.target.checked })}
+                      />
+                    </label>
+                    <label className="appearance-desktop-option">
+                      <span className="appearance-desktop-copy">
+                        <strong>Start Avi on logon</strong>
+                        <small>Launch Avi in the background when you sign in to your computer.</small>
+                      </span>
+                      <input
+                        className="appearance-desktop-switch"
+                        type="checkbox"
+                        checked={desktop?.openAtLogin === true}
+                        onChange={(event) => onDesktopChange({ ...desktop, openAtLogin: event.target.checked })}
+                      />
+                    </label>
+                  </div>
+                </section>
+              </div>
+            )}
+
             {view === 'tuning' && tuningDraft && (
               <div className="settings-tuning">
                 <section className="settings-section">
                   <div className="settings-section-heading">
-                    <h3>Agent behavior</h3>
-                    <p>Choose the communication style applied globally to every conversation.</p>
+                    <h3>Context</h3>
+                    <p>Choose when Avi compacts a conversation automatically.</p>
                   </div>
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
-                      <span>Personality</span>
-                      <select
-                        value={tuningDraft.personality ?? 'none'}
-                        onChange={(event) => {
-                          setTuningSaved(false);
-                          setTuningDraft((current) => ({
-                            ...current,
-                            personality: event.target.value === 'none'
-                              ? null
-                              : event.target.value,
-                          }));
-                        }}
-                      >
-                        <option value="none">None</option>
-                        <option value="candid">Candid</option>
-                        <option value="cynical">Cynical</option>
-                        <option value="friendly">Friendly</option>
-                        <option value="pragmatic">Pragmatic</option>
-                        <option value="quirky">Quirky</option>
-                      </select>
-                      <small>
-                        {personalityDescriptions[tuningDraft.personality ?? 'none']}
-                      </small>
-                    </label>
-                    <label className="settings-field settings-field-wide">
-                      <span>Chat reasoning traces</span>
-                      <select
-                        value={tuningDraft.chatReasoningTraces}
-                        onChange={(event) => {
-                          setTuningSaved(false);
-                          setTuningDraft((current) => ({
-                            ...current,
-                            chatReasoningTraces: event.target.value,
-                          }));
-                        }}
-                      >
-                        <option value="visible">Visible</option>
-                        <option value="hidden">Hidden</option>
-                      </select>
-                      <small>
-                        Controls whether reasoning and tool trace blocks appear in chats.
-                      </small>
+                    <span>Automatic compaction threshold</span>
+                    <select
+                    value={tuningDraft.automaticCompactionThreshold}
+                    onChange={(event) => {
+                    setTuningSaved(false);
+                    setTuningDraft((current) => ({
+                    ...current,
+                    automaticCompactionThreshold: Number(event.target.value),
+                    }));
+                    }}
+                    >
+                    <option value={0.8}>80%</option>
+                    <option value={0.9}>90%</option>
+                    <option value={0.95}>95%</option>
+                    </select>
+                    <small>
+                    Creates a context checkpoint after the selected share of the model window is used.
+                    </small>
                     </label>
                   </div>
                 </section>
-
                 <section className="settings-section">
                   <div className="settings-section-heading">
-                    <h3>Context and output</h3>
-                    <p>Control when context is compacted and how much tool output is retained.</p>
+                    <h3>Tool execution</h3>
+                    <p>Control retained tool output and the default terminal wait.</p>
                   </div>
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
-                      <span>Automatic compaction</span>
-                      <select
-                        value={tuningDraft.automaticCompactionThreshold}
-                        onChange={(event) => {
-                          setTuningSaved(false);
-                          setTuningDraft((current) => ({
-                            ...current,
-                            automaticCompactionThreshold: Number(event.target.value),
-                          }));
-                        }}
-                      >
-                        <option value={0.8}>80%</option>
-                        <option value={0.9}>90%</option>
-                        <option value={0.95}>95%</option>
-                      </select>
-                      <small>
-                        Creates a context checkpoint after the selected share of the model window is used.
-                      </small>
+                    <span>Tool output length</span>
+                    <select
+                    value={tuningDraft.toolOutputLimit ?? 'none'}
+                    onChange={(event) => {
+                    setTuningSaved(false);
+                    setTuningDraft((current) => ({
+                    ...current,
+                    toolOutputLimit: event.target.value === 'none'
+                    ? null
+                    : Number(event.target.value),
+                    }));
+                    }}
+                    >
+                    <option value={4_096}>Small · 1,024 tokens</option>
+                    <option value={8_192}>Medium · 2,048 tokens</option>
+                    <option value={32_768}>Long · 8,192 tokens</option>
+                    <option value="none">Disabled · No limit</option>
+                    </select>
+                    <small>
+                    Token count is estimated as output length divided by 4. Disabling truncation can exhaust the context window.
+                    </small>
                     </label>
                     <label className="settings-field settings-field-wide">
-                      <span>Tool output length</span>
-                      <select
-                        value={tuningDraft.toolOutputLimit ?? 'none'}
-                        onChange={(event) => {
-                          setTuningSaved(false);
-                          setTuningDraft((current) => ({
-                            ...current,
-                            toolOutputLimit: event.target.value === 'none'
-                              ? null
-                              : Number(event.target.value),
-                          }));
-                        }}
-                      >
-                        <option value={4_096}>Small · 1,024 tokens</option>
-                        <option value={8_192}>Medium · 2,048 tokens</option>
-                        <option value={32_768}>Long · 8,192 tokens</option>
-                        <option value="none">Disabled · No limit</option>
-                      </select>
-                      <small>
-                        Token count is estimated as output length divided by 4. Disabling truncation can exhaust the context window.
-                      </small>
+                    <span>Terminal timeout</span>
+                    <input
+                    type="number"
+                    min="5"
+                    max="300"
+                    step="1"
+                    value={tuningDraft.terminalTimeoutSeconds}
+                    onChange={(event) => {
+                    setTuningSaved(false);
+                    setTuningDraft((current) => ({
+                    ...current,
+                    terminalTimeoutSeconds: Number(event.target.value),
+                    }));
+                    }}
+                    />
+                    <small>
+                    Default wait in seconds when a terminal command does not provide its own timeout. From 5 to 300.
+                    </small>
                     </label>
                   </div>
                 </section>
-
-                <section className="settings-section">
-                  <div className="settings-section-heading">
-                    <h3>Execution and safety</h3>
-                    <p>Set the defaults applied to new conversations and terminal commands.</p>
-                  </div>
-                  <div className="settings-section-card settings-form">
-                    <label className="settings-field settings-field-wide">
-                      <span>Default permission mode</span>
-                      <select
-                        value={tuningDraft.defaultPermissionMode}
-                        onChange={(event) => {
-                          setTuningSaved(false);
-                          setTuningDraft((current) => ({
-                            ...current,
-                            defaultPermissionMode: event.target.value,
-                          }));
-                        }}
-                      >
-                        <option value="ask_for_approval">Ask for approval</option>
-                        <option value="approve_for_me">Approve for me</option>
-                        <option value="full_access">Full access</option>
-                      </select>
-                      <small>
-                        Used as the initial permission mode when a new conversation is created.
-                      </small>
-                    </label>
-                    <label className="settings-field settings-field-wide">
-                      <span>Message delivery</span>
-                      <select
-                        value={tuningDraft.messageDeliveryMode}
-                        onChange={(event) => {
-                          setTuningSaved(false);
-                          setTuningDraft((current) => ({
-                            ...current,
-                            messageDeliveryMode: event.target.value,
-                          }));
-                        }}
-                      >
-                        <option value="queue">Queue · Enter queues</option>
-                        <option value="steer">Steer · Enter steers</option>
-                      </select>
-                      <small>
-                        Queue uses Enter to enqueue and Ctrl+Enter to steer. Steer reverses these shortcuts.
-                      </small>
-                    </label>
-                    <label className="settings-field settings-field-wide">
-                      <span>Terminal shell</span>
-                      <select
-                        value={tuningDraft.terminalShell}
-                        disabled={!terminalShells}
-                        onChange={(event) => {
-                          setTuningSaved(false);
-                          setTuningDraft((current) => ({
-                            ...current,
-                            terminalShell: event.target.value,
-                          }));
-                        }}
-                      >
-                        {!selectedTerminalShell && tuningDraft.terminalShell !== 'auto' && (
-                          <option value={tuningDraft.terminalShell} disabled>
-                            {tuningDraft.terminalShell} · Not installed
-                          </option>
-                        )}
-                        {terminalShells?.map((shell) => (
-                          <option key={shell.id} value={shell.id}>
-                            {shell.label}
-                          </option>
-                        ))}
-                      </select>
-                      <small className={
-                        terminalShells && !selectedTerminalShell
-                          ? 'settings-field-warning'
-                          : undefined
-                      }>
-                        {!terminalShells
-                          ? 'Detecting installed shells...'
-                          : selectedTerminalShell
-                            ? `Commands run with ${selectedTerminalShell.label}. The installation is checked again before every command.`
-                            : 'This shell is no longer installed. Choose an available option to continue.'}
-                      </small>
-                    </label>
-                    <label className="settings-field settings-field-wide">
-                      <span>Terminal timeout</span>
-                      <input
-                        type="number"
-                        min="5"
-                        max="300"
-                        step="1"
-                        value={tuningDraft.terminalTimeoutSeconds}
-                        onChange={(event) => {
-                          setTuningSaved(false);
-                          setTuningDraft((current) => ({
-                            ...current,
-                            terminalTimeoutSeconds: Number(event.target.value),
-                          }));
-                        }}
-                      />
-                      <small>
-                        Default wait in seconds when a terminal command does not provide its own timeout. From 5 to 300.
-                      </small>
-                    </label>
-                  </div>
-                </section>
-
                 <section className="settings-section">
                   <div className="settings-section-heading">
                     <h3>Orchestration</h3>
-                    <p>Bound parallel agent work to match the capacity of this machine.</p>
+                    <p>Bound parallel agent work for each conversation.</p>
                   </div>
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
-                      <span>Running sub-agents</span>
-                      <input
-                        type="number"
-                        min="1"
-                        max="128"
-                        step="1"
-                        value={tuningDraft.maxConcurrentSubagents}
-                        onChange={(event) => {
-                          setTuningSaved(false);
-                          setTuningDraft((current) => ({
-                            ...current,
-                            maxConcurrentSubagents: Number(event.target.value),
-                          }));
-                        }}
-                      />
-                      <small>
-                        Global maximum of sub-agents that may run at the same time. From 1 to 128.
-                      </small>
+                    <span>Max concurrent sub-agents per thread</span>
+                    <input
+                    type="number"
+                    min="1"
+                    max="128"
+                    step="1"
+                    value={tuningDraft.maxConcurrentSubagents}
+                    onChange={(event) => {
+                    setTuningSaved(false);
+                    setTuningDraft((current) => ({
+                    ...current,
+                    maxConcurrentSubagents: Number(event.target.value),
+                    }));
+                    }}
+                    />
+                    <small>
+                    Global maximum of sub-agents that may run at the same time. From 1 to 128.
+                    </small>
                     </label>
                   </div>
                 </section>
-
                 <section className="settings-section">
                   <div className="settings-section-heading">
                     <h3>Diagnostics</h3>
@@ -1292,27 +1303,73 @@ export function SettingsPage({
                   </div>
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
-                      <span>Log level</span>
-                      <select
-                        value={tuningDraft.logLevel}
-                        onChange={(event) => {
-                          setTuningSaved(false);
-                          setTuningDraft((current) => ({
-                            ...current,
-                            logLevel: event.target.value,
-                          }));
-                        }}
-                      >
-                        <option value="verbose">Verbose · Detailed timings and errors</option>
-                        <option value="minimal">Minimal · Errors only</option>
-                        <option value="disabled">Disabled · No logging</option>
-                      </select>
-                      <small>
-                        Logs never include prompts, messages, tool inputs, attachments, API keys, or user file paths.
-                      </small>
+                    <span>Diagnosis log level</span>
+                    <select
+                    value={tuningDraft.logLevel}
+                    onChange={(event) => {
+                    setTuningSaved(false);
+                    setTuningDraft((current) => ({
+                    ...current,
+                    logLevel: event.target.value,
+                    }));
+                    }}
+                    >
+                    <option value="verbose">Verbose · Detailed timings and errors</option>
+                    <option value="minimal">Minimal · Errors only</option>
+                    <option value="disabled">Disabled · No logging</option>
+                    </select>
+                    <small>
+                    Logs never include prompts, messages, tool inputs, attachments, API keys, or user file paths.
+                    </small>
                     </label>
                   </div>
                 </section>
+              </div>
+            )}
+
+            {view === 'personalization' && tuningDraft && (
+              <div className="settings-tuning">
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>Personality</h3>
+                    <p>Choose the communication style applied globally to every conversation.</p>
+                  </div>
+                  <div className="settings-section-card settings-form">
+                    <label className="settings-field settings-field-wide">
+                    <span>Personality</span>
+                    <select
+                    value={tuningDraft.personality ?? 'none'}
+                    onChange={(event) => {
+                    setTuningSaved(false);
+                    setTuningDraft((current) => ({
+                    ...current,
+                    personality: event.target.value === 'none'
+                    ? null
+                    : event.target.value,
+                    }));
+                    }}
+                    >
+                    <option value="none">None</option>
+                    <option value="candid">Candid</option>
+                    <option value="cynical">Cynical</option>
+                    <option value="friendly">Friendly</option>
+                    <option value="pragmatic">Pragmatic</option>
+                    <option value="quirky">Quirky</option>
+                    </select>
+                    <small>
+                    {personalityDescriptions[tuningDraft.personality ?? 'none']}
+                    </small>
+                    </label>
+                  </div>
+                </section>
+                <AppearanceSettings
+                  appearance={appearance}
+                  previewScheme={previewScheme}
+                  onChange={(next) => {
+                    setPreviewScheme(next.scheme);
+                    onAppearanceChange(next);
+                  }}
+                />
               </div>
             )}
 
@@ -1796,7 +1853,7 @@ export function SettingsPage({
           </div>
         </div>
 
-        {(view === 'provider' || view === 'model' || view === 'tuning' || view === 'default-models') && (
+        {(view === 'provider' || view === 'model' || ['general', 'tuning', 'personalization'].includes(view) || view === 'default-models') && (
           <footer className="settings-actions">
             <span className="settings-error" role="alert">{error}</span>
             <div>
@@ -1831,7 +1888,7 @@ export function SettingsPage({
                     setDefaultModelsSaved(true);
                     return;
                   }
-                  if (view === 'tuning') {
+                  if (['general', 'tuning', 'personalization'].includes(view)) {
                     const saved = await onSaveTuning(tuningDraft);
                     setTuningDraft(saved);
                     setTuningSaved(true);
@@ -1866,7 +1923,7 @@ export function SettingsPage({
                   }
                 })}
               >
-                {(tuningSaved && view === 'tuning') || (defaultModelsSaved && view === 'default-models')
+                {(tuningSaved && ['general', 'tuning', 'personalization'].includes(view)) || (defaultModelsSaved && view === 'default-models')
                   ? <CheckCircle2 size={14} />
                   : <Save size={14} />}
                 {busy
@@ -1877,7 +1934,7 @@ export function SettingsPage({
                       ? 'Save model'
                       : view === 'default-models'
                       ? defaultModelsSaved ? 'Saved' : 'Save default models'
-                      : tuningSaved ? 'Saved' : 'Save tuning'}
+                      : tuningSaved ? 'Saved' : 'Save changes'}
               </button>
             </div>
           </footer>

@@ -117,6 +117,12 @@
       font-weight: 500;
     }
 
+    .settings-navigation-separator {
+      height: 1px;
+      margin: 8px 8px 6px;
+      background: var(--border-1);
+    }
+
     button {
       display: flex;
       align-items: center;

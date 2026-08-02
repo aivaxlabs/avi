@@ -17,6 +17,7 @@ export const themes = Object.freeze([
     id: 'absolute',
     name: 'Absolute',
     tagline: 'Warm paper and clay tones, inspired by Claude. Calm and editorial.',
+    emptyChatBackground: false,
   },
   {
     id: 'code',
