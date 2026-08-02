@@ -56,6 +56,9 @@ export const responsesApi = {
       model: model.modelId,
       ...(prepared.dynamicContext ? { instructions: prepared.dynamicContext } : {}),
       input: [
+        ...(prepared.dynamicUserContext
+          ? [{ role: 'user', content: prepared.dynamicUserContext }]
+          : []),
         ...messages.map((message) => ({
           ...message,
           content: Array.isArray(message.content)
@@ -218,7 +221,7 @@ export const responsesApi = {
   },
 };
 
-const chatCompletionsApi = {
+export const chatCompletionsApi = {
   async createBody({
     provider,
     model,
@@ -235,6 +238,9 @@ const chatCompletionsApi = {
       messages: [
         ...(prepared.dynamicContext
           ? [{ role: 'system', content: prepared.dynamicContext }]
+          : []),
+        ...(prepared.dynamicUserContext
+          ? [{ role: 'user', content: prepared.dynamicUserContext }]
           : []),
         ...messages,
         ...toolHistory.flatMap((round) => [

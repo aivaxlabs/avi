@@ -11,6 +11,7 @@ import path from 'node:path';
 import {
   listContextItems,
   resolveDynamicContext,
+  resolveDynamicUserContext,
   resolveInstallationContextPath,
 } from '../src/main/context-injection.js';
 import {
@@ -292,10 +293,12 @@ try {
     workspacePath: testHome,
     installationContextPath: installationContextDirectory,
   });
+  const homeUserContext = await resolveDynamicUserContext({ workspacePath: testHome });
   assert.ok(homeInjected.includes('# Global test instructions'));
   assert.ok(!homeInjected.includes('# Ignored home root instructions'));
   assert.ok(!homeInjected.includes('<workspace_instructions>'));
-  assert.ok(homeInjected.includes('The home directory is not scanned as a workspace.'));
+  assert.ok(!homeInjected.includes('<current_workspace>'));
+  assert.ok(homeUserContext.includes('The home directory is not scanned as a workspace.'));
   const injected = await resolveDynamicContext({
     workspacePath: root,
     installationContextPath: installationContextDirectory,
@@ -304,6 +307,7 @@ try {
       text: 'MCP ordering test instructions',
     }],
   });
+  const injectedUserContext = await resolveDynamicUserContext({ workspacePath: root });
   const terminalShell = resolveTerminalShell();
   if (
     !injected.startsWith(baseInstructions.trim())
@@ -340,9 +344,10 @@ try {
     || injected.includes('Ignored Git instructions')
     || injected.includes('Ignored Visual Studio instructions')
     || !injected.includes(`Command execution shell: ${terminalShell.label}`)
-    || !injected.includes('#file:./path:12-52')
-    || !injected.includes('#file:<./path with spaces.js>:12')
-    || !injected.includes('Do not wrap the reference in backticks')
+    || injected.includes('<current_workspace>')
+    || !injectedUserContext.includes('#file:./path:12-52')
+    || !injectedUserContext.includes('#file:<./path with spaces.js>:12')
+    || !injectedUserContext.includes('Do not wrap the reference in backticks')
   ) {
     throw new Error('Context variants did not follow the expected root and nested rules.');
   }
@@ -365,7 +370,6 @@ try {
     '<available_context>',
     'MCP ordering test instructions',
     '<environment_info>',
-    '<current_workspace>',
   ];
   for (let index = 1; index < orderedMarkers.length; index += 1) {
     assert.ok(
@@ -568,10 +572,13 @@ try {
       mkdir(path.join(workspaceTreeRoot, 'node_modules')),
     ]);
     await Promise.all([
+      writeFile(path.join(workspaceTreeRoot, 'b-visible', '0.bin'), ''),
       writeFile(path.join(workspaceTreeRoot, 'b-visible', '1.txt'), ''),
       writeFile(path.join(workspaceTreeRoot, 'b-visible', '2.txt'), ''),
       writeFile(path.join(workspaceTreeRoot, 'b-visible', '3.txt'), ''),
       writeFile(path.join(workspaceTreeRoot, 'b-visible', '4.txt'), ''),
+      writeFile(path.join(workspaceTreeRoot, 'b-visible', '5.txt'), ''),
+      writeFile(path.join(workspaceTreeRoot, 'b-visible', '6.txt'), ''),
       writeFile(path.join(workspaceTreeRoot, 'node_modules', 'ignored.txt'), ''),
     ]);
 
@@ -582,25 +589,40 @@ try {
     }
     await writeFile(path.join(chainDirectory, 'beyond-limit.txt'), '');
 
-    const workspaceTreeContext = await resolveDynamicContext({
+    const workspaceTreeContext = await resolveDynamicUserContext({
       workspacePath: workspaceTreeRoot,
       installationContextPath: path.join(installationRoot, 'missing-context'),
     });
     const workspaceTree = workspaceTreeContext.match(/<current_workspace>[\s\S]*?<\/current_workspace>/)?.[0] ?? '';
     assert.ok(workspaceTree.includes('a-empty/'));
     assert.ok(workspaceTree.includes('b-visible/'));
-    assert.ok(workspaceTree.includes('\t1.txt\n\t2.txt\n\t3.txt\n\t...'));
-    assert.ok(!workspaceTree.includes('4.txt'));
+    assert.ok(workspaceTree.includes('\t1.txt\n\t2.txt\n\t3.txt\n\t4.txt\n\t5.txt'));
+    assert.ok(!workspaceTree.includes('0.bin'));
+    assert.ok(!workspaceTree.includes('6.txt'));
     assert.ok(!workspaceTree.includes('node_modules/'));
     assert.ok(!workspaceTree.includes('ignored.txt'));
-    const directoryLimitContext = await resolveDynamicContext({
+    const directoryLimitContext = await resolveDynamicUserContext({
       workspacePath: path.join(workspaceTreeRoot, 'chain-000'),
       installationContextPath: path.join(installationRoot, 'missing-context'),
     });
     const directoryLimitTree = directoryLimitContext.match(/<current_workspace>[\s\S]*?<\/current_workspace>/)?.[0] ?? '';
-    assert.ok(directoryLimitTree.includes('chain-100/'));
-    assert.ok(!directoryLimitTree.includes('chain-101/'));
+    assert.ok(directoryLimitTree.includes('chain-060/'));
+    assert.ok(!directoryLimitTree.includes('chain-061/'));
     assert.ok(!directoryLimitTree.includes('beyond-limit.txt'));
+
+    const breadthRoot = path.join(workspaceTreeRoot, 'breadth-limit');
+    await mkdir(breadthRoot);
+    await Promise.all(Array.from(
+      { length: 16 },
+      (_, index) => mkdir(path.join(breadthRoot, `directory-${String(index).padStart(2, '0')}`)),
+    ));
+    const breadthLimitContext = await resolveDynamicUserContext({
+      workspacePath: breadthRoot,
+      installationContextPath: path.join(installationRoot, 'missing-context'),
+    });
+    const breadthLimitTree = breadthLimitContext.match(/<current_workspace>[\s\S]*?<\/current_workspace>/)?.[0] ?? '';
+    assert.ok(breadthLimitTree.includes('directory-14/'));
+    assert.ok(!breadthLimitTree.includes('directory-15/'));
   } finally {
     await rm(workspaceTreeRoot, { recursive: true, force: true });
   }
@@ -641,8 +663,11 @@ try {
       workspacePath: symlinkWorkspace,
       installationContextPath: path.join(installationRoot, 'missing-context'),
     });
+    const symlinkUserContext = await resolveDynamicUserContext({
+      workspacePath: symlinkWorkspace,
+    });
     assert.ok(symlinkContext.includes('linked-context/AGENTS.linked.md'));
-    assert.ok(symlinkContext.includes('linked-context/'));
+    assert.ok(symlinkUserContext.includes('linked-context/'));
   } finally {
     await Promise.all([
       rm(symlinkWorkspace, { recursive: true, force: true }),
@@ -650,7 +675,7 @@ try {
     ]);
   }
 
-  const threadDirectory = await resolveDynamicContext({
+  const threadInvocationContext = {
     workspacePath: root,
     currentThread: {
       threadId: 'subagent-id',
@@ -675,18 +700,25 @@ try {
         threadId: 'side-chat-id',
         role: 'side_chat',
         parentThreadId: 'orchestrator-id',
-        initialPrompt: 'Explore an alternative.',
+        initialPrompt: `Explore an alternative. ${'x'.repeat(300)}`,
         status: 'completed',
       },
     ],
-  });
-  assert.ok(threadDirectory.includes('<current_thread id="subagent-id" role="subagent" parent_thread_id="orchestrator-id">'));
-  assert.ok(threadDirectory.includes('Side chats are private and are intentionally absent'));
-  assert.ok(threadDirectory.includes('<thread_directory>'));
-  assert.ok(threadDirectory.includes('<thread id="orchestrator-id" role="orchestrator" status="in_progress">'));
-  assert.ok(threadDirectory.includes('<thread id="subagent-id" role="subagent" status="idle" parent_thread_id="orchestrator-id">'));
-  assert.ok(threadDirectory.includes('<thread id="side-chat-id" role="side_chat" status="completed" parent_thread_id="orchestrator-id">'));
-  assert.ok(threadDirectory.includes('<initial_prompt>Analyze the implementation.</initial_prompt>'));
+  };
+  const threadSystemContext = await resolveDynamicContext(threadInvocationContext);
+  const threadUserContext = await resolveDynamicUserContext(threadInvocationContext);
+  assert.ok(threadSystemContext.includes('<current_thread id="subagent-id" role="subagent" parent_thread_id="orchestrator-id">'));
+  assert.ok(threadSystemContext.includes('Side chats are private and are intentionally absent'));
+  assert.ok(!threadSystemContext.includes('<thread_directory>'));
+  assert.ok(!threadSystemContext.includes('<current_workspace>'));
+  assert.ok(threadUserContext.startsWith('<thread_directory>'));
+  assert.ok(threadUserContext.includes('<thread id="orchestrator-id" role="orchestrator">'));
+  assert.ok(threadUserContext.includes('<thread id="subagent-id" role="subagent" parent_thread_id="orchestrator-id">'));
+  assert.ok(threadUserContext.includes('<thread id="side-chat-id" role="side_chat" parent_thread_id="orchestrator-id">'));
+  assert.ok(!threadUserContext.includes('status='));
+  assert.ok(threadUserContext.includes('<initial_prompt>Analyze the implementation.</initial_prompt>'));
+  assert.ok(threadUserContext.includes(`<initial_prompt>${`Explore an alternative. ${'x'.repeat(232)}`}...</initial_prompt>`));
+  assert.ok(threadUserContext.includes('</thread_directory>\n\n<current_workspace>'));
 
   console.log('Context variant discovery passed.');
 } finally {

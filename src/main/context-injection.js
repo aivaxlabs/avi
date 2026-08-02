@@ -26,13 +26,23 @@ const IGNORED_WORKSPACE_DIRECTORIES = new Set([
   'vendor',
   'venv',
 ]);
-const MAX_ENTRIES_PER_DIRECTORY = 3;
-const MAX_WORKSPACE_DIRECTORIES = 100;
+const MAX_WORKSPACE_DIRECTORIES_PER_LEVEL = 15;
+const MAX_WORKSPACE_FILES_PER_DIRECTORY = 5;
+const MAX_WORKSPACE_DIRECTORIES = 60;
+const TEXTUAL_WORKSPACE_FILE_EXTENSIONS = new Set([
+  '.c', '.cc', '.conf', '.cpp', '.cs', '.csproj', '.css', '.csv', '.fs', '.fsproj',
+  '.go', '.graphql', '.h', '.hpp', '.htm', '.html', '.ini', '.java', '.js', '.json',
+  '.jsx', '.kt', '.kts', '.less', '.log', '.lua', '.md', '.mjs', '.php', '.props',
+  '.ps1', '.py', '.rb', '.rs', '.sass', '.scss', '.sh', '.sln', '.sql', '.svg', '.swift',
+  '.targets', '.toml', '.ts', '.tsx', '.txt', '.vb', '.vbproj', '.xml', '.xcss', '.yaml',
+  '.yml',
+]);
 const MAX_CONTEXT_RECURSION_DEPTH = 6;
 const CONTEXT_SCAN_TIMEOUT_MS = 5_000;
 const CONTEXT_SCAN_CONCURRENCY = 32;
 const CONTEXT_DIRECTORY_NAME = '.agents';
 const baseInstructions = readFileSync(new URL('../prompts/base-instructions.md', import.meta.url), 'utf8');
+const quickChatInstructions = readFileSync(new URL('../prompts/quick-chat-instructions.md', import.meta.url), 'utf8');
 const candidPersonality = readFileSync(new URL('../prompts/personality/candid.md', import.meta.url), 'utf8');
 const cynicalPersonality = readFileSync(new URL('../prompts/personality/cynical.md', import.meta.url), 'utf8');
 const friendlyPersonality = readFileSync(new URL('../prompts/personality/friendly.md', import.meta.url), 'utf8');
@@ -49,8 +59,10 @@ const POST_INSTRUCTION_CONTEXT_ORDER = [
   'tasks',
   'subagents',
   'current-thread',
-  'threads',
   'environment',
+];
+const USER_CONTEXT_ORDER = [
+  'threads',
   'workspace',
 ];
 
@@ -168,7 +180,7 @@ export const dynamicContextInjectors = new Map([
           `<current_thread id="${escapeXml(currentThread.threadId)}" role="${escapeXml(currentThread.role)}"${currentThread.parentThreadId ? ` parent_thread_id="${escapeXml(currentThread.parentThreadId)}"` : ''}>`,
           'This identifies the current conversation. The thread directory lists visible conversations, including their roles, relationships, and initial prompts.',
           currentThread.role === 'side_chat'
-            ? 'As a side chat, you can see side chats and other visible conversations. Other conversation types cannot discover side chats.'
+            ? 'As a side chat, you can see your orchestrator and its sub-agents. Other conversation types cannot discover side chats.'
             : 'Side chats are private and are intentionally absent from your thread directory.',
           '</current_thread>',
         ].join('\n')
@@ -178,13 +190,18 @@ export const dynamicContextInjectors = new Map([
     Array.isArray(threads) && threads.length > 0
       ? [
           '<thread_directory>',
-          ...threads.flatMap((thread) => [
-            `<thread id="${escapeXml(thread.threadId)}" role="${escapeXml(thread.role)}" status="${escapeXml(thread.status)}"${thread.parentThreadId ? ` parent_thread_id="${escapeXml(thread.parentThreadId)}"` : ''}>`,
-            `<initial_prompt>${escapeXml(
-              String(thread.initialPrompt ?? '').replace(/\s+/g, ' ').trim().slice(0, 256),
-            )}</initial_prompt>`,
-            '</thread>',
-          ]),
+          ...threads.flatMap((thread) => {
+            const initialPrompt = String(thread.initialPrompt ?? '').replace(/\s+/g, ' ').trim();
+            return [
+              `<thread id="${escapeXml(thread.threadId)}" role="${escapeXml(thread.role)}"${thread.parentThreadId ? ` parent_thread_id="${escapeXml(thread.parentThreadId)}"` : ''}>`,
+              `<initial_prompt>${escapeXml(
+                initialPrompt.length > 256
+                  ? `${initialPrompt.slice(0, 256)}...`
+                  : initialPrompt,
+              )}</initial_prompt>`,
+              '</thread>',
+            ];
+          }),
           '</thread_directory>',
         ].join('\n')
       : ''
@@ -237,7 +254,7 @@ export const dynamicContextInjectors = new Map([
       }
 
       const nextAncestorDirectories = new Set(ancestorDirectories).add(directoryKey);
-      const filteredEntries = (await Promise.all(entries
+      const filteredEntries = await Promise.all(entries
         .filter((entry) => !IGNORED_WORKSPACE_DIRECTORIES.has(entry.name.toLowerCase()))
         .map(async (entry) => {
           if (!entry.isSymbolicLink()) return { entry, isDirectory: entry.isDirectory() };
@@ -246,28 +263,41 @@ export const dynamicContextInjectors = new Map([
           } catch {
             return { entry, isDirectory: false };
           }
-        })))
-        .sort((left, right) => (
-          Number(left.isDirectory) - Number(right.isDirectory)
-          || left.entry.name.localeCompare(right.entry.name, undefined, { numeric: true })
+        }));
+      const files = filteredEntries
+        .filter(({ isDirectory }) => !isDirectory)
+        .sort((left, right) => {
+          const leftExtension = path.extname(left.entry.name).toLowerCase();
+          const rightExtension = path.extname(right.entry.name).toLowerCase();
+          const leftIsTextual = !leftExtension || TEXTUAL_WORKSPACE_FILE_EXTENSIONS.has(leftExtension);
+          const rightIsTextual = !rightExtension || TEXTUAL_WORKSPACE_FILE_EXTENSIONS.has(rightExtension);
+          return Number(!leftIsTextual) - Number(!rightIsTextual)
+            || left.entry.name.localeCompare(right.entry.name, undefined, { numeric: true });
+        });
+      const directories = filteredEntries
+        .filter(({ isDirectory }) => isDirectory)
+        .sort((left, right) => left.entry.name.localeCompare(
+          right.entry.name,
+          undefined,
+          { numeric: true },
         ));
-      const visibleEntries = filteredEntries.slice(0, MAX_ENTRIES_PER_DIRECTORY);
-      let truncated = filteredEntries.length > visibleEntries.length;
+      const visibleFiles = files.slice(0, MAX_WORKSPACE_FILES_PER_DIRECTORY);
+      const visibleDirectories = directories.slice(0, MAX_WORKSPACE_DIRECTORIES_PER_LEVEL);
+      let truncated = files.length > visibleFiles.length
+        || directories.length > visibleDirectories.length;
 
-      for (const { entry, isDirectory } of visibleEntries) {
-        const indentation = '\t'.repeat(depth);
-        const name = escapeXml(entry.name);
-        if (!isDirectory) {
-          structure.push(`${indentation}${name}`);
-          continue;
-        }
+      for (const { entry } of visibleFiles) {
+        structure.push(`${'\t'.repeat(depth)}${escapeXml(entry.name)}`);
+      }
+
+      for (const { entry } of visibleDirectories) {
         if (directoryCount >= MAX_WORKSPACE_DIRECTORIES) {
           truncated = true;
           continue;
         }
 
         directoryCount += 1;
-        structure.push(`${indentation}${name}/`);
+        structure.push(`${'\t'.repeat(depth)}${escapeXml(entry.name)}/`);
         await appendDirectory(
           path.join(directoryPath, entry.name),
           depth + 1,
@@ -436,7 +466,30 @@ export const dynamicContextInjectors = new Map([
   }],
 ]);
 
+export async function resolveDynamicUserContext(invocationContext = {}) {
+  if (invocationContext.quickChat) return '';
+
+  const contexts = await Promise.all(USER_CONTEXT_ORDER.map((name) => (
+    dynamicContextInjectors.get(name)?.(invocationContext)
+  )));
+  return contexts
+    .map((context) => String(context ?? '').trim())
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 export async function resolveDynamicContext(invocationContext = {}) {
+  if (invocationContext.quickChat) {
+    return [
+      quickChatInstructions,
+      dynamicContextInjectors.get('mcp')?.(invocationContext),
+      dynamicContextInjectors.get('environment')?.(invocationContext),
+    ]
+      .map((context) => String(context ?? '').trim())
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
   const personalityInjector = dynamicContextInjectors.get('personality');
   const instructionsInjector = dynamicContextInjectors.get('instructions');
   const [

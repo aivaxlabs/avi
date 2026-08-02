@@ -1,5 +1,8 @@
 import { interceptToolSchemas } from './client-tools.js';
-import { resolveDynamicContext } from './context-injection.js';
+import {
+  resolveDynamicContext,
+  resolveDynamicUserContext,
+} from './context-injection.js';
 
 export const REASONING_EFFORTS = Object.freeze([
   'none',
@@ -25,8 +28,13 @@ export function defineProvider(provider) {
 }
 
 export async function prepareProviderInvocation(tools, invocationContext) {
+  const [dynamicContext, dynamicUserContext] = await Promise.all([
+    resolveDynamicContext(invocationContext),
+    resolveDynamicUserContext(invocationContext),
+  ]);
   return {
-    dynamicContext: await resolveDynamicContext(invocationContext),
+    dynamicContext,
+    dynamicUserContext,
     tools: interceptToolSchemas(tools, invocationContext?.permissionMode),
   };
 }
