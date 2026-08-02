@@ -93,7 +93,14 @@
   }
 
   &.chat-empty {
-    --composer-bottom: calc(50% - 60px);
+    --composer-bottom: min(
+      calc(50% - 60px),
+      calc(100% - var(--composer-clearance, 176px) - 14px)
+    );
+
+    &:has(.command-picker) {
+      --composer-bottom: 0;
+    }
   }
 
   > .composer-wrap {

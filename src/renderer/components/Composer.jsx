@@ -35,6 +35,7 @@ import {
   Workflow,
   X,
   Zap,
+  Ellipsis,
 } from 'lucide-react';
 import {
   useEffect,

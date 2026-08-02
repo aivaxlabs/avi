@@ -62,6 +62,7 @@ import {
   updateConversation,
 } from './database.js';
 import { ChatRunner } from './chat-runner.js';
+import { QuickChatRunner } from './quick-chat-runner.js';
 import { validateDefaultModels } from './default-models.js';
 import { stopConversationTerminals } from './client-tools.js';
 import {
@@ -108,8 +109,11 @@ let startHidden = process.argv.includes('--hidden');
 let mainWindow;
 let tray;
 let chatRunner;
+let quickChatRunner;
 let mcpManager;
 let remoteMcpServer;
+let remoteStartError = '';
+const quickChatWindows = new Map();
 let shutdownStarted = false;
 let shutdownReady = false;
 let isQuitting = false;
@@ -122,6 +126,7 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (shutdownStarted) return;
   shutdownStarted = true;
+  for (const sessionId of quickChatWindows.keys()) quickChatRunner?.close(sessionId);
   Promise.resolve(chatRunner?.shutdown())
     .then(() => mcpManager?.closeAll())
     .then(() => remoteMcpServer?.close())
@@ -220,6 +225,76 @@ function sendRendererEvent(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
 }
 
+function openMainView(payload) {
+  showMainWindow();
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const sendNavigation = () => mainWindow?.webContents.send('app:navigate', payload);
+  if (mainWindow.webContents.isLoadingMainFrame()) {
+    mainWindow.webContents.once('did-finish-load', sendNavigation);
+  } else {
+    sendNavigation();
+  }
+}
+
+function sendQuickChatEvent(sessionId, payload) {
+  const quickWindow = quickChatWindows.get(sessionId);
+  if (quickWindow && !quickWindow.isDestroyed()) {
+    quickWindow.webContents.send('quick-chat:event', payload);
+  }
+}
+
+function createQuickChatWindow() {
+  initializeServices();
+  const session = quickChatRunner.createSession();
+  const icon = nativeImage.createFromPath(join(__dirname, '../../assets/icon/avi-bg.png'));
+  const quickWindow = new BrowserWindow({
+    title: 'Quick chat',
+    width: 540,
+    height: 680,
+    minWidth: 380,
+    minHeight: 460,
+    frame: true,
+    show: false,
+    maximizable: false,
+    fullscreenable: false,
+    icon,
+    webPreferences: {
+      preload: join(__dirname, '../preload/preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  quickChatWindows.set(session.id, quickWindow);
+  quickWindow.setMenu(null);
+  quickWindow.on('closed', () => {
+    quickChatWindows.delete(session.id);
+    quickChatRunner.close(session.id);
+  });
+  quickWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  quickWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isTrustedRendererUrl(url)) {
+      event.preventDefault();
+      if (/^https?:/.test(url)) void shell.openExternal(url);
+    }
+  });
+  quickWindow.once('ready-to-show', () => quickWindow.show());
+  if (process.env.VITE_DEV_SERVER_URL) {
+    const url = new URL(process.env.VITE_DEV_SERVER_URL);
+    url.searchParams.set('window', 'quick-chat');
+    url.searchParams.set('session', session.id);
+    void quickWindow.loadURL(url.href);
+  } else {
+    void quickWindow.loadFile(join(app.getAppPath(), 'dist', 'index.html'), {
+      query: { window: 'quick-chat', session: session.id },
+    });
+  }
+  return { sessionId: session.id };
+}
+
 function createWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) return showMainWindow();
   const icon = nativeImage.createFromPath(join(__dirname, '../../assets/icon/avi-bg.png'));
@@ -308,7 +383,14 @@ function initializeServices() {
       registry: providerRegistry,
       mcpManager,
       getPreferences,
-      sendEvent: (payload) => sendRendererEvent('chat:event', payload),
+      sendEvent: (payload) => {
+        sendRendererEvent('chat:event', payload);
+        if (
+          ['conversation', 'run-state', 'question-request', 'question-cancelled', 'permission-request', 'permission-cancelled']
+            .includes(payload.type)
+          || (payload.type === 'message' && payload.message?.role === 'user')
+        ) refreshTrayMenu();
+      },
       savePermissionGuidance: async ({ workspacePath, invocationSummary }) => {
         const agentsPath = join(homedir(), '.agents');
         const guidancePath = join(agentsPath, 'MEMORY.permissionguidance.md');
@@ -322,12 +404,26 @@ function initializeServices() {
       stopBackgroundTasks: stopConversationTerminals,
     });
   }
+  if (!quickChatRunner) {
+    quickChatRunner = new QuickChatRunner({
+      registry: providerRegistry,
+      mcpManager,
+      chatRunner,
+      getPreferences,
+      sendEvent: sendQuickChatEvent,
+      stopBackgroundTasks: stopConversationTerminals,
+    });
+  }
   if (!remoteMcpServer) {
     remoteMcpServer = new RemoteMcpServer({ chatRunner, providerRegistry, getPreferences, getApiKey: getRemoteApiKey });
     const settings = getRemoteSettings();
     if (settings.enabled && !getRemoteApiKey()) setRemoteSettings({ ...settings, enabled: false });
     else if (settings.enabled) remoteMcpServer.start(settings.port).catch((error) => {
-      setRemoteSettings({ ...settings, enabled: false });
+      if (error?.code === 'EADDRINUSE') {
+        remoteStartError = `Remote control could not start in this Avi instance because port ${settings.port} is already in use.`;
+      } else {
+        setRemoteSettings({ ...settings, enabled: false });
+      }
       traceError('remote.start-error', { error: error instanceof Error ? error.message : String(error) });
     });
   }
@@ -339,12 +435,32 @@ function createTray() {
   const trayIcon = nativeImage.createFromPath(iconPath);
   tray = new Tray(trayIcon);
   tray.setToolTip('Avi');
+  refreshTrayMenu();
+  tray.on('click', showMainWindow);
+}
+
+function refreshTrayMenu() {
+  if (!tray) return;
+  const recentChats = listConversations().slice(0, 5).map((conversation) => {
+    const run = chatRunner?.runs.get(conversation.id);
+    const status = ['approval', 'question'].includes(run?.phase)
+      ? 'input required'
+      : run
+        ? 'working'
+        : 'done';
+    return {
+      label: `${conversation.title} - ${status}`,
+      click: () => openMainView({ view: 'conversation', conversationId: conversation.id }),
+    };
+  });
   tray.setContextMenu(Menu.buildFromTemplate([
+    ...(recentChats.length > 0 ? [...recentChats, { type: 'separator' }] : []),
+    { label: 'Quick chat', click: createQuickChatWindow },
     { label: 'Open Avi', click: showMainWindow },
     { type: 'separator' },
-    { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
+    { label: 'Settings', click: () => openMainView({ view: 'settings' }) },
+    { label: 'Exit', click: () => { isQuitting = true; app.quit(); } },
   ]));
-  tray.on('click', showMainWindow);
 }
 
 export function showMainWindow() {
@@ -405,6 +521,32 @@ function logDefaultModelWarnings(operation) {
 }
 
 function registerIpc() {
+  const ownedQuickChatSession = (event, sessionId) => {
+    const quickWindow = quickChatWindows.get(sessionId);
+    if (!quickWindow || quickWindow.webContents !== event.sender) {
+      throw new Error('Quick chat session is not owned by this window.');
+    }
+    return sessionId;
+  };
+  applicationIpc.handle('quick-chat:open', () => createQuickChatWindow());
+  applicationIpc.handle('quick-chat:state', (event, sessionId) => (
+    quickChatRunner.state(ownedQuickChatSession(event, sessionId))
+  ));
+  applicationIpc.handle('quick-chat:send', (event, payload) => quickChatRunner.send({
+    ...payload,
+    sessionId: ownedQuickChatSession(event, payload?.sessionId),
+  }));
+  applicationIpc.handle('quick-chat:stop', (event, sessionId) => (
+    quickChatRunner.stop(ownedQuickChatSession(event, sessionId))
+  ));
+  applicationIpc.handle('quick-chat:answer-question', (event, payload) => (
+    quickChatRunner.answerQuestion({
+      ...payload,
+      sessionId: ownedQuickChatSession(event, payload?.sessionId),
+    })
+  ));
+
+
   applicationIpc.handle('app:state', () => ({
     ...getPreferences(),
     defaultModelWarnings: validateDefaultModels(
@@ -464,6 +606,7 @@ function registerIpc() {
       ...settings,
       hasApiKey: Boolean(getRemoteApiKey()),
       running: Boolean(remoteMcpServer?.running),
+      startError: remoteStartError,
       endpoint: `http://127.0.0.1:${settings.port}/mcp${getRemoteApiKey() ? `/${getRemoteApiKey()}` : ''}`,
     };
   };
@@ -474,15 +617,22 @@ function registerIpc() {
     const validated = setRemoteSettings({ ...next, enabled: false });
     if (!next.enabled) {
       await remoteMcpServer?.close();
+      remoteStartError = '';
       setRemoteSettings(validated);
       return remoteState();
     }
     if (!getRemoteApiKey()) await setRemoteApiKey();
     try {
       await remoteMcpServer.start(validated.port);
+      remoteStartError = '';
       setRemoteSettings({ ...validated, enabled: true });
       return remoteState();
     } catch (error) {
+      if (error?.code === 'EADDRINUSE' && !remoteMcpServer.running) {
+        remoteStartError = `Remote control could not start in this Avi instance because port ${validated.port} is already in use.`;
+        setRemoteSettings({ ...validated, enabled: true });
+        return remoteState();
+      }
       setRemoteSettings(current);
       throw error;
     }
@@ -499,6 +649,7 @@ function registerIpc() {
   });
   applicationIpc.handle('remote:remove-key', async () => {
     await remoteMcpServer?.close();
+    remoteStartError = '';
     setRemoteSettings({ ...getRemoteSettings(), enabled: false });
     await deleteRemoteApiKey();
     return remoteState();
@@ -739,8 +890,16 @@ function registerIpc() {
     };
   });
   applicationIpc.handle('chat:retry', (_event, payload) => chatRunner.retry(payload));
-  applicationIpc.handle('chat:resolve-approval', (_event, payload) => chatRunner.resolveApproval(payload));
-  applicationIpc.handle('chat:answer-question', (_event, payload) => chatRunner.answerQuestion(payload));
+  applicationIpc.handle('chat:resolve-approval', async (_event, payload) => {
+    const result = await chatRunner.resolveApproval(payload);
+    refreshTrayMenu();
+    return result;
+  });
+  applicationIpc.handle('chat:answer-question', (_event, payload) => {
+    const result = chatRunner.answerQuestion(payload);
+    refreshTrayMenu();
+    return result;
+  });
   applicationIpc.handle('chat:compress', (_event, payload) => chatRunner.compress({
     conversationId: payload?.conversationId,
     model: payload?.model,

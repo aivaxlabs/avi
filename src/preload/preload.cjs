@@ -20,6 +20,15 @@ contextBridge.exposeInMainWorld('chatApp', {
   app: {
     state: () => invoke('app:state'),
     openExternal: (url) => invoke('app:open-external', url),
+    onNavigate: (callback) => subscribe('app:navigate', callback),
+  },
+  quickChat: {
+    open: () => invoke('quick-chat:open'),
+    state: (sessionId) => invoke('quick-chat:state', sessionId),
+    send: (payload) => invoke('quick-chat:send', payload),
+    stop: (sessionId) => invoke('quick-chat:stop', sessionId),
+    answerQuestion: (payload) => invoke('quick-chat:answer-question', payload),
+    onEvent: (callback) => subscribe('quick-chat:event', callback),
   },
   desktop: {
     save: (settings) => invoke('desktop:save', settings),

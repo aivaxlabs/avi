@@ -53,6 +53,29 @@ function escapeXmlAttribute(value) {
     .replaceAll('>', '&gt;');
 }
 
+function FileEditPane({ title, lines, start, end, emptyLabel }) {
+  return (
+    <section className="files-edit-pane">
+      <header>{title}</header>
+      <pre>{lines.length === 0 ? (
+        <span className="files-edit-empty">{emptyLabel}</span>
+      ) : lines.map((line, index) => {
+        const lineNumber = index + 1;
+        return (
+          <span
+            className={`files-edit-line${
+              lineNumber >= start && lineNumber <= end ? ' is-changed' : ''
+            }`}
+            key={lineNumber}
+          >
+            <span>{lineNumber}</span><code>{line || ' '}</code>
+          </span>
+        );
+      })}</pre>
+    </section>
+  );
+}
+
 function FileIcon({
   dark,
   expanded,
@@ -187,6 +210,23 @@ export function FilesPanel({
 
   useEffect(() => {
     if (!workspace || !navigation?.path || !project?.path) return undefined;
+    if (navigation.kind === 'edit' && navigation.edit) {
+      setSelectedPath(navigation.path);
+      setPreview({
+        kind: 'edit',
+        name: navigation.path.split(/[\\/]/).at(-1),
+        edit: navigation.edit,
+      });
+      setPreviewLine(null);
+      setPreviewLineTo(null);
+      setSelectionAction(null);
+      setSearchQuery('');
+      setSearchResults(null);
+      setError('');
+      setLoadingPath('');
+      onNavigationConsumed?.(navigation.id);
+      return undefined;
+    }
     let active = true;
     const normalizedRoot = project.path.replaceAll('\\', '/').replace(/\/+$/, '');
     const normalizedTarget = navigation.path.replaceAll('\\', '/');
@@ -725,6 +765,7 @@ export function FilesPanel({
                 title="Back to files"
                 onClick={() => {
                   setSelectedPath('');
+                  setPreview(null);
                   setPreviewLine(null);
                   setPreviewLineTo(null);
                 }}
@@ -768,6 +809,23 @@ export function FilesPanel({
                 <div className="files-panel-state">
                   <LoaderCircle className="spin" size={18} aria-hidden="true" />
                   <span>Opening preview…</span>
+                </div>
+              ) : preview?.kind === 'edit' ? (
+                <div className="files-edit-columns" aria-label={`Changes to ${selectedPath}`}>
+                  <FileEditPane
+                    title="Before"
+                    lines={preview.edit.beforeLines}
+                    start={preview.edit.beforeStartLine}
+                    end={preview.edit.beforeEndLine}
+                    emptyLabel="File did not exist"
+                  />
+                  <FileEditPane
+                    title="After"
+                    lines={preview.edit.afterLines}
+                    start={preview.edit.afterStartLine}
+                    end={preview.edit.afterEndLine}
+                    emptyLabel="Empty file"
+                  />
                 </div>
               ) : preview?.kind === 'text' ? (
                 <pre

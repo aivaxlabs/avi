@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   Check,
   Copy,
   RefreshCw,
@@ -59,8 +60,8 @@ export function RemoteSettings() {
 
   return (
     <section className="settings-section remote-settings">
-      <div className="settings-section-card remote-card">
-        <div className="remote-header">
+      <div className="settings-section-card settings-row-card">
+        <div className="settings-card-row remote-header">
           <div className="remote-heading">
             <h3>Remote MCP server</h3>
             <p>Allow local MCP clients to use Avi orchestration tools.</p>
@@ -80,7 +81,14 @@ export function RemoteSettings() {
           </label>
         </div>
 
-        <div className="remote-row">
+        {state.startError && (
+          <div className="remote-start-warning" role="alert">
+            <AlertTriangle size={16} aria-hidden="true" />
+            <span>{state.startError}</span>
+          </div>
+        )}
+
+        <div className="settings-card-row">
           <div className="remote-row-copy">
             <strong>Port</strong>
             <span>Changes are applied when you leave the field.</span>
@@ -105,7 +113,7 @@ export function RemoteSettings() {
           />
         </div>
 
-        <div className="remote-row remote-endpoint-row">
+        <div className="settings-card-row remote-endpoint-row">
           <div className="remote-row-copy">
             <strong>Endpoint</strong>
             <span className={state.running ? 'remote-status running' : 'remote-status'}>
@@ -116,7 +124,7 @@ export function RemoteSettings() {
           <code>{state.endpoint}</code>
         </div>
 
-        <div className="remote-row remote-auth-row">
+        <div className="settings-card-row">
           <div className="remote-row-copy">
             <strong>Access key</strong>
             <span>

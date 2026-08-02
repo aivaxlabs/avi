@@ -14,6 +14,7 @@ import {
   Globe,
   Info,
   ListChecks,
+  LoaderCircle,
   MessageSquarePlus,
   MessagesSquare,
   RotateCcw,
@@ -187,6 +188,7 @@ export function Message({
   questionPending,
   onSendContinuation,
   onUndoEdits,
+  onOpenFileEdit,
   onImplementPlan,
   onOpenFileReference,
   showContinuations,
@@ -228,6 +230,7 @@ export function Message({
       questionPending={questionPending}
       onSendContinuation={onSendContinuation}
       onUndoEdits={onUndoEdits}
+      onOpenFileEdit={onOpenFileEdit}
       onImplementPlan={onImplementPlan}
       onOpenFileReference={onOpenFileReference}
       showContinuations={showContinuations}
@@ -424,12 +427,12 @@ function AssistantMessage({
   questionPending,
   onSendContinuation,
   onUndoEdits,
+  onOpenFileEdit,
   onImplementPlan,
   onOpenFileReference,
   showContinuations,
 }) {
   const [usageOpen, setUsageOpen] = useState(false);
-  const [selectedEdit, setSelectedEdit] = useState(null);
   const [showAllEdits, setShowAllEdits] = useState(false);
   const [resuming, setResuming] = useState(false);
   const usageRef = useRef(null);
@@ -515,12 +518,13 @@ function AssistantMessage({
             edits={edits}
             expanded={showAllEdits}
             onToggleExpanded={() => setShowAllEdits((expanded) => !expanded)}
-            onOpen={setSelectedEdit}
+            onOpen={(edit) => onOpenFileEdit({
+              kind: 'edit',
+              path: edit.filePath,
+              edit,
+            })}
             onUndo={() => onUndoEdits(createUndoPrompt(edits))}
           />
-        )}
-        {selectedEdit && (
-          <EditDiffDialog edit={selectedEdit} onClose={() => setSelectedEdit(null)} />
         )}
         {!activelyStreaming && (
           <div className="message-footer">
@@ -686,49 +690,6 @@ function EditSummary({ edits, expanded, onToggleExpanded, onOpen, onUndo }) {
           <ChevronDown size={14} className={expanded ? 'is-open' : ''} />
         </button>
       )}
-    </section>
-  );
-}
-
-function EditDiffDialog({ edit, onClose }) {
-  useEffect(() => {
-    const closeOnEscape = (event) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [onClose]);
-
-  return (
-    <div className="edit-diff-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose();
-    }}>
-      <section className="edit-diff-dialog" role="dialog" aria-modal="true" aria-label={`Changes to ${edit.filePath}`}>
-        <header>
-          <span><FileDiff size={17} /><strong>{edit.filePath}</strong></span>
-          <button type="button" aria-label="Close diff" onClick={onClose}><X size={17} /></button>
-        </header>
-        <div className="edit-diff-columns">
-          <EditDiffPane title="Before" lines={edit.beforeLines} start={edit.beforeStartLine} end={edit.beforeEndLine} emptyLabel="File did not exist" />
-          <EditDiffPane title="After" lines={edit.afterLines} start={edit.afterStartLine} end={edit.afterEndLine} emptyLabel="Empty file" />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function EditDiffPane({ title, lines, start, end, emptyLabel }) {
-  return (
-    <section className="edit-diff-pane">
-      <header>{title}</header>
-      <pre>{lines.length === 0 ? <span className="edit-diff-empty">{emptyLabel}</span> : lines.map((line, index) => {
-        const lineNumber = index + 1;
-        return (
-          <span key={lineNumber} className={classNames('edit-diff-line', lineNumber >= start && lineNumber <= end && 'is-changed')}>
-            <span>{lineNumber}</span><code>{line || ' '}</code>
-          </span>
-        );
-      })}</pre>
     </section>
   );
 }
@@ -1122,9 +1083,20 @@ function MutedSegment({ segment }) {
         onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
       >
         <summary className="tool-line">
+          {segment.resultText === undefined && (
+            <LoaderCircle
+              className="tool-line-spinner"
+              size={12}
+              aria-label="Waiting for tool output"
+            />
+          )}
           <ToolIcon className="tool-line-icon" size={13} aria-hidden="true" />
           <strong>{name}</strong>
-          {reason && <span>{reason}</span>}
+          {reason && (
+            <span className={segment.resultText === undefined ? 'tool-line-pending-text' : undefined}>
+              {reason}
+            </span>
+          )}
           <ChevronRight className="tool-line-chevron" size={13} aria-hidden="true" />
         </summary>
         {formattedDetails && (

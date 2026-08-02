@@ -3,7 +3,7 @@ import {
   ChevronRight,
   UploadCloud,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Composer } from './Composer.jsx';
@@ -100,7 +100,7 @@ function getModelDisplayName(models, modelId) {
   return model?.name ?? identifier?.slice(identifier.indexOf(':') + 1) ?? 'Model';
 }
 
-export function ChatView({
+export const ChatView = memo(function ChatView({
   currentConversation,
   currentMessages,
   currentModel,
@@ -127,6 +127,7 @@ export function ChatView({
   onSteerQueued,
   onSendContinuation,
   onUndoEdits,
+  onOpenFileEdit,
   onImplementPlan,
   questionRequest,
   onAnswerQuestion,
@@ -609,6 +610,7 @@ export function ChatView({
                   )}
                   onSendContinuation={onSendContinuation}
                   onUndoEdits={onUndoEdits}
+                  onOpenFileEdit={onOpenFileEdit}
                   onImplementPlan={() => onImplementPlan?.()}
                   onOpenFileReference={onOpenFileReference}
                   showContinuations={message.id === lastAssistantMessage?.id}
@@ -833,7 +835,48 @@ export function ChatView({
       />
     </Root>
   );
-}
+}, (previous, next) => {
+  const allProps = new Set([...Object.keys(previous), ...Object.keys(next)]);
+  return [...allProps].every((property) => {
+    if (property === 'currentProject') {
+      return previous[property] === next[property] || (
+        previous[property]?.path === next[property]?.path
+        && previous[property]?.name === next[property]?.name
+        && previous[property]?.displayPath === next[property]?.displayPath
+        && previous[property]?.gitBranch === next[property]?.gitBranch
+      );
+    }
+    if (property === 'recentProjects') {
+      const previousProjects = previous[property] ?? [];
+      const nextProjects = next[property] ?? [];
+      return previousProjects.length === nextProjects.length
+        && previousProjects.every((project, index) => (
+          project.path === nextProjects[index]?.path
+          && project.name === nextProjects[index]?.name
+          && project.displayPath === nextProjects[index]?.displayPath
+          && project.gitBranch === nextProjects[index]?.gitBranch
+        ));
+    }
+    if (property === 'subagents') {
+      const previousSubagents = previous[property] ?? [];
+      const nextSubagents = next[property] ?? [];
+      return previousSubagents.length === nextSubagents.length
+        && previousSubagents.every((subagent, index) => (
+          subagent.id === nextSubagents[index]?.id
+          && subagent.status === nextSubagents[index]?.status
+          && subagent.title === nextSubagents[index]?.title
+          && subagent.firstPrompt === nextSubagents[index]?.firstPrompt
+        ));
+    }
+    if (property === 'recentModels') {
+      const previousModels = previous[property] ?? [];
+      const nextModels = next[property] ?? [];
+      return previousModels.length === nextModels.length
+        && previousModels.every((model, index) => model === nextModels[index]);
+    }
+    return Object.is(previous[property], next[property]);
+  });
+});
 
 function hasFileTransfer(dataTransfer) {
   if (!dataTransfer) return false;

@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -54,6 +55,12 @@ const initialAuxiliaryPanelWidth = Number.isFinite(savedAuxiliaryPanelWidth)
       ),
     );
 
+function useStableCallback(callback) {
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+  return useCallback((...args) => callbackRef.current(...args), []);
+}
+
 function applyPendingOrder(messages, order) {
   const positions = new Map([
     ...(order?.steerMessageIds ?? []).map((messageId, index) => [messageId, index]),
@@ -83,6 +90,7 @@ export default function App() {
   const [settingsInitialView, setSettingsInitialView] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [error, setError] = useState('');
+  const [conversationErrors, setConversationErrors] = useState({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
@@ -122,14 +130,18 @@ export default function App() {
 
   const currentConversation = conversations.find((item) => item.id === selectedId) ?? null;
   const currentMessages = messagesByConversation[selectedId] ?? [];
-  const currentProject = currentConversation
+  const currentProject = useMemo(() => (currentConversation
     ? {
         path: currentConversation.projectPath,
         name: currentConversation.projectName,
         displayPath: currentConversation.projectDisplayPath,
         gitBranch: currentConversation.gitBranch,
       }
-    : draftProject ?? appState?.defaultProject ?? null;
+    : draftProject ?? appState?.defaultProject ?? null), [
+    appState?.defaultProject,
+    currentConversation,
+    draftProject,
+  ]);
   const recentProjects = useMemo(() => {
     const paths = new Set();
     const projects = [];
@@ -252,11 +264,21 @@ export default function App() {
         setSettingsOpen(nextModels.length === 0);
 
         if (nextConversations[0]) {
-          setDraftModel(nextConversations[0].model);
-          const messages = await api.conversations.messages(nextConversations[0].id);
+          const initialConversation = nextConversations[0];
+          setDraftModel(initialConversation.model);
+          if (selectedConversationIdRef.current === null) {
+            selectedConversationIdRef.current = initialConversation.id;
+            setSelectedId(initialConversation.id);
+          }
+          const messages = await api.conversations.messages(initialConversation.id);
           if (!active) return;
-          setSelectedId(nextConversations[0].id);
-          setMessagesByConversation({ [nextConversations[0].id]: messages });
+          setMessagesByConversation((state) => ({
+            ...state,
+            [initialConversation.id]: (state[initialConversation.id] ?? []).reduce(
+              (items, message) => upsertMessage(items, message),
+              messages,
+            ),
+          }));
         }
         await api.goals.resume();
       })
@@ -290,6 +312,37 @@ export default function App() {
       changeWorkMode(null, currentConversation.id);
     }
   }, [currentConversation?.goal?.status, currentConversation?.id, workMode]);
+
+  useEffect(() => api.app.onNavigate(async ({ view, conversationId }) => {
+    setOrchestrationOpen(false);
+    setSearchOpen(false);
+    if (view === 'settings') {
+      setSettingsContextFolder(null);
+      setSettingsInitialView(null);
+      setSettingsOpen(true);
+      return;
+    }
+    if (view !== 'conversation' || !conversationId) return;
+    const nextConversations = await api.conversations.list();
+    const conversation = nextConversations.find((item) => item.id === conversationId);
+    if (!conversation) return;
+    setConversations(nextConversations.map((item) => (
+      item.id === conversationId ? { ...item, needsAttention: false } : item
+    )));
+    setCompletedUnseen((state) => {
+      if (!state[conversationId]) return state;
+      const next = { ...state };
+      delete next[conversationId];
+      return next;
+    });
+    setSettingsOpen(false);
+    if (conversation.model) setDraftModel(conversation.model);
+    inspectedConversationIdRef.current = conversationId;
+    selectedConversationIdRef.current = conversationId;
+    setSelectedId(conversationId);
+    const messages = await api.conversations.messages(conversationId);
+    setMessagesByConversation((state) => ({ ...state, [conversationId]: messages }));
+  }), []);
 
   useEffect(() => (
     api.onChatEvent((event) => {
@@ -395,12 +448,28 @@ export default function App() {
           (request) => request.questionId !== event.questionId,
         ));
       } else if (event.type === 'error') {
-        setError(event.message);
+        setConversationErrors((state) => ({
+          ...state,
+          [event.conversationId]: event.message,
+        }));
+        if (event.conversationId !== selectedConversationIdRef.current) {
+          setConversations((state) => state.map((conversation) => (
+            conversation.id === event.conversationId
+              ? { ...conversation, needsAttention: true }
+              : conversation
+          )));
+        }
       }
     })
   ), []);
 
-  const activeApprovalRequest = approvalRequests[0] ?? null;
+  const activeApprovalRequest = approvalRequests.find(
+    (request) => request.conversationId === selectedId,
+  ) ?? null;
+  const approvalPending = useMemo(() => Object.fromEntries(
+    approvalRequests.map((request) => [request.conversationId, true]),
+  ), [approvalRequests]);
+  const currentConversationError = selectedId ? conversationErrors[selectedId] ?? '' : '';
 
   useEffect(() => {
     if (!activeApprovalRequest) return undefined;
@@ -415,7 +484,9 @@ export default function App() {
         approvalId: activeApprovalRequest.approvalId,
         decision: 'disallow',
       }).then((resolved) => {
-        if (resolved) setApprovalRequests((state) => state.slice(1));
+        if (resolved) setApprovalRequests((state) => state.filter(
+          (request) => request.approvalId !== activeApprovalRequest.approvalId,
+        ));
       }).catch((nextError) => {
         setError(nextError instanceof Error ? nextError.message : String(nextError));
       });
@@ -576,12 +647,18 @@ export default function App() {
     const conversation = conversations.find((item) => item.id === id);
     if (conversation?.model) setDraftModel(conversation.model);
     inspectedConversationIdRef.current = id;
+    setConversations((state) => state.map((item) => (
+      item.id === id && item.needsAttention
+        ? { ...item, needsAttention: false }
+        : item
+    )));
     setCompletedUnseen((state) => {
       if (!state[id]) return state;
       const next = { ...state };
       delete next[id];
       return next;
     });
+    selectedConversationIdRef.current = id;
     setSelectedId(id);
     if (!messagesByConversation[id]) {
       const messages = await api.conversations.messages(id);
@@ -662,6 +739,7 @@ export default function App() {
       return;
     }
 
+    const selectedIdBeforeSend = selectedConversationIdRef.current;
     const result = await api.chat.send({
       conversationId,
       model,
@@ -680,7 +758,10 @@ export default function App() {
       setSideChats((state) => upsertById(state, result.conversation));
     } else {
       setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
-      setSelectedId(result.conversation.id);
+      if (selectedConversationIdRef.current === selectedIdBeforeSend) {
+        selectedConversationIdRef.current = result.conversation.id;
+        setSelectedId(result.conversation.id);
+      }
     }
     setMessagesByConversation((state) => ({
       ...state,
@@ -769,7 +850,9 @@ export default function App() {
         approvalId: activeApprovalRequest.approvalId,
         decision,
       });
-      if (resolved) setApprovalRequests((state) => state.slice(1));
+      if (resolved) setApprovalRequests((state) => state.filter(
+        (request) => request.approvalId !== activeApprovalRequest.approvalId,
+      ));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
@@ -823,6 +906,7 @@ export default function App() {
       return false;
     }
     try {
+      const selectedIdBeforeStart = selectedConversationIdRef.current;
       await changeWorkMode(null, conversationId);
       const result = await api.goals.start({
         conversationId,
@@ -842,7 +926,10 @@ export default function App() {
         setConversations((state) => (
           upsertById(state, result.conversation).sort(sortByUpdatedAt)
         ));
-        setSelectedId(result.conversation.id);
+        if (selectedConversationIdRef.current === selectedIdBeforeStart) {
+          selectedConversationIdRef.current = result.conversation.id;
+          setSelectedId(result.conversation.id);
+        }
       }
       setRunning((state) => ({
         ...state,
@@ -924,6 +1011,7 @@ export default function App() {
     setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
     setMessagesByConversation((state) => ({ ...state, [result.conversation.id]: result.messages }));
     setDraftModel(result.conversation.model);
+    selectedConversationIdRef.current = result.conversation.id;
     setSelectedId(result.conversation.id);
   }
 
@@ -979,6 +1067,7 @@ export default function App() {
       setActiveSubagentId(null);
       const fallback = next[0]?.id ?? null;
       if (next[0]?.model) setDraftModel(next[0].model);
+      selectedConversationIdRef.current = fallback;
       setSelectedId(fallback);
       if (!fallback) setDraftProject(appState.defaultProject);
       if (fallback && !messagesByConversation[fallback]) {
@@ -1085,6 +1174,78 @@ export default function App() {
     return nextProviders;
   }
 
+  const chatOnSend = useStableCallback(sendMessage);
+  const chatOnImplementPlan = useStableCallback(implementPlan);
+  const chatOnAnswerQuestion = useStableCallback(resolveQuestionRequest);
+  const chatOnStop = useStableCallback(stopConversation);
+  const chatOnCompress = useStableCallback(compressConversation);
+  const chatOnCreateSideChat = useStableCallback(createSideChat);
+  const chatOnOpenTasks = useStableCallback(() => {
+    setAuxiliaryPanelVisible(true);
+    setTasksTabOpen(true);
+    setActiveSubagentId(null);
+    setActiveAuxiliaryTab('tasks');
+  });
+  const chatOnOpenSubagents = useStableCallback(() => {
+    setAuxiliaryPanelVisible(true);
+    setSubagentsTabOpen(true);
+    setActiveSubagentId(null);
+    setActiveAuxiliaryTab('subagents');
+  });
+  const chatOnFork = useStableCallback(forkConversation);
+  const chatOnRetry = useStableCallback(retryAssistantMessage);
+  const chatOnResume = useStableCallback((messageId, model) => retryAssistantMessage(
+    messageId,
+    { resumeFromFailure: true, model },
+  ));
+  const chatOnCancelQueued = useStableCallback(cancelQueuedMessage);
+  const chatOnReorderQueued = useStableCallback((queueType, messageIds, steerMessageId, dispatchNext) => (
+    reorderQueuedMessages(
+      selectedId,
+      queueType,
+      messageIds,
+      steerMessageId,
+      dispatchNext,
+    )
+  ));
+  const chatOnSteerQueued = useStableCallback((messageId, messageIds) => (
+    steerQueuedMessage(selectedId, messageId, messageIds)
+  ));
+  const chatOnSendContinuation = useStableCallback((text) => sendMessage({
+    text,
+    attachments: [],
+  }));
+  const chatOnUndoEdits = useStableCallback((text) => sendMessage({
+    text,
+    attachments: [],
+    steer: false,
+  }));
+  const chatOnChooseModel = useStableCallback(chooseModel);
+  const chatOnChooseProject = useStableCallback(async (project) => {
+    if (currentConversation) return;
+    if (project) {
+      setDraftProject(project);
+      return;
+    }
+    const selectedProject = await api.projects.select({
+      defaultPath: currentProject?.path ?? appState.defaultProject.path,
+    });
+    if (selectedProject) setDraftProject(selectedProject);
+  });
+  const chatOnUseHome = useStableCallback(() => {
+    if (!currentConversation) setDraftProject(appState.defaultProject);
+  });
+  const chatOnToggleFavorite = useStableCallback(toggleFavorite);
+  const chatOnWorkModeChange = useStableCallback(changeWorkMode);
+  const chatOnUltraModeChange = useStableCallback(changeUltraMode);
+  const chatOnGoalAction = useStableCallback((action, specification) => (
+    changeGoal(selectedId, action, specification)
+  ));
+  const chatOnPendingAttachmentConsumed = useStableCallback(() => (
+    setPendingComposerAttachment(null)
+  ));
+  const chatOnOpenFileReference = useStableCallback(openFileReference);
+
   const narrowWindow = windowWidth <= 700;
   const effectiveSidebarCollapsed = sidebarCollapsed || narrowWindow;
   const sidebarWidthMax = Math.max(
@@ -1117,7 +1278,6 @@ export default function App() {
     .filter(Boolean)
     .join(' ');
   const shell = useMemo(() => ({
-    conversations,
     currentConversation,
     currentMessages,
     currentModel,
@@ -1210,8 +1370,13 @@ export default function App() {
             selectedId={selectedId}
             running={running}
             completedUnseen={completedUnseen}
+            approvalPending={approvalPending}
+            onQuickChat={() => api.quickChat.open().catch((nextError) => {
+              setError(nextError instanceof Error ? nextError.message : String(nextError));
+            })}
             onNewChat={(preset = {}) => {
               setOrchestrationOpen(false);
+              selectedConversationIdRef.current = null;
               setSelectedId(null);
               setDraftProject(preset.project ?? currentProject ?? appState.defaultProject);
               setDraftModel(
@@ -1283,76 +1448,40 @@ export default function App() {
               currentProject={currentProject}
               models={models}
               favorites={favorites}
-              onSend={sendMessage}
-              onImplementPlan={implementPlan}
+              onSend={chatOnSend}
+              onImplementPlan={chatOnImplementPlan}
               questionRequest={questionRequests.find(
                 (request) => request.conversationId === selectedId,
               ) ?? null}
-              onAnswerQuestion={resolveQuestionRequest}
-              onStop={stopConversation}
-              onCompress={compressConversation}
-              onCreateSideChat={currentConversation ? createSideChat : undefined}
+              onAnswerQuestion={chatOnAnswerQuestion}
+              onStop={chatOnStop}
+              onCompress={chatOnCompress}
+              onCreateSideChat={currentConversation ? chatOnCreateSideChat : undefined}
               subagents={subagentsWithStatus}
               tasks={tasksByConversation[selectedId] ?? []}
-              onOpenTasks={() => {
-                setAuxiliaryPanelVisible(true);
-                setTasksTabOpen(true);
-                setActiveSubagentId(null);
-                setActiveAuxiliaryTab('tasks');
-              }}
-              onOpenSubagents={() => {
-                setAuxiliaryPanelVisible(true);
-                setSubagentsTabOpen(true);
-                setActiveSubagentId(null);
-                setActiveAuxiliaryTab('subagents');
-              }}
-              onFork={forkConversation}
-              onRetry={retryAssistantMessage}
-              onResume={(messageId, model) => retryAssistantMessage(
-                messageId,
-                { resumeFromFailure: true, model },
-              )}
-              onCancelQueued={cancelQueuedMessage}
-              onReorderQueued={(queueType, messageIds, steerMessageId, dispatchNext) => (
-                reorderQueuedMessages(
-                  selectedId,
-                  queueType,
-                  messageIds,
-                  steerMessageId,
-                  dispatchNext,
-                )
-              )}
-              onSteerQueued={(messageId, messageIds) => (
-                steerQueuedMessage(selectedId, messageId, messageIds)
-              )}
-              onSendContinuation={(text) => sendMessage({ text, attachments: [] })}
-              onUndoEdits={(text) => sendMessage({ text, attachments: [], steer: false })}
-              onChooseModel={chooseModel}
-              onChooseProject={async (project) => {
-                if (currentConversation) return;
-                if (project) {
-                  setDraftProject(project);
-                  return;
-                }
-                const selectedProject = await api.projects.select({
-                  defaultPath: currentProject?.path ?? appState.defaultProject.path,
-                });
-                if (selectedProject) setDraftProject(selectedProject);
-              }}
-              onUseHome={() => {
-                if (!currentConversation) setDraftProject(appState.defaultProject);
-              }}
-              onToggleFavorite={toggleFavorite}
+              onOpenTasks={chatOnOpenTasks}
+              onOpenSubagents={chatOnOpenSubagents}
+              onFork={chatOnFork}
+              onRetry={chatOnRetry}
+              onResume={chatOnResume}
+              onCancelQueued={chatOnCancelQueued}
+              onReorderQueued={chatOnReorderQueued}
+              onSteerQueued={chatOnSteerQueued}
+              onSendContinuation={chatOnSendContinuation}
+              onUndoEdits={chatOnUndoEdits}
+              onOpenFileEdit={chatOnOpenFileReference}
+              onChooseModel={chatOnChooseModel}
+              onChooseProject={chatOnChooseProject}
+              onUseHome={chatOnUseHome}
+              onToggleFavorite={chatOnToggleFavorite}
               workMode={workMode}
-              onWorkModeChange={changeWorkMode}
+              onWorkModeChange={chatOnWorkModeChange}
               ultraMode={ultraMode}
-              onUltraModeChange={changeUltraMode}
-              onGoalAction={(action, specification) => (
-                changeGoal(selectedId, action, specification)
-              )}
+              onUltraModeChange={chatOnUltraModeChange}
+              onGoalAction={chatOnGoalAction}
               pendingAttachment={pendingComposerAttachment}
-              onPendingAttachmentConsumed={() => setPendingComposerAttachment(null)}
-              onOpenFileReference={openFileReference}
+              onPendingAttachmentConsumed={chatOnPendingAttachmentConsumed}
+              onOpenFileReference={chatOnOpenFileReference}
               messageDeliveryMode={appState.tuning.messageDeliveryMode}
               />
             )}
@@ -1565,9 +1694,23 @@ export default function App() {
           onSelect={selectConversation}
         />
       )}
-      {error && (
-        <button className="toast" type="button" onClick={() => setError('')}>
-          {error}
+      {(error || currentConversationError) && (
+        <button
+          className="toast"
+          type="button"
+          onClick={() => {
+            if (error) {
+              setError('');
+              return;
+            }
+            setConversationErrors((state) => {
+              const next = { ...state };
+              delete next[selectedId];
+              return next;
+            });
+          }}
+        >
+          {error || currentConversationError}
         </button>
       )}
       {activeApprovalRequest && (

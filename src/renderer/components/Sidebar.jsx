@@ -19,6 +19,7 @@ import {
   Settings,
   Trash2,
   TriangleAlert,
+  Zap,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -35,7 +36,9 @@ export function Sidebar({
   selectedId,
   running,
   completedUnseen,
+  approvalPending = {},
   onNewChat,
+  onQuickChat,
   onSelect,
   onSearch,
   onOpenOrchestration,
@@ -209,6 +212,10 @@ export function Sidebar({
           <MessageSquarePlus size={17} />
           <span>New chat</span>
         </button>
+        <button type="button" onClick={onQuickChat}>
+          <Zap size={17} />
+          <span>Quick chat</span>
+        </button>
         <button
           className={orchestrationOpen ? 'active' : undefined}
           type="button"
@@ -363,6 +370,7 @@ export function Sidebar({
                   active={conversation.id === selectedId}
                   running={Boolean(running[conversation.id])}
                   completedUnseen={Boolean(completedUnseen[conversation.id])}
+                  approvalPending={Boolean(approvalPending[conversation.id])}
                   needsAttention={Boolean(conversation.needsAttention)}
                   now={now}
                   onSelect={() => onSelect(conversation.id)}
@@ -399,6 +407,7 @@ function ConversationItem({
   active,
   running,
   completedUnseen,
+  approvalPending,
   needsAttention,
   now,
   onSelect,
@@ -456,7 +465,9 @@ function ConversationItem({
     <div className={classNames('conversation-item', active && 'active', menuOpen && 'menu-open')}>
       <button className="conversation-main" type="button" onClick={onSelect}>
         <span className="conversation-title">{conversation.title || conversation.firstPrompt || 'New chat'}</span>
-        {running ? (
+        {approvalPending ? (
+          <TriangleAlert className="attention-indicator" size={13} aria-label="Awaiting approval" />
+        ) : running ? (
           <LoaderCircle className="run-spinner" size={12} aria-label="Working" />
         ) : needsAttention ? (
           <TriangleAlert className="attention-indicator" size={13} aria-label="Needs attention" />

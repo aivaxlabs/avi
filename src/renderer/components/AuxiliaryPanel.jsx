@@ -333,6 +333,15 @@ export function AuxiliaryPanel({
               onOpenSubagentsTab={onOpenSubagentsTab}
               onOpenProviderPanel={onOpenProviderPanel}
             />
+            <button
+              className="auxiliary-tab-close"
+              type="button"
+              aria-label="Close auxiliary panel"
+              title="Close auxiliary panel"
+              onClick={onClosePanel}
+            >
+              <X size={13} />
+            </button>
           </div>
         ) : (
           <div className="auxiliary-empty-header">

@@ -1,0 +1,251 @@
+html.quick-chat-window,
+html.quick-chat-window body,
+html.quick-chat-window #root {
+  background: var(--background-0);
+  overflow: hidden;
+}
+
+.quick-chat-shell {
+  position: relative;
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  color: var(--text-1);
+  background: var(--background-0);
+  overflow: hidden;
+}
+
+.quick-chat-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 8px;
+  scroll-behavior: smooth;
+}
+
+.quick-file-drop-overlay {
+  position: absolute;
+  inset: 12px;
+  z-index: 20;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--background-0) 88%, transparent);
+  border: 1px dashed var(--border-color);
+  border-radius: 14px;
+  pointer-events: none;
+}
+
+.quick-chat-scroll .message-row {
+  width: 100%;
+  max-width: none;
+}
+
+.quick-chat-empty {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.quick-chat-empty strong {
+  color: var(--text-1);
+  font-size: 1.7rem;
+  font-weight: 400;
+}
+
+.quick-chat-empty span {
+  max-width: 260px;
+  font-size: .9rem;
+  color: var(--text-3);
+}
+
+.quick-chat-error {
+  margin: 0 18px 8px;
+  padding: 8px 10px;
+  color: var(--danger-color);
+  background: color-mix(in srgb, var(--danger-color) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger-color) 28%, transparent);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.quick-composer {
+  margin: 10px 16px 16px;
+  padding: 12px;
+  background: var(--background-1);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  box-shadow: 0 8px 16px #00000011;
+}
+
+.quick-composer textarea {
+  width: 100%;
+  min-height: 52px;
+  max-height: 160px;
+  resize: none;
+  color: var(--text-1);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+}
+
+.quick-composer-actions,
+.quick-composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quick-composer-actions {
+  justify-content: flex-end;
+}
+
+.quick-composer-tools {
+  margin-right: auto;
+}
+
+.quick-icon-button,
+.quick-send-button {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--text-2);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.quick-icon-button svg,
+.quick-send-button svg {
+  display: block;
+}
+
+.quick-icon-button:hover,
+.quick-icon-button.active {
+  color: var(--text-1);
+  background: var(--background-3);
+}
+
+.quick-icon-button input {
+  display: none;
+}
+
+.quick-model-button {
+  min-width: 0;
+  max-width: 180px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  color: var(--text-2);
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+}
+
+.quick-model-button:hover {
+  color: var(--text-1);
+  background: var(--background-3);
+}
+
+.quick-model-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-send-button {
+  color: var(--text-5);
+  background: var(--background-5);
+}
+
+.quick-send-button:hover {
+  opacity: 0.86;
+}
+
+.quick-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.quick-attachments > span {
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 7px;
+  color: var(--text-2);
+  background: var(--background-3);
+  border-radius: 7px;
+  font-size: 11px;
+}
+
+.quick-attachments small {
+  color: var(--text-3);
+}
+
+.quick-attachments button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+}
+
+.quick-question {
+  margin: 16px 0;
+  padding: 14px;
+  background: var(--background-1);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+}
+
+.quick-question fieldset {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.quick-question legend {
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.quick-question label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.quick-question textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 8px;
+  color: var(--text-1);
+  background: var(--background-0);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.quick-question > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

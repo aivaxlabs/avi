@@ -12,47 +12,6 @@
     }
   }
 
-  .appearance-desktop-card {
-    padding: 0;
-    overflow: hidden;
-  }
-
-  .appearance-desktop-option {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 24px;
-    min-height: 68px;
-    padding: 14px 16px;
-    cursor: pointer;
-
-    &:hover {
-      background: var(--background-2);
-    }
-  }
-
-  .appearance-desktop-option + .appearance-desktop-option {
-    border-top: 1px solid var(--border-color);
-  }
-
-  .appearance-desktop-copy {
-    display: grid;
-    gap: 3px;
-    min-width: 0;
-
-    strong {
-      color: var(--text-1);
-      font-size: 12px;
-      font-weight: 500;
-    }
-
-    small {
-      color: var(--text-3);
-      font-size: 11px;
-      line-height: 1.45;
-    }
-  }
-
   .appearance-desktop-switch {
     appearance: none;
     position: relative;

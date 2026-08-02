@@ -4,6 +4,7 @@ import {
   Boxes,
   CheckCircle2,
   CircleOff,
+  Copy,
   Ellipsis,
   ExternalLink,
   FileText,
@@ -1054,7 +1055,7 @@ export function SettingsPage({
                     <h3>Chat</h3>
                     <p>Set the defaults used by conversations and terminal commands.</p>
                   </div>
-                  <div className="settings-section-card settings-form">
+                  <div className="settings-section-card settings-form settings-row-card">
                     <label className="settings-field settings-field-wide">
                     <span>Chat reasoning traces</span>
                     <select
@@ -1157,9 +1158,9 @@ export function SettingsPage({
                     <h3>Desktop</h3>
                     <p>Control how Avi behaves when the window closes and when you sign in.</p>
                   </div>
-                  <div className="settings-section-card appearance-desktop-card">
-                    <label className="appearance-desktop-option">
-                      <span className="appearance-desktop-copy">
+                  <div className="settings-section-card settings-form settings-row-card">
+                    <label className="settings-toggle-row">
+                      <span>
                         <strong>Keep Avi in the background</strong>
                         <small>Continue running in the tray when the window is closed.</small>
                       </span>
@@ -1170,8 +1171,8 @@ export function SettingsPage({
                         onChange={(event) => onDesktopChange({ ...desktop, closeToTray: event.target.checked })}
                       />
                     </label>
-                    <label className="appearance-desktop-option">
-                      <span className="appearance-desktop-copy">
+                    <label className="settings-toggle-row">
+                      <span>
                         <strong>Start Avi on logon</strong>
                         <small>Launch Avi in the background when you sign in to your computer.</small>
                       </span>
@@ -1658,6 +1659,34 @@ export function SettingsPage({
                                   label: 'Edit',
                                   icon: <Pencil size={14} />,
                                   onClick: () => openModelEditor(index),
+                                },
+                                {
+                                  label: 'Clone',
+                                  icon: <Copy size={14} />,
+                                  onClick: () => runProviderMutation(async () => {
+                                    const copyIdBase = `${model.id}-copy`;
+                                    let copyId = copyIdBase;
+                                    let copyNumber = 2;
+                                    while (selectedProvider.models.some((item) => item.id === copyId)) {
+                                      copyId = `${copyIdBase}-${copyNumber}`;
+                                      copyNumber += 1;
+                                    }
+                                    const nextProviders = await onSave({
+                                      ...selectedProvider,
+                                      models: [
+                                        ...selectedProvider.models,
+                                        {
+                                          ...structuredClone(model),
+                                          id: copyId,
+                                          name: `${model.name} - Copy`,
+                                        },
+                                      ],
+                                    });
+                                    const saved = nextProviders.find(
+                                      (provider) => provider.id === selectedProvider.id,
+                                    );
+                                    if (saved) setProviderDraft(structuredClone(saved));
+                                  }),
                                 },
                                 {
                                   label: enabled ? 'Disable' : 'Enable',

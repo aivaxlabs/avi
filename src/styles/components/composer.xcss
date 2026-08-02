@@ -163,9 +163,9 @@
     padding: 0;
     overflow: hidden;
 
-    &.steer-messages-section {
-      border-color: color-mix(in srgb, var(--link-color) 35%, var(--border-color));
-    }
+    // &.steer-messages-section {
+    // border-color: color-mix(in srgb, var(--link-color) 35%, var(--border-color));
+    // }
   }
 
   .pending-messages-header {
@@ -174,18 +174,26 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 6px 11px;
+    padding: 6px 12px;
     color: var(--text-4);
     border-bottom: 1px solid var(--border-color);
     font-size: 10px;
+
+    > span:last-child {
+      display: none;
+    }
   }
 
   .pending-messages-title {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 9px;
     color: var(--text-2);
     font-size: 11px;
+
+    strong {
+      font-weight: 400;
+    }
 
     > span:last-child {
       min-width: 18px;
