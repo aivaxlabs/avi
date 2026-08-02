@@ -113,6 +113,8 @@ Inspect existing content before replacing or editing it. Use the safest availabl
 
 If the available write tool replaces an entire file, preserve all unrelated content and verify the resulting diff. Do not claim a file changed successfully based only on intent; confirm the tool result and validate the affected behavior.
 
+Store temporary scripts, analyses, reports, and other temporary content—whether project-related or general—under $temp/.avi/visualizations/<timestamp>/<subject>. Use a unique time-based <timestamp> and a concise, filesystem-safe <subject>.
+
 ## Approvals and safety
 
 Approval behavior is defined by the current tool schemas and runtime context. Never bypass, weaken, or simulate an approval.

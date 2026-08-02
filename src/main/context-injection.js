@@ -1,12 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { opendir, readFile, readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import baseInstructions from '../prompts/base-instructions.md' with { type: 'text' };
-import candidPersonality from '../prompts/personality/candid.md' with { type: 'text' };
-import cynicalPersonality from '../prompts/personality/cynical.md' with { type: 'text' };
-import friendlyPersonality from '../prompts/personality/friendly.md' with { type: 'text' };
-import pragmaticPersonality from '../prompts/personality/pragmatic.md' with { type: 'text' };
-import quirkyPersonality from '../prompts/personality/quirky.md' with { type: 'text' };
 import { resolveTerminalShell } from './terminal-shell.js';
 import {
   traceError,
@@ -37,6 +32,13 @@ const MAX_CONTEXT_RECURSION_DEPTH = 6;
 const CONTEXT_SCAN_TIMEOUT_MS = 5_000;
 const CONTEXT_SCAN_CONCURRENCY = 32;
 const CONTEXT_DIRECTORY_NAME = '.agents';
+const baseInstructions = readFileSync(new URL('../prompts/base-instructions.md', import.meta.url), 'utf8');
+const candidPersonality = readFileSync(new URL('../prompts/personality/candid.md', import.meta.url), 'utf8');
+const cynicalPersonality = readFileSync(new URL('../prompts/personality/cynical.md', import.meta.url), 'utf8');
+const friendlyPersonality = readFileSync(new URL('../prompts/personality/friendly.md', import.meta.url), 'utf8');
+const pragmaticPersonality = readFileSync(new URL('../prompts/personality/pragmatic.md', import.meta.url), 'utf8');
+const quirkyPersonality = readFileSync(new URL('../prompts/personality/quirky.md', import.meta.url), 'utf8');
+
 const INSTALLATION_CONTEXT_DIRECTORY_NAME = 'context';
 const INSTRUCTION_FILE_PATTERN = /^(?:(?:AGENTS|MEMORY)(?:\.[^.]+)*|CLAUDE|GEMINI|.+\.INSTRUCTIONS|.+\.AGENTS)\.md$/i;
 const POST_INSTRUCTION_CONTEXT_ORDER = [
@@ -465,6 +467,9 @@ export function resolveInstallationContextPath(
   executablePath = process.execPath,
   platform = process.platform,
 ) {
+  if (executablePath === process.execPath && process.resourcesPath) {
+    return path.join(process.resourcesPath, INSTALLATION_CONTEXT_DIRECTORY_NAME);
+  }
   const executableDirectory = path.dirname(path.resolve(executablePath));
   return path.join(
     path.resolve(executableDirectory, '..', 'Resources'),
