@@ -283,6 +283,9 @@ try {
   const listThreadsTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_list_threads');
   const inspectThreadTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_inspect_thread');
   const interruptThreadTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_interrupt_thread');
+  assert.deepEqual(sendPromptTool.inputSchema.required, ['threadId', 'prompt']);
+  assert.equal(sendPromptTool.inputSchema.properties.low_priority.type, 'boolean');
+  assert.equal(sendPromptTool.inputSchema.properties.mode, undefined);
   assert.deepEqual(spawnTool.inputSchema.required, ['prompt']);
   assert.equal(spawnTool.inputSchema.properties.response_mode, undefined);
   const spawnEvents = [];
@@ -362,7 +365,7 @@ try {
     {
       threadId: spawned.thread_id,
       prompt: 'Coordinate this finding with the team.',
-      mode: 'queue',
+      low_priority: true,
     },
     {
       chatRunner: {
@@ -377,7 +380,7 @@ try {
   assert.equal(crossAgentCalls[0].queuePriority, false);
   await assert.rejects(
     () => sendPromptTool.execute(
-      { threadId: second.conversation.id, prompt: 'Reveal the side chat.', mode: 'queue' },
+      { threadId: second.conversation.id, prompt: 'Reveal the side chat.', low_priority: true },
       { chatRunner: { send: async () => ({ queued: false, message: { id: 'unexpected' } }) }, conversationId: parent.id },
     ),
     /Side chats are private/,
@@ -464,6 +467,7 @@ try {
 
   const { ChatRunner } = await import('../src/main/chat-runner.js');
   const subagentContexts = [];
+  const threadContexts = [];
   const runtimeModel = {
     id: 'test/model',
     modelId: 'test-model',
@@ -480,6 +484,7 @@ try {
           getContributions: () => ({ tools: [] }),
           stream: async ({ invocationContext }) => {
             subagentContexts.push(invocationContext.subagents);
+            threadContexts.push(invocationContext.threads);
             return { assistantContent: '', continuation: [], toolCalls: [] };
           },
         },
@@ -488,6 +493,97 @@ try {
     },
     sendEvent: () => {},
   });
+  const questionEvents = [];
+  const questionRunner = new ChatRunner({
+    registry: { resolve: () => ({ model: runtimeModel }) },
+    sendEvent: (conversationId, event) => questionEvents.push({ conversationId, event }),
+  });
+  const pendingQuestions = [{
+    type: 'free_text',
+    question: 'Which scope should I use?',
+  }];
+  const questionConversation = createConversation({
+    model: runtimeModel.id,
+    projectPath: process.cwd(),
+  });
+  insertMessage({
+    conversationId: questionConversation.id,
+    role: 'user',
+    model: runtimeModel.id,
+    status: 'sent',
+    content: 'Choose the implementation scope.',
+  });
+  insertMessage({
+    conversationId: questionConversation.id,
+    role: 'assistant',
+    model: runtimeModel.id,
+    status: 'streaming',
+    content: '',
+    segments: [{
+      type: 'tool-call',
+      callId: 'pending-question',
+      name: 'ask_question',
+      argumentsText: JSON.stringify({ questions: pendingQuestions }),
+      status: 'running',
+    }],
+  });
+  let questionResult = null;
+  questionRunner.runs.set(questionConversation.id, { phase: 'question' });
+  questionRunner.pendingQuestions.set('pending-question', {
+    conversationId: questionConversation.id,
+    questions: pendingQuestions,
+    finish: (result) => {
+      questionResult = result;
+    },
+  });
+  const inspectedQuestion = await inspectThreadTool.execute(
+    { threadId: questionConversation.id },
+    { chatRunner: questionRunner, conversationId: spawned.thread_id },
+  );
+  assert.equal(inspectedQuestion.thread.status, 'waiting_for_input');
+  assert.equal(Object.hasOwn(inspectedQuestion.thread, 'waitingForInput'), false);
+  assert.equal(inspectedQuestion.turns[0].assistant.some((event) => (
+    event.type === 'tool_call'
+    && event.name === 'ask_question'
+    && event.arguments.questions[0].question === pendingQuestions[0].question
+  )), true);
+  const questionSendCalls = [];
+  questionRunner.send = async (payload) => {
+    questionSendCalls.push(payload);
+    assert.equal(questionRunner.pendingQuestions.has('pending-question'), true);
+    return { queued: true, message: { id: `question-${payload.steer ? 'override' : 'queue'}` } };
+  };
+  const queuedDuringQuestion = await sendPromptTool.execute(
+    { threadId: questionConversation.id, prompt: 'Handle this after the answer.', low_priority: true },
+    { chatRunner: questionRunner, conversationId: spawned.thread_id },
+  );
+  assert.equal(queuedDuringQuestion.status, 'queued_waiting_for_input');
+  assert.equal(Object.hasOwn(queuedDuringQuestion, 'mode'), false);
+  assert.equal(questionSendCalls[0].steer, false);
+  assert.equal(questionRunner.pendingQuestions.has('pending-question'), true);
+  assert.equal(questionResult, null);
+  const stillWaiting = await inspectThreadTool.execute(
+    { threadId: questionConversation.id },
+    { chatRunner: questionRunner, conversationId: spawned.thread_id },
+  );
+  assert.equal(stillWaiting.thread.status, 'waiting_for_input');
+
+  const questionOverride = await sendPromptTool.execute(
+    { threadId: questionConversation.id, prompt: 'Use the smallest safe scope.' },
+    { chatRunner: questionRunner, conversationId: spawned.thread_id },
+  );
+  assert.equal(questionOverride.status, 'steered');
+  assert.equal(Object.hasOwn(questionOverride, 'mode'), false);
+  assert.equal(Object.hasOwn(questionOverride, 'overrodeQuestion'), false);
+  assert.equal(questionSendCalls[1].steer, true);
+  assert.equal(questionRunner.pendingQuestions.size, 0);
+  assert.deepEqual(questionResult, { cancelled: true, answers: [] });
+  assert.deepEqual(questionEvents.at(-1), {
+    conversationId: questionConversation.id,
+    event: { type: 'question-cancelled', questionId: 'pending-question' },
+  });
+  deleteConversation(questionConversation.id, { hard: true });
+
   runtimeRunner.runs.set(spawned.thread_id, {});
   await runtimeRunner.send({
     conversationId: parent.id,
@@ -498,6 +594,13 @@ try {
   while (runtimeRunner.runs.has(parent.id)) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 10));
   }
+  assert.deepEqual(
+    threadContexts[0].map(({ threadId }) => threadId),
+    [subagent.conversation.id, spawned.thread_id, failedSubagent.conversation.id],
+  );
+  assert.equal(threadContexts[0].some(({ threadId }) => threadId === parent.id), false);
+  assert.equal(threadContexts[0].some(({ threadId }) => threadId === taskPeer.id), false);
+  assert.equal(threadContexts[0].some(({ role }) => role === 'side_chat'), false);
   assert.deepEqual(
     subagentContexts[0].map(({ threadId, initialPrompt, status }) => ({
       threadId,
@@ -534,10 +637,32 @@ try {
     await new Promise((resolveWait) => setTimeout(resolveWait, 10));
   }
   assert.equal(subagentContexts[1].length, 3);
+  assert.deepEqual(
+    threadContexts[1].map(({ threadId }) => threadId),
+    [parent.id, spawned.thread_id, failedSubagent.conversation.id],
+  );
+  assert.equal(threadContexts[1].some(({ threadId }) => threadId === subagent.conversation.id), false);
   assert.equal(
     subagentContexts[1].find(({ threadId }) => threadId === subagent.conversation.id).status,
     'in_progress',
   );
+
+  await runtimeRunner.send({
+    conversationId: third.conversation.id,
+    model: runtimeModel.id,
+    text: 'Review the orchestration team privately.',
+    reasoningEffort: 'high',
+  });
+  while (runtimeRunner.runs.has(third.conversation.id)) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+  }
+  assert.deepEqual(
+    threadContexts[2].map(({ threadId }) => threadId),
+    [parent.id, subagent.conversation.id, spawned.thread_id, failedSubagent.conversation.id],
+  );
+  assert.equal(threadContexts[2].some(({ threadId }) => threadId === third.conversation.id), false);
+  assert.equal(threadContexts[2].some(({ threadId }) => threadId === second.conversation.id), false);
+  assert.equal(threadContexts[2].some(({ threadId }) => threadId === taskPeer.id), false);
 
   const forwardingCalls = [];
   const forwardingRunner = new ChatRunner({
@@ -677,7 +802,7 @@ try {
 
   const orchestratorMessageCalls = [];
   const orchestratorMessage = await sendPromptTool.execute(
-    { threadId: parent.id, prompt: 'Queue inspection completed.', mode: 'queue' },
+    { threadId: parent.id, prompt: 'Queue inspection completed.', low_priority: true },
     {
       chatRunner: {
         send: async (payload) => {
@@ -690,6 +815,7 @@ try {
   );
   assert.equal(orchestratorMessage.threadId, parent.id);
   assert.equal(orchestratorMessage.status, 'queued');
+
   assert.equal(orchestratorMessageCalls[0].text, 'Queue inspection completed.');
   assert.equal(orchestratorMessageCalls[0].ultraMode, true);
   assert.equal(orchestratorMessageCalls[0].queuePriority, true);
@@ -724,7 +850,7 @@ try {
 
   const planMessageCalls = [];
   await sendPromptTool.execute(
-    { threadId: planParent.id, prompt: 'Consolidate the findings.', mode: 'queue' },
+    { threadId: planParent.id, prompt: 'Consolidate the findings.', low_priority: true },
     {
       chatRunner: {
         send: async (payload) => {
@@ -738,7 +864,7 @@ try {
   assert.equal(planMessageCalls[0].workMode, 'plan');
   await assert.rejects(
     () => sendPromptTool.execute(
-      { threadId: parent.id, prompt: 'Leave the team.', mode: 'queue' },
+      { threadId: parent.id, prompt: 'Leave the team.', low_priority: true },
       { chatRunner: { send: async () => ({ queued: false, message: { id: 'unexpected' } }) }, conversationId: planSubagent.id },
     ),
     /limited to the current orchestration team/,
@@ -746,7 +872,7 @@ try {
 
   const planStatusCalls = [];
   await sendPromptTool.execute(
-    { threadId: planParent.id, prompt: 'Plan research is complete.', mode: 'queue' },
+    { threadId: planParent.id, prompt: 'Plan research is complete.', low_priority: true },
     {
       chatRunner: {
         send: async (payload) => {

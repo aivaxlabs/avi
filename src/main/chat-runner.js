@@ -11,7 +11,6 @@ import {
   getPreferences as readPreferences,
   insertGoal,
   insertMessage,
-  listAllConversations,
   listContinuingGoals,
   listSubagents,
   listTasks,
@@ -1447,14 +1446,17 @@ export class ChatRunner {
         const goalContext = latestGoal && CONTINUING_GOAL_STATUSES.has(latestGoal.status)
           ? latestGoal
           : null;
-        const subagentParentId = currentConversation?.isSubagent
+        const teamRootId = currentConversation?.isSubagent || currentConversation?.isSideChat
           ? currentConversation.parentConversationId
+          : currentConversation?.id;
+        const orchestrator = teamRootId ? getConversation(teamRootId) : null;
+        const teamSubagents = teamRootId ? listSubagents(teamRootId) : [];
+        const visibleConversations = currentConversation?.isSubagent
+          ? [orchestrator, ...teamSubagents.filter(({ id }) => id !== currentConversation.id)]
           : currentConversation?.isSideChat
-            ? null
-            : currentConversation?.id;
-        const visibleConversations = listAllConversations()
-          .filter((conversation) => currentConversation?.isSideChat || !conversation.isSideChat);
-        const threadContext = visibleConversations.map((conversation) => {
+            ? [orchestrator, ...teamSubagents]
+            : teamSubagents;
+        const threadContext = visibleConversations.filter(Boolean).map((conversation) => {
           const threadMessages = getMessages(conversation.id);
           const lastUserIndex = threadMessages
             .findLastIndex((message) => message.role === 'user');
@@ -1479,11 +1481,9 @@ export class ChatRunner {
                   : 'idle',
           };
         });
-        const subagentContext = subagentParentId
-          ? listSubagents(subagentParentId)
-            .map((subagent) => threadContext.find((thread) => thread.threadId === subagent.id))
-            .filter(Boolean)
-          : [];
+        const subagentContext = teamSubagents
+          .map((subagent) => threadContext.find((thread) => thread.threadId === subagent.id))
+          .filter(Boolean);
         run.phase = 'inference';
         let turn;
         try {
@@ -2051,6 +2051,18 @@ export class ChatRunner {
         questions,
       });
     });
+  }
+
+  getPendingQuestion(conversationId) {
+    for (const [questionId, pending] of this.pendingQuestions) {
+      if (pending.conversationId === conversationId) {
+        return {
+          questionId,
+          questions: pending.questions,
+        };
+      }
+    }
+    return null;
   }
 
   answerQuestion({ questionId, cancelled = false, answers = [] }) {

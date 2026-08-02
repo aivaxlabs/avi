@@ -739,7 +739,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'chat_send_prompt',
-    description: 'Send a prompt to a chat thread using queue or steer delivery. In Plan mode, messages stay in Plan mode and are limited to the current orchestration team.',
+    description: 'Send a prompt to a chat thread. Messages are prioritized by default; set low_priority to queue behind active work. If the thread is waiting on ask_question, a prioritized message supersedes and cancels the pending question, while a low-priority message remains queued behind it. In Plan mode, messages stay in Plan mode and are limited to the current orchestration team.',
     canEditFile: false,
     canPerformDestructiveActions: true,
     inputSchema: {
@@ -753,15 +753,14 @@ export const CLIENT_TOOLS = Object.freeze([
           type: 'string',
           description: 'The prompt to send.',
         },
-        mode: {
-          type: 'string',
-          enum: ['queue', 'steer'],
-          description: 'queue waits behind active work; steer takes priority and interrupts at the next safe inference or tool boundary.',
+        low_priority: {
+          type: 'boolean',
+          description: 'When true, queue behind active work. Defaults to false, which prioritizes the message at the next safe inference or tool boundary.',
         },
       },
-      required: ['threadId', 'prompt', 'mode'],
+      required: ['threadId', 'prompt'],
     },
-    execute: async ({ threadId, prompt, mode }, {
+    execute: async ({ threadId, prompt, low_priority = false }, {
       chatRunner,
       conversationId,
       workMode,
@@ -770,8 +769,8 @@ export const CLIENT_TOOLS = Object.freeze([
       if (!conversation) throw new Error('The thread was not found.');
       const normalizedPrompt = String(prompt ?? '').trim();
       if (!normalizedPrompt) throw new Error('prompt is required.');
-      if (!['queue', 'steer'].includes(mode)) {
-        throw new Error('mode must be queue or steer.');
+      if (typeof low_priority !== 'boolean') {
+        throw new Error('low_priority must be a boolean.');
       }
       const sourceConversation = getConversation(conversationId);
       if (conversation.isSideChat && !sourceConversation?.isSideChat) {
@@ -793,7 +792,7 @@ export const CLIENT_TOOLS = Object.freeze([
         conversationId: conversation.id,
         model: conversation.model,
         text: normalizedPrompt,
-        steer: mode === 'steer',
+        steer: !low_priority,
         workMode: planMode ? 'plan' : workMode,
         ultraMode: sourceConversation?.orchestrationMode === 'ultra'
           || conversation.orchestrationMode === 'ultra',
@@ -801,11 +800,18 @@ export const CLIENT_TOOLS = Object.freeze([
         project: { path: conversation.projectPath },
       });
 
+      const pendingQuestion = chatRunner.getPendingQuestion?.(conversation.id);
+      if (!low_priority && pendingQuestion) {
+        chatRunner.answerQuestion({ questionId: pendingQuestion.questionId, cancelled: true });
+      }
       return {
         threadId: conversation.id,
         messageId: result.message.id,
-        mode,
-        status: result.queued ? mode === 'steer' ? 'steered' : 'queued' : 'running',
+        status: result.queued
+          ? low_priority
+            ? pendingQuestion ? 'queued_waiting_for_input' : 'queued'
+            : 'steered'
+          : 'running',
       };
     },
   },
@@ -840,7 +846,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'chat_inspect_thread',
-    description: 'Inspect the latest four turns of a chat thread without exposing assistant reasoning.',
+    description: 'Inspect the latest four turns and whether the thread is waiting for user input, without exposing assistant reasoning.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -940,13 +946,16 @@ export const CLIENT_TOOLS = Object.freeze([
         };
       });
 
+      const pendingQuestion = chatRunner.getPendingQuestion?.(conversation.id) ?? null;
       return {
         thread: {
           id: conversation.id,
           title: conversation.title,
           folderPath: conversation.projectPath,
           model: conversation.model,
-          status: chatRunner.runs.has(conversation.id) ? 'running' : 'idle',
+          status: pendingQuestion
+            ? 'waiting_for_input'
+            : chatRunner.runs.has(conversation.id) ? 'running' : 'idle',
         },
         turns: inspectedTurns,
       };
