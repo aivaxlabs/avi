@@ -900,6 +900,7 @@ export class ChatRunner {
         initialToolHistory,
         resumeAssistantMessageId: failedAssistant.id,
         initialSegments: resumeSegments,
+        initialEdits: failedAssistant.edits,
         initialUsage: failedAssistant.usage,
         permissionMode,
         workMode: sourceUser.workMode,
@@ -1198,6 +1199,7 @@ export class ChatRunner {
     initialToolHistory = [],
     resumeAssistantMessageId = null,
     initialSegments = [],
+    initialEdits = [],
     initialUsage = null,
     reasoningEffort = null,
     permissionMode = 'approve_for_me',
@@ -1227,6 +1229,7 @@ export class ChatRunner {
           status: 'streaming',
           content: accumulator.content,
           segments: accumulator.segments,
+          edits: initialEdits,
           usage: accumulator.usage,
         })
       : insertMessage({
@@ -1244,6 +1247,7 @@ export class ChatRunner {
       queue,
       assistantMessageId: assistantMessage.id,
       accumulator,
+      fileEdits: [...initialEdits],
       model,
       permissionMode,
       workMode,
@@ -1270,6 +1274,7 @@ export class ChatRunner {
         status,
         content: accumulator.content,
         segments: accumulator.segments,
+        edits: run.fileEdits,
         usage: accumulator.usage,
       });
       if (
@@ -1742,6 +1747,27 @@ export class ChatRunner {
               defaultModels: this.getPreferences().defaultModels,
               capabilities: selection.model.capabilities,
             });
+            const fileChanges = Array.isArray(value?.fileChanges) ? value.fileChanges : [];
+            for (const change of fileChanges) {
+              if (
+                typeof change?.filePath !== 'string'
+                || (change.before !== null && typeof change.before !== 'string')
+                || typeof change.after !== 'string'
+              ) continue;
+              const existingIndex = run.fileEdits.findIndex(
+                (edit) => edit.filePath === change.filePath,
+              );
+              const edit = existingIndex >= 0
+                ? { ...run.fileEdits[existingIndex], after: change.after }
+                : { filePath: change.filePath, before: change.before, after: change.after };
+              if (edit.before === edit.after) {
+                if (existingIndex >= 0) run.fileEdits.splice(existingIndex, 1);
+              } else if (existingIndex >= 0) {
+                run.fileEdits[existingIndex] = edit;
+              } else {
+                run.fileEdits.push(edit);
+              }
+            }
             if (
               value
               && typeof value === 'object'
@@ -1751,7 +1777,13 @@ export class ChatRunner {
               output = value.output;
               mediaContent = value.mediaContent;
             } else {
-              output = typeof value === 'string' ? value : JSON.stringify(value);
+              output = typeof value === 'string'
+                ? value
+                : JSON.stringify(value && typeof value === 'object'
+                  ? Object.fromEntries(
+                      Object.entries(value).filter(([key]) => key !== 'fileChanges'),
+                    )
+                  : value);
             }
           } catch (error) {
             isError = true;

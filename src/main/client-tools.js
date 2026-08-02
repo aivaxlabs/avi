@@ -1207,11 +1207,22 @@ export const CLIENT_TOOLS = Object.freeze([
       if (!isAbsolute(String(filePath ?? ''))) throw new Error('filePath must be absolute.');
       if (typeof content !== 'string') throw new Error('content must be a string.');
 
+      let beforeContent = null;
+      try {
+        beforeContent = await readFile(filePath, 'utf8');
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
       await writeFile(filePath, content, 'utf8');
       return {
         filePath,
         encoding: 'utf8',
         bytesWritten: Buffer.byteLength(content, 'utf8'),
+        fileChanges: beforeContent === content ? [] : [{
+          filePath,
+          before: beforeContent,
+          after: content,
+        }],
       };
     },
   },

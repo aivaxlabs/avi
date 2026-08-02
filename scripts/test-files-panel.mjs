@@ -164,6 +164,33 @@ try {
   assert.equal(mixedAttachments[1].kind, 'file_reference');
   assert.equal(mixedAttachments[1].path, resolve(diskPdfPath));
 
+  const inlineText = 'a'.repeat(64 * 1024);
+  const largeText = `${inlineText}a`;
+  const largeTextPath = join(testRoot, 'large.txt');
+  await writeFile(largeTextPath, largeText);
+  const textAttachments = await normalizeAttachmentsForModel([
+    {
+      id: 'inline-text',
+      name: 'inline.txt',
+      mime: 'text/plain',
+      size: Buffer.byteLength(inlineText),
+      kind: 'text_inline',
+      text: inlineText,
+    },
+    {
+      id: 'large-text',
+      name: 'large.txt',
+      mime: 'text/plain',
+      size: Buffer.byteLength(largeText),
+      kind: 'text_inline',
+      path: largeTextPath,
+      text: largeText,
+    },
+  ]);
+  assert.equal(textAttachments[0].kind, 'text_inline');
+  assert.equal(textAttachments[1].kind, 'file_reference');
+  assert.equal(textAttachments[1].path, resolve(largeTextPath));
+  assert.equal('text' in textAttachments[1], false);
   const clipboardAttachments = await normalizeAttachmentsForModel([
     {
       id: 'clipboard-image',

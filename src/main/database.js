@@ -98,6 +98,7 @@ db.exec(`
     status TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
     segments TEXT NOT NULL DEFAULT '[]',
+    edits TEXT NOT NULL DEFAULT '[]',
     attachments TEXT NOT NULL DEFAULT '[]',
     continuations TEXT NOT NULL DEFAULT '[]',
     usage TEXT NOT NULL DEFAULT '{}',
@@ -167,6 +168,9 @@ if (!messageColumns.some((column) => column.name === 'queue_priority')) {
 }
 if (!messageColumns.some((column) => column.name === 'queue_position')) {
   db.exec('ALTER TABLE messages ADD COLUMN queue_position INTEGER');
+}
+if (!messageColumns.some((column) => column.name === 'edits')) {
+  db.exec("ALTER TABLE messages ADD COLUMN edits TEXT NOT NULL DEFAULT '[]'");
 }
 const conversationColumns = db.prepare("PRAGMA table_info('conversations')").all();
 if (!conversationColumns.some((column) => column.name === 'project_path')) {
@@ -402,13 +406,13 @@ const statements = {
     INSERT INTO messages (
       id, conversation_id, role, model, reasoning_effort, permission_mode,
       work_mode, ultra_mode, goal_id, hidden, queue_priority, queue_position,
-      status, content, segments, attachments,
+      status, content, segments, edits, attachments,
       continuations, usage, created_at, updated_at
     )
     VALUES (
       @id, @conversationId, @role, @model, @reasoningEffort, @permissionMode,
       @workMode, @ultraMode, @goalId, @hidden, @queuePriority, @queuePosition,
-      @status, @content, @segments, @attachments,
+      @status, @content, @segments, @edits, @attachments,
       @continuations, @usage, @createdAt, @updatedAt
     )
   `),
@@ -417,6 +421,7 @@ const statements = {
     SET status = COALESCE(@status, status),
         content = COALESCE(@content, content),
         segments = COALESCE(@segments, segments),
+        edits = COALESCE(@edits, edits),
         attachments = COALESCE(@attachments, attachments),
         continuations = COALESCE(@continuations, continuations),
         usage = COALESCE(@usage, usage),
@@ -788,6 +793,7 @@ export function insertMessage(message) {
     status: message.status ?? 'completed',
     content: message.content ?? '',
     segments: stringify(message.segments ?? []),
+    edits: stringify(message.edits ?? []),
     attachments: stringify(message.attachments ?? []),
     continuations: stringify(message.continuations ?? []),
     usage: stringify(message.usage ?? {}),
@@ -805,6 +811,7 @@ export function updateMessage(id, patch) {
     status: patch.status ?? null,
     content: patch.content ?? null,
     segments: patch.segments === undefined ? null : stringify(patch.segments),
+    edits: patch.edits === undefined ? null : stringify(patch.edits),
     attachments: patch.attachments === undefined ? null : stringify(patch.attachments),
     continuations: patch.continuations === undefined ? null : stringify(patch.continuations),
     usage: patch.usage === undefined ? null : stringify(patch.usage),
@@ -1395,6 +1402,7 @@ function mapMessage(row) {
     status: row.status,
     content: row.content,
     segments: parse(row.segments, []),
+    edits: parse(row.edits, []),
     attachments: parse(row.attachments, []),
     continuations: parse(row.continuations, []),
     usage: parse(row.usage, {}),
