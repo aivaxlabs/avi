@@ -10,14 +10,15 @@
   },
   "private": true,
   "type": "module",
+  "main": "src/main/main.js",
   "scripts": {
     "dev": "bun scripts/dev.mjs",
     "dev:devtools": "bun scripts/dev.mjs --devtools",
-    "start": "electrobun dev",
+    "start": "electron .",
     "styles": "cascadium build -d src/styles -x .xcss -o src/renderer/styles.css --p:pretty true --p:filenametag relative",
     "styles:watch": "cascadium watch -d src/styles -x .xcss -o src/renderer/styles.css --p:pretty true --p:filenametag relative",
     "renderer:build": "bun run styles && vite build",
-    "build": "electrobun build --env=stable",
+    "build": "bun scripts/build-renderer.mjs",
     "syntax": "bun scripts/check-syntax.mjs",
     "test:context": "bun scripts/test-context-injection.mjs",
     "test:plan": "bun scripts/test-plan-mode.mjs",
@@ -31,7 +32,7 @@
     "test:default-models": "bun scripts/test-default-models.mjs",
     "test:files": "bun scripts/test-files-panel.mjs",
     "test:side-chat": "bun scripts/test-side-chat-database.mjs",
-    "package": "bun run build"
+    "package": "bun run build && bun scripts/package.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
@@ -41,16 +42,70 @@
     "@cypherpotato/cascadium": "^1.0.3",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.22",
-    "electrobun": "1.18.1",
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3",
     "lamejs": "^1.2.1",
     "lucide-react": "^0.555.0",
     "postcss": "^8.5.6",
     "prismjs": "^1.30.0",
-    "rcedit": "^4.0.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "vite": "^7.2.4"
+  },
+  "build": {
+    "appId": "net.aivax.avi",
+    "productName": "Avi",
+    "copyright": "Copyright (c) AIVAX Labs",
+    "artifactName": "Avi-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "artifacts"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/icon/**/*",
+      "src/main/**/*",
+      "src/preload/**/*",
+      "src/providers/**/*",
+      "src/prompts/**/*",
+      "src/shared/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "context",
+        "to": "context"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "icon": "assets/icon/avi-bg.ico",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "installerIcon": "assets/icon/avi-bg.ico",
+      "uninstallerIcon": "assets/icon/avi-bg.ico",
+      "installerHeaderIcon": "assets/icon/avi-bg.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Avi"
+    },
+    "mac": {
+      "icon": "assets/icon/avi-bg.png",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg"
+      ]
+    },
+    "linux": {
+      "icon": "assets/icon/avi-bg.png",
+      "category": "Development",
+      "target": [
+        "AppImage"
+      ]
+    }
   }
 }

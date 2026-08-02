@@ -2,10 +2,13 @@ import { fileURLToPath } from 'node:url';
 
 const cwd = fileURLToPath(new URL('..', import.meta.url));
 const rendererUrl = 'http://127.0.0.1:5173';
+const scriptArgs = process.argv.slice(2);
+const openDevTools = scriptArgs.includes('--devtools');
+const electronArgs = scriptArgs.filter((arg) => arg !== '--devtools');
 const env = {
   ...process.env,
   VITE_DEV_SERVER_URL: rendererUrl,
-  ...(process.argv.includes('--devtools') ? { CHAT_APP_OPEN_DEVTOOLS: '1' } : {}),
+  ...(openDevTools ? { CHAT_APP_OPEN_DEVTOOLS: '1' } : {}),
 };
 const processes = [];
 const styles = Bun.spawn(['bun', 'run', 'styles:watch'], {
@@ -34,7 +37,11 @@ const stopChildren = () => {
 
   stopping = true;
   for (const child of processes) {
-    child.kill();
+    if (process.platform === 'win32') {
+      Bun.spawnSync(['taskkill', '/pid', String(child.pid), '/t', '/f']);
+    } else {
+      child.kill();
+    }
   }
 };
 
@@ -68,7 +75,7 @@ try {
     throw new Error(`Vite did not start at ${rendererUrl}.`);
   }
 
-  const app = Bun.spawn(['bun', 'x', 'electrobun', 'dev'], {
+  const app = Bun.spawn(['bun', 'x', 'electron', '.', ...electronArgs], {
     cwd,
     env,
     stdin: 'inherit',
@@ -85,4 +92,4 @@ try {
   await Promise.allSettled(processes.map((child) => child.exited));
 }
 
-process.exitCode = result.exitCode;
+process.exitCode = result?.exitCode ?? 1;

@@ -1,10 +1,11 @@
-import { Database } from 'bun:sqlite';
+import { DatabaseSync } from 'node:sqlite';
+import { safeStorage } from 'electron';
 import {
   createCipheriv,
   createDecipheriv,
   randomBytes,
 } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import {
   basename,
@@ -20,9 +21,9 @@ import { traceError } from './trace-log.js';
 const storageDir = join(homedir(), '.aivax');
 mkdirSync(storageDir, { recursive: true });
 
-const db = new Database(join(storageDir, 'aivax.sqlite'), { strict: true });
+const db = new DatabaseSync(join(storageDir, 'aivax.sqlite'));
+const secureStoragePath = join(storageDir, 'secure-storage.json');
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
-const credentialService = process.env.CHAT_APP_CREDENTIAL_SERVICE || 'net.aivax.chat';
 const secureStorage = {
   mcpOAuthSessions: {},
   providerCredentials: {},
@@ -46,6 +47,10 @@ const defaultTuningSettings = Object.freeze({
 const defaultRemoteSettings = Object.freeze({
   enabled: false,
   port: 18992,
+});
+const defaultDesktopSettings = Object.freeze({
+  closeToTray: false,
+  openAtLogin: false,
 });
 
 db.exec(`
@@ -266,6 +271,7 @@ const statements = {
         updated_at = @updatedAt,
         ended_at = @endedAt
     WHERE id = @id
+      AND conversation_id = @conversationId
   `),
   getGoal: db.prepare('SELECT * FROM goals WHERE id = ?'),
   getLatestGoal: db.prepare(`
@@ -310,7 +316,19 @@ const statements = {
         SELECT content FROM messages
         WHERE conversation_id = c.id AND role = 'user' AND hidden = 0
         ORDER BY created_at LIMIT 1
-      ), '') AS first_prompt
+      ), '') AS first_prompt,
+      (
+        SELECT role FROM messages
+        WHERE conversation_id = c.id AND hidden = 0
+          AND status NOT IN ('queued', 'steered')
+        ORDER BY created_at DESC, rowid DESC LIMIT 1
+      ) AS last_message_role,
+      (
+        SELECT status FROM messages
+        WHERE conversation_id = c.id AND hidden = 0
+          AND status NOT IN ('queued', 'steered')
+        ORDER BY created_at DESC, rowid DESC LIMIT 1
+      ) AS last_message_status
     FROM conversations c
     WHERE deleted_at IS NULL
       AND conversation_type = 'thread'
@@ -357,7 +375,23 @@ const statements = {
     WHERE deleted_at IS NULL
     ORDER BY updated_at DESC
   `),
-  getConversation: db.prepare('SELECT * FROM conversations WHERE id = ? AND deleted_at IS NULL'),
+  getConversation: db.prepare(`
+    SELECT c.*,
+      (
+        SELECT role FROM messages
+        WHERE conversation_id = c.id AND hidden = 0
+          AND status NOT IN ('queued', 'steered')
+        ORDER BY created_at DESC, rowid DESC LIMIT 1
+      ) AS last_message_role,
+      (
+        SELECT status FROM messages
+        WHERE conversation_id = c.id AND hidden = 0
+          AND status NOT IN ('queued', 'steered')
+        ORDER BY created_at DESC, rowid DESC LIMIT 1
+      ) AS last_message_status
+    FROM conversations c
+    WHERE id = ? AND deleted_at IS NULL
+  `),
   deleteConversation: db.prepare('UPDATE conversations SET deleted_at = ?, updated_at = ? WHERE id = ?'),
   hardDeleteConversation: db.prepare('DELETE FROM conversations WHERE id = ?'),
   hardDeleteChildConversations: db.prepare(`
@@ -393,7 +427,7 @@ const statements = {
   updateQueuePosition: db.prepare(`
     UPDATE messages
     SET queue_position = ?, updated_at = ?
-    WHERE id = ? AND conversation_id = ? AND status IN ('queued', 'steered')
+    WHERE id = ? AND conversation_id = ? AND status = ?
   `),
   getMessages: db.prepare(`
     SELECT * FROM messages
@@ -418,7 +452,14 @@ export function getPreferences() {
     lastModel: readJson('lastModel'),
     defaultModels: normalizeDefaultModels(readJson('defaultModels')),
     tuning: normalizeTuningSettings(readJson('tuningSettings')),
+    desktop: normalizeDesktopSettings(readJson('desktopSettings')),
   };
+}
+
+export function setDesktopSettings(value) {
+  const settings = normalizeDesktopSettings(value, true);
+  writeJson('desktopSettings', settings);
+  return settings;
 }
 
 export function setDefaultModels(value) {
@@ -448,20 +489,13 @@ export function getRemoteApiKey() {
 }
 
 export async function setRemoteApiKey(value = randomBytes(32).toString('base64url')) {
-  await Bun.secrets.set({
-    service: credentialService,
-    name: 'remote-api-key',
-    value,
-  });
+  writeSecureFileValue('remote-api-key', value);
   secureStorage.remoteApiKey = value;
   return value;
 }
 
 export async function deleteRemoteApiKey() {
-  await Bun.secrets.delete({
-    service: credentialService,
-    name: 'remote-api-key',
-  });
+  deleteSecureFileValue('remote-api-key');
   secureStorage.remoteApiKey = null;
 }
 
@@ -519,39 +553,39 @@ export async function deleteProviderCredentials(providerId) {
 }
 
 export async function initializeSecureStorage() {
-  const [mcpOAuthSessions, storedKey, legacyProviderCredentials, remoteApiKey] = await Promise.all([
-    Bun.secrets.get({ service: credentialService, name: 'mcp-oauth-sessions' }),
-    Bun.secrets.get({ service: credentialService, name: 'provider-credentials-key' }),
-    Bun.secrets.get({ service: credentialService, name: 'provider-credentials' }),
-    Bun.secrets.get({ service: credentialService, name: 'remote-api-key' }),
-  ]);
+  const mcpOAuthSessions = readSecureFileValue('mcp-oauth-sessions');
+  const storedKey = readSecureFileValue('provider-credentials-key');
+  const legacyProviderCredentials = readSecureFileValue('provider-credentials');
+  const remoteApiKey = readSecureFileValue('remote-api-key');
   secureStorage.mcpOAuthSessions = mcpOAuthSessions ? parse(mcpOAuthSessions, {}) : {};
   secureStorage.remoteApiKey = remoteApiKey || null;
   const encryptedCredentials = readJson('providerCredentialsV2');
 
+  let currentEncryptedCredentials = encryptedCredentials;
   if (storedKey) {
     providerCredentialsKey = Buffer.from(storedKey, 'base64');
     if (providerCredentialsKey.length !== 32) {
       throw new Error('The provider credential encryption key is invalid.');
     }
   } else {
-    if (encryptedCredentials) {
-      throw new Error('The provider credential encryption key is unavailable.');
-    }
     providerCredentialsKey = randomBytes(32);
-    await Bun.secrets.set({
-      service: credentialService,
-      name: 'provider-credentials-key',
-      value: providerCredentialsKey.toString('base64'),
-    });
+    writeSecureFileValue('provider-credentials-key', providerCredentialsKey.toString('base64'));
+    if (encryptedCredentials) {
+      writeJson('providerCredentialsBunBackup', encryptedCredentials);
+      writeJson('providerCredentialsV2', null);
+      currentEncryptedCredentials = null;
+      traceError('secure-storage.bun-credentials-unavailable', {
+        error: 'Provider credentials must be configured again after the Electron migration.',
+      });
+    }
   }
 
-  if (encryptedCredentials) {
+  if (currentEncryptedCredentials) {
     if (
-      encryptedCredentials.version !== 1
-      || typeof encryptedCredentials.iv !== 'string'
-      || typeof encryptedCredentials.authTag !== 'string'
-      || typeof encryptedCredentials.ciphertext !== 'string'
+      currentEncryptedCredentials.version !== 1
+      || typeof currentEncryptedCredentials.iv !== 'string'
+      || typeof currentEncryptedCredentials.authTag !== 'string'
+      || typeof currentEncryptedCredentials.ciphertext !== 'string'
     ) {
       throw new Error('The encrypted provider credentials are invalid.');
     }
@@ -559,11 +593,11 @@ export async function initializeSecureStorage() {
       const decipher = createDecipheriv(
         'aes-256-gcm',
         providerCredentialsKey,
-        Buffer.from(encryptedCredentials.iv, 'base64'),
+        Buffer.from(currentEncryptedCredentials.iv, 'base64'),
       );
-      decipher.setAuthTag(Buffer.from(encryptedCredentials.authTag, 'base64'));
+      decipher.setAuthTag(Buffer.from(currentEncryptedCredentials.authTag, 'base64'));
       const decrypted = Buffer.concat([
-        decipher.update(Buffer.from(encryptedCredentials.ciphertext, 'base64')),
+        decipher.update(Buffer.from(currentEncryptedCredentials.ciphertext, 'base64')),
         decipher.final(),
       ]).toString('utf8');
       const credentials = JSON.parse(decrypted);
@@ -581,10 +615,7 @@ export async function initializeSecureStorage() {
     }
     secureStorage.providerCredentials = credentials;
     persistProviderCredentials();
-    await Bun.secrets.delete({
-      service: credentialService,
-      name: 'provider-credentials',
-    });
+    deleteSecureFileValue('provider-credentials');
   } else {
     secureStorage.providerCredentials = {};
   }
@@ -595,10 +626,6 @@ export async function flushSecureStorage() {
 }
 
 export function closeDatabase() {
-  for (const statement of Object.values(statements)) {
-    statement.finalize();
-  }
-  backfillContextUsage.finalize();
   db.close();
 }
 
@@ -612,12 +639,12 @@ export function replaceTasks(conversationId, tasks) {
 }
 
 export function insertGoal(goal) {
-  statements.insertGoal.run(goal);
+  statements.insertGoal.run(goalParameters(goal, true));
   return getGoal(goal.id);
 }
 
 export function updateGoal(goal) {
-  statements.updateGoal.run(goal);
+  statements.updateGoal.run(goalParameters(goal));
   return getGoal(goal.id);
 }
 
@@ -790,13 +817,32 @@ export function updateMessage(id, patch) {
   return message;
 }
 
-export function updateQueuedMessageOrder(conversationId, messageIds) {
+export function updateQueuedMessageOrder(conversationId, {
+  steerMessageIds = [],
+  queuedMessageIds = [],
+}) {
   const now = timestamp();
-  db.transaction(() => {
-    messageIds.forEach((messageId, index) => {
-      statements.updateQueuePosition.run(index, now, messageId, conversationId);
-    });
-  })();
+  db.exec('BEGIN');
+  try {
+    for (const [status, messageIds] of [
+      ['steered', steerMessageIds],
+      ['queued', queuedMessageIds],
+    ]) {
+      messageIds.forEach((messageId, index) => {
+        statements.updateQueuePosition.run(
+          index,
+          now,
+          messageId,
+          conversationId,
+          status,
+        );
+      });
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 }
 
 export function deleteMessage(id) {
@@ -1096,7 +1142,7 @@ export function toModelMessagesThroughUser(
   ];
 }
 
-function messageToApiBlock(message, capabilities = {}) {
+export function messageToApiBlock(message, capabilities = {}) {
   return {
     role: message.role,
     content: message.role === 'assistant'
@@ -1192,6 +1238,21 @@ function writeJson(key, value) {
 function readJson(key) {
   const row = statements.getValue.get(key);
   return row ? parse(row.value, null) : null;
+}
+
+function normalizeDesktopSettings(value, strict = false) {
+  const settings = value && typeof value === 'object' ? value : {};
+  const normalized = {
+    closeToTray: settings.closeToTray === true,
+    openAtLogin: settings.openAtLogin === true,
+  };
+  if (strict && (
+    typeof settings.closeToTray !== 'boolean'
+    || typeof settings.openAtLogin !== 'boolean'
+  )) {
+    throw new Error('Desktop settings are invalid.');
+  }
+  return { ...defaultDesktopSettings, ...normalized };
 }
 
 function normalizeRemoteSettings(value, strict = false) {
@@ -1301,6 +1362,11 @@ function mapConversation(row) {
     contextTokens: Number(row.context_tokens) || 0,
     goal: getGoalForConversation(row.id),
     firstPrompt: row.first_prompt ?? '',
+    needsAttention: ['error', 'aborted', 'streaming'].includes(row.last_message_status)
+      || (
+        row.last_message_role === 'user'
+        && ['sent', 'waiting_mcp'].includes(row.last_message_status)
+      ),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1359,15 +1425,74 @@ function mapGoal(row) {
   };
 }
 
+function goalParameters(goal, includeStartedAt = false) {
+  return {
+    id: goal.id,
+    conversationId: goal.conversationId,
+    specification: goal.specification,
+    status: goal.status,
+    revision: goal.revision,
+    model: goal.model,
+    reasoningEffort: goal.reasoningEffort,
+    permissionMode: goal.permissionMode,
+    activeElapsedMs: goal.activeElapsedMs,
+    resumedAt: goal.resumedAt,
+    resultSummary: goal.resultSummary,
+    tokensTransacted: goal.tokensTransacted,
+    ...(includeStartedAt ? { startedAt: goal.startedAt } : {}),
+    updatedAt: goal.updatedAt,
+    endedAt: goal.endedAt,
+  };
+}
+
 function stringify(value) {
   return JSON.stringify(value ?? null);
 }
 
+function readSecureFile() {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('Electron secure storage encryption is unavailable.');
+  }
+  try {
+    const stored = JSON.parse(readFileSync(secureStoragePath, 'utf8'));
+    return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+  } catch (error) {
+    if (error?.code === 'ENOENT') return {};
+    throw new Error('The secure storage file is invalid.', { cause: error });
+  }
+}
+
+function readSecureFileValue(name) {
+  const encrypted = readSecureFile()[name];
+  if (typeof encrypted !== 'string') return null;
+  try {
+    return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+  } catch (error) {
+    throw new Error(`The secure storage value "${name}" could not be decrypted.`, { cause: error });
+  }
+}
+
+function writeSecureFile(storage) {
+  const temporaryPath = `${secureStoragePath}.tmp`;
+  writeFileSync(temporaryPath, JSON.stringify(storage), { encoding: 'utf8', mode: 0o600 });
+  renameSync(temporaryPath, secureStoragePath);
+}
+
+function writeSecureFileValue(name, value) {
+  const storage = readSecureFile();
+  storage[name] = safeStorage.encryptString(value).toString('base64');
+  writeSecureFile(storage);
+}
+
+function deleteSecureFileValue(name) {
+  const storage = readSecureFile();
+  if (!(name in storage)) return;
+  delete storage[name];
+  writeSecureFile(storage);
+}
 function persistSecureValue(name, value) {
-  const write = Bun.secrets.set({
-    service: credentialService,
-    name,
-    value: JSON.stringify(value),
+  const write = Promise.resolve().then(() => {
+    writeSecureFileValue(name, JSON.stringify(value));
   }).catch((error) => {
     traceError('secure-storage.persist-error', {
       operation: name,

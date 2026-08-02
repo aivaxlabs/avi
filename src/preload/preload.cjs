@@ -1,28 +1,28 @@
-import { Electroview } from 'electrobun/view';
+const { contextBridge, ipcRenderer } = require('electron');
 
-const rpc = Electroview.defineRPC({
-  maxRequestTime: Infinity,
-  handlers: {
-    requests: {},
-    messages: {},
-  },
-});
-
-new Electroview({ rpc });
-
-const invoke = (channel, payload) => rpc.request.invoke({ channel, payload });
+const invoke = async (channel, payload) => {
+  const response = await ipcRenderer.invoke('avi:invoke', { channel, payload });
+  if (response?.ok) return response.value;
+  const error = new Error(response?.error?.message ?? 'Application request failed.');
+  error.name = response?.error?.name ?? 'Error';
+  if (response?.error?.code !== undefined) error.code = response.error.code;
+  if (response?.error?.status !== undefined) error.status = response.error.status;
+  throw error;
+};
 const subscribe = (channel, callback) => {
-  const handler = (event) => {
-    if (event.channel === channel) callback(event.payload);
-  };
-  rpc.addMessageListener('event', handler);
-  return () => rpc.removeMessageListener('event', handler);
+  if (typeof callback !== 'function') throw new TypeError('Event callback must be a function.');
+  const listener = (_event, payload) => callback(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
 };
 
-window.chatApp = {
+contextBridge.exposeInMainWorld('chatApp', {
   app: {
     state: () => invoke('app:state'),
     openExternal: (url) => invoke('app:open-external', url),
+  },
+  desktop: {
+    save: (settings) => invoke('desktop:save', settings),
   },
   defaultModels: {
     status: () => invoke('default-models:status'),
@@ -127,4 +127,4 @@ window.chatApp = {
   },
   onChatEvent: (callback) => subscribe('chat:event', callback),
   onMcpEvent: (callback) => subscribe('mcp:event', callback),
-};
+});

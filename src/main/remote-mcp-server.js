@@ -1,4 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
+import { createServer } from 'node:http';
+import { Readable } from 'node:stream';
 import { homedir } from 'node:os';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
@@ -18,6 +20,7 @@ const REMOTE_TOOL_NAMES = new Set([
   'chat_inspect_thread',
 ]);
 const remoteTools = CLIENT_TOOLS.filter((tool) => REMOTE_TOOL_NAMES.has(tool.name));
+const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 
 export class RemoteMcpServer {
   constructor({ chatRunner, providerRegistry, getPreferences, getApiKey }) {
@@ -35,40 +38,98 @@ export class RemoteMcpServer {
 
   async start(port) {
     if (this.server && this.port === port) return;
-    const previousServer = this.server;
     const previousPort = this.port;
-    if (previousServer) {
-      await previousServer.stop(true);
-      this.server = null;
-      this.port = null;
-    }
+    if (this.server) await this.close();
     try {
-      this.server = Bun.serve({
-        hostname: '127.0.0.1',
-        port,
-        fetch: (request) => this.handleRequest(request),
-      });
-      this.port = this.server.port;
+      await this.listen(port);
     } catch (error) {
-      if (previousServer) {
-        this.server = Bun.serve({
-          hostname: '127.0.0.1',
-          port: previousPort,
-          fetch: (request) => this.handleRequest(request),
-        });
-        this.port = previousPort;
-      }
+      if (previousPort !== null) await this.listen(previousPort);
       throw error;
     }
+  }
+
+  async listen(port) {
+    const server = createServer(async (request, response) => {
+      try {
+        const requestUrl = new URL(request.url ?? '/', `http://${request.headers.host ?? '127.0.0.1'}`);
+        const pathParts = requestUrl.pathname.split('/').filter(Boolean);
+        if (pathParts[0] !== 'mcp' || pathParts.length > 2) {
+          response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+          response.end('Not found');
+          return;
+        }
+        const allowedHosts = new Set(['127.0.0.1', 'localhost', `127.0.0.1:${this.port}`, `localhost:${this.port}`]);
+        if (!allowedHosts.has(request.headers.host ?? '')) {
+          response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+          response.end('Invalid host');
+          return;
+        }
+        if (!this.isAuthorized(request.headers.authorization, pathParts[1])) {
+          response.writeHead(401, {
+            'content-type': 'text/plain; charset=utf-8',
+            'www-authenticate': 'Bearer',
+          });
+          response.end('Unauthorized');
+          return;
+        }
+        const body = request.method === 'GET' || request.method === 'HEAD'
+          ? undefined
+          : await new Promise((resolve, reject) => {
+            const chunks = [];
+            let size = 0;
+            request.on('data', (chunk) => {
+              size += chunk.length;
+              if (size > MAX_REQUEST_BODY_BYTES) {
+                const error = new Error('Payload too large');
+                error.status = 413;
+                reject(error);
+                request.removeAllListeners('data');
+                request.resume();
+                return;
+              }
+              chunks.push(chunk);
+            });
+            request.on('end', () => resolve(Buffer.concat(chunks)));
+            request.on('error', reject);
+          });
+        const webRequest = new Request(`http://${request.headers.host ?? '127.0.0.1'}${request.url}`, {
+          method: request.method,
+          headers: request.headers,
+          body,
+          duplex: body ? 'half' : undefined,
+        });
+        const webResponse = await this.handleRequest(webRequest);
+        response.writeHead(webResponse.status, Object.fromEntries(webResponse.headers));
+        if (!webResponse.body) {
+          response.end();
+          return;
+        }
+        await new Promise((resolve, reject) => {
+          Readable.fromWeb(webResponse.body).once('error', reject).pipe(response).once('finish', resolve);
+        });
+      } catch (error) {
+        response.writeHead(error?.status ?? 500, { 'content-type': 'text/plain; charset=utf-8' });
+        response.end(error instanceof Error ? error.message : String(error));
+      }
+    });
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(port, '127.0.0.1', resolve);
+    });
+    this.server = server;
+    this.port = server.address().port;
   }
 
   async close() {
     const server = this.server;
     this.server = null;
     this.port = null;
-    if (server) await server.stop(true);
+    if (!server) return;
+    await new Promise((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+      server.closeAllConnections?.();
+    });
   }
-
   async handleRequest(request) {
     const url = new URL(request.url);
     const pathParts = url.pathname.split('/').filter(Boolean);

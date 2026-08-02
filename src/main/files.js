@@ -36,6 +36,7 @@ const execFileAsync = promisify(execFile);
 const previewSizeLimit = 1024 * 1024;
 const filenameResultLimit = 80;
 const contentResultLimit = 120;
+const inlineTextAttachmentSizeLimit = 64 * 1024;
 const temporaryAttachmentDirectory = resolve(tmpdir(), '.avi', 'chat-attachments');
 const attachmentExtensionsByMime = {
   'application/pdf': '.pdf',
@@ -134,7 +135,11 @@ export async function normalizeAttachmentsForModel(attachments, capabilities = {
 
     const supported = attachment.kind === 'context_marker'
       || attachment.kind === 'file_reference'
-      || (attachment.kind === 'text_inline' && attachment.source !== 'pasted_text')
+      || (
+        attachment.kind === 'text_inline'
+        && attachment.source !== 'pasted_text'
+        && (attachment.size ?? Buffer.byteLength(attachment.text ?? '', 'utf8')) <= inlineTextAttachmentSizeLimit
+      )
       || (attachment.kind === 'image_url' && capabilities.images)
       || (attachment.kind === 'input_audio' && capabilities.audio)
       || (

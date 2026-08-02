@@ -1,6 +1,5 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import './electrobun-api.js';
 import { applyTheme, readAppearance } from './lib/apply-theme.js';
 import App from './App.jsx';
 import './styles.css';

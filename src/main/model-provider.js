@@ -188,6 +188,7 @@ export class ModelProvider {
                   event.type === 'error'
                   && (
                     event.code === 'server_error'
+                    || event.code === 'provider_error'
                     || (event.code === 'server_is_overloaded' && !receivedOutput)
                   )
                 ) {

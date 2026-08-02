@@ -44,8 +44,8 @@ Avi brings model conversations, project context, local tools, MCP servers, and m
 
 ## Technology
 
-- [Electrobun](https://electrobun.dev/) for the desktop runtime and packaging
-- [Bun](https://bun.sh/) for the JavaScript runtime, package management, SQLite, and build scripts
+- [Electron](https://www.electronjs.org/) for the desktop runtime and [electron-builder](https://www.electron.build/) for installers
+- [Bun](https://bun.sh/) for package management and development/build scripts
 - [React](https://react.dev/) for the renderer
 - [Vite](https://vite.dev/) for renderer builds
 - [Cascadium](https://github.com/cypherpotato/cascadium) for stylesheet compilation
@@ -55,14 +55,14 @@ Avi brings model conversations, project context, local tools, MCP servers, and m
 
 ```mermaid
 flowchart LR
-    UI["React renderer"] <--> IPC["Electrobun IPC"]
-    IPC <--> Core["Bun main process"]
+    UI["React renderer"] <--> IPC["Electron preload IPC"]
+    IPC <--> Core["Electron main process"]
     Core --> Data["SQLite and encrypted credentials"]
     Core --> Providers["Model providers"]
     Core --> Tools["Local tools and MCP servers"]
 ```
 
-The renderer owns the user interface. The main process owns persistence, provider requests, tool execution, context discovery, and MCP connections. Communication between them uses the Electrobun IPC boundary.
+The renderer owns the user interface. The main process owns persistence, provider requests, tool execution, context discovery, and MCP connections. Communication crosses an isolated Electron preload boundary exposed as `window.chatApp`; renderer code does not receive direct Node.js or `ipcRenderer` access.
 
 ## Getting started
 
@@ -70,7 +70,7 @@ The renderer owns the user interface. The main process owns persistence, provide
 
 - [Bun](https://bun.sh/) installed and available in your terminal
 - Git
-- A supported desktop environment for Electrobun
+- A supported Windows, macOS, or Linux desktop environment
 
 ### Install and run
 
@@ -85,6 +85,12 @@ To open the renderer developer tools:
 
 ```bash
 bun run dev:devtools
+```
+
+During development only, pass `--skip-single-instance` when parallel Avi instances are required:
+
+```bash
+bun run dev --skip-single-instance
 ```
 
 No environment variables are required for normal development. Providers and MCP servers are configured inside the application.
@@ -116,7 +122,9 @@ Provide the base URL, API key, and models exposed by the service. Model capabili
 | `bun run styles:watch` | Recompile styles when source files change |
 | `bun run syntax` | Check JavaScript and JSX syntax |
 | `bun run renderer:build` | Compile styles and produce the Vite renderer build |
-| `bun run build` | Build and package Avi for the current platform |
+| `bun run build` | Build the renderer |
+| `bun package` | Build the renderer and create an installer for the current platform |
+| `bun package --all` | Request Windows, macOS, and Linux installers (use native CI runners for release artifacts) |
 
 ## Tests
 
@@ -147,10 +155,10 @@ bun run build
 The application version is defined in `package.json` and compiled into the renderer and desktop package.
 
 ```bash
-bun run build
+bun package
 ```
 
-Electrobun builds for the current operating system and architecture. Generated packages are written to `release/`, while intermediate application bundles are written to `build/`.
+Installers are written to `artifacts/`. `bun package --all` requests every configured target, but signed and production-ready artifacts should be generated on native Windows, macOS, and Linux CI runners because DMG signing/notarization, NSIS signing, and Linux packaging tools are platform-specific.
 
 ## Project structure
 
@@ -162,7 +170,8 @@ Electrobun builds for the current operating system and architecture. Generated p
 | `src/renderer/` | React interface and renderer-side APIs |
 | `src/styles/` | Cascadium source styles |
 | `scripts/` | Development, validation, test, and packaging scripts |
-| `electrobun.config.ts` | Desktop build and release configuration |
+| `package.json` | Electron entry point, metadata, and electron-builder release configuration |
+| `src/preload/` | Isolated renderer IPC bridge |
 | `vite.config.js` | Renderer build configuration |
 
 ## Local data and credentials
