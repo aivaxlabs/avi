@@ -132,6 +132,7 @@ export function Composer({
   tasks = [],
   onOpenTasks,
   onOpenSubagents,
+  steeredMessages = [],
   queuedMessages = [],
   onCancelQueued,
   onReorderQueued,
@@ -185,7 +186,7 @@ export function Composer({
   const [projectSelecting, setProjectSelecting] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectQuery, setProjectQuery] = useState('');
-  const [draggedQueuedMessageId, setDraggedQueuedMessageId] = useState(null);
+  const [draggedPendingMessage, setDraggedPendingMessage] = useState(null);
   const [queueMutationPending, setQueueMutationPending] = useState(false);
   const [queuedMenu, setQueuedMenu] = useState(null);
   const [editingQueuedMessageId, setEditingQueuedMessageId] = useState(null);
@@ -320,7 +321,8 @@ export function Composer({
       ? Boolean(text.trim())
       : Boolean(text.trim() || attachments.length > 0)
   );
-  const canResumeQueue = !isRunning && queuedMessages.length > 0;
+  const pendingMessages = [...steeredMessages, ...queuedMessages];
+  const canResumeQueue = !isRunning && pendingMessages.length > 0;
   const workingSubagents = subagents.filter((subagent) => subagent.status === 'working').length;
   const finishedSubagents = subagents.filter((subagent) => subagent.status === 'finished').length;
   const failedSubagents = subagents.filter((subagent) => subagent.status === 'failed').length;
@@ -470,10 +472,10 @@ export function Composer({
   }, [queuedMenu]);
 
   useEffect(() => {
-    if (queuedMenu && !queuedMessages.some((message) => message.id === queuedMenu.messageId)) {
+    if (queuedMenu && !pendingMessages.some((message) => message.id === queuedMenu.messageId)) {
       setQueuedMenu(null);
     }
-  }, [queuedMenu, queuedMessages]);
+  }, [queuedMenu, pendingMessages]);
 
   useEffect(() => {
     if (!recording?.analyser || recording.paused) {
@@ -853,143 +855,170 @@ export function Composer({
           <ChevronRight size={15} aria-hidden="true" />
         </ComposerStrip>
       )}
-      {queuedMessages.length > 0 && (
-        <ComposerStrip as="ol" className="queued-messages" aria-label="Queued messages">
-          {queuedMessages.map((message, index) => (
-            <li
-              key={message.id}
-              className={[
-                message.status === 'steered' && 'steered',
-                draggedQueuedMessageId === message.id && 'dragging',
-                queuedMenu?.messageId === message.id && 'menu-open',
-              ].filter(Boolean).join(' ')}
-              onDragOver={(event) => {
-                if (queueMutationPending || !draggedQueuedMessageId || draggedQueuedMessageId === message.id) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = 'move';
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                if (queueMutationPending || !draggedQueuedMessageId || draggedQueuedMessageId === message.id) return;
-                const messageIds = queuedMessages
-                  .map((item) => item.id)
-                  .filter((messageId) => messageId !== draggedQueuedMessageId);
-                messageIds.splice(index, 0, draggedQueuedMessageId);
-                setDraggedQueuedMessageId(null);
-                setQueueMutationPending(true);
-                Promise.resolve(onReorderQueued(messageIds))
-                  .finally(() => setQueueMutationPending(false));
-              }}
-            >
-              <button
-                className="queued-message-grip"
-                type="button"
-                draggable={!queueMutationPending}
-                disabled={queueMutationPending}
-                title="Drag or use the arrow keys to reorder"
-                aria-label={`Reorder queued message ${index + 1}`}
-                onKeyDown={(event) => {
-                  if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+      {[
+        {
+          queueType: 'steer',
+          label: 'Steer',
+          description: 'Applied after the current assistant turn',
+          messages: steeredMessages,
+        },
+        {
+          queueType: 'queue',
+          label: 'Queue',
+          description: 'Sent after the assistant finishes',
+          messages: queuedMessages,
+        },
+      ].filter((section) => section.messages.length > 0).map((section) => (
+        <ComposerStrip
+          key={section.queueType}
+          as="section"
+          className={`pending-messages-section ${section.queueType}-messages-section`}
+          aria-label={`${section.label} messages`}
+        >
+          <header className="pending-messages-header">
+            <span className="pending-messages-title">
+              {section.queueType === 'steer'
+                ? <CornerDownLeft size={13} aria-hidden="true" />
+                : <Clock3 size={13} aria-hidden="true" />}
+              <strong>{section.label}</strong>
+              <span>{section.messages.length}</span>
+            </span>
+            <span>{section.description}</span>
+          </header>
+          <ol className="queued-messages">
+            {section.messages.map((message, index) => (
+              <li
+                key={message.id}
+                className={[
+                  section.queueType === 'steer' && 'steered',
+                  draggedPendingMessage?.queueType === section.queueType
+                    && draggedPendingMessage?.messageId === message.id
+                    && 'dragging',
+                  queuedMenu?.messageId === message.id && 'menu-open',
+                ].filter(Boolean).join(' ')}
+                onDragOver={(event) => {
+                  if (
+                    queueMutationPending
+                    || draggedPendingMessage?.queueType !== section.queueType
+                    || draggedPendingMessage.messageId === message.id
+                  ) return;
                   event.preventDefault();
-                  const nextIndex = event.key === 'ArrowUp' ? index - 1 : index + 1;
-                  if (nextIndex < 0 || nextIndex >= queuedMessages.length) return;
-                  const messageIds = queuedMessages.map((item) => item.id);
-                  [messageIds[index], messageIds[nextIndex]] = [
-                    messageIds[nextIndex],
-                    messageIds[index],
-                  ];
+                  event.dataTransfer.dropEffect = 'move';
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (
+                    queueMutationPending
+                    || draggedPendingMessage?.queueType !== section.queueType
+                    || draggedPendingMessage.messageId === message.id
+                  ) return;
+                  const messageIds = section.messages
+                    .map((item) => item.id)
+                    .filter((messageId) => messageId !== draggedPendingMessage.messageId);
+                  messageIds.splice(index, 0, draggedPendingMessage.messageId);
+                  setDraggedPendingMessage(null);
                   setQueueMutationPending(true);
-                  Promise.resolve(onReorderQueued(messageIds))
+                  Promise.resolve(onReorderQueued(section.queueType, messageIds))
                     .finally(() => setQueueMutationPending(false));
                 }}
-                onDragStart={(event) => {
-                  setDraggedQueuedMessageId(message.id);
-                  event.dataTransfer.effectAllowed = 'move';
-                  event.dataTransfer.setData('text/plain', message.id);
-                }}
-                onDragEnd={() => setDraggedQueuedMessageId(null)}
               >
-                <GripVertical size={14} />
-              </button>
-              <span className="queued-message-position" aria-hidden="true">{index + 1}</span>
-              <span className="queued-message-status">
-                {message.status === 'steered'
-                  ? <CornerDownLeft size={12} aria-hidden="true" />
-                  : <Clock3 size={12} aria-hidden="true" />}
-                <span>{message.status === 'steered' ? 'Steering' : 'Queued'}</span>
-              </span>
-              <span
-                className="queued-message-copy"
-                title={message.content || message.attachments.map((attachment) => attachment.name).join(', ')}
-              >
-                {message.content
-                  || message.attachments.map((attachment) => attachment.name).join(', ')
-                  || 'Message with attachments'}
-              </span>
-              <div className="queued-message-actions">
-                {message.status !== 'steered' && (
+                <button
+                  className="queued-message-grip"
+                  type="button"
+                  draggable={!queueMutationPending}
+                  disabled={queueMutationPending}
+                  title="Drag or use the arrow keys to reorder"
+                  aria-label={`Reorder ${section.label.toLowerCase()} message ${index + 1}`}
+                  onKeyDown={(event) => {
+                    if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+                    event.preventDefault();
+                    const nextIndex = event.key === 'ArrowUp' ? index - 1 : index + 1;
+                    if (nextIndex < 0 || nextIndex >= section.messages.length) return;
+                    const messageIds = section.messages.map((item) => item.id);
+                    [messageIds[index], messageIds[nextIndex]] = [
+                      messageIds[nextIndex],
+                      messageIds[index],
+                    ];
+                    setQueueMutationPending(true);
+                    Promise.resolve(onReorderQueued(section.queueType, messageIds))
+                      .finally(() => setQueueMutationPending(false));
+                  }}
+                  onDragStart={(event) => {
+                    setDraggedPendingMessage({
+                      queueType: section.queueType,
+                      messageId: message.id,
+                    });
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', message.id);
+                  }}
+                  onDragEnd={() => setDraggedPendingMessage(null)}
+                >
+                  <GripVertical size={14} />
+                </button>
+                <span className="queued-message-position" aria-hidden="true">{index + 1}</span>
+                <span
+                  className="queued-message-copy"
+                  title={message.content || message.attachments.map((attachment) => attachment.name).join(', ')}
+                >
+                  {message.content
+                    || message.attachments.map((attachment) => attachment.name).join(', ')
+                    || 'Message with attachments'}
+                </span>
+                <div className="queued-message-actions">
+                  {section.queueType === 'queue' && (
+                    <button
+                      type="button"
+                      className="queued-message-steer"
+                      title="Prioritize after the current assistant turn"
+                      disabled={queueMutationPending}
+                      onClick={() => {
+                        setQueueMutationPending(true);
+                        Promise.resolve(onSteerQueued(
+                          message.id,
+                          section.messages.map((item) => item.id),
+                        )).finally(() => setQueueMutationPending(false));
+                      }}
+                    >
+                      <CornerDownLeft size={13} />
+                      <span>Steer</span>
+                    </button>
+                  )}
                   <button
                     type="button"
-                    className="queued-message-steer"
-                    title="Stop the current response and send this message next"
+                    title={`Remove from ${section.label.toLowerCase()}`}
+                    aria-label={`Remove from ${section.label.toLowerCase()}`}
                     disabled={queueMutationPending}
                     onClick={() => {
                       setQueueMutationPending(true);
-                      Promise.resolve(onSteerQueued(
-                        message.id,
-                        queuedMessages.map((item) => item.id),
-                      )).finally(() => setQueueMutationPending(false));
+                      Promise.resolve(onCancelQueued(message.id))
+                        .finally(() => setQueueMutationPending(false));
                     }}
                   >
-                    <CornerDownLeft size={13} />
-                    <span>Steer</span>
+                    <Trash2 size={13} />
                   </button>
-                )}
-                <button
-                  type="button"
-                  title="Remove from queue"
-                  aria-label={`Remove queued message ${index + 1}`}
-                  disabled={queueMutationPending}
-                  onClick={() => {
-                    setQueueMutationPending(true);
-                    Promise.resolve(onCancelQueued(message.id))
-                      .finally(() => setQueueMutationPending(false));
-                  }}
-                >
-                  <Trash2 size={13} />
-                </button>
-                <button
-                  className={queuedMenu?.messageId === message.id ? 'active' : ''}
-                  type="button"
-                  title="More actions"
-                  aria-label={`More actions for queued message ${index + 1}`}
-                  aria-haspopup="menu"
-                  aria-expanded={queuedMenu?.messageId === message.id}
-                  data-queue-menu-trigger={message.id}
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    const nextMenu = queuedMenu?.messageId === message.id
-                      ? null
-                      : {
-                          messageId: message.id,
-                          top: Math.min(window.innerHeight - 48, rect.bottom + 4),
-                          left: Math.max(8, rect.right - 174),
-                        };
-                    setQueuedMenu(nextMenu);
-                    if (nextMenu) {
-                      queueMicrotask(() => (
-                        document.querySelector('.queued-message-actions-menu button')?.focus()
+                  <button
+                    type="button"
+                    title="More actions"
+                    aria-label="More queued message actions"
+                    data-queue-menu-trigger={message.id}
+                    className={queuedMenu?.messageId === message.id ? 'active' : ''}
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setQueuedMenu((current) => (
+                        current?.messageId === message.id
+                          ? null
+                          : { messageId: message.id, top: rect.bottom + 6, left: rect.right - 180 }
                       ));
-                    }
-                  }}
-                >
-                  <MoreHorizontal size={14} />
-                </button>
-              </div>
-            </li>
-          ))}
+                    }}
+                  >
+                    <Ellipsis size={14} />
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ol>
         </ComposerStrip>
-      )}
+      ))}
       {queuedMenu && createPortal(
         <DropdownMenu
           className="queued-message-actions-menu"
@@ -1012,7 +1041,7 @@ export function Composer({
             role="menuitem"
             disabled={editingQueuedMessageId === queuedMenu.messageId}
             onClick={async () => {
-              const message = queuedMessages.find((item) => item.id === queuedMenu.messageId);
+              const message = pendingMessages.find((item) => item.id === queuedMenu.messageId);
               if (!message) return;
               setEditingQueuedMessageId(message.id);
               try {
@@ -1466,9 +1495,13 @@ export function Composer({
               type="button"
               onClick={(event) => {
                 if (!canSend) {
-                  onSteerQueued(
-                    queuedMessages[0].id,
-                    queuedMessages.map((message) => message.id),
+                  const next = steeredMessages[0] ?? queuedMessages[0];
+                  onReorderQueued(
+                    next.status === 'steered' ? 'steer' : 'queue',
+                    (next.status === 'steered' ? steeredMessages : queuedMessages)
+                      .map((message) => message.id),
+                    null,
+                    true,
                   );
                   return;
                 }

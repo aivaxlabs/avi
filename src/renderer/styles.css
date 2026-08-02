@@ -6548,9 +6548,55 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     outline-offset: -2px;
 }
 
-.composer-wrap .queued-messages {
-    max-height: min(210px, 28vh);
+.composer-wrap .pending-messages-section {
+    max-height: min(250px, 32vh);
     margin-bottom: -4px;
+    padding: 0;
+    overflow: hidden;
+}
+
+.composer-wrap .pending-messages-section.steer-messages-section {
+    border-color: color-mix(in srgb, var(--link-color) 35%, var(--border-color));
+}
+
+.composer-wrap .pending-messages-header {
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 11px;
+    color: var(--text-4);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 10px;
+}
+
+.composer-wrap .pending-messages-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-2);
+    font-size: 11px;
+}
+
+.composer-wrap .pending-messages-title > span:last-child {
+    min-width: 18px;
+    padding: 1px 5px;
+    color: var(--text-3);
+    background: var(--background-3);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.composer-wrap .steer-messages-section .pending-messages-title {
+    color: var(--link-color);
+}
+
+.composer-wrap .queued-messages {
+    max-height: min(210px, 26vh);
+    margin: 0;
     padding: 6px;
     overflow: auto;
     list-style: none;
@@ -6639,17 +6685,6 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     font-size: 10px;
     font-weight: 500;
     white-space: nowrap;
-}
-
-.composer-wrap .queued-message-status {
-    padding: 3px 6px;
-    background: var(--background-3);
-    border: 1px solid var(--border-color);
-    border-radius: 999px;
-}
-
-.composer-wrap .queued-messages li.steered .queued-message-status {
-    color: var(--link-color);
 }
 
 .composer-wrap .queued-message-actions {

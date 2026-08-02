@@ -92,6 +92,31 @@ try {
     name: 'completed_tool',
     arguments: '{"complete":true}',
   };
+  const steeredToolHistoryBody = await responsesApi.createBody({
+    provider: {},
+    model,
+    messages: [{ role: 'user', content: 'Original prompt' }],
+    reasoningEffort: null,
+    tools: [],
+    toolHistory: [{
+      assistantContent: 'Calling a tool.',
+      toolCalls: [{
+        callId: 'steer-order-call',
+        name: 'order_tool',
+        argumentsText: '{}',
+      }],
+      results: [{ callId: 'steer-order-call', output: '{"done":true}' }],
+      messages: [{ role: 'user', content: 'Steer after the tool result.' }],
+    }],
+    invocationContext: {},
+  });
+  assert.deepEqual(
+    steeredToolHistoryBody.input.slice(-2).map((item) => (
+      item.type === 'function_call_output' ? item.type : [item.role, item.content]
+    )),
+    ['function_call_output', ['user', 'Steer after the tool result.']],
+  );
+
   assert.deepEqual(
     responsesApi.eventsFrom({
       type: 'response.output_item.done',
@@ -240,6 +265,30 @@ try {
   assert.equal(overloadedAccumulator.segments.length, 1);
   assert.equal(overloadedAccumulator.segments[0].type, 'error');
   assert.match(overloadedAccumulator.content, /Retry attempt 5\/5/);
+
+  let providerErrorAttempts = 0;
+  const providerErrorEvents = [];
+  await stream(
+    createProvider(
+      async () => {
+        providerErrorAttempts += 1;
+        return new Response(providerErrorAttempts === 1
+          ? `data: ${JSON.stringify({
+              type: 'error',
+              code: 'provider_error',
+              message: 'The upstream provider failed.',
+            })}\n\n`
+          : 'data: [DONE]\n\n', { status: 200 });
+      },
+      (payload) => [payload],
+    ),
+    null,
+    new AbortController().signal,
+    (event) => providerErrorEvents.push(event),
+  );
+  assert.equal(providerErrorAttempts, 2);
+  assert.equal(providerErrorEvents.filter((event) => event.type === 'retry').length, 1);
+  assert.equal(providerErrorEvents.filter((event) => event.type === 'error').length, 0);
 
   let serverErrorAttempts = 0;
   const serverErrorEvents = [];

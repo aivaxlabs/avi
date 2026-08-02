@@ -76,16 +76,23 @@ export function ChatView({
   const [questionAnswers, setQuestionAnswers] = useState([]);
   const [questionResolving, setQuestionResolving] = useState(false);
   const modelName = getModelDisplayName(models, currentModel);
-  const queuedMessages = currentMessages
-    .filter((message) => !message.hidden && ['queued', 'steered'].includes(message.status))
-    .sort((a, b) => (
-      (a.queuePosition ?? Number.MAX_SAFE_INTEGER)
-      - (b.queuePosition ?? Number.MAX_SAFE_INTEGER)
-      || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    ));
+  const pendingMessages = currentMessages
+    .filter((message) => !message.hidden && ['queued', 'steered'].includes(message.status));
+  const byQueuePosition = (a, b) => (
+    (a.queuePosition ?? Number.MAX_SAFE_INTEGER)
+    - (b.queuePosition ?? Number.MAX_SAFE_INTEGER)
+    || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+  const steeredMessages = pendingMessages
+    .filter((message) => message.status === 'steered')
+    .sort(byQueuePosition);
+  const queuedMessages = pendingMessages
+    .filter((message) => message.status === 'queued')
+    .sort(byQueuePosition);
   const visibleMessages = currentMessages
     .filter((message) => !message.hidden)
     .filter((message) => !['queued', 'steered'].includes(message.status));
+  const groupedMessages = groupAssistantTurns(visibleMessages);
   const lastAssistantMessage = visibleMessages.findLast((message) => message.role === 'assistant');
   const lastMessage = visibleMessages.at(-1);
   const isEmptyChat = visibleMessages.length === 0;
@@ -508,6 +515,7 @@ export function ChatView({
         tasks={tasks}
         onOpenTasks={onOpenTasks}
         onOpenSubagents={onOpenSubagents}
+        steeredMessages={steeredMessages}
         queuedMessages={queuedMessages}
         onCancelQueued={onCancelQueued}
         onReorderQueued={onReorderQueued}

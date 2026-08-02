@@ -29,6 +29,13 @@ assert.match(
   /result\?\.reordered && result\?\.steered && message\.id === steerMessageId/,
 );
 assert.match(composerSource, /disabled=\{queueMutationPending\}/);
+assert.match(composerSource, /queueType: 'steer'/);
+assert.match(composerSource, /queueType: 'queue'/);
+assert.match(composerSource, /onReorderQueued\(section\.queueType, messageIds\)/);
+assert.match(composerSource, /Prioritize after the current assistant turn/);
+assert.doesNotMatch(composerSource, /Stop the current response and send this message next/);
+assert.match(appSource, /steerMessageIds \?\? \[\]/);
+assert.match(appSource, /queuedMessageIds \?\? \[\]/);
 
 const queueSteerOnly = process.argv.includes('--queue-steer-only');
 let database;
@@ -128,7 +135,7 @@ try {
   assert.equal(inferenceCalls[0].aborted, false);
   finishInference();
   await waitFor(() => !inferenceRunner.runs.has(inferenceConversation.id));
-  assert.equal(inferenceCalls[0].reason, 'steer');
+  assert.equal(inferenceCalls[0].aborted, false);
   assert.equal(inferenceCalls.length, 2);
   assert.deepEqual(
     inferenceRequests[1]
@@ -145,7 +152,7 @@ try {
     getMessages(inferenceConversation.id)
       .filter((message) => message.role === 'assistant')
       .map((message) => message.status),
-    ['aborted', 'completed'],
+    ['completed', 'completed'],
   );
 
   const persistedQueueConversation = createConversation({
@@ -161,11 +168,13 @@ try {
       content,
     })
   ));
-  updateQueuedMessageOrder(persistedQueueConversation.id, [
-    persistedQueueMessages[2].id,
-    persistedQueueMessages[0].id,
-    persistedQueueMessages[1].id,
-  ]);
+  updateQueuedMessageOrder(persistedQueueConversation.id, {
+    queuedMessageIds: [
+      persistedQueueMessages[2].id,
+      persistedQueueMessages[0].id,
+      persistedQueueMessages[1].id,
+    ],
+  });
   const reconstructedQueueRunner = buildRunner(inferenceProvider);
   assert.deepEqual(
     reconstructedQueueRunner.getQueuedItems(persistedQueueConversation.id, model.id)
@@ -176,6 +185,82 @@ try {
       persistedQueueMessages[1].id,
     ],
   );
+  const persistedSteer = insertMessage({
+    conversationId: persistedQueueConversation.id,
+    role: 'user',
+    model: model.id,
+    status: 'steered',
+    content: 'Persisted steer',
+  });
+  updateQueuedMessageOrder(persistedQueueConversation.id, {
+    steerMessageIds: [persistedSteer.id],
+    queuedMessageIds: persistedQueueMessages.map((message) => message.id),
+  });
+  assert.deepEqual(
+    reconstructedQueueRunner.getQueuedItems(persistedQueueConversation.id, model.id)
+      .map((item) => item.userMessageId),
+    [persistedSteer.id, ...persistedQueueMessages.map((message) => message.id)],
+  );
+
+  const prioritySignals = [];
+  const priorityRunner = buildRunner({
+    getContributions: () => ({ tools: [] }),
+    stream: ({ signal }) => new Promise((_resolveStream, rejectStream) => {
+      prioritySignals.push(signal);
+      signal.addEventListener('abort', () => rejectStream(new Error('Stopped')), { once: true });
+    }),
+  });
+  const priorityConversation = createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  await priorityRunner.send({
+    conversationId: priorityConversation.id,
+    model: model.id,
+    text: 'Active priority test',
+  });
+  await waitFor(() => prioritySignals.length === 1);
+  const ordinaryQueued = await priorityRunner.send({
+    conversationId: priorityConversation.id,
+    model: model.id,
+    text: 'Ordinary queued message',
+  });
+  const steeredQueued = await priorityRunner.send({
+    conversationId: priorityConversation.id,
+    model: model.id,
+    text: 'Steered message',
+    steer: true,
+  });
+  const priorityQueued = await priorityRunner.send({
+    conversationId: priorityConversation.id,
+    model: model.id,
+    text: 'Priority queued message',
+    queuePriority: true,
+  });
+  assert.deepEqual(
+    priorityRunner.runs.get(priorityConversation.id).queue
+      .map((item) => item.userMessageId),
+    [steeredQueued.message.id, priorityQueued.message.id, ordinaryQueued.message.id],
+  );
+  assert.equal(prioritySignals[0].aborted, false);
+  const crossLaneOrder = priorityRunner.reorderQueuedMessages({
+    conversationId: priorityConversation.id,
+    queueType: 'queue',
+    messageIds: [ordinaryQueued.message.id, priorityQueued.message.id, steeredQueued.message.id],
+  });
+  assert.equal(crossLaneOrder.reordered, false);
+  const normalizedPriorityOrder = priorityRunner.reorderQueuedMessages({
+    conversationId: priorityConversation.id,
+    queueType: 'queue',
+    messageIds: [ordinaryQueued.message.id, priorityQueued.message.id],
+  });
+  assert.deepEqual(normalizedPriorityOrder.steerMessageIds, [steeredQueued.message.id]);
+  assert.deepEqual(normalizedPriorityOrder.queuedMessageIds, [
+    ordinaryQueued.message.id,
+    priorityQueued.message.id,
+  ]);
+  priorityRunner.stop(priorityConversation.id);
+  await waitFor(() => !priorityRunner.runs.has(priorityConversation.id));
 
   let finishConfiguredInference;
   const configuredInferenceRequests = [];
@@ -234,8 +319,8 @@ try {
       dispatchedCount: userMessageIds.length,
     })),
     [
-      { permissionMode: 'full_access', dispatchedCount: 1 },
       { permissionMode: 'approve_for_me', dispatchedCount: 1 },
+      { permissionMode: 'full_access', dispatchedCount: 1 },
     ],
   );
 
@@ -275,245 +360,135 @@ try {
   );
 
   if (!queueSteerOnly) {
-    let finishReasoningItem;
-  let reasoningStreamCount = 0;
-  let emittedContentAfterReasoning = false;
-  const reasoningBoundaryProvider = {
-    getContributions: () => ({ tools: [] }),
-    stream: ({ onEvent }) => {
-      reasoningStreamCount += 1;
-      if (reasoningStreamCount > 1) {
-        return Promise.resolve({ assistantContent: 'Steered after reasoning', toolCalls: [] });
-      }
-      onEvent({ type: 'reasoning', text: 'Completed reasoning item' });
-      return new Promise((resolveStream, rejectStream) => {
-        finishReasoningItem = () => {
-          try {
-            onEvent({ type: 'item-complete', itemType: 'reasoning' });
-            onEvent({ type: 'content', text: 'Content that must not be emitted' });
-            emittedContentAfterReasoning = true;
-            resolveStream({ assistantContent: 'Content that must not be emitted', toolCalls: [] });
-          } catch (error) {
-            rejectStream(error);
-          }
-        };
-      });
-    },
-  };
-  const reasoningBoundaryRunner = buildRunner(reasoningBoundaryProvider);
-  const reasoningBoundaryConversation = createConversation({
-    model: model.id,
-    projectPath: process.cwd(),
-  });
-  await reasoningBoundaryRunner.send({
-    conversationId: reasoningBoundaryConversation.id,
-    model: model.id,
-    text: 'Reason before steering',
-  });
-  await waitFor(() => Boolean(finishReasoningItem));
-  await reasoningBoundaryRunner.send({
-    conversationId: reasoningBoundaryConversation.id,
-    model: model.id,
-    text: 'Steer after reasoning',
-    steer: true,
-  });
-  finishReasoningItem();
-  await waitFor(() => !reasoningBoundaryRunner.runs.has(reasoningBoundaryConversation.id));
-  const reasoningAssistants = getMessages(reasoningBoundaryConversation.id)
-    .filter((message) => message.role === 'assistant');
-  assert.equal(emittedContentAfterReasoning, false);
-  assert.deepEqual(reasoningAssistants.map((message) => message.status), ['aborted', 'completed']);
-  assert.deepEqual(
-    reasoningAssistants[0].segments.map((segment) => [segment.type, segment.status]),
-    [['reasoning', 'completed']],
-  );
-
-  let finishPendingToolCall;
-  let pendingToolStreamCount = 0;
-  let pendingToolExecutions = 0;
-  const pendingToolBoundaryProvider = {
+    let finishFirstTool;
+  let finishSecondTool;
+  const inferenceBoundaryCalls = [];
+  const executedTools = [];
+  const inferenceBoundaryProvider = {
     getContributions: () => ({
-      tools: [{
-        name: 'must_not_execute',
-        description: 'Must not execute after a semantic steer boundary.',
-        inputSchema: { type: 'object', properties: {} },
-        execute: () => {
-          pendingToolExecutions += 1;
-          return { unexpected: true };
-        },
-      }],
-    }),
-    stream: ({ onEvent }) => {
-      pendingToolStreamCount += 1;
-      if (pendingToolStreamCount > 1) {
-        return Promise.resolve({ assistantContent: 'Steered before tool execution', toolCalls: [] });
-      }
-      onEvent({
-        type: 'tool-call',
-        key: 'pending-tool-call',
-        callId: 'pending-tool-call',
-        name: 'must_not_execute',
-        argumentsText: '{"value":"final"}',
-        replaceArguments: true,
-      });
-      return new Promise((resolveStream, rejectStream) => {
-        finishPendingToolCall = () => {
-          try {
-            onEvent({ type: 'item-complete', itemType: 'tool-call' });
-            resolveStream({
-              assistantContent: '',
-              toolCalls: [{
-                key: 'pending-tool-call',
-                callId: 'pending-tool-call',
-                name: 'must_not_execute',
-                argumentsText: '{"value":"final"}',
-              }],
+      tools: [
+        {
+          name: 'first_boundary_tool',
+          description: 'Wait for the first controlled tool result.',
+          inputSchema: { type: 'object', properties: {} },
+          execute: (_input, { signal }) => {
+            executedTools.push(['first', signal]);
+            return new Promise((resolveTool) => {
+              finishFirstTool = () => resolveTool({ first: true });
             });
-          } catch (error) {
-            rejectStream(error);
-          }
-        };
-      });
-    },
-  };
-  const pendingToolBoundaryRunner = buildRunner(pendingToolBoundaryProvider);
-  const pendingToolBoundaryConversation = createConversation({
-    model: model.id,
-    projectPath: process.cwd(),
-  });
-  await pendingToolBoundaryRunner.send({
-    conversationId: pendingToolBoundaryConversation.id,
-    model: model.id,
-    text: 'Prepare a tool call',
-  });
-  await waitFor(() => Boolean(finishPendingToolCall));
-  await pendingToolBoundaryRunner.send({
-    conversationId: pendingToolBoundaryConversation.id,
-    model: model.id,
-    text: 'Do not execute that tool',
-    steer: true,
-  });
-  finishPendingToolCall();
-  await waitFor(() => !pendingToolBoundaryRunner.runs.has(pendingToolBoundaryConversation.id));
-  const pendingToolAssistants = getMessages(pendingToolBoundaryConversation.id)
-    .filter((message) => message.role === 'assistant');
-  const persistedPendingTool = pendingToolAssistants[0].segments.find(
-    (segment) => segment.type === 'tool-call',
-  );
-  assert.equal(pendingToolExecutions, 0);
-  assert.equal(persistedPendingTool.name, 'must_not_execute');
-  assert.equal(persistedPendingTool.argumentsText, '{"value":"final"}');
-  assert.deepEqual(pendingToolAssistants.map((message) => message.status), ['aborted', 'completed']);
-
-  let boundarySignal;
-  let reachBoundary;
-  let boundaryStreamCount = 0;
-  const betweenItemsProvider = {
-    getContributions: () => ({ tools: [] }),
-    stream: ({ signal, onEvent }) => {
-      boundaryStreamCount += 1;
-      if (boundaryStreamCount > 1) {
-        return Promise.resolve({ assistantContent: 'Steered from boundary', toolCalls: [] });
-      }
-      boundarySignal = signal;
-      onEvent({ type: 'content', text: 'First item' });
-      onEvent({ type: 'item-complete', itemType: 'content' });
-      return new Promise((_resolveStream, rejectStream) => {
-        reachBoundary = true;
-        signal.addEventListener('abort', () => rejectStream(new Error('Boundary interrupted')), {
-          once: true,
-        });
-      });
-    },
-  };
-  const betweenItemsRunner = buildRunner(betweenItemsProvider);
-  const betweenItemsConversation = createConversation({
-    model: model.id,
-    projectPath: process.cwd(),
-  });
-  await betweenItemsRunner.send({
-    conversationId: betweenItemsConversation.id,
-    model: model.id,
-    text: 'Wait between items',
-  });
-  await waitFor(() => Boolean(reachBoundary));
-  await betweenItemsRunner.send({
-    conversationId: betweenItemsConversation.id,
-    model: model.id,
-    text: 'Steer while between items',
-    steer: true,
-  });
-  assert.equal(boundarySignal.aborted, true);
-  assert.equal(boundarySignal.reason, 'steer');
-  await waitFor(() => !betweenItemsRunner.runs.has(betweenItemsConversation.id));
-  assert.deepEqual(
-    getMessages(betweenItemsConversation.id)
-      .filter((message) => message.role === 'assistant')
-      .map((message) => message.status),
-    ['aborted', 'completed'],
-  );
-
-  let finishTool;
-  let toolSignal;
-  let toolCallCount = 0;
-  const toolProvider = {
-    getContributions: () => ({
-      tools: [{
-        name: 'wait_for_test_tool',
-        description: 'Wait for a controlled test result.',
-        inputSchema: { type: 'object', properties: {} },
-        execute: (_input, { signal }) => {
-          toolSignal = signal;
-          return new Promise((resolveTool) => {
-            finishTool = () => resolveTool({ completed: true });
-          });
+          },
         },
-      }],
+        {
+          name: 'second_boundary_tool',
+          description: 'Wait for the second controlled tool result.',
+          inputSchema: { type: 'object', properties: {} },
+          execute: (_input, { signal }) => {
+            executedTools.push(['second', signal]);
+            return new Promise((resolveTool) => {
+              finishSecondTool = () => resolveTool({ second: true });
+            });
+          },
+        },
+      ],
     }),
-    stream: () => {
-      toolCallCount += 1;
-      return Promise.resolve(toolCallCount === 1
-        ? {
-            assistantContent: '',
-            toolCalls: [{
-              callId: 'tool-call-1',
-              key: 'tool-call-1',
-              name: 'wait_for_test_tool',
+    stream: ({ messages, toolHistory, signal, onEvent }) => {
+      inferenceBoundaryCalls.push({
+        messages: structuredClone(messages),
+        toolHistory: structuredClone(toolHistory),
+        signal,
+      });
+      if (inferenceBoundaryCalls.length === 1) {
+        onEvent({ type: 'content', text: 'Preparing tools.' });
+        onEvent({ type: 'item-complete', itemType: 'content' });
+        return Promise.resolve({
+          assistantContent: 'Preparing tools.',
+          toolCalls: [
+            {
+              callId: 'first-boundary-call',
+              key: 'first-boundary-call',
+              name: 'first_boundary_tool',
               argumentsText: JSON.stringify({
-                __invocation_goal: 'Exercise the cooperative tool boundary.',
+                __invocation_goal: 'Complete the first controlled tool.',
                 __requires_human_approval: false,
               }),
-            }],
-          }
-        : { assistantContent: 'Steered after tool', toolCalls: [] });
+            },
+            {
+              callId: 'second-boundary-call',
+              key: 'second-boundary-call',
+              name: 'second_boundary_tool',
+              argumentsText: JSON.stringify({
+                __invocation_goal: 'Complete the second controlled tool.',
+                __requires_human_approval: false,
+              }),
+            },
+          ],
+        });
+      }
+      return Promise.resolve({
+        assistantContent: inferenceBoundaryCalls.length === 2
+          ? 'Handled the steer after both tools.'
+          : 'Handled the queued message after the final inference.',
+        toolCalls: [],
+      });
     },
   };
-  const toolRunner = buildRunner(toolProvider);
-  const toolConversation = createConversation({
+  const inferenceBoundaryRunner = buildRunner(inferenceBoundaryProvider);
+  const inferenceBoundaryConversation = createConversation({
     model: model.id,
     projectPath: process.cwd(),
   });
-  await toolRunner.send({
-    conversationId: toolConversation.id,
+  await inferenceBoundaryRunner.send({
+    conversationId: inferenceBoundaryConversation.id,
     model: model.id,
-    text: 'Run the tool',
+    text: 'Run both tools before handling steer.',
   });
-  await waitFor(() => Boolean(finishTool));
-  await toolRunner.send({
-    conversationId: toolConversation.id,
+  await waitFor(() => Boolean(finishFirstTool));
+  const boundarySteer = await inferenceBoundaryRunner.send({
+    conversationId: inferenceBoundaryConversation.id,
     model: model.id,
-    text: 'Steer after the tool',
+    text: 'Steer after this inference.',
     steer: true,
   });
-  assert.equal(toolSignal.aborted, false);
-  finishTool();
-  await waitFor(() => !toolRunner.runs.has(toolConversation.id));
-  assert.equal(toolSignal.reason, 'steer');
+  const boundaryQueue = await inferenceBoundaryRunner.send({
+    conversationId: inferenceBoundaryConversation.id,
+    model: model.id,
+    text: 'Queue after the final inference.',
+  });
+  assert.equal(executedTools[0][1].aborted, false);
+  finishFirstTool();
+  await waitFor(() => Boolean(finishSecondTool));
+  assert.equal(executedTools[1][1].aborted, false);
+  assert.equal(inferenceBoundaryCalls.length, 1);
+  finishSecondTool();
+  await waitFor(() => inferenceBoundaryCalls.length === 3);
+  await waitFor(() => !inferenceBoundaryRunner.runs.has(inferenceBoundaryConversation.id));
+  assert.equal(inferenceBoundaryCalls[0].signal.aborted, false);
+  assert.equal(inferenceBoundaryCalls[1].toolHistory[0].results.length, 2);
   assert.deepEqual(
-    getMessages(toolConversation.id)
+    inferenceBoundaryCalls[1].toolHistory[0].messages.map((message) => message.content),
+    ['Steer after this inference.'],
+  );
+  assert.equal(
+    inferenceBoundaryCalls[1].messages.some((message) => (
+      message.content === 'Queue after the final inference.'
+    )),
+    false,
+  );
+  assert.equal(
+    inferenceBoundaryCalls[2].messages.some((message) => (
+      message.content === 'Queue after the final inference.'
+    )),
+    true,
+  );
+  assert.equal(getMessages(inferenceBoundaryConversation.id)
+    .find((message) => message.id === boundarySteer.message.id)?.status, 'sent');
+  assert.equal(getMessages(inferenceBoundaryConversation.id)
+    .find((message) => message.id === boundaryQueue.message.id)?.status, 'sent');
+  assert.deepEqual(
+    getMessages(inferenceBoundaryConversation.id)
       .filter((message) => message.role === 'assistant')
       .map((message) => message.status),
-    ['aborted', 'completed'],
+    ['completed', 'completed', 'completed'],
   );
 
   const fullStopSignals = [];
@@ -586,6 +561,7 @@ try {
 
   const reorderedParent = fullStopRunner.reorderQueuedMessages({
     conversationId: parent.id,
+    queueType: 'queue',
     messageIds: [secondQueuedParent.message.id, priorityParent.message.id, queuedParent.message.id],
   });
   assert.equal(reorderedParent.reordered, true);
@@ -607,6 +583,7 @@ try {
     .map((item) => item.userMessageId);
   const steeredSubagent = fullStopRunner.reorderQueuedMessages({
     conversationId: subagent.id,
+    queueType: 'queue',
     messageIds: subagentQueueOrder,
     steerMessageId: queuedSubagent.message.id,
   });

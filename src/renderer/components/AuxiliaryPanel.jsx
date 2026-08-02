@@ -492,7 +492,15 @@ export function AuxiliaryPanel({
             onRetry={(messageId) => onRetry(activeThread.id, messageId, currentModel)}
             onResume={(messageId, model) => onResume(activeThread.id, messageId, model)}
             onCancelQueued={(messageId) => onCancelQueued(activeThread.id, messageId)}
-            onReorderQueued={(messageIds) => onReorderQueued(activeThread.id, messageIds)}
+            onReorderQueued={(queueType, messageIds, steerMessageId, dispatchNext) => (
+              onReorderQueued(
+                activeThread.id,
+                queueType,
+                messageIds,
+                steerMessageId,
+                dispatchNext,
+              )
+            )}
             onSteerQueued={(messageId, messageIds) => onSteerQueued(
               activeThread.id,
               messageId,

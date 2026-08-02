@@ -15,6 +15,7 @@ import {
   listContinuingGoals,
   listSubagents,
   listTasks,
+  messageToApiBlock,
   setLastModel,
   toModelMessages,
   toModelMessagesThroughUser,
@@ -67,6 +68,57 @@ Include:
 
 Make the checkpoint structured, exhaustive, precise, and optimized for seamless continuation by another LLM.`;
 
+function partitionPendingItems(items) {
+  const steer = [];
+  const queue = [];
+  for (const item of items) {
+    (getMessage(item.userMessageId)?.status === 'steered' ? steer : queue).push(item);
+  }
+  return { steer, queue };
+}
+
+function orderPendingItems(items) {
+  const { steer, queue } = partitionPendingItems(items);
+  return [...steer, ...queue];
+}
+
+function pendingOrder(items) {
+  const { steer, queue } = partitionPendingItems(items);
+  return {
+    steerMessageIds: steer.map((item) => item.userMessageId),
+    queuedMessageIds: queue.map((item) => item.userMessageId),
+    messageIds: [...steer, ...queue].map((item) => item.userMessageId),
+  };
+}
+
+function persistPendingOrder(conversationId, items) {
+  const order = pendingOrder(items);
+  updateQueuedMessageOrder(conversationId, order);
+  return order;
+}
+
+function queueOrderEvent(order) {
+  return { type: 'queue-order', ...order };
+}
+
+function compatibleSteeredItems(items) {
+  const steeredItems = partitionPendingItems(items).steer;
+  const first = steeredItems[0];
+  if (!first) return [];
+  const compatible = [];
+  for (const item of steeredItems) {
+    if (
+      item.model !== first.model
+      || item.reasoningEffort !== first.reasoningEffort
+      || item.permissionMode !== first.permissionMode
+      || item.workMode !== first.workMode
+      || item.ultraMode !== first.ultraMode
+      || item.goalId !== first.goalId
+    ) break;
+    compatible.push(item);
+  }
+  return compatible;
+}
 function truncateToolOutput(output, limit) {
   if (limit === null) return output;
 
@@ -497,45 +549,35 @@ export class ChatRunner {
         status: steer ? 'steered' : 'queued',
       });
       const run = this.runs.get(conversation.id);
+      const item = {
+        userMessageId: queued.id,
+        model,
+        reasoningEffort,
+        permissionMode,
+        workMode,
+        ultraMode,
+        ...(goalId ? { goalId } : {}),
+        queuePriority,
+      };
+      const pending = partitionPendingItems(run.queue);
       if (steer) {
-        run.queue.unshift({
-          userMessageId: queued.id,
-          model,
-          reasoningEffort,
-          permissionMode,
-          workMode,
-          ultraMode,
-          ...(goalId ? { goalId } : {}),
-          queuePriority,
-        });
-        this.requestSteer(conversation.id);
+        pending.steer.push(item);
+      } else if (queuePriority) {
+        const insertionIndex = pending.queue.findIndex((queuedItem) => !queuedItem.queuePriority);
+        pending.queue.splice(insertionIndex < 0 ? pending.queue.length : insertionIndex, 0, item);
       } else {
-        const item = {
-          userMessageId: queued.id,
-          model,
-          reasoningEffort,
-          permissionMode,
-          workMode,
-          ultraMode,
-          ...(goalId ? { goalId } : {}),
-          queuePriority,
-        };
-        if (queuePriority) {
-          const insertionIndex = run.queue.findIndex((queuedItem) => !queuedItem.queuePriority);
-          run.queue.splice(insertionIndex < 0 ? run.queue.length : insertionIndex, 0, item);
-        } else {
-          run.queue.push(item);
-        }
+        pending.queue.push(item);
       }
+      run.queue = [...pending.steer, ...pending.queue];
       this.emit(conversation.id, { type: 'message', message: queued });
-      const queueOrder = run.queue.map((item) => item.userMessageId);
-      updateQueuedMessageOrder(conversation.id, queueOrder);
-      this.emit(conversation.id, { type: 'queue-order', messageIds: queueOrder });
+      const order = persistPendingOrder(conversation.id, run.queue);
+      this.emit(conversation.id, queueOrderEvent(order));
       return {
         conversation: getConversation(conversation.id),
         message: queued,
         queued: true,
-        queueOrder,
+        queueOrder: order.messageIds,
+        ...order,
       };
     }
 
@@ -616,16 +658,6 @@ export class ChatRunner {
     await Promise.allSettled(activeRuns.map(([, run]) => run.completion));
   }
 
-  requestSteer(conversationId) {
-    const run = this.runs.get(conversationId);
-    if (!run) return false;
-    run.steerRequested = true;
-    if (['approval', 'question', 'boundary'].includes(run.phase)) {
-      run.controller.abort('steer');
-    }
-    return true;
-  }
-
   cancelQueuedMessage({ conversationId, messageId }) {
     const run = this.runs.get(conversationId);
     if (run) {
@@ -634,65 +666,80 @@ export class ChatRunner {
 
     const message = getMessage(messageId);
     if (!message || !['queued', 'steered'].includes(message.status)) {
+      const order = pendingOrder(
+        run?.queue ?? this.getQueuedItems(conversationId, getConversation(conversationId)?.model),
+      );
       return {
         conversation: getConversation(conversationId),
         cancelled: false,
-        queueOrder: run?.queue.map((item) => item.userMessageId) ?? [],
+        queueOrder: order.messageIds,
+        ...order,
       };
     }
 
     deleteMessage(messageId);
     this.emit(conversationId, { type: 'message-delete', messageId });
-    const { queueOrder } = this.reorderQueuedMessages({
-      conversationId,
-      messageIds: run?.queue.map((item) => item.userMessageId) ?? [],
-    });
+    const remainingItems = run?.queue ?? this.getQueuedItems(conversationId, getConversation(conversationId)?.model);
+    const order = persistPendingOrder(conversationId, remainingItems);
+    this.emit(conversationId, queueOrderEvent(order));
     return {
       conversation: getConversation(conversationId),
       cancelled: true,
-      queueOrder,
+      queueOrder: order.messageIds,
+      ...order,
     };
   }
 
-  reorderQueuedMessages({ conversationId, messageIds = [], steerMessageId = null }) {
+  reorderQueuedMessages({
+    conversationId,
+    messageIds = [],
+    queueType = 'queue',
+    steerMessageId = null,
+    dispatchNext = false,
+  }) {
     const run = this.runs.get(conversationId);
-    if (!run) {
-      const conversation = getConversation(conversationId);
-      const queuedItems = this.getQueuedItems(conversationId, conversation?.model);
-      const queuedById = new Map(queuedItems.map((item) => [item.userMessageId, item]));
-      const requestedIds = [...new Set(messageIds)];
-      if (
-        requestedIds.length !== queuedItems.length
-        || requestedIds.some((messageId) => !queuedById.has(messageId))
-        || (steerMessageId && !queuedById.has(steerMessageId))
-      ) {
-        return {
-          reordered: false,
-          queueOrder: queuedItems.map((item) => item.userMessageId),
-        };
-      }
+    const conversation = getConversation(conversationId);
+    const items = run?.queue ?? this.getQueuedItems(conversationId, conversation?.model);
+    const pending = partitionPendingItems(items);
+    const target = queueType === 'steer' ? pending.steer : pending.queue;
+    const targetById = new Map(target.map((item) => [item.userMessageId, item]));
+    const requestedIds = [...new Set(messageIds)];
+    const validOrder = requestedIds.length === target.length
+      && requestedIds.every((messageId) => targetById.has(messageId));
+    const promotedItem = steerMessageId
+      ? pending.queue.find((item) => item.userMessageId === steerMessageId)
+      : null;
 
-      const orderedQueue = requestedIds.map((messageId) => queuedById.get(messageId));
-      if (!steerMessageId) {
-        this.pausedQueues.set(conversationId, orderedQueue);
-        updateQueuedMessageOrder(conversationId, requestedIds);
-        this.emit(conversationId, {
-          type: 'queue-order',
-          messageIds: requestedIds,
-        });
-        return {
-          reordered: true,
-          steered: false,
-          queueOrder: requestedIds,
-        };
-      }
+    if (!validOrder || (steerMessageId && !promotedItem) || (dispatchNext && items.length === 0)) {
+      const order = pendingOrder(items);
+      return {
+        reordered: false,
+        steered: false,
+        queueOrder: order.messageIds,
+        ...order,
+      };
+    }
 
-      const next = orderedQueue.shift();
+    if (queueType === 'steer') {
+      pending.steer = requestedIds.map((messageId) => targetById.get(messageId));
+    } else {
+      pending.queue = requestedIds.map((messageId) => targetById.get(messageId));
+    }
+
+    if (promotedItem) {
+      pending.queue = pending.queue.filter((item) => item.userMessageId !== steerMessageId);
+      pending.steer.push(promotedItem);
+      const steeredMessage = updateMessage(steerMessageId, { status: 'steered' });
+      if (steeredMessage) {
+        this.emit(conversationId, { type: 'message', message: steeredMessage });
+      }
+    }
+
+    let orderedItems = [...pending.steer, ...pending.queue];
+    if (!run && (promotedItem || dispatchNext)) {
+      const next = orderedItems.shift();
       this.pausedQueues.delete(conversationId);
-      updateQueuedMessageOrder(
-        conversationId,
-        orderedQueue.map((item) => item.userMessageId),
-      );
+      const order = persistPendingOrder(conversationId, orderedItems);
       const sentMessage = updateMessage(next.userMessageId, {
         status: next.workMode === 'plan'
           || !this.mcpManager
@@ -701,15 +748,12 @@ export class ChatRunner {
           : 'waiting_mcp',
       });
       this.emit(conversationId, { type: 'message', message: sentMessage });
-      this.emit(conversationId, {
-        type: 'queue-order',
-        messageIds: orderedQueue.map((item) => item.userMessageId),
-      });
+      this.emit(conversationId, queueOrderEvent(order));
       this.start({
         conversationId,
         model: next.model,
         userMessageId: next.userMessageId,
-        queue: orderedQueue,
+        queue: orderedItems,
         reasoningEffort: next.reasoningEffort,
         permissionMode: next.permissionMode,
         workMode: next.workMode,
@@ -718,38 +762,24 @@ export class ChatRunner {
       });
       return {
         reordered: true,
-        steered: true,
-        queueOrder: orderedQueue.map((item) => item.userMessageId),
+        steered: Boolean(promotedItem),
+        queueOrder: order.messageIds,
+        ...order,
       };
     }
 
-    const queuedById = new Map(run.queue.map((item) => [item.userMessageId, item]));
-    const requestedIds = [...new Set(messageIds)];
-    if (
-      requestedIds.length !== run.queue.length
-      || requestedIds.some((messageId) => !queuedById.has(messageId))
-      || (steerMessageId && !queuedById.has(steerMessageId))
-    ) {
-      return {
-        reordered: false,
-        queueOrder: run.queue.map((item) => item.userMessageId),
-      };
+    if (run) {
+      run.queue = orderedItems;
+    } else {
+      this.pausedQueues.set(conversationId, orderedItems);
     }
-
-    run.queue = requestedIds.map((messageId) => queuedById.get(messageId));
-    updateQueuedMessageOrder(conversationId, requestedIds);
-    this.emit(conversationId, { type: 'queue-order', messageIds: requestedIds });
-    if (steerMessageId) {
-      const steeredMessage = updateMessage(steerMessageId, { status: 'steered' });
-      if (steeredMessage) {
-        this.emit(conversationId, { type: 'message', message: steeredMessage });
-      }
-      this.requestSteer(conversationId);
-    }
+    const order = persistPendingOrder(conversationId, orderedItems);
+    this.emit(conversationId, queueOrderEvent(order));
     return {
       reordered: true,
-      steered: Boolean(steerMessageId),
-      queueOrder: requestedIds,
+      steered: Boolean(promotedItem),
+      queueOrder: order.messageIds,
+      ...order,
     };
   }
 
@@ -1000,7 +1030,6 @@ export class ChatRunner {
         model: selection.model.id,
         kind: 'compression',
         phase: 'inference',
-        steerRequested: false,
       });
       this.emit(conversation.id, { type: 'run-state', running: true });
     }
@@ -1094,13 +1123,13 @@ export class ChatRunner {
         return Number(right.queuePriority) - Number(left.queuePriority);
       });
     const pausedQueue = this.pausedQueues.get(conversationId);
-    if (!pausedQueue) return persistedItems;
+    if (!pausedQueue) return orderPendingItems(persistedItems);
 
     const persistedById = new Map(
       persistedItems.map((item) => [item.userMessageId, item]),
     );
     const pausedIds = new Set(pausedQueue.map((item) => item.userMessageId));
-    return [
+    return orderPendingItems([
       ...pausedQueue
         .filter((item) => persistedById.has(item.userMessageId))
         .map((item) => ({
@@ -1108,7 +1137,7 @@ export class ChatRunner {
           permissionMode: item.permissionMode,
         })),
       ...persistedItems.filter((item) => !pausedIds.has(item.userMessageId)),
-    ];
+    ]);
   }
 
   createUserMessage({
@@ -1222,7 +1251,6 @@ export class ChatRunner {
       goalId,
       kind: 'chat',
       phase: 'mcp',
-      steerRequested: false,
       userMessageIds,
     };
     const completion = Promise.withResolvers();
@@ -1545,12 +1573,6 @@ export class ChatRunner {
                 force: ['usage', 'error', 'retry', 'retry-clear', 'item-complete']
                   .includes(event.type),
               });
-              if (event.type === 'item-complete') {
-                run.phase = 'boundary';
-                if (this.shouldEndAtBoundary(run)) {
-                  throw new Error('The run was interrupted.');
-                }
-              }
             },
           });
           retriedAfterContextCompaction = false;
@@ -1586,7 +1608,7 @@ export class ChatRunner {
           continue;
         }
         run.phase = 'boundary';
-        if (this.shouldEndAtBoundary(run)) throw new Error('The run was interrupted.');
+        if (controller.signal.aborted) throw new Error('The run was interrupted.');
         if (turn.toolCalls.length === 0) {
           finalAssistantContent = turn.assistantContent;
           break;
@@ -1772,8 +1794,6 @@ export class ChatRunner {
             isError,
           });
           persistAssistant({ force: true });
-          run.phase = 'boundary';
-          if (this.shouldEndAtBoundary(run)) throw new Error('The run was interrupted.');
         }
 
         toolHistory.push({
@@ -1809,9 +1829,50 @@ export class ChatRunner {
             }
           }
         }
+
+        const steeredItems = compatibleSteeredItems(run.queue);
+        if (steeredItems.length > 0) {
+          const nextSelection = this.registry.resolve(steeredItems[0].model);
+          if (!nextSelection) {
+            throw new Error('The steered model is no longer configured. Choose another model in Settings.');
+          }
+          const steerMessages = steeredItems.map((item) => (
+            messageToApiBlock(getMessage(item.userMessageId), nextSelection.model.capabilities)
+          ));
+          const canReuseContinuation = selection.model.providerId === nextSelection.model.providerId
+            && selection.model.interface === nextSelection.model.interface
+            && selection.model.id === nextSelection.model.id;
+          const continuationToolHistory = toolHistory.map((round) => ({
+            ...round,
+            ...(canReuseContinuation ? {} : { continuation: [] }),
+            toolCalls: [...round.toolCalls],
+            results: [...round.results],
+          }));
+          if (continuationToolHistory.length > 0) {
+            continuationToolHistory.at(-1).messages = steerMessages;
+          } else {
+            messages = [...messages, ...steerMessages];
+          }
+          run.steerContinuation = {
+            items: steeredItems,
+            messages,
+            toolHistory: continuationToolHistory,
+          };
+          break;
+        }
       }
 
       accumulator.finish();
+      if (run.steerContinuation) {
+        persistAssistant({ status: 'completed', force: true });
+        this.logChatTiming(conversationId, selection, {
+          phase: 'inference-completed',
+          assistantMessageId: assistantMessage.id,
+          model: selection.model.modelId,
+          elapsedMs: Date.now() - requestStartedAt,
+        });
+        return;
+      }
       const completedAt = Date.now();
       const outputTokens = accumulator.usage?.outputTokens ?? 0;
       const generationDurationMs = firstResponseAt === null ? 0 : completedAt - firstResponseAt;
@@ -2041,9 +2102,6 @@ export class ChatRunner {
   }
 
   shouldEndAtBoundary(run) {
-    if (run.steerRequested && !run.controller.signal.aborted) {
-      run.controller.abort('steer');
-    }
     return run.controller.signal.aborted;
   }
 
@@ -2084,10 +2142,7 @@ export class ChatRunner {
           status: 'sent',
         });
     this.emit(goal.conversationId, { type: 'message', message: userMessage });
-    this.emit(goal.conversationId, {
-      type: 'queue-order',
-      messageIds: queuedItems.map((item) => item.userMessageId),
-    });
+    this.emit(goal.conversationId, queueOrderEvent(pendingOrder(queuedItems)));
     this.start({
       conversationId: goal.conversationId,
       model: queuedGoalMessage?.model ?? goal.model,
@@ -2107,10 +2162,7 @@ export class ChatRunner {
     this.runs.delete(conversationId);
     if (current?.queuePaused) {
       this.pausedQueues.set(conversationId, [...current.queue]);
-      this.emit(conversationId, {
-        type: 'queue-order',
-        messageIds: current.queue.map((item) => item.userMessageId),
-      });
+      this.emit(conversationId, queueOrderEvent(pendingOrder(current.queue)));
       this.emit(conversationId, { type: 'run-state', running: false });
       return;
     }
@@ -2125,20 +2177,35 @@ export class ChatRunner {
         this.emit(conversationId, { type: 'message-delete', messageId: item.userMessageId });
       }
     }
-    const allSteeredItems = pendingQueue.filter((item) => (
-      getMessage(item.userMessageId)?.status === 'steered'
-    ));
-    const firstSteeredItem = allSteeredItems[0];
-    const steeredItems = firstSteeredItem
-      ? allSteeredItems.filter((item) => (
-          item.model === firstSteeredItem.model
-          && item.reasoningEffort === firstSteeredItem.reasoningEffort
-          && item.permissionMode === firstSteeredItem.permissionMode
-          && item.workMode === firstSteeredItem.workMode
-          && item.ultraMode === firstSteeredItem.ultraMode
-          && item.goalId === firstSteeredItem.goalId
-        ))
-      : [];
+    if (current?.steerContinuation) {
+      const dispatchedItems = current.steerContinuation.items;
+      const dispatchedIds = new Set(dispatchedItems.map((item) => item.userMessageId));
+      pendingQueue = pendingQueue.filter((item) => !dispatchedIds.has(item.userMessageId));
+      const order = persistPendingOrder(conversationId, pendingQueue);
+      this.emit(conversationId, queueOrderEvent(order));
+      for (const item of dispatchedItems) {
+        const message = updateMessage(item.userMessageId, { status: 'sent' });
+        this.emit(conversationId, { type: 'message', message });
+      }
+      const next = dispatchedItems[0];
+      this.start({
+        conversationId,
+        model: next.model,
+        userMessageId: next.userMessageId,
+        userMessageIds: dispatchedItems.map((item) => item.userMessageId),
+        queue: pendingQueue,
+        retryMessages: current.steerContinuation.messages,
+        initialToolHistory: current.steerContinuation.toolHistory,
+        reasoningEffort: next.reasoningEffort,
+        permissionMode: next.permissionMode,
+        workMode: next.workMode,
+        ultraMode: next.ultraMode,
+        goalId: next.goalId,
+      });
+      return;
+    }
+
+    const steeredItems = compatibleSteeredItems(pendingQueue);
     const next = steeredItems[0] ?? pendingQueue[0];
     if (!next) {
       const continuingGoal = current?.kind === 'chat'
@@ -2154,12 +2221,8 @@ export class ChatRunner {
     const dispatchedItems = steeredItems.length > 0 ? steeredItems : [next];
     const dispatchedIds = new Set(dispatchedItems.map((item) => item.userMessageId));
     pendingQueue = pendingQueue.filter((item) => !dispatchedIds.has(item.userMessageId));
-    const pendingMessageIds = pendingQueue.map((item) => item.userMessageId);
-    updateQueuedMessageOrder(conversationId, pendingMessageIds);
-    this.emit(conversationId, {
-      type: 'queue-order',
-      messageIds: pendingMessageIds,
-    });
+    const order = persistPendingOrder(conversationId, pendingQueue);
+    this.emit(conversationId, queueOrderEvent(order));
     const workspacePath = getConversation(conversationId)?.projectPath;
     for (const item of dispatchedItems) {
       const nextMessage = updateMessage(item.userMessageId, {

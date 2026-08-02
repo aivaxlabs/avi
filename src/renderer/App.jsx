@@ -47,6 +47,18 @@ const initialAuxiliaryPanelWidth = Number.isFinite(savedAuxiliaryPanelWidth)
       ),
     );
 
+function applyPendingOrder(messages, order) {
+  const positions = new Map([
+    ...(order?.steerMessageIds ?? []).map((messageId, index) => [messageId, index]),
+    ...(order?.queuedMessageIds ?? []).map((messageId, index) => [messageId, index]),
+  ]);
+  return messages.map((message) => (
+    positions.has(message.id)
+      ? { ...message, queuePosition: positions.get(message.id) }
+      : message
+  ));
+}
+
 export default function App() {
   const [appState, setAppState] = useState(null);
   const [conversations, setConversations] = useState([]);
@@ -318,14 +330,12 @@ export default function App() {
             .filter((message) => message.id !== event.messageId),
         }));
       } else if (event.type === 'queue-order') {
-        const positions = new Map(event.messageIds.map((messageId, index) => [messageId, index]));
         setMessagesByConversation((state) => ({
           ...state,
-          [event.conversationId]: (state[event.conversationId] ?? []).map((message) => (
-            positions.has(message.id)
-              ? { ...message, queuePosition: positions.get(message.id) }
-              : message
-          )),
+          [event.conversationId]: applyPendingOrder(
+            state[event.conversationId] ?? [],
+            event,
+          ),
         }));
       } else if (event.type === 'run-state') {
         setRunning((state) => ({ ...state, [event.conversationId]: event.running }));
@@ -647,20 +657,13 @@ export default function App() {
       setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
       setSelectedId(result.conversation.id);
     }
-    setMessagesByConversation((state) => {
-      const positions = new Map((result.queueOrder ?? []).map((messageId, index) => [messageId, index]));
-      return {
-        ...state,
-        [result.conversation.id]: upsertMessage(
-          state[result.conversation.id] ?? [],
-          result.message,
-        ).map((message) => (
-          positions.has(message.id)
-            ? { ...message, queuePosition: positions.get(message.id) }
-            : message
-        )),
-      };
-    });
+    setMessagesByConversation((state) => ({
+      ...state,
+      [result.conversation.id]: applyPendingOrder(
+        upsertMessage(state[result.conversation.id] ?? [], result.message),
+        result,
+      ),
+    }));
     setRunning((state) => ({
       ...state,
       [result.conversation.id]: !result.queued,
@@ -715,18 +718,13 @@ export default function App() {
         conversationId,
         messageId,
       });
-      const positions = new Map(
-        (result?.queueOrder ?? []).map((queuedMessageId, index) => [queuedMessageId, index]),
-      );
       setMessagesByConversation((state) => ({
         ...state,
-        [conversationId]: (state[conversationId] ?? [])
-          .filter((message) => !result?.cancelled || message.id !== messageId)
-          .map((message) => (
-            positions.has(message.id)
-              ? { ...message, queuePosition: positions.get(message.id) }
-              : message
-          )),
+        [conversationId]: applyPendingOrder(
+          (state[conversationId] ?? [])
+            .filter((message) => !result?.cancelled || message.id !== messageId),
+          result,
+        ),
       }));
       if (!result?.cancelled) {
         setError('The queued message changed before it could be removed.');
@@ -995,30 +993,32 @@ export default function App() {
     }
   }
 
-  async function reorderQueuedMessages(conversationId, messageIds, steerMessageId = null) {
+  async function reorderQueuedMessages(
+    conversationId,
+    queueType,
+    messageIds,
+    steerMessageId = null,
+    dispatchNext = false,
+  ) {
     if (!conversationId) return false;
     try {
       const result = await api.chat.reorderQueued({
         conversationId,
+        queueType,
         messageIds,
         steerMessageId,
+        dispatchNext,
       });
-      const positions = new Map(
-        (result?.queueOrder ?? []).map((messageId, index) => [messageId, index]),
-      );
       setMessagesByConversation((state) => ({
         ...state,
-        [conversationId]: (state[conversationId] ?? []).map((message) => (
-          positions.has(message.id)
-            ? {
-                ...message,
-                queuePosition: positions.get(message.id),
-                status: result?.reordered && result?.steered && message.id === steerMessageId
-                  ? 'steered'
-                  : message.status,
-              }
-            : message
-        )),
+        [conversationId]: applyPendingOrder(
+          (state[conversationId] ?? []).map((message) => (
+            result?.reordered && result?.steered && message.id === steerMessageId
+              ? { ...message, status: 'steered' }
+              : message
+          )),
+          result,
+        ),
       }));
       if (!result?.reordered) {
         setError('The queue changed before the action completed. Review its order and try again.');
@@ -1031,11 +1031,7 @@ export default function App() {
   }
 
   async function steerQueuedMessage(conversationId, messageId, messageIds) {
-    return reorderQueuedMessages(
-      conversationId,
-      [messageId, ...messageIds.filter((queuedMessageId) => queuedMessageId !== messageId)],
-      messageId,
-    );
+    return reorderQueuedMessages(conversationId, 'queue', messageIds, messageId);
   }
 
   async function toggleFavorite(modelId) {
@@ -1283,7 +1279,15 @@ export default function App() {
                 { resumeFromFailure: true, model },
               )}
               onCancelQueued={cancelQueuedMessage}
-              onReorderQueued={(messageIds) => reorderQueuedMessages(selectedId, messageIds)}
+              onReorderQueued={(queueType, messageIds, steerMessageId, dispatchNext) => (
+                reorderQueuedMessages(
+                  selectedId,
+                  queueType,
+                  messageIds,
+                  steerMessageId,
+                  dispatchNext,
+                )
+              )}
               onSteerQueued={(messageId, messageIds) => (
                 steerQueuedMessage(selectedId, messageId, messageIds)
               )}

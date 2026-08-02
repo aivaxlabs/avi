@@ -96,6 +96,12 @@ export const responsesApi = {
                 }]
               : []),
           ]),
+          ...(round.messages ?? []).map((message) => ({
+            ...message,
+            content: Array.isArray(message.content)
+              ? toResponsesContent(message.content)
+              : message.content,
+          })),
         ]),
       ],
       ...(prepared.tools.length > 0
@@ -258,6 +264,7 @@ const chatCompletionsApi = {
               ? [{ role: 'user', content: result.mediaContent }]
               : []),
           ]),
+          ...(round.messages ?? []),
         ]),
       ],
       ...(prepared.tools.length > 0
