@@ -26,7 +26,10 @@ try {
   const { ChatRunner } = await import('../src/main/chat-runner.js');
   const { ModelProvider } = await import('../src/main/model-provider.js');
   const { StreamAccumulator } = await import('../src/main/streaming.js');
-  const { responsesApi } = await import('../src/providers/openai-compatible.js');
+  const {
+    chatCompletionsApi,
+    responsesApi,
+  } = await import('../src/providers/openai-compatible.js');
   const model = {
     id: 'test:model',
     name: 'Test',
@@ -84,6 +87,48 @@ try {
       ['content', null],
     ],
   );
+
+  const contextInvocation = {
+    workspacePath: testProfile,
+    currentThread: {
+      threadId: 'current-thread',
+      role: 'orchestrator',
+    },
+    threads: [{
+      threadId: 'subagent-thread',
+      role: 'subagent',
+      parentThreadId: 'current-thread',
+      initialPrompt: 'Inspect the provider payload.',
+      status: 'completed',
+    }],
+  };
+  const contextBodyInput = {
+    provider: {},
+    model,
+    messages: [{ role: 'user', content: 'Actual prompt' }],
+    reasoningEffort: null,
+    tools: [],
+    toolHistory: [],
+    invocationContext: contextInvocation,
+  };
+  const responsesContextBody = await responsesApi.createBody(contextBodyInput);
+  assert.ok(responsesContextBody.instructions.includes('<current_thread'));
+  assert.ok(!responsesContextBody.instructions.includes('<thread_directory>'));
+  assert.deepEqual(
+    responsesContextBody.input.slice(0, 2).map(({ role }) => role),
+    ['user', 'user'],
+  );
+  assert.ok(responsesContextBody.input[0].content.startsWith('<thread_directory>'));
+  assert.equal(responsesContextBody.input[1].content, 'Actual prompt');
+
+  const chatContextBody = await chatCompletionsApi.createBody(contextBodyInput);
+  assert.deepEqual(
+    chatContextBody.messages.slice(0, 3).map(({ role }) => role),
+    ['system', 'user', 'user'],
+  );
+  assert.ok(!chatContextBody.messages[0].content.includes('<thread_directory>'));
+  assert.ok(chatContextBody.messages[1].content.startsWith('<thread_directory>'));
+  assert.equal(chatContextBody.messages[2].content, 'Actual prompt');
 
   const completedToolItem = {
     type: 'function_call',
