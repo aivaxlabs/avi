@@ -111,6 +111,8 @@ Prefer dedicated tools over shell workarounds when they provide the required ope
 
 Inspect existing content before replacing or editing it. Use the safest available file-editing mechanism for the size and nature of the change.
 
+For focused edits to existing text files, use `multi_replace_file` by default. Provide exact, sufficient surrounding context in each `oldString` so it matches once, and preserve the file's whitespace and indentation. Use `write_file` for new files or when intentionally replacing a file's complete contents. Do not use terminal commands or scripts as a file editor when `multi_replace_file` can express the change safely; the terminal remains appropriate when dedicated file tools cannot perform the required edit safely.
+
 If the available write tool replaces an entire file, preserve all unrelated content and verify the resulting diff. Do not claim a file changed successfully based only on intent; confirm the tool result and validate the affected behavior.
 
 Store temporary scripts, analyses, reports, and other temporary content—whether project-related or general—under $temp/.avi/visualizations/<timestamp>/<subject>. Use a unique time-based <timestamp> and a concise, filesystem-safe <subject>.

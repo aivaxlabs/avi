@@ -24,6 +24,7 @@ import {
 } from './database.js';
 import { resolveSubagentModel } from './default-models.js';
 import { filePathToAttachment } from './files.js';
+import { applyMultiReplaceFile } from './multi-replace-file.js';
 import { resolveTerminalShell } from './terminal-shell.js';
 
 const MAX_READ_URL_CHARS = 100_000;
@@ -1184,9 +1185,50 @@ export const CLIENT_TOOLS = Object.freeze([
     },
   },
   {
-    name: 'write_file',
-    description: 'Write complete UTF-8 text content to an absolute local file. This creates the file or replaces its existing contents.',
+    name: 'multi_replace_file',
+    description: 'Apply one or more exact text replacements across existing UTF-8 files as one atomic operation. Use this by default for focused edits to existing files. Replacements run sequentially in input order, and every oldString must match exactly once in the file state produced by earlier replacements. Include enough exact surrounding context and preserve whitespace and indentation. Use write_file instead for new files or intentional full-file replacement.',
     canEditFile: true,
+    tracksFileChanges: true,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        replacements: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            type: 'object',
+            properties: {
+              filePath: {
+                type: 'string',
+                minLength: 1,
+                description: 'The absolute path of an existing UTF-8 text file.',
+              },
+              oldString: {
+                type: 'string',
+                minLength: 1,
+                description: 'Exact text that must occur once in the current file state. Include enough surrounding context to make the match unique, preserving whitespace and indentation.',
+              },
+              newString: {
+                type: 'string',
+                description: 'Replacement text. Whitespace, indentation, line endings, and final newline are preserved exactly as supplied.',
+              },
+            },
+            required: ['filePath', 'oldString', 'newString'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['replacements'],
+      additionalProperties: false,
+    },
+    execute: (input) => applyMultiReplaceFile(input),
+  },
+  {
+    name: 'write_file',
+    description: 'Write complete UTF-8 text content to an absolute local file. Use this for new files or intentional full-file replacement; prefer multi_replace_file for focused edits to existing files.',
+    canEditFile: true,
+    tracksFileChanges: true,
     canPerformDestructiveActions: false,
     inputSchema: {
       type: 'object',
