@@ -36,6 +36,7 @@ import {
   deleteRemoteApiKey,
   forkConversation,
   flushSecureStorage,
+  getComposerState,
   getConversation,
   getMessages,
   getPreferences,
@@ -53,6 +54,7 @@ import {
   searchChats,
   setDefaultModels,
   setDesktopSettings,
+  setComposerState,
   setFavorite,
   setProviderCredentials,
   setProviders,
@@ -147,6 +149,13 @@ app.on('activate', () => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' && !getPreferences().desktop?.closeToTray) app.quit();
 });
+if (process.env.CHAT_APP_OPEN_DEVTOOLS === '1') {
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('before-input-event', (_inputEvent, input) => {
+      if (input.type === 'keyDown' && input.key === 'F12') contents.toggleDevTools();
+    });
+  });
+}
 
 await app.whenReady();
 if (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin) startHidden = true;
@@ -663,6 +672,12 @@ function registerIpc() {
     refreshConversationProject(updateConversation(payload.id, payload))
   ));
   applicationIpc.handle('conversations:messages', (_event, conversationId) => getMessages(conversationId));
+  applicationIpc.handle('composer-state:get', (_event, conversationId) => (
+    getComposerState(conversationId)
+  ));
+  applicationIpc.handle('composer-state:save', (_event, payload = {}) => (
+    setComposerState(payload.conversationId, payload)
+  ));
   applicationIpc.handle('tasks:list', (_event, conversationId) => listTasks(conversationId));
   applicationIpc.handle('conversations:delete', (_event, conversationId) => {
     chatRunner.stop(conversationId, { includeSubagents: true });

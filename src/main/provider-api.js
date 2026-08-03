@@ -1,4 +1,3 @@
-import { interceptToolSchemas } from './client-tools.js';
 import {
   resolveDynamicContext,
   resolveDynamicUserContext,
@@ -27,7 +26,7 @@ export function defineProvider(provider) {
   return Object.freeze(provider);
 }
 
-export async function prepareProviderInvocation(tools, invocationContext) {
+export async function prepareProviderInvocation(invocationContext) {
   const [dynamicContext, dynamicUserContext] = await Promise.all([
     resolveDynamicContext(invocationContext),
     resolveDynamicUserContext(invocationContext),
@@ -35,6 +34,5 @@ export async function prepareProviderInvocation(tools, invocationContext) {
   return {
     dynamicContext,
     dynamicUserContext,
-    tools: interceptToolSchemas(tools, invocationContext?.permissionMode),
   };
 }

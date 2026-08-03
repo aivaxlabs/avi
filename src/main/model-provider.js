@@ -234,13 +234,29 @@ export class ModelProvider {
                     name: null,
                     argumentsText: '',
                   };
-                  existing.callId = providerCallId ?? existing.callId;
-                  existing.name = event.name ?? existing.name;
+                  const providerName = typeof event.name === 'string' && event.name.trim()
+                    ? event.name
+                    : null;
+                  if (providerCallId && providerCallId !== existing.callId) {
+                    const error = new Error(`The provider changed the tool call ID for index "${key}".`);
+                    error.code = 'provider_error';
+                    throw error;
+                  }
+                  if (providerName && existing.name && providerName !== existing.name) {
+                    const error = new Error(`The provider changed the tool call name for index "${key}".`);
+                    error.code = 'provider_error';
+                    throw error;
+                  }
+                  existing.name = providerName ?? existing.name;
                   existing.argumentsText = event.replaceArguments
                     ? event.argumentsText
                     : `${existing.argumentsText}${event.argumentsDelta ?? ''}`;
                   toolCalls.set(key, existing);
-                  normalizedEvent = { ...event, callId: existing.callId };
+                  normalizedEvent = {
+                    ...event,
+                    callId: existing.callId,
+                    name: existing.name,
+                  };
                 }
                 receivedOutput ||= ['content', 'reasoning', 'tool-call'].includes(event.type);
                 if (retryVisible && receivedOutput) {

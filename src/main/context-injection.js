@@ -467,7 +467,7 @@ export const dynamicContextInjectors = new Map([
 ]);
 
 export async function resolveDynamicUserContext(invocationContext = {}) {
-  if (invocationContext.quickChat) return '';
+  if (invocationContext.quickChat || invocationContext.auxiliary) return '';
 
   const contexts = await Promise.all(USER_CONTEXT_ORDER.map((name) => (
     dynamicContextInjectors.get(name)?.(invocationContext)
@@ -479,6 +479,7 @@ export async function resolveDynamicUserContext(invocationContext = {}) {
 }
 
 export async function resolveDynamicContext(invocationContext = {}) {
+  if (invocationContext.auxiliary) return '';
   if (invocationContext.quickChat) {
     return [
       quickChatInstructions,

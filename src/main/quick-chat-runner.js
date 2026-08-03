@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { createConversation, messageToApiBlock } from './database.js';
-import { CLIENT_TOOLS } from './client-tools.js';
+import { CLIENT_TOOLS, decorateToolsForInvocation } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
 import { normalizeAttachmentsForModel } from './files.js';
 import { StreamAccumulator } from './streaming.js';
@@ -136,7 +136,7 @@ export class QuickChatRunner {
         conversation: null,
         workspacePath,
       }).tools;
-      const availableTools = [
+      const availableTools = decorateToolsForInvocation([
         ...CLIENT_TOOLS
           .filter((tool) => (
             tool.name !== 'read_media_file'
@@ -156,7 +156,7 @@ export class QuickChatRunner {
             : tool),
         ...providerTools,
         ...mcpRuntime.tools,
-      ];
+      ], 'full_access');
       const messages = session.messages
         .filter((message) => message.id !== assistantMessage.id)
         .map((message) => messageToApiBlock(message, selection.model.capabilities));
@@ -215,7 +215,7 @@ export class QuickChatRunner {
               key: `round:${roundIndex}:${toolCall.key ?? toolCall.callId}`,
               callId: toolCall.callId,
               name: toolCall.name,
-              argumentsText: JSON.stringify(input),
+              argumentsText: toolCall.argumentsText,
               replaceArguments: true,
               invocationGoal,
               requiresHumanApproval: false,

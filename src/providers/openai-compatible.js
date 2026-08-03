@@ -40,6 +40,14 @@ const reasoningBudgets = {
   max: 32_768,
 };
 
+function serializeTools(tools) {
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.inputSchema,
+  }));
+}
+
 export const responsesApi = {
   async createBody({
     provider,
@@ -50,7 +58,8 @@ export const responsesApi = {
     toolHistory,
     invocationContext,
   }) {
-    const prepared = await prepareProviderInvocation(tools, invocationContext);
+    const prepared = await prepareProviderInvocation(invocationContext);
+    const serializedTools = serializeTools(tools);
 
     return {
       model: model.modelId,
@@ -107,9 +116,9 @@ export const responsesApi = {
           })),
         ]),
       ],
-      ...(prepared.tools.length > 0
+      ...(serializedTools.length > 0
         ? {
-            tools: prepared.tools.map((tool) => ({
+            tools: serializedTools.map((tool) => ({
               type: 'function',
               ...tool,
               strict: false,
@@ -231,7 +240,8 @@ export const chatCompletionsApi = {
     toolHistory,
     invocationContext,
   }) {
-    const prepared = await prepareProviderInvocation(tools, invocationContext);
+    const prepared = await prepareProviderInvocation(invocationContext);
+    const serializedTools = serializeTools(tools);
 
     return {
       model: model.modelId,
@@ -273,9 +283,9 @@ export const chatCompletionsApi = {
           ...(round.messages ?? []),
         ]),
       ],
-      ...(prepared.tools.length > 0
+      ...(serializedTools.length > 0
         ? {
-            tools: prepared.tools.map((tool) => ({
+            tools: serializedTools.map((tool) => ({
               type: 'function',
               function: {
                 ...tool,
@@ -319,13 +329,22 @@ export const chatCompletionsApi = {
       if (typeof delta.content === 'string' && delta.content) {
         events.push({ type: 'content', text: delta.content });
       }
-      for (let toolIndex = 0; toolIndex < (delta.tool_calls?.length ?? 0); toolIndex += 1) {
-        const toolCall = delta.tool_calls[toolIndex];
+      for (const toolCall of delta.tool_calls ?? []) {
+        if (!Number.isInteger(toolCall.index) || toolCall.index < 0) {
+          events.push({
+            type: 'error',
+            code: 'provider_error',
+            message: 'The provider returned a tool call without a valid non-negative integer index.',
+          });
+          continue;
+        }
         events.push({
           type: 'tool-call',
-          key: `chat:${choice.index ?? 0}:${toolCall.index ?? toolIndex}`,
-          callId: toolCall.id ?? null,
-          name: toolCall.function?.name ?? null,
+          key: `chat:${choice.index ?? 0}:${toolCall.index}`,
+          callId: typeof toolCall.id === 'string' && toolCall.id.trim() ? toolCall.id : null,
+          name: typeof toolCall.function?.name === 'string' && toolCall.function.name.trim()
+            ? toolCall.function.name
+            : null,
           argumentsDelta: toolCall.function?.arguments ?? '',
         });
       }

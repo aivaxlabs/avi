@@ -104,8 +104,12 @@ export class StreamAccumulator {
         (segment) => segment.type === 'tool-call' && segment.key === event.key,
       );
       if (existing) {
-        existing.callId = event.callId ?? existing.callId;
-        existing.name = event.name ?? existing.name;
+        existing.callId = typeof event.callId === 'string' && event.callId.trim()
+          ? event.callId
+          : existing.callId;
+        existing.name = typeof event.name === 'string' && event.name.trim()
+          ? event.name
+          : existing.name;
         existing.argumentsText = event.replaceArguments
           ? event.argumentsText
           : `${existing.argumentsText}${event.argumentsDelta ?? ''}`;

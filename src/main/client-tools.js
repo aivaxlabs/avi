@@ -35,10 +35,11 @@ const DEFAULT_TERMINAL_TIMEOUT_SECONDS = 30;
 const MAX_INSPECTED_TURNS = 4;
 const MAX_ASSISTANT_MESSAGES_BEFORE_FINAL = 6;
 const MAX_INSPECTED_TOOL_RESULT_CHARS = 512 * 4;
+const ANSI_ESCAPE_SEQUENCE = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 const terminals = new Map();
 
 function appendTerminalOutput(terminal, chunk) {
-  terminal.output += String(chunk);
+  terminal.output = `${terminal.output}${String(chunk)}`.replace(ANSI_ESCAPE_SEQUENCE, '');
   if (terminal.output.length > MAX_TERMINAL_OUTPUT_CHARS) {
     terminal.output = terminal.output.slice(-MAX_TERMINAL_OUTPUT_CHARS);
     terminal.truncated = true;
@@ -1195,7 +1196,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'multi_replace_file',
-    description: 'Apply one or more exact text replacements across existing UTF-8 files as one atomic operation. Use this by default for focused edits to existing files. Replacements run sequentially in input order, and every oldString must match exactly once in the file state produced by earlier replacements. Include enough exact surrounding context and preserve whitespace and indentation. Use write_file instead for new files or intentional full-file replacement.',
+    description: 'Apply one or more exact text replacements across existing UTF-8 files as one atomic operation. Replacements run sequentially in input order and require one unique match by default. Errors include exact occurrence previews or fuzzy suggestions without applying approximate matches. Set occurrence to "all" only when every exact occurrence should be replaced, and optionally assert the count with expectedOccurrences. Use this by default for focused edits; use write_file for new files or intentional full-file replacement.',
     canEditFile: true,
     tracksFileChanges: true,
     canPerformDestructiveActions: false,
@@ -1216,11 +1217,21 @@ export const CLIENT_TOOLS = Object.freeze([
               oldString: {
                 type: 'string',
                 minLength: 1,
-                description: 'Exact text that must occur once in the current file state. Include enough surrounding context to make the match unique, preserving whitespace and indentation.',
+                description: 'Exact text to replace in the current file state. It must occur once for occurrence "unique", or at least once for occurrence "all". Preserve whitespace and indentation.',
               },
               newString: {
                 type: 'string',
                 description: 'Replacement text. Whitespace, indentation, line endings, and final newline are preserved exactly as supplied.',
+              },
+              occurrence: {
+                type: 'string',
+                enum: ['unique', 'all'],
+                description: 'Use "unique" (the default) to require exactly one match, or "all" to replace every non-overlapping exact match.',
+              },
+              expectedOccurrences: {
+                type: 'integer',
+                minimum: 1,
+                description: 'Optional safety check for occurrence "all". The operation fails unless exactly this many matches exist.',
               },
             },
             required: ['filePath', 'oldString', 'newString'],
@@ -1322,14 +1333,16 @@ export const CLIENT_TOOLS = Object.freeze([
   },
 ]);
 
-export function interceptToolSchemas(tools, permissionMode = 'approve_for_me') {
+export function decorateToolsForInvocation(tools, permissionMode = 'approve_for_me') {
   return tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    parameters: {
+    ...tool,
+    inputSchema: {
       ...tool.inputSchema,
       properties: {
-        ...tool.inputSchema.properties,
+        __invocation_goal: {
+          type: 'string',
+          description: 'A short description of the goal of this specific tool invocation.',
+        },
         __requires_human_approval: {
           type: 'boolean',
           description: tool.approval === 'never'
@@ -1340,15 +1353,18 @@ export function interceptToolSchemas(tools, permissionMode = 'approve_for_me') {
                 full_access: 'Set this to false because the user selected Full access.',
               }[permissionMode] ?? 'Set this to true only when this specific invocation needs explicit human approval.',
         },
-        __invocation_goal: {
-          type: 'string',
-          description: 'A short description of the goal of this specific tool invocation.',
-        },
+        ...Object.fromEntries(
+          Object.entries(tool.inputSchema.properties ?? {}).filter(
+            ([name]) => !['__invocation_goal', '__requires_human_approval'].includes(name),
+          ),
+        ),
       },
       required: [
-        ...(tool.inputSchema.required ?? []),
-        '__requires_human_approval',
         '__invocation_goal',
+        '__requires_human_approval',
+        ...(tool.inputSchema.required ?? []).filter(
+          (name) => !['__invocation_goal', '__requires_human_approval'].includes(name),
+        ),
       ],
       additionalProperties: tool.inputSchema.additionalProperties ?? false,
     },

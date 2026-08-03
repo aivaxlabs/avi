@@ -21,6 +21,7 @@ try {
     closeDatabase,
     createConversation,
     forkConversation,
+    getConversation,
     getGoalForConversation,
     getMessages,
   } = database;
@@ -56,6 +57,124 @@ try {
       await new Promise((resolveWait) => setTimeout(resolveWait, 10));
     }
   }
+
+  const originalGoalPrompt = 'Add export support.';
+  const preparedGoalSpecification = [
+    'Objective: Add export support.',
+    'Acceptance criteria: Export produces the requested output.',
+    'Execution rules: Preserve existing behavior.',
+    'Validation: Run the focused export test.',
+  ].join('\n');
+  const auxiliaryCalls = [];
+  const goalTaskCalls = [];
+  const auxiliaryModel = {
+    ...model,
+    id: 'test:auxiliary',
+    modelId: 'auxiliary-model',
+  };
+  let completeTitleGeneration;
+  const auxiliaryProvider = {
+    stream: async (request) => {
+      auxiliaryCalls.push(request);
+      if (auxiliaryCalls.length === 2) {
+        return new Promise((resolveTitle) => {
+          completeTitleGeneration = () => resolveTitle({
+            assistantContent: JSON.stringify({ title: 'Review export documentation' }),
+            toolCalls: [],
+          });
+        });
+      }
+      return {
+        assistantContent: JSON.stringify({
+          title: 'Add export support',
+          goalSpecification: preparedGoalSpecification,
+        }),
+        toolCalls: [],
+      };
+    },
+  };
+  const goalTaskProvider = {
+    getContributions: () => ({ tools: [] }),
+    stream: async (request) => {
+      goalTaskCalls.push(request);
+      if (goalTaskCalls.length === 1) {
+        return {
+          assistantContent: '',
+          toolCalls: [{
+            callId: 'complete-auxiliary-goal',
+            name: 'update_goal_status',
+            argumentsText: JSON.stringify({
+              status: 'completed',
+              summary: 'Export support was validated.',
+              __requires_human_approval: false,
+              __invocation_goal: 'Complete the Goal after validation.',
+            }),
+          }],
+        };
+      }
+      return { assistantContent: 'Export support completed.', toolCalls: [] };
+    },
+  };
+  const auxiliaryRunner = new ChatRunner({
+    registry: {
+      resolve: (modelId) => modelId === auxiliaryModel.id
+        ? { model: auxiliaryModel, provider: auxiliaryProvider }
+        : { model, provider: goalTaskProvider },
+      listModels: () => [model, auxiliaryModel],
+    },
+    getPreferences: () => ({
+      defaultModels: {
+        auxiliary: { modelId: auxiliaryModel.id, reasoningEffort: 'high' },
+      },
+      tuning: {},
+    }),
+    sendEvent: () => {},
+  });
+  const auxiliaryConversation = createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  await auxiliaryRunner.startGoal({
+    conversationId: auxiliaryConversation.id,
+    model: model.id,
+    specification: originalGoalPrompt,
+    sendInitialPrompt: true,
+  });
+  await waitFor(() => !auxiliaryRunner.runs.has(auxiliaryConversation.id));
+  assert.equal(auxiliaryCalls.length, 1);
+  assert.equal(auxiliaryCalls[0].reasoningEffort, 'high');
+  assert.equal(auxiliaryCalls[0].invocationContext.auxiliary, true);
+  assert.deepEqual(auxiliaryCalls[0].tools, []);
+  assert.equal(auxiliaryCalls[0].messages.at(-1).content, originalGoalPrompt);
+  assert.equal(getConversation(auxiliaryConversation.id).title, 'Add export support');
+  assert.equal(getGoalForConversation(auxiliaryConversation.id).specification, preparedGoalSpecification);
+  assert.equal(getMessages(auxiliaryConversation.id)[0].content, originalGoalPrompt);
+  assert.equal(goalTaskCalls.length, 2);
+
+  const titleConversation = createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  await auxiliaryRunner.send({
+    conversationId: titleConversation.id,
+    model: model.id,
+    text: 'Review the export documentation.',
+  });
+  assert.equal(auxiliaryCalls.length, 2);
+  assert.equal(goalTaskCalls.length, 3);
+  assert.equal(getConversation(titleConversation.id).title, 'Review the export documentation.');
+  completeTitleGeneration();
+  await waitFor(() => getConversation(titleConversation.id).title === 'Review export documentation');
+  await waitFor(() => !auxiliaryRunner.runs.has(titleConversation.id));
+  assert.equal(getConversation(titleConversation.id).title, 'Review export documentation');
+  await auxiliaryRunner.send({
+    conversationId: titleConversation.id,
+    model: model.id,
+    text: 'Focus on the examples.',
+  });
+  await waitFor(() => !auxiliaryRunner.runs.has(titleConversation.id));
+  assert.equal(auxiliaryCalls.length, 2);
+  assert.equal(getConversation(titleConversation.id).title, 'Review export documentation');
 
   const completionCalls = [];
   const completionProvider = {

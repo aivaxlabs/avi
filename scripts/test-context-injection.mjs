@@ -261,6 +261,8 @@ try {
     workspacePath: root,
     installationContextPath: path.join(installationRoot, 'missing-context'),
   })).includes('<installation_instructions>'));
+  assert.equal(await resolveDynamicContext({ auxiliary: true }), '');
+  assert.equal(await resolveDynamicUserContext({ auxiliary: true }), '');
   assert.equal(
     resolveInstallationContextPath(path.join(installationRoot, 'bin', 'bun.exe'), 'win32'),
     installationContextDirectory,
