@@ -192,6 +192,7 @@ export function AuxiliaryPanel({
   onWorkModeChange,
   onGoalAction,
   messageDeliveryMode = 'queue',
+  defaultPermissionMode = 'approve_for_me',
 }) {
   const tabs = [
     ...sideChats.map((sideChat) => ({
@@ -567,6 +568,7 @@ export function AuxiliaryPanel({
             )}
             onOpenFileReference={onOpenFileReference}
             messageDeliveryMode={messageDeliveryMode}
+            defaultPermissionMode={defaultPermissionMode}
             draftKey={`aivax.composer.${
               activeThread.isSubagent ? 'subagent' : 'side'
             }.${activeThread.id}`}

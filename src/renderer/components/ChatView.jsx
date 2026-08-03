@@ -144,6 +144,7 @@ export const ChatView = memo(function ChatView({
   onPendingAttachmentConsumed,
   onOpenFileReference,
   messageDeliveryMode = 'queue',
+  defaultPermissionMode = 'approve_for_me',
   compact = false,
   draftKey,
   emptyBackgroundEnabled = true,
@@ -792,6 +793,7 @@ export const ChatView = memo(function ChatView({
       </div>
       <Composer
         containerRef={composerRef}
+        conversationId={currentConversation?.id ?? null}
         isRunning={isRunning}
         onSend={onSend}
         onStop={onStop}
@@ -832,6 +834,8 @@ export const ChatView = memo(function ChatView({
         onPendingAttachmentConsumed={onPendingAttachmentConsumed}
         messageDeliveryMode={messageDeliveryMode}
         draftKey={draftKey}
+        autoFocus={Boolean(currentConversation?.isSideChat)}
+        defaultPermissionMode={defaultPermissionMode}
       />
     </Root>
   );

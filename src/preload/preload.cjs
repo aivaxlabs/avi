@@ -50,6 +50,10 @@ contextBridge.exposeInMainWorld('chatApp', {
     fork: (payload) => invoke('conversations:fork', payload),
     search: (query) => invoke('conversations:search', query),
   },
+  composerState: {
+    get: (conversationId) => invoke('composer-state:get', conversationId),
+    save: (payload) => invoke('composer-state:save', payload),
+  },
   orchestration: {
     overview: () => invoke('orchestration:overview'),
   },

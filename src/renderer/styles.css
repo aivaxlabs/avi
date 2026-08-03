@@ -380,6 +380,11 @@ body.panel-resizing * {
     justify-content: flex-end;
     align-items: start;
     gap: 8px;
+    padding-right: 0;
+    transition: .3s var(--base-transition);
+}
+
+.user-row:hover {
     padding-right: 30px;
 }
 
@@ -1182,7 +1187,7 @@ body.panel-resizing * {
 }
 
 .assistant-actions {
-    opacity: 0;
+    opacity: .6;
     transition: opacity .2s var(--base-transition);
 }
 
@@ -1247,13 +1252,14 @@ body.panel-resizing * {
     background: var(--background-2);
     border: 1px solid var(--border-color);
     border-radius: 10px;
-    box-shadow: 0 10px 28px rgb(0 0 0 / 28%);
+    box-shadow: 0 6px 18px #00000011;
     backdrop-filter: blur(18px);
 }
 
 .message-usage-popover dl {
     display: grid;
     gap: 2px;
+    font-size: .9rem;
     margin: 0;
 }
 
@@ -1324,6 +1330,7 @@ body.panel-resizing * {
     border: 0;
     opacity: 0;
     pointer-events: none;
+    transition: .3s var(--base-transition);
     transform: translateX(-2px);
 }
 
@@ -2127,7 +2134,7 @@ body.panel-resizing * {
 .settings-page .settings-field {
     min-width: 0;
     display: grid;
-    grid-template-columns: .7fr .3fr;
+    grid-template-columns: .6fr .4fr;
     align-items: center;
     column-gap: 40px;
     row-gap: 6px;
@@ -4271,24 +4278,26 @@ button {
 }
 /* components\quick-chat.xcss */
 html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #root {
-    background: var(--background-0);
+    background: var(--background-1);
     overflow: hidden;
 }
 
 .quick-chat-shell {
     position: relative;
     height: 100%;
+    max-width: 800px;
+    margin: 0 auto;
     display: grid;
     grid-template-rows: minmax(0, 1fr) auto auto;
     color: var(--text-1);
-    background: var(--background-0);
+    background: var(--background-1);
     overflow: hidden;
 }
 
 .quick-chat-scroll {
     min-height: 0;
     overflow-y: auto;
-    padding: 20px 24px 8px;
+    padding: 20px 12px 8px;
     scroll-behavior: smooth;
 }
 
@@ -4309,7 +4318,14 @@ html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #roo
 
 .quick-chat-scroll .message-row {
     width: 100%;
-    max-width: none;
+}
+
+.quick-chat-scroll .message-row + .message-row {
+    margin-top: 1.25em;
+}
+
+.quick-chat-scroll .message-row .message-action-icon[title="Fork"] {
+    display: none;
 }
 
 .quick-chat-empty {
@@ -4346,17 +4362,23 @@ html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #roo
 
 .quick-composer {
     margin: 10px 16px 16px;
-    padding: 12px;
+    padding: 4px;
     background: var(--background-1);
     border: 1px solid var(--border-color);
     border-radius: 20px;
     box-shadow: 0 8px 16px #00000011;
 }
 
+.quick-composer:has( > textarea:focus), .quick-composer:focus-within {
+    background: var(--background-0);
+    border-color: var(--primary-color);
+    outline: 3px solid var(--primary-color-opaque);
+}
+
 .quick-composer textarea {
     width: 100%;
     min-height: 52px;
-    max-height: 160px;
+    max-height: 260px;
     resize: none;
     color: var(--text-1);
     background: transparent;

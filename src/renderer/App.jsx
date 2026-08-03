@@ -752,6 +752,16 @@ export default function App() {
       ultraMode: effectiveUltraMode,
       project,
     });
+    await api.composerState.save({
+      conversationId: result.conversation.id,
+      permissionMode,
+      model,
+      reasoningEffort,
+      workMode: messageWorkMode,
+      ultraMode: effectiveUltraMode,
+      draftText: '',
+      attachments: [],
+    });
     if (result.conversation.isSubagent) {
       setSubagents((state) => upsertById(state, result.conversation));
     } else if (result.conversation.isSideChat) {
@@ -1474,15 +1484,16 @@ export default function App() {
               onChooseProject={chatOnChooseProject}
               onUseHome={chatOnUseHome}
               onToggleFavorite={chatOnToggleFavorite}
-              workMode={workMode}
+              workMode={selectedId ? null : workMode}
               onWorkModeChange={chatOnWorkModeChange}
-              ultraMode={ultraMode}
+              ultraMode={selectedId ? false : ultraMode}
               onUltraModeChange={chatOnUltraModeChange}
               onGoalAction={chatOnGoalAction}
               pendingAttachment={pendingComposerAttachment}
               onPendingAttachmentConsumed={chatOnPendingAttachmentConsumed}
               onOpenFileReference={chatOnOpenFileReference}
               messageDeliveryMode={appState.tuning.messageDeliveryMode}
+              defaultPermissionMode={appState.tuning.defaultPermissionMode}
               />
             )}
             {!orchestrationOpen && auxiliaryPanelVisible && (
@@ -1677,12 +1688,13 @@ export default function App() {
                 onSteerQueued={steerQueuedMessage}
                 onChooseModel={chooseModel}
                 onToggleFavorite={toggleFavorite}
-                workMode={workMode}
+                workMode={null}
                 onWorkModeChange={changeWorkMode}
                 onGoalAction={(thread, action, specification) => (
                   changeGoal(thread.id, action, specification)
                 )}
                 messageDeliveryMode={appState.tuning.messageDeliveryMode}
+                defaultPermissionMode={appState.tuning.defaultPermissionMode}
               />
             )}
           </div>

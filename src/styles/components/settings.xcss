@@ -814,7 +814,7 @@
   .settings-field {
     min-width: 0;
     display: grid;
-    grid-template-columns: .7fr .3fr;
+    grid-template-columns: .6fr .4fr;
     align-items: center;
     column-gap: 40px;
     row-gap: 6px;

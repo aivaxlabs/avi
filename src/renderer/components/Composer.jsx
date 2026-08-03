@@ -50,7 +50,6 @@ import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { ModelPicker } from './ModelPicker.jsx';
 
 const composerDraftKey = 'aivax.composer.draft';
-const permissionModeKey = 'aivax.composer.permission-mode';
 const permissionModes = [
   {
     id: 'ask_for_approval',
@@ -124,6 +123,7 @@ function shouldSteerMessage(messageDeliveryMode, isRunning, modifierPressed) {
 
 export function Composer({
   containerRef,
+  conversationId,
   isRunning,
   onSend,
   onStop,
@@ -144,7 +144,7 @@ export function Composer({
   recentProjects = [],
   models,
   favorites,
-  currentModel,
+  currentModel: initialModel,
   contextUsage,
   onChooseModel,
   project,
@@ -152,9 +152,9 @@ export function Composer({
   onChooseProject,
   onUseHome,
   onToggleFavorite,
-  workMode = null,
+  workMode: initialWorkMode = null,
   onWorkModeChange,
-  ultraMode = false,
+  ultraMode: initialUltraMode = false,
   onUltraModeChange,
   goal = null,
   onGoalAction,
@@ -162,18 +162,18 @@ export function Composer({
   onPendingAttachmentConsumed,
   messageDeliveryMode = 'queue',
   draftKey = composerDraftKey,
+  autoFocus = false,
+  defaultPermissionMode = 'approve_for_me',
 }) {
   const [text, setText] = useState(() => window.localStorage.getItem(draftKey) ?? '');
   const [attachments, setAttachments] = useState([]);
+  const [currentModel, setCurrentModel] = useState(initialModel);
+  const [workMode, setWorkMode] = useState(initialWorkMode);
+  const [ultraMode, setUltraMode] = useState(initialUltraMode);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [permissionMenuOpen, setPermissionMenuOpen] = useState(false);
-  const [permissionMode, setPermissionMode] = useState(() => {
-    const savedMode = window.localStorage.getItem(permissionModeKey);
-    return permissionModes.some((mode) => mode.id === savedMode)
-      ? savedMode
-      : 'approve_for_me';
-  });
+  const [permissionMode, setPermissionMode] = useState(defaultPermissionMode);
   const [reasoningMenuOpen, setReasoningMenuOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [commandStage, setCommandStage] = useState(null);
@@ -201,8 +201,20 @@ export function Composer({
   const projectMenuRef = useRef(null);
   const projectSearchRef = useRef(null);
   const textAreaRef = useRef(null);
-  const textRef = useRef(text);
-  textRef.current = text;
+  const composerStatesRef = useRef(new Map());
+  const hydratedConversationIdRef = useRef(null);
+  if (conversationId) {
+    composerStatesRef.current.set(conversationId, {
+      conversationId,
+      permissionMode,
+      model: currentModel,
+      reasoningEffort,
+      workMode,
+      ultraMode,
+      draftText: text,
+      attachments,
+    });
+  }
 
   const commandInvocation = commandStage
     ? null
@@ -354,22 +366,81 @@ export function Composer({
   }, [projectQuery, recentProjects]);
 
   useEffect(() => {
-    const saveDelay = text.length <= 2048
-      ? 300
-      : text.length <= 20000
-        ? 1000
-        : 5000;
-    const timer = window.setTimeout(() => saveComposerDraft(draftKey, text), saveDelay);
+    let active = true;
+    hydratedConversationIdRef.current = null;
+    setText(conversationId ? '' : window.localStorage.getItem(draftKey) ?? '');
+    setAttachments([]);
+    setPermissionMode(defaultPermissionMode);
+    setCurrentModel(initialModel);
+    setReasoningEffort(null);
+    setWorkMode(conversationId ? null : initialWorkMode);
+    setUltraMode(conversationId ? false : initialUltraMode);
 
-    return () => window.clearTimeout(timer);
-  }, [draftKey, text]);
+    if (!conversationId) return () => { active = false; };
+
+    window.chatApp.composerState.get(conversationId)
+      .then((state) => {
+        if (!active) return;
+        setText(state?.draftText ?? '');
+        setAttachments(state?.attachments ?? []);
+        setPermissionMode(state?.permissionMode ?? defaultPermissionMode);
+        setCurrentModel(state?.model || initialModel);
+        setReasoningEffort(state?.reasoningEffort ?? null);
+        setWorkMode(state?.workMode ?? null);
+        setUltraMode(Boolean(state?.ultraMode));
+        hydratedConversationIdRef.current = conversationId;
+      })
+      .catch(() => {
+        if (active) hydratedConversationIdRef.current = conversationId;
+      });
+
+    return () => {
+      active = false;
+      const state = composerStatesRef.current.get(conversationId);
+      if (hydratedConversationIdRef.current === conversationId && state) {
+        window.chatApp.composerState.save(state).catch(() => {});
+      }
+    };
+  }, [conversationId]);
 
   useEffect(() => {
-    const saveOnClose = () => saveComposerDraft(draftKey, textRef.current);
+    if (!conversationId || hydratedConversationIdRef.current !== conversationId) return undefined;
+    const timer = window.setTimeout(() => {
+      const state = composerStatesRef.current.get(conversationId);
+      if (state) window.chatApp.composerState.save(state).catch(() => {});
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [
+    attachments,
+    conversationId,
+    currentModel,
+    permissionMode,
+    reasoningEffort,
+    text,
+    ultraMode,
+    workMode,
+  ]);
 
+  useEffect(() => {
+    if (conversationId) return undefined;
+    const timer = window.setTimeout(() => saveComposerDraft(draftKey, text), 250);
+    return () => window.clearTimeout(timer);
+  }, [conversationId, draftKey, text]);
+
+  useEffect(() => {
+    const saveOnClose = () => {
+      const state = conversationId
+        ? composerStatesRef.current.get(conversationId)
+        : null;
+      if (state && hydratedConversationIdRef.current === conversationId) {
+        window.chatApp.composerState.save(state).catch(() => {});
+      } else {
+        saveComposerDraft(draftKey, text);
+      }
+    };
     window.addEventListener('beforeunload', saveOnClose);
     return () => window.removeEventListener('beforeunload', saveOnClose);
-  }, [draftKey]);
+  }, [conversationId, draftKey, text]);
 
   useEffect(() => {
     setGoalNow(Date.now());
@@ -501,12 +572,30 @@ export function Composer({
     return () => window.cancelAnimationFrame(frameId);
   }, [recording]);
 
+  async function changeWorkMode(nextWorkMode) {
+    const normalizedWorkMode = ['plan', 'goal'].includes(nextWorkMode)
+      ? nextWorkMode
+      : null;
+    const accepted = await onWorkModeChange?.(normalizedWorkMode);
+    if (accepted === false) return;
+    setWorkMode(normalizedWorkMode);
+    if (normalizedWorkMode === 'plan') setUltraMode(false);
+  }
+
+  function changeUltraMode(enabled) {
+    const nextUltraMode = Boolean(enabled);
+    setUltraMode(nextUltraMode);
+    if (nextUltraMode) setWorkMode(null);
+    onUltraModeChange?.(nextUltraMode);
+  }
+
   async function submit({ steer = false } = {}) {
     if (!canSend) return;
     const payload = {
       text,
       attachments,
       steer,
+      model: currentModel,
       reasoningEffort: activeReasoningEffort,
       permissionMode,
       workMode: effectiveWorkMode,
@@ -520,6 +609,7 @@ export function Composer({
   }
 
   function chooseModel(modelId) {
+    setCurrentModel(modelId);
     onChooseModel(modelId);
     setReasoningEffort(null);
     setReasoningMenuOpen(false);
@@ -587,12 +677,12 @@ export function Composer({
       }
       if (option.id === 'plan') {
         exitCommandMode();
-        onWorkModeChange?.('plan');
+        changeWorkMode('plan');
         return;
       }
       if (option.id === 'ultra') {
         exitCommandMode();
-        onUltraModeChange?.(!ultraMode);
+        changeUltraMode(!ultraMode);
         return;
       }
       if (option.id === 'goal') {
@@ -601,7 +691,7 @@ export function Composer({
           setGoalSpecification(activeGoal.specification);
           setGoalDialogOpen(true);
         } else {
-          onWorkModeChange?.('goal');
+          changeWorkMode('goal');
         }
         return;
       }
@@ -1179,6 +1269,7 @@ export function Composer({
           <textarea
             ref={textAreaRef}
             value={text}
+            autoFocus={autoFocus}
             onChange={(event) => {
               setText(event.target.value);
               setCursorPosition(event.target.selectionStart ?? event.target.value.length);
@@ -1228,7 +1319,7 @@ export function Composer({
                   role="menuitemcheckbox"
                   aria-checked={ultraMode}
                   onClick={() => {
-                    onUltraModeChange?.(!ultraMode);
+                    changeUltraMode(!ultraMode);
                     setPlusOpen(false);
                   }}
                 >
@@ -1244,7 +1335,7 @@ export function Composer({
                       setGoalSpecification(activeGoal.specification);
                       setGoalDialogOpen(true);
                     } else {
-                      onWorkModeChange?.(workMode === 'goal' ? null : 'goal');
+                      changeWorkMode(workMode === 'goal' ? null : 'goal');
                     }
                     setPlusOpen(false);
                   }}
@@ -1257,7 +1348,7 @@ export function Composer({
                   role="menuitemcheckbox"
                   aria-checked={workMode === 'plan'}
                   onClick={() => {
-                    onWorkModeChange?.(workMode === 'plan' ? null : 'plan');
+                    changeWorkMode(workMode === 'plan' ? null : 'plan');
                     setPlusOpen(false);
                   }}
                 >
@@ -1300,7 +1391,6 @@ export function Composer({
                       aria-checked={mode.id === permissionMode}
                       onClick={() => {
                         setPermissionMode(mode.id);
-                        window.localStorage.setItem(permissionModeKey, mode.id);
                         setPermissionMenuOpen(false);
                       }}
                     >
@@ -1319,7 +1409,7 @@ export function Composer({
                 type="button"
                 title={`Exit ${workMode === 'goal' ? 'Goal' : 'Plan'} mode`}
                 aria-label={`Exit ${workMode === 'goal' ? 'Goal' : 'Plan'} mode`}
-                onClick={() => onWorkModeChange?.(null)}
+                onClick={() => changeWorkMode(null)}
               >
                 {workMode === 'goal'
                   ? <Target size={12} aria-hidden="true" />
@@ -1334,7 +1424,7 @@ export function Composer({
                 type="button"
                 title="Exit Ultra mode"
                 aria-label="Exit Ultra mode"
-                onClick={() => onUltraModeChange?.(false)}
+                onClick={() => changeUltraMode(false)}
               >
                 <Zap size={12} aria-hidden="true" />
                 <span>Ultra</span>

@@ -126,6 +126,19 @@ db.exec(`
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS conversation_composer_states (
+    conversation_id TEXT PRIMARY KEY,
+    permission_mode TEXT NOT NULL,
+    model TEXT NOT NULL,
+    reasoning_effort TEXT,
+    work_mode TEXT,
+    ultra_mode INTEGER NOT NULL DEFAULT 0,
+    draft_text TEXT NOT NULL DEFAULT '',
+    attachments TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
     ON messages(conversation_id, created_at);
 
@@ -395,6 +408,27 @@ const statements = {
       ) AS last_message_status
     FROM conversations c
     WHERE id = ? AND deleted_at IS NULL
+  `),
+  getComposerState: db.prepare(`
+    SELECT * FROM conversation_composer_states WHERE conversation_id = ?
+  `),
+  upsertComposerState: db.prepare(`
+    INSERT INTO conversation_composer_states (
+      conversation_id, permission_mode, model, reasoning_effort, work_mode,
+      ultra_mode, draft_text, attachments, updated_at
+    ) VALUES (
+      @conversationId, @permissionMode, @model, @reasoningEffort, @workMode,
+      @ultraMode, @draftText, @attachments, @updatedAt
+    )
+    ON CONFLICT(conversation_id) DO UPDATE SET
+      permission_mode = excluded.permission_mode,
+      model = excluded.model,
+      reasoning_effort = excluded.reasoning_effort,
+      work_mode = excluded.work_mode,
+      ultra_mode = excluded.ultra_mode,
+      draft_text = excluded.draft_text,
+      attachments = excluded.attachments,
+      updated_at = excluded.updated_at
   `),
   deleteConversation: db.prepare('UPDATE conversations SET deleted_at = ?, updated_at = ? WHERE id = ?'),
   hardDeleteConversation: db.prepare('DELETE FROM conversations WHERE id = ?'),
@@ -757,6 +791,46 @@ export function listSubagents(parentConversationId) {
 export function getConversation(id) {
   const row = statements.getConversation.get(id);
   return row ? mapConversation(row) : null;
+}
+
+export function getComposerState(conversationId) {
+  const row = statements.getComposerState.get(conversationId);
+  if (!row) return null;
+  return {
+    conversationId: row.conversation_id,
+    permissionMode: row.permission_mode,
+    model: row.model,
+    reasoningEffort: row.reasoning_effort,
+    workMode: row.work_mode,
+    ultraMode: Boolean(row.ultra_mode),
+    draftText: row.draft_text,
+    attachments: parse(row.attachments, []),
+    updatedAt: row.updated_at,
+  };
+}
+
+export function setComposerState(conversationId, state = {}) {
+  if (!getConversation(conversationId)) throw new Error('Conversation not found.');
+  const permissionMode = ['ask_for_approval', 'approve_for_me', 'full_access']
+    .includes(state.permissionMode)
+    ? state.permissionMode
+    : 'approve_for_me';
+  const workMode = ['plan', 'goal'].includes(state.workMode) ? state.workMode : null;
+  const ultraMode = workMode === 'plan' ? false : Boolean(state.ultraMode);
+  statements.upsertComposerState.run({
+    conversationId,
+    permissionMode,
+    model: typeof state.model === 'string' ? state.model : '',
+    reasoningEffort: typeof state.reasoningEffort === 'string'
+      ? state.reasoningEffort
+      : null,
+    workMode,
+    ultraMode: ultraMode ? 1 : 0,
+    draftText: typeof state.draftText === 'string' ? state.draftText : '',
+    attachments: stringify(Array.isArray(state.attachments) ? state.attachments : []),
+    updatedAt: timestamp(),
+  });
+  return getComposerState(conversationId);
 }
 
 export function deleteConversation(id, { hard = false } = {}) {

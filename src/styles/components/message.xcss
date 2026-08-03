@@ -18,7 +18,12 @@
   justify-content: flex-end;
   align-items: start;
   gap: 8px;
-  padding-right: 30px;
+  padding-right: 0;
+  transition: .3s --base-transition;
+
+  & :hover {
+    padding-right: 30px;
+  }
 }
 
 .user-message-content {
@@ -887,7 +892,7 @@
 }
 
 .assistant-actions {
-  opacity: 0;
+  opacity: .6;
   transition: opacity .2s var(--base-transition);
 
   @media (prefers-reduced-motion: reduce) {
@@ -964,12 +969,13 @@
   background: var(--background-2);
   border: 1px solid var(--border-color);
   border-radius: 10px;
-  box-shadow: 0 10px 28px rgb(0 0 0 / 28%);
+  box-shadow: 0 6px 18px #00000011;
   backdrop-filter: blur(18px);
 
   dl {
     display: grid;
     gap: 2px;
+    font-size: .9rem;
     margin: 0;
 
     > div {
@@ -1046,6 +1052,7 @@
   border: 0;
   opacity: 0;
   pointer-events: none;
+  transition: .3s --base-transition;
   transform: translateX(-2px);
 }
 
