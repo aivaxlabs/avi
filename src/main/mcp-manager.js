@@ -853,12 +853,18 @@ export class McpManager {
                 parts.push(`[${item.type}]`);
               }
             }
-            let output = parts.join('\n');
+            const outputSections = [];
+            if (parts.length > 0) {
+              outputSections.push(parts.join('\n'));
+            }
+            if (result.structuredContent !== undefined) {
+              outputSections.push(JSON.stringify(result.structuredContent));
+            }
             if (mediaFiles.length > 0) {
               const fileList = mediaFiles.map((f) => `- ${f.replace(/\\/g, '/')}`).join('\n');
-              output += `\n\nFiles created from tool response:\n${fileList}`;
+              outputSections.push(`Files created from tool response:\n${fileList}`);
             }
-            return output || JSON.stringify(result.structuredContent ?? result);
+            return outputSections.join('\n\n') || JSON.stringify(result);
           } catch (error) {
             this.appendLog(
               record,

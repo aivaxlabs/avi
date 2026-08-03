@@ -38,6 +38,10 @@ try {
   assert.equal(tool.inputSchema.properties.replacements.minItems, 1);
   assert.deepEqual(tool.inputSchema.required, ['replacements']);
   assert.equal('explanation' in tool.inputSchema.properties, false);
+  const replacementSchema = tool.inputSchema.properties.replacements.items;
+  assert.deepEqual(replacementSchema.properties.occurrence.enum, ['unique', 'all']);
+  assert.equal(replacementSchema.properties.expectedOccurrences.minimum, 1);
+  assert.deepEqual(replacementSchema.required, ['filePath', 'oldString', 'newString']);
 
   const sequentialPath = join(testRoot, 'sequential.txt');
   await writeFile(sequentialPath, 'alpha beta gamma\n', 'utf8');
@@ -57,6 +61,11 @@ try {
     after: 'done\n',
   }]);
   assert.equal(sequential.replacementsApplied, 2);
+  assert.equal(sequential.occurrencesReplaced, 2);
+  assert.deepEqual(sequential.results, [
+    { replacement: 1, occurrencesReplaced: 1 },
+    { replacement: 2, occurrencesReplaced: 1 },
+  ]);
   assert.equal(sequential.filesChanged, 1);
   assert.equal('explanation' in sequential, false);
 
@@ -76,25 +85,149 @@ try {
   assert.deepEqual(multiple.files, [firstPath, secondPath]);
 
   const missingPath = join(testRoot, 'missing-match.txt');
-  await writeFile(missingPath, 'unchanged\n', 'utf8');
-  await expectFailure({
-    replacements: [{ filePath: missingPath, oldString: 'absent', newString: 'new' }],
-  }, /was not found.*No files were modified/s);
-  assert.equal(await readFile(missingPath, 'utf8'), 'unchanged\n');
+  const missingContent = [
+    'const unrelated = true;',
+    'const result = await processData(input);',
+    'const other = await processData( data );',
+    'const third = await processData(source);',
+    'const fourth = await processData(record);',
+    '',
+  ].join('\n');
+  await writeFile(missingPath, missingContent, 'utf8');
+  let fuzzyError;
+  await assert.rejects(() => tool.execute({
+    replacements: [{
+      filePath: missingPath,
+      oldString: 'const result = await processData(payload);',
+      newString: 'const result = await transformData(payload);',
+    }],
+  }), (error) => {
+    fuzzyError = error;
+    return /was not found.*Closest matches \(fuzzy\):.*Match 1 \(line 2, similarity \d+%\):.*processData\(input\);.*Your oldString was:.*processData\(payload\);.*No files were modified/s.test(error.message);
+  });
+  assert.equal((fuzzyError.message.match(/^Match \d+/gm) ?? []).length, 3);
+  assert.equal(fuzzyError.message.includes('Match 4'), false);
+  assert.equal(await readFile(missingPath, 'utf8'), missingContent);
 
   const duplicatePath = join(testRoot, 'duplicate-match.txt');
-  await writeFile(duplicatePath, 'same same\n', 'utf8');
+  await writeFile(duplicatePath, [
+    'function first() {',
+    '  validate();',
+    '}',
+    '',
+    'function second() {',
+    '  validate();',
+    '}',
+    '',
+  ].join('\n'), 'utf8');
   await expectFailure({
-    replacements: [{ filePath: duplicatePath, oldString: 'same', newString: 'new' }],
-  }, /occurs more than once.*No files were modified/s);
-  assert.equal(await readFile(duplicatePath, 'utf8'), 'same same\n');
+    replacements: [{ filePath: duplicatePath, oldString: '  validate();', newString: '  submit();' }],
+  }, /oldString occurs 2 times.*Add more unique context.*Occurrence 1 \(line 2\):.*Occurrence 2 \(line 6\):.*No files were modified/s);
+  assert.equal((await readFile(duplicatePath, 'utf8')).includes('submit'), false);
+
+  const previewLimitPath = join(testRoot, 'preview-limit.txt');
+  await writeFile(previewLimitPath, 'same\nsame\nsame\nsame\nsame\nsame\n', 'utf8');
+  await expectFailure({
+    replacements: [{ filePath: previewLimitPath, oldString: 'same', newString: 'new' }],
+  }, /occurs 6 times.*Occurrence 5 \(line 5\):.*Showing 5 of 6 occurrences/s);
+
+  const replaceAllPath = join(testRoot, 'replace-all.txt');
+  await writeFile(replaceAllPath, 'aa aa aa\n', 'utf8');
+  const replaceAll = await tool.execute({
+    replacements: [{
+      filePath: replaceAllPath,
+      oldString: 'aa',
+      newString: 'aaaa',
+      occurrence: 'all',
+      expectedOccurrences: 3,
+    }],
+  });
+  assert.equal(await readFile(replaceAllPath, 'utf8'), 'aaaa aaaa aaaa\n');
+  assert.equal(replaceAll.occurrencesReplaced, 3);
+  assert.deepEqual(replaceAll.results, [{ replacement: 1, occurrencesReplaced: 3 }]);
+
+  const sequentialAllPath = join(testRoot, 'sequential-all.txt');
+  await writeFile(sequentialAllPath, 'a a\n', 'utf8');
+  const sequentialAll = await tool.execute({
+    replacements: [
+      { filePath: sequentialAllPath, oldString: 'a', newString: 'ab', occurrence: 'all' },
+      { filePath: sequentialAllPath, oldString: 'ab ab', newString: 'done' },
+    ],
+  });
+  assert.equal(await readFile(sequentialAllPath, 'utf8'), 'done\n');
+  assert.deepEqual(sequentialAll.results, [
+    { replacement: 1, occurrencesReplaced: 2 },
+    { replacement: 2, occurrencesReplaced: 1 },
+  ]);
+
+  const overlappingPath = join(testRoot, 'overlapping.txt');
+  await writeFile(overlappingPath, 'aaaa\n', 'utf8');
+  const overlapping = await tool.execute({
+    replacements: [{
+      filePath: overlappingPath,
+      oldString: 'aa',
+      newString: 'b',
+      occurrence: 'all',
+      expectedOccurrences: 2,
+    }],
+  });
+  assert.equal(await readFile(overlappingPath, 'utf8'), 'bb\n');
+  assert.equal(overlapping.occurrencesReplaced, 2);
+
+  const countMismatchPath = join(testRoot, 'count-mismatch.txt');
+  await writeFile(countMismatchPath, 'token token token\n', 'utf8');
+  await expectFailure({
+    replacements: [{
+      filePath: countMismatchPath,
+      oldString: 'token',
+      newString: 'value',
+      occurrence: 'all',
+      expectedOccurrences: 2,
+    }],
+  }, /expectedOccurrences is 2, but oldString occurs 3 times.*Occurrence 1 \(line 1\):.*No files were modified/s);
+  assert.equal(await readFile(countMismatchPath, 'utf8'), 'token token token\n');
+
+  const sequentialFailurePath = join(testRoot, 'sequential-failure.txt');
+  await writeFile(sequentialFailurePath, 'alpha beta\n', 'utf8');
+  await expectFailure({
+    replacements: [
+      { filePath: sequentialFailurePath, oldString: 'alpha', newString: 'first' },
+      { filePath: sequentialFailurePath, oldString: 'first gamma', newString: 'done' },
+    ],
+  }, /Replacement 2 failed:.*Diagnostics reflect the in-memory state after replacements 1-1; no files were written.*No files were modified/s);
+  assert.equal(await readFile(sequentialFailurePath, 'utf8'), 'alpha beta\n');
 
   await expectFailure({
     replacements: [{ filePath: duplicatePath, oldString: '', newString: 'new' }],
   }, /oldString must be a non-empty string/);
   await expectFailure({
-    replacements: [{ filePath: duplicatePath, oldString: 'same same', newString: 'same same' }],
+    replacements: [{ filePath: duplicatePath, oldString: 'validate', newString: 'validate' }],
   }, /oldString and newString must differ/);
+  await expectFailure({
+    replacements: [{
+      filePath: duplicatePath,
+      oldString: 'validate',
+      newString: 'submit',
+      occurrence: 'first',
+    }],
+  }, /occurrence must be "unique" or "all"/);
+  await expectFailure({
+    replacements: [{
+      filePath: duplicatePath,
+      oldString: 'validate',
+      newString: 'submit',
+      expectedOccurrences: 2,
+    }],
+  }, /expectedOccurrences can only be used when occurrence is "all"/);
+  await expectFailure({
+    replacements: [{
+      filePath: duplicatePath,
+      oldString: 'validate',
+      newString: 'submit',
+      occurrence: 'all',
+      expectedOccurrences: 0,
+    }],
+  }, /expectedOccurrences must be a positive integer/);
 
   const binaryPath = join(testRoot, 'binary.dat');
   await writeFile(binaryPath, Buffer.from([0x61, 0x00, 0x62]));
@@ -177,6 +310,8 @@ try {
   assert.equal(JSON.stringify(visibleResult).includes('first old'), false);
   assert.deepEqual(Object.keys(visibleResult), [
     'replacementsApplied',
+    'occurrencesReplaced',
+    'results',
     'filesChanged',
     'files',
   ]);

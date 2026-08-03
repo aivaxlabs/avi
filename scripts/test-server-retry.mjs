@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   mkdtempSync,
+  readFileSync,
   rmSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -137,22 +138,35 @@ try {
     name: 'completed_tool',
     arguments: '{"complete":true}',
   };
+  const toolHistoryInput = [{
+    assistantContent: 'Calling a tool.',
+    continuation: [{
+      ...completedToolItem,
+      arguments: JSON.stringify({
+        __invocation_goal: 'Keep this local.',
+        __requires_human_approval: false,
+        complete: true,
+      }),
+    }],
+    toolCalls: [{
+      callId: 'steer-order-call',
+      name: 'order_tool',
+      argumentsText: JSON.stringify({
+        __invocation_goal: 'Keep this local too.',
+        __requires_human_approval: false,
+        order: 1,
+      }),
+    }],
+    results: [{ callId: 'steer-order-call', output: '{"done":true}' }],
+    messages: [{ role: 'user', content: 'Steer after the tool result.' }],
+  }];
   const steeredToolHistoryBody = await responsesApi.createBody({
     provider: {},
     model,
     messages: [{ role: 'user', content: 'Original prompt' }],
     reasoningEffort: null,
     tools: [],
-    toolHistory: [{
-      assistantContent: 'Calling a tool.',
-      toolCalls: [{
-        callId: 'steer-order-call',
-        name: 'order_tool',
-        argumentsText: '{}',
-      }],
-      results: [{ callId: 'steer-order-call', output: '{"done":true}' }],
-      messages: [{ role: 'user', content: 'Steer after the tool result.' }],
-    }],
+    toolHistory: toolHistoryInput,
     invocationContext: {},
   });
   assert.deepEqual(
@@ -160,6 +174,27 @@ try {
       item.type === 'function_call_output' ? item.type : [item.role, item.content]
     )),
     ['function_call_output', ['user', 'Steer after the tool result.']],
+  );
+  const responsesFunctionCall = steeredToolHistoryBody.input.find(
+    (item) => item.type === 'function_call',
+  );
+  assert.equal(
+    responsesFunctionCall.arguments,
+    toolHistoryInput[0].continuation[0].arguments,
+  );
+
+  const chatToolHistoryBody = await chatCompletionsApi.createBody({
+    ...contextBodyInput,
+    messages: [],
+    toolHistory: toolHistoryInput,
+    invocationContext: {},
+  });
+  const chatFunctionCall = chatToolHistoryBody.messages.find(
+    (message) => message.role === 'assistant' && message.tool_calls?.length,
+  ).tool_calls[0];
+  assert.equal(
+    chatFunctionCall.function.arguments,
+    toolHistoryInput[0].toolCalls[0].argumentsText,
   );
 
   assert.deepEqual(
@@ -185,6 +220,215 @@ try {
       { type: 'item-complete', itemType: 'tool-call' },
     ],
   );
+
+  for (const index of [undefined, -1, 1.5]) {
+    const [invalidIndexEvent] = chatCompletionsApi.eventsFrom({
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            ...(index === undefined ? {} : { index }),
+            id: 'invalid-index-call',
+            function: { name: 'invalid_index', arguments: '{}' },
+          }],
+        },
+      }],
+    });
+    assert.equal(invalidIndexEvent.type, 'error');
+    assert.equal(invalidIndexEvent.code, 'provider_error');
+    assert.match(invalidIndexEvent.message, /valid non-negative integer index/);
+  }
+
+  const qwenPayloads = [
+    {
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            index: 0,
+            id: 'qwen-call-0',
+            function: { name: 'weather_lookup', arguments: '' },
+          }],
+        },
+      }],
+    },
+    {
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            index: 1,
+            function: { name: 'unit_lookup', arguments: '' },
+          }],
+        },
+      }],
+    },
+    {
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            index: 0,
+            id: 'qwen-call-0',
+            function: { name: 'weather_lookup', arguments: '{"city":' },
+          }],
+        },
+      }],
+    },
+    {
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            index: 1,
+            id: '',
+            function: { name: '', arguments: '{"unit":' },
+          }],
+        },
+      }],
+    },
+    {
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            index: 0,
+            id: '',
+            function: { name: '', arguments: '"Paris"}' },
+          }],
+        },
+      }],
+    },
+    {
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            index: 1,
+            function: { arguments: '"C"}' },
+          }],
+        },
+        finish_reason: 'tool_calls',
+      }],
+    },
+  ];
+  const qwenEvents = [];
+  const qwenAccumulator = new StreamAccumulator();
+  const qwenResult = await stream(
+    createProvider(
+      async () => new Response([
+        ...qwenPayloads.map((payload) => `data: ${JSON.stringify(payload)}`),
+        'data: [DONE]',
+        '',
+      ].join('\n\n'), { status: 200 }),
+      (payload) => chatCompletionsApi.eventsFrom(payload),
+    ),
+    null,
+    new AbortController().signal,
+    (event) => {
+      qwenEvents.push(event);
+      qwenAccumulator.apply(event);
+    },
+  );
+  assert.equal(qwenResult.toolCalls.length, 2);
+  assert.deepEqual(
+    qwenResult.toolCalls.map(({ key, name, argumentsText }) => ({ key, name, argumentsText })),
+    [{
+      key: 'chat:0:0',
+      name: 'weather_lookup',
+      argumentsText: '{"city":"Paris"}',
+    }, {
+      key: 'chat:0:1',
+      name: 'unit_lookup',
+      argumentsText: '{"unit":"C"}',
+    }],
+  );
+  assert.equal(qwenResult.toolCalls[0].callId, 'qwen-call-0');
+  assert.match(qwenResult.toolCalls[1].callId, /^call_[0-9a-f-]+$/);
+  assert.deepEqual(
+    [...new Set(qwenEvents
+      .filter((event) => event.type === 'tool-call' && event.key === 'chat:0:1')
+      .map((event) => event.callId))],
+    [qwenResult.toolCalls[1].callId],
+  );
+  assert.deepEqual(
+    qwenAccumulator.segments
+      .filter((segment) => segment.type === 'tool-call')
+      .map(({ key, callId, name, argumentsText }) => ({ key, callId, name, argumentsText })),
+    qwenResult.toolCalls.map(({ key, callId, name, argumentsText }) => ({
+      key,
+      callId,
+      name,
+      argumentsText,
+    })),
+  );
+
+  const continuationAccumulator = new StreamAccumulator();
+  continuationAccumulator.apply({
+    type: 'tool-call',
+    key: 'chat:0:0',
+    callId: 'preserved-call',
+    name: 'preserved_name',
+    argumentsDelta: '{',
+  });
+  continuationAccumulator.apply({
+    type: 'tool-call',
+    key: 'chat:0:0',
+    callId: '',
+    name: ' ',
+    argumentsDelta: '}',
+  });
+  assert.deepEqual(
+    {
+      callId: continuationAccumulator.segments[0].callId,
+      name: continuationAccumulator.segments[0].name,
+      argumentsText: continuationAccumulator.segments[0].argumentsText,
+    },
+    {
+      callId: 'preserved-call',
+      name: 'preserved_name',
+      argumentsText: '{}',
+    },
+  );
+
+  for (const conflictingToolCall of [{
+    index: 0,
+    id: 'changed-call-id',
+    function: { name: 'stable_name', arguments: '{}' },
+  }, {
+    index: 0,
+    id: 'stable-call-id',
+    function: { name: 'changed_name', arguments: '{}' },
+  }]) {
+    await assert.rejects(
+      stream(createProvider(
+        async () => new Response([
+          `data: ${JSON.stringify({
+            choices: [{
+              index: 0,
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: 'stable-call-id',
+                  function: { name: 'stable_name', arguments: '' },
+                }],
+              },
+            }],
+          })}`,
+          `data: ${JSON.stringify({
+            choices: [{
+              index: 0,
+              delta: { tool_calls: [conflictingToolCall] },
+            }],
+          })}`,
+          'data: [DONE]',
+          '',
+        ].join('\n\n'), { status: 200 }),
+        (payload) => chatCompletionsApi.eventsFrom(payload),
+      )),
+      (error) => error.code === 'provider_error' && /changed the tool call (ID|name)/.test(error.message),
+    );
+  }
 
   let normalAttempts = 0;
   await assert.rejects(
@@ -495,24 +739,57 @@ try {
     permissionMode: 'full_access',
   });
   await waitFor(() => !adaptiveRunner.runs.has(adaptiveConversation.id));
+  const parseToolOutput = (output) => {
+    const match = /^([\s\S]*)\n\n\[\.\.\. (\d+) chars truncated, (\d+) lines total, full result available at (.+)\]$/.exec(output);
+    return match
+      ? {
+          preview: match[1],
+          truncatedChars: Number(match[2]),
+          totalLines: Number(match[3]),
+          resultPath: match[4],
+        }
+      : {
+          preview: output,
+          truncatedChars: 0,
+          totalLines: output.replaceAll('\r\n', '\n').split('\n').length,
+          resultPath: null,
+        };
+  };
   assert.equal(adaptiveRequests.length, 6);
-  assert.equal(JSON.parse(adaptiveRequests[3][0].results[0].output).output.length, 20);
+  const inspectedResult = parseToolOutput(adaptiveRequests[3][0].results[0].output);
+  assert.equal(inspectedResult.preview.length, 20);
+  assert.ok(inspectedResult.resultPath);
+  const inspectedContent = readFileSync(inspectedResult.resultPath, 'utf8');
+  assert.equal(
+    inspectedContent.length,
+    inspectedResult.preview.length + inspectedResult.truncatedChars,
+  );
+  assert.equal(
+    inspectedResult.totalLines,
+    inspectedContent.replaceAll('\r\n', '\n').split('\n').length,
+  );
   assert.deepEqual(
-    adaptiveRequests[3].slice(1).map((round) => round.results[0].output.length),
+    adaptiveRequests[3].slice(1).map((round) => (
+      parseToolOutput(round.results[0].output).preview.length
+    )),
     [100, 100],
   );
-  const firstOlderResult = JSON.parse(adaptiveRequests[4][0].results[0].output);
-  assert.equal(firstOlderResult.truncated, true);
-  assert.equal(firstOlderResult.output.length, 20);
+  const firstOlderResult = parseToolOutput(adaptiveRequests[4][0].results[0].output);
+  assert.equal(firstOlderResult.preview.length, 20);
   assert.deepEqual(
-    adaptiveRequests[4].slice(1).map((round) => round.results[0].output.length),
+    adaptiveRequests[4].slice(1).map((round) => (
+      parseToolOutput(round.results[0].output).preview.length
+    )),
     [100, 100, 100],
   );
-  const secondOlderResult = JSON.parse(adaptiveRequests[5][1].results[0].output);
-  assert.equal(secondOlderResult.truncated, true);
-  assert.equal(secondOlderResult.output.length, 80);
+  const secondOlderResult = parseToolOutput(adaptiveRequests[5][1].results[0].output);
+  assert.equal(secondOlderResult.preview.length, 80);
+  assert.ok(secondOlderResult.resultPath);
+  assert.equal(readFileSync(secondOlderResult.resultPath, 'utf8'), '1'.repeat(100));
   assert.deepEqual(
-    adaptiveRequests[5].slice(2).map((round) => round.results[0].output.length),
+    adaptiveRequests[5].slice(2).map((round) => (
+      parseToolOutput(round.results[0].output).preview.length
+    )),
     [100, 100, 100],
   );
   await adaptiveRunner.compress({
@@ -541,18 +818,122 @@ try {
       .replace('\n</in_flight_context>', ''),
   );
   assert.equal(
-    JSON.parse(adaptiveInFlightContext.toolHistory[0].results[0].output).output.length,
+    parseToolOutput(adaptiveInFlightContext.toolHistory[0].results[0].output).preview.length,
     20,
   );
   assert.equal(
-    JSON.parse(adaptiveInFlightContext.toolHistory[1].results[0].output).output.length,
+    parseToolOutput(adaptiveInFlightContext.toolHistory[1].results[0].output).preview.length,
     80,
   );
   assert.deepEqual(
     adaptiveInFlightContext.toolHistory
       .slice(2)
-      .map((round) => round.results[0].output.length),
+      .map((round) => parseToolOutput(round.results[0].output).preview.length),
     [100, 100, 100],
+  );
+
+  const immutableFileRequests = [];
+  const immutableSource = Array.from({ length: 4 }, () => 's'.repeat(50)).join('\n');
+  const immutableFileProvider = {
+    getContributions: () => ({
+      tools: [{
+        name: 'immutable_source',
+        description: 'Return content that exceeds the tool output limit.',
+        inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+        execute: async () => immutableSource,
+      }, {
+        name: 'immutable_partial_read',
+        description: 'Read part of a previously truncated tool result.',
+        inputSchema: {
+          type: 'object',
+          properties: { filePath: { type: 'string' } },
+          required: ['filePath'],
+          additionalProperties: false,
+        },
+        execute: async ({ filePath }) => readFileSync(filePath, 'utf8').slice(0, 150),
+      }],
+    }),
+    stream: async ({ toolHistory, onEvent }) => {
+      immutableFileRequests.push(structuredClone(toolHistory));
+      const round = toolHistory.length;
+      if (round === 2) {
+        onEvent({ type: 'content', text: 'Immutable file test completed.' });
+        return {
+          assistantContent: 'Immutable file test completed.',
+          continuation: [],
+          toolCalls: [],
+        };
+      }
+
+      const toolCall = round === 0
+        ? {
+            key: 'immutable-source',
+            callId: 'immutable-source',
+            name: 'immutable_source',
+            argumentsText: JSON.stringify({
+              __invocation_goal: 'Create a truncated result file',
+              __requires_human_approval: false,
+            }),
+          }
+        : {
+            key: 'immutable-partial-read',
+            callId: 'immutable-partial-read',
+            name: 'immutable_partial_read',
+            argumentsText: JSON.stringify({
+              filePath: parseToolOutput(toolHistory[0].results[0].output).resultPath,
+              __invocation_goal: 'Read part of the truncated result file',
+              __requires_human_approval: false,
+            }),
+          };
+      onEvent({ type: 'tool-call', ...toolCall });
+      return {
+        assistantContent: '',
+        continuation: [],
+        toolCalls: [toolCall],
+      };
+    },
+  };
+  const immutableFileRunner = new ChatRunner({
+    registry: {
+      resolve: () => ({ model, provider: immutableFileProvider }),
+      listModels: () => [model],
+    },
+    mcpManager: null,
+    getPreferences: () => ({
+      ...database.getPreferences(),
+      tuning: {
+        ...database.getPreferences().tuning,
+        toolOutputLimit: adaptiveToolOutputLimit,
+      },
+    }),
+    sendEvent: () => {},
+  });
+  const immutableFileConversation = database.createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  await immutableFileRunner.send({
+    conversationId: immutableFileConversation.id,
+    model: model.id,
+    text: 'Verify truncated result files remain immutable.',
+    permissionMode: 'full_access',
+  });
+  await waitFor(() => !immutableFileRunner.runs.has(immutableFileConversation.id));
+  const originalFileResult = parseToolOutput(
+    immutableFileRequests[2][0].results[0].output,
+  );
+  const partialReadResult = parseToolOutput(
+    immutableFileRequests[2][1].results[0].output,
+  );
+  assert.equal(originalFileResult.preview.length, adaptiveToolOutputLimit);
+  assert.equal(originalFileResult.totalLines, 4);
+  assert.equal(partialReadResult.preview.length, adaptiveToolOutputLimit);
+  assert.equal(partialReadResult.totalLines, 3);
+  assert.notEqual(partialReadResult.resultPath, originalFileResult.resultPath);
+  assert.equal(readFileSync(originalFileResult.resultPath, 'utf8'), immutableSource);
+  assert.equal(
+    readFileSync(partialReadResult.resultPath, 'utf8'),
+    immutableSource.slice(0, 150),
   );
 
   let perInferenceAttempts = 0;

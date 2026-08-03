@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { interceptToolSchemas } from '../src/main/client-tools.js';
+import { decorateToolsForInvocation } from '../src/main/client-tools.js';
 import { resolveDynamicContext } from '../src/main/context-injection.js';
 import { McpManager } from '../src/main/mcp-manager.js';
 
@@ -49,7 +49,7 @@ try {
   const runtime = await manager.ensureWorkspace(workspaceRoot);
   const tool = runtime.tools.find((item) => item.name === 'mcp_sdk_test_count');
   if (!tool) throw new Error('Prefixed MCP tool was not discovered.');
-  const exposedSchema = interceptToolSchemas([tool])[0].parameters;
+  const exposedSchema = decorateToolsForInvocation([tool])[0].inputSchema;
   if (
     !Object.hasOwn(exposedSchema.properties ?? {}, '__invocation_goal')
     || !Object.hasOwn(exposedSchema.properties ?? {}, '__requires_human_approval')
@@ -58,13 +58,22 @@ try {
   ) {
     throw new Error('MCP tool schema does not expose model-controlled approval properties.');
   }
+  const expectedMetaParameters = ['__invocation_goal', '__requires_human_approval'];
+  if (
+    JSON.stringify(Object.keys(exposedSchema.properties).slice(0, 2))
+      !== JSON.stringify(expectedMetaParameters)
+    || JSON.stringify(exposedSchema.required.slice(0, 2))
+      !== JSON.stringify(expectedMetaParameters)
+  ) {
+    throw new Error('Tool schema does not expose local control properties first.');
+  }
   const permissionDescriptions = [
     'ask_for_approval',
     'approve_for_me',
     'full_access',
   ].map((permissionMode) => (
-    interceptToolSchemas([tool], permissionMode)[0]
-      .parameters
+    decorateToolsForInvocation([tool], permissionMode)[0]
+      .inputSchema
       .properties
       .__requires_human_approval
       .description
@@ -82,6 +91,39 @@ try {
   if (result !== 'Counted to 2') {
     throw new Error('MCP tool result was not returned.');
   }
+
+  const combinedResultTool = manager.mapTools({
+    key: 'test:combined-result',
+    name: 'Combined result test',
+    prefix: 'mcp_combined_result_test_',
+    status: 'ready',
+    logs: [],
+    client: {
+      callTool: async () => ({
+        content: [
+          { type: 'text', text: 'Plain MCP text' },
+          { type: 'image', mimeType: 'image/png', data: Buffer.from('media').toString('base64') },
+        ],
+        structuredContent: { count: 2, nested: { preserved: true } },
+      }),
+    },
+  }, [{ name: 'combined', inputSchema: { type: 'object', properties: {} } }])[0];
+  const combinedResult = await combinedResultTool.execute(
+    {},
+    { signal: new AbortController().signal },
+  );
+  if (
+    !combinedResult.startsWith('Plain MCP text\n\n')
+    || !combinedResult.includes('{"count":2,"nested":{"preserved":true}}')
+    || !combinedResult.includes('\n\nFiles created from tool response:\n- ')
+  ) {
+    throw new Error('MCP text, structured content, and media were not all preserved.');
+  }
+  const mediaPath = combinedResult.split('\n- ')[1];
+  if (!mediaPath || (await readFile(mediaPath, 'utf8')) !== 'media') {
+    throw new Error('MCP media was not written to the returned file path.');
+  }
+  await rm(dirname(mediaPath), { recursive: true, force: true });
 
   let forwardedArguments;
   const boundaryTool = manager.mapTools({
