@@ -26,16 +26,7 @@
 }
 
 .mcp-dialog {
-  width: min(500px, 100%);
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 16px;
-  padding: 22px;
-  color: var(--text-1);
-  background: var(--background-2);
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
+
 
   .mcp-dialog-icon {
     width: 40px;
@@ -104,16 +95,11 @@
   gap: 8px;
 
   button {
-    min-height: 32px;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 10px;
     color: var(--text-2);
     background: var(--background-3);
-    border: 1px solid var(--border-color);
-    border-radius: 7px;
-    font-size: 12px;
 
     &:hover {
       background: var(--item-hover);
@@ -140,11 +126,14 @@
     button {
       width: 30px;
       height: 30px;
-      display: grid;
-      place-items: center;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       color: var(--text-3);
       background: transparent;
-      border-radius: 7px;
+      border-radius: 99px;
+      box-sizing: border-box;
 
       &:hover {
         color: var(--text-1);
@@ -160,8 +149,9 @@
 
 .mcp-status-list {
   min-height: 0;
+  max-height: 300px;
   display: grid;
-  gap: 8px;
+  gap: 1em;
   overflow-y: auto;
 
   article {
@@ -169,9 +159,7 @@
     grid-template-columns: 32px minmax(0, 1fr) auto;
     align-items: center;
     gap: 10px;
-    padding: 10px;
-    background: var(--background-1);
-    border: 1px solid var(--border-color);
+    padding: 0 10px;
     border-radius: 8px;
 
     > span:nth-child(2) {
@@ -182,12 +170,41 @@
 
     strong {
       color: var(--text-1);
-      font-size: 12px;
+      font-weight: 400;
     }
 
     small {
       color: var(--text-3);
-      font-size: 10px;
+      font-size: .9rem;
+    }
+
+    span.settings-status {
+      font-weight: 500;
+      font-size: .85rem;
+      border-radius: 99px;
+      padding: 4px 8px;
+
+      &.ready {
+        color: var(--text-1);
+        background: var(--background-3);
+      }
+
+      &.starting,
+      &.auth-required {
+        color: var(--text-2);
+        background: var(--background-3);
+      }
+
+      &.error {
+        color: var(--text-1);
+        background: var(--background-3);
+      }
+
+      &.idle,
+      &.shadowed {
+        color: var(--text-3);
+        background: var(--background-3);
+      }
     }
   }
 

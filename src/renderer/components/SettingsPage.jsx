@@ -2,7 +2,9 @@ import {
   ArrowLeft,
   ArrowRight,
   Boxes,
+  Check,
   CheckCircle2,
+  ChevronDown,
   CircleOff,
   Copy,
   Ellipsis,
@@ -37,6 +39,11 @@ import { McpSettings } from './McpSettings.jsx';
 import { RemoteSettings } from './RemoteSettings.jsx';
 
 const reasoningEfforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+const capabilityOptions = [
+  { value: 'images', label: 'Images' },
+  { value: 'audio', label: 'Audio' },
+  { value: 'pdfFiles', label: 'PDF files' },
+];
 const compactTokenFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 1,
@@ -50,6 +57,75 @@ const personalityDescriptions = Object.freeze({
   quirky: 'Playful and imaginative, using memorable explanations without losing precision.',
 });
 
+
+function MultiSelect({ label, onChange, options, values }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const selectedLabels = options
+    .filter((option) => values.includes(option.value))
+    .map((option) => option.label);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const closeOnPointerDown = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    const closeOnKeyDown = (event) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnPointerDown);
+    document.addEventListener('keydown', closeOnKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnPointerDown);
+      document.removeEventListener('keydown', closeOnKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div className="model-multiselect" ref={rootRef}>
+      <button
+        className="model-multiselect-trigger"
+        type="button"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className={classNames(!selectedLabels.length && 'placeholder')}>
+          {selectedLabels.length ? selectedLabels.join(', ') : 'None selected'}
+        </span>
+        <ChevronDown size={14} />
+      </button>
+      {open && (
+        <DropdownMenu
+          className="model-multiselect-menu"
+          role="listbox"
+          aria-label={label}
+          aria-multiselectable="true"
+        >
+          {options.map((option) => {
+            const selected = values.includes(option.value);
+            return (
+              <DropdownMenuItem
+                key={option.value}
+                active={selected}
+                role="option"
+                aria-selected={selected}
+                icon={<span className="model-multiselect-check">{selected && <Check size={13} />}</span>}
+                onClick={() => onChange(selected
+                  ? values.filter((value) => value !== option.value)
+                  : [...values, option.value])}
+              >
+                {option.label}
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenu>
+      )}
+    </div>
+  );
+}
 
 function DefaultModelField({
   description,
@@ -266,6 +342,8 @@ export function SettingsPage({
   const [defaultModelsSaved, setDefaultModelsSaved] = useState(false);
   const [tuningSaved, setTuningSaved] = useState(false);
   const [terminalShells, setTerminalShells] = useState(null);
+  const [terminalShellError, setTerminalShellError] = useState('');
+  const [terminalShellLoadAttempt, setTerminalShellLoadAttempt] = useState(0);
   const selectedProvider = providers.find((provider) => provider.id === selectedId) ?? null;
   const selectedType = providerTypes.find((type) => (
     type.id === (providerDraft?.interface ?? selectedProvider?.interface)
@@ -300,20 +378,21 @@ export function SettingsPage({
     if (view !== 'tuning') return undefined;
     let cancelled = false;
     setTerminalShells(null);
-    setError('');
+    setTerminalShellError('');
     window.chatApp.tuning.shells()
       .then((shells) => {
         if (!cancelled) setTerminalShells(shells);
       })
       .catch((nextError) => {
         if (!cancelled) {
-          setError(nextError instanceof Error ? nextError.message : String(nextError));
+          setTerminalShells([]);
+          setTerminalShellError(nextError instanceof Error ? nextError.message : String(nextError));
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [view]);
+  }, [view, terminalShellLoadAttempt]);
 
   useEffect(() => {
     if (view !== 'context-folder' || !selectedContextFolder) return undefined;
@@ -1139,17 +1218,28 @@ export function SettingsPage({
                     ))}
                     </select>
                     <small className={
-                    terminalShells && !selectedTerminalShell
+                    terminalShellError || (terminalShells && !selectedTerminalShell)
                     ? 'settings-field-warning'
                     : undefined
                     }>
                     {!terminalShells
                     ? 'Detecting installed shells...'
+                    : terminalShellError
+                    ? `Unable to detect installed shells: ${terminalShellError}`
                     : selectedTerminalShell
                     ? `Commands run with ${selectedTerminalShell.label}. The installation is checked again before every command.`
                     : 'This shell is no longer installed. Choose an available option to continue.'}
                     </small>
                     </label>
+                    {terminalShellError && (
+                    <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={() => setTerminalShellLoadAttempt((attempt) => attempt + 1)}
+                    >
+                    Try again
+                    </button>
+                    )}
                   </div>
                 </section>
 
@@ -1800,80 +1890,32 @@ export function SettingsPage({
                     </label>
                   </div>
                   <div className="model-options-row">
-                    <div
-                      className="model-option-row"
-                      role="group"
-                      aria-labelledby="model-capabilities-label"
-                    >
-                      <span className="model-option-label" id="model-capabilities-label">
-                        Capabilities
-                      </span>
-                      <div className="model-option-controls">
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={modelDraft.capabilities.images}
-                            onChange={(event) => updateModelDraft({
-                              capabilities: {
-                                ...modelDraft.capabilities,
-                                images: event.target.checked,
-                              },
-                            })}
-                          />
-                          Images
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={modelDraft.capabilities.audio}
-                            onChange={(event) => updateModelDraft({
-                              capabilities: {
-                                ...modelDraft.capabilities,
-                                audio: event.target.checked,
-                              },
-                            })}
-                          />
-                          Audio
-                        </label>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={modelDraft.capabilities.pdfFiles}
-                            onChange={(event) => updateModelDraft({
-                              capabilities: {
-                                ...modelDraft.capabilities,
-                                pdfFiles: event.target.checked,
-                              },
-                            })}
-                          />
-                          PDF files
-                        </label>
-                      </div>
+                    <div className="model-option-row">
+                      <span className="model-option-label">Capabilities</span>
+                      <MultiSelect
+                        label="Capabilities"
+                        options={capabilityOptions}
+                        values={capabilityOptions
+                          .filter((option) => modelDraft.capabilities[option.value])
+                          .map((option) => option.value)}
+                        onChange={(values) => updateModelDraft({
+                          capabilities: Object.fromEntries(capabilityOptions.map(
+                            (option) => [option.value, values.includes(option.value)],
+                          )),
+                        })}
+                      />
                     </div>
-                    <div
-                      className="model-option-row reasoning-options"
-                      role="group"
-                      aria-labelledby="model-reasoning-label"
-                    >
-                      <span className="model-option-label" id="model-reasoning-label">
-                        Reasoning
-                      </span>
-                      <div className="model-option-controls">
-                        {reasoningEfforts.map((effort) => (
-                          <label key={effort}>
-                            <input
-                              type="checkbox"
-                              checked={modelDraft.reasoning.includes(effort)}
-                              onChange={(event) => updateModelDraft({
-                                reasoning: event.target.checked
-                                  ? [...modelDraft.reasoning, effort]
-                                  : modelDraft.reasoning.filter((item) => item !== effort),
-                              })}
-                            />
-                            {effort}
-                          </label>
-                        ))}
-                      </div>
+                    <div className="model-option-row">
+                      <span className="model-option-label">Reasoning</span>
+                      <MultiSelect
+                        label="Reasoning"
+                        options={reasoningEfforts.map((effort) => ({
+                          value: effort,
+                          label: effort,
+                        }))}
+                        values={modelDraft.reasoning}
+                        onChange={(reasoning) => updateModelDraft({ reasoning })}
+                      />
                     </div>
                   </div>
                 </div>

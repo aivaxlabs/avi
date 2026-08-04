@@ -2,13 +2,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 30px;
   padding: 6px 9px;
   color: var(--text-2);
   background: var(--background-3);
-  border: 1px solid var(--border-color);
-  border-radius: 7px;
-  font-size: 12px;
+  font-size: 1rem;
 }
 
 .dialog-backdrop {
@@ -22,7 +19,7 @@
   z-index: 70;
 
   @media (max-width: 700px) {
-    padding: 14px;
+    padding: 0;
   }
 }
 
@@ -38,16 +35,23 @@
 }
 
 .model-dialog,
-.search-dialog {
+.search-dialog,
+.mcp-dialog {
   width: min(780px, 100%);
   max-height: min(720px, 88vh);
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr);
   padding: 16px;
-  background: var(--background-2);
+  background: var(--background-0);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
+  border-radius: 14px;
+  box-shadow: 0 28px 90px #00000022;
+
+  @media(max-width: 700px) {
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+  }
 }
 
 .model-dialog {
@@ -76,7 +80,8 @@
 
   h2 {
     margin: 0 0 4px;
-    font-size: 17px;
+    font-size: 1rem;
+    font-weight: 500;
   }
 }
 
@@ -174,9 +179,9 @@
   .dialog-header {
     p {
       max-width: 500px;
-      margin: 4px 0 0;
+      margin: 2px 0 0;
       color: var(--text-3);
-      font-size: 12px;
+      font-size: .9rem;
       line-height: 1.5;
     }
   }

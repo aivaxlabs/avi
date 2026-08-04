@@ -9,6 +9,7 @@
 
   .orchestration-header {
     max-width: 1180px;
+    position: relative;
     margin: 0 auto 28px;
     display: flex;
     align-items: flex-end;
@@ -36,6 +37,131 @@
     margin: 0;
     color: var(--text-3);
     font-size: 14px;
+  }
+
+  .orchestration-range-trigger,
+  .orchestration-refresh {
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+
+  .orchestration-range-trigger {
+    margin-left: auto;
+    padding: 6px 10px;
+    color: var(--text-2);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    font-weight: 500;
+    transition: background 160ms var(--base-transition),
+      border-color 160ms var(--base-transition);
+
+    &:hover,
+    &[aria-expanded="true"] {
+      color: var(--text-1);
+      background: var(--background-3);
+      border-color: var(--text-4);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: 2px;
+    }
+  }
+
+  .orchestration-range-popover {
+    width: min(500px, calc(100vw - 40px));
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 10px);
+    right: 92px;
+    padding: 12px;
+    color: var(--text-1);
+    background: var(--background-1);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, .24);
+  }
+
+  .orchestration-range-fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: end;
+    gap: 10px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+
+    > svg {
+      margin-bottom: 9px;
+      color: var(--text-4);
+    }
+
+    label {
+      min-width: 0;
+      display: grid;
+      gap: 6px;
+    }
+
+    label > span {
+      color: var(--text-3);
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    input {
+      min-width: 0;
+      width: 100%;
+      height: 34px;
+      padding: 0 8px;
+      color: var(--text-1);
+      color-scheme: dark;
+      background: var(--background-2);
+      border: 1px solid var(--border-color);
+      border-radius: 7px;
+      font: inherit;
+      font-size: 12px;
+
+      &:focus-visible {
+        outline: 2px solid var(--text-3);
+        outline-offset: 1px;
+      }
+    }
+  }
+
+  .orchestration-range-presets {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding-top: 12px;
+
+    button {
+      min-height: 34px;
+      padding: 7px 10px;
+      color: var(--text-2);
+      background: transparent;
+      border: 1px solid var(--border-color);
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 520;
+      text-align: left;
+      transition: background 140ms var(--base-transition),
+        border-color 140ms var(--base-transition);
+
+      &:hover,
+      &.active {
+        color: var(--text-1);
+        background: var(--item-hover);
+        border-color: var(--text-4);
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--text-3);
+        outline-offset: 1px;
+      }
+    }
   }
 
   .orchestration-refresh {
@@ -389,6 +515,20 @@
   @media (max-width: 900px) {
     padding-inline: 20px;
 
+    .orchestration-header {
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .orchestration-range-trigger {
+      margin-left: 0;
+    }
+
+    .orchestration-range-popover {
+      top: 100%;
+      right: 0;
+    }
+
     .orchestration-kpis {
       grid-template-columns: 1fr;
     }
@@ -417,6 +557,8 @@
   .orchestration-page {
 
     .orchestration-refresh,
+    .orchestration-range-trigger,
+    .orchestration-range-presets button,
     .task-row,
     .model-usage-track span {
       transition: none;

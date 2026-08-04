@@ -10,13 +10,13 @@
     }
   }
 
-  .model-filter-input, .model-provider-tabs {
+  .model-filter-input,
+  .model-provider-tabs {
     height: 30px;
     min-width: 0;
     color: var(--text-1);
-    background: var(--background-4);
-    border: 1px solid var(--border-color);
-    border-radius: 5px;
+    background: var(--background-2);
+    border-radius: 99px;
   }
 
   .model-filter-input {
@@ -192,7 +192,8 @@
       transform: scale(0.995);
     }
 
-    strong, span {
+    strong,
+    span {
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -247,6 +248,10 @@
     background: var(--background-2);
     border: 1px solid var(--border-color);
     border-radius: 6px;
+
+    @media (max-width: 700px) {
+      display: none;
+    }
   }
 
   .selected-model-heading {
@@ -328,6 +333,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .model-dialog .model-row,
   .model-dialog .model-row-content {
     transition: none;

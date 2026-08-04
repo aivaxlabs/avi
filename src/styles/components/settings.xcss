@@ -1074,29 +1074,64 @@
     font-size: 12px;
   }
 
-  .model-option-controls {
+  .model-multiselect {
+    position: relative;
     grid-column: 2;
     grid-row: 1;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px 16px;
+    min-width: 0;
   }
 
-  .model-options-row label {
-    display: inline-flex;
+  .model-multiselect-trigger {
+    width: 100%;
+    min-height: 32px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 6px;
-    color: var(--text-2);
+    gap: 8px;
+    padding: 6px 10px;
+    color: var(--text-1);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    text-align: left;
     font-size: 12px;
+
+    &:hover {
+      background: var(--item-hover);
+    }
+
+    > span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .placeholder,
+    svg {
+      color: var(--text-3);
+    }
   }
 
-  .model-options-row input {
-    accent-color: var(--text-1);
+  .model-multiselect-menu {
+    top: calc(100% + 4px);
+    right: 0;
+    left: 0;
+    max-width: none;
+    width: auto;
+    border-radius: 10px;
+    z-index: 150;
+
+    .dropdown-menu-item {
+      border-radius: 7px;
+      text-transform: none;
+    }
   }
 
-  .reasoning-options label {
-    text-transform: lowercase;
+  .model-multiselect-check {
+    width: 14px;
+    height: 14px;
+    display: grid;
+    place-items: center;
   }
 
   .settings-empty {

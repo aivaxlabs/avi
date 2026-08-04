@@ -55,9 +55,8 @@
   overflow: hidden;
   padding: 0;
   background: var(--background-2);
-  border: 1px solid var(--border-color);
   border-radius: 10px;
-  cursor: zoom-in;
+  cursor: pointer;
   transition: border-color 160ms var(--base-transition),
     transform 160ms var(--base-transition);
 
@@ -94,8 +93,10 @@
   backdrop-filter: blur(8px);
 
   > img {
-    max-width: 100%;
-    max-height: 100%;
+    width: auto;
+    height: auto;
+    max-width: calc(100vw - 96px);
+    max-height: calc(100vh - 96px);
     object-fit: contain;
     border-radius: 8px;
     box-shadow: 0 20px 70px rgb(0 0 0 / 45%);
@@ -136,6 +137,11 @@
 
   .attachment-lightbox {
     padding: 56px 16px 16px;
+
+    > img {
+      max-width: calc(100vw - 32px);
+      max-height: calc(100vh - 72px);
+    }
   }
 }
 
@@ -299,6 +305,18 @@
   width: min(760px, 100%);
   min-width: 0;
   color: var(--text-1);
+
+  .user-attachment-list {
+    justify-content: flex-start;
+    max-width: 100%;
+    margin: 0;
+    margin-block: 1em .5em;
+
+    .user-attachment-image {
+      width: 128px;
+      height: 128px;
+    }
+  }
 }
 
 .question-inline-row {
