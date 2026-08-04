@@ -680,6 +680,18 @@ export default function App() {
     setAuxiliaryPanelVisible(true);
   }
 
+  async function handleFileReferenceAction(action, reference, project = currentProject) {
+    if (!project?.path) return;
+    try {
+      await api.files[action === 'reveal' ? 'reveal' : 'copyPath']({
+        folderPath: project.path,
+        filePath: reference.path,
+      });
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }
+
   async function sendMessage({
     text,
     attachments,
@@ -699,8 +711,9 @@ export default function App() {
     ),
     ultraMode: messageUltraMode = ultraMode,
   }) {
-    if (!text.trim() && attachments.length === 0) return;
-    const command = attachments.length === 0 ? text.trim().toLowerCase() : '';
+    text = text.trim();
+    if (!text && attachments.length === 0) return;
+    const command = attachments.length === 0 ? text.toLowerCase() : '';
     if (command === '/mcp' || command === '/restart-mcp') {
       try {
         setMcpWorkspaceServers(command === '/mcp'
@@ -1517,6 +1530,7 @@ export default function App() {
               pendingAttachment={pendingComposerAttachment}
               onPendingAttachmentConsumed={chatOnPendingAttachmentConsumed}
               onOpenFileReference={chatOnOpenFileReference}
+              onFileReferenceAction={handleFileReferenceAction}
               messageDeliveryMode={appState.tuning.messageDeliveryMode}
               defaultPermissionMode={appState.tuning.defaultPermissionMode}
               />
@@ -1665,6 +1679,7 @@ export default function App() {
                 fileNavigation={fileNavigation}
                 onFileNavigationConsumed={() => setFileNavigation(null)}
                 onOpenFileReference={openFileReference}
+                onFileReferenceAction={handleFileReferenceAction}
                 onSelectSubagent={async (id) => {
                   setActiveSubagentId(id);
                   if (id && !messagesByConversation[id]) {

@@ -143,6 +143,7 @@ export const ChatView = memo(function ChatView({
   pendingAttachment,
   onPendingAttachmentConsumed,
   onOpenFileReference,
+  onFileReferenceAction,
   messageDeliveryMode = 'queue',
   defaultPermissionMode = 'approve_for_me',
   compact = false,
@@ -614,6 +615,7 @@ export const ChatView = memo(function ChatView({
                   onOpenFileEdit={onOpenFileEdit}
                   onImplementPlan={() => onImplementPlan?.()}
                   onOpenFileReference={onOpenFileReference}
+                  onFileReferenceAction={onFileReferenceAction}
                   showContinuations={message.id === lastAssistantMessage?.id}
                 />
             ))}

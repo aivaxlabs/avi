@@ -173,6 +173,7 @@ export function AuxiliaryPanel({
   fileNavigation,
   onFileNavigationConsumed,
   onOpenFileReference,
+  onFileReferenceAction,
   onSelectSubagent,
   onSend,
   onImplementPlan,
@@ -567,6 +568,11 @@ export function AuxiliaryPanel({
               onGoalAction(activeThread, action, specification)
             )}
             onOpenFileReference={onOpenFileReference}
+            onFileReferenceAction={(action, reference) => onFileReferenceAction(
+              action,
+              reference,
+              currentProject,
+            )}
             messageDeliveryMode={messageDeliveryMode}
             defaultPermissionMode={defaultPermissionMode}
             draftKey={`aivax.composer.${

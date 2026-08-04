@@ -181,8 +181,9 @@ function QuickComposer({
 
   async function submit() {
     if (running) return onStop();
-    if (!text.trim() && attachments.length === 0) return;
-    const payload = { text, attachments };
+    const normalizedText = text.trim();
+    if (!normalizedText && attachments.length === 0) return;
+    const payload = { text: normalizedText, attachments };
     setText('');
     setAttachments([]);
     await onSend(payload);

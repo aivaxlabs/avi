@@ -22,6 +22,7 @@ import { homedir } from 'node:os';
 import {
   basename,
   dirname,
+  extname,
   isAbsolute,
   join,
   relative,
@@ -120,6 +121,8 @@ const quickChatWindows = new Map();
 let shutdownStarted = false;
 let shutdownReady = false;
 let isQuitting = false;
+let lastCpuUsage = process.cpuUsage();
+let resourceSnapshotInterval;
 const ipcHandlers = new Map();
 const applicationIpc = { handle: (channel, handler) => ipcHandlers.set(channel, handler) };
 
@@ -129,6 +132,7 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (shutdownStarted) return;
   shutdownStarted = true;
+  clearInterval(resourceSnapshotInterval);
   for (const sessionId of quickChatWindows.keys()) quickChatRunner?.close(sessionId);
   Promise.resolve(chatRunner?.shutdown())
     .then(() => mcpManager?.closeAll())
@@ -150,19 +154,49 @@ app.on('activate', () => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' && !getPreferences().desktop?.closeToTray) app.quit();
 });
-if (process.env.CHAT_APP_OPEN_DEVTOOLS === '1') {
-  app.on('web-contents-created', (_event, contents) => {
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('render-process-gone', (_event, details) => {
+    traceError('renderer.process-gone', {
+      status: details.reason,
+      code: details.exitCode,
+    });
+  });
+  contents.on('unresponsive', () => traceError('renderer.unresponsive'));
+  contents.on('did-fail-load', (_event, code, description) => {
+    traceError('renderer.load-failed', { code, error: description });
+  });
+  if (process.env.CHAT_APP_OPEN_DEVTOOLS === '1') {
     contents.on('before-input-event', (_inputEvent, input) => {
       if (input.type === 'keyDown' && input.key === 'F12') contents.toggleDevTools();
     });
+  }
+});
+app.on('child-process-gone', (_event, details) => {
+  traceError('app.child-process-gone', {
+    operation: details.type,
+    status: details.reason,
+    code: details.exitCode,
   });
-}
+});
 
 await app.whenReady();
 if (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin) startHidden = true;
 await initializeSecureStorage();
 setTraceLevel(getPreferences().tuning.logLevel);
 traceVerbose('app.started', { log_level: getPreferences().tuning.logLevel });
+resourceSnapshotInterval = setInterval(() => {
+  const memory = process.memoryUsage();
+  const cpuUsage = process.cpuUsage(lastCpuUsage);
+  lastCpuUsage = process.cpuUsage();
+  traceVerbose('app.resource-snapshot', {
+    rss_mb: Math.round(memory.rss / 1_048_576),
+    heap_used_mb: Math.round(memory.heapUsed / 1_048_576),
+    external_mb: Math.round(memory.external / 1_048_576),
+    cpu_user_ms: Math.round(cpuUsage.user / 1_000),
+    cpu_system_ms: Math.round(cpuUsage.system / 1_000),
+  });
+}, 60_000);
+resourceSnapshotInterval.unref();
 logDefaultModelWarnings('startup');
 registerIpc();
 ipcMain.handle('avi:invoke', invokeApplicationRequest);
@@ -1025,6 +1059,42 @@ function registerIpc() {
   applicationIpc.handle('files:copy-path', (_event, payload = {}) => {
     clipboard.writeText(resolveWorkspacePath(payload.folderPath, payload.filePath));
     return true;
+  });
+  applicationIpc.handle('attachments:image-action', async (_event, payload = {}) => {
+    const imagePath = payload.path;
+    if (typeof imagePath !== 'string' || !isAbsolute(imagePath)) {
+      throw new TypeError('Image path must be absolute.');
+    }
+    const resolvedImagePath = resolve(imagePath);
+    if (!resolvedImagePath.replaceAll('\\', '/').includes('/.aivax/generated-images/')) {
+      throw new TypeError('Image must be a generated attachment.');
+    }
+    if (!['.gif', '.jpeg', '.jpg', '.png', '.webp'].includes(extname(resolvedImagePath).toLowerCase())) {
+      throw new TypeError('Attachment must be a supported image file.');
+    }
+    await access(resolvedImagePath);
+
+    switch (payload.action) {
+      case 'open': {
+        const error = await shell.openPath(resolvedImagePath);
+        if (error) throw new Error(`Could not open image: ${error}`);
+        return true;
+      }
+      case 'reveal':
+        shell.showItemInFolder(resolvedImagePath);
+        return true;
+      case 'copy-image': {
+        const image = nativeImage.createFromPath(resolvedImagePath);
+        if (image.isEmpty()) throw new Error('Could not read image for clipboard.');
+        clipboard.writeImage(image);
+        return true;
+      }
+      case 'copy-path':
+        clipboard.writeText(resolvedImagePath);
+        return true;
+      default:
+        throw new TypeError('Unsupported image action.');
+    }
   });
   applicationIpc.handle('projects:select', async (_event, payload = {}) => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {

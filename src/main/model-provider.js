@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { REASONING_EFFORTS } from './provider-api.js';
+import { traceError, traceVerbose } from './trace-log.js';
 
 const EMPTY_PROVIDER_CONTRIBUTIONS = Object.freeze({
   models: Object.freeze([]),
@@ -91,6 +92,7 @@ export class ModelProvider {
     let retryVisible = false;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const attemptStartedAt = Date.now();
       const attemptController = new AbortController();
       const attemptSignal = AbortSignal.any([signal, attemptController.signal]);
       let connectTimedOut = false;
@@ -100,6 +102,11 @@ export class ModelProvider {
         connectTimedOut = true;
         attemptController.abort(new Error('The server did not respond within 30 seconds.'));
       }, SERVER_CONNECT_TIMEOUT_MS);
+      traceVerbose('provider.attempt-started', {
+        provider_id: this.config.id,
+        model: model.modelId,
+        attempt,
+      });
 
       try {
         response = await this.implementation.request({
@@ -115,6 +122,12 @@ export class ModelProvider {
           throw signal.reason instanceof Error ? signal.reason : error;
         }
         if (!connectTimedOut) throw error;
+        traceError('provider.connect-timeout', {
+          provider_id: this.config.id,
+          model: model.modelId,
+          attempt,
+          duration_ms: Date.now() - attemptStartedAt,
+        });
         retryError = {
           code: 'server_timeout',
           message: 'The server did not respond within 30 seconds.',
@@ -125,6 +138,12 @@ export class ModelProvider {
 
       const retryableResponse = response?.status >= 500 && response.status <= 599;
       if (retryableResponse) {
+        traceVerbose('provider.retryable-response', {
+          provider_id: this.config.id,
+          model: model.modelId,
+          attempt,
+          http_status: response.status,
+        });
         retryError = {
           code: `http_${response.status}`,
           message: await response.text() || `${response.status} ${response.statusText}`,
@@ -179,7 +198,13 @@ export class ModelProvider {
               let json;
               try {
                 json = JSON.parse(payload);
-              } catch {
+              } catch (error) {
+                traceError('provider.sse-parse-error', {
+                  provider_id: this.config.id,
+                  model: model.modelId,
+                  attempt,
+                  error: error instanceof Error ? error.message : String(error),
+                });
                 throw new Error('The provider returned an invalid SSE payload.');
               }
 
@@ -324,6 +349,12 @@ export class ModelProvider {
       retryVisible = true;
 
       const retryDelay = retryDelays[Math.min(attempt - 1, retryDelays.length - 1)];
+      traceVerbose('provider.retry-scheduled', {
+        provider_id: this.config.id,
+        model: model.modelId,
+        attempt,
+        retry_after_ms: retryDelay,
+      });
       await new Promise((resolveDelay, rejectDelay) => {
         const retryTimeout = setTimeout(() => {
           signal.removeEventListener('abort', abortDelay);

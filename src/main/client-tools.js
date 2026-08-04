@@ -26,6 +26,7 @@ import { resolveSubagentModel } from './default-models.js';
 import { filePathToAttachment } from './files.js';
 import { applyMultiReplaceFile } from './multi-replace-file.js';
 import { resolveTerminalShell } from './terminal-shell.js';
+import { traceVerbose } from './trace-log.js';
 
 const MAX_READ_URL_CHARS = 100_000;
 const MAX_TERMINAL_OUTPUT_CHARS = 2_000_000;
@@ -722,6 +723,13 @@ export const CLIENT_TOOLS = Object.freeze([
         ? result.conversation
         : updateConversation(result.conversation.id, { model: selectedModel.id });
       chatRunner.emit(parent.id, { type: 'subagent-created', subagent });
+      traceVerbose('orchestration.subagent-spawned', {
+        thread_id: subagent.id,
+        parent_thread_id: parent.id,
+        model: selectedModel.modelId,
+        provider_id: selectedModel.providerId,
+        concurrent_runs: runningSubagents + 1,
+      });
       const sent = await chatRunner.send({
         conversationId: subagent.id,
         model: selectedModel.id,
