@@ -24,6 +24,7 @@ try {
     getConversation,
     getGoalForConversation,
     getMessages,
+    insertMessage,
   } = database;
   const model = {
     id: 'test:model',
@@ -134,6 +135,49 @@ try {
     model: model.id,
     projectPath: process.cwd(),
   });
+  insertMessage({
+    conversationId: auxiliaryConversation.id,
+    role: 'user',
+    content: 'This old turn must be excluded.',
+  });
+  insertMessage({
+    conversationId: auxiliaryConversation.id,
+    role: 'assistant',
+    content: 'Old response.',
+  });
+  insertMessage({
+    conversationId: auxiliaryConversation.id,
+    role: 'user',
+    content: 'Use the attached mockup as the export layout.',
+    attachments: [{
+      kind: 'image_url',
+      name: 'export-layout.png',
+      path: 'C:\\mockups\\export-layout.png',
+      dataUrl: 'data:image/png;base64,aW1hZ2U=',
+    }],
+  });
+  insertMessage({
+    conversationId: auxiliaryConversation.id,
+    role: 'assistant',
+    content: 'I inspected the current exporter.',
+    segments: [
+      { type: 'content', text: 'I inspected the current exporter.' },
+      { type: 'tool-call', name: 'read_file', argumentsText: '{"path":"export.js"}', resultText: 'CSV only.' },
+      { type: 'reasoning', text: 'The layout implies PDF output.' },
+      { type: 'content', text: 'We should add PDF without changing CSV.' },
+    ],
+  });
+  insertMessage({
+    conversationId: auxiliaryConversation.id,
+    role: 'user',
+    content: 'Keep CSV behavior unchanged.',
+  });
+  insertMessage({
+    conversationId: auxiliaryConversation.id,
+    role: 'assistant',
+    content: 'Understood.',
+    segments: [{ type: 'tool-call', name: 'read_file', resultText: 'Existing CSV tests found.' }],
+  });
   await auxiliaryRunner.startGoal({
     conversationId: auxiliaryConversation.id,
     model: model.id,
@@ -145,10 +189,27 @@ try {
   assert.equal(auxiliaryCalls[0].reasoningEffort, 'high');
   assert.equal(auxiliaryCalls[0].invocationContext.auxiliary, true);
   assert.deepEqual(auxiliaryCalls[0].tools, []);
+  assert.equal(auxiliaryCalls[0].messages.length, 6);
+  assert.deepEqual(
+    auxiliaryCalls[0].messages.slice(1).map((message) => message.role),
+    ['user', 'assistant', 'user', 'assistant', 'user'],
+  );
+  assert.ok(!auxiliaryCalls[0].messages.some((message) => (
+    String(message.content).includes('This old turn must be excluded.')
+  )));
+  assert.deepEqual(auxiliaryCalls[0].messages[1].content, [
+    { type: 'text', text: 'Use the attached mockup as the export layout.' },
+    { type: 'text', text: 'Attachment "export-layout.png" is available at: C:\\mockups\\export-layout.png' },
+  ]);
+  assert.match(auxiliaryCalls[0].messages[2].content, /<name>read_file<\/name>/);
+  assert.match(auxiliaryCalls[0].messages[2].content, /<result>CSV only\.<\/result>/);
+  assert.match(auxiliaryCalls[0].messages[2].content, /<reasoning>The layout implies PDF output\.<\/reasoning>/);
+  assert.equal(auxiliaryCalls[0].messages[3].content, 'Keep CSV behavior unchanged.');
+  assert.match(auxiliaryCalls[0].messages[4].content, /Existing CSV tests found\./);
   assert.equal(auxiliaryCalls[0].messages.at(-1).content, originalGoalPrompt);
   assert.equal(getConversation(auxiliaryConversation.id).title, 'Add export support');
   assert.equal(getGoalForConversation(auxiliaryConversation.id).specification, preparedGoalSpecification);
-  assert.equal(getMessages(auxiliaryConversation.id)[0].content, originalGoalPrompt);
+  assert.equal(getMessages(auxiliaryConversation.id).at(-2).content, originalGoalPrompt);
   assert.equal(goalTaskCalls.length, 2);
 
   const titleConversation = createConversation({
