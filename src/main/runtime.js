@@ -9,7 +9,7 @@ import {
   shell,
   Tray,
 } from 'electron';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import {
   access,
   appendFile,
@@ -580,14 +580,22 @@ function registerIpc() {
     return saved;
   });
   applicationIpc.handle('tuning:shells', () => {
-    const automaticShell = resolveTerminalShell();
+    const shells = listInstalledTerminalShells();
+    let automaticShell;
+    try {
+      automaticShell = resolveTerminalShell();
+    } catch (error) {
+      traceError('terminal-shell.automatic-resolution-failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     return [
       {
         id: 'auto',
-        label: `Automatic · ${automaticShell.label}`,
-        executable: automaticShell.executable,
+        label: automaticShell ? `Automatic · ${automaticShell.label}` : 'Automatic',
+        executable: automaticShell?.executable ?? null,
       },
-      ...listInstalledTerminalShells(),
+      ...shells,
     ];
   });
   applicationIpc.handle('tuning:save', (_event, tuning) => {
@@ -1137,7 +1145,64 @@ function registerIpc() {
     if (error) throw new Error(`Could not open "${targetPath}": ${error}`);
     return true;
   });
+  applicationIpc.handle('shell:open-terminal', (_event, targetPath) => {
+    openTerminalAt(resolve(targetPath));
+    return true;
+  });
 
+}
+
+function openTerminalAt(folderPath) {
+  const terminalShell = resolveTerminalShell(
+    process.env,
+    process.platform,
+    getPreferences().tuning?.terminalShell,
+  );
+  const shellName = terminalShell.executable.replaceAll('\\', '/').split('/').at(-1).toLowerCase();
+
+  if (process.platform === 'darwin') {
+    spawn('open', ['-a', 'Terminal', folderPath], { shell: false });
+    return;
+  }
+  if (process.platform === 'linux') {
+    const linuxTerminals = [
+      ['gnome-terminal', [`--working-directory=${folderPath}`]],
+      ['konsole', ['--workdir', folderPath]],
+      ['xfce4-terminal', [`--working-directory=${folderPath}`]],
+      ['mate-terminal', [`--working-directory=${folderPath}`]],
+      ['kitty', ['--directory', folderPath]],
+      ['alacritty', ['--working-directory', folderPath]],
+      ['x-terminal-emulator', []],
+      ['xterm', []],
+    ];
+    for (const [command, args] of linuxTerminals) {
+      if (spawnSync('which', [command], { stdio: 'ignore' }).status !== 0) continue;
+      const child = spawn(command, args, { shell: false, detached: true });
+      child.once('error', () => {});
+      child.unref();
+      return;
+    }
+  }
+
+  const quotedPath = `'${folderPath.replaceAll("'", "'\\''")}'`;
+  const args = shellName.includes('powershell') || shellName === 'pwsh'
+    ? ['-NoLogo', '-NoProfile', '-NoExit', '-Command', `Set-Location -LiteralPath ${quotedPath}`]
+    : shellName === 'cmd'
+      ? ['/K', 'cd', '/d', folderPath]
+      : ['-c', `cd ${quotedPath} && exec ${terminalShell.executable}`];
+  const child = spawn(terminalShell.executable, args, {
+    cwd: folderPath,
+    detached: process.platform === 'linux',
+    env: process.env,
+    shell: false,
+    windowsHide: false,
+  });
+  if (process.platform === 'linux') child.unref();
+  child.once('error', (error) => {
+    traceError('shell.open-terminal-error', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
 }
 
 function inspectProjectFolder(folderPath) {

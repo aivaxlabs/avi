@@ -2,11 +2,13 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Copy,
   CopyPlus,
   Filter,
   Folder,
   FolderCog,
   FolderOpen,
+  Hash,
   LayoutDashboard,
   LoaderCircle,
   MessageSquarePlus,
@@ -17,6 +19,7 @@ import {
   Search,
   Server,
   Settings,
+  SquareTerminal,
   Trash2,
   TriangleAlert,
   Zap,
@@ -37,6 +40,7 @@ export function Sidebar({
   running,
   completedUnseen,
   approvalPending = {},
+  inputPending = {},
   onNewChat,
   onQuickChat,
   onSelect,
@@ -45,6 +49,9 @@ export function Sidebar({
   onFork,
   onDelete,
   onOpenProject,
+  onOpenTerminal,
+  onCopyPath,
+  onCopyThreadId,
   onSettings,
   collapsed,
   orchestrationOpen,
@@ -95,11 +102,13 @@ export function Sidebar({
           items: [],
           latestTime: 0,
         };
-        const updatedTime = new Date(conversation.updatedAt).getTime();
+        const latestTime = new Date(
+          conversationGrouping === 'folder' ? conversation.createdAt : conversation.updatedAt,
+        ).getTime();
         current.items.push(conversation);
         current.latestTime = Math.max(
           current.latestTime,
-          Number.isFinite(updatedTime) ? updatedTime : 0,
+          Number.isFinite(latestTime) ? latestTime : 0,
         );
         groupsByValue.set(key, current);
       }
@@ -282,7 +291,20 @@ export function Sidebar({
           const visibleItems = expanded ? group.items : group.items.slice(0, GROUP_LIMIT);
           return (
             <section key={group.key} className="conversation-group">
-              <div className="conversation-group-header">
+              <div
+                className="conversation-group-header"
+                onContextMenu={conversationGrouping === 'folder'
+                  ? (event) => {
+                      event.preventDefault();
+                      folderMenuButtonRef.current = event.currentTarget;
+                      setFolderMenu({
+                        key: group.key,
+                        top: Math.max(8, Math.min(event.clientY, window.innerHeight - 260)),
+                        left: Math.max(8, Math.min(event.clientX, window.innerWidth - 192)),
+                      });
+                    }
+                  : undefined}
+              >
                 <span title={group.label}>{group.label}</span>
                 {conversationGrouping !== 'chronological' && (
                   <div className="conversation-group-actions">
@@ -339,6 +361,26 @@ export function Sidebar({
                   >
                     Open in explorer
                   </DropdownMenuItem>
+                  <DropdownMenuItem
+                    icon={<SquareTerminal size={14} />}
+                    role="menuitem"
+                    onClick={() => {
+                      setFolderMenu(null);
+                      onOpenTerminal(group.preset.project);
+                    }}
+                  >
+                    Open in terminal
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    icon={<Copy size={14} />}
+                    role="menuitem"
+                    onClick={() => {
+                      setFolderMenu(null);
+                      onCopyPath(group.preset.project);
+                    }}
+                  >
+                    Copy path
+                  </DropdownMenuItem>
                   <div className="dropdown-menu-divider" role="separator" />
                   <DropdownMenuItem
                     icon={<FolderCog size={14} />}
@@ -371,11 +413,13 @@ export function Sidebar({
                   running={Boolean(running[conversation.id])}
                   completedUnseen={Boolean(completedUnseen[conversation.id])}
                   approvalPending={Boolean(approvalPending[conversation.id])}
+                  inputPending={Boolean(inputPending[conversation.id])}
                   needsAttention={Boolean(conversation.needsAttention)}
                   now={now}
                   onSelect={() => onSelect(conversation.id)}
                   onFork={() => onFork(conversation.id)}
                   onDelete={() => onDelete(conversation.id)}
+                  onCopyId={() => onCopyThreadId(conversation.id)}
                 />
               ))}
               {group.items.length > GROUP_LIMIT && (
@@ -408,11 +452,13 @@ function ConversationItem({
   running,
   completedUnseen,
   approvalPending,
+  inputPending,
   needsAttention,
   now,
   onSelect,
   onFork,
   onDelete,
+  onCopyId,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
@@ -462,11 +508,24 @@ function ConversationItem({
   }
 
   return (
-    <div className={classNames('conversation-item', active && 'active', menuOpen && 'menu-open')}>
+    <div
+      className={classNames('conversation-item', active && 'active', menuOpen && 'menu-open')}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        menuButtonRef.current = event.currentTarget;
+        setMenuPosition({
+          top: Math.max(8, Math.min(event.clientY, window.innerHeight - 130)),
+          left: Math.max(8, Math.min(event.clientX, window.innerWidth - 160)),
+        });
+        setMenuOpen(true);
+      }}
+    >
       <button className="conversation-main" type="button" onClick={onSelect}>
         <span className="conversation-title">{conversation.title || conversation.firstPrompt || 'New chat'}</span>
         {approvalPending ? (
           <TriangleAlert className="attention-indicator" size={13} aria-label="Awaiting approval" />
+        ) : inputPending ? (
+          <TriangleAlert className="attention-indicator" size={13} aria-label="Awaiting input" />
         ) : running ? (
           <LoaderCircle className="run-spinner" size={12} aria-label="Working" />
         ) : needsAttention ? (
@@ -483,6 +542,9 @@ function ConversationItem({
         <DropdownMenu fixed style={{ top: menuPosition.top, left: menuPosition.left }}>
           <DropdownMenuItem icon={<CopyPlus size={14} />} onClick={() => runMenuAction(onFork)}>
             Fork chat
+          </DropdownMenuItem>
+          <DropdownMenuItem icon={<Hash size={14} />} onClick={() => runMenuAction(onCopyId)}>
+            Copy thread ID
           </DropdownMenuItem>
           <DropdownMenuItem icon={<Trash2 size={14} />} onClick={() => runMenuAction(onDelete)}>
             Delete chat
