@@ -102,7 +102,7 @@ db.exec(`
     attachments TEXT NOT NULL DEFAULT '[]',
     continuations TEXT NOT NULL DEFAULT '[]',
     usage TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL,
+    created_at TEXT,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
   );
@@ -184,6 +184,52 @@ if (!messageColumns.some((column) => column.name === 'queue_position')) {
 }
 if (!messageColumns.some((column) => column.name === 'edits')) {
   db.exec("ALTER TABLE messages ADD COLUMN edits TEXT NOT NULL DEFAULT '[]'");
+}
+if (db.prepare("PRAGMA table_info('messages')").all().find((column) => column.name === 'created_at')?.notnull) {
+  db.exec(`
+    BEGIN;
+    DROP INDEX IF EXISTS idx_messages_conversation_created;
+    ALTER TABLE messages RENAME TO messages_with_required_created_at;
+    CREATE TABLE messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      model TEXT,
+      reasoning_effort TEXT,
+      permission_mode TEXT,
+      work_mode TEXT,
+      ultra_mode INTEGER NOT NULL DEFAULT 0,
+      goal_id TEXT,
+      hidden INTEGER NOT NULL DEFAULT 0,
+      queue_priority INTEGER NOT NULL DEFAULT 0,
+      queue_position INTEGER,
+      status TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      segments TEXT NOT NULL DEFAULT '[]',
+      edits TEXT NOT NULL DEFAULT '[]',
+      attachments TEXT NOT NULL DEFAULT '[]',
+      continuations TEXT NOT NULL DEFAULT '[]',
+      usage TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+    );
+    INSERT INTO messages (
+      id, conversation_id, role, model, reasoning_effort, permission_mode,
+      work_mode, ultra_mode, goal_id, hidden, queue_priority, queue_position,
+      status, content, segments, edits, attachments, continuations, usage,
+      created_at, updated_at
+    ) SELECT
+      id, conversation_id, role, model, reasoning_effort, permission_mode,
+      work_mode, ultra_mode, goal_id, hidden, queue_priority, queue_position,
+      status, content, segments, edits, attachments, continuations, usage,
+      created_at, updated_at
+    FROM messages_with_required_created_at;
+    DROP TABLE messages_with_required_created_at;
+    CREATE INDEX idx_messages_conversation_created
+      ON messages(conversation_id, created_at);
+    COMMIT;
+  `);
 }
 const conversationColumns = db.prepare("PRAGMA table_info('conversations')").all();
 if (!conversationColumns.some((column) => column.name === 'project_path')) {
@@ -459,6 +505,7 @@ const statements = {
         attachments = COALESCE(@attachments, attachments),
         continuations = COALESCE(@continuations, continuations),
         usage = COALESCE(@usage, usage),
+        created_at = COALESCE(@createdAt, created_at),
         updated_at = @updatedAt
     WHERE id = @id
   `),
@@ -871,7 +918,7 @@ export function insertMessage(message) {
     attachments: stringify(message.attachments ?? []),
     continuations: stringify(message.continuations ?? []),
     usage: stringify(message.usage ?? {}),
-    createdAt: message.createdAt ?? now,
+    createdAt: Object.hasOwn(message, 'createdAt') ? message.createdAt : now,
     updatedAt: now,
   };
   statements.insertMessage.run(row);
@@ -889,6 +936,7 @@ export function updateMessage(id, patch) {
     attachments: patch.attachments === undefined ? null : stringify(patch.attachments),
     continuations: patch.continuations === undefined ? null : stringify(patch.continuations),
     usage: patch.usage === undefined ? null : stringify(patch.usage),
+    createdAt: patch.createdAt ?? null,
     updatedAt: timestamp(),
   });
   const message = getMessage(id);

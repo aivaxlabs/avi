@@ -857,6 +857,7 @@ export class ChatRunner {
           || this.mcpManager.isWorkspaceReady(conversation?.projectPath)
           ? 'sent'
           : 'waiting_mcp',
+        createdAt: new Date().toISOString(),
       });
       this.emit(conversationId, { type: 'message', message: sentMessage });
       this.emit(conversationId, queueOrderEvent(order));
@@ -1280,6 +1281,7 @@ export class ChatRunner {
       status,
       content: text,
       attachments,
+      createdAt: ['queued', 'steered'].includes(status) ? null : new Date().toISOString(),
     });
     const conversation = getConversation(conversationId);
 
@@ -1425,8 +1427,9 @@ export class ChatRunner {
         ? await this.mcpManager.ensureWorkspace(workspacePath, controller.signal)
         : { tools: [], instructions: [] };
       if (this.shouldEndAtBoundary(run)) throw new Error('The run was interrupted.');
-      if (userMessageId && getMessage(userMessageId)?.status === 'waiting_mcp') {
-        const sentMessage = updateMessage(userMessageId, { status: 'sent' });
+      for (const waitingUserMessageId of run.userMessageIds) {
+        if (getMessage(waitingUserMessageId)?.status !== 'waiting_mcp') continue;
+        const sentMessage = updateMessage(waitingUserMessageId, { status: 'sent' });
         this.emit(conversationId, { type: 'message', message: sentMessage });
       }
       if (waitingForMcp) {
@@ -2277,7 +2280,10 @@ export class ChatRunner {
     const ultraMode = queuedGoalMessage?.ultraMode
       ?? this.isUltraGoal(goal.conversationId, goal.id);
     const userMessage = queuedGoalMessage
-      ? updateMessage(queuedGoalMessage.userMessageId, { status: 'sent' })
+      ? updateMessage(queuedGoalMessage.userMessageId, {
+          status: 'sent',
+          createdAt: new Date().toISOString(),
+        })
       : this.createUserMessage({
           conversationId: goal.conversationId,
           model: goal.model,
@@ -2338,7 +2344,10 @@ export class ChatRunner {
       const order = persistPendingOrder(conversationId, pendingQueue);
       this.emit(conversationId, queueOrderEvent(order));
       for (const item of dispatchedItems) {
-        const message = updateMessage(item.userMessageId, { status: 'sent' });
+        const message = updateMessage(item.userMessageId, {
+          status: 'sent',
+          createdAt: new Date().toISOString(),
+        });
         this.emit(conversationId, { type: 'message', message });
       }
       const next = dispatchedItems[0];
@@ -2385,6 +2394,7 @@ export class ChatRunner {
           || this.mcpManager.isWorkspaceReady(workspacePath)
           ? 'sent'
           : 'waiting_mcp',
+        createdAt: new Date().toISOString(),
       });
       this.emit(conversationId, { type: 'message', message: nextMessage });
     }

@@ -155,6 +155,76 @@ try {
     ['completed', 'completed'],
   );
 
+  let finishQueuedOrderingInference;
+  const queuedOrderingCalls = [];
+  const queuedOrderingRunner = buildRunner({
+    getContributions: () => ({ tools: [] }),
+    stream: () => {
+      queuedOrderingCalls.push(queuedOrderingCalls.length + 1);
+      if (queuedOrderingCalls.length === 1) {
+        return new Promise((resolveStream) => {
+          finishQueuedOrderingInference = () => resolveStream({
+            assistantContent: 'Initial answer',
+            toolCalls: [],
+          });
+        });
+      }
+      return Promise.resolve({
+        assistantContent: `Queued answer ${queuedOrderingCalls.length - 1}`,
+        toolCalls: [],
+      });
+    },
+  });
+  const queuedOrderingConversation = createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  await queuedOrderingRunner.send({
+    conversationId: queuedOrderingConversation.id,
+    model: model.id,
+    text: 'Initial prompt',
+  });
+  await waitFor(() => queuedOrderingCalls.length === 1);
+  await queuedOrderingRunner.send({
+    conversationId: queuedOrderingConversation.id,
+    model: model.id,
+    text: 'First queued prompt',
+  });
+  await queuedOrderingRunner.send({
+    conversationId: queuedOrderingConversation.id,
+    model: model.id,
+    text: 'Second queued prompt',
+  });
+  assert.deepEqual(
+    getMessages(queuedOrderingConversation.id)
+      .filter((message) => ['queued', 'steered'].includes(message.status))
+      .map((message) => message.createdAt),
+    [null, null],
+  );
+  finishQueuedOrderingInference();
+  await waitFor(() => !queuedOrderingRunner.runs.has(queuedOrderingConversation.id));
+  assert.equal(queuedOrderingCalls.length, 3);
+  const queuedOrderingMessages = getMessages(queuedOrderingConversation.id);
+  assert.equal(
+    queuedOrderingMessages
+      .filter((message) => message.role === 'user')
+      .every((message) => typeof message.createdAt === 'string'),
+    true,
+  );
+  assert.deepEqual(
+    queuedOrderingMessages.map((message) => (
+      message.role === 'user' ? message.content : message.role
+    )),
+    [
+      'Initial prompt',
+      'assistant',
+      'First queued prompt',
+      'assistant',
+      'Second queued prompt',
+      'assistant',
+    ],
+  );
+
   const persistedQueueConversation = createConversation({
     model: model.id,
     projectPath: process.cwd(),
