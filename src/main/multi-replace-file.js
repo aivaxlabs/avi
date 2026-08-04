@@ -33,9 +33,14 @@ function getLineEntries(content) {
   return lines;
 }
 
-function normalizeForSimilarity(value) {
+function normalizeText(value) {
   return value
-    .normalize('NFC')
+    .normalize('NFKC')
+    .replace(/\r\n|\r|\n/g, '\n');
+}
+
+function normalizeForSimilarity(value) {
+  return normalizeText(value)
     .trim()
     .replace(/\s+/gu, ' ')
     .slice(0, MAX_FUZZY_CHARS);
@@ -150,8 +155,10 @@ export async function applyMultiReplaceFile(
     if (typeof replacement.newString !== 'string') {
       throw new Error(`Replacement ${index + 1} newString must be a string.`);
     }
-    if (replacement.oldString === replacement.newString) {
-      throw new Error(`Replacement ${index + 1} oldString and newString must differ.`);
+    const oldString = normalizeText(replacement.oldString);
+    const newString = normalizeText(replacement.newString);
+    if (oldString === newString) {
+      throw new Error(`Replacement ${index + 1} oldString and newString must differ after normalization.`);
     }
 
     const occurrence = replacement.occurrence ?? 'unique';
@@ -166,7 +173,12 @@ export async function applyMultiReplaceFile(
         throw new Error(`Replacement ${index + 1} expectedOccurrences can only be used when occurrence is "all".`);
       }
     }
-    normalizedReplacements.push({ ...replacement, occurrence });
+    normalizedReplacements.push({
+      ...replacement,
+      oldString,
+      newString,
+      occurrence,
+    });
   }
 
   const files = new Map();
@@ -197,17 +209,29 @@ export async function applyMultiReplaceFile(
         throw new Error(`Replacement file is not a supported text file: ${filePath}`);
       }
       try {
+        const before = utf8Decoder.decode(contentBytes);
+        const lineEndings = [...before.matchAll(/\r\n|\n|\r/g)].map((match) => match[0]);
+        const lineEndingCounts = new Map();
+        for (const lineEnding of lineEndings) {
+          lineEndingCounts.set(lineEnding, (lineEndingCounts.get(lineEnding) ?? 0) + 1);
+        }
+        const lineEnding = lineEndings.reduce((selected, candidate) => (
+          (lineEndingCounts.get(candidate) ?? 0) > (lineEndingCounts.get(selected) ?? 0)
+            ? candidate
+            : selected
+        ), lineEndings[0] ?? '\n');
         file = {
           filePath,
           originalBytes,
-          before: utf8Decoder.decode(contentBytes),
+          before,
+          after: normalizeText(before),
+          lineEnding,
           mode: fileStat.mode & 0o7777,
           hasBom,
         };
       } catch (error) {
         throw new Error(`Replacement file is not valid UTF-8 text: ${filePath}`, { cause: error });
       }
-      file.after = file.before;
       files.set(key, file);
     }
 
@@ -339,6 +363,9 @@ export async function applyMultiReplaceFile(
     });
   }
 
+  for (const file of files.values()) {
+    file.after = file.after.replace(/\n/g, file.lineEnding);
+  }
   const changedFiles = [...files.values()].filter((file) => file.before !== file.after);
   const attemptedFiles = [];
   try {

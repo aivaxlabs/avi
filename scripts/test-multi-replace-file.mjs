@@ -262,6 +262,27 @@ try {
   assert.equal(crlfBomBytes.subarray(3).toString('utf8'), 'one\r\nchanged\r\nthree\r\n');
   assert.equal((await stat(crlfBomPath)).mode & 0o777, modeBefore);
 
+  const normalizedPath = join(testRoot, 'normalized.txt');
+  await writeFile(
+    normalizedPath,
+    'Cafe\u0301 Ａction 👩‍💻\r\nsecond line\nthird line\r\n',
+    'utf8',
+  );
+  const normalized = await tool.execute({
+    replacements: [{
+      filePath: normalizedPath,
+      oldString: 'Action 👩‍💻\nsecond line',
+      newString: 'edição 👍🏽\nupdated line',
+    }],
+  });
+  const normalizedContent = 'Café edição 👍🏽\r\nupdated line\r\nthird line\r\n';
+  assert.equal(await readFile(normalizedPath, 'utf8'), normalizedContent);
+  assert.deepEqual(normalized.fileChanges, [{
+    filePath: normalizedPath,
+    before: 'Cafe\u0301 Ａction 👩‍💻\r\nsecond line\nthird line\r\n',
+    after: normalizedContent,
+  }]);
+
   const atomicFirstPath = join(testRoot, 'atomic-first.txt');
   const atomicSecondPath = join(testRoot, 'atomic-second.txt');
   await Promise.all([
