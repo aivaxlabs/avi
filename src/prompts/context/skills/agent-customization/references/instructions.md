@@ -1,13 +1,12 @@
 # Avi instruction discovery and hierarchy
 
-Avi discovers Markdown instruction files in the installation context, the user-global `.agents` directory, and the active workspace.
+Avi discovers Markdown instruction files in the user-global `.agents` directory and the active workspace.
 
 ## Recommended convention
 
 Use `AGENTS.md` for all new instruction files:
 
 ```text
-$AVI/context/AGENTS.md             # Defaults distributed with Avi
 $HOME/.agents/AGENTS.md            # Personal rules across projects
 $PWD/AGENTS.md                     # Project-wide rules
 $PWD/src/feature/AGENTS.md         # Rules for one subtree
@@ -54,11 +53,10 @@ If there is no description, Avi uses the first non-empty body line. Descriptions
 
 Avi builds runtime context from:
 
-1. installation instructions under `$AVI/context`;
-2. global instructions under `$HOME/.agents`;
-3. workspace instructions.
+1. global instructions under `$HOME/.agents`;
+2. workspace instructions.
 
-Keep broad defaults in earlier scopes and project-specific refinements in later, narrower scopes. Avoid contradictory rules at the same scope.
+Keep broad defaults in the global scope and project-specific refinements in the workspace. Avoid contradictory rules at the same scope.
 
 ## What is not supported
 
@@ -73,7 +71,7 @@ Keep broad defaults in earlier scopes and project-specific refinements in later,
 If instructions appear to be ignored:
 
 1. Confirm the filename matches a supported pattern.
-2. Confirm the file is inside `$AVI/context`, `$HOME/.agents`, or the active workspace.
+2. Confirm the file is inside `$HOME/.agents` or the active workspace.
 3. Confirm the conversation is using the expected project folder.
 4. Check Settings → Context management for the file and its description.
 5. Start a new turn after saving the file so runtime context is rebuilt.

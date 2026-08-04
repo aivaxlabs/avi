@@ -18,7 +18,6 @@ Do not use instructions for a one-off task, a long tutorial, static copies of ex
 
 | Scope | Path |
 |---|---|
-| Avi defaults | `$AVI/context/AGENTS.md` |
 | User-global | `$HOME/.agents/AGENTS.md` |
 | Entire project | `$PWD/AGENTS.md` |
 | One project subtree | `<subdirectory>/AGENTS.md` |
@@ -72,4 +71,4 @@ Only include sections the scope actually needs.
 - Open Settings → Context management and confirm that Avi lists the file.
 - For a root file, verify its contents appear in the next conversation's runtime context.
 - For a nested file, verify its path and description are listed and that the agent reads it before changing files in that subtree.
-- Check for contradictions with broader installation, global, or project instructions.
+- Check for contradictions with broader global or project instructions.

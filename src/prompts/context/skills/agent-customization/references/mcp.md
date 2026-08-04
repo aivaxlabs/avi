@@ -11,7 +11,7 @@ Prefer Settings → MCP servers. Avi supports two scopes:
 | Global | `$HOME/.agents/mcpconfig.json` | Every project |
 | Project folder | `$PWD/.agents/mcpconfig.json` | Conversations using that folder |
 
-There is no MCP configuration under `$AVI/context`. Installation context can document MCP usage, but servers are configured globally or per project.
+MCP servers are configured globally or per project.
 
 A project server with the same normalized tool prefix as a ready global server shadows the global server for that workspace.
 

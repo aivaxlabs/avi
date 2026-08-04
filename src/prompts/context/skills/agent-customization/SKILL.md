@@ -29,16 +29,16 @@ Use instructions for behavior that should apply repeatedly. Use a workflow or sk
 | Project | `$PWD/AGENTS.md` | `$PWD/.agents/workflows/*.md` | `$PWD/.agents/skills/<name>/SKILL.md` | `$PWD/.agents/mcpconfig.json` |
 | Project subdirectory | `<dir>/AGENTS.md` | `<dir>/.agents/workflows/*.md` | `<dir>/.agents/skills/<name>/SKILL.md` | Configure the project scope |
 
-The repository-level `context/` directory is special only because it is packaged with Avi. A normal project's `$PWD/context/` directory is not a context root; project skills and workflows belong under `$PWD/.agents/`.
+A bare `$PWD/context/` directory is not a context root; project skills and workflows belong under `$PWD/.agents/`.
 
 ## Discovery and scope
 
-Avi assembles context from three sources:
+Avi assembles context from two user-manageable sources:
 
 1. User-global `$HOME/.agents` context.
 2. The active workspace and its nested `.agents` directories.
 
-Use the narrowest suitable scope. A project item can override a global or installation command with the same type and normalized name; global commands override installation commands. Avoid accidental name collisions.
+Use the narrowest suitable scope. A project item can override a global command with the same type and normalized name. Avoid accidental name collisions.
 
 Root instruction files are injected directly. Nested instruction files are listed with their paths and descriptions so the agent can read the applicable file before working in its scope. Skill and workflow catalogs likewise include metadata, not the full file body; the agent must read a relevant or explicitly selected item before following it.
 
@@ -68,7 +68,7 @@ Other fields such as `applyTo`, `context-embeddable`, `disable-model-invocation`
 ## Creation process
 
 1. **Inspect existing context.** Check the target scope and avoid duplicate names or conflicting guidance.
-2. **Choose scope.** Use installation context for Avi defaults, global context for personal cross-project behavior, and project context for repository-specific behavior.
+2. **Choose scope.** Use global context for personal cross-project behavior and project context for repository-specific behavior.
 3. **Choose the primitive.** Follow the decision table above; do not turn every rule into a skill or every procedure into always-on instructions.
 4. **Create the smallest useful item.** Keep instructions and workflows focused. Put detailed skill material in `references/` and load it only when needed.
 5. **Validate discovery.** Confirm the path, frontmatter, command name, relative references, and appearance in Context management or the composer picker.

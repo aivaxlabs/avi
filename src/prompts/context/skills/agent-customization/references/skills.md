@@ -5,7 +5,6 @@ A skill is an on-demand package of specialized operational knowledge. Use it whe
 ## Locations
 
 ```text
-$AVI/context/skills/<skill-name>/SKILL.md
 $HOME/.agents/skills/<skill-name>/SKILL.md
 $PWD/.agents/skills/<skill-name>/SKILL.md
 <project-subdirectory>/.agents/skills/<skill-name>/SKILL.md
@@ -44,7 +43,7 @@ Set `user-invocable: false` only to hide the skill from the `$` selector. It rem
 - Select `$skill-name` to attach a marker to the next message.
 - Avi catalogs the skill's path and description; the agent must read `SKILL.md` before following it.
 - The accompanying user message is the task input. There is no skill argument schema or variable interpolation.
-- Project skills take command-name precedence over global skills, which take precedence over installation skills.
+- Project skills take command-name precedence over global skills.
 
 Descriptions are the discovery surface. Include both what the skill knows and when it should be used. A description is not a substitute for the skill body.
 
@@ -72,7 +71,7 @@ Prefer a workflow when the content is one focused procedure that fits comfortabl
 ## Troubleshooting
 
 1. Confirm the file is named exactly `SKILL.md`.
-2. Confirm it is below a discovered `skills/<name>/` directory in `.agents` or installation context.
+2. Confirm it is below a discovered `skills/<name>/` directory in `.agents`.
 3. Check Settings → Context management for its title and description.
 4. Type `$` rather than `/` in the composer.
 5. Check for another skill with the same normalized command name at a narrower scope.

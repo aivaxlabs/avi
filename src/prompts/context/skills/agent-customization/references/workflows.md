@@ -5,7 +5,6 @@ A workflow is a reusable task procedure stored as one Markdown file. Use it for 
 ## Locations
 
 ```text
-$AVI/context/workflows/<workflow-name>.md
 $HOME/.agents/workflows/<workflow-name>.md
 $PWD/.agents/workflows/<workflow-name>.md
 <project-subdirectory>/.agents/workflows/<workflow-name>.md
@@ -32,7 +31,7 @@ Fields copied from prompt systems—`agent`, `model`, `tools`, `argument-hint`, 
 - Select `/workflow-name` and describe the concrete task in the same message.
 - Selecting the workflow adds a context marker; it does not execute a separate script or switch models.
 - Avi has no workflow argument schema, prompt variables, editor selection placeholder, or model fallback list.
-- Project workflows take command-name precedence over global workflows, which take precedence over installation workflows.
+- Project workflows take command-name precedence over global workflows.
 
 Avoid names that collide with built-in Avi commands such as `/plan`, `/goal`, `/ultra`, `/model`, `/effort`, `/compress`, `/side`, `/mcp`, and `/restart-mcp`.
 
@@ -84,7 +83,7 @@ description: Use when the user asks to perform the example task and produce a ve
 
 ## Troubleshooting
 
-1. Confirm the file is under a discovered `.agents/workflows` or `$AVI/context/workflows` directory.
+1. Confirm the file is under a discovered `.agents/workflows` directory.
 2. Check Settings → Context management for the workflow.
 3. Type `/` and search for the normalized `name` or filename stem.
 4. Check for a same-name workflow at a narrower scope.

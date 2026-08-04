@@ -74,7 +74,7 @@
     ],
     "extraResources": [
       {
-        "from": "context",
+        "from": "src/prompts/context",
         "to": "context"
       }
     ],
