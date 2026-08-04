@@ -279,6 +279,7 @@ export async function inspectWorkspaceFiles(folderPath) {
   }));
 
   workspaceStates.set(root.toLowerCase(), {
+    repositoryPaths: repositories,
     repositories: new Set(repositories.map((path) => path.toLowerCase())),
     statuses,
   });
@@ -412,6 +413,60 @@ export async function searchWorkspaceFiles(folderPath, searchText) {
     files,
     content,
     truncated: filenameLimitReached || contentLimitReached,
+  };
+}
+
+export async function readWorkspaceFileDiff(folderPath, filePath) {
+  const root = resolve(folderPath);
+  const targetPath = resolveWorkspacePath(root, filePath);
+  const state = workspaceStates.get(root.toLowerCase());
+  const repository = (state?.repositoryPaths ?? [])
+    .filter((path) => {
+      const relativePath = relative(path, targetPath);
+      return !relativePath.startsWith('..') && !isAbsolute(relativePath);
+    })
+    .sort((left, right) => right.length - left.length)[0];
+  if (!repository) throw new Error(`"${filePath}" is not inside a Git repository.`);
+
+  const relativeFilePath = relative(repository, targetPath);
+  const gitOptions = {
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+    windowsHide: true,
+  };
+  await execFileAsync(
+    'git',
+    ['-C', repository, 'ls-files', '--error-unmatch', '--', relativeFilePath],
+    gitOptions,
+  ).catch(() => {
+    throw new Error(`"${filePath}" is not tracked by Git.`);
+  });
+  const hasHead = await execFileAsync(
+    'git',
+    ['-C', repository, 'rev-parse', '--verify', 'HEAD'],
+    gitOptions,
+  ).then(() => true, () => false);
+  const { stdout } = await execFileAsync(
+    'git',
+    [
+      '-C',
+      repository,
+      '-c',
+      'core.quotepath=false',
+      'diff',
+      '--no-ext-diff',
+      '--no-color',
+      ...(hasHead ? ['HEAD'] : ['--cached']),
+      '--',
+      relativeFilePath,
+    ],
+    gitOptions,
+  );
+  return {
+    name: basename(targetPath),
+    path: relative(root, targetPath),
+    kind: 'diff',
+    content: stdout,
   };
 }
 

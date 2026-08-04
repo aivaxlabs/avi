@@ -76,6 +76,7 @@ import {
   inspectWorkspaceFiles,
   listWorkspaceDirectory,
   readWorkspaceFile,
+  readWorkspaceFileDiff,
   resolveWorkspacePath,
   searchWorkspaceFiles,
 } from './files.js';
@@ -962,6 +963,9 @@ function registerIpc() {
   ));
   applicationIpc.handle('files:read', (_event, payload = {}) => (
     readWorkspaceFile(payload.folderPath, payload.filePath)
+  ));
+  applicationIpc.handle('files:diff', (_event, payload = {}) => (
+    readWorkspaceFileDiff(payload.folderPath, payload.filePath)
   ));
   applicationIpc.handle('files:search', (_event, payload = {}) => (
     searchWorkspaceFiles(payload.folderPath, payload.query)

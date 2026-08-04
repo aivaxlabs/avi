@@ -73,9 +73,14 @@
       background 180ms var(--base-transition),
       transform 180ms var(--base-transition);
 
-    &:hover:not(:disabled) {
+    &:hover:not(:disabled),
+    &.active {
       color: var(--text-1);
       background: var(--item-hover);
+    }
+
+    &.active {
+      box-shadow: inset 0 0 0 1px var(--border-color);
     }
 
     &:active:not(:disabled) {
@@ -223,27 +228,27 @@
       background: var(--item-active);
     }
 
-  &.status-untracked .files-node-name,
-  &.status-untracked .files-status {
-    color: --git-untracked-status-color;
-  }
+    &.status-untracked .files-node-name,
+    &.status-untracked .files-status {
+      color: --git-untracked-status-color;
+    }
 
-  &.status-modified .files-node-name,
-  &.status-modified .files-status {
-    color: --git-modified-status-color;
-  }
+    &.status-modified .files-node-name,
+    &.status-modified .files-status {
+      color: --git-modified-status-color;
+    }
 
-  &.status-conflict .files-node-name,
-  &.status-conflict .files-status {
-    color: --git-conflict-status-color;
-  }
+    &.status-conflict .files-node-name,
+    &.status-conflict .files-status {
+      color: --git-conflict-status-color;
+    }
 
-  &.status-ignored .files-node-name,
-  &.status-ignored .files-status {
-    color: --git-ignored-status-color;
-  }
+    &.status-ignored .files-node-name,
+    &.status-ignored .files-status {
+      color: --git-ignored-status-color;
+    }
 
-  &.status-ignored {
+    &.status-ignored {
       opacity: .62;
     }
   }
@@ -363,25 +368,25 @@
       font-size: .85rem;
     }
 
-  &.status-untracked strong,
-  &.status-untracked .files-status {
-    color: --git-untracked-status-color;
-  }
+    &.status-untracked strong,
+    &.status-untracked .files-status {
+      color: --git-untracked-status-color;
+    }
 
-  &.status-modified strong,
-  &.status-modified .files-status {
-    color: --git-modified-status-color;
-  }
+    &.status-modified strong,
+    &.status-modified .files-status {
+      color: --git-modified-status-color;
+    }
 
-  &.status-conflict strong,
-  &.status-conflict .files-status {
-    color: --git-conflict-status-color;
-  }
+    &.status-conflict strong,
+    &.status-conflict .files-status {
+      color: --git-conflict-status-color;
+    }
 
-  &.status-ignored strong,
-  &.status-ignored .files-status {
-    color: --git-ignored-status-color;
-  }
+    &.status-ignored strong,
+    &.status-ignored .files-status {
+      color: --git-ignored-status-color;
+    }
 
     &.status-ignored {
       opacity: .62;
@@ -405,7 +410,7 @@
   .files-preview {
     display: grid;
     grid-template-rows: 48px minmax(0, 1fr);
-    background: var(--background-1);
+    background: var(--background-0);
 
     > .files-panel-state {
       grid-row: 1 / -1;
@@ -435,7 +440,7 @@
     padding: 8px 0 24px;
     overflow: auto;
     color: var(--text-1);
-    background: var(--background-2);
+    background: var(--background-0);
     font-family: var(--font-code);
     font-size: 11px;
     line-height: 1.55;
@@ -469,6 +474,32 @@
     &.target-line {
       background: var(--background-3);
       box-shadow: inset 2px 0 var(--text-3);
+    }
+  }
+
+  .files-diff {
+    display: block;
+
+    > code {
+      min-width: max-content;
+      display: block;
+      padding: 0 16px;
+      color: inherit;
+      font: inherit;
+      white-space: pre;
+
+      .token.deleted:not(.prefix) {
+        background-color: var(--diff-removed-bg);
+      }
+
+      .token.inserted:not(.prefix) {
+        background-color: var(--diff-added-bg);
+      }
+
+      .token.deleted-sign .token.prefix,
+      .token.inserted-sign .token.prefix {
+        background-color: var(--diff-relative-margin-bg);
+      }
     }
   }
 

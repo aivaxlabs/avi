@@ -14,6 +14,7 @@ import {
   listWorkspaceDirectory,
   normalizeAttachmentsForModel,
   readWorkspaceFile,
+  readWorkspaceFileDiff,
   searchWorkspaceFiles,
 } from '../src/main/files.js';
 
@@ -117,6 +118,22 @@ try {
   );
   assert.equal(preview.kind, 'text');
   assert.equal(preview.content, 'changed\n');
+
+  git('add', 'modified.txt');
+  const diff = await readWorkspaceFileDiff(
+    testRoot,
+    join('nested', 'repository', 'modified.txt'),
+  );
+  assert.equal(diff.kind, 'diff');
+  assert.match(diff.content, /-original/);
+  assert.match(diff.content, /\+changed/);
+  await assert.rejects(
+    () => readWorkspaceFileDiff(
+      testRoot,
+      join('nested', 'repository', 'untracked.txt'),
+    ),
+    /not tracked by Git/,
+  );
 
   const filenameSearch = await searchWorkspaceFiles(testRoot, 'untracked');
   assert.equal(

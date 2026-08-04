@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -10,6 +11,7 @@ import {
   ChevronRight,
   Copy,
   ExternalLink,
+  FileDiff,
   FolderSearch,
   FolderSymlink,
   GitBranch,
@@ -19,6 +21,22 @@ import {
   Search,
   X,
 } from 'lucide-react';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-csharp';
+import 'prismjs/components/prism-css';
+import 'prismjs/components/prism-diff';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-jsx';
+import 'prismjs/components/prism-markdown';
+import 'prismjs/components/prism-markup';
+import 'prismjs/components/prism-powershell';
+import 'prismjs/components/prism-sql';
+import 'prismjs/components/prism-tsx';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-yaml';
+import 'prismjs/plugins/diff-highlight/prism-diff-highlight';
+import 'prismjs/plugins/diff-highlight/prism-diff-highlight.css';
 import iconTheme from '../../../fileicons/studio-icons.json';
 import { formatBytes } from '../lib/files.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
@@ -37,6 +55,29 @@ const statusLabels = {
   modified: { badge: 'M', label: 'Modified' },
   untracked: { badge: 'U', label: 'Untracked' },
 };
+const gitVisibleStatuses = new Set(['conflict', 'modified', 'untracked']);
+const diffVisibleStatuses = new Set(['conflict', 'modified']);
+const previewLanguages = {
+  '.bashrc': 'bash',
+  '.env': 'bash',
+  '.gitignore': 'text',
+  css: 'css',
+  cs: 'csharp',
+  html: 'markup',
+  js: 'javascript',
+  json: 'json',
+  jsx: 'jsx',
+  md: 'markdown',
+  mjs: 'javascript',
+  ps1: 'powershell',
+  sh: 'bash',
+  sql: 'sql',
+  ts: 'typescript',
+  tsx: 'tsx',
+  xml: 'markup',
+  yaml: 'yaml',
+  yml: 'yaml',
+};
 
 function absoluteWorkspacePath(folderPath, targetPath) {
   const separator = folderPath.includes('\\') ? '\\' : '/';
@@ -51,6 +92,13 @@ function escapeXmlAttribute(value) {
     .replaceAll('"', '&quot;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
+}
+
+function selectionOffset(code, container, offset) {
+  const range = document.createRange();
+  range.selectNodeContents(code);
+  range.setEnd(container, offset);
+  return range.toString().length;
 }
 
 function FileEditPane({ title, lines, start, end, emptyLabel }) {
@@ -125,12 +173,37 @@ export function FilesPanel({
   const [searchError, setSearchError] = useState('');
   const [selectionAction, setSelectionAction] = useState(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [gitOnly, setGitOnly] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [dark, setDark] = useState(
     () => document.documentElement.getAttribute('data-color-scheme') === 'dark',
   );
   const contextTargetRef = useRef(null);
   const panelRef = useRef(null);
+  const { highlightedLines, highlightedDiff, previewLanguage } = useMemo(() => {
+    if (!['diff', 'text'].includes(preview?.kind)) {
+      return { highlightedLines: [], highlightedDiff: '', previewLanguage: 'text' };
+    }
+    const lowerName = preview.name.toLowerCase();
+    const extension = lowerName.includes('.') ? lowerName.split('.').at(-1) : lowerName;
+    const language = previewLanguages[lowerName] ?? previewLanguages[extension] ?? 'text';
+    if (preview.kind === 'diff') {
+      const diffLanguage = language === 'text' ? 'diff' : `diff-${language}`;
+      return {
+        highlightedLines: [],
+        highlightedDiff: Prism.highlight(preview.content, Prism.languages.diff, diffLanguage),
+        previewLanguage: diffLanguage,
+      };
+    }
+    const grammar = Prism.languages[language];
+    return {
+      highlightedLines: preview.content.split('\n').map((line) => (
+        grammar && line ? Prism.highlight(line, grammar, language) : ''
+      )),
+      highlightedDiff: '',
+      previewLanguage: language,
+    };
+  }, [preview]);
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
@@ -154,6 +227,7 @@ export function FilesPanel({
     setSearchResults(null);
     setSearchError('');
     setSelectionAction(null);
+    setGitOnly(false);
     if (!project?.path) return undefined;
 
     window.chatApp.files.workspace(project.path)
@@ -413,7 +487,9 @@ export function FilesPanel({
     event.preventDefault();
     contextTargetRef.current = event.currentTarget;
     const width = 190;
-    const height = node.type === 'file' ? 144 : 110;
+    const height = node.type === 'file'
+      ? diffVisibleStatuses.has(node.status) ? 178 : 144
+      : 110;
     const rect = event.currentTarget.getBoundingClientRect();
     const clientX = event.clientX || rect.left + 8;
     const clientY = event.clientY || rect.bottom;
@@ -422,6 +498,27 @@ export function FilesPanel({
       left: Math.max(8, Math.min(clientX, window.innerWidth - width - 8)),
       top: Math.max(8, Math.min(clientY, window.innerHeight - height - 8)),
     });
+  };
+
+  const viewDiff = async (node) => {
+    setContextMenu(null);
+    setSelectedPath(node.path);
+    setPreview(null);
+    setPreviewLine(null);
+    setPreviewLineTo(null);
+    setSelectionAction(null);
+    setError('');
+    setLoadingPath(node.path);
+    try {
+      setPreview(await window.chatApp.files.diff({
+        folderPath: project.path,
+        filePath: node.path,
+      }));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setLoadingPath('');
+    }
   };
 
   const updateSelectionAction = () => {
@@ -462,13 +559,11 @@ export function FilesPanel({
     const lineFrom = Number(startLineElement.dataset.filesLine);
     const lineTo = Number(endLineElement.dataset.filesLine);
     const startOffset = Math.min(
-      range.startContainer.nodeType === Node.TEXT_NODE ? range.startOffset : 0,
+      selectionOffset(startCode, range.startContainer, range.startOffset),
       lines[lineFrom - 1].length,
     );
     const endOffset = Math.min(
-      range.endContainer.nodeType === Node.TEXT_NODE
-        ? range.endOffset
-        : lines[lineTo - 1].length,
+      selectionOffset(endCode, range.endContainer, range.endOffset),
       lines[lineTo - 1].length,
     );
     const content = lineFrom === lineTo
@@ -503,7 +598,9 @@ export function FilesPanel({
     });
   };
 
-  const renderNodes = (nodes, depth = 0) => nodes.map((node) => {
+  const renderNodes = (nodes, depth = 0) => nodes
+    .filter((node) => !gitOnly || gitVisibleStatuses.has(node.status))
+    .map((node) => {
     const isExpanded = node.type === 'directory' && expanded.has(node.path);
     const status = statusLabels[node.status];
     return (
@@ -582,6 +679,12 @@ export function FilesPanel({
     ? selectedPath.replace(/[\\/][^\\/]+$/, '')
     : '';
   const hasSearch = Boolean(searchQuery.trim());
+  const visibleSearchFiles = searchResults?.files.filter((result) => (
+    !gitOnly || gitVisibleStatuses.has(result.status)
+  )) ?? [];
+  const visibleSearchContent = searchResults?.content.filter((result) => (
+    !gitOnly || gitVisibleStatuses.has(result.status)
+  )) ?? [];
 
   return (
     <section
@@ -595,6 +698,17 @@ export function FilesPanel({
             <strong>{workspace?.name ?? project.name}</strong>
             <small>{project.displayPath ?? project.path}</small>
           </span>
+          <button
+            className={gitOnly ? 'active' : undefined}
+            type="button"
+            aria-label="Show only Git changes"
+            aria-pressed={gitOnly}
+            title="Show only Git changes"
+            disabled={!workspace}
+            onClick={() => setGitOnly((current) => !current)}
+          >
+            <GitBranch size={14} />
+          </button>
           <button
             type="button"
             aria-label="Refresh files and Git status"
@@ -654,6 +768,9 @@ export function FilesPanel({
                 <span>{workspace.name}</span>
               </div>
               {renderNodes(directories[''] ?? [])}
+              {gitOnly && !(directories[''] ?? []).some((node) => gitVisibleStatuses.has(node.status)) && (
+                <span className="files-tree-message">No Git changes</span>
+              )}
             </div>
           )}
           {hasSearch && (
@@ -667,10 +784,10 @@ export function FilesPanel({
               {searchError && (
                 <div className="files-panel-error" role="alert">{searchError}</div>
               )}
-              {searchResults?.files.length > 0 && (
+              {visibleSearchFiles.length > 0 && (
                 <section aria-labelledby="files-search-filenames">
                   <h3 id="files-search-filenames">Files</h3>
-                  {searchResults.files.map((result) => {
+                  {visibleSearchFiles.map((result) => {
                     const status = statusLabels[result.status];
                     return (
                       <button
@@ -698,10 +815,10 @@ export function FilesPanel({
                   })}
                 </section>
               )}
-              {searchResults?.content.length > 0 && (
+              {visibleSearchContent.length > 0 && (
                 <section aria-labelledby="files-search-content">
                   <h3 id="files-search-content">Content</h3>
-                  {searchResults.content.map((result) => {
+                  {visibleSearchContent.map((result) => {
                     const status = statusLabels[result.status];
                     return (
                       <button
@@ -733,8 +850,8 @@ export function FilesPanel({
                 </section>
               )}
               {searchResults
-                && searchResults.files.length === 0
-                && searchResults.content.length === 0
+                && visibleSearchFiles.length === 0
+                && visibleSearchContent.length === 0
                 && !searching
                 && (
                   <div className="files-panel-state">
@@ -849,9 +966,26 @@ export function FilesPanel({
                       key={`${index}-${line.slice(0, 12)}`}
                     >
                       <span aria-hidden="true">{index + 1}</span>
-                      <code>{line || ' '}</code>
+                      {highlightedLines[index] ? (
+                        <code dangerouslySetInnerHTML={{ __html: highlightedLines[index] }} />
+                      ) : (
+                        <code>{line || ' '}</code>
+                      )}
                     </span>
                   ))}
+                </pre>
+              ) : preview?.kind === 'diff' ? (
+                <pre
+                  className={`files-code files-diff diff-highlight language-${previewLanguage}`}
+                  tabIndex={0}
+                  aria-label={`Git diff for ${preview.name}`}
+                >
+                  {preview.content ? (
+                    <code
+                      className={`diff-highlight language-${previewLanguage}`}
+                      dangerouslySetInnerHTML={{ __html: highlightedDiff }}
+                    />
+                  ) : <span className="files-edit-empty">No diff available</span>}
                 </pre>
               ) : preview?.kind === 'image' ? (
                 <div className="files-image-preview">
@@ -972,6 +1106,15 @@ export function FilesPanel({
             Copy path
           </DropdownMenuItem>
           <div className="dropdown-menu-divider" role="separator" />
+          {contextMenu.node.type === 'file' && diffVisibleStatuses.has(contextMenu.node.status) && (
+            <DropdownMenuItem
+              icon={<FileDiff size={14} />}
+              role="menuitem"
+              onClick={() => viewDiff(contextMenu.node)}
+            >
+              View diff
+            </DropdownMenuItem>
+          )}
           {contextMenu.node.type === 'file' && (
             <DropdownMenuItem
               icon={<ExternalLink size={14} />}

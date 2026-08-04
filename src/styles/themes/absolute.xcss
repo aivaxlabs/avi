@@ -18,6 +18,9 @@
   --warn-color: #a06a00;
   --danger-color: #b1574d;
   --git-ignored-status-color: #a39d8f;
+  --diff-removed-bg: #5a2727;
+  --diff-added-bg: #29452f;
+  --diff-relative-margin-bg: #ffffff12;
   --prism-comment: #8f8a7a;
   --prism-punctuation: #7d7767;
   --prism-property: #b1574d;
@@ -48,6 +51,9 @@
     --warn-color: #d9b06a;
     --danger-color: #d98a7a;
     --git-ignored-status-color: #7c766a;
+    --diff-removed-bg: #5a2727;
+    --diff-added-bg: #29452f;
+    --diff-relative-margin-bg: #ffffff12;
     --prism-comment: #8f8a7a;
     --prism-punctuation: #cfc8b8;
     --prism-property: #d98a7a;

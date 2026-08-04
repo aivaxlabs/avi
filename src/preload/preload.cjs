@@ -124,6 +124,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     workspace: (folderPath) => invoke('files:workspace', folderPath),
     directory: (payload) => invoke('files:directory', payload),
     read: (payload) => invoke('files:read', payload),
+    diff: (payload) => invoke('files:diff', payload),
     search: (payload) => invoke('files:search', payload),
     open: (payload) => invoke('files:open', payload),
     reveal: (payload) => invoke('files:reveal', payload),
