@@ -724,8 +724,17 @@ function registerIpc() {
   applicationIpc.handle('conversations:search', (_event, query) => runChatSearch(query));
   applicationIpc.handle('orchestration:overview', (_event, range = {}) => {
     const conversations = listAllConversations();
-    const today = new Date().toDateString();
-    const isToday = (value) => new Date(value).toDateString() === today;
+    const now = Date.now();
+    const defaultFrom = new Date();
+    defaultFrom.setHours(0, 0, 0, 0);
+    const requestedFrom = new Date(range.from).getTime();
+    const requestedTo = new Date(range.to).getTime();
+    const from = Number.isFinite(requestedFrom) ? requestedFrom : defaultFrom.getTime();
+    const to = Number.isFinite(requestedTo) ? requestedTo : now;
+    const isInRange = (value) => {
+      const timestamp = new Date(value).getTime();
+      return Number.isFinite(timestamp) && timestamp >= from && timestamp <= to;
+    };
     const tasks = conversations.map((conversation) => {
       const messages = getMessages(conversation.id).filter((message) => !message.hidden);
       const latestMessage = messages.at(-1) ?? null;
@@ -743,14 +752,14 @@ function registerIpc() {
         ongoing,
       };
     });
-    const messagesToday = tasks.flatMap((task) => (
+    const messagesInRange = tasks.flatMap((task) => (
       task.messages
-        .filter((message) => isToday(message.createdAt))
+        .filter((message) => isInRange(message.createdAt))
         .map((message) => ({ ...message, conversationModel: task.model }))
     ));
     const modelUsage = new Map();
 
-    for (const message of messagesToday.filter((item) => item.role === 'assistant')) {
+    for (const message of messagesInRange.filter((item) => item.role === 'assistant')) {
       const model = message.model || message.conversationModel || 'Unknown model';
       const totalTokens = Number(message.usage?.totalTokens)
         || (Number(message.usage?.inputTokens) || 0)
@@ -763,10 +772,10 @@ function registerIpc() {
 
     return {
       metrics: {
-        messagesSent: messagesToday.filter((message) => message.role === 'user').length,
+        messagesSent: messagesInRange.filter((message) => message.role === 'user').length,
         threadsOpened: conversations.filter(
           (conversation) => conversation.conversationType === 'thread'
-            && isToday(conversation.createdAt),
+            && isInRange(conversation.createdAt),
         ).length,
         tokens: [...modelUsage.values()].reduce((total, usage) => total + usage.tokens, 0),
         topModels: [...modelUsage.values()]
@@ -780,6 +789,7 @@ function registerIpc() {
       recentlyCompleted: tasks
         .filter((task) => (
           !task.ongoing
+          && isInRange(task.updatedAt)
           && (
             task.goal?.status === 'completed'
             || task.latestAssistant?.status === 'completed'

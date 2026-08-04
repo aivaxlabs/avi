@@ -1,14 +1,17 @@
 import {
   Activity,
+  ArrowRight,
   Bot,
+  CalendarDays,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   MessageSquare,
   RefreshCw,
   Rows3,
   Sparkles,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 const compactNumber = new Intl.NumberFormat('en-US', {
   notation: 'compact',
@@ -16,21 +19,44 @@ const compactNumber = new Intl.NumberFormat('en-US', {
 });
 const fullNumber = new Intl.NumberFormat('en-US');
 const relativeTime = new Intl.RelativeTimeFormat('en-US', { numeric: 'auto' });
+const dateLabel = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
+const toLocalInput = (date) => {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+};
 
 export function OrchestrationPage({ models, onOpenThread }) {
+  const initialFrom = new Date();
+  initialFrom.setHours(0, 0, 0, 0);
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [rangeOpen, setRangeOpen] = useState(false);
+  const [range, setRange] = useState(() => ({
+    from: toLocalInput(initialFrom),
+    to: toLocalInput(new Date()),
+    label: 'Today',
+  }));
+  const rangePickerRef = useRef(null);
   const modelsById = useMemo(
     () => new Map(models.map((model) => [model.id, model.name])),
     [models],
   );
 
-  async function loadOverview() {
+  async function loadOverview(selectedRange = range) {
+    const from = new Date(selectedRange.from);
+    const to = new Date(selectedRange.to);
+    if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || from > to) {
+      setError('Choose a valid date range.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      setOverview(await window.chatApp.orchestration.overview());
+      setOverview(await window.chatApp.orchestration.overview({
+        from: from.toISOString(),
+        to: to.toISOString(),
+      }));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     } finally {
@@ -40,7 +66,26 @@ export function OrchestrationPage({ models, onOpenThread }) {
 
   useEffect(() => {
     loadOverview();
-  }, []);
+  }, [range]);
+
+  useEffect(() => {
+    if (!rangeOpen) return undefined;
+
+    const closePicker = (event) => {
+      if (!rangePickerRef.current?.contains(event.target)) setRangeOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setRangeOpen(false);
+    };
+    document.addEventListener('pointerdown', closePicker);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closePicker);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [rangeOpen]);
+
+  const rangeCaption = range.label || `${dateLabel.format(new Date(range.from))} – ${dateLabel.format(new Date(range.to))}`;
 
   const topModelCount = Math.max(
     1,
@@ -49,17 +94,89 @@ export function OrchestrationPage({ models, onOpenThread }) {
 
   return (
     <main className="orchestration-page">
-      <header className="orchestration-header">
+      <header className="orchestration-header" ref={rangePickerRef}>
         <div>
           <span className="orchestration-eyebrow">Operational overview</span>
           <h1>Orchestration</h1>
-          <p>Track thread activity and today's consumption.</p>
+          <p>Track thread activity and consumption over time.</p>
         </div>
+        <button
+          className="orchestration-range-trigger"
+          type="button"
+          aria-expanded={rangeOpen}
+          aria-haspopup="dialog"
+          onClick={() => setRangeOpen((open) => !open)}
+        >
+          <CalendarDays size={15} />
+          <span>{rangeCaption}</span>
+          <ChevronDown size={14} />
+        </button>
+        {rangeOpen && (
+          <div className="orchestration-range-popover" role="dialog" aria-label="Select time range">
+            <div className="orchestration-range-fields">
+              <label>
+                <span>From</span>
+                <input
+                  type="datetime-local"
+                  value={range.from}
+                  max={range.to}
+                  onChange={(event) => setRange((current) => ({ ...current, from: event.target.value, label: '' }))}
+                />
+              </label>
+              <ArrowRight size={15} />
+              <label>
+                <span>To</span>
+                <input
+                  type="datetime-local"
+                  value={range.to}
+                  min={range.from}
+                  onChange={(event) => setRange((current) => ({ ...current, to: event.target.value, label: '' }))}
+                />
+              </label>
+            </div>
+            <div className="orchestration-range-presets">
+              {[
+                ['Today', 'today'],
+                ['This week', 'week'],
+                ['This month', 'month'],
+                ['Past 30 minutes', 30 * 60_000],
+                ['Past hour', 60 * 60_000],
+                ['Past 3 hours', 3 * 60 * 60_000],
+                ['Past day', 24 * 60 * 60_000],
+                ['Past week', 7 * 24 * 60 * 60_000],
+                ['Past month', 30 * 24 * 60 * 60_000],
+                ['Past year', 365 * 24 * 60 * 60_000],
+              ].map(([label, duration]) => (
+                <button
+                  type="button"
+                  key={label}
+                  className={range.label === label ? 'active' : undefined}
+                  onClick={() => {
+                    const to = new Date();
+                    const from = new Date(to);
+                    if (duration === 'today') from.setHours(0, 0, 0, 0);
+                    else if (duration === 'week') {
+                      from.setDate(from.getDate() - ((from.getDay() + 6) % 7));
+                      from.setHours(0, 0, 0, 0);
+                    } else if (duration === 'month') {
+                      from.setDate(1);
+                      from.setHours(0, 0, 0, 0);
+                    } else from.setTime(to.getTime() - duration);
+                    setRange({ from: toLocalInput(from), to: toLocalInput(to), label });
+                    setRangeOpen(false);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <button
           className="orchestration-refresh"
           type="button"
           disabled={loading}
-          onClick={loadOverview}
+          onClick={() => loadOverview()}
         >
           <RefreshCw size={15} className={loading ? 'spinning' : undefined} />
           Refresh
@@ -72,22 +189,25 @@ export function OrchestrationPage({ models, onOpenThread }) {
         </section>
       ) : (
         <>
-          <section className="orchestration-kpis" aria-label="Today's indicators">
+          <section className="orchestration-kpis" aria-label={`${rangeCaption} indicators`}>
             <KpiCard
               icon={<MessageSquare size={17} />}
               label="Messages sent"
               value={fullNumber.format(overview?.metrics.messagesSent ?? 0)}
+              caption={rangeCaption}
             />
             <KpiCard
               icon={<Rows3 size={17} />}
               label="Threads opened"
               value={fullNumber.format(overview?.metrics.threadsOpened ?? 0)}
+              caption={rangeCaption}
             />
             <KpiCard
               icon={<Sparkles size={17} />}
               label="Token volume"
               value={compactNumber.format(overview?.metrics.tokens ?? 0)}
               title={fullNumber.format(overview?.metrics.tokens ?? 0)}
+              caption={rangeCaption}
             />
           </section>
 
@@ -153,7 +273,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
                   <span className="section-icon"><Bot size={16} /></span>
                   <h2>Top 5 most used models</h2>
                 </div>
-                <span className="section-caption">Today</span>
+                <span className="section-caption">{rangeCaption}</span>
               </div>
               <div className="model-usage-list">
                 {overview?.metrics.topModels.length
@@ -177,7 +297,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
                   : (
                     <EmptyState
                       icon={<Bot size={18} />}
-                      text={loading ? 'Loading models…' : 'No models used today.'}
+                      text={loading ? 'Loading models…' : `No models used during ${rangeCaption.toLowerCase()}.`}
                     />
                   )}
               </div>
@@ -189,7 +309,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
   );
 }
 
-function KpiCard({ icon, label, value, title }) {
+function KpiCard({ icon, label, value, title, caption }) {
   return (
     <article className="orchestration-kpi">
       <span className="kpi-icon">{icon}</span>
@@ -197,7 +317,7 @@ function KpiCard({ icon, label, value, title }) {
         <span>{label}</span>
         <strong title={title}>{value}</strong>
       </div>
-      <small>Today</small>
+      <small>{caption}</small>
     </article>
   );
 }

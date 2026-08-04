@@ -55,7 +55,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     save: (payload) => invoke('composer-state:save', payload),
   },
   orchestration: {
-    overview: () => invoke('orchestration:overview'),
+    overview: (range) => invoke('orchestration:overview', range),
   },
   sideChats: {
     list: (parentConversationId) => invoke('side-chats:list', parentConversationId),
