@@ -3181,9 +3181,13 @@ button {
       transform 180ms var(--base-transition);
 }
 
-.files-panel .files-explorer-header button:hover:not(:disabled), .files-panel .files-preview-back:hover:not(:disabled) {
+.files-panel .files-explorer-header button:hover:not(:disabled), .files-panel .files-preview-back:hover:not(:disabled), .files-panel .files-explorer-header button.active, .files-panel .files-preview-back.active {
     color: var(--text-1);
     background: var(--item-hover);
+}
+
+.files-panel .files-explorer-header button.active, .files-panel .files-preview-back.active {
+    box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
 .files-panel .files-explorer-header button:active:not(:disabled), .files-panel .files-preview-back:active:not(:disabled) {
@@ -3502,7 +3506,7 @@ button {
 .files-panel .files-preview {
     display: grid;
     grid-template-rows: 48px minmax(0, 1fr);
-    background: var(--background-1);
+    background: var(--background-0);
 }
 
 .files-panel .files-preview > .files-panel-state {
@@ -3532,7 +3536,7 @@ button {
     padding: 8px 0 24px;
     overflow: auto;
     color: var(--text-1);
-    background: var(--background-2);
+    background: var(--background-0);
     font-family: var(--font-code);
     font-size: 11px;
     line-height: 1.55;
@@ -3567,6 +3571,31 @@ button {
 .files-panel .files-code-line.target-line {
     background: var(--background-3);
     box-shadow: inset 2px 0 var(--text-3);
+}
+
+.files-panel .files-diff {
+    display: block;
+}
+
+.files-panel .files-diff > code {
+    min-width: max-content;
+    display: block;
+    padding: 0 16px;
+    color: inherit;
+    font: inherit;
+    white-space: pre;
+}
+
+.files-panel .files-diff > code .token.deleted:not(.prefix) {
+    background-color: var(--diff-removed-bg);
+}
+
+.files-panel .files-diff > code .token.inserted:not(.prefix) {
+    background-color: var(--diff-added-bg);
+}
+
+.files-panel .files-diff > code .token.deleted-sign .token.prefix, .files-panel .files-diff > code .token.inserted-sign .token.prefix {
+    background-color: var(--diff-relative-margin-bg);
 }
 
 .files-panel .files-edit-columns {
@@ -5107,7 +5136,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .user-message-status {
-    display: block;
+    display: none;
     margin-top: 5px;
     color: var(--text-3);
     font-size: 10px;
@@ -9151,6 +9180,9 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --warn-color: #9a6700;
     --danger-color: #c43c3c;
     --git-ignored-status-color: #727272;
+    --diff-removed-bg: #ffebe9;
+    --diff-added-bg: #dafbe1;
+    --diff-relative-margin-bg: #0000000d;
     --prism-comment: #656d76;
     --prism-punctuation: #57606a;
     --prism-property: #953800;
@@ -9182,6 +9214,9 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --warn-color: #d5a64a;
     --danger-color: #ef7373;
     --git-ignored-status-color: #787878;
+    --diff-removed-bg: #3d1f24;
+    --diff-added-bg: #193529;
+    --diff-relative-margin-bg: #ffffff12;
     --prism-comment: #8b949e;
     --prism-punctuation: #c9d1d9;
     --prism-property: #ffa657;
@@ -9214,6 +9249,9 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --warn-color: #a06a00;
     --danger-color: #c0392b;
     --git-ignored-status-color: #9a9182;
+    --diff-removed-bg: #522333;
+    --diff-added-bg: #32431f;
+    --diff-relative-margin-bg: #ffffff12;
     --prism-comment: #93a1a1;
     --prism-punctuation: #6f675a;
     --prism-property: #f92672;
@@ -9245,6 +9283,9 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --warn-color: #e6db74;
     --danger-color: #f92672;
     --git-ignored-status-color: #75715e;
+    --diff-removed-bg: #522333;
+    --diff-added-bg: #32431f;
+    --diff-relative-margin-bg: #ffffff12;
     --prism-comment: #75715e;
     --prism-punctuation: #f8f8f2;
     --prism-property: #f92672;
@@ -9286,6 +9327,9 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --warn-color: #a06a00;
     --danger-color: #b1574d;
     --git-ignored-status-color: #a39d8f;
+    --diff-removed-bg: #5a2727;
+    --diff-added-bg: #29452f;
+    --diff-relative-margin-bg: #ffffff12;
     --prism-comment: #8f8a7a;
     --prism-punctuation: #7d7767;
     --prism-property: #b1574d;
@@ -9317,6 +9361,9 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --warn-color: #d9b06a;
     --danger-color: #d98a7a;
     --git-ignored-status-color: #7c766a;
+    --diff-removed-bg: #5a2727;
+    --diff-added-bg: #29452f;
+    --diff-relative-margin-bg: #ffffff12;
     --prism-comment: #8f8a7a;
     --prism-punctuation: #cfc8b8;
     --prism-property: #d98a7a;
@@ -9359,6 +9406,9 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --warn-color: #a15c00;
     --danger-color: #d03535;
     --git-ignored-status-color: #9b9b9b;
+    --diff-removed-bg: #4b2024;
+    --diff-added-bg: #173d29;
+    --diff-relative-margin-bg: #ffffff12;
     --prism-comment: #6f6f6f;
     --prism-punctuation: #424242;
     --prism-property: #0169cc;
@@ -9390,6 +9440,9 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --warn-color: #e6ae5c;
     --danger-color: #f06a6a;
     --git-ignored-status-color: #676767;
+    --diff-removed-bg: #4b2024;
+    --diff-added-bg: #173d29;
+    --diff-relative-margin-bg: #ffffff12;
     --prism-comment: #8b8b8b;
     --prism-punctuation: #cdcdcd;
     --prism-property: #66aaf0;
@@ -9427,6 +9480,9 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --warn-color: #9a6700;
     --danger-color: #c43c3c;
     --git-ignored-status-color: #959595;
+    --diff-removed-bg: #5a1d24;
+    --diff-added-bg: #173f2a;
+    --diff-relative-margin-bg: #ffffff12;
     --prism-comment: #008000;
     --prism-punctuation: #3b3b3b;
     --prism-property: #e50000;
@@ -9458,6 +9514,9 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --warn-color: #cca700;
     --danger-color: #f14c4c;
     --git-ignored-status-color: #6e6e6e;
+    --diff-removed-bg: #5a1d24;
+    --diff-added-bg: #173f2a;
+    --diff-relative-margin-bg: #ffffff12;
     --prism-comment: #6a9955;
     --prism-punctuation: #d4d4d4;
     --prism-property: #9cdcfe;
