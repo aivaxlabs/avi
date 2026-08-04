@@ -6,12 +6,16 @@ import {
   CircleHelp,
   CircleStop,
   Copy,
+  ExternalLink,
   FileDiff,
   FilePenLine,
   FileText,
+  FolderOpen,
+  FolderSearch,
   FolderTree,
   GitFork,
   Globe,
+  Image,
   Info,
   ListChecks,
   LoaderCircle,
@@ -48,12 +52,14 @@ import {
   useRef,
   useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { formatBytes } from '../lib/files.js';
 import { consolidateFileEdits, createUndoPrompt } from '../lib/file-edits.js';
 import { parseStructuredUserMessage } from '../lib/message-groups.js';
 import { classNames } from '../lib/format.js';
+import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { answerTextFromTextualBlocks } from '../../shared/textual-blocks.js';
 
 const compactTokenFormatter = new Intl.NumberFormat('en-US', {
@@ -191,6 +197,7 @@ export function Message({
   onOpenFileEdit,
   onImplementPlan,
   onOpenFileReference,
+  onFileReferenceAction,
   showContinuations,
 }) {
   if (message.role === 'user') {
@@ -233,6 +240,7 @@ export function Message({
       onOpenFileEdit={onOpenFileEdit}
       onImplementPlan={onImplementPlan}
       onOpenFileReference={onOpenFileReference}
+      onFileReferenceAction={onFileReferenceAction}
       showContinuations={showContinuations}
     />
   );
@@ -271,16 +279,42 @@ function SubagentReportCard({ report }) {
   );
 }
 
-function UserMessage({ message }) {
-  const [lightboxAttachment, setLightboxAttachment] = useState(null);
+function AttachmentLightbox({ attachment, onClose }) {
   useEffect(() => {
-    if (!lightboxAttachment) return undefined;
     const closeOnEscape = (event) => {
-      if (event.key === 'Escape') setLightboxAttachment(null);
+      if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', closeOnEscape);
     return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [lightboxAttachment]);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="attachment-lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Image preview: ${attachment.name}`}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <img src={attachment.dataUrl} alt={attachment.name} />
+      <button
+        type="button"
+        aria-label="Close image preview"
+        title="Close"
+        autoFocus
+        onClick={onClose}
+      >
+        <X size={18} />
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
+function UserMessage({ message }) {
+  const [lightboxAttachment, setLightboxAttachment] = useState(null);
   const visibleAttachments = message.attachments;
   const content = (message.content ?? '').trim();
   const report = parseSubagentReport(message);
@@ -390,26 +424,10 @@ function UserMessage({ message }) {
         <Copy size={14} />
       </button>
       {lightboxAttachment && (
-        <div
-          className="attachment-lightbox"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Image preview: ${lightboxAttachment.name}`}
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setLightboxAttachment(null);
-          }}
-        >
-          <img src={lightboxAttachment.dataUrl} alt={lightboxAttachment.name} />
-          <button
-            type="button"
-            aria-label="Close image preview"
-            title="Close"
-            autoFocus
-            onClick={() => setLightboxAttachment(null)}
-          >
-            <X size={18} />
-          </button>
-        </div>
+        <AttachmentLightbox
+          attachment={lightboxAttachment}
+          onClose={() => setLightboxAttachment(null)}
+        />
       )}
     </article>
   );
@@ -430,11 +448,14 @@ function AssistantMessage({
   onOpenFileEdit,
   onImplementPlan,
   onOpenFileReference,
+  onFileReferenceAction,
   showContinuations,
 }) {
   const [usageOpen, setUsageOpen] = useState(false);
   const [showAllEdits, setShowAllEdits] = useState(false);
   const [resuming, setResuming] = useState(false);
+  const [lightboxAttachment, setLightboxAttachment] = useState(null);
+  const [imageContextMenu, setImageContextMenu] = useState(null);
   const usageRef = useRef(null);
   const content = message.content || '';
   const activelyStreaming = message.status === 'streaming' && runActive;
@@ -480,6 +501,28 @@ function AssistantMessage({
     return () => document.removeEventListener('pointerdown', closeUsage);
   }, [usageOpen]);
 
+  useEffect(() => {
+    if (!imageContextMenu) return undefined;
+    const controller = new AbortController();
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') setImageContextMenu(null);
+    }, { signal: controller.signal });
+    if (imageContextMenu) {
+      window.addEventListener('pointerdown', (event) => {
+        if (event.target.closest?.('.generated-image-context-menu')) return;
+        setImageContextMenu(null);
+      }, { signal: controller.signal });
+      window.addEventListener('resize', () => setImageContextMenu(null), {
+        once: true,
+        signal: controller.signal,
+      });
+      queueMicrotask(() => (
+        document.querySelector('.generated-image-context-menu [role="menuitem"]')?.focus()
+      ));
+    }
+    return () => controller.abort();
+  }, [imageContextMenu]);
+
   return (
     <article className="message-row assistant-row">
       <div className="assistant-message">
@@ -492,6 +535,7 @@ function AssistantMessage({
                 messages={workedMessages}
                 label={durationLabel}
                 onOpenFileReference={onOpenFileReference}
+                onFileReferenceAction={onFileReferenceAction}
               />
             )}
             {timelinePartition.finalItems.map((item, index) => (
@@ -506,10 +550,105 @@ function AssistantMessage({
                     : null
                 }
                 onOpenFileReference={onOpenFileReference}
+                onFileReferenceAction={onFileReferenceAction}
               />
             ))}
           </div>
         ) : null}
+        {message.attachments.some((attachment) => (
+          attachment.kind === 'image_url' && attachment.dataUrl
+        )) && (
+          <div className="attachment-list user-attachment-list" aria-label="Generated images">
+            {message.attachments.filter((attachment) => (
+              attachment.kind === 'image_url' && attachment.dataUrl
+            )).map((attachment) => (
+              <button
+                key={attachment.id}
+                className="user-attachment-image"
+                type="button"
+                aria-label={`Open ${attachment.name}`}
+                title={attachment.name}
+                onClick={() => setLightboxAttachment(attachment)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setImageContextMenu({
+                    attachment,
+                    left: Math.min(event.clientX, window.innerWidth - 190),
+                    top: Math.min(event.clientY, window.innerHeight - 170),
+                  });
+                }}
+              >
+                <img src={attachment.dataUrl} alt={attachment.name} />
+              </button>
+            ))}
+          </div>
+        )}
+        {lightboxAttachment && (
+          <AttachmentLightbox
+            attachment={lightboxAttachment}
+            onClose={() => setLightboxAttachment(null)}
+          />
+        )}
+        {imageContextMenu && createPortal(
+          <DropdownMenu
+            className="generated-image-context-menu"
+            fixed
+            role="menu"
+            aria-label={`Actions for ${imageContextMenu.attachment.name}`}
+            style={{ left: imageContextMenu.left, top: imageContextMenu.top }}
+          >
+            <DropdownMenuItem
+              icon={<ExternalLink size={14} />}
+              role="menuitem"
+              disabled={!imageContextMenu.attachment.path}
+              onClick={() => {
+                const { path } = imageContextMenu.attachment;
+                setImageContextMenu(null);
+                void window.chatApp.attachments.imageAction({ action: 'open', path });
+              }}
+            >
+              Open
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              icon={<FolderOpen size={14} />}
+              role="menuitem"
+              disabled={!imageContextMenu.attachment.path}
+              onClick={() => {
+                const { path } = imageContextMenu.attachment;
+                setImageContextMenu(null);
+                void window.chatApp.attachments.imageAction({ action: 'reveal', path });
+              }}
+            >
+              Open in explorer
+            </DropdownMenuItem>
+            <div className="dropdown-menu-divider" role="separator" />
+            <DropdownMenuItem
+              icon={<Image size={14} />}
+              role="menuitem"
+              disabled={!imageContextMenu.attachment.path}
+              onClick={() => {
+                const { path } = imageContextMenu.attachment;
+                setImageContextMenu(null);
+                void window.chatApp.attachments.imageAction({ action: 'copy-image', path });
+              }}
+            >
+              Copy image
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              icon={<Copy size={14} />}
+              role="menuitem"
+              disabled={!imageContextMenu.attachment.path}
+              onClick={() => {
+                const { path } = imageContextMenu.attachment;
+                setImageContextMenu(null);
+                void window.chatApp.attachments.imageAction({ action: 'copy-path', path });
+              }}
+            >
+              Copy path
+            </DropdownMenuItem>
+          </DropdownMenu>,
+          document.body,
+        )}
         {activelyStreaming && !questionPending && (
           <div className="assistant-placeholder">Thinking</div>
         )}
@@ -635,7 +774,7 @@ function AssistantMessage({
                   }}
                 >
                   <RotateCcw size={14} />
-                  <span>{resuming ? 'Trying…' : 'Try again'}</span>
+                  <span>{resuming ? 'Trying...' : 'Try again'}</span>
                 </button>
               )}
             </div>
@@ -700,6 +839,7 @@ function TimelineItem({
   trailing,
   onImplementPlan,
   onOpenFileReference,
+  onFileReferenceAction,
 }) {
   if (item.type === 'content') {
     return (
@@ -708,6 +848,7 @@ function TimelineItem({
         finalized={!streaming}
         onImplementPlan={onImplementPlan}
         onOpenFileReference={onOpenFileReference}
+        onFileReferenceAction={onFileReferenceAction}
       />
     );
   }
@@ -726,12 +867,49 @@ const MarkdownSegment = memo(function MarkdownSegment({
   finalized,
   onImplementPlan,
   onOpenFileReference,
+  onFileReferenceAction,
 }) {
   const [implementing, setImplementing] = useState(false);
+  const [fileReferenceMenu, setFileReferenceMenu] = useState(null);
+  const fileReferenceTargetRef = useRef(null);
   const deferredText = useDeferredValue(text);
   const renderedText = finalized ? text : deferredText;
+  useEffect(() => {
+    if (!fileReferenceMenu) return undefined;
+    const controller = new AbortController();
+    window.addEventListener('pointerdown', (event) => {
+      if (event.target.closest?.('.file-reference-context-menu')) return;
+      setFileReferenceMenu(null);
+    }, { once: true, signal: controller.signal });
+    window.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      setFileReferenceMenu(null);
+      fileReferenceTargetRef.current?.focus();
+    }, { signal: controller.signal });
+    window.addEventListener('resize', () => setFileReferenceMenu(null), {
+      once: true,
+      signal: controller.signal,
+    });
+    queueMicrotask(() => (
+      document.querySelector('.file-reference-context-menu [role="menuitem"]')?.focus()
+    ));
+    return () => controller.abort();
+  }, [fileReferenceMenu]);
   const components = useMemo(
-    () => createMarkdownComponents(finalized, onOpenFileReference),
+    () => createMarkdownComponents(finalized, onOpenFileReference, (event, reference) => {
+      event.preventDefault();
+      fileReferenceTargetRef.current = event.currentTarget;
+      const width = 180;
+      const height = 112;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const clientX = event.clientX || rect.left + 8;
+      const clientY = event.clientY || rect.bottom;
+      setFileReferenceMenu({
+        reference,
+        left: Math.max(8, Math.min(clientX, window.innerWidth - width - 8)),
+        top: Math.max(8, Math.min(clientY, window.innerHeight - height - 8)),
+      });
+    }),
     [finalized, onOpenFileReference],
   );
   const parts = useMemo(() => {
@@ -804,11 +982,54 @@ const MarkdownSegment = memo(function MarkdownSegment({
           </div>
         ) : null
       ))}
+      {fileReferenceMenu && createPortal(
+        <DropdownMenu
+          className="file-reference-context-menu"
+          fixed
+          role="menu"
+          aria-label={`Actions for ${fileReferenceMenu.reference.path}`}
+          style={{ left: fileReferenceMenu.left, top: fileReferenceMenu.top }}
+        >
+          <DropdownMenuItem
+            icon={<FileText size={14} />}
+            role="menuitem"
+            onClick={() => {
+              setFileReferenceMenu(null);
+              onOpenFileReference(fileReferenceMenu.reference);
+            }}
+          >
+            Open
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            icon={<FolderSearch size={14} />}
+            role="menuitem"
+            disabled={!onFileReferenceAction}
+            onClick={() => {
+              setFileReferenceMenu(null);
+              void onFileReferenceAction?.('reveal', fileReferenceMenu.reference);
+            }}
+          >
+            Open in Explorer
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            icon={<Copy size={14} />}
+            role="menuitem"
+            disabled={!onFileReferenceAction}
+            onClick={() => {
+              setFileReferenceMenu(null);
+              void onFileReferenceAction?.('copy-path', fileReferenceMenu.reference);
+            }}
+          >
+            Copy path
+          </DropdownMenuItem>
+        </DropdownMenu>,
+        document.body,
+      )}
     </>
   );
 });
 
-function createMarkdownComponents(finalized, onOpenFileReference) {
+function createMarkdownComponents(finalized, onOpenFileReference, onFileReferenceContextMenu) {
   return {
     a({
       children,
@@ -858,6 +1079,7 @@ function createMarkdownComponents(finalized, onOpenFileReference) {
             event.preventDefault();
             onOpenFileReference(reference);
           }}
+          onContextMenu={(event) => onFileReferenceContextMenu(event, reference)}
         >
           <FileText size={13} aria-hidden="true" />
           <span>{displayLabel}</span>
@@ -940,7 +1162,7 @@ function normalizeLanguage(className) {
   }[language] ?? language;
 }
 
-function WorkedMessage({ message, onOpenFileReference }) {
+function WorkedMessage({ message, onOpenFileReference, onFileReferenceAction }) {
   const structured = parseStructuredUserMessage(message);
   if (structured?.type === 'subagent-report') return <SubagentReportCard report={structured} />;
   if (structured?.type === 'cross-thread-message') {
@@ -957,7 +1179,8 @@ function WorkedMessage({ message, onOpenFileReference }) {
   }
   return buildMessageTimeline(message).map((item, index, timeline) => (
     <TimelineItem key={message.id + ':' + item.id} item={item} streaming={false}
-      trailing={index === timeline.length - 1} onOpenFileReference={onOpenFileReference} />
+      trailing={index === timeline.length - 1} onOpenFileReference={onOpenFileReference}
+      onFileReferenceAction={onFileReferenceAction} />
   ));
 }
 
@@ -978,7 +1201,7 @@ function buildMessageTimeline(message) {
   } : item).filter((item) => item.type !== 'thinking' || item.items.length > 0);
 }
 
-function WorkedBlock({ items, messages, label, onOpenFileReference }) {
+function WorkedBlock({ items, messages, label, onOpenFileReference, onFileReferenceAction }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -995,6 +1218,7 @@ function WorkedBlock({ items, messages, label, onOpenFileReference }) {
                 key={message.id}
                 message={message}
                 onOpenFileReference={onOpenFileReference}
+                onFileReferenceAction={onFileReferenceAction}
               />
             ))}
             {items.map((item, index) => (
@@ -1004,6 +1228,7 @@ function WorkedBlock({ items, messages, label, onOpenFileReference }) {
                 streaming={false}
                 trailing={index === items.length - 1}
                 onOpenFileReference={onOpenFileReference}
+                onFileReferenceAction={onFileReferenceAction}
               />
             ))}
           </div>

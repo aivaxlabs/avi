@@ -5,6 +5,7 @@ import { CLIENT_TOOLS, decorateToolsForInvocation } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
 import { normalizeAttachmentsForModel } from './files.js';
 import { StreamAccumulator } from './streaming.js';
+import { traceError, traceVerbose } from './trace-log.js';
 
 export class QuickChatRunner {
   constructor({
@@ -125,6 +126,14 @@ export class QuickChatRunner {
     this.emit(session.id, { type: 'message', message: assistantMessage });
     this.emit(session.id, { type: 'run-state', running: true });
 
+    const requestStartedAt = Date.now();
+    traceVerbose('quick-chat.request-start', {
+      thread_id: session.id,
+      model: selection.model.modelId,
+      provider_id: selection.model.providerId,
+      message_count: session.messages.length - 1,
+    });
+
     try {
       const workspacePath = homedir();
       const mcpRuntime = this.mcpManager
@@ -181,6 +190,15 @@ export class QuickChatRunner {
           },
           signal: controller.signal,
           onEvent: (event) => {
+            if (event.type === 'error') {
+              traceError('quick-chat.stream-error', {
+                thread_id: session.id,
+                round: roundIndex,
+                code: event.code,
+                status: event.status,
+                error: event.message,
+              });
+            }
             if (['content', 'reasoning', 'tool-call', 'item-complete', 'retry', 'retry-clear', 'error', 'usage'].includes(event.type)) {
               accumulator.apply(event.type === 'tool-call'
                 ? {
@@ -229,6 +247,17 @@ export class QuickChatRunner {
               workspacePath,
               signal: controller.signal,
             });
+            if (Array.isArray(value?.attachments)) {
+              for (const attachment of value.attachments) {
+                if (!attachment || typeof attachment !== 'object') continue;
+                const duplicate = assistantMessage.attachments.some((existing) => (
+                  attachment.id && existing.id === attachment.id
+                ) || (
+                  attachment.path && existing.path === attachment.path
+                ));
+                if (!duplicate) assistantMessage.attachments.push(attachment);
+              }
+            }
             if (value && typeof value === 'object' && typeof value.output === 'string') {
               output = value.output;
               mediaContent = value.mediaContent;
@@ -238,6 +267,13 @@ export class QuickChatRunner {
           } catch (error) {
             isError = true;
             output = `Error: ${error instanceof Error ? error.message : String(error)}`;
+            traceError('quick-chat.tool-error', {
+              thread_id: session.id,
+              tool: toolCall.name,
+              tool_type: tool?.mcp ? 'mcp' : 'application',
+              round: roundIndex,
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
           accumulator.apply({
             type: 'tool-result',
@@ -257,9 +293,26 @@ export class QuickChatRunner {
       }
 
       this.updateAssistant(session, assistantMessage, accumulator, 'completed');
+      traceVerbose('quick-chat.message-completed', {
+        thread_id: session.id,
+        model: selection.model.modelId,
+        duration_ms: Date.now() - requestStartedAt,
+        input_tokens: accumulator.usage?.inputTokens,
+        output_tokens: accumulator.usage?.outputTokens,
+        total_tokens: accumulator.usage?.totalTokens,
+        cached_input_tokens: accumulator.usage?.cachedInputTokens,
+        reasoning_tokens: accumulator.usage?.reasoningTokens,
+        tokens_per_second: accumulator.usage?.tokensPerSecond,
+      });
     } catch (error) {
       const stopped = controller.signal.aborted;
       if (!stopped) {
+        traceError('quick-chat.run-error', {
+          thread_id: session.id,
+          duration_ms: Date.now() - requestStartedAt,
+          code: error?.code,
+          error: error instanceof Error ? error.message : String(error),
+        });
         accumulator.apply({
           type: 'error',
           code: error?.code ?? 'quick_chat_error',

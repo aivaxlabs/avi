@@ -130,6 +130,9 @@ contextBridge.exposeInMainWorld('chatApp', {
     reveal: (payload) => invoke('files:reveal', payload),
     copyPath: (payload) => invoke('files:copy-path', payload),
   },
+  attachments: {
+    imageAction: (payload) => invoke('attachments:image-action', payload),
+  },
   projects: {
     select: (payload) => invoke('projects:select', payload),
   },
@@ -138,6 +141,9 @@ contextBridge.exposeInMainWorld('chatApp', {
     folder: (folderPath) => invoke('context:folder', folderPath),
     commands: (folderPath) => invoke('context:commands', folderPath),
     open: (targetPath) => invoke('context:open', targetPath),
+  },
+  shell: {
+    openTerminal: (targetPath) => invoke('shell:open-terminal', targetPath),
   },
   onChatEvent: (callback) => subscribe('chat:event', callback),
   onMcpEvent: (callback) => subscribe('mcp:event', callback),

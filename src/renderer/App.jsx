@@ -469,6 +469,9 @@ export default function App() {
   const approvalPending = useMemo(() => Object.fromEntries(
     approvalRequests.map((request) => [request.conversationId, true]),
   ), [approvalRequests]);
+  const inputPending = useMemo(() => Object.fromEntries(
+    questionRequests.map((request) => [request.conversationId, true]),
+  ), [questionRequests]);
   const currentConversationError = selectedId ? conversationErrors[selectedId] ?? '' : '';
 
   useEffect(() => {
@@ -1381,6 +1384,7 @@ export default function App() {
             running={running}
             completedUnseen={completedUnseen}
             approvalPending={approvalPending}
+            inputPending={inputPending}
             onQuickChat={() => api.quickChat.open().catch((nextError) => {
               setError(nextError instanceof Error ? nextError.message : String(nextError));
             })}
@@ -1409,6 +1413,27 @@ export default function App() {
             onOpenProject={async (project) => {
               try {
                 await api.context.open(project.path);
+              } catch (nextError) {
+                setError(nextError instanceof Error ? nextError.message : String(nextError));
+              }
+            }}
+            onOpenTerminal={async (project) => {
+              try {
+                await api.shell.openTerminal(project.path);
+              } catch (nextError) {
+                setError(nextError instanceof Error ? nextError.message : String(nextError));
+              }
+            }}
+            onCopyPath={async (project) => {
+              try {
+                await navigator.clipboard.writeText(project.path);
+              } catch (nextError) {
+                setError(nextError instanceof Error ? nextError.message : String(nextError));
+              }
+            }}
+            onCopyThreadId={async (id) => {
+              try {
+                await navigator.clipboard.writeText(id);
               } catch (nextError) {
                 setError(nextError instanceof Error ? nextError.message : String(nextError));
               }

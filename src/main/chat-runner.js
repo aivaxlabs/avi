@@ -14,6 +14,7 @@ import {
   getGoalForConversation,
   getMessage,
   getMessages,
+  getRecentGeneratedImages,
   getPreferences as readPreferences,
   insertGoal,
   insertMessage,
@@ -657,8 +658,12 @@ export class ChatRunner {
       attachments,
       selectedModel.model.capabilities,
     );
+    text = String(text ?? '').trim();
+    if (!text && attachments.length === 0) {
+      throw new Error('Write a message or attach a file.');
+    }
     const conversation = ensureConversation(conversationId, model, project);
-    if (!hidden && text.trim()) {
+    if (!hidden && text) {
       void this.prepareInitialPrompt(conversation, text).catch((error) => {
         traceError('auxiliary.title-generation-error', {
           thread_id: conversation.id,
@@ -1234,6 +1239,13 @@ export class ChatRunner {
       });
       this.emit(conversation.id, { type: 'message', message: completedMessage });
       this.emit(conversation.id, { type: 'conversation', conversation: updatedConversation });
+      traceVerbose('chat.context-compacted', traceContext(conversation.id, selection, {
+        context_tokens: updatedConversation.contextTokens,
+        context_limit: selection.model.context?.input,
+        compaction_ratio: updatedConversation.contextTokens / compressionSegment.inputTokens,
+        input_tokens: compressionUsage?.inputTokens ?? compressionSegment.inputTokens,
+        output_tokens: updatedConversation.contextTokens,
+      }));
       return updatedConversation;
     } catch (error) {
       const stopped = controller.signal.aborted;
@@ -1404,6 +1416,7 @@ export class ChatRunner {
       assistantMessageId: assistantMessage.id,
       accumulator,
       fileEdits: [...initialEdits],
+      attachments: [...assistantMessage.attachments],
       model,
       permissionMode,
       workMode,
@@ -1431,6 +1444,7 @@ export class ChatRunner {
         content: accumulator.content,
         segments: accumulator.segments,
         edits: run.fileEdits,
+        attachments: run.attachments,
         usage: accumulator.usage,
       });
       if (
@@ -1559,7 +1573,7 @@ export class ChatRunner {
             }
             return tool;
           }),
-        ...providerTools,
+        ...providerTools.map((tool) => ({ ...tool, providerTool: true })),
         ...mcpRuntime.tools,
       ], permissionMode);
       const toolHistory = initialToolHistory.map((round) => ({
@@ -1695,10 +1709,18 @@ export class ChatRunner {
                   type: 'conversation',
                   conversation: updatedConversation,
                 });
-                contextCompactionRequested = Boolean(
+                const compactionNeeded = Boolean(
                   contextLimit
                   && liveContextTokens / contextLimit > tuning.automaticCompactionThreshold,
                 );
+                if (compactionNeeded && !contextCompactionRequested) {
+                  traceVerbose('chat.context-compaction-triggered', traceContext(conversationId, selection, {
+                    context_tokens: liveContextTokens,
+                    context_limit: contextLimit,
+                    compaction_ratio: liveContextTokens / contextLimit,
+                  }));
+                }
+                contextCompactionRequested = compactionNeeded;
               }
               accumulator.apply(event.type === 'tool-call'
                 ? {
@@ -1887,10 +1909,44 @@ export class ChatRunner {
 
             run.phase = 'tool';
             toolStartedAt = Date.now();
-            const value = await tool.execute(input, {
+            const executionInput = tool.name === 'openai_subscription_generate_or_edit_image'
+              && Array.isArray(input.referenced_image_paths)
+              ? {
+                  ...input,
+                  referenced_image_paths: input.referenced_image_paths.map((path) => {
+                    const match = String(path).match(/^\/mnt\/data\/(\d+)(?:\.[^/\\]+)?$/i);
+                    if (!match) return path;
+
+                    const imageAttachments = run.userMessageIds
+                      .map((messageId) => getMessage(messageId))
+                      .filter(Boolean)
+                      .flatMap((message) => message.attachments)
+                      .filter((attachment) => (
+                        attachment.kind === 'image_url'
+                        && typeof attachment.path === 'string'
+                      ));
+                    const attachment = imageAttachments[Number(match[1])];
+                    if (!attachment) {
+                      throw new Error(`Uploaded image reference ${path} is not available in this turn.`);
+                    }
+                    return attachment.path;
+                  }),
+                }
+              : input;
+            const value = await tool.execute(executionInput, tool.providerTool
+              ? {
+                  signal: controller.signal,
+                  workspacePath,
+                  artifacts: Object.freeze({
+                    getRecentGeneratedImages: ({ limit }) => (
+                      getRecentGeneratedImages(conversationId, { limit })
+                    ),
+                  }),
+                }
+              : {
               signal: controller.signal,
               workspacePath,
-              chatRunner: this,
+                  chatRunner: this,
               conversationId,
               model,
               models,
@@ -1901,8 +1957,22 @@ export class ChatRunner {
               goal: goalContext,
               tuning,
               defaultModels: this.getPreferences().defaultModels,
-              capabilities: selection.model.capabilities,
+                  capabilities: selection.model.capabilities,
             });
+            const generatedAttachments = Array.isArray(value?.attachments)
+              ? value.attachments.filter((attachment) => (
+                  attachment?.kind === 'image_url'
+                  && attachment.source === 'generated_image'
+                  && typeof attachment.path === 'string'
+                  && typeof attachment.dataUrl === 'string'
+                ))
+              : [];
+            for (const attachment of generatedAttachments) {
+              if (run.attachments.some((current) => (
+                current.id === attachment.id || current.path === attachment.path
+              ))) continue;
+              run.attachments.push(attachment);
+            }
             const fileChanges = Array.isArray(value?.fileChanges) ? value.fileChanges : [];
             for (const change of fileChanges) {
               if (
@@ -1924,14 +1994,9 @@ export class ChatRunner {
                 run.fileEdits.push(edit);
               }
             }
-            if (
-              value
-              && typeof value === 'object'
-              && typeof value.output === 'string'
-              && Array.isArray(value.mediaContent)
-            ) {
+            if (value && typeof value === 'object' && typeof value.output === 'string') {
               output = value.output;
-              mediaContent = value.mediaContent;
+              if (Array.isArray(value.mediaContent)) mediaContent = value.mediaContent;
             } else {
               output = typeof value === 'string'
                 ? value

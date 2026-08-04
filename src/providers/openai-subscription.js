@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import {
+  copyFile,
   mkdir,
   readFile,
+  rm,
   writeFile,
 } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import {
   basename,
   extname,
@@ -123,6 +125,17 @@ export const openAiSubscriptionProviderType = defineProvider({
     modelsDescription:
       'GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; '
       + 'GPT-5.3 Codex Spark. Supported models also include Fast variants.',
+    fields: [{
+      id: 'imageTool',
+      type: 'select',
+      label: 'GPT Image generation and editing',
+      description: 'Expose the GPT Image 2 generation and editing tool to this provider.',
+      default: 'enabled',
+      options: [
+        { value: 'enabled', label: 'Enabled' },
+        { value: 'disabled', label: 'Disabled' },
+      ],
+    }],
   },
   ...responsesApi,
   getContributions: getOpenAiSubscriptionContributions,
@@ -208,11 +221,11 @@ function getOpenAiSubscriptionContributions({ provider, services }) {
 
   return {
     models,
-    tools: [{
+    tools: provider.imageTool === 'disabled' ? [] : [{
       name: 'openai_subscription_generate_or_edit_image',
       description:
-        'Generate a new image or edit one or more local reference images with GPT Image 2. '
-        + 'Use referenced_image_paths only when editing or using visual references.',
+        'Generate a new image or edit one or more local or recently generated reference images '
+        + 'with GPT Image 2. Use only one reference source.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -226,15 +239,11 @@ function getOpenAiSubscriptionContributions({ provider, services }) {
             maxItems: 5,
             description: 'Absolute paths to local images used as edit targets or references.',
           },
-          size: {
-            type: 'string',
-            description: 'Output size, such as 1024x1024, 1536x1024, or auto.',
-            default: 'auto',
-          },
-          quality: {
-            type: 'string',
-            enum: ['auto', 'low', 'medium', 'high'],
-            default: 'auto',
+          num_last_images_to_include: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 5,
+            description: 'Number of recently generated images from this conversation to edit.',
           },
         },
         required: ['prompt'],
@@ -645,40 +654,87 @@ async function invokeUsageAction(providerId, action, input, services) {
   };
 }
 
-async function generateOrEditImage(providerId, input, { signal, workspacePath }, services) {
+async function generateOrEditImage(providerId, input, context, services) {
+  const { signal, workspacePath, artifacts } = context;
   const prompt = String(input?.prompt ?? '').trim();
   if (!prompt) throw new Error('prompt is required.');
 
-  const imagePaths = Array.isArray(input.referenced_image_paths)
+  if (input?.referenced_image_paths !== undefined && !Array.isArray(input.referenced_image_paths)) {
+    throw new Error('referenced_image_paths must be an array.');
+  }
+  const imagePaths = Array.isArray(input?.referenced_image_paths)
     ? input.referenced_image_paths.map((value) => String(value).trim()).filter(Boolean)
     : [];
+  const recentImageCount = input?.num_last_images_to_include;
+  if (input?.referenced_image_paths !== undefined && recentImageCount !== undefined) {
+    throw new Error('referenced_image_paths and num_last_images_to_include are mutually exclusive.');
+  }
   if (imagePaths.length > 5) {
     throw new Error('At most five reference images can be used.');
+  }
+  if (recentImageCount !== undefined && (
+    !Number.isInteger(recentImageCount) || recentImageCount < 1 || recentImageCount > 5
+  )) {
+    throw new Error('num_last_images_to_include must be an integer between 1 and 5.');
   }
   if (imagePaths.some((path) => !isAbsolute(path))) {
     throw new Error('Every referenced image path must be absolute.');
   }
 
-  const size = String(input.size ?? 'auto');
-  const quality = String(input.quality ?? 'auto');
+  if (recentImageCount !== undefined) {
+    const recentImages = await artifacts.getRecentGeneratedImages({ limit: recentImageCount });
+    if (recentImages.length < recentImageCount) {
+      throw new Error(
+        `Only ${recentImages.length} generated image${recentImages.length === 1 ? '' : 's'} `
+        + `are available in this conversation; ${recentImageCount} requested.`,
+      );
+    }
+    if (recentImages.some((image) => !isAbsolute(image.path))) {
+      throw new Error('A recent generated image has an invalid local path.');
+    }
+    imagePaths.push(...recentImages.map((image) => image.path));
+  }
+
   const endpoint = imagePaths.length > 0 ? '/codex/images/edits' : '/codex/images/generations';
   let body;
   let headers = {};
 
   if (imagePaths.length > 0) {
-    body = new FormData();
-    body.append('model', IMAGE_MODEL);
-    body.append('prompt', prompt);
-    body.append('size', size);
-    body.append('quality', quality);
-    for (const imagePath of imagePaths) {
-      const mimeType = IMAGE_MIME_TYPES[extname(imagePath).toLowerCase()];
-      if (!mimeType) throw new Error(`Unsupported reference image type: ${imagePath}`);
-      body.append(
-        'image[]',
-        new Blob([await readFile(imagePath)], { type: mimeType }),
-        basename(imagePath),
-      );
+    const referenceDirectory = join(
+      tmpdir(),
+      '.avi',
+      'imggenrefs',
+      `${Date.now()}-${randomUUID()}`,
+    );
+    await mkdir(referenceDirectory, { recursive: true });
+    try {
+      const referencePaths = [];
+      for (const imagePath of imagePaths) {
+        const extension = extname(imagePath).toLowerCase();
+        if (!IMAGE_MIME_TYPES[extension]) {
+          throw new Error(`Unsupported reference image type: ${imagePath}`);
+        }
+        const referencePath = join(referenceDirectory, `${randomUUID()}${extension}`);
+        await copyFile(imagePath, referencePath);
+        referencePaths.push(referencePath);
+      }
+
+      body = new FormData();
+      body.append('model', IMAGE_MODEL);
+      body.append('prompt', prompt);
+      body.append('size', 'auto');
+      body.append('quality', 'auto');
+      for (const referencePath of referencePaths) {
+        body.append(
+          'image[]',
+          new Blob([await readFile(referencePath)], {
+            type: IMAGE_MIME_TYPES[extname(referencePath).toLowerCase()],
+          }),
+          basename(referencePath),
+        );
+      }
+    } finally {
+      await rm(referenceDirectory, { recursive: true, force: true });
     }
   } else {
     headers = { 'Content-Type': 'application/json' };
@@ -686,8 +742,8 @@ async function generateOrEditImage(providerId, input, { signal, workspacePath },
       model: IMAGE_MODEL,
       prompt,
       background: 'auto',
-      quality,
-      size,
+      quality: 'auto',
+      size: 'auto',
     });
   }
 
@@ -723,10 +779,22 @@ async function generateOrEditImage(providerId, input, { signal, workspacePath },
   const outputPath = join(outputDirectory, `gpt-image-2-${Date.now()}.png`);
   await mkdir(outputDirectory, { recursive: true });
   await writeFile(outputPath, Buffer.from(imageBase64, 'base64'));
+  const attachment = {
+    id: randomUUID(),
+    kind: 'image_url',
+    source: 'generated_image',
+    name: basename(outputPath),
+    path: outputPath,
+    dataUrl: `data:image/png;base64,${imageBase64}`,
+  };
   return {
-    model: IMAGE_MODEL,
-    operation: imagePaths.length > 0 ? 'edit' : 'generate',
-    outputPath,
+    output: JSON.stringify({
+      model: IMAGE_MODEL,
+      operation: imagePaths.length > 0 ? 'edit' : 'generate',
+      outputPath,
+    }),
+    mediaContent: [{ type: 'image_url', image_url: { url: attachment.dataUrl } }],
+    attachments: [attachment],
   };
 }
 

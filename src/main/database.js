@@ -617,6 +617,11 @@ export async function setProviderCredentials(providerId, value) {
     } else {
       secureStorage.providerCredentials[providerId] = previous;
     }
+    traceError('database.secure-storage-error', {
+      operation: 'set-provider-credentials',
+      provider_id: providerId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     throw error;
   }
 }
@@ -628,6 +633,11 @@ export async function deleteProviderCredentials(providerId) {
     persistProviderCredentials();
   } catch (error) {
     if (previous !== undefined) secureStorage.providerCredentials[providerId] = previous;
+    traceError('database.secure-storage-error', {
+      operation: 'delete-provider-credentials',
+      provider_id: providerId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     throw error;
   }
 }
@@ -964,6 +974,10 @@ export function updateQueuedMessageOrder(conversationId, {
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
+    traceError('database.transaction-error', {
+      operation: 'update-queued-message-order',
+      error: error instanceof Error ? error.message : String(error),
+    });
     throw error;
   }
 }
@@ -979,6 +993,25 @@ export function deleteMessage(id) {
 
 export function getMessages(conversationId) {
   return statements.getMessages.all(conversationId).map(mapMessage);
+}
+
+export function getRecentGeneratedImages(conversationId, { limit }) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 5) {
+    throw new Error('Generated image limit must be an integer between 1 and 5.');
+  }
+  return getMessages(conversationId)
+    .flatMap((message) => message.attachments)
+    .filter((attachment) => (
+      attachment?.kind === 'image_url'
+      && attachment.source === 'generated_image'
+      && typeof attachment.path === 'string'
+      && attachment.path
+    ))
+    .slice(-limit)
+    .map((attachment) => ({
+      name: attachment.name ?? null,
+      path: attachment.path,
+    }));
 }
 
 export function getMessage(id) {
