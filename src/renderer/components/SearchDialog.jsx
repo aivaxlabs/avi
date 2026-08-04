@@ -7,9 +7,10 @@ export function SearchDialog({ onClose, onSelect }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [searching, setSearching] = useState(false);
   const resultsRef = useRef(null);
+  const searchTokenRef = useRef(0);
 
   useEffect(() => {
-    let stale = false;
+    const searchToken = ++searchTokenRef.current;
     const handle = setTimeout(async () => {
       if (!query.trim()) {
         setResults([]);
@@ -19,18 +20,15 @@ export function SearchDialog({ onClose, onSelect }) {
       setSearching(true);
       try {
         const next = await window.chatApp.conversations.search(query);
-        if (!stale) {
+        if (searchToken === searchTokenRef.current) {
           setResults(next);
           setSelectedIndex(0);
         }
       } finally {
-        if (!stale) setSearching(false);
+        if (searchToken === searchTokenRef.current) setSearching(false);
       }
     }, 200);
-    return () => {
-      stale = true;
-      clearTimeout(handle);
-    };
+    return () => clearTimeout(handle);
   }, [query]);
 
   useEffect(() => {

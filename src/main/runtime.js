@@ -28,6 +28,7 @@ import {
   resolve,
 } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import {
   closeDatabase,
   createConversation,
@@ -51,7 +52,6 @@ import {
   listSideChats,
   listSubagents,
   listTasks,
-  searchChats,
   setDefaultModels,
   setDesktopSettings,
   setComposerState,
@@ -697,8 +697,32 @@ function registerIpc() {
       ? { ...result, conversation: refreshConversationProject(result.conversation) }
       : null;
   });
-  applicationIpc.handle('conversations:search', (_event, query) => searchChats(query));
-  applicationIpc.handle('orchestration:overview', () => {
+  let searchWorker = null;
+  let searchSequence = 0;
+  const pendingSearches = new Map();
+  const runChatSearch = (query) => new Promise((resolve, reject) => {
+    if (!searchWorker) {
+      searchWorker = new Worker(new URL('./search-worker.js', import.meta.url));
+      searchWorker.unref();
+      searchWorker.on('message', ({ id, results, error }) => {
+        const settle = pendingSearches.get(id);
+        if (!settle) return;
+        pendingSearches.delete(id);
+        if (error) settle.reject(new Error(error));
+        else settle.resolve(results);
+      });
+      searchWorker.on('error', (error) => {
+        searchWorker = null;
+        for (const settle of pendingSearches.values()) settle.reject(error);
+        pendingSearches.clear();
+      });
+    }
+    const id = ++searchSequence;
+    pendingSearches.set(id, { resolve, reject });
+    searchWorker.postMessage({ id, query });
+  });
+  applicationIpc.handle('conversations:search', (_event, query) => runChatSearch(query));
+  applicationIpc.handle('orchestration:overview', (_event, range = {}) => {
     const conversations = listAllConversations();
     const today = new Date().toDateString();
     const isToday = (value) => new Date(value).toDateString() === today;

@@ -16,6 +16,7 @@ import {
 } from 'node:path';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import { normalizeDefaultModels } from './default-models.js';
+import { searchChatsIn } from './search-core.js';
 import { traceError } from './trace-log.js';
 
 const storageDir = join(homedir(), '.aivax');
@@ -521,13 +522,6 @@ const statements = {
     ORDER BY created_at ASC
   `),
   getMessage: db.prepare('SELECT * FROM messages WHERE id = ?'),
-  searchMessages: db.prepare(`
-    SELECT m.*, c.title AS conversation_title
-    FROM messages m
-    JOIN conversations c ON c.id = m.conversation_id
-    WHERE c.deleted_at IS NULL AND c.conversation_type = 'thread' AND m.hidden = 0
-    ORDER BY m.updated_at DESC
-  `),
   listFavorites: db.prepare('SELECT model_id FROM model_favorites ORDER BY created_at DESC'),
   addFavorite: db.prepare('INSERT OR IGNORE INTO model_favorites (model_id, created_at) VALUES (?, ?)'),
   removeFavorite: db.prepare('DELETE FROM model_favorites WHERE model_id = ?'),
@@ -993,38 +987,7 @@ export function getMessage(id) {
 }
 
 export function searchChats(query) {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return [];
-  const seenConversations = new Set();
-  return statements.searchMessages.all()
-    .map((row) => {
-      const content = row.role === 'assistant'
-        ? answerTextFromTextualBlocks(row.content)
-        : row.content;
-      const source = `${row.conversation_title} ${content}`.toLowerCase();
-      const terms = normalized.split(/\s+/);
-      return {
-        score: source.includes(normalized)
-          ? 1000 + normalized.length
-          : terms.every((term) => source.includes(term))
-            ? 100 + terms.reduce((total, term) => total + term.length, 0)
-            : 0,
-        conversationId: row.conversation_id,
-        messageId: row.id,
-        title: row.conversation_title,
-        role: row.role,
-        content,
-        updatedAt: row.updated_at,
-      };
-    })
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score || new Date(b.updatedAt) - new Date(a.updatedAt))
-    .filter((item) => {
-      if (seenConversations.has(item.conversationId)) return false;
-      seenConversations.add(item.conversationId);
-      return true;
-    })
-    .slice(0, 20);
+  return searchChatsIn(db, query);
 }
 
 export function forkConversation(id, {
