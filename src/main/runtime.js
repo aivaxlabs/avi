@@ -31,6 +31,7 @@ import {
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import {
+  archiveConversation,
   closeDatabase,
   createConversation,
   deleteConversation,
@@ -38,6 +39,8 @@ import {
   deleteRemoteApiKey,
   forkConversation,
   flushSecureStorage,
+  getArchiveSettings,
+  getArchiveStats,
   getComposerState,
   getConversation,
   getMessages,
@@ -47,12 +50,16 @@ import {
   getRemoteSettings,
   initializeSecureStorage,
   listAllConversations,
+  listArchivedConversations,
   listConversations,
   listFavorites,
   listProviders,
   listSideChats,
   listSubagents,
   listTasks,
+  restoreConversation,
+  runArchiveMaintenance,
+  setArchiveSettings,
   setDefaultModels,
   setDesktopSettings,
   setComposerState,
@@ -182,6 +189,7 @@ app.on('child-process-gone', (_event, details) => {
 await app.whenReady();
 if (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin) startHidden = true;
 await initializeSecureStorage();
+runArchiveMaintenance();
 setTraceLevel(getPreferences().tuning.logLevel);
 traceVerbose('app.started', { log_level: getPreferences().tuning.logLevel });
 resourceSnapshotInterval = setInterval(() => {
@@ -707,6 +715,31 @@ function registerIpc() {
     return remoteState();
   });
 
+  const archiveState = (query = '') => ({
+    settings: getArchiveSettings(),
+    conversations: listArchivedConversations(query).map(refreshConversationProject),
+    stats: getArchiveStats(),
+  });
+  applicationIpc.handle('archive:state', (_event, query = '') => archiveState(query));
+  applicationIpc.handle('archive:save', (_event, settings) => ({
+    ...archiveState(),
+    settings: setArchiveSettings(settings),
+  }));
+  applicationIpc.handle('archive:restore', (_event, conversationId) => {
+    restoreConversation(conversationId);
+    return archiveState();
+  });
+  applicationIpc.handle('archive:delete', (_event, conversationId) => {
+    deleteConversation(conversationId, { hard: true });
+    return archiveState();
+  });
+  applicationIpc.handle('archive:maintenance', () => ({
+    ...archiveState(),
+    maintenance: runArchiveMaintenance(),
+    stats: getArchiveStats(),
+    conversations: listArchivedConversations().map(refreshConversationProject),
+  }));
+
   applicationIpc.handle('conversations:list', () => listConversationsWithProjects());
   applicationIpc.handle('conversations:create', (_event, payload = {}) => (
     refreshConversationProject(createConversation(payload))
@@ -722,6 +755,14 @@ function registerIpc() {
     setComposerState(payload.conversationId, payload)
   ));
   applicationIpc.handle('tasks:list', (_event, conversationId) => listTasks(conversationId));
+  applicationIpc.handle('conversations:archive', (_event, conversationId) => {
+    chatRunner.stop(conversationId, { includeSubagents: true });
+    for (const sideChat of listSideChats(conversationId)) {
+      chatRunner.stop(sideChat.id);
+    }
+    archiveConversation(conversationId);
+    return listConversationsWithProjects();
+  });
   applicationIpc.handle('conversations:delete', (_event, conversationId) => {
     chatRunner.stop(conversationId, { includeSubagents: true });
     for (const sideChat of listSideChats(conversationId)) {
@@ -803,11 +844,28 @@ function registerIpc() {
 
     for (const message of messagesInRange.filter((item) => item.role === 'assistant')) {
       const model = message.model || message.conversationModel || 'Unknown model';
-      const totalTokens = Number(message.usage?.totalTokens)
-        || (Number(message.usage?.inputTokens) || 0)
-          + (Number(message.usage?.outputTokens) || 0);
-      const usage = modelUsage.get(model) ?? { id: model, messages: 0, tokens: 0 };
+      const inputTokens = Number(message.usage?.inputTokens) || 0;
+      const cachedInputTokens = Number(message.usage?.cachedInputTokens) || 0;
+      const outputTokens = Number(message.usage?.outputTokens) || 0;
+      const totalTokens = Number(message.usage?.totalTokens) || inputTokens + outputTokens;
+      const usage = modelUsage.get(model) ?? {
+        id: model,
+        messages: 0,
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        outputTokens: 0,
+        durationMs: 0,
+        timedMessages: 0,
+        tokens: 0,
+      };
       usage.messages += 1;
+      usage.inputTokens += inputTokens;
+      usage.cachedInputTokens += cachedInputTokens;
+      usage.outputTokens += outputTokens;
+      if (Number.isFinite(message.usage?.durationMs)) {
+        usage.durationMs += message.usage.durationMs;
+        usage.timedMessages += 1;
+      }
       usage.tokens += totalTokens;
       modelUsage.set(model, usage);
     }
@@ -822,7 +880,7 @@ function registerIpc() {
         tokens: [...modelUsage.values()].reduce((total, usage) => total + usage.tokens, 0),
         topModels: [...modelUsage.values()]
           .sort((a, b) => b.messages - a.messages || b.tokens - a.tokens)
-          .slice(0, 5),
+          .slice(0, 10),
       },
       ongoing: tasks
         .filter((task) => task.ongoing)

@@ -5,7 +5,13 @@ import {
   createDecipheriv,
   randomBytes,
 } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import {
   basename,
@@ -53,6 +59,14 @@ const defaultDesktopSettings = Object.freeze({
   closeToTray: false,
   openAtLogin: false,
 });
+const defaultArchiveSettings = Object.freeze({
+  archiveAfterDays: 7,
+  deleteArchivedAfterDays: 30,
+  deleteDisposableAfterDays: 1,
+});
+const archiveRetentionOptions = Object.freeze([7, 30, null]);
+const archivedDeletionOptions = Object.freeze([30, 60, null]);
+const disposableDeletionOptions = Object.freeze([1, 7, 30, null]);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS session_values (
@@ -79,6 +93,7 @@ db.exec(`
     tasks TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    archived_at TEXT,
     deleted_at TEXT,
     FOREIGN KEY (parent_conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
   );
@@ -266,9 +281,14 @@ if (!conversationColumns.some((column) => column.name === 'context_tokens')) {
 if (!conversationColumns.some((column) => column.name === 'tasks')) {
   db.exec("ALTER TABLE conversations ADD COLUMN tasks TEXT NOT NULL DEFAULT '[]'");
 }
+if (!conversationColumns.some((column) => column.name === 'archived_at')) {
+  db.exec('ALTER TABLE conversations ADD COLUMN archived_at TEXT');
+}
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_conversations_parent
     ON conversations(parent_conversation_id, conversation_type, created_at);
+  CREATE INDEX IF NOT EXISTS idx_conversations_archive
+    ON conversations(archived_at, conversation_type, updated_at);
 `);
 const conversationsWithoutContextUsage = db.prepare(`
   SELECT c.id, (
@@ -395,6 +415,7 @@ const statements = {
       ) AS last_message_status
     FROM conversations c
     WHERE deleted_at IS NULL
+      AND archived_at IS NULL
       AND conversation_type = 'thread'
       AND EXISTS (
         SELECT 1 FROM messages
@@ -411,6 +432,7 @@ const statements = {
       ), '') AS first_prompt
     FROM conversations c
     WHERE deleted_at IS NULL
+      AND archived_at IS NULL
       AND conversation_type = 'side'
       AND parent_conversation_id = ?
     ORDER BY created_at ASC
@@ -424,6 +446,7 @@ const statements = {
       ), '') AS first_prompt
     FROM conversations c
     WHERE deleted_at IS NULL
+      AND archived_at IS NULL
       AND conversation_type = 'subagent'
       AND parent_conversation_id = ?
     ORDER BY created_at ASC
@@ -437,7 +460,27 @@ const statements = {
       ), '') AS first_prompt
     FROM conversations c
     WHERE deleted_at IS NULL
+      AND archived_at IS NULL
     ORDER BY updated_at DESC
+  `),
+  listArchivedConversations: db.prepare(`
+    SELECT c.*,
+      COALESCE((
+        SELECT content FROM messages
+        WHERE conversation_id = c.id AND role = 'user' AND hidden = 0
+        ORDER BY created_at LIMIT 1
+      ), '') AS first_prompt
+    FROM conversations c
+    WHERE deleted_at IS NULL
+      AND archived_at IS NOT NULL
+      AND conversation_type = 'thread'
+      AND (? = '' OR title LIKE ? ESCAPE '\\' OR EXISTS (
+        SELECT 1 FROM messages
+        WHERE conversation_id = c.id AND hidden = 0
+          AND content LIKE ? ESCAPE '\\'
+      ))
+    ORDER BY archived_at DESC
+    LIMIT 200
   `),
   getConversation: db.prepare(`
     SELECT c.*,
@@ -454,7 +497,7 @@ const statements = {
         ORDER BY created_at DESC, rowid DESC LIMIT 1
       ) AS last_message_status
     FROM conversations c
-    WHERE id = ? AND deleted_at IS NULL
+    WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL
   `),
   getComposerState: db.prepare(`
     SELECT * FROM conversation_composer_states WHERE conversation_id = ?
@@ -477,11 +520,70 @@ const statements = {
       attachments = excluded.attachments,
       updated_at = excluded.updated_at
   `),
+  archiveConversation: db.prepare(`
+    WITH RECURSIVE descendants(id) AS (
+      SELECT id FROM conversations WHERE id = ? AND deleted_at IS NULL
+      UNION ALL
+      SELECT c.id FROM conversations c
+      JOIN descendants d ON c.parent_conversation_id = d.id
+      WHERE c.deleted_at IS NULL
+    )
+    UPDATE conversations SET archived_at = ? WHERE id IN descendants
+  `),
+  archivedConversationExists: db.prepare(`
+    SELECT 1 FROM conversations
+    WHERE id = ? AND deleted_at IS NULL AND archived_at IS NOT NULL
+  `),
+  restoreConversation: db.prepare(`
+    WITH RECURSIVE descendants(id) AS (
+      SELECT id FROM conversations WHERE id = ? AND deleted_at IS NULL
+      UNION ALL
+      SELECT c.id FROM conversations c
+      JOIN descendants d ON c.parent_conversation_id = d.id
+      WHERE c.deleted_at IS NULL
+    )
+    UPDATE conversations SET archived_at = NULL WHERE id IN descendants
+  `),
   deleteConversation: db.prepare('UPDATE conversations SET deleted_at = ?, updated_at = ? WHERE id = ?'),
   hardDeleteConversation: db.prepare('DELETE FROM conversations WHERE id = ?'),
   hardDeleteChildConversations: db.prepare(`
     DELETE FROM conversations
     WHERE conversation_type IN ('side', 'subagent') AND parent_conversation_id = ?
+  `),
+  archiveOldConversations: db.prepare(`
+    WITH RECURSIVE descendants(id) AS (
+      SELECT id FROM conversations
+      WHERE deleted_at IS NULL
+        AND archived_at IS NULL
+        AND conversation_type = 'thread'
+        AND updated_at < @cutoff
+      UNION ALL
+      SELECT c.id FROM conversations c
+      JOIN descendants d ON c.parent_conversation_id = d.id
+      WHERE c.deleted_at IS NULL
+    )
+    UPDATE conversations SET archived_at = @archivedAt WHERE id IN descendants
+  `),
+  deleteExpiredArchived: db.prepare(`
+    DELETE FROM conversations
+    WHERE deleted_at IS NULL
+      AND archived_at IS NOT NULL
+      AND conversation_type = 'thread'
+      AND archived_at < ?
+  `),
+  deleteExpiredDisposable: db.prepare(`
+    DELETE FROM conversations
+    WHERE deleted_at IS NULL
+      AND conversation_type IN ('side', 'subagent')
+      AND updated_at < ?
+  `),
+  conversationCounts: db.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN archived_at IS NULL THEN 1 ELSE 0 END) AS active,
+      SUM(CASE WHEN archived_at IS NOT NULL THEN 1 ELSE 0 END) AS archived
+    FROM conversations
+    WHERE deleted_at IS NULL
   `),
   insertMessage: db.prepare(`
     INSERT INTO messages (
@@ -533,12 +635,23 @@ export function getPreferences() {
     defaultModels: normalizeDefaultModels(readJson('defaultModels')),
     tuning: normalizeTuningSettings(readJson('tuningSettings')),
     desktop: normalizeDesktopSettings(readJson('desktopSettings')),
+    archive: getArchiveSettings(),
   };
 }
 
 export function setDesktopSettings(value) {
   const settings = normalizeDesktopSettings(value, true);
   writeJson('desktopSettings', settings);
+  return settings;
+}
+
+export function getArchiveSettings() {
+  return normalizeArchiveSettings(readJson('archiveSettings'));
+}
+
+export function setArchiveSettings(value) {
+  const settings = normalizeArchiveSettings(value, true);
+  writeJson('archiveSettings', settings);
   return settings;
 }
 
@@ -831,6 +944,14 @@ export function listAllConversations() {
   return statements.listAllConversations.all().map(mapConversation);
 }
 
+export function listArchivedConversations(query = '') {
+  const normalized = String(query ?? '').trim();
+  const pattern = `%${normalized.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+  return statements.listArchivedConversations
+    .all(normalized, pattern, pattern)
+    .map(mapConversation);
+}
+
 export function listSideChats(parentConversationId) {
   return statements.listSideChats.all(parentConversationId).map(mapConversation);
 }
@@ -884,6 +1005,19 @@ export function setComposerState(conversationId, state = {}) {
   return getComposerState(conversationId);
 }
 
+export function archiveConversation(id) {
+  const conversation = getConversation(id);
+  if (!conversation || conversation.conversationType !== 'thread') return false;
+  statements.archiveConversation.run(id, timestamp());
+  return true;
+}
+
+export function restoreConversation(id) {
+  if (!statements.archivedConversationExists.get(id)) return false;
+  statements.restoreConversation.run(id);
+  return true;
+}
+
 export function deleteConversation(id, { hard = false } = {}) {
   if (hard) {
     statements.hardDeleteConversation.run(id);
@@ -892,6 +1026,62 @@ export function deleteConversation(id, { hard = false } = {}) {
   const now = timestamp();
   statements.hardDeleteChildConversations.run(id);
   statements.deleteConversation.run(now, now, id);
+}
+
+export function runArchiveMaintenance({ now = new Date() } = {}) {
+  const settings = getArchiveSettings();
+  const result = {
+    archived: 0,
+    deletedArchived: 0,
+    deletedDisposable: 0,
+  };
+  db.exec('BEGIN');
+  try {
+    if (settings.archiveAfterDays !== null) {
+      result.archived = Number(statements.archiveOldConversations.run({
+        archivedAt: now.toISOString(),
+        cutoff: daysBefore(now, settings.archiveAfterDays),
+      }).changes);
+    }
+    if (settings.deleteArchivedAfterDays !== null) {
+      result.deletedArchived = Number(statements.deleteExpiredArchived.run(
+        daysBefore(now, settings.deleteArchivedAfterDays),
+      ).changes);
+    }
+    if (settings.deleteDisposableAfterDays !== null) {
+      result.deletedDisposable = Number(statements.deleteExpiredDisposable.run(
+        daysBefore(now, settings.deleteDisposableAfterDays),
+      ).changes);
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    traceError('database.transaction-error', {
+      operation: 'archive-maintenance',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+  return result;
+}
+
+export function getArchiveStats() {
+  const counts = statements.conversationCounts.get();
+  const databasePath = join(storageDir, 'aivax.sqlite');
+  const diskBytes = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`]
+    .reduce((total, path) => {
+      try {
+        return total + statSync(path).size;
+      } catch {
+        return total;
+      }
+    }, 0);
+  return {
+    total: Number(counts.total) || 0,
+    active: Number(counts.active) || 0,
+    archived: Number(counts.archived) || 0,
+    diskBytes,
+  };
 }
 
 export function insertMessage(message) {
@@ -1365,6 +1555,25 @@ function readJson(key) {
   return row ? parse(row.value, null) : null;
 }
 
+function normalizeArchiveSettings(value, strict = false) {
+  const settings = value && typeof value === 'object' ? value : {};
+  const normalized = {
+    archiveAfterDays: archiveRetentionOptions.includes(settings.archiveAfterDays)
+      ? settings.archiveAfterDays
+      : defaultArchiveSettings.archiveAfterDays,
+    deleteArchivedAfterDays: archivedDeletionOptions.includes(settings.deleteArchivedAfterDays)
+      ? settings.deleteArchivedAfterDays
+      : defaultArchiveSettings.deleteArchivedAfterDays,
+    deleteDisposableAfterDays: disposableDeletionOptions.includes(settings.deleteDisposableAfterDays)
+      ? settings.deleteDisposableAfterDays
+      : defaultArchiveSettings.deleteDisposableAfterDays,
+  };
+  if (strict && Object.entries(normalized).some(([key, entry]) => entry !== settings[key])) {
+    throw new Error('Archive settings are invalid.');
+  }
+  return normalized;
+}
+
 function normalizeDesktopSettings(value, strict = false) {
   const settings = value && typeof value === 'object' ? value : {};
   const normalized = {
@@ -1494,6 +1703,8 @@ function mapConversation(row) {
       ),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    archivedAt: row.archived_at || null,
+    isArchived: Boolean(row.archived_at),
   };
 }
 
@@ -1654,6 +1865,10 @@ function parse(value, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function daysBefore(date, days) {
+  return new Date(date.getTime() - days * 86_400_000).toISOString();
 }
 
 function timestamp() {

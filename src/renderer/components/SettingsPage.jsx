@@ -1,4 +1,5 @@
 import {
+  Archive,
   ArrowLeft,
   ArrowRight,
   Boxes,
@@ -34,6 +35,7 @@ import { useEffect, useRef, useState } from 'react';
 import aviIconUrl from '../../../assets/icon/avi.png';
 import { classNames } from '../lib/format.js';
 import { AppearanceSettings } from './AppearanceSettings.jsx';
+import { ArchiveSettings } from './ArchiveSettings.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { McpSettings } from './McpSettings.jsx';
 import { RemoteSettings } from './RemoteSettings.jsx';
@@ -493,6 +495,7 @@ export function SettingsPage({
     'context-folder': selectedContextFolder?.name || 'Context',
     mcp: mcpNavigation?.title || 'MCP servers',
     remote: 'Remote control',
+    archive: 'Archive',
     'default-models': 'Default models',
     general: 'General',
     tuning: 'Tuning',
@@ -511,13 +514,14 @@ export function SettingsPage({
     mcp: mcpNavigation?.description
       || 'Manage global and per-folder Model Context Protocol servers.',
     remote: 'Expose Avi orchestration through a local authenticated MCP server.',
+    archive: 'Manage conversation retention, archived threads, and storage cleanup.',
     'default-models': 'Choose models for supporting tasks, supervision, and sub-agent orchestration.',
     general: 'Configure chat behavior and desktop integration.',
     tuning: 'Adjust context, tool execution, parallel work, and diagnostics.',
     personalization: 'Choose Avi’s personality, theme, and color scheme.',
     about: 'Project information, version, and links.',
   }[view];
-  const showInlineBack = !['list', 'context-folders', 'mcp', 'remote', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
+  const showInlineBack = !['list', 'context-folders', 'mcp', 'remote', 'archive', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
 
   return (
@@ -664,6 +668,20 @@ export function SettingsPage({
             >
               <Globe2 size={16} />
               Remote control
+            </button>
+          )}
+          {(!settingsQuery || 'archive archived conversations retention cleanup maintenance restore storage'.includes(settingsQuery)) && (
+            <button
+              className={view === 'archive' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'archive' ? 'page' : undefined}
+              onClick={() => {
+                setView('archive');
+                setError('');
+              }}
+            >
+              <Archive size={16} />
+              Archive
             </button>
           )}
 
@@ -974,6 +992,7 @@ export function SettingsPage({
             )}
 
             {view === 'remote' && <RemoteSettings />}
+            {view === 'archive' && <ArchiveSettings />}
             {view === 'mcp' && (
               <McpSettings
                 initialFolder={initialContextFolder}

@@ -1074,8 +1074,8 @@ export default function App() {
     }
   }
 
-  async function deleteConversation(id) {
-    const next = await api.conversations.delete(id);
+  async function archiveConversation(id) {
+    const next = await api.conversations.archive(id);
     setConversations(next);
     setMessagesByConversation((state) => {
       const copy = { ...state };
@@ -1361,10 +1361,17 @@ export default function App() {
             const saved = await api.desktop.save(desktop);
             setAppState((current) => ({ ...current, desktop: saved }));
           }}
-          onClose={() => {
+          onClose={async () => {
+            const nextConversations = await api.conversations.list();
+            setConversations(nextConversations);
             setSettingsContextFolder(null);
             setSettingsInitialView(null);
             setSettingsOpen(false);
+            if (selectedId && !nextConversations.some((conversation) => conversation.id === selectedId)) {
+              const fallback = nextConversations[0]?.id ?? null;
+              selectedConversationIdRef.current = fallback;
+              setSelectedId(fallback);
+            }
           }}
           onSave={async (provider) => applyProviders(await api.providers.save(provider))}
           onRemove={async (providerId) => applyProviders(await api.providers.remove(providerId))}
@@ -1422,7 +1429,7 @@ export default function App() {
               setAuxiliaryPanelVisible(false);
             }}
             onFork={forkConversation}
-            onDelete={deleteConversation}
+            onArchive={archiveConversation}
             onOpenProject={async (project) => {
               try {
                 await api.context.open(project.path);

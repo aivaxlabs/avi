@@ -33,6 +33,7 @@
     "test:default-models": "bun scripts/test-default-models.mjs",
     "test:files": "bun scripts/test-files-panel.mjs",
     "test:side-chat": "bun scripts/test-side-chat-database.mjs",
+    "test:archive": "electron --no-sandbox scripts/test-archive-database.mjs",
     "package": "bun run build && bun scripts/package.mjs"
   },
   "dependencies": {

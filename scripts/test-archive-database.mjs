@@ -1,0 +1,147 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+
+const testProfile = mkdtempSync(join(tmpdir(), 'avi-archive-test-'));
+const resolvedProfile = resolve(testProfile);
+assert.ok(resolvedProfile.startsWith(resolve(tmpdir())));
+process.env.USERPROFILE = resolvedProfile;
+
+let database;
+try {
+  database = await import('../src/main/database.js');
+  const {
+    archiveConversation,
+    createConversation,
+    deleteConversation,
+    forkConversation,
+    getArchiveSettings,
+    getArchiveStats,
+    getConversation,
+    insertMessage,
+    listArchivedConversations,
+    listConversations,
+    listSideChats,
+    listSubagents,
+    restoreConversation,
+    runArchiveMaintenance,
+    searchChats,
+    setArchiveSettings,
+  } = database;
+
+  assert.deepEqual(getArchiveSettings(), {
+    archiveAfterDays: 7,
+    deleteArchivedAfterDays: 30,
+    deleteDisposableAfterDays: 1,
+  });
+  assert.throws(() => setArchiveSettings({
+    archiveAfterDays: 8,
+    deleteArchivedAfterDays: 30,
+    deleteDisposableAfterDays: 1,
+  }), /Archive settings are invalid/);
+
+  const parent = createConversation({ model: 'test/model', projectPath: process.cwd() });
+  insertMessage({
+    conversationId: parent.id,
+    role: 'user',
+    status: 'sent',
+    content: 'Archive fixture searchable text',
+  });
+  const sideChat = forkConversation(parent.id, { sideChat: true }).conversation;
+  const subagent = forkConversation(parent.id, {
+    subagent: true,
+    initialPrompt: 'Inspect the archive fixture.',
+  }).conversation;
+
+  assert.equal(archiveConversation(parent.id), true);
+  assert.equal(archiveConversation(parent.id), false);
+  assert.equal(getConversation(parent.id), null);
+  assert.equal(listConversations().length, 0);
+  assert.equal(listSideChats(parent.id).length, 0);
+  assert.equal(listSubagents(parent.id).length, 0);
+  assert.equal(searchChats('searchable text').length, 0);
+  assert.deepEqual(listArchivedConversations('fixture').map((item) => item.id), [parent.id]);
+  assert.deepEqual(getArchiveStats(), {
+    total: 3,
+    active: 0,
+    archived: 3,
+    diskBytes: getArchiveStats().diskBytes,
+  });
+  assert.ok(getArchiveStats().diskBytes > 0);
+
+  assert.equal(restoreConversation(parent.id), true);
+  assert.equal(restoreConversation(parent.id), false);
+  assert.equal(getConversation(parent.id).id, parent.id);
+  assert.equal(listSideChats(parent.id)[0].id, sideChat.id);
+  assert.equal(listSubagents(parent.id)[0].id, subagent.id);
+  assert.equal(searchChats('searchable text')[0].conversationId, parent.id);
+
+  const sqlite = new DatabaseSync(join(resolvedProfile, '.aivax', 'aivax.sqlite'));
+  const now = new Date('2026-08-04T12:00:00.000Z');
+  sqlite.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?')
+    .run(new Date(now.getTime() - 31 * 86_400_000).toISOString(), parent.id);
+  setArchiveSettings({
+    archiveAfterDays: 30,
+    deleteArchivedAfterDays: 60,
+    deleteDisposableAfterDays: null,
+  });
+  assert.deepEqual(runArchiveMaintenance({ now }), {
+    archived: 3,
+    deletedArchived: 0,
+    deletedDisposable: 0,
+  });
+  assert.equal(listArchivedConversations()[0].id, parent.id);
+
+  sqlite.prepare('UPDATE conversations SET archived_at = ? WHERE id = ?')
+    .run(new Date(now.getTime() - 61 * 86_400_000).toISOString(), parent.id);
+  assert.deepEqual(runArchiveMaintenance({ now }), {
+    archived: 0,
+    deletedArchived: 1,
+    deletedDisposable: 0,
+  });
+  assert.equal(listArchivedConversations().length, 0);
+
+  const disposableParent = createConversation({ model: 'test/model', projectPath: process.cwd() });
+  insertMessage({
+    conversationId: disposableParent.id,
+    role: 'user',
+    status: 'sent',
+    content: 'Disposable parent',
+  });
+  const disposableSide = forkConversation(disposableParent.id, { sideChat: true }).conversation;
+  const disposableSubagent = forkConversation(disposableParent.id, {
+    subagent: true,
+    initialPrompt: 'Disposable sub-agent',
+  }).conversation;
+  sqlite.prepare(`
+    UPDATE conversations SET updated_at = ? WHERE id IN (?, ?)
+  `).run(
+    new Date(now.getTime() - 2 * 86_400_000).toISOString(),
+    disposableSide.id,
+    disposableSubagent.id,
+  );
+  setArchiveSettings({
+    archiveAfterDays: null,
+    deleteArchivedAfterDays: null,
+    deleteDisposableAfterDays: 1,
+  });
+  assert.deepEqual(runArchiveMaintenance({ now }), {
+    archived: 0,
+    deletedArchived: 0,
+    deletedDisposable: 2,
+  });
+  assert.equal(getConversation(disposableParent.id).id, disposableParent.id);
+  assert.equal(listSideChats(disposableParent.id).length, 0);
+  assert.equal(listSubagents(disposableParent.id).length, 0);
+
+  deleteConversation(disposableParent.id, { hard: true });
+  assert.equal(getArchiveStats().total, 0);
+  sqlite.close();
+  console.log('Conversation archive database flow passed.');
+} finally {
+  database?.closeDatabase();
+  rmSync(resolvedProfile, { recursive: true, force: true });
+}
+process.exit(0);
