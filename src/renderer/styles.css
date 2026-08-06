@@ -976,7 +976,11 @@ body.panel-resizing * {
 }
 
 .execution-plan-label {
-    padding: 8px 12px;
+    min-height: 33px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px 6px 12px;
     color: var(--text-3);
     background: var(--background-3);
     border-bottom: 1px solid var(--border-color);
@@ -986,8 +990,29 @@ body.panel-resizing * {
     text-transform: uppercase;
 }
 
+.execution-plan-label button {
+    width: 24px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    color: var(--text-3);
+    border-radius: 5px;
+    opacity: .58;
+    transition: background 140ms var(--base-transition),
+      color 140ms var(--base-transition),
+      opacity 140ms var(--base-transition);
+}
+
+.execution-plan-label button:hover, .execution-plan-label button:focus-visible {
+    color: var(--text-1);
+    background: var(--background-4);
+    opacity: 1;
+}
+
 .execution-plan-content {
+    max-height: min(560px, 60vh);
     padding: 14px 16px 4px;
+    overflow-y: auto;
 }
 
 .execution-plan-content table {
@@ -2445,6 +2470,172 @@ body.panel-resizing * {
     font-size: 12px;
 }
 
+.settings-page .archive-settings {
+    display: grid;
+    gap: 38px;
+}
+
+.settings-page .archive-search {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    color: var(--text-4);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+}
+
+.settings-page .archive-search:focus-within {
+    border-color: var(--text-3);
+}
+
+.settings-page .archive-search input {
+    width: 100%;
+    min-width: 0;
+    color: var(--text-1);
+    background: transparent;
+    border: 0;
+    outline: 0;
+}
+
+.settings-page .archive-list {
+    padding: 0;
+    overflow: hidden;
+}
+
+.settings-page .archive-row {
+    min-width: 0;
+    min-height: 68px;
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+}
+
+.settings-page .archive-row:not(:first-child) {
+    border-top: 1px solid var(--border-color);
+}
+
+.settings-page .archive-copy {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+}
+
+.settings-page .archive-copy strong, .settings-page .archive-copy small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-page .archive-copy strong {
+    color: var(--text-1);
+    font-weight: 500;
+}
+
+.settings-page .archive-copy small {
+    color: var(--text-3);
+}
+
+.settings-page .archive-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.settings-page .archive-actions button, .settings-page .archive-actions .archive-maintenance button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 9px;
+    color: var(--text-2);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+}
+
+.settings-page .archive-actions button:hover:not(:disabled), .settings-page .archive-actions .archive-maintenance button:hover:not(:disabled) {
+    color: var(--text-1);
+    background: var(--item-hover);
+}
+
+.settings-page .archive-actions button.danger:hover:not(:disabled), .settings-page .archive-actions .archive-maintenance button.danger:hover:not(:disabled) {
+    color: var(--danger-color);
+}
+
+.settings-page .archive-empty {
+    min-height: 160px;
+}
+
+.settings-page .archive-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.settings-page .archive-stats > div {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px;
+    color: var(--text-3);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+}
+
+.settings-page .archive-stats > div > span {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.settings-page .archive-stats > div strong {
+    color: var(--text-1);
+    font-size: 15px;
+    font-weight: 500;
+}
+
+.settings-page .archive-maintenance {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.settings-page .archive-maintenance > span {
+    display: grid;
+    gap: 4px;
+}
+
+.settings-page .archive-maintenance > span strong {
+    font-weight: 500;
+}
+
+.settings-page .archive-maintenance > span small {
+    color: var(--text-3);
+    line-height: 1.5;
+}
+
+.settings-page .archive-maintenance button {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    color: var(--danger-color);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+}
+
+.settings-page .archive-maintenance button:hover:not(:disabled) {
+    background: var(--item-hover);
+}
+
 .settings-page .settings-provider-empty strong {
     color: var(--text-1);
     font-size: 13px;
@@ -2824,6 +3015,10 @@ body.panel-resizing * {
         grid-row: 3;
     }
 
+    .settings-page .archive-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .settings-page .settings-actions {
         padding-inline: 32px;
     }
@@ -2905,6 +3100,20 @@ body.panel-resizing * {
 
     .settings-page .model-editor-card {
         padding: 14px;
+    }
+
+    .settings-page .archive-row {
+        grid-template-columns: 32px minmax(0, 1fr);
+    }
+
+    .settings-page .archive-row .archive-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-end;
+    }
+
+    .settings-page .archive-maintenance {
+        align-items: stretch;
+        flex-direction: column;
     }
 
     .settings-page .settings-actions {
@@ -6043,17 +6252,26 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 .orchestration-page .model-usage-list {
     min-height: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 2px 16px;
-    padding: 8px;
+    gap: 10px;
+    padding: 12px;
 }
 
 .orchestration-page .model-usage-row {
     min-width: 0;
     display: grid;
+    gap: 12px;
+    padding: 14px;
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 11px;
+}
+
+.orchestration-page .model-usage-header {
+    min-width: 0;
+    display: grid;
     grid-template-columns: 24px minmax(0, 1fr) auto;
     align-items: center;
     gap: 10px;
-    padding: 10px 8px;
 }
 
 .orchestration-page .model-rank {
@@ -6071,19 +6289,10 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 .orchestration-page .model-usage-copy {
     min-width: 0;
     display: grid;
-    gap: 7px;
-}
-
-.orchestration-page .model-usage-copy > div:first-child {
-    min-width: 0;
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
+    gap: 2px;
 }
 
 .orchestration-page .model-usage-copy strong {
-    min-width: 0;
     overflow: hidden;
     color: var(--text-1);
     font-size: 12px;
@@ -6093,9 +6302,25 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .orchestration-page .model-usage-copy span {
-    flex: 0 0 auto;
     color: var(--text-3);
     font-size: 11px;
+}
+
+.orchestration-page .model-token-total {
+    display: grid;
+    justify-items: end;
+    color: var(--text-1);
+    font-size: 14px;
+    font-weight: 620;
+    font-variant-numeric: tabular-nums;
+}
+
+.orchestration-page .model-token-total span {
+    color: var(--text-4);
+    font-size: 9px;
+    font-weight: 560;
+    letter-spacing: .05em;
+    text-transform: uppercase;
 }
 
 .orchestration-page .model-usage-track {
@@ -6113,9 +6338,32 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     transition: width 300ms var(--base-transition);
 }
 
-.orchestration-page .model-token-count {
-    color: var(--text-3);
-    font-size: 11px;
+.orchestration-page .model-metrics {
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+    gap: 8px;
+}
+
+.orchestration-page .model-metrics div {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+}
+
+.orchestration-page .model-metrics dt {
+    overflow: hidden;
+    color: var(--text-4);
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.orchestration-page .model-metrics dd {
+    margin: 0;
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 570;
     font-variant-numeric: tabular-nums;
 }
 
