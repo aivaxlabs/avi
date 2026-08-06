@@ -662,9 +662,26 @@ try {
   fullStopRunner.stop(subagent.id);
   await waitFor(() => !fullStopRunner.runs.has(subagent.id));
 
+  const sleep = clientTools.CLIENT_TOOLS.find((tool) => tool.name === 'sleep');
   const runInTerminal = clientTools.CLIENT_TOOLS.find((tool) => tool.name === 'run_in_terminal');
   const readTerminalOutput = clientTools.CLIENT_TOOLS.find(
     (tool) => tool.name === 'read_terminal_output',
+  );
+  assert.equal(sleep.inputSchema.properties.seconds.minimum, 5);
+  assert.equal(sleep.inputSchema.properties.seconds.maximum, 1_800);
+  const sleepStartedAt = Date.now();
+  const sleepResult = await sleep.execute(
+    { seconds: 5 },
+    { conversationId: 'sleep-owner', chatRunner: { runs: new Map() } },
+  );
+  assert.ok(sleepResult.sleptSeconds >= 4.9, JSON.stringify(sleepResult));
+  assert.match(sleepResult.wokeAt, /\d/);
+  assert.deepEqual(sleepResult.terminals, []);
+  assert.deepEqual(sleepResult.subagents, []);
+  assert.ok(Date.now() - sleepStartedAt >= 4_900);
+  await assert.rejects(
+    sleep.execute({ seconds: 4 }, { conversationId: 'sleep-owner' }),
+    /seconds must be a number from 5 to 1800/,
   );
   const writeFileTool = clientTools.CLIENT_TOOLS.find((tool) => tool.name === 'write_file');
   const writtenFile = join(testProfile, 'written-by-tool.md');

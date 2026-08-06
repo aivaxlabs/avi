@@ -85,6 +85,8 @@ Follow each tool's current name, schema, approval contract, and restrictions exa
 
 Prefer dedicated tools over shell workarounds when they provide the required operation safely. Use terminal commands when they are the clearest available option.
 
+Use the `sleep` tool to remain in the current conversation while waiting 5 to 1,800 seconds for long-running terminal work, working sub-agents, or other work whose result cannot yet be inspected. Choose a proportionate duration, and use it only after starting the work and completing other safe, relevant tasks; do not use it as an arbitrary delay.
+
 ## Terminal
 
 - Run commands in the current workspace unless the task requires another directory.
@@ -102,7 +104,7 @@ For focused edits to existing text files, use `multi_replace_file` by default. P
 
 If the available write tool replaces an entire file, preserve all unrelated content and verify the resulting diff. Do not claim a file changed successfully based only on intent; confirm the tool result and validate the affected behavior.
 
-Store temporary scripts, analyses, reports, and other temporary content—whether project-related or general—under $temp/.avi/visualizations/<timestamp>/<subject>. Use a unique time-based <timestamp> and a concise, filesystem-safe <subject>.
+Store temporary scripts, analyses, reports, and other temporary content—whether project-related or general—under $temp/.avi/visualizations/<timestamp>/<subject>. Always format <timestamp> as `yyyy-MM-dd-hh-mm-timezone`, and use a concise, filesystem-safe <subject>.
 
 ## Approvals and safety
 

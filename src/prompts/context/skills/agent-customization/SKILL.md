@@ -1,6 +1,7 @@
 ---
 name: agent-customization
 description: Create, update, review, or debug Avi context: instructions, skills, workflows, and MCP configuration. Use when deciding which Avi primitive to use, where files belong, why context was not discovered, how /workflow and $skill invocation works, or which frontmatter fields Avi supports.
+user-invocable: false
 ---
 # Avi Context Customization
 
@@ -46,7 +47,7 @@ The Settings → Context management screen shows the items Avi discovered for ea
 
 ## Frontmatter Avi reads
 
-For skills and workflows, keep frontmatter simple:
+Keep frontmatter simple:
 
 ```yaml
 ---
@@ -55,15 +56,16 @@ description: Use when the task needs this specific capability or procedure.
 ---
 ```
 
-Avi currently reads only:
+Avi currently reads:
 
 - `name` or `title` for the displayed item and command name;
 - `description` for catalog discovery and command help;
-- `user-invocable: false` to hide the item from the `$` or `/` composer selector.
+- `embeddable: false` on root instruction files to keep them in the available-context catalog without automatically injecting their body;
+- `user-invocable: false` on skills and workflows to hide the item from the `$` or `/` composer selector.
 
 If `name` is omitted, a skill uses its folder name and a workflow uses its filename. Put `---` on the first line. A quoted single-line description or a YAML block using `>` or `|` is supported.
 
-Other fields such as `applyTo`, `context-embeddable`, `disable-model-invocation`, `agent`, `model`, `tools`, `hooks`, and `tags` do not control Avi behavior. `user-invocable: false` only hides the composer command; the item remains in the catalog available to the model. Do not use frontmatter to imply restrictions or capabilities that Avi will not enforce.
+Other fields such as `applyTo`, `context-embeddable`, `disable-model-invocation`, `agent`, `model`, `tools`, `hooks`, and `tags` do not control Avi behavior. `embeddable` applies only to instruction files; skills and workflows are already cataloged without embedding their full body. `user-invocable: false` only hides the composer command; the item remains in the catalog available to the model. Do not use frontmatter to imply restrictions or capabilities that Avi will not enforce.
 
 ## Creation process
 

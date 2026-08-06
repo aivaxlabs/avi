@@ -16,7 +16,8 @@ const getSearchStatement = (db, termCount) => {
       SELECT m.id, m.conversation_id, m.role, m.content, m.updated_at, c.title AS conversation_title
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE c.deleted_at IS NULL AND c.conversation_type = 'thread' AND m.hidden = 0
+      WHERE c.deleted_at IS NULL AND c.archived_at IS NULL
+        AND c.conversation_type = 'thread' AND m.hidden = 0
         AND ${predicates}
       ORDER BY m.updated_at DESC
       LIMIT 400

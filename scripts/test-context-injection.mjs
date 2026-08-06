@@ -76,6 +76,13 @@ try {
       'AGENT.invalid.md',
       'NOTES.md',
     ].map((name) => writeFile(path.join(root, name), `# ${name}`)),
+    writeFile(path.join(root, 'optional.instructions.md'), [
+      '---',
+      'description: Optional workspace instructions',
+      'embeddable: false # Keep available without automatic injection',
+      '---',
+      '# Optional instruction body',
+    ].join('\n')),
     writeFile(path.join(root, 'frontend', 'agents.md'), '# Frontend instructions'),
     writeFile(path.join(root, 'nested', 'MEMORY.child.md'), '# Nested memory'),
     writeFile(path.join(tooDeepInstructionDirectory, 'ignored-depth.instructions.md'), '# Beyond maximum recursion'),
@@ -187,6 +194,7 @@ try {
     'MEMORY.md',
     'nested/a/b/c/d/e/deep.instructions.md',
     'nested/MEMORY.child.md',
+    'optional.instructions.md',
     'project.agents.md',
     'project.instructions.md',
   ].sort();
@@ -198,6 +206,14 @@ try {
   assert.equal(
     instructionItems.find((item) => item.description === 'Frontend instructions')?.description,
     'Frontend instructions',
+  );
+  assert.equal(
+    instructionItems.find((item) => item.title === 'optional.instructions.md').embeddable,
+    false,
+  );
+  assert.equal(
+    instructionItems.find((item) => item.title === 'AGENTS.md').embeddable,
+    true,
   );
   assert.ok(!instructionItems.some((item) => item.description.includes('Ignored')));
   assert.ok(!instructionItems.some((item) => item.title === 'ignored-depth.instructions.md'));
@@ -327,6 +343,9 @@ try {
     || !injected.includes('# Global test instructions')
     || !injected.includes('<workspace_instructions>')
     || !injected.includes('--- BEGIN AGENTS.foobar.md ---')
+    || !injected.includes('Instructions:')
+    || !injected.includes('optional.instructions.md — Optional workspace instructions')
+    || injected.includes('# Optional instruction body')
     || !injected.includes('nested/MEMORY.child.md')
     || !injected.includes('Global skill from frontmatter')
     || !injected.includes('Workspace skill from frontmatter')

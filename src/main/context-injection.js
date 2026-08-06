@@ -96,7 +96,7 @@ export const dynamicContextInjectors = new Map([
           'Do not create agents merely to appear busy. Use them when their investigation, comparison, research, analysis, or consolidation has clear value to the plan.',
           'Investigate the repository and available read-only context before asking questions. Ask as many focused questions as necessary to eliminate every material ambiguity, but do not repeat questions or ask for facts that can be discovered from the repository.',
           'Do not present alternatives, unresolved decisions, or implementation work. Refine the plan until no material detail is left open to interpretation.',
-          'When and only when the plan is complete, emit exactly one non-empty <execution-plan>...</execution-plan> block. The block must detail the objective, affected files, specific changes, public contracts, execution sequence, risks, validations, how each validation will be performed, and measurable success criteria.',
+          'When and only when the plan is complete, emit exactly one non-empty <execution-plan>...</execution-plan> block. The block must detail the objective, affected files, specific changes, public contracts, confirmed decisions and their rationale, accepted trade-offs, execution sequence, risks, validations, how each validation will be performed, and measurable success criteria. The completed block is automatically written to .agents/plannings/<timestamp>/<conversation-title>.md in the current workspace.',
           'Do not emit an <execution-plan> block while questions remain unanswered. Outside the final block, keep any necessary communication concise.',
           '</work_mode>',
         ].join('\n')
@@ -372,6 +372,7 @@ export const dynamicContextInjectors = new Map([
           return {
             name: path.relative(root.path, filePath).replaceAll('\\', '/'),
             content: await readFile(filePath, 'utf8'),
+            metadata: await readContextItem(filePath),
           };
         } catch {
           return null;
@@ -395,9 +396,15 @@ export const dynamicContextInjectors = new Map([
         `- ${escapeXml(displayPath(filePath))}`
         + ` ${'\u2014'} ${escapeXml(await readDescription(filePath))}`
       )));
+      const availableInstructionLines = rootFiles
+        .filter((file) => !file.metadata.embeddable)
+        .map((file) => (
+          `- ${escapeXml(displayPath(file.metadata.path))}`
+          + ` ${'\u2014'} ${escapeXml(file.metadata.description)}`
+        ));
 
       const instructionSections = [];
-      for (const file of rootFiles) {
+      for (const file of rootFiles.filter((item) => item.metadata.embeddable)) {
         instructionSections.push(
           `--- BEGIN ${file.name} ---`,
           file.content,
@@ -421,6 +428,9 @@ export const dynamicContextInjectors = new Map([
       }
 
       const catalogSections = [];
+      if (availableInstructionLines.length > 0) {
+        catalogSections.push('Instructions:', ...availableInstructionLines);
+      }
       if (skillLines.length > 0) {
         catalogSections.push('Skills:', ...skillLines);
       }
@@ -793,6 +803,7 @@ async function readContextItem(filePath) {
       path: filePath,
       title: path.basename(filePath),
       description: 'Unable to read file.',
+      embeddable: true,
       userInvocable: true,
       tokenCount: 0,
     };
@@ -806,6 +817,9 @@ async function readContextItem(filePath) {
     .trim()
     .replace(/^(['"])(.*)\1$/, '$2');
   const descriptionIndex = frontmatterLines.findIndex((line) => /^description\s*:/i.test(line));
+  const embeddable = !frontmatterLines.some((line) => (
+    /^embeddable\s*:\s*false(?:\s+#.*)?\s*$/i.test(line)
+  ));
   const userInvocable = !frontmatterLines.some((line) => (
     /^user-invocable\s*:\s*false(?:\s+#.*)?\s*$/i.test(line)
   ));
@@ -834,6 +848,7 @@ async function readContextItem(filePath) {
     path: filePath,
     title: name || path.basename(filePath),
     description: description.replace(/^#+\s*/, '').replace(/\s+/g, ' ').trim(),
+    embeddable,
     userInvocable,
     tokenCount: Math.ceil(content.length / 4),
   };

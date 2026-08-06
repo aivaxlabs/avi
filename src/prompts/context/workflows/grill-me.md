@@ -100,4 +100,4 @@ Once all material decisions are confirmed, produce a plan containing:
 8. validation strategy and success criteria;
 9. remaining assumptions or external blockers, if any.
 
-This workflow produces a normal textual plan. If Avi's formal Plan mode is active, also follow that mode's required output contract.
+Emit the completed plan as exactly one non-empty `<execution-plan>...</execution-plan>` block. Include a dedicated decisions section that records every confirmed decision, its rationale, and any accepted trade-off from the interview. Avi automatically writes that block to `.agents/plannings/<timestamp>/<conversation-title>.md` in the current workspace; do not create a second planning file manually. If formal Plan mode is active, also follow its complete output contract.

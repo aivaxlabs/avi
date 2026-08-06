@@ -33,6 +33,8 @@ const MAX_TERMINAL_OUTPUT_CHARS = 2_000_000;
 const MIN_TERMINAL_TIMEOUT_SECONDS = 1;
 const MAX_TERMINAL_TIMEOUT_SECONDS = 300;
 const DEFAULT_TERMINAL_TIMEOUT_SECONDS = 30;
+const MIN_SLEEP_SECONDS = 5;
+const MAX_SLEEP_SECONDS = 30 * 60;
 const MAX_INSPECTED_TURNS = 4;
 const MAX_ASSISTANT_MESSAGES_BEFORE_FINAL = 6;
 const MAX_INSPECTED_TOOL_RESULT_CHARS = 512 * 4;
@@ -48,14 +50,21 @@ function appendTerminalOutput(terminal, chunk) {
   terminal.events.emit('activity');
 }
 
+function terminalStatus(terminal) {
+  if (terminal.running) return 'running';
+  if (terminal.stopping) return 'stopped';
+  return terminal.exitCode === 0 ? 'completed' : 'failed';
+}
+
 function terminalSnapshot(terminal, { includeId = true } = {}) {
   const parts = [];
   if (includeId) parts.push(`Terminal ID: ${terminal.id}`);
-  if (terminal.running) {
+  const status = terminalStatus(terminal);
+  if (status === 'running') {
     parts.push('Status: running');
-  } else if (terminal.stopping) {
+  } else if (status === 'stopped') {
     parts.push('Status: stopped');
-  } else if (terminal.exitCode !== 0) {
+  } else if (status === 'failed') {
     parts.push(`Exit code: ${terminal.exitCode}${terminal.signal ? ` (signal: ${terminal.signal})` : ''}`);
   }
   if (terminal.output) parts.push(terminal.output);
@@ -1009,6 +1018,74 @@ export const CLIENT_TOOLS = Object.freeze([
         url: target.href,
         content: content.slice(0, MAX_READ_URL_CHARS),
         truncated: content.length > MAX_READ_URL_CHARS,
+      };
+    },
+  },
+  {
+    name: 'sleep',
+    description: 'Wait for a requested number of seconds without leaving the current conversation. Use this to await long-running sub-agent work, terminal work, or analyses, then receive the current status of this conversation\'s terminals and direct sub-agents.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        seconds: {
+          type: 'number',
+          minimum: MIN_SLEEP_SECONDS,
+          maximum: MAX_SLEEP_SECONDS,
+          description: 'How long to wait, in seconds. Choose a value from 5 seconds to 30 minutes.',
+        },
+      },
+      required: ['seconds'],
+      additionalProperties: false,
+    },
+    execute: async ({ seconds }, { signal, conversationId, chatRunner }) => {
+      if (
+        !Number.isFinite(seconds)
+        || seconds < MIN_SLEEP_SECONDS
+        || seconds > MAX_SLEEP_SECONDS
+      ) {
+        throw new Error('seconds must be a number from 5 to 1800.');
+      }
+
+      const startedAt = Date.now();
+      await new Promise((resolveSleep, rejectSleep) => {
+        const abort = () => {
+          clearTimeout(timeout);
+          signal?.removeEventListener('abort', abort);
+          rejectSleep(new Error('Sleep was interrupted.'));
+        };
+        const timeout = setTimeout(() => {
+          signal?.removeEventListener('abort', abort);
+          resolveSleep();
+        }, seconds * 1_000);
+        signal?.addEventListener('abort', abort, { once: true });
+        if (signal?.aborted) abort();
+      });
+      const wokeAt = new Date();
+
+      return {
+        sleptSeconds: Math.round((Date.now() - startedAt) / 10) / 100,
+        wokeAt: wokeAt.toString(),
+        terminals: [...terminals.values()]
+          .filter((terminal) => terminal.conversationId === conversationId)
+          .map((terminal) => ({
+            id: terminal.id,
+            command: terminal.command,
+            status: terminalStatus(terminal),
+          })),
+        subagents: listAllConversations()
+          .filter((conversation) => (
+            conversation.isSubagent && conversation.parentConversationId === conversationId
+          ))
+          .map((subagent) => ({
+            id: subagent.id,
+            title: subagent.title,
+            status: chatRunner?.getPendingQuestion?.(subagent.id)
+              ? 'waiting_for_input'
+              : chatRunner?.runs?.has(subagent.id) ? 'running' : 'idle',
+          })),
       };
     },
   },

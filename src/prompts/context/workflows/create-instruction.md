@@ -54,13 +54,19 @@ Read existing instruction files at and around the target scope. Check for rules 
 
 Based on the scope decision above, determine the exact file path. If updating an existing file, identify where the new rule fits structurally.
 
-### 3. Write the instruction
+### 3. Decide whether to embed a root instruction
+
+Root instruction files are embedded in the system instructions by default. Add `embeddable: false` to the front matter only when the root instruction is optional or specialized and should remain available for the agent to discover and read without consuming context on every turn. Include a clear `description` so the available-context catalog explains when the agent should read it.
+
+Do not add `embeddable` to nested instructions, skills, or workflows. Nested instructions are already cataloged instead of embedded, and skills and workflows use their own discovery behavior.
+
+### 4. Write the instruction
 
 Follow the authoring rules and anti-patterns from the agent-customization skill's instructions references.
 
-### 4. Validate
+### 5. Validate
 
-Follow the validation guidance from the instructions references. Additionally confirm that no contradiction exists with broader or narrower instruction files and no secrets or machine-specific paths were included.
+Follow the validation guidance from the instructions references. For a root instruction with `embeddable: false`, confirm that its path and description appear in the available-context catalog and that its body is absent from the system instructions. Additionally confirm that no contradiction exists with broader or narrower instruction files and no secrets or machine-specific paths were included.
 
 ## Completion report
 

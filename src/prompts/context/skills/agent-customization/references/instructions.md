@@ -25,7 +25,8 @@ These compatibility names do not gain VS Code or other editor semantics. In part
 
 ## How scope works
 
-- An instruction file at the root of a context source is injected in full.
+- An instruction file at the root of a context source is injected in full by default.
+- A root instruction file with `embeddable: false` in its front matter is cataloged with its path and description instead of having its body injected.
 - A nested instruction file is cataloged with its path and description.
 - The agent must read applicable nested instructions before modifying files in their scope.
 - Directory hierarchy communicates intended scope to the agent: a deeper instruction file should refine or override broader guidance for its descendants. The Avi loader catalogs nested files but does not itself evaluate directory applicability or merge their bodies.
@@ -48,6 +49,15 @@ description: Rules for database migrations under this directory.
 ```
 
 If there is no description, Avi uses the first non-empty body line. Descriptions help discovery but do not replace reading the file.
+
+Use `embeddable: false` when a root instruction should remain available for the agent to discover and read without consuming every turn's system-instruction context:
+
+```markdown
+---
+description: Optional release-process guidance.
+embeddable: false
+---
+```
 
 ## Source order
 
