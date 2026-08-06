@@ -379,9 +379,16 @@ export function SettingsPage({
   useEffect(() => {
     if (view !== 'tuning') return undefined;
     let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      if (!cancelled) {
+        setTerminalShells([]);
+        setTerminalShellError('The shell detector did not respond within 10 seconds.');
+      }
+    }, 10_000);
     setTerminalShells(null);
     setTerminalShellError('');
-    window.chatApp.tuning.shells()
+    Promise.resolve()
+      .then(() => window.chatApp.tuning.shells())
       .then((shells) => {
         if (!cancelled) setTerminalShells(shells);
       })
@@ -390,9 +397,11 @@ export function SettingsPage({
           setTerminalShells([]);
           setTerminalShellError(nextError instanceof Error ? nextError.message : String(nextError));
         }
-      });
+      })
+      .finally(() => window.clearTimeout(timeout));
     return () => {
       cancelled = true;
+      window.clearTimeout(timeout);
     };
   }, [view, terminalShellLoadAttempt]);
 
