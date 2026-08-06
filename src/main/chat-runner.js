@@ -5,7 +5,10 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
+import {
+  answerTextFromTextualBlocks,
+  executionPlansFromTextualBlocks,
+} from '../shared/textual-blocks.js';
 import {
   deleteMessage,
   ensureConversation,
@@ -57,6 +60,7 @@ const PLAN_TOOL_NAMES = new Set([
   'chat_spawn_subagent',
   'read_file',
   'read_terminal_output',
+  'sleep',
   'read_url',
 ]);
 const COMPACTION_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a self-contained handoff checkpoint for another LLM that will resume this exact task. The checkpoint becomes the sole conversation history; no earlier messages, in-flight assistant content, tool calls, or tool results will remain available. Preserve all critical information from the supplied context while using substantially fewer tokens. Do not continue the task itself.
@@ -2138,6 +2142,36 @@ export class ChatRunner {
           : null,
       };
       const completedMessage = persistAssistant({ status: 'completed', force: true });
+      const executionPlans = executionPlansFromTextualBlocks(completedMessage.content);
+      if (executionPlans.length === 1) {
+        const conversation = getConversation(conversationId);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const rawTitle = String(conversation?.title ?? '').trim();
+        const sanitizedTitle = rawTitle
+          .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '-')
+          .replace(/[. ]+$/g, '')
+          .slice(0, 100)
+          || 'plan';
+        const fileName = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(sanitizedTitle)
+          ? `plan-${sanitizedTitle}`
+          : sanitizedTitle;
+        const planningDirectory = join(
+          conversation?.projectPath ?? process.cwd(),
+          '.agents',
+          'plannings',
+          timestamp,
+        );
+        try {
+          mkdirSync(planningDirectory, { recursive: true });
+          writeFileSync(join(planningDirectory, `${fileName}.md`), `${executionPlans[0]}\n`, 'utf8');
+        } catch (error) {
+          traceError('plan.persistence-error', {
+            thread_id: conversationId,
+            path: planningDirectory,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
       await this.forwardSubagentResult(completedMessage);
       this.logChatTiming(conversationId, selection, {
         phase: 'message-completed',

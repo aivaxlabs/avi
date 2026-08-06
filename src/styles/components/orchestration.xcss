@@ -416,17 +416,26 @@
   .model-usage-list {
     min-height: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 2px 16px;
-    padding: 8px;
+    gap: 10px;
+    padding: 12px;
   }
 
   .model-usage-row {
     min-width: 0;
     display: grid;
+    gap: 12px;
+    padding: 14px;
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 11px;
+  }
+
+  .model-usage-header {
+    min-width: 0;
+    display: grid;
     grid-template-columns: 24px minmax(0, 1fr) auto;
     align-items: center;
     gap: 10px;
-    padding: 10px 8px;
   }
 
   .model-rank {
@@ -444,18 +453,9 @@
   .model-usage-copy {
     min-width: 0;
     display: grid;
-    gap: 7px;
-
-    > div:first-child {
-      min-width: 0;
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 12px;
-    }
+    gap: 2px;
 
     strong {
-      min-width: 0;
       overflow: hidden;
       color: var(--text-1);
       font-size: 12px;
@@ -465,9 +465,25 @@
     }
 
     span {
-      flex: 0 0 auto;
       color: var(--text-3);
       font-size: 11px;
+    }
+  }
+
+  .model-token-total {
+    display: grid;
+    justify-items: end;
+    color: var(--text-1);
+    font-size: 14px;
+    font-weight: 620;
+    font-variant-numeric: tabular-nums;
+
+    span {
+      color: var(--text-4);
+      font-size: 9px;
+      font-weight: 560;
+      letter-spacing: .05em;
+      text-transform: uppercase;
     }
   }
 
@@ -486,10 +502,33 @@
     }
   }
 
-  .model-token-count {
-    color: var(--text-3);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
+  .model-metrics {
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+    gap: 8px;
+
+    div {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+    }
+
+    dt {
+      overflow: hidden;
+      color: var(--text-4);
+      font-size: 10px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    dd {
+      margin: 0;
+      color: var(--text-2);
+      font-size: 12px;
+      font-weight: 570;
+      font-variant-numeric: tabular-nums;
+    }
   }
 
   .orchestration-empty {

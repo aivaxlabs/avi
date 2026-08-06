@@ -60,7 +60,10 @@ import { consolidateFileEdits, createUndoPrompt } from '../lib/file-edits.js';
 import { parseStructuredUserMessage } from '../lib/message-groups.js';
 import { classNames } from '../lib/format.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
-import { answerTextFromTextualBlocks } from '../../shared/textual-blocks.js';
+import {
+  answerTextFromTextualBlocks,
+  executionPlansFromTextualBlocks,
+} from '../../shared/textual-blocks.js';
 
 const compactTokenFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
@@ -914,8 +917,10 @@ const MarkdownSegment = memo(function MarkdownSegment({
   );
   const parts = useMemo(() => {
     const parsed = [];
-    const pattern = /<execution-plan>\s*([\s\S]*?\S)\s*<\/execution-plan>/g;
+    const plans = executionPlansFromTextualBlocks(renderedText);
+    const pattern = /<execution-plan>\s*[\s\S]*?\S\s*<\/execution-plan>/gi;
     let cursor = 0;
+    let planIndex = 0;
     let match;
     while ((match = pattern.exec(renderedText)) !== null) {
       if (match.index > cursor) {
@@ -926,8 +931,9 @@ const MarkdownSegment = memo(function MarkdownSegment({
       }
       parsed.push({
         type: 'execution-plan',
-        text: match[1].trim(),
+        text: plans[planIndex],
       });
+      planIndex += 1;
       cursor = match.index + match[0].length;
     }
     if (cursor < renderedText.length) {
@@ -950,7 +956,17 @@ const MarkdownSegment = memo(function MarkdownSegment({
             className="execution-plan"
             aria-label="Execution plan"
           >
-            <div className="execution-plan-label">Execution plan</div>
+            <div className="execution-plan-label">
+              <span>Execution plan</span>
+              <button
+                type="button"
+                aria-label="Copy execution plan"
+                title="Copy execution plan"
+                onClick={() => copyText(part.text)}
+              >
+                <Copy size={13} />
+              </button>
+            </div>
             <div className="markdown-body execution-plan-content">
               <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>
                 {part.text}

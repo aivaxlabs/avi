@@ -3,6 +3,8 @@ import { Database } from 'bun:sqlite';
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -108,9 +110,13 @@ try {
     },
   };
   const { runner: planRunner } = buildRunner(planProvider, { mcpManager: planMcpManager });
+  const planWorkspace = join(resolvedProfile, 'workspace');
+  mkdirSync(planWorkspace, { recursive: true });
   const planConversation = createConversation({
+    title: 'Release plan',
+    titleStatus: 'generated',
     model: model.id,
-    projectPath: process.cwd(),
+    projectPath: planWorkspace,
   });
   await planRunner.send({
     conversationId: planConversation.id,
@@ -135,11 +141,20 @@ try {
       'read_file',
       'read_terminal_output',
       'read_url',
+      'sleep',
     ],
   );
   assert.deepEqual(
     getMessages(planConversation.id).map((message) => message.workMode),
     ['plan', 'plan'],
+  );
+  const planningRoot = join(planWorkspace, '.agents', 'plannings');
+  const planningDirectories = readdirSync(planningRoot);
+  assert.equal(planningDirectories.length, 1);
+  assert.match(planningDirectories[0], /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z$/);
+  assert.equal(
+    readFileSync(join(planningRoot, planningDirectories[0], 'Release plan.md'), 'utf8'),
+    'Complete plan\n',
   );
 
   const mediaPath = join(resolvedProfile, 'pixel.png');

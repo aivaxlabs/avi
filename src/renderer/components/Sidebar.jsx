@@ -1,4 +1,5 @@
 import {
+  Archive,
   Check,
   CheckCircle2,
   Clock,
@@ -20,7 +21,6 @@ import {
   Server,
   Settings,
   SquareTerminal,
-  Trash2,
   TriangleAlert,
   Zap,
 } from 'lucide-react';
@@ -47,7 +47,7 @@ export function Sidebar({
   onSearch,
   onOpenOrchestration,
   onFork,
-  onDelete,
+  onArchive,
   onOpenProject,
   onOpenTerminal,
   onCopyPath,
@@ -418,7 +418,7 @@ export function Sidebar({
                   now={now}
                   onSelect={() => onSelect(conversation.id)}
                   onFork={() => onFork(conversation.id)}
-                  onDelete={() => onDelete(conversation.id)}
+                  onArchive={() => onArchive(conversation.id)}
                   onCopyId={() => onCopyThreadId(conversation.id)}
                 />
               ))}
@@ -457,7 +457,7 @@ function ConversationItem({
   now,
   onSelect,
   onFork,
-  onDelete,
+  onArchive,
   onCopyId,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -546,8 +546,8 @@ function ConversationItem({
           <DropdownMenuItem icon={<Hash size={14} />} onClick={() => runMenuAction(onCopyId)}>
             Copy thread ID
           </DropdownMenuItem>
-          <DropdownMenuItem icon={<Trash2 size={14} />} onClick={() => runMenuAction(onDelete)}>
-            Delete chat
+          <DropdownMenuItem icon={<Archive size={14} />} onClick={() => runMenuAction(onArchive)}>
+            Archive chat
           </DropdownMenuItem>
         </DropdownMenu>,
         document.body,

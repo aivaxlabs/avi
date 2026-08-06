@@ -7,6 +7,12 @@ const textualBlockMarkers = [
   { type: 'thinking', openTag: '<tool>', closeTag: '</tool>' },
 ];
 
+export function executionPlansFromTextualBlocks(content) {
+  return [...String(content ?? '').matchAll(
+    /<execution-plan>\s*([\s\S]*?\S)\s*<\/execution-plan>/gi,
+  )].map((match) => match[1].trim());
+}
+
 export function answerTextFromTextualBlocks(content) {
   const source = String(content ?? '');
   const answers = collectAssistantAnswers(source);

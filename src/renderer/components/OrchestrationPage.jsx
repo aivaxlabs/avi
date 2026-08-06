@@ -232,7 +232,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
                 )) : (
                   <EmptyState
                     icon={<Clock3 size={18} />}
-                    text={loading ? 'Loading tasks…' : 'No ongoing tasks.'}
+                    text={loading ? 'Loading tasks...' : 'No ongoing tasks.'}
                   />
                 )}
               </div>
@@ -261,7 +261,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
                   : (
                     <EmptyState
                       icon={<CheckCircle2 size={18} />}
-                      text={loading ? 'Loading history…' : 'No recent completions.'}
+                      text={loading ? 'Loading history...' : 'No recent completions.'}
                     />
                   )}
               </div>
@@ -271,33 +271,58 @@ export function OrchestrationPage({ models, onOpenThread }) {
               <div className="orchestration-section-heading">
                 <div>
                   <span className="section-icon"><Bot size={16} /></span>
-                  <h2>Top 5 most used models</h2>
+                  <h2>Top 10 most used models</h2>
                 </div>
                 <span className="section-caption">{rangeCaption}</span>
               </div>
               <div className="model-usage-list">
                 {overview?.metrics.topModels.length
                   ? overview.metrics.topModels.map((model, index) => (
-                    <div className="model-usage-row" key={model.id}>
-                      <span className="model-rank">{index + 1}</span>
-                      <div className="model-usage-copy">
-                        <div>
+                    <article className="model-usage-row" key={model.id}>
+                      <div className="model-usage-header">
+                        <span className="model-rank">{index + 1}</span>
+                        <div className="model-usage-copy">
                           <strong>{modelsById.get(model.id) ?? model.id}</strong>
                           <span>{model.messages} {model.messages === 1 ? 'response' : 'responses'}</span>
                         </div>
-                        <div className="model-usage-track" aria-hidden="true">
-                          <span style={{ width: `${(model.messages / topModelCount) * 100}%` }} />
-                        </div>
+                        <strong className="model-token-total" title={`${fullNumber.format(model.tokens)} total tokens`}>
+                          {compactNumber.format(model.tokens)}
+                          <span>total</span>
+                        </strong>
                       </div>
-                      <span className="model-token-count" title={`${fullNumber.format(model.tokens)} tokens`}>
-                        {compactNumber.format(model.tokens)}
-                      </span>
-                    </div>
+                      <div className="model-usage-track" aria-hidden="true">
+                        <span style={{ width: `${(model.messages / topModelCount) * 100}%` }} />
+                      </div>
+                      <dl className="model-metrics">
+                        <div>
+                          <dt>Input tokens</dt>
+                          <dd title={fullNumber.format(model.inputTokens)}>{compactNumber.format(model.inputTokens)}</dd>
+                        </div>
+                        <div>
+                          <dt>Cached tokens</dt>
+                          <dd title={fullNumber.format(model.cachedInputTokens)}>{compactNumber.format(model.cachedInputTokens)}</dd>
+                        </div>
+                        <div>
+                          <dt>Output tokens</dt>
+                          <dd title={fullNumber.format(model.outputTokens)}>{compactNumber.format(model.outputTokens)}</dd>
+                        </div>
+                        {model.timedMessages === model.messages && (
+                          <div>
+                            <dt>Model time</dt>
+                            <dd>{model.durationMs >= 3_600_000
+                              ? `${Math.floor(model.durationMs / 3_600_000)}h ${Math.floor((model.durationMs % 3_600_000) / 60_000)}m`
+                              : model.durationMs >= 60_000
+                                ? `${Math.floor(model.durationMs / 60_000)}m ${Math.floor((model.durationMs % 60_000) / 1_000)}s`
+                                : `${(model.durationMs / 1_000).toFixed(model.durationMs < 10_000 ? 1 : 0)}s`}</dd>
+                          </div>
+                        )}
+                      </dl>
+                    </article>
                   ))
                   : (
                     <EmptyState
                       icon={<Bot size={18} />}
-                      text={loading ? 'Loading models…' : `No models used during ${rangeCaption.toLowerCase()}.`}
+                      text={loading ? 'Loading models...' : `No models used during ${rangeCaption.toLowerCase()}.`}
                     />
                   )}
               </div>
