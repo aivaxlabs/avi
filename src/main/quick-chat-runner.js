@@ -380,6 +380,21 @@ export class QuickChatRunner {
       tuning: this.getPreferences().tuning,
       defaultModels: this.getPreferences().defaultModels,
       capabilities: selection.model.capabilities,
+      artifacts: Object.freeze({
+        getRecentGeneratedImages: ({ limit }) => session.messages
+          .flatMap((message) => message.attachments ?? [])
+          .filter((attachment) => (
+            attachment?.kind === 'image_url'
+            && attachment.source === 'generated_image'
+            && typeof attachment.path === 'string'
+            && attachment.path
+          ))
+          .slice(-limit)
+          .map((attachment) => ({
+            name: attachment.name ?? null,
+            path: attachment.path,
+          })),
+      }),
     });
   }
 

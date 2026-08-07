@@ -17,6 +17,7 @@ import {
   GitBranch,
   LoaderCircle,
   MessageSquarePlus,
+  MessagesSquare,
   RefreshCw,
   Search,
   X,
@@ -155,6 +156,7 @@ function FileIcon({
 export function FilesPanel({
   project,
   onAddToChat,
+  onAskInSideChat,
   navigation,
   onNavigationConsumed,
 }) {
@@ -416,7 +418,7 @@ export function FilesPanel({
     if (!selectionAction) return undefined;
     const controller = new AbortController();
     window.addEventListener('pointerdown', (event) => {
-      if (event.target.closest?.('.files-selection-action')) return;
+      if (event.target.closest?.('.selection-action-group')) return;
       setSelectionAction(null);
     }, { signal: controller.signal });
     window.addEventListener('keydown', (event) => {
@@ -524,7 +526,7 @@ export function FilesPanel({
   const updateSelectionAction = () => {
     const selection = window.getSelection();
     if (
-      !onAddToChat
+      (!onAddToChat && !onAskInSideChat)
       || !preview?.content
       || !selection
       || selection.rangeCount === 0
@@ -545,56 +547,71 @@ export function FilesPanel({
     const endCode = endElement?.closest?.('code');
     const startLineElement = startCode?.closest('.files-code-line');
     const endLineElement = endCode?.closest('.files-code-line');
-    if (
-      !startLineElement
-      || !endLineElement
-      || !panelRef.current?.contains(startLineElement)
-      || !panelRef.current?.contains(endLineElement)
+    const diffCode = preview.kind === 'diff'
+      && startCode === endCode
+      && startCode?.closest('.files-diff');
+    let content;
+    let lineFrom;
+    let lineTo;
+    let charFrom;
+    let charTo;
+    if (diffCode && panelRef.current?.contains(diffCode)) {
+      const startOffset = selectionOffset(startCode, range.startContainer, range.startOffset);
+      const endOffset = selectionOffset(endCode, range.endContainer, range.endOffset);
+      const beforeSelection = preview.content.slice(0, startOffset);
+      const throughSelection = preview.content.slice(0, endOffset);
+      content = preview.content.slice(startOffset, endOffset);
+      lineFrom = beforeSelection.split('\n').length;
+      lineTo = throughSelection.split('\n').length;
+      charFrom = startOffset - beforeSelection.lastIndexOf('\n');
+      charTo = endOffset - throughSelection.lastIndexOf('\n') - 1;
+    } else if (
+      startLineElement
+      && endLineElement
+      && panelRef.current?.contains(startLineElement)
+      && panelRef.current?.contains(endLineElement)
     ) {
-      setSelectionAction(null);
-      return;
+      const lines = preview.content.split('\n');
+      lineFrom = Number(startLineElement.dataset.filesLine);
+      lineTo = Number(endLineElement.dataset.filesLine);
+      const startOffset = Math.min(
+        selectionOffset(startCode, range.startContainer, range.startOffset),
+        lines[lineFrom - 1].length,
+      );
+      const endOffset = Math.min(
+        selectionOffset(endCode, range.endContainer, range.endOffset),
+        lines[lineTo - 1].length,
+      );
+      content = lineFrom === lineTo
+        ? lines[lineFrom - 1].slice(startOffset, endOffset)
+        : [
+            lines[lineFrom - 1].slice(startOffset),
+            ...lines.slice(lineFrom, lineTo - 1),
+            lines[lineTo - 1].slice(0, endOffset),
+          ].join('\n');
+      charFrom = startOffset + 1;
+      charTo = endOffset;
     }
-
-    const lines = preview.content.split('\n');
-    const lineFrom = Number(startLineElement.dataset.filesLine);
-    const lineTo = Number(endLineElement.dataset.filesLine);
-    const startOffset = Math.min(
-      selectionOffset(startCode, range.startContainer, range.startOffset),
-      lines[lineFrom - 1].length,
-    );
-    const endOffset = Math.min(
-      selectionOffset(endCode, range.endContainer, range.endOffset),
-      lines[lineTo - 1].length,
-    );
-    const content = lineFrom === lineTo
-      ? lines[lineFrom - 1].slice(startOffset, endOffset)
-      : [
-          lines[lineFrom - 1].slice(startOffset),
-          ...lines.slice(lineFrom, lineTo - 1),
-          lines[lineTo - 1].slice(0, endOffset),
-        ].join('\n');
     if (!content) {
       setSelectionAction(null);
       return;
     }
 
     const rect = range.getBoundingClientRect();
-    const width = 104;
+    const width = 276;
     const height = 34;
-    const below = rect.bottom + 8;
+    const above = rect.top - height - 8;
     setSelectionAction({
       content,
       lineFrom,
       lineTo,
-      charFrom: startOffset + 1,
-      charTo: endOffset,
+      charFrom,
+      charTo,
       left: Math.max(8, Math.min(
         rect.left + rect.width / 2 - width / 2,
         window.innerWidth - width - 8,
       )),
-      top: below + height <= window.innerHeight - 8
-        ? below
-        : Math.max(8, rect.top - height - 8),
+      top: above >= 8 ? above : Math.min(window.innerHeight - height - 8, rect.bottom + 8),
     });
   };
 
@@ -705,7 +722,47 @@ export function FilesPanel({
             aria-pressed={gitOnly}
             title="Show only Git changes"
             disabled={!workspace}
-            onClick={() => setGitOnly((current) => !current)}
+            onClick={async () => {
+              if (gitOnly) {
+                setGitOnly(false);
+                return;
+              }
+
+              setGitOnly(true);
+              const nextDirectories = { ...directories };
+              const nextExpanded = new Set(expanded);
+              let changedDirectories = (nextDirectories[''] ?? workspace.children)
+                .filter((node) => (
+                  node.type === 'directory' && gitVisibleStatuses.has(node.status)
+                ));
+
+              try {
+                while (changedDirectories.length > 0) {
+                  changedDirectories.forEach((node) => nextExpanded.add(node.path));
+                  const unloadedDirectories = changedDirectories.filter((node) => (
+                    !nextDirectories[node.path]
+                  ));
+                  const loadedChildren = await Promise.all(unloadedDirectories.map((node) => (
+                    window.chatApp.files.directory({
+                      folderPath: project.path,
+                      directoryPath: node.path,
+                    })
+                  )));
+                  unloadedDirectories.forEach((node, index) => {
+                    nextDirectories[node.path] = loadedChildren[index];
+                  });
+                  changedDirectories = changedDirectories.flatMap((node) => (
+                    nextDirectories[node.path]?.filter((child) => (
+                      child.type === 'directory' && gitVisibleStatuses.has(child.status)
+                    )) ?? []
+                  ));
+                }
+                setDirectories(nextDirectories);
+                setExpanded(nextExpanded);
+              } catch (nextError) {
+                setError(nextError instanceof Error ? nextError.message : String(nextError));
+              }
+            }}
           >
             <GitBranch size={14} />
           </button>
@@ -753,7 +810,7 @@ export function FilesPanel({
           {!hasSearch && !workspace && !error && (
             <div className="files-loading">
               <LoaderCircle className="spin" size={16} aria-hidden="true" />
-              <span>Scanning files and Git repositories…</span>
+              <span>Scanning files and Git repositories...</span>
             </div>
           )}
           {!hasSearch && workspace && (
@@ -778,7 +835,7 @@ export function FilesPanel({
               {searching && !searchResults && (
                 <div className="files-loading">
                   <LoaderCircle className="spin" size={16} aria-hidden="true" />
-                  <span>Searching files and content…</span>
+                  <span>Searching files and content...</span>
                 </div>
               )}
               {searchError && (
@@ -925,7 +982,7 @@ export function FilesPanel({
               {loadingPath === selectedPath ? (
                 <div className="files-panel-state">
                   <LoaderCircle className="spin" size={18} aria-hidden="true" />
-                  <span>Opening preview…</span>
+                  <span>Opening preview...</span>
                 </div>
               ) : preview?.kind === 'edit' ? (
                 <div className="files-edit-columns" aria-label={`Changes to ${selectedPath}`}>
@@ -979,6 +1036,9 @@ export function FilesPanel({
                   className={`files-code files-diff diff-highlight language-${previewLanguage}`}
                   tabIndex={0}
                   aria-label={`Git diff for ${preview.name}`}
+                  onMouseUp={updateSelectionAction}
+                  onKeyUp={updateSelectionAction}
+                  onScroll={() => setSelectionAction(null)}
                 >
                   {preview.content ? (
                     <code
@@ -1013,44 +1073,53 @@ export function FilesPanel({
       </div>
 
       {selectionAction && createPortal(
-        <button
-          className="files-selection-action"
-          type="button"
+        <div
+          className="selection-action-group"
+          role="toolbar"
+          aria-label="Selected code actions"
           style={{ left: selectionAction.left, top: selectionAction.top }}
           onMouseDown={(event) => event.preventDefault()}
-          onClick={() => {
-            const absolutePath = absoluteWorkspacePath(project.path, selectedPath);
-            const escapedFilePath = escapeXmlAttribute(absolutePath);
-            onAddToChat({
-              id: crypto.randomUUID(),
-              kind: 'context_marker',
-              markerType: 'file_selection',
-              name: `${preview.name}:${selectionAction.lineFrom}${
-                selectionAction.lineTo === selectionAction.lineFrom
-                  ? ''
-                  : `-${selectionAction.lineTo}`
-              }`,
-              size: 0,
-              filepath: absolutePath,
-              lineFrom: selectionAction.lineFrom,
-              lineTo: selectionAction.lineTo,
-              charFrom: selectionAction.charFrom,
-              charTo: selectionAction.charTo,
-              text: `<file-selection filepath="${escapedFilePath}" line-from=${
-                selectionAction.lineFrom
-              } line-to=${selectionAction.lineTo} char-from=${
-                selectionAction.charFrom
-              } char-to=${selectionAction.charTo}>${
-                selectionAction.content
-              }</file-selection>`,
-            });
-            setSelectionAction(null);
-            window.getSelection()?.removeAllRanges();
-          }}
         >
-          <MessageSquarePlus size={13} aria-hidden="true" />
-          <span>Add to chat</span>
-        </button>,
+          {[
+            [onAddToChat, MessageSquarePlus, 'Mention on Chat'],
+            [onAskInSideChat, MessagesSquare, 'Ask in Side Chat'],
+          ].filter(([callback]) => callback).map(([callback, Icon, label]) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => {
+                const lineRange = selectionAction.lineTo === selectionAction.lineFrom
+                  ? `L${selectionAction.lineFrom}`
+                  : `L${selectionAction.lineFrom}-${selectionAction.lineTo}`;
+                const citationPath = `${selectedPath.replaceAll('\\', '/')}:${lineRange}`;
+                const escapedContent = selectionAction.content
+                  .replaceAll('&', '&amp;')
+                  .replaceAll('<', '&lt;')
+                  .replaceAll('>', '&gt;');
+                callback({
+                  id: crypto.randomUUID(),
+                  kind: 'context_marker',
+                  markerType: 'file_citation',
+                  name: `${preview.name}:${lineRange}`,
+                  size: 0,
+                  filepath: absoluteWorkspacePath(project.path, selectedPath),
+                  lineFrom: selectionAction.lineFrom,
+                  lineTo: selectionAction.lineTo,
+                  charFrom: selectionAction.charFrom,
+                  charTo: selectionAction.charTo,
+                  text: `<file-citation path="${escapeXmlAttribute(citationPath)}">${
+                    escapedContent
+                  }</file-citation>`,
+                });
+                setSelectionAction(null);
+                window.getSelection()?.removeAllRanges();
+              }}
+            >
+              <Icon size={13} aria-hidden="true" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>,
         document.body,
       )}
 

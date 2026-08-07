@@ -7,6 +7,7 @@ export function PanelResizer({
   min,
   max,
   direction,
+  cssVariable,
   onChange,
   onCommit,
 }) {
@@ -15,7 +16,11 @@ export function PanelResizer({
 
   function finishResize(event) {
     if (dragRef.current?.pointerId !== event.pointerId) return;
-    onCommit(dragRef.current.value);
+    const { frameId, shell, value: nextValue } = dragRef.current;
+    if (frameId !== null) cancelAnimationFrame(frameId);
+    shell.style.setProperty(cssVariable, `${nextValue}px`);
+    onChange(nextValue);
+    onCommit(nextValue);
     dragRef.current = null;
     setDragging(false);
     document.body.classList.remove('panel-resizing');
@@ -42,6 +47,8 @@ export function PanelResizer({
           startX: event.clientX,
           startValue: value,
           value,
+          frameId: null,
+          shell: event.currentTarget.closest('.app-shell'),
         };
         setDragging(true);
         document.body.classList.add('panel-resizing');
@@ -56,8 +63,15 @@ export function PanelResizer({
               + (event.clientX - dragRef.current.startX) * direction,
           ),
         ));
+        if (nextValue === dragRef.current.value) return;
         dragRef.current.value = nextValue;
-        onChange(nextValue);
+        if (dragRef.current.frameId !== null) return;
+        dragRef.current.frameId = requestAnimationFrame(() => {
+          const drag = dragRef.current;
+          if (!drag) return;
+          drag.shell.style.setProperty(cssVariable, `${drag.value}px`);
+          drag.frameId = null;
+        });
       }}
       onPointerUp={finishResize}
       onPointerCancel={finishResize}

@@ -8,6 +8,17 @@
     margin-bottom: 0;
   }
 
+  blockquote {
+    margin: 1em 0;
+    padding: .5em 1em;
+    border-left: 2px solid --background-4;
+    color: --text-2;
+
+    p:last-child {
+      margin-bottom: 0;
+    }
+  }
+
   p,
   ul,
   ol,

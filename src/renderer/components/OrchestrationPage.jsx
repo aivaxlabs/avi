@@ -1,5 +1,6 @@
 import {
   Activity,
+  AlertTriangle,
   ArrowRight,
   Bot,
   CalendarDays,
@@ -8,7 +9,6 @@ import {
   Clock3,
   MessageSquare,
   RefreshCw,
-  Rows3,
   Sparkles,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -28,6 +28,7 @@ const toLocalInput = (date) => {
 export function OrchestrationPage({ models, onOpenThread }) {
   const initialFrom = new Date();
   initialFrom.setHours(0, 0, 0, 0);
+  const [activeTab, setActiveTab] = useState('tasks');
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -100,18 +101,20 @@ export function OrchestrationPage({ models, onOpenThread }) {
           <h1>Orchestration</h1>
           <p>Track thread activity and consumption over time.</p>
         </div>
-        <button
-          className="orchestration-range-trigger"
-          type="button"
-          aria-expanded={rangeOpen}
-          aria-haspopup="dialog"
-          onClick={() => setRangeOpen((open) => !open)}
-        >
-          <CalendarDays size={15} />
-          <span>{rangeCaption}</span>
-          <ChevronDown size={14} />
-        </button>
-        {rangeOpen && (
+        {activeTab === 'models' && (
+          <button
+            className="orchestration-range-trigger"
+            type="button"
+            aria-expanded={rangeOpen}
+            aria-haspopup="dialog"
+            onClick={() => setRangeOpen((open) => !open)}
+          >
+            <CalendarDays size={15} />
+            <span>{rangeCaption}</span>
+            <ChevronDown size={14} />
+          </button>
+        )}
+        {activeTab === 'models' && rangeOpen && (
           <div className="orchestration-range-popover" role="dialog" aria-label="Select time range">
             <div className="orchestration-range-fields">
               <label>
@@ -183,92 +186,150 @@ export function OrchestrationPage({ models, onOpenThread }) {
         </button>
       </header>
 
+      <div className="orchestration-tabs" role="tablist" aria-label="Orchestration views">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'tasks'}
+          onClick={() => {
+            setActiveTab('tasks');
+            setRangeOpen(false);
+          }}
+        >
+          Tasks overview
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'models'}
+          onClick={() => setActiveTab('models')}
+        >
+          Models summary
+        </button>
+      </div>
+
       {error ? (
         <section className="orchestration-error" role="alert">
           Couldn't load the dashboard. {error}
         </section>
       ) : (
         <>
-          <section className="orchestration-kpis" aria-label={`${rangeCaption} indicators`}>
-            <KpiCard
-              icon={<MessageSquare size={17} />}
-              label="Messages sent"
-              value={fullNumber.format(overview?.metrics.messagesSent ?? 0)}
-              caption={rangeCaption}
-            />
-            <KpiCard
-              icon={<Rows3 size={17} />}
-              label="Threads opened"
-              value={fullNumber.format(overview?.metrics.threadsOpened ?? 0)}
-              caption={rangeCaption}
-            />
-            <KpiCard
-              icon={<Sparkles size={17} />}
-              label="Token volume"
-              value={compactNumber.format(overview?.metrics.tokens ?? 0)}
-              title={fullNumber.format(overview?.metrics.tokens ?? 0)}
-              caption={rangeCaption}
-            />
-          </section>
+          {activeTab === 'models' && (
+            <section className="orchestration-kpis" aria-label={`${rangeCaption} indicators`}>
+              <KpiCard
+                icon={<MessageSquare size={17} />}
+                label="Model responses"
+                value={fullNumber.format(overview?.metrics.responses ?? 0)}
+                caption={rangeCaption}
+              />
+              <KpiCard
+                icon={<Bot size={17} />}
+                label="Models used"
+                value={fullNumber.format(overview?.metrics.modelsUsed ?? 0)}
+                caption={rangeCaption}
+              />
+              <KpiCard
+                icon={<Sparkles size={17} />}
+                label="Token volume"
+                value={compactNumber.format(overview?.metrics.tokens ?? 0)}
+                title={fullNumber.format(overview?.metrics.tokens ?? 0)}
+                caption={rangeCaption}
+              />
+            </section>
+          )}
 
           <div className="orchestration-grid">
-            <section className="orchestration-section">
-              <div className="orchestration-section-heading">
-                <div>
-                  <span className="section-icon active"><Activity size={16} /></span>
-                  <h2>Ongoing tasks</h2>
-                </div>
-                <span className="section-count">{overview?.ongoing.length ?? 0}</span>
-              </div>
-              <div className="task-list">
-                {overview?.ongoing.length ? overview.ongoing.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    modelName={modelsById.get(task.model) ?? task.model}
-                    ongoing
-                    onOpen={() => onOpenThread(task.id)}
-                  />
-                )) : (
-                  <EmptyState
-                    icon={<Clock3 size={18} />}
-                    text={loading ? 'Loading tasks...' : 'No ongoing tasks.'}
-                  />
-                )}
-              </div>
-            </section>
+            {activeTab === 'tasks' && (
+              <>
+                <section className="orchestration-section">
+                  <div className="orchestration-section-heading">
+                    <div>
+                      <span className="section-icon"><CheckCircle2 size={16} /></span>
+                      <h2>Recently completed</h2>
+                    </div>
+                    <span className="section-count">
+                      {overview?.recentlyCompleted.length ?? 0}
+                    </span>
+                  </div>
+                  <div className="task-list">
+                    {overview?.recentlyCompleted.length
+                      ? overview.recentlyCompleted.map((task) => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          modelName={modelsById.get(task.model) ?? task.model}
+                          onOpen={() => onOpenThread(task.id)}
+                        />
+                      ))
+                      : (
+                        <EmptyState
+                          icon={<CheckCircle2 size={18} />}
+                          text={loading ? 'Loading history...' : 'No recent completions.'}
+                        />
+                      )}
+                  </div>
+                </section>
 
-            <section className="orchestration-section">
-              <div className="orchestration-section-heading">
-                <div>
-                  <span className="section-icon"><CheckCircle2 size={16} /></span>
-                  <h2>Recently completed</h2>
-                </div>
-                <span className="section-count">
-                  {overview?.recentlyCompleted.length ?? 0}
-                </span>
-              </div>
-              <div className="task-list">
-                {overview?.recentlyCompleted.length
-                  ? overview.recentlyCompleted.map((task) => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      modelName={modelsById.get(task.model) ?? task.model}
-                      onOpen={() => onOpenThread(task.id)}
-                    />
-                  ))
-                  : (
-                    <EmptyState
-                      icon={<CheckCircle2 size={18} />}
-                      text={loading ? 'Loading history...' : 'No recent completions.'}
-                    />
-                  )}
-              </div>
-            </section>
+                <section className="orchestration-section">
+                  <div className="orchestration-section-heading">
+                    <div>
+                      <span className="section-icon attention"><AlertTriangle size={16} /></span>
+                      <h2>Tasks requiring attention</h2>
+                    </div>
+                    <span className="section-count">{overview?.requiresAttention.length ?? 0}</span>
+                  </div>
+                  <div className="task-list">
+                    {overview?.requiresAttention.length
+                      ? overview.requiresAttention.map((task) => (
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          modelName={modelsById.get(task.model) ?? task.model}
+                          status="Needs attention"
+                          attention
+                          onOpen={() => onOpenThread(task.id)}
+                        />
+                      ))
+                      : (
+                        <EmptyState
+                          icon={<AlertTriangle size={18} />}
+                          text={loading ? 'Checking tasks...' : 'No tasks require attention.'}
+                        />
+                      )}
+                  </div>
+                </section>
 
-            <section className="orchestration-section model-usage-section">
-              <div className="orchestration-section-heading">
+                <section className="orchestration-section">
+                  <div className="orchestration-section-heading">
+                    <div>
+                      <span className="section-icon active"><Activity size={16} /></span>
+                      <h2>Ongoing tasks</h2>
+                    </div>
+                    <span className="section-count">{overview?.ongoing.length ?? 0}</span>
+                  </div>
+                  <div className="task-list">
+                    {overview?.ongoing.length ? overview.ongoing.map((task) => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        modelName={modelsById.get(task.model) ?? task.model}
+                        ongoing
+                        onOpen={() => onOpenThread(task.id)}
+                      />
+                    )) : (
+                      <EmptyState
+                        icon={<Clock3 size={18} />}
+                        text={loading ? 'Loading tasks...' : 'No ongoing tasks.'}
+                      />
+                    )}
+                  </div>
+                </section>
+              </>
+            )}
+
+            {activeTab === 'models' && (
+              <section className="orchestration-section model-usage-section">
+                <div className="orchestration-section-heading">
                 <div>
                   <span className="section-icon"><Bot size={16} /></span>
                   <h2>Top 10 most used models</h2>
@@ -325,8 +386,9 @@ export function OrchestrationPage({ models, onOpenThread }) {
                       text={loading ? 'Loading models...' : `No models used during ${rangeCaption.toLowerCase()}.`}
                     />
                   )}
-              </div>
-            </section>
+                </div>
+              </section>
+            )}
           </div>
         </>
       )}
@@ -347,7 +409,7 @@ function KpiCard({ icon, label, value, title, caption }) {
   );
 }
 
-function TaskRow({ task, modelName, ongoing = false, onOpen }) {
+function TaskRow({ task, modelName, ongoing = false, attention = false, status, onOpen }) {
   const updatedAt = new Date(task.updatedAt);
   const elapsedMinutes = Math.round((updatedAt.getTime() - Date.now()) / 60_000);
   const relative = Math.abs(elapsedMinutes) < 60
@@ -358,13 +420,13 @@ function TaskRow({ task, modelName, ongoing = false, onOpen }) {
 
   return (
     <button className="task-row" type="button" onClick={onOpen}>
-      <span className={`task-status-dot${ongoing ? ' live' : ''}`} />
+      <span className={`task-status-dot${ongoing ? ' live' : ''}${attention ? ' attention' : ''}`} />
       <span className="task-copy">
         <strong>{task.title || task.firstPrompt || 'New chat'}</strong>
         <span>{task.projectName} · {modelName || 'No model'}</span>
       </span>
       <span className="task-meta">
-        <strong>{ongoing ? (task.goal?.status === 'paused' ? 'Paused' : 'Ongoing') : 'Completed'}</strong>
+        <strong>{status ?? (ongoing ? (task.goal?.status === 'paused' ? 'Paused' : 'Ongoing') : 'Completed')}</strong>
         <span>{relative}</span>
       </span>
     </button>

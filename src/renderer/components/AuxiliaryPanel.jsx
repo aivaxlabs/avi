@@ -1,3 +1,4 @@
+import Avatar from 'boring-avatars';
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -19,6 +20,7 @@ import { ProviderPanel } from './ProviderPanel.jsx';
 const subagentsTabId = 'subagents';
 const filesTabId = 'files';
 const tasksTabId = 'tasks';
+const subagentAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
 
 function AuxiliaryAddMenu({
   providerPanels,
@@ -170,6 +172,9 @@ export function AuxiliaryPanel({
   onClosePanel,
   onCreateSideChat,
   onAddToChat,
+  onAskInSideChat,
+  pendingSideChatAttachment,
+  onPendingSideChatAttachmentConsumed,
   fileNavigation,
   onFileNavigationConsumed,
   onOpenFileReference,
@@ -403,6 +408,7 @@ export function AuxiliaryPanel({
           <FilesPanel
             project={project}
             onAddToChat={onAddToChat}
+            onAskInSideChat={onAskInSideChat}
             navigation={fileNavigation}
             onNavigationConsumed={onFileNavigationConsumed}
           />
@@ -494,7 +500,15 @@ export function AuxiliaryPanel({
                   type="button"
                   onClick={() => onSelectSubagent(subagent.id)}
                 >
-                  <span className={`subagent-status-dot ${subagent.status}`} aria-hidden="true" />
+                  <span className="subagent-avatar" aria-hidden="true">
+                    <Avatar
+                      size={32}
+                      name={subagent.title}
+                      variant="beam"
+                      colors={subagentAvatarColors}
+                    />
+                    <span className={`subagent-status-dot ${subagent.status}`} />
+                  </span>
                   <span className="subagent-list-copy">
                     <strong>{subagent.title}</strong>
                     <span>{assignment || subagent.firstPrompt || 'Waiting for an assignment'}</span>
@@ -525,13 +539,15 @@ export function AuxiliaryPanel({
             favorites={favorites}
             isRunning={Boolean(running[activeThread.id])}
             onSend={(payload) => onSend(activeThread, currentModel, payload)}
-            onImplementPlan={() => onImplementPlan(activeThread, currentModel)}
+            onImplementPlan={(options) => onImplementPlan(activeThread, currentModel, options)}
             questionRequest={questionRequests.find(
               (request) => request.conversationId === activeThread.id,
             ) ?? null}
             onAnswerQuestion={onAnswerQuestion}
             onStop={() => onStop(activeThread.id)}
             onCompress={() => onCompress(activeThread.id, currentModel)}
+            onMentionSelection={onAddToChat}
+            onAskSelection={activeThread.isSubagent ? undefined : onAskInSideChat}
             onFork={(conversationId, throughMessageId) => onFork(
               conversationId,
               throughMessageId,
@@ -567,6 +583,10 @@ export function AuxiliaryPanel({
             onGoalAction={(action, specification) => (
               onGoalAction(activeThread, action, specification)
             )}
+            pendingAttachment={pendingSideChatAttachment?.conversationId === activeThread.id
+              ? pendingSideChatAttachment.attachment
+              : null}
+            onPendingAttachmentConsumed={onPendingSideChatAttachmentConsumed}
             onOpenFileReference={onOpenFileReference}
             onFileReferenceAction={(action, reference) => onFileReferenceAction(
               action,

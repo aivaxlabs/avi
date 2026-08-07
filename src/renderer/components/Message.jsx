@@ -1,6 +1,7 @@
 import {
   ArrowRightLeft,
   Bot,
+  Check,
   ChevronDown,
   ChevronRight,
   CircleHelp,
@@ -76,7 +77,7 @@ const MARKDOWN_PLUGINS = Object.freeze([
     for (const node of tree.children ?? []) {
       const firstChild = node.children?.[0];
       if (
-        node.type !== 'paragraph'
+        (node.type !== 'paragraph' && node.type !== 'heading')
         || firstChild?.type !== 'text'
         || node.children.some((child) => child.type === 'break' || /[\r\n]/.test(child.value ?? ''))
       ) {
@@ -375,6 +376,9 @@ function UserMessage({ message }) {
   return (
     <article className="message-row user-row">
       <div className="user-message-content">
+        {message.fromAgent && (
+          <small className="agent-message-marker">Sent from another agent</small>
+        )}
         {hasBubble && (
           <div className="user-bubble">
             {message.content && <div className="plain-text">{message.content}</div>}
@@ -457,9 +461,11 @@ function AssistantMessage({
   const [usageOpen, setUsageOpen] = useState(false);
   const [showAllEdits, setShowAllEdits] = useState(false);
   const [resuming, setResuming] = useState(false);
+  const [responseCopied, setResponseCopied] = useState(false);
   const [lightboxAttachment, setLightboxAttachment] = useState(null);
   const [imageContextMenu, setImageContextMenu] = useState(null);
   const usageRef = useRef(null);
+  const copyResetTimerRef = useRef(null);
   const content = message.content || '';
   const activelyStreaming = message.status === 'streaming' && runActive;
   const timeline = useMemo(() => buildMessageTimeline(message), [content, message.segments]);
@@ -491,6 +497,8 @@ function AssistantMessage({
     () => consolidateFileEdits([...workedMessages, message]),
     [message, workedMessages],
   );
+
+  useEffect(() => () => clearTimeout(copyResetTimerRef.current), []);
 
   useEffect(() => {
     if (!usageOpen) return undefined;
@@ -676,13 +684,18 @@ function AssistantMessage({
             )}
             >
               <button
-                className="message-action-icon"
+                className={classNames('message-action-icon', responseCopied && 'copied')}
                 type="button"
-                aria-label="Copy response"
-                title="Copy"
-                onClick={() => copyText(answerText)}
+                aria-label={responseCopied ? 'Response copied' : 'Copy response'}
+                title={responseCopied ? 'Copied' : 'Copy'}
+                onClick={async () => {
+                  await copyText(answerText);
+                  clearTimeout(copyResetTimerRef.current);
+                  setResponseCopied(true);
+                  copyResetTimerRef.current = setTimeout(() => setResponseCopied(false), 1800);
+                }}
               >
-                <Copy size={15} />
+                {responseCopied ? <Check size={15} /> : <Copy size={15} />}
               </button>
               {showContinuations && message.status === 'completed' && (
                 <button
@@ -873,10 +886,24 @@ const MarkdownSegment = memo(function MarkdownSegment({
   onFileReferenceAction,
 }) {
   const [implementing, setImplementing] = useState(false);
+  const [planMenuOpen, setPlanMenuOpen] = useState(false);
   const [fileReferenceMenu, setFileReferenceMenu] = useState(null);
+  const planActionsRef = useRef(null);
   const fileReferenceTargetRef = useRef(null);
   const deferredText = useDeferredValue(text);
   const renderedText = finalized ? text : deferredText;
+  useEffect(() => {
+    if (!planMenuOpen) return undefined;
+    const controller = new AbortController();
+    window.addEventListener('pointerdown', (event) => {
+      if (planActionsRef.current?.contains(event.target)) return;
+      setPlanMenuOpen(false);
+    }, { signal: controller.signal });
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') setPlanMenuOpen(false);
+    }, { signal: controller.signal });
+    return () => controller.abort();
+  }, [planMenuOpen]);
   useEffect(() => {
     if (!fileReferenceMenu) return undefined;
     const controller = new AbortController();
@@ -945,6 +972,15 @@ const MarkdownSegment = memo(function MarkdownSegment({
     return parsed;
   }, [renderedText]);
   const planCount = parts.filter((part) => part.type === 'execution-plan').length;
+  const startPlanAction = async (action, plan) => {
+    setPlanMenuOpen(false);
+    setImplementing(true);
+    try {
+      await onImplementPlan({ action, plan });
+    } finally {
+      setImplementing(false);
+    }
+  };
 
   if (!renderedText.trim()) return null;
   return (
@@ -973,21 +1009,70 @@ const MarkdownSegment = memo(function MarkdownSegment({
               </MemoizedMarkdown>
             </div>
             {finalized && planCount === 1 && onImplementPlan && (
-              <button
-                className="implement-plan-button"
-                type="button"
-                disabled={implementing}
-                onClick={async () => {
-                  setImplementing(true);
-                  try {
-                    await onImplementPlan();
-                  } finally {
-                    setImplementing(false);
-                  }
-                }}
-              >
-                {implementing ? 'Implementing...' : 'Implement plan'}
-              </button>
+              <div className="implement-plan-actions" ref={planActionsRef}>
+                <button
+                  className="implement-plan-button"
+                  type="button"
+                  disabled={implementing}
+                  onClick={() => startPlanAction('default', part.text)}
+                >
+                  {implementing ? 'Starting...' : 'Start implementation'}
+                </button>
+                <button
+                  className="implement-plan-menu-button"
+                  type="button"
+                  aria-label="More implementation options"
+                  aria-haspopup="menu"
+                  aria-expanded={planMenuOpen}
+                  disabled={implementing}
+                  onClick={() => setPlanMenuOpen((open) => !open)}
+                >
+                  <ChevronDown size={14} />
+                </button>
+                {planMenuOpen && (
+                  <DropdownMenu className="implement-plan-menu" role="menu">
+                    <DropdownMenuItem
+                      role="menuitem"
+                      onClick={() => startPlanAction('goal', part.text)}
+                    >
+                      Start on goal mode
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      role="menuitem"
+                      onClick={() => startPlanAction('ultra', part.text)}
+                    >
+                      Start on ultra mode
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      role="menuitem"
+                      onClick={() => {
+                        setPlanMenuOpen(false);
+                        if (!window.confirm('Start this plan in Ultra Goal mode? This mode may use significantly more time and resources.')) return;
+                        startPlanAction('ultra-goal', part.text);
+                      }}
+                    >
+                      Start on ultra goal mode
+                    </DropdownMenuItem>
+                    <div className="dropdown-menu-divider" role="separator" />
+                    <DropdownMenuItem
+                      role="menuitem"
+                      onClick={() => startPlanAction('new-thread', part.text)}
+                    >
+                      Start on a new thread
+                    </DropdownMenuItem>
+                    <div className="dropdown-menu-divider" role="separator" />
+                    <DropdownMenuItem
+                      role="menuitem"
+                      onClick={() => {
+                        setPlanMenuOpen(false);
+                        copyText(part.text);
+                      }}
+                    >
+                      Copy plan
+                    </DropdownMenuItem>
+                  </DropdownMenu>
+                )}
+              </div>
             )}
           </section>
         ) : part.text.trim() ? (
@@ -1179,6 +1264,7 @@ function normalizeLanguage(className) {
 }
 
 function WorkedMessage({ message, onOpenFileReference, onFileReferenceAction }) {
+  if (message.fromAgent) return <UserMessage message={message} />;
   const structured = parseStructuredUserMessage(message);
   if (structured?.type === 'subagent-report') return <SubagentReportCard report={structured} />;
   if (structured?.type === 'cross-thread-message') {
@@ -1687,5 +1773,5 @@ function formatMetricDuration(value) {
 }
 
 function copyText(text) {
-  navigator.clipboard.writeText(text ?? '');
+  return navigator.clipboard.writeText(text ?? '');
 }

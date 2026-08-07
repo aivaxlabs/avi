@@ -58,6 +58,7 @@ const defaultRemoteSettings = Object.freeze({
 const defaultDesktopSettings = Object.freeze({
   closeToTray: false,
   openAtLogin: false,
+  notifyOnCompletion: false,
 });
 const defaultArchiveSettings = Object.freeze({
   archiveAfterDays: 7,
@@ -67,6 +68,208 @@ const defaultArchiveSettings = Object.freeze({
 const archiveRetentionOptions = Object.freeze([7, 30, null]);
 const archivedDeletionOptions = Object.freeze([30, 60, null]);
 const disposableDeletionOptions = Object.freeze([1, 7, 30, null]);
+const subagentNames = Object.freeze([...new Set([
+  'Euclid',
+  'Archimedes',
+  'Pythagoras',
+  'Pascal',
+  'Gauss',
+  'Newton',
+  'Euler',
+  'Turing',
+  'Fibonacci',
+  'Descartes',
+  'Socrates',
+  'Plato',
+  'Aristotle',
+  'Seneca',
+  'Epicurus',
+  'Kant',
+  'Nietzsche',
+  'Spinoza',
+  'Voltaire',
+  'Confucius',
+  'Hercules',
+  'Perseus',
+  'Achilles',
+  'Ulysses',
+  'Hector',
+  'Jason',
+  'Thor',
+  'Odin',
+  'Arthur',
+  'Lancelot',
+  'Merlin',
+  'Robin',
+  'Leonidas',
+  'Spartacus',
+  'Beowulf',
+  'Aragorn',
+  'Gandalf',
+  'Conan',
+  'Dante',
+  'Dracula',
+  'Sherlock',
+  'Moriarty',
+  'Loki',
+  'Anubis',
+  'Icarus',
+  'Atlas',
+  'Orpheus',
+  'Zorro',
+  'Maximus',
+  'Neo',
+  'Galileo',
+  'Kepler',
+  'Copernicus',
+  'Faraday',
+  'Tesla',
+  'Darwin',
+  'Hubble',
+  'Hawking',
+  'Curie',
+  'Noether',
+  'Hypatia',
+  'Ada',
+  'Sagan',
+  'Feynman',
+  'Riemann',
+  'Leibniz',
+  'Hilbert',
+  'Ramanujan',
+  'Thales',
+  'Diogenes',
+  'Marcus',
+  'Aurelius',
+  'Hume',
+  'Locke',
+  'Rousseau',
+  'Camus',
+  'Kierkegaard',
+  'Laozi',
+  'SunTzu',
+  'Achilles',
+  'Theseus',
+  'Odysseus',
+  'Aeneas',
+  'Prometheus',
+  'Apollo',
+  'Ares',
+  'Zeus',
+  'Poseidon',
+  'Horus',
+  'Ra',
+  'Osiris',
+  'Siegfried',
+  'Roland',
+  'Hector',
+  'Samson',
+  'Solomon',
+  'Dorian',
+  'Hamlet',
+  'Macbeth',
+  'Phoenix',
+  'Avicenna',
+  'Averroes',
+  'Alhazen',
+  'AlKhwarizmi',
+  'Eratosthenes',
+  'Apollonius',
+  'Brahmagupta',
+  'Aryabhata',
+  'Bhaskara',
+  'Fermat',
+  'Laplace',
+  'Lagrange',
+  'Fourier',
+  'Galois',
+  'Cantor',
+  'Dedekind',
+  'Minkowski',
+  'Poincare',
+  'Banach',
+  'Kolmogorov',
+  'Shannon',
+  'Lovelace',
+  'Hopper',
+  'Bohr',
+  'Planck',
+  'Maxwell',
+  'Heisenberg',
+  'Schrodinger',
+  'Dirac',
+  'Pauli',
+  'Rutherford',
+  'Mendel',
+  'Pasteur',
+  'Franklin',
+  'Meitner',
+  'Bell',
+  'Babbage',
+  'Bernoulli',
+  'Bayes',
+  'Nash',
+  'Conway',
+  'Knuth',
+  'Dijkstra',
+  'Hamming',
+  'Goedel',
+  'Zeno',
+  'Parmenides',
+  'Heraclitus',
+  'Democritus',
+  'Plotinus',
+  'Cicero',
+  'Epictetus',
+  'Aquinas',
+  'Bacon',
+  'Hobbes',
+  'Berkeley',
+  'Schopenhauer',
+  'Wittgenstein',
+  'Sartre',
+  'Beauvoir',
+  'Arendt',
+  'Gilgamesh',
+  'Enkidu',
+  'Marduk',
+  'Athena',
+  'Artemis',
+  'Freya',
+  'Tyr',
+  'Baldur',
+  'Heimdall',
+  'Skadi',
+  'Fenrir',
+  'Boudicca',
+  'Hannibal',
+  'Scipio',
+  'Caesar',
+  'Augustus',
+  'Saladin',
+  'Khalid',
+  'Musashi',
+  'Nobunaga',
+  'Tomoe',
+  'ElCid',
+  'Bayard',
+  'Cuchulainn',
+  'Fionn',
+  'Taliesin',
+  'Galahad',
+  'Percival',
+  'Gawain',
+  'Boromir',
+  'Legolas',
+  'Geralt',
+  'Yennefer',
+  'Ripley',
+  'Morpheus',
+  'Trinity',
+  'Deckard',
+  'Spock',
+  'Andromeda',
+])]);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS session_values (
@@ -87,6 +290,7 @@ db.exec(`
     initial_prompt TEXT,
     orchestration_mode TEXT,
     auto_forward_to_parent INTEGER NOT NULL DEFAULT 0,
+    next_subagent_name_index INTEGER NOT NULL DEFAULT 0,
     context_checkpoint TEXT NOT NULL DEFAULT '',
     checkpoint_message_id TEXT,
     context_tokens INTEGER NOT NULL DEFAULT 0,
@@ -109,6 +313,7 @@ db.exec(`
     ultra_mode INTEGER NOT NULL DEFAULT 0,
     goal_id TEXT,
     hidden INTEGER NOT NULL DEFAULT 0,
+    from_agent INTEGER NOT NULL DEFAULT 0,
     queue_priority INTEGER NOT NULL DEFAULT 0,
     queue_position INTEGER,
     status TEXT NOT NULL,
@@ -192,6 +397,9 @@ if (!messageColumns.some((column) => column.name === 'goal_id')) {
 if (!messageColumns.some((column) => column.name === 'hidden')) {
   db.exec('ALTER TABLE messages ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
 }
+if (!messageColumns.some((column) => column.name === 'from_agent')) {
+  db.exec('ALTER TABLE messages ADD COLUMN from_agent INTEGER NOT NULL DEFAULT 0');
+}
 if (!messageColumns.some((column) => column.name === 'queue_priority')) {
   db.exec('ALTER TABLE messages ADD COLUMN queue_priority INTEGER NOT NULL DEFAULT 0');
 }
@@ -217,6 +425,7 @@ if (db.prepare("PRAGMA table_info('messages')").all().find((column) => column.na
       ultra_mode INTEGER NOT NULL DEFAULT 0,
       goal_id TEXT,
       hidden INTEGER NOT NULL DEFAULT 0,
+      from_agent INTEGER NOT NULL DEFAULT 0,
       queue_priority INTEGER NOT NULL DEFAULT 0,
       queue_position INTEGER,
       status TEXT NOT NULL,
@@ -232,12 +441,12 @@ if (db.prepare("PRAGMA table_info('messages')").all().find((column) => column.na
     );
     INSERT INTO messages (
       id, conversation_id, role, model, reasoning_effort, permission_mode,
-      work_mode, ultra_mode, goal_id, hidden, queue_priority, queue_position,
+      work_mode, ultra_mode, goal_id, hidden, from_agent, queue_priority, queue_position,
       status, content, segments, edits, attachments, continuations, usage,
       created_at, updated_at
     ) SELECT
       id, conversation_id, role, model, reasoning_effort, permission_mode,
-      work_mode, ultra_mode, goal_id, hidden, queue_priority, queue_position,
+      work_mode, ultra_mode, goal_id, hidden, from_agent, queue_priority, queue_position,
       status, content, segments, edits, attachments, continuations, usage,
       created_at, updated_at
     FROM messages_with_required_created_at;
@@ -268,6 +477,9 @@ if (!conversationColumns.some((column) => column.name === 'orchestration_mode'))
 }
 if (!conversationColumns.some((column) => column.name === 'auto_forward_to_parent')) {
   db.exec('ALTER TABLE conversations ADD COLUMN auto_forward_to_parent INTEGER NOT NULL DEFAULT 0');
+}
+if (!conversationColumns.some((column) => column.name === 'next_subagent_name_index')) {
+  db.exec('ALTER TABLE conversations ADD COLUMN next_subagent_name_index INTEGER NOT NULL DEFAULT 0');
 }
 if (!conversationColumns.some((column) => column.name === 'context_checkpoint')) {
   db.exec("ALTER TABLE conversations ADD COLUMN context_checkpoint TEXT NOT NULL DEFAULT ''");
@@ -393,6 +605,11 @@ const statements = {
         context_tokens = COALESCE(@contextTokens, context_tokens),
         updated_at = @updatedAt
     WHERE id = @id
+  `),
+  updateNextSubagentNameIndex: db.prepare(`
+    UPDATE conversations
+    SET next_subagent_name_index = ?, updated_at = ?
+    WHERE id = ?
   `),
   listConversations: db.prepare(`
     SELECT c.*,
@@ -588,13 +805,13 @@ const statements = {
   insertMessage: db.prepare(`
     INSERT INTO messages (
       id, conversation_id, role, model, reasoning_effort, permission_mode,
-      work_mode, ultra_mode, goal_id, hidden, queue_priority, queue_position,
+      work_mode, ultra_mode, goal_id, hidden, from_agent, queue_priority, queue_position,
       status, content, segments, edits, attachments,
       continuations, usage, created_at, updated_at
     )
     VALUES (
       @id, @conversationId, @role, @model, @reasoningEffort, @permissionMode,
-      @workMode, @ultraMode, @goalId, @hidden, @queuePriority, @queuePosition,
+      @workMode, @ultraMode, @goalId, @hidden, @fromAgent, @queuePriority, @queuePosition,
       @status, @content, @segments, @edits, @attachments,
       @continuations, @usage, @createdAt, @updatedAt
     )
@@ -1103,6 +1320,7 @@ export function insertMessage(message) {
     ultraMode: message.ultraMode ? 1 : 0,
     goalId: message.goalId ?? null,
     hidden: message.hidden ? 1 : 0,
+    fromAgent: message.fromAgent ? 1 : 0,
     queuePriority: message.queuePriority ? 1 : 0,
     queuePosition: Number.isInteger(message.queuePosition) ? message.queuePosition : null,
     status: message.status ?? 'completed',
@@ -1230,27 +1448,29 @@ export function forkConversation(id, {
   ) {
     return null;
   }
-  let childNumber = null;
-  if (sideChat) {
-    childNumber = Math.max(
-      0,
-      ...listSideChats(source.id).map((sideChat) => (
-        Number(sideChat.title.match(/^Side chat (\d+)$/)?.[1]) || 0
-      )),
-    ) + 1;
-  } else if (subagent) {
-    childNumber = Math.max(
-      0,
-      ...listSubagents(source.id).map((agent) => (
-        Number(agent.title.match(/^Sub-agent (\d+)$/)?.[1]) || 0
-      )),
-    ) + 1;
-  }
+  const childNumber = sideChat
+    ? Math.max(
+        0,
+        ...listSideChats(source.id).map((sideChat) => (
+          Number(sideChat.title.match(/^Side chat (\d+)$/)?.[1]) || 0
+        )),
+      ) + 1
+    : null;
+  const usedSubagentNames = subagent
+    ? new Set(listSubagents(source.id).map((agent) => agent.title))
+    : null;
+  const subagentNameIndex = subagent
+    ? subagentNames.findIndex((name, index) => (
+        index >= source.nextSubagentNameIndex && !usedSubagentNames.has(name)
+      ))
+    : -1;
+  const subagentName = subagentNameIndex >= 0 ? subagentNames[subagentNameIndex] : null;
+  if (subagent && !subagentName) return null;
   const target = createConversation({
     title: sideChat
       ? `Side chat ${childNumber}`
       : subagent
-        ? `Sub-agent ${childNumber}`
+        ? subagentName
         : `${source.title} - Copy`,
     model: source.model,
     projectPath: source.projectPath,
@@ -1262,6 +1482,13 @@ export function forkConversation(id, {
     autoForwardToParent: subagent && autoForwardToParent,
     titleStatus: childThread ? 'generated' : 'pending',
   });
+  if (subagent) {
+    statements.updateNextSubagentNameIndex.run(
+      subagentNameIndex + 1,
+      timestamp(),
+      source.id,
+    );
+  }
   if (!subagent) {
     const sourceMessages = getMessages(id);
     const throughIndex = throughMessageId
@@ -1341,10 +1568,11 @@ function childThreadContext(conversation) {
         ]
       : conversation.orchestration_mode === 'plan'
         ? [
-            'You are a read-only Plan-mode specialist working for the orchestrator in the parent thread.',
+            'You are a Plan-mode specialist working for the orchestrator in the parent thread.',
             'Explore, research, analyze, or consolidate the focused assignment in the latest user message and return evidence for the execution plan.',
             'Actively use chat_send_prompt to coordinate directly with the parent or listed sibling sub-agents when sharing findings or resolving dependencies improves the plan.',
-            'Do not edit files, run commands, mutate data, create conversations, or perform implementation work.',
+            'You may run terminal commands strictly for read-only investigation (searching, listing, reading, git status/log/diff/show). Never run commands that install, build, write, delete, move, stage, commit, push, start servers, or otherwise change any state.',
+            'Do not edit files, mutate data, create conversations, or perform implementation work.',
             'Do not expose private chain-of-thought. Communicate concise conclusions, evidence, implications, and remaining uncertainty.',
           ]
         : [
@@ -1359,6 +1587,7 @@ function childThreadContext(conversation) {
         `thread_id: ${conversation.id}`,
         `parent_thread_id: ${conversation.parent_conversation_id}`,
         `parent_thread_title: ${parent?.title ?? 'Unknown'}`,
+        `You are the sub-agent called ${conversation.title}.`,
         ...teamInstructions,
         ...deliveryInstructions,
         'You cannot invoke chat_spawn_subagent or create other sub-agents.',
@@ -1579,10 +1808,12 @@ function normalizeDesktopSettings(value, strict = false) {
   const normalized = {
     closeToTray: settings.closeToTray === true,
     openAtLogin: settings.openAtLogin === true,
+    notifyOnCompletion: settings.notifyOnCompletion === true,
   };
   if (strict && (
     typeof settings.closeToTray !== 'boolean'
     || typeof settings.openAtLogin !== 'boolean'
+    || typeof settings.notifyOnCompletion !== 'boolean'
   )) {
     throw new Error('Desktop settings are invalid.');
   }
@@ -1691,6 +1922,7 @@ function mapConversation(row) {
     initialPrompt: row.initial_prompt || null,
     orchestrationMode: ['plan', 'ultra'].includes(row.orchestration_mode) ? row.orchestration_mode : null,
     autoForwardToParent: Boolean(row.auto_forward_to_parent),
+    nextSubagentNameIndex: Number(row.next_subagent_name_index) || 0,
     contextCheckpoint: row.context_checkpoint || '',
     checkpointMessageId: row.checkpoint_message_id || null,
     contextTokens: Number(row.context_tokens) || 0,
@@ -1726,6 +1958,7 @@ function mapMessage(row) {
     ultraMode: Boolean(row.ultra_mode),
     goalId: row.goal_id || null,
     hidden: Boolean(row.hidden),
+    fromAgent: Boolean(row.from_agent),
     queuePriority: Boolean(row.queue_priority),
     queuePosition: Number.isInteger(row.queue_position) ? row.queue_position : null,
     status: row.status,

@@ -198,6 +198,40 @@
     animation: orchestration-spin 900ms linear infinite;
   }
 
+  .orchestration-tabs {
+    max-width: 1180px;
+    margin: 0 auto 28px;
+    display: flex;
+    gap: 4px;
+
+    button {
+      position: relative;
+      padding: 6px 12px;
+      color: var(--text-3);
+      background: transparent;
+      font-size: 13px;
+      font-weight: 570;
+      transition: color 160ms var(--base-transition),
+        background 160ms var(--base-transition);
+
+
+      &:hover {
+        color: var(--text-1);
+        background: var(--item-hover);
+      }
+
+      &[aria-selected="true"] {
+        color: var(--text-1);
+        background-color: --background-4;
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--text-3);
+        outline-offset: -2px;
+      }
+    }
+  }
+
   .orchestration-kpis {
     max-width: 1180px;
     margin: 0 auto 16px;
@@ -301,6 +335,11 @@
         color: var(--text-1);
         background: var(--item-active);
       }
+
+      &.attention {
+        color: var(--text-2);
+        background: var(--background-3);
+      }
     }
   }
 
@@ -366,6 +405,11 @@
       background: var(--text-1);
       box-shadow: 0 0 0 4px var(--text-4);
     }
+
+    &.attention {
+      border-color: var(--text-2);
+      background: var(--text-3);
+    }
   }
 
   .task-copy,
@@ -416,7 +460,7 @@
   .model-usage-list {
     min-height: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    gap: 30px 25px;
     padding: 12px;
   }
 
@@ -424,10 +468,6 @@
     min-width: 0;
     display: grid;
     gap: 12px;
-    padding: 14px;
-    background: var(--background-2);
-    border: 1px solid var(--border-color);
-    border-radius: 11px;
   }
 
   .model-usage-header {
@@ -458,7 +498,7 @@
     strong {
       overflow: hidden;
       color: var(--text-1);
-      font-size: 12px;
+      font-size: 1rem;
       font-weight: 580;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -466,7 +506,8 @@
 
     span {
       color: var(--text-3);
-      font-size: 11px;
+      font-size: .9rem;
+      font-weight: 500;
     }
   }
 
@@ -474,13 +515,13 @@
     display: grid;
     justify-items: end;
     color: var(--text-1);
-    font-size: 14px;
+    font-size: 1rem;
     font-weight: 620;
     font-variant-numeric: tabular-nums;
 
     span {
       color: var(--text-4);
-      font-size: 9px;
+      font-size: .7rem;
       font-weight: 560;
       letter-spacing: .05em;
       text-transform: uppercase;
@@ -488,9 +529,9 @@
   }
 
   .model-usage-track {
-    height: 3px;
+    height: 4px;
     overflow: hidden;
-    background: var(--background-3);
+    background: var(--background-4);
     border-radius: 999px;
 
     span {
@@ -505,7 +546,7 @@
   .model-metrics {
     margin: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
     gap: 8px;
 
     div {
@@ -516,8 +557,8 @@
 
     dt {
       overflow: hidden;
-      color: var(--text-4);
-      font-size: 10px;
+      color: var(--text-3);
+      font-size: .85rem;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
@@ -525,7 +566,7 @@
     dd {
       margin: 0;
       color: var(--text-2);
-      font-size: 12px;
+      font-size: .95rem;
       font-weight: 570;
       font-variant-numeric: tabular-nums;
     }
@@ -598,6 +639,7 @@
     .orchestration-refresh,
     .orchestration-range-trigger,
     .orchestration-range-presets button,
+    .orchestration-tabs button,
     .task-row,
     .model-usage-track span {
       transition: none;

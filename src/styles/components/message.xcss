@@ -34,6 +34,19 @@
   gap: 8px;
 }
 
+.agent-message-marker {
+  color: var(--text-4);
+  font-size: .9rem;
+  font-weight: 500;
+  line-height: 1;
+
+  + .user-bubble {
+    background-color: --background-1;
+    color: --text-3;
+    border: 2px dashed var(--border-color);
+  }
+}
+
 .user-bubble {
   max-width: 100%;
   color: var(--text-1);
@@ -183,8 +196,6 @@
   align-items: center;
   gap: 9px;
   padding: 8px 10px;
-  background: var(--background-3);
-  border-bottom: 1px solid var(--border-color);
 
   > code {
     max-width: 96px;
@@ -665,7 +676,7 @@
 .execution-plan {
   min-width: 0;
   margin: 4px 0;
-  overflow: hidden;
+  overflow: visible;
   background: var(--background-2);
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -678,12 +689,7 @@
   justify-content: space-between;
   padding: 6px 8px 6px 12px;
   color: var(--text-3);
-  background: var(--background-3);
-  border-bottom: 1px solid var(--border-color);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .06em;
-  text-transform: uppercase;
+  font-size: 1rem;
 
   button {
     width: 24px;
@@ -716,37 +722,65 @@
     display: block;
     overflow-x: auto;
   }
+
+  h1:first-child {
+    margin-top: 0;
+  }
 }
 
-.implement-plan-button {
-  min-height: 34px;
+.implement-plan-actions {
+  position: relative;
+  width: fit-content;
+  display: flex;
   margin: 8px 16px 14px;
-  padding: 7px 12px;
-  color: var(--text-5);
-  background: var(--background-5);
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 500;
-  transition: background 180ms var(--base-transition),
-    opacity 180ms var(--base-transition),
-    transform 180ms var(--base-transition);
 
-  &:hover {
+  > button {
+    padding: 7px 16px;
+    color: var(--text-5);
     background: var(--background-5);
+    font-size: 1rem;
+    transition: background 180ms var(--base-transition),
+      opacity 180ms var(--base-transition),
+      transform 180ms var(--base-transition);
+
+    &:hover {
+      background: var(--background-5);
+    }
+
+    &:active {
+      transform: scale(.98);
+    }
+
+    &:focus-visible {
+      position: relative;
+      z-index: 1;
+      outline: 2px solid var(--text-3);
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      opacity: .5;
+      cursor: wait;
+    }
   }
 
-  &:active {
-    transform: scale(.98);
+  .implement-plan-button {
+    border-radius: 99px 0 0 99px;
   }
 
-  &:focus-visible {
-    outline: 2px solid var(--text-3);
-    outline-offset: 2px;
+  .implement-plan-menu-button {
+    width: 32px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border-left: 1px solid color-mix(in srgb, var(--text-5) 22%, transparent);
+    border-radius: 0 99px 99px 0;
   }
 
-  &:disabled {
-    opacity: .5;
-    cursor: wait;
+  .implement-plan-menu {
+    left: 0;
+    bottom: calc(100% + 6px);
+    min-width: 220px;
   }
 }
 
@@ -791,9 +825,9 @@
   padding: 7px 10px;
 
   strong {
-    color: var(--text-4);
-    font-size: 13px;
-    font-weight: 600;
+    color: var(--text-3);
+    font-size: 1em;
+    font-weight: 400;
   }
 }
 
@@ -822,6 +856,7 @@
   &:hover,
   &:focus-visible {
     background: var(--background-3);
+    color: --text-2;
   }
 }
 
@@ -847,7 +882,7 @@
 
     &:hover,
     &:focus-visible {
-      color: var(--text-4);
+      color: var(--text-1);
       background: var(--background-3);
     }
 
@@ -864,7 +899,8 @@
   flex: 0 0 auto;
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: .95rem;
+  font-weight: 500;
 
   ins {
     color: var(--success-color);
@@ -974,6 +1010,11 @@
   transform: scale(.94);
 }
 
+.assistant-actions button.copied {
+  color: var(--success-color);
+  opacity: 1;
+}
+
 .assistant-actions .try-again-action {
   width: auto;
   padding: 4px 9px;
@@ -1010,7 +1051,7 @@
   width: 230px;
   padding: 8px 10px;
   color: var(--text-1);
-  background: var(--background-2);
+  background: var(--background-1);
   border: 1px solid var(--border-color);
   border-radius: 10px;
   box-shadow: 0 6px 18px #00000011;

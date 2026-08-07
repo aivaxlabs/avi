@@ -89,7 +89,8 @@ export const dynamicContextInjectors = new Map([
       ? [
           '<work_mode mode="plan">',
           'You are in Plan mode. This run is exclusively for investigation, clarification, and creation of an execution plan.',
-          'Do not edit files, run commands, mutate workspace data, create or interrupt ordinary conversations, call provider tools, call MCP tools, or take destructive actions. No permission level overrides these restrictions.',
+          'Do not edit files, mutate workspace data, create or interrupt ordinary conversations, call provider tools, call MCP tools, or take destructive actions. No permission level overrides these restrictions.',
+          'You may run terminal commands strictly for read-only investigation (searching, listing, reading, git status/log/diff/show). Never run commands that install, build, write, delete, move, stage, commit, push, start servers, or otherwise change any state; the configured permission mode still applies to every command.',
           'You may orchestrate read-only Plan work: as the orchestrator, use chat_spawn_subagent for focused exploration, consolidation, research, and analysis when delegation improves coverage or speed. Give each sub-agent a self-contained task and expected evidence.',
           'Maintain active collaboration rather than waiting passively: inspect sub-agent threads, send useful follow-ups with chat_send_prompt, share relevant discoveries, and synthesize their evidence. Sub-agents may use chat_send_prompt to discuss findings directly with their parent and sibling sub-agents.',
           'Plan-mode conversation tools are limited to the current orchestration team and keep every prompted sub-agent in Plan mode. Prefer queue for normal coordination; use steer only for an urgent correction. Sub-agents cannot spawn nested sub-agents.',
@@ -163,8 +164,9 @@ export const dynamicContextInjectors = new Map([
     Array.isArray(subagents) && subagents.length > 0
       ? [
           '<subagents>',
+          'Sub-agent names are display labels only. Always target and correlate orchestration actions by thread_id; use names only when referring to agents conversationally.',
           ...subagents.flatMap((subagent) => [
-            `<subagent thread_id="${escapeXml(subagent.threadId)}" status="${escapeXml(subagent.status)}">`,
+            `<subagent thread_id="${escapeXml(subagent.threadId)}" name="${escapeXml(subagent.name)}" status="${escapeXml(subagent.status)}">`,
             `<initial_prompt>${escapeXml(
               String(subagent.initialPrompt ?? '').replace(/\s+/g, ' ').trim().slice(0, 256),
             )}</initial_prompt>`,

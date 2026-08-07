@@ -601,6 +601,7 @@ export const CLIENT_TOOLS = Object.freeze([
           model: selectedModel.id,
           reasoningEffort: selectedReasoningEffort,
           text: normalizedPrompt,
+          fromAgent: true,
           project: { path: projectPath },
         });
         message = result.message;
@@ -811,6 +812,7 @@ export const CLIENT_TOOLS = Object.freeze([
         model: conversation.model,
         text: normalizedPrompt,
         steer: !low_priority,
+        fromAgent: true,
         workMode: planMode ? 'plan' : workMode,
         ultraMode: sourceConversation?.orchestrationMode === 'ultra'
           || conversation.orchestrationMode === 'ultra',

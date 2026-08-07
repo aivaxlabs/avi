@@ -1301,6 +1301,18 @@ export function SettingsPage({
                         onChange={(event) => onDesktopChange({ ...desktop, openAtLogin: event.target.checked })}
                       />
                     </label>
+                    <label className="settings-toggle-row">
+                      <span>
+                        <strong>Notify when a conversation finishes</strong>
+                        <small>Show the task title and the assistant’s final message as a system notification.</small>
+                      </span>
+                      <input
+                        className="appearance-desktop-switch"
+                        type="checkbox"
+                        checked={desktop?.notifyOnCompletion === true}
+                        onChange={(event) => onDesktopChange({ ...desktop, notifyOnCompletion: event.target.checked })}
+                      />
+                    </label>
                   </div>
                 </section>
               </div>

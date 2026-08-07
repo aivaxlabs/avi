@@ -1,9 +1,12 @@
 import {
   ChevronLeft,
   ChevronRight,
+  MessageSquarePlus,
+  MessagesSquare,
   UploadCloud,
 } from 'lucide-react';
 import { memo, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Composer } from './Composer.jsx';
@@ -115,6 +118,8 @@ export const ChatView = memo(function ChatView({
   onStop,
   onCompress,
   onCreateSideChat,
+  onMentionSelection,
+  onAskSelection,
   subagents,
   tasks = [],
   onOpenTasks,
@@ -163,6 +168,7 @@ export const ChatView = memo(function ChatView({
   const questionCardRef = useRef(null);
   const [fileDropActive, setFileDropActive] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState(null);
+  const [selectionAction, setSelectionAction] = useState(null);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [questionAnswers, setQuestionAnswers] = useState([]);
   const [questionResolving, setQuestionResolving] = useState(false);
@@ -514,6 +520,95 @@ export const ChatView = memo(function ChatView({
     return () => stopRendering({ destroyDelay: 1800 });
   }, [compact, emptyBackgroundEnabled, emptyBackgroundThemeKey, isEmptyChat]);
 
+  useEffect(() => {
+    if (!selectionAction) return undefined;
+    const controller = new AbortController();
+    window.addEventListener('pointerdown', (event) => {
+      if (event.target.closest?.('.selection-action-group')) return;
+      setSelectionAction(null);
+    }, { signal: controller.signal });
+    window.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      setSelectionAction(null);
+      window.getSelection()?.removeAllRanges();
+    }, { signal: controller.signal });
+    window.addEventListener('resize', () => setSelectionAction(null), {
+      once: true,
+      signal: controller.signal,
+    });
+    return () => controller.abort();
+  }, [selectionAction]);
+
+  const updateSelectionAction = () => {
+    const selection = window.getSelection();
+    if (
+      (!onMentionSelection && !onAskSelection)
+      || !selection
+      || selection.rangeCount === 0
+      || selection.isCollapsed
+    ) {
+      setSelectionAction(null);
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const startElement = range.startContainer.nodeType === Node.TEXT_NODE
+      ? range.startContainer.parentElement
+      : range.startContainer;
+    const endElement = range.endContainer.nodeType === Node.TEXT_NODE
+      ? range.endContainer.parentElement
+      : range.endContainer;
+    const startMessage = startElement?.closest?.('.message-row');
+    const endMessage = endElement?.closest?.('.message-row');
+    if (
+      !startMessage
+      || startMessage !== endMessage
+      || !chatAreaRef.current?.contains(startMessage)
+      || startElement?.closest?.('button, input, textarea, [contenteditable="true"]')
+      || endElement?.closest?.('button, input, textarea, [contenteditable="true"]')
+    ) {
+      setSelectionAction(null);
+      return;
+    }
+
+    const content = selection.toString().trim();
+    if (!content) {
+      setSelectionAction(null);
+      return;
+    }
+
+    const rect = range.getBoundingClientRect();
+    const width = 276;
+    const height = 34;
+    const above = rect.top - height - 8;
+    setSelectionAction({
+      content,
+      left: Math.max(8, Math.min(
+        rect.left + rect.width / 2 - width / 2,
+        window.innerWidth - width - 8,
+      )),
+      top: above >= 8 ? above : Math.min(window.innerHeight - height - 8, rect.bottom + 8),
+    });
+  };
+
+  const useSelection = (callback) => {
+    if (!selectionAction || !callback) return;
+    const escapedContent = selectionAction.content
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+    callback({
+      id: crypto.randomUUID(),
+      kind: 'context_marker',
+      markerType: 'citation',
+      name: 'Chat citation',
+      size: 0,
+      text: `<citation>${escapedContent}</citation>`,
+    });
+    setSelectionAction(null);
+    window.getSelection()?.removeAllRanges();
+  };
+
   async function resolveQuestion(cancelled) {
     if (!questionRequest || questionResolving) return;
     setQuestionResolving(true);
@@ -558,7 +653,10 @@ export const ChatView = memo(function ChatView({
       <div
         ref={scrollRef}
         className="chat-scroll"
+        onMouseUp={updateSelectionAction}
+        onKeyUp={updateSelectionAction}
         onScroll={(event) => {
+          setSelectionAction(null);
           if (!isRunning) return;
 
           const scrollElement = event.currentTarget;
@@ -613,7 +711,7 @@ export const ChatView = memo(function ChatView({
                   onSendContinuation={onSendContinuation}
                   onUndoEdits={onUndoEdits}
                   onOpenFileEdit={onOpenFileEdit}
-                  onImplementPlan={() => onImplementPlan?.()}
+                  onImplementPlan={(options) => onImplementPlan?.(options)}
                   onOpenFileReference={onOpenFileReference}
                   onFileReferenceAction={onFileReferenceAction}
                   showContinuations={message.id === lastAssistantMessage?.id}
@@ -839,6 +937,29 @@ export const ChatView = memo(function ChatView({
         autoFocus={Boolean(currentConversation?.isSideChat)}
         defaultPermissionMode={defaultPermissionMode}
       />
+      {selectionAction && createPortal(
+        <div
+          className="selection-action-group"
+          role="toolbar"
+          aria-label="Selected text actions"
+          style={{ left: selectionAction.left, top: selectionAction.top }}
+          onMouseDown={(event) => event.preventDefault()}
+        >
+          {onMentionSelection && (
+            <button type="button" onClick={() => useSelection(onMentionSelection)}>
+              <MessageSquarePlus size={13} aria-hidden="true" />
+              <span>Mention on Chat</span>
+            </button>
+          )}
+          {onAskSelection && (
+            <button type="button" onClick={() => useSelection(onAskSelection)}>
+              <MessagesSquare size={13} aria-hidden="true" />
+              <span>Ask in Side Chat</span>
+            </button>
+          )}
+        </div>,
+        document.body,
+      )}
     </Root>
   );
 }, (previous, next) => {

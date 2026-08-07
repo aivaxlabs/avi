@@ -620,44 +620,60 @@
   }
 }
 
-.files-selection-action {
+.selection-action-group {
   position: fixed;
-  min-width: 104px;
   height: 30px;
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+  align-items: stretch;
   z-index: 125;
-  padding: 0 9px;
   color: var(--text-1);
   background: var(--background-1);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 22%);
-  font-size: 11px;
-  font-weight: 500;
+  box-shadow: 0 2px 16px #00000011;
   white-space: nowrap;
-  transition: color 180ms var(--base-transition),
-    background 180ms var(--base-transition),
-    transform 180ms var(--base-transition);
 
-  &:hover {
-    background: var(--item-hover);
-  }
+  button {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 0 8px;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+    font: inherit;
+    font-size: .95rem;
+    cursor: pointer;
+    transition: color 180ms var(--base-transition),
+      background 180ms var(--base-transition),
+      transform 180ms var(--base-transition);
 
-  &:active {
-    transform: scale(.97);
-  }
+    + button {
+      border-left: 1px solid var(--border-color);
+      border-top-left-radius: 0;
+      border-bottom-left-radius: 0;
+    }
 
-  &:focus-visible {
-    outline: 2px solid var(--text-3);
-    outline-offset: 2px;
-  }
+    &:hover {
+      background: var(--item-hover);
+    }
 
-  svg {
-    flex: 0 0 auto;
-    color: var(--text-3);
+    &:active {
+      transform: scale(.97);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: -1px;
+    }
+
+    svg {
+      flex: 0 0 auto;
+      color: var(--text-3);
+    }
   }
 }
 
@@ -728,7 +744,7 @@
 
 @media (prefers-reduced-motion: reduce) {
 
-  .files-selection-action,
+  .selection-action-group button,
   .files-panel .files-tree-node,
   .files-panel .files-search-clear,
   .files-panel .files-search-result,

@@ -6,6 +6,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  Notification,
   shell,
   Tray,
 } from 'electron';
@@ -443,6 +444,20 @@ function initializeServices() {
           || (payload.type === 'message' && payload.message?.role === 'user')
         ) refreshTrayMenu();
       },
+      sendCompletionNotification: ({ conversation, message }) => {
+        if (!getPreferences().desktop?.notifyOnCompletion || !Notification.isSupported()) return;
+        try {
+          new Notification({
+            title: conversation?.title || 'Avi',
+            body: message.content,
+          }).show();
+        } catch (error) {
+          traceError('desktop.completion-notification-error', {
+            conversation_id: conversation?.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
       savePermissionGuidance: async ({ workspacePath, invocationSummary }) => {
         const agentsPath = join(homedir(), '.agents');
         const guidancePath = join(agentsPath, 'MEMORY.permissionguidance.md');
@@ -826,6 +841,11 @@ function registerIpc() {
       const ongoing = ['active', 'paused'].includes(goalStatus)
         || latestAssistant?.status === 'streaming'
         || latestMessage?.status === 'queued';
+      const requiresAttention = !ongoing && (
+        goalStatus === 'blocked'
+        || ['error', 'aborted'].includes(latestAssistant?.status)
+        || ['error', 'aborted'].includes(latestMessage?.status)
+      );
 
       return {
         ...conversation,
@@ -833,6 +853,7 @@ function registerIpc() {
         latestMessage,
         latestAssistant,
         ongoing,
+        requiresAttention,
       };
     });
     const messagesInRange = tasks.flatMap((task) => (
@@ -872,11 +893,8 @@ function registerIpc() {
 
     return {
       metrics: {
-        messagesSent: messagesInRange.filter((message) => message.role === 'user').length,
-        threadsOpened: conversations.filter(
-          (conversation) => conversation.conversationType === 'thread'
-            && isInRange(conversation.createdAt),
-        ).length,
+        responses: messagesInRange.filter((message) => message.role === 'assistant').length,
+        modelsUsed: modelUsage.size,
         tokens: [...modelUsage.values()].reduce((total, usage) => total + usage.tokens, 0),
         topModels: [...modelUsage.values()]
           .sort((a, b) => b.messages - a.messages || b.tokens - a.tokens)
@@ -885,11 +903,15 @@ function registerIpc() {
       ongoing: tasks
         .filter((task) => task.ongoing)
         .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
-        .map(({ messages, latestMessage, latestAssistant, ongoing, ...task }) => task),
+        .map(({ messages, latestMessage, latestAssistant, ongoing, requiresAttention, ...task }) => task),
+      requiresAttention: tasks
+        .filter((task) => task.requiresAttention)
+        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+        .map(({ messages, latestMessage, latestAssistant, ongoing, requiresAttention, ...task }) => task),
       recentlyCompleted: tasks
         .filter((task) => (
           !task.ongoing
-          && isInRange(task.updatedAt)
+          && !task.requiresAttention
           && (
             task.goal?.status === 'completed'
             || task.latestAssistant?.status === 'completed'
@@ -897,7 +919,7 @@ function registerIpc() {
         ))
         .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
         .slice(0, 8)
-        .map(({ messages, latestMessage, latestAssistant, ongoing, ...task }) => task),
+        .map(({ messages, latestMessage, latestAssistant, ongoing, requiresAttention, ...task }) => task),
     };
   });
   applicationIpc.handle('side-chats:list', (_event, parentConversationId) => (

@@ -111,6 +111,7 @@ export default function App() {
   const [activeAuxiliaryTab, setActiveAuxiliaryTab] = useState(null);
   const [activeSubagentId, setActiveSubagentId] = useState(null);
   const [pendingComposerAttachment, setPendingComposerAttachment] = useState(null);
+  const [pendingSideChatAttachment, setPendingSideChatAttachment] = useState(null);
   const [fileNavigation, setFileNavigation] = useState(null);
   const [mcpState, setMcpState] = useState(null);
   const [mcpWaiting, setMcpWaiting] = useState({});
@@ -1015,11 +1016,44 @@ export default function App() {
   }
 
   async function implementPlan({
+    action = 'default',
+    plan = '',
     conversationId = selectedId,
     model = currentModel,
     project = currentProject,
   } = {}) {
-    changeWorkMode(null);
+    const goalSpecification = 'Start implementation by establishing a well-defined Goal for this plan. Define the final objective, acceptance criteria, validation requirements, and execution rules before proceeding, then carry the work through to completion.';
+
+    if (action === 'goal' || action === 'ultra-goal') {
+      return startGoal({
+        conversationId,
+        model,
+        project,
+        specification: goalSpecification,
+        ultraMode: action === 'ultra-goal',
+      });
+    }
+
+    if (action === 'new-thread') {
+      selectedConversationIdRef.current = null;
+      setSelectedId(null);
+      setDraftProject(project);
+      setDraftModel(model);
+      setWorkMode(null);
+      setUltraMode(false);
+      await sendMessage({
+        text: `Implement the following plan in a new thread:\n\n${plan}`,
+        attachments: [],
+        conversationId: null,
+        model,
+        project,
+        workMode: null,
+        ultraMode: false,
+      });
+      return true;
+    }
+
+    await changeWorkMode(null, conversationId);
     await sendMessage({
       text: 'Implement this plan',
       attachments: [],
@@ -1027,7 +1061,9 @@ export default function App() {
       model,
       project,
       workMode: null,
+      ultraMode: action === 'ultra',
     });
+    return true;
   }
 
   async function forkConversation(id = selectedId, throughMessageId = null) {
@@ -1041,8 +1077,9 @@ export default function App() {
     setSelectedId(result.conversation.id);
   }
 
-  async function createSideChat() {
+  async function createSideChat(initialAttachment = null) {
     if (!selectedId) return;
+    const attachment = initialAttachment?.kind ? initialAttachment : null;
     const result = await api.sideChats.create({ parentConversationId: selectedId });
     if (!result) return;
     setSideChats((state) => [...state, result.conversation]);
@@ -1050,6 +1087,9 @@ export default function App() {
       ...state,
       [result.conversation.id]: result.messages,
     }));
+    setPendingSideChatAttachment(attachment
+      ? { conversationId: result.conversation.id, attachment }
+      : null);
     setAuxiliaryPanelVisible(true);
     setActiveAuxiliaryTab(result.conversation.id);
   }
@@ -1475,6 +1515,7 @@ export default function App() {
               min={180}
               max={sidebarWidthMax}
               direction={1}
+              cssVariable="--sidebar-width"
               onChange={setSidebarWidth}
               onCommit={(width) => window.localStorage.setItem(
                 sidebarWidthStorageKey,
@@ -1512,6 +1553,8 @@ export default function App() {
               onStop={chatOnStop}
               onCompress={chatOnCompress}
               onCreateSideChat={currentConversation ? chatOnCreateSideChat : undefined}
+              onMentionSelection={setPendingComposerAttachment}
+              onAskSelection={currentConversation ? chatOnCreateSideChat : undefined}
               subagents={subagentsWithStatus}
               tasks={tasksByConversation[selectedId] ?? []}
               onOpenTasks={chatOnOpenTasks}
@@ -1550,6 +1593,7 @@ export default function App() {
                 min={minimumAuxiliaryPanelWidth}
                 max={auxiliaryPanelWidthMax}
                 direction={-1}
+                cssVariable="--auxiliary-panel-width"
                 onChange={setAuxiliaryPanelWidth}
                 onCommit={(width) => window.localStorage.setItem(
                   auxiliaryPanelWidthStorageKey,
@@ -1683,6 +1727,13 @@ export default function App() {
                 onClosePanel={() => setAuxiliaryPanelVisible(false)}
                 onCreateSideChat={createSideChat}
                 onAddToChat={setPendingComposerAttachment}
+                onAskInSideChat={createSideChat}
+                pendingSideChatAttachment={pendingSideChatAttachment}
+                onPendingSideChatAttachmentConsumed={(attachmentId) => {
+                  setPendingSideChatAttachment((current) => (
+                    current?.attachment.id === attachmentId ? null : current
+                  ));
+                }}
                 fileNavigation={fileNavigation}
                 onFileNavigationConsumed={() => setFileNavigation(null)}
                 onOpenFileReference={openFileReference}
@@ -1705,7 +1756,8 @@ export default function App() {
                     gitBranch: thread.gitBranch,
                   },
                 })}
-                onImplementPlan={(thread, model) => implementPlan({
+                onImplementPlan={(thread, model, options) => implementPlan({
+                  ...options,
                   conversationId: thread.id,
                   model,
                   project: {

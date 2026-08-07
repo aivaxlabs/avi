@@ -554,33 +554,39 @@ try {
     subagents: [
       {
         threadId: 'thread-running',
+        name: 'Dorian',
         initialPrompt: longSubagentPrompt,
         status: 'in_progress',
       },
       {
         threadId: 'thread-completed',
+        name: 'Euclid',
         initialPrompt: 'Completed task',
         status: 'completed',
       },
       {
         threadId: 'thread-failed',
+        name: 'Ada',
         initialPrompt: 'Failed task',
         status: 'failed',
       },
     ],
   });
   assert.ok(subagentContext.includes(
-    '<subagent thread_id="thread-running" status="in_progress">',
+    '<subagent thread_id="thread-running" name="Dorian" status="in_progress">',
+  ));
+  assert.ok(subagentContext.includes(
+    'Sub-agent names are display labels only. Always target and correlate orchestration actions by thread_id',
   ));
   assert.ok(subagentContext.includes(
     `<initial_prompt>${longSubagentPrompt.slice(0, 256)}</initial_prompt>`,
   ));
   assert.ok(!subagentContext.includes(longSubagentPrompt));
   assert.ok(subagentContext.includes(
-    '<subagent thread_id="thread-completed" status="completed">',
+    '<subagent thread_id="thread-completed" name="Euclid" status="completed">',
   ));
   assert.ok(subagentContext.includes(
-    '<subagent thread_id="thread-failed" status="failed">',
+    '<subagent thread_id="thread-failed" name="Ada" status="failed">',
   ));
 
   const workspaceTreeRoot = await mkdtemp(path.join(tmpdir(), 'context-workspace-tree-'));

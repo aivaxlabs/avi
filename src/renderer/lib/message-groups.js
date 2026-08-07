@@ -57,7 +57,9 @@ export function groupAssistantTurns(messages) {
 
   for (const message of messages) {
     const belongsToAssistantTurn = (
-      message.role === 'assistant' || Boolean(parseStructuredUserMessage(message))
+      message.role === 'assistant'
+      || message.fromAgent === true
+      || Boolean(parseStructuredUserMessage(message))
     );
     if (!belongsToAssistantTurn) {
       flushTurn();

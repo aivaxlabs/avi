@@ -69,11 +69,18 @@ provider.getContributions = () => ({
     name: 'openai_subscription_generate_or_edit_image',
     description: 'Generate an image.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: true },
-    execute: async () => ({
-      output: JSON.stringify({ operation: 'generate', outputPath: generatedAttachment.path }),
-      mediaContent: [{ type: 'image_url', image_url: { url: generatedAttachment.dataUrl } }],
-      attachments: [generatedAttachment, generatedAttachment],
-    }),
+    execute: async (input, context) => {
+      assert.equal(input.num_last_images_to_include, 1);
+      assert.deepEqual(context.artifacts.getRecentGeneratedImages({ limit: 1 }), [{
+        name: generatedAttachment.name,
+        path: generatedAttachment.path,
+      }]);
+      return {
+        output: JSON.stringify({ operation: 'generate', outputPath: generatedAttachment.path }),
+        mediaContent: [{ type: 'image_url', image_url: { url: generatedAttachment.dataUrl } }],
+        attachments: [generatedAttachment, generatedAttachment],
+      };
+    },
   }],
 });
 provider.stream = async ({ onEvent }) => {
@@ -87,6 +94,7 @@ provider.stream = async ({ onEvent }) => {
         __invocation_goal: 'Generate a kitten image.',
         __requires_human_approval: false,
         prompt: 'A cute kitten.',
+        num_last_images_to_include: 1,
       }),
     };
     onEvent({ type: 'tool-call', ...toolCall });
@@ -97,6 +105,13 @@ provider.stream = async ({ onEvent }) => {
 };
 
 const imageSession = runner.createSession();
+imageSession.messages.push(runner.createMessage({
+  role: 'assistant',
+  model: model.id,
+  content: 'Previous image.',
+  attachments: [generatedAttachment],
+  status: 'completed',
+}));
 await runner.send({
   sessionId: imageSession.id,
   text: 'Generate a kitten.',

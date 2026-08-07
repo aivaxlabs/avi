@@ -281,10 +281,9 @@
       grid-template-columns: 18px minmax(0, 1fr) 16px;
       align-items: center;
       gap: 10px;
-      padding: 8px 10px;
+      padding: 8px 14px;
       color: var(--text-1);
-      background: var(--background-3);
-      border: 1px solid transparent;
+      background: var(--background-2);
       border-radius: 9px;
       text-align: left;
       transition: color 180ms var(--base-transition),
@@ -321,7 +320,6 @@
 
       &:hover:not(:disabled) {
         background: var(--item-hover);
-        border-color: var(--border-color);
       }
 
       &:active:not(:disabled) {
@@ -432,8 +430,16 @@
       gap: 3px;
       padding: 2px 4px 12px;
 
-      strong { color: var(--text-1); font-size: 12px; font-weight: 500; }
-      span { color: var(--text-3); font-size: 11px; }
+      strong {
+        color: var(--text-1);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      span {
+        color: var(--text-3);
+        font-size: 11px;
+      }
     }
   }
 
@@ -444,12 +450,34 @@
     padding: 11px 4px;
     border-top: 1px solid var(--border-color);
 
-    > span:last-child { min-width: 0; display: grid; gap: 4px; }
-    strong { color: var(--text-1); font-size: 12px; font-weight: 500; }
-    p, small { margin: 0; color: var(--text-3); font-size: 11px; line-height: 1.45; }
-    small { color: var(--text-2); }
+    > span:last-child {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
 
-    &.done strong { color: var(--text-3); text-decoration: line-through; }
+    strong {
+      color: var(--text-1);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    p,
+    small {
+      margin: 0;
+      color: var(--text-3);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    small {
+      color: var(--text-2);
+    }
+
+    &.done strong {
+      color: var(--text-3);
+      text-decoration: line-through;
+    }
   }
 
   .task-check {
@@ -490,11 +518,6 @@
     text-align: left;
     transition: background 180ms var(--base-transition);
 
-    + .subagent-list-item {
-      border-top: 1px solid var(--border-color);
-      border-radius: 0 0 10px 10px;
-    }
-
     &:hover,
     &:focus-visible {
       background: var(--item-hover);
@@ -507,6 +530,18 @@
 
     > svg {
       color: var(--text-4);
+    }
+  }
+
+  .subagent-avatar {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+
+    svg {
+      display: block;
+      border-radius: 50%;
     }
   }
 
@@ -524,27 +559,26 @@
 
     strong {
       color: var(--text-1);
-      font-size: 12px;
-      font-weight: 500;
+      font-size: 1rem;
     }
 
     span {
       color: var(--text-3);
-      font-size: 11px;
+      font-size: .875rem;
     }
   }
 
   .subagent-status-dot {
-    width: 7px;
-    height: 7px;
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 9px;
+    height: 9px;
     background: var(--text-4);
+    border: 2px solid var(--background-1);
     border-radius: 999px;
 
-    &.working {
-      background: var(--text-1);
-      box-shadow: 0 0 0 3px var(--background-3);
-    }
-
+    &.working,
     &.failed {
       background: var(--text-1);
     }
@@ -552,11 +586,15 @@
 
   .subagent-status {
     color: var(--text-3);
-    font-size: 10px;
+    font-size: .825rem;
+    font-weight: 500;
     text-transform: capitalize;
+    background-color: --background-3;
+    padding: 2px 8px;
+    border-radius: 99px;
 
-    &.working {
-      color: var(--text-1);
+    & .working {
+      color: var(--success-color);
     }
   }
 

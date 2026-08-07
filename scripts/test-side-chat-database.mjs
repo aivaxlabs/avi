@@ -185,6 +185,10 @@ try {
   assert.equal(listConversations().length, 1);
   assert.equal(forkConversation(first.conversation.id, { sideChat: true }), null);
 
+  const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
+  const listThreadsTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_list_threads');
+  const inspectThreadTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_inspect_thread');
+  const interruptThreadTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_interrupt_thread');
   const visibleThreads = await listThreadsTool.execute({}, {
     chatRunner: { runs: new Map() },
     conversationId: parent.id,
@@ -209,7 +213,6 @@ try {
     ),
     /Side chats are private/,
   );
-
   deleteConversation(first.conversation.id, { hard: true });
   assert.equal(getConversation(first.conversation.id), null);
   assert.equal(listSideChats(parent.id).length, 1);
@@ -221,7 +224,7 @@ try {
   });
   assert.equal(subagent.conversation.isSubagent, true);
   assert.equal(subagent.conversation.parentConversationId, parent.id);
-  assert.equal(subagent.conversation.title, 'Sub-agent 1');
+  assert.equal(subagent.conversation.title, 'Euclid');
   assert.equal(subagent.conversation.initialPrompt, 'Inspect the initial queue state.');
   assert.equal(subagent.conversation.contextCheckpoint, '');
   assert.equal(subagent.conversation.checkpointMessageId, null);
@@ -229,20 +232,20 @@ try {
   assert.deepEqual(getMessages(subagent.conversation.id), []);
   assert.deepEqual(
     listSubagents(parent.id).map((agent) => agent.title),
-    ['Sub-agent 1'],
+    ['Euclid'],
   );
   assert.equal(listSubagents(parent.id)[0].firstPrompt, 'Inspect the initial queue state.');
   const subagentModelMessages = toModelMessages(subagent.conversation.id);
   assert.ok(subagentModelMessages[0].content.includes('thread_type: subagent'));
   assert.ok(subagentModelMessages[0].content.includes(`thread_id: ${subagent.conversation.id}`));
   assert.ok(subagentModelMessages[0].content.includes(`parent_thread_id: ${parent.id}`));
+  assert.ok(subagentModelMessages[0].content.includes('You are the sub-agent called Euclid.'));
   assert.ok(subagentModelMessages[0].content.includes('final response is not forwarded'));
   assert.equal(subagentModelMessages.length, 1);
   assert.equal(subagentModelMessages.some((message) => message.content === 'Parent context'), false);
   assert.equal(subagentModelMessages.some((message) => message.content === 'Parent answer'), false);
   assert.equal(subagentModelMessages.some((message) => message.content.includes('Checkpoint snapshot')), false);
   assert.equal(forkConversation(subagent.conversation.id, { subagent: true }), null);
-  const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
   const updateTasksTool = CLIENT_TOOLS.find((tool) => tool.name === 'update_tasks');
   const taskEvents = [];
   const toolTasks = [{
@@ -280,9 +283,6 @@ try {
   const spawnTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_spawn_subagent');
   assert.equal(CLIENT_TOOLS.some((tool) => tool.name === 'chat_report_to_orchestrator'), false);
   const sendPromptTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_send_prompt');
-  const listThreadsTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_list_threads');
-  const inspectThreadTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_inspect_thread');
-  const interruptThreadTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_interrupt_thread');
   assert.deepEqual(sendPromptTool.inputSchema.required, ['threadId', 'prompt']);
   assert.equal(sendPromptTool.inputSchema.properties.low_priority.type, 'boolean');
   assert.equal(sendPromptTool.inputSchema.properties.mode, undefined);
@@ -317,6 +317,7 @@ try {
     },
   );
   assert.equal(spawned.status, 'working');
+  assert.equal(getConversation(spawned.thread_id).title, 'Archimedes');
   assert.equal(getConversation(spawned.thread_id).isSubagent, true);
   assert.equal(getConversation(spawned.thread_id).parentConversationId, parent.id);
   assert.equal(getConversation(spawned.thread_id).initialPrompt, 'Inspect the queue.');
@@ -358,8 +359,19 @@ try {
       reasoningEffort: 'high',
     },
   );
+  assert.equal(getConversation(optionalSubagent.thread_id).title, 'Pythagoras');
   assert.equal(noResponseCalls[0].text, 'Inspect without a reporting preference.');
   deleteConversation(optionalSubagent.thread_id, { hard: true });
+  const agentMessage = insertMessage({
+    conversationId: spawned.thread_id,
+    role: 'user',
+    status: 'sent',
+    content: 'Persist this prompt without decoration.',
+    fromAgent: true,
+  });
+  assert.equal(agentMessage.content, 'Persist this prompt without decoration.');
+  assert.equal(agentMessage.fromAgent, true);
+  assert.equal(getMessages(spawned.thread_id).find((message) => message.id === agentMessage.id)?.fromAgent, true);
   const crossAgentCalls = [];
   await sendPromptTool.execute(
     {
@@ -374,8 +386,11 @@ try {
           return { queued: true, message: { id: 'cross-agent-prompt' } };
         },
       },
+      conversationId: parent.id,
     },
   );
+  assert.equal(crossAgentCalls[0].text, 'Coordinate this finding with the team.');
+  assert.equal(crossAgentCalls[0].fromAgent, true);
   assert.equal(crossAgentCalls[0].ultraMode, true);
   assert.equal(crossAgentCalls[0].queuePriority, false);
   await assert.rejects(
@@ -447,6 +462,7 @@ try {
     subagent: true,
     subagentPrompt: 'Inspect the failing worker.',
   });
+  assert.equal(failedSubagent.conversation.title, 'Pascal');
   const failedPromptAt = Date.now() + 10_000;
   insertMessage({
     conversationId: failedSubagent.conversation.id,
@@ -496,7 +512,7 @@ try {
   const questionEvents = [];
   const questionRunner = new ChatRunner({
     registry: { resolve: () => ({ model: runtimeModel }) },
-    sendEvent: (conversationId, event) => questionEvents.push({ conversationId, event }),
+    sendEvent: (event) => questionEvents.push(event),
   });
   const pendingQuestions = [{
     type: 'free_text',
@@ -580,7 +596,8 @@ try {
   assert.deepEqual(questionResult, { cancelled: true, answers: [] });
   assert.deepEqual(questionEvents.at(-1), {
     conversationId: questionConversation.id,
-    event: { type: 'question-cancelled', questionId: 'pending-question' },
+    type: 'question-cancelled',
+    questionId: 'pending-question',
   });
   deleteConversation(questionConversation.id, { hard: true });
 
@@ -636,15 +653,18 @@ try {
   while (runtimeRunner.runs.has(subagent.conversation.id)) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 10));
   }
-  assert.equal(subagentContexts[1].length, 3);
+  assert.equal(subagentContexts[1].length, 2);
   assert.deepEqual(
     threadContexts[1].map(({ threadId }) => threadId),
     [parent.id, spawned.thread_id, failedSubagent.conversation.id],
   );
   assert.equal(threadContexts[1].some(({ threadId }) => threadId === subagent.conversation.id), false);
-  assert.equal(
-    subagentContexts[1].find(({ threadId }) => threadId === subagent.conversation.id).status,
-    'in_progress',
+  assert.deepEqual(
+    subagentContexts[1].map(({ threadId, status }) => ({ threadId, status })),
+    [
+      { threadId: spawned.thread_id, status: 'failed' },
+      { threadId: failedSubagent.conversation.id, status: 'failed' },
+    ],
   );
 
   await runtimeRunner.send({
@@ -702,6 +722,10 @@ try {
   assert.equal(forwardingCalls[0].steer, true);
   assert.match(forwardingCalls[0].text, /Managed final result\./);
   assert.doesNotMatch(forwardingCalls[0].text, /Private reasoning/);
+  assert.match(
+    forwardingCalls[0].text,
+    new RegExp(`<subagent_report thread_id="${managedSubagent.conversation.id}" title="${managedSubagent.conversation.title}"`),
+  );
   assert.match(forwardingCalls[0].text, new RegExp(`source_message_id="${managedResult.id}"`));
 
   insertMessage({
@@ -844,9 +868,10 @@ try {
   assert.equal(planSubagent.orchestrationMode, 'plan');
   assert.equal(planSpawnCalls[0].workMode, 'plan');
   const planContext = toModelMessages(planSubagent.id)[0].content;
-  assert.match(planContext, /read-only Plan-mode specialist/);
+  assert.match(planContext, /Plan-mode specialist/);
   assert.match(planContext, /coordinate directly with the parent or listed sibling sub-agents/);
-  assert.match(planContext, /Do not edit files, run commands, mutate data/);
+  assert.match(planContext, /terminal commands strictly for read-only investigation/);
+  assert.match(planContext, /Do not edit files, mutate data/);
 
   const planMessageCalls = [];
   await sendPromptTool.execute(

@@ -24,8 +24,12 @@ const crossThread = message(
   'user',
   '<cross-message from_thread_id="thread-2">Additional context</cross-message>',
 );
-const finalAssistant = message('6', 'assistant', 'Final answer');
-const nextHuman = message('7', 'user', 'Follow-up');
+const agentPrompt = {
+  ...message('6', 'user', 'Additional instructions from a sub-agent'),
+  fromAgent: true,
+};
+const finalAssistant = message('7', 'assistant', 'Final answer');
+const nextHuman = message('8', 'user', 'Follow-up');
 
 assert.deepEqual(groupAssistantTurns([
   human,
@@ -33,13 +37,14 @@ assert.deepEqual(groupAssistantTurns([
   report,
   assistantTwo,
   crossThread,
+  agentPrompt,
   finalAssistant,
   nextHuman,
 ]), [
   { message: human, workedMessages: [] },
   {
     message: finalAssistant,
-    workedMessages: [assistantOne, report, assistantTwo, crossThread],
+    workedMessages: [assistantOne, report, assistantTwo, crossThread, agentPrompt],
     workedStartedAt: assistantOne.createdAt,
   },
   { message: nextHuman, workedMessages: [] },

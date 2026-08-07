@@ -20,27 +20,21 @@ export function answerTextFromTextualBlocks(content) {
     return answers.at(-1).trim();
   }
 
-  let output = '';
+  const turns = [];
   let cursor = 0;
 
   while (cursor < source.length) {
     const marker = findNextTextualBlockMarker(source, cursor);
     if (!marker) {
-      output += source.slice(cursor);
+      turns.push(source.slice(cursor));
       break;
     }
 
-    output += source.slice(cursor, marker.start);
-    if (marker.type === 'assistant-answer') {
-      const valueStart = marker.start + marker.openTag.length;
-      const valueEnd = findTag(source, marker.closeTag, valueStart);
-      output += valueEnd >= 0 ? source.slice(valueStart, valueEnd) : source.slice(valueStart);
-    }
-
+    turns.push(source.slice(cursor, marker.start));
     cursor = skipTextualBlockMarker(source, marker);
   }
 
-  return output.trim();
+  return turns.findLast((turn) => turn.trim())?.trim() ?? '';
 }
 
 function collectAssistantAnswers(source) {

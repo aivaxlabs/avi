@@ -1,12 +1,19 @@
 import {
   appendFileSync,
+  createReadStream,
+  createWriteStream,
   mkdirSync,
+  rmSync,
+  statSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import { createGzip } from 'node:zlib';
 
 const traceDirectory = join(homedir(), '.aivax');
 const tracePath = join(traceDirectory, 'trace.log');
+const maxTraceSize = 64 * 1024 * 1024;
 const allowedDetails = new Set([
   'abort_duration_ms',
   'attempt',
@@ -69,6 +76,30 @@ const allowedDetails = new Set([
   'workflow_count',
 ]);
 let traceLevel = 'minimal';
+
+export async function rotateTraceLog() {
+  try {
+    if (statSync(tracePath).size < maxTraceSize) return;
+
+    const timestamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
+    const archiveDirectory = join(tmpdir(), '.avi', 'rotated-logs', timestamp);
+    const archivePath = join(archiveDirectory, 'trace.log');
+    mkdirSync(archiveDirectory, { recursive: true });
+    await pipeline(
+      createReadStream(tracePath),
+      createGzip(),
+      createWriteStream(archivePath),
+    );
+    rmSync(tracePath);
+    appendFileSync(
+      tracePath,
+      `avi - [${new Date().toISOString()}] -- INFO -- trace_log_rotated: archive_path="${archivePath}" compressed=true\n`,
+      'utf8',
+    );
+  } catch {
+    // Logging must never interrupt application execution.
+  }
+}
 
 export function setTraceLevel(level) {
   traceLevel = ['verbose', 'minimal', 'disabled'].includes(level) ? level : 'minimal';

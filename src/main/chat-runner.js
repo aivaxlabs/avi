@@ -60,6 +60,7 @@ const PLAN_TOOL_NAMES = new Set([
   'chat_spawn_subagent',
   'read_file',
   'read_terminal_output',
+  'run_in_terminal',
   'sleep',
   'read_url',
 ]);
@@ -207,6 +208,7 @@ export class ChatRunner {
     mcpManager,
     getPreferences = readPreferences,
     sendEvent,
+    sendCompletionNotification,
     savePermissionGuidance,
     stopBackgroundTasks,
   }) {
@@ -214,6 +216,7 @@ export class ChatRunner {
     this.mcpManager = mcpManager;
     this.getPreferences = getPreferences;
     this.sendEvent = sendEvent;
+    this.sendCompletionNotification = sendCompletionNotification;
     this.savePermissionGuidance = savePermissionGuidance;
     this.stopBackgroundTasks = stopBackgroundTasks;
     this.runs = new Map();
@@ -646,6 +649,7 @@ export class ChatRunner {
     ultraMode = false,
     goalId = null,
     hidden = false,
+    fromAgent = false,
     queuePriority = false,
     project = {},
   }) {
@@ -706,6 +710,7 @@ export class ChatRunner {
         ultraMode,
         goalId,
         hidden,
+        fromAgent,
         queuePriority,
         text,
         attachments,
@@ -753,6 +758,7 @@ export class ChatRunner {
       ultraMode,
       goalId,
       hidden,
+      fromAgent,
       queuePriority,
       text,
       attachments,
@@ -1321,6 +1327,7 @@ export class ChatRunner {
     ultraMode = false,
     goalId = null,
     hidden = false,
+    fromAgent = false,
     queuePriority = false,
     text,
     attachments,
@@ -1336,6 +1343,7 @@ export class ChatRunner {
       ultraMode,
       goalId,
       hidden,
+      fromAgent,
       queuePriority,
       status,
       content: text,
@@ -1641,6 +1649,7 @@ export class ChatRunner {
             .findLast((message) => message.role === 'assistant');
           return {
             threadId: conversation.id,
+            name: conversation.title,
             role: conversation.isSideChat
               ? 'side_chat'
               : conversation.isSubagent
@@ -2142,6 +2151,7 @@ export class ChatRunner {
           : null,
       };
       const completedMessage = persistAssistant({ status: 'completed', force: true });
+      run.completedAssistantMessage = completedMessage;
       const executionPlans = executionPlansFromTextualBlocks(completedMessage.content);
       if (executionPlans.length === 1) {
         const conversation = getConversation(conversationId);
@@ -2519,6 +2529,12 @@ export class ChatRunner {
           : getGoalForConversation(conversationId)
         : null;
       if (continuingGoal?.status === 'active' && this.continueGoal(continuingGoal)) return;
+      if (current?.completedAssistantMessage) {
+        this.sendCompletionNotification?.({
+          conversation: getConversation(conversationId),
+          message: current.completedAssistantMessage,
+        });
+      }
       this.emit(conversationId, { type: 'run-state', running: false });
       return;
     }

@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { rotateTraceLog } from './trace-log.js';
 
 const skipSingleInstance = !app.isPackaged && process.argv.includes('--skip-single-instance');
 const hasSingleInstanceLock = skipSingleInstance || app.requestSingleInstanceLock();
@@ -14,6 +15,7 @@ if (!hasSingleInstanceLock) {
   });
   app.whenReady()
     .then(async () => {
+      await rotateTraceLog();
       runtime = await import('./runtime.js');
       if (secondInstanceRequested) runtime.showMainWindow();
     })
