@@ -52,6 +52,7 @@ const quirkyPersonality = readFileSync(new URL('../prompts/personality/quirky.md
 const INSTALLATION_CONTEXT_DIRECTORY_NAME = 'context';
 const INSTRUCTION_FILE_PATTERN = /^(?:(?:AGENTS|MEMORY)(?:\.[^.]+)*|CLAUDE|GEMINI|.+\.INSTRUCTIONS|.+\.AGENTS)\.md$/i;
 const POST_INSTRUCTION_CONTEXT_ORDER = [
+  'memory',
   'mcp',
   'work-mode',
   'ultra',
@@ -67,6 +68,15 @@ const USER_CONTEXT_ORDER = [
 ];
 
 export const dynamicContextInjectors = new Map([
+  ['memory', ({ aivax } = {}) => (
+    aivax?.connected && aivax.memoryEnabled && aivax.memoryCollectionId
+      ? [
+          '## Memory',
+          'Use the available memory tools to retrieve persistent user context and save durable preferences or newly discovered knowledge when useful.',
+          'Always search memory before starting substantive work. Write only information that will remain useful beyond the current conversation.',
+        ].join('\n')
+      : ''
+  )],
   ['personality', ({ tuning } = {}) => ({
     candid: candidPersonality,
     cynical: cynicalPersonality,
@@ -495,6 +505,7 @@ export async function resolveDynamicContext(invocationContext = {}) {
   if (invocationContext.quickChat) {
     return [
       quickChatInstructions,
+      dynamicContextInjectors.get('memory')?.(invocationContext),
       dynamicContextInjectors.get('mcp')?.(invocationContext),
       dynamicContextInjectors.get('environment')?.(invocationContext),
     ]

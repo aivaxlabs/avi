@@ -35,6 +35,7 @@ import {
   archiveConversation,
   closeDatabase,
   createConversation,
+  deleteAivaxAccessToken,
   deleteConversation,
   deleteProviderCredentials,
   deleteRemoteApiKey,
@@ -42,6 +43,8 @@ import {
   flushSecureStorage,
   getArchiveSettings,
   getArchiveStats,
+  getAivaxAccessToken,
+  getAivaxSettings,
   getComposerState,
   getConversation,
   getMessages,
@@ -61,6 +64,8 @@ import {
   restoreConversation,
   runArchiveMaintenance,
   setArchiveSettings,
+  setAivaxAccessToken,
+  setAivaxSettings,
   setDefaultModels,
   setDesktopSettings,
   setComposerState,
@@ -72,6 +77,7 @@ import {
   setTuningSettings,
   updateConversation,
 } from './database.js';
+import { loginToAivax, requestAivax } from './aivax-client.js';
 import { ChatRunner } from './chat-runner.js';
 import { QuickChatRunner } from './quick-chat-runner.js';
 import { validateDefaultModels } from './default-models.js';
@@ -675,6 +681,70 @@ function registerIpc() {
     ),
   }));
 
+  const aivaxState = async () => {
+    const connected = Boolean(getAivaxAccessToken());
+    if (!connected) return { connected, account: null, settings: getAivaxSettings() };
+    try {
+      const account = await requestAivax('/api/v1/information/balance', { responseType: 'object' });
+      return { connected, account, settings: getAivaxSettings() };
+    } catch (error) {
+      if (error?.status !== 401) throw error;
+      deleteAivaxAccessToken();
+      const settings = setAivaxSettings({
+        ...getAivaxSettings(),
+        memoryEnabled: false,
+        advancedFetchEnabled: false,
+        webSearchEnabled: false,
+        reflexSearchEnabled: false,
+      });
+      return { connected: false, account: null, settings };
+    }
+  };
+  applicationIpc.handle('aivax:state', aivaxState);
+  applicationIpc.handle('aivax:connect', async (_event, loginKey) => {
+    const login = await loginToAivax(loginKey);
+    if (typeof login.accessToken !== 'string' || !login.accessToken) {
+      throw new Error('AIVAX did not return an access token.');
+    }
+    const account = await requestAivax('/api/v1/information/balance', {
+      accessToken: login.accessToken,
+      responseType: 'object',
+    });
+    setAivaxAccessToken(login.accessToken);
+    return { connected: true, account, settings: getAivaxSettings() };
+  });
+  applicationIpc.handle('aivax:disconnect', () => {
+    deleteAivaxAccessToken();
+    const settings = setAivaxSettings({
+      ...getAivaxSettings(),
+      memoryEnabled: false,
+      advancedFetchEnabled: false,
+      webSearchEnabled: false,
+      reflexSearchEnabled: false,
+    });
+    return { connected: false, account: null, settings };
+  });
+  applicationIpc.handle('aivax:save', (_event, settings) => {
+    if (!getAivaxAccessToken()) throw new Error('Connect an AIVAX account first.');
+    return setAivaxSettings(settings);
+  });
+  applicationIpc.handle('aivax:collections', () => requestAivax('/api/v1/collections', {
+    responseType: 'array',
+  }));
+  applicationIpc.handle('aivax:collections:create', async (_event, name) => {
+    const collectionName = String(name ?? '').trim();
+    if (!collectionName) throw new Error('Collection name is required.');
+    const created = await requestAivax('/api/v1/collections', {
+      body: { collectionName },
+      responseType: 'object',
+    });
+    const collections = await requestAivax('/api/v1/collections', { responseType: 'array' });
+    return {
+      collection: collections.find((collection) => collection.id === created?.collectionId) ?? null,
+      collections,
+    };
+  });
+
   const remoteState = () => {
     const settings = getRemoteSettings();
     return {
@@ -798,16 +868,16 @@ function registerIpc() {
   let searchWorker = null;
   let searchSequence = 0;
   const pendingSearches = new Map();
-  const runChatSearch = (query) => new Promise((resolve, reject) => {
+  const runChatSearch = (query, { includeRecentCandidates = false } = {}) => new Promise((resolve, reject) => {
     if (!searchWorker) {
       searchWorker = new Worker(new URL('./search-worker.js', import.meta.url));
       searchWorker.unref();
-      searchWorker.on('message', ({ id, results, error }) => {
+      searchWorker.on('message', ({ id, results, olderResults, recentCandidates, error }) => {
         const settle = pendingSearches.get(id);
         if (!settle) return;
         pendingSearches.delete(id);
         if (error) settle.reject(new Error(error));
-        else settle.resolve(results);
+        else settle.resolve(recentCandidates ? { olderResults, recentCandidates } : results);
       });
       searchWorker.on('error', (error) => {
         searchWorker = null;
@@ -817,9 +887,47 @@ function registerIpc() {
     }
     const id = ++searchSequence;
     pendingSearches.set(id, { resolve, reject });
-    searchWorker.postMessage({ id, query });
+    searchWorker.postMessage({ id, query, includeRecentCandidates });
   });
-  applicationIpc.handle('conversations:search', (_event, query) => runChatSearch(query));
+  applicationIpc.handle('conversations:search', async (_event, query) => {
+    const reflexEnabled = Boolean(getAivaxAccessToken() && getAivaxSettings().reflexSearchEnabled);
+    const search = await runChatSearch(query, { includeRecentCandidates: reflexEnabled });
+    if (Array.isArray(search)) return search;
+    const { olderResults, recentCandidates } = search;
+    if (recentCandidates.length === 0) return olderResults;
+    try {
+      const reranked = await requestAivax('/api/v1/generations/rerank', {
+        body: {
+          model: '@aivax/reflex-v1',
+          query: String(query),
+          documents: recentCandidates.map((result) => [
+            result.title,
+            result.folderDisplayPath,
+            result.content,
+          ].filter(Boolean).join('\n')),
+          top_n: 20,
+          min_score: 0,
+        },
+        responseType: 'object',
+      });
+      const seenConversations = new Set();
+      const recentResults = (reranked?.results ?? [])
+        .map((result) => recentCandidates[result.index])
+        .filter((result) => result && !seenConversations.has(result.conversationId))
+        .filter((result) => {
+          seenConversations.add(result.conversationId);
+          return true;
+        });
+      return [...recentResults, ...olderResults]
+        .filter((result) => !seenConversations.has(result.conversationId) || recentResults.includes(result))
+        .slice(0, 20);
+    } catch (error) {
+      traceError('aivax.reflex-search-error', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return runChatSearch(query);
+    }
+  });
   applicationIpc.handle('orchestration:overview', (_event, range = {}) => {
     const conversations = listAllConversations();
     const now = Date.now();

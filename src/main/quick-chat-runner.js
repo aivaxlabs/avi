@@ -140,6 +140,8 @@ export class QuickChatRunner {
         ? await this.mcpManager.ensureWorkspace(workspacePath, controller.signal)
         : { tools: [], instructions: [] };
       const models = this.registry.listModels();
+      const preferences = this.getPreferences();
+      const aivax = preferences.aivax;
       const providerTools = selection.provider.getContributions({
         model: selection.model,
         conversation: null,
@@ -152,6 +154,12 @@ export class QuickChatRunner {
             || selection.model.capabilities?.images
             || selection.model.capabilities?.audio
             || selection.model.capabilities?.pdfFiles
+          ))
+          .filter((tool) => !['memory_search', 'memory_write'].includes(tool.name) || (
+            aivax?.connected && aivax.memoryEnabled && aivax.memoryCollectionId
+          ))
+          .filter((tool) => tool.name !== 'web_search' || (
+            aivax?.connected && aivax.webSearchEnabled
           ))
           .map((tool) => ['chat_create_thread', 'chat_spawn_subagent'].includes(tool.name)
             ? {
@@ -186,7 +194,8 @@ export class QuickChatRunner {
             permissionMode: 'full_access',
             orchestrationRole: 'orchestrator',
             quickChat: true,
-            tuning: this.getPreferences().tuning,
+            tuning: preferences.tuning,
+            aivax,
           },
           signal: controller.signal,
           onEvent: (event) => {
@@ -378,6 +387,7 @@ export class QuickChatRunner {
       ultraMode: false,
       goal: null,
       tuning: this.getPreferences().tuning,
+      aivax: this.getPreferences().aivax,
       defaultModels: this.getPreferences().defaultModels,
       capabilities: selection.model.capabilities,
       artifacts: Object.freeze({

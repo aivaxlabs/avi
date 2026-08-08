@@ -37,6 +37,14 @@ contextBridge.exposeInMainWorld('chatApp', {
     status: () => invoke('default-models:status'),
     save: (settings) => invoke('default-models:save', settings),
   },
+  aivax: {
+    state: () => invoke('aivax:state'),
+    connect: (loginKey) => invoke('aivax:connect', loginKey),
+    disconnect: () => invoke('aivax:disconnect'),
+    save: (settings) => invoke('aivax:save', settings),
+    collections: () => invoke('aivax:collections'),
+    createCollection: (name) => invoke('aivax:collections:create', name),
+  },
   tuning: {
     shells: () => invoke('tuning:shells'),
     save: (settings) => invoke('tuning:save', settings),

@@ -1629,13 +1629,17 @@ body.panel-resizing * {
 .settings-page .settings-navigation button {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 7px;
     padding: 6px 12px;
     color: var(--text-1);
     background: transparent;
     border-radius: 10px;
     font-size: 1rem;
     text-align: left;
+}
+
+.settings-page .settings-navigation button svg {
+    opacity: .7;
 }
 
 .settings-page .settings-navigation button:hover {
@@ -1789,6 +1793,233 @@ body.panel-resizing * {
     align-items: center;
     justify-content: space-between;
     gap: 24px;
+}
+
+.settings-page .aivax-features-settings .aivax-settings-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-3);
+}
+
+.settings-page .aivax-features-settings .aivax-spinner, .settings-page .aivax-features-settings .aivax-settings-loading svg {
+    animation: aivax-settings-spin 800ms linear infinite;
+}
+
+.settings-page .aivax-features-settings .aivax-account-row > span {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+}
+
+.settings-page .aivax-features-settings .aivax-account-row > span strong {
+    font-weight: 400;
+}
+
+.settings-page .aivax-features-settings .aivax-account-row > span small {
+    overflow: hidden;
+    color: var(--text-3);
+    text-overflow: ellipsis;
+}
+
+.settings-page .aivax-features-settings .aivax-account-actions {
+    flex: 0 0 132px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.settings-page .aivax-features-settings .aivax-account-actions .button {
+    justify-content: center;
+    min-width: 112px;
+    white-space: nowrap;
+}
+
+.settings-page .aivax-features-settings .aivax-connect-form {
+    display: grid;
+    gap: 16px;
+    padding: 18px;
+}
+
+.settings-page .aivax-features-settings .aivax-connect-form > button {
+    justify-self: end;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-row > span {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-row > span strong {
+    font-weight: 400;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-row > span small {
+    overflow: hidden;
+    color: var(--text-3);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-picker-trigger {
+    flex: 0 1 310px;
+    min-width: 170px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 22px;
+    color: var(--text-1);
+    text-align: left;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-dialog-backdrop {
+    z-index: 80;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-dialog {
+    width: min(520px, 100%);
+    max-height: min(620px, 88vh);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 16px;
+    padding: 18px;
+    color: var(--text-1);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
+}
+
+.settings-page .aivax-features-settings .aivax-collection-dialog .dialog-header p {
+    margin: 3px 0 0;
+    color: var(--text-3);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-list {
+    min-height: 110px;
+    overflow: auto;
+    display: grid;
+    align-content: start;
+    gap: 6px;
+    padding: 4px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-list > button {
+    width: 100%;
+    min-height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    color: var(--text-1);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    text-align: left;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-list > button:hover:not(:disabled) {
+    background: var(--item-hover);
+}
+
+.settings-page .aivax-features-settings .aivax-collection-list > button.selected {
+    background: var(--background-3);
+    border-color: var(--border-color);
+}
+
+.settings-page .aivax-features-settings .aivax-collection-list > button > span:first-child {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-list > button > span:first-child strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-list > button > span:first-child small {
+    color: var(--text-3);
+}
+
+.settings-page .aivax-features-settings .aivax-collection-selected {
+    flex: 0 0 auto;
+    padding: 3px 7px;
+    color: var(--text-2);
+    background: var(--background-4);
+    border-radius: 999px;
+    font-size: 11px;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-empty {
+    margin: 0;
+    padding: 26px 16px;
+    color: var(--text-3);
+    text-align: center;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-create-trigger {
+    justify-self: start;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-create-dialog {
+    width: min(440px, 100%);
+    grid-template-rows: auto auto;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-create {
+    display: grid;
+    gap: 16px;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-create label {
+    min-width: 0;
+    display: grid;
+    gap: 6px;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-create label > span {
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-create input {
+    width: 100%;
+    height: 34px;
+    padding: 6px 10px;
+    color: var(--text-1);
+    background: var(--background-1);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    outline: 0;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-create input:focus-visible {
+    border-color: var(--text-3);
+}
+
+.settings-page .aivax-features-settings .aivax-collection-create-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.settings-page .aivax-features-settings .aivax-collection-create-actions .button {
+    min-height: 34px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
 }
 
 .settings-page .settings-about {
@@ -3100,6 +3331,31 @@ body.panel-resizing * {
         padding: 0;
     }
 
+    .settings-page .aivax-features-settings .aivax-account-actions {
+        flex-basis: auto;
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .settings-page .aivax-features-settings .aivax-collection-row {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .settings-page .aivax-features-settings .aivax-collection-picker-trigger {
+        flex-basis: auto;
+        width: 100%;
+    }
+
+    .settings-page .aivax-features-settings .aivax-collection-create-actions {
+        flex-direction: column-reverse;
+    }
+
+    .settings-page .aivax-features-settings .aivax-collection-create-actions .button {
+        width: 100%;
+        justify-content: center;
+    }
+
     .settings-page .settings-entity-main {
         grid-template-columns: 34px minmax(0, 1fr) 16px;
     }
@@ -3164,6 +3420,12 @@ body.panel-resizing * {
     }
 }
 
+@keyframes aivax-settings-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 @media (max-width: 760px) {
     .settings-page .settings-card-row {
         align-items: flex-start;
@@ -3195,6 +3457,11 @@ button {
     border: 0;
     border-radius: 9999px;
     padding: 4px 10px;
+}
+
+button svg {
+    display: inline-block;
+    margin: 0 4px;
 }
 
 .nav-actions button, .settings-button, .dialog-footer button, .code-block-header button, .continuations button, .project-picker, .model-pill, .recording-bar button.primary-mini, .settings-back, .settings-navigation button, .settings-inline-back, .settings-add-provider, .settings-provider-empty .primary-mini, .settings-actions .primary-mini, .models-editor-header button {
@@ -4557,6 +4824,24 @@ button {
 .search-dialog .search-results button strong, .search-dialog .search-results button span {
     min-width: 0;
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.search-dialog .search-results button .search-result-heading {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.search-dialog .search-results button .search-result-heading small {
+    max-width: 45%;
+    overflow: hidden;
+    padding: 2px 6px;
+    color: var(--text-3);
+    background: var(--background-3);
+    border-radius: 999px;
+    font-size: 9px;
     text-overflow: ellipsis;
     white-space: nowrap;
 }

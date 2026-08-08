@@ -1521,7 +1521,9 @@ export class ChatRunner {
       const currentConversation = getConversation(conversationId);
       const currentGoal = goalId ? getGoal(goalId) : getGoalForConversation(conversationId);
       const goalContinues = currentGoal && CONTINUING_GOAL_STATUSES.has(currentGoal.status);
-      const tuning = this.getPreferences().tuning;
+      const preferences = this.getPreferences();
+      const tuning = preferences.tuning;
+      const aivax = preferences.aivax;
       const contextLimit = selection.model.context.input;
       const providerTools = workMode === 'plan'
         ? []
@@ -1539,6 +1541,12 @@ export class ChatRunner {
             || selection.model.capabilities?.pdfFiles
           ))
           .filter((tool) => workMode !== 'plan' || PLAN_TOOL_NAMES.has(tool.name))
+          .filter((tool) => !['memory_search', 'memory_write'].includes(tool.name) || (
+            aivax?.connected && aivax.memoryEnabled && aivax.memoryCollectionId
+          ))
+          .filter((tool) => tool.name !== 'web_search' || (
+            aivax?.connected && aivax.webSearchEnabled
+          ))
           .filter((tool) => tool.name !== 'start_goal' || !goalContinues)
           .filter((tool) => tool.name !== 'update_goal_status' || goalContinues)
           .filter((tool) => (
@@ -1704,6 +1712,7 @@ export class ChatRunner {
               },
               threads: threadContext,
               tuning,
+              aivax,
             },
             signal: controller.signal,
             onEvent: (event) => {
@@ -1969,7 +1978,8 @@ export class ChatRunner {
               ultraMode,
               goal: goalContext,
               tuning,
-              defaultModels: this.getPreferences().defaultModels,
+              aivax,
+              defaultModels: preferences.defaultModels,
                   capabilities: selection.model.capabilities,
             });
             const generatedAttachments = Array.isArray(value?.attachments)

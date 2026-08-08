@@ -12,6 +12,7 @@ import {
   resolve,
 } from 'node:path';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
+import { requestAivax } from './aivax-client.js';
 import {
   attachmentToApiBlock,
   createConversation,
@@ -982,8 +983,124 @@ export const CLIENT_TOOLS = Object.freeze([
     },
   },
   {
+    name: 'memory_search',
+    description: 'Search persistent AIVAX memory for files matching one or more terms.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        search_terms: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string' },
+          description: 'One or more search terms describing the file or knowledge to retrieve.',
+        },
+      },
+      required: ['search_terms'],
+      additionalProperties: false,
+    },
+    execute: async ({ search_terms }, { aivax, signal }) => requestAivax('/api/v1/query', {
+      body: {
+        terms: search_terms,
+        collections: [aivax.memoryCollectionId],
+        top: 20,
+        includeReferences: false,
+        reranker: 'rrf',
+        minScore: 0.2,
+      },
+      responseType: 'array',
+      signal,
+    }),
+  },
+  {
+    name: 'memory_write',
+    description: 'Write or update a file in persistent AIVAX memory.',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'The file path or name stored in memory.',
+        },
+        contents: {
+          type: 'string',
+          description: 'The full content to write to the file.',
+        },
+        reference: {
+          type: 'string',
+          description: 'Optional grouping ID or source reference.',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional tags used to categorize the file.',
+        },
+      },
+      required: ['name', 'contents'],
+      additionalProperties: false,
+    },
+    execute: async ({ name, contents, reference, tags }, { aivax, signal }) => requestAivax(
+      `/api/v1/collections/${encodeURIComponent(aivax.memoryCollectionId)}/documents`,
+      {
+        method: 'PUT',
+        body: {
+          name,
+          contents,
+          ...(reference === undefined ? {} : { reference }),
+          ...(tags === undefined ? {} : { tags }),
+        },
+        responseType: 'object',
+        signal,
+      },
+    ),
+  },
+  {
+    name: 'web_search',
+    description: 'Search the web using AIVAX with optional country, language, and domain filters.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, description: 'The web search query.' },
+        location: {
+          type: 'string',
+          description: 'Optional city, region, or other location added to the search query.',
+        },
+        country: { type: 'string', description: 'Optional two-letter country code.' },
+        language: { type: 'string', description: 'Optional language code.' },
+        sites: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional domains to include in results.',
+        },
+      },
+      required: ['query'],
+      additionalProperties: false,
+    },
+    execute: async ({ query, location, country, language, sites }, { signal }) => requestAivax(
+      '/api/v1/web/search',
+      {
+        body: {
+          query: location ? `${query} ${location}` : query,
+          topn: 10,
+          ...(country ? { country } : {}),
+          ...(language ? { language } : {}),
+          ...(sites?.length ? { includeDomains: sites } : {}),
+        },
+        responseType: 'object',
+        signal,
+      },
+    ),
+  },
+  {
     name: 'read_url',
-    description: 'Read a public HTTP or HTTPS URL as LLM-friendly Markdown using the Jina Reader API.',
+    description: 'Read a public HTTP or HTTPS URL as LLM-friendly text using the configured extraction service.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -996,7 +1113,7 @@ export const CLIENT_TOOLS = Object.freeze([
       },
       required: ['url'],
     },
-    execute: async ({ url }, { signal }) => {
+    execute: async ({ url }, { aivax, signal }) => {
       let target;
       try {
         target = new URL(String(url));
@@ -1005,6 +1122,22 @@ export const CLIENT_TOOLS = Object.freeze([
       }
       if (!['http:', 'https:'].includes(target.protocol)) {
         throw new Error('url must use HTTP or HTTPS.');
+      }
+
+      if (aivax?.connected && aivax.advancedFetchEnabled) {
+        const result = await requestAivax('/api/v1/web/fetch', {
+          body: { contents: [target.href], returnErrors: true },
+          responseType: 'object',
+          signal,
+        });
+        const fetched = result?.results?.[0];
+        if (fetched?.error) throw new Error(fetched.error);
+        const content = fetched?.extractedText ?? '';
+        return {
+          url: target.href,
+          content: content.slice(0, MAX_READ_URL_CHARS),
+          truncated: content.length > MAX_READ_URL_CHARS,
+        };
       }
 
       const response = await fetch(`https://r.jina.ai/${target.href}`, {

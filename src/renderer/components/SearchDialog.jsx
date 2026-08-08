@@ -113,7 +113,10 @@ export function SearchDialog({ onClose, onSelect }) {
                 onMouseMove={() => setSelectedIndex(index)}
                 onClick={() => selectResult(result)}
               >
-                <strong>{result.title}</strong>
+                <span className="search-result-heading">
+                  <strong>{result.title}</strong>
+                  <small title={result.folderDisplayPath}>{result.folderName}</small>
+                </span>
                 <span>{result.content || 'No preview available.'}</span>
               </button>
             ))}

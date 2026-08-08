@@ -34,6 +34,7 @@ import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import aviIconUrl from '../../../assets/icon/avi.png';
 import { classNames } from '../lib/format.js';
+import { AivaxFeaturesSettings } from './AivaxFeaturesSettings.jsx';
 import { AppearanceSettings } from './AppearanceSettings.jsx';
 import { ArchiveSettings } from './ArchiveSettings.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
@@ -377,7 +378,7 @@ export function SettingsPage({
   }, [view]);
 
   useEffect(() => {
-    if (view !== 'tuning') return undefined;
+    if (view !== 'general') return undefined;
     let cancelled = false;
     const timeout = window.setTimeout(() => {
       if (!cancelled) {
@@ -504,6 +505,7 @@ export function SettingsPage({
     'context-folder': selectedContextFolder?.name || 'Context',
     mcp: mcpNavigation?.title || 'MCP servers',
     remote: 'Remote control',
+    aivax: 'AIVAX Features',
     archive: 'Archive',
     'default-models': 'Default models',
     general: 'General',
@@ -523,6 +525,7 @@ export function SettingsPage({
     mcp: mcpNavigation?.description
       || 'Manage global and per-folder Model Context Protocol servers.',
     remote: 'Expose Avi orchestration through a local authenticated MCP server.',
+    aivax: 'Add persistent memory, richer web tools, and Reflex search through AIVAX.',
     archive: 'Manage conversation retention, archived threads, and storage cleanup.',
     'default-models': 'Choose models for supporting tasks, supervision, and sub-agent orchestration.',
     general: 'Configure chat behavior and desktop integration.',
@@ -530,7 +533,7 @@ export function SettingsPage({
     personalization: 'Choose Avi’s personality, theme, and color scheme.',
     about: 'Project information, version, and links.',
   }[view];
-  const showInlineBack = !['list', 'context-folders', 'mcp', 'remote', 'archive', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
+  const showInlineBack = !['list', 'context-folders', 'mcp', 'remote', 'aivax', 'archive', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
 
   return (
@@ -665,6 +668,23 @@ export function SettingsPage({
           )}
 
           <div className="settings-navigation-separator" role="separator" />
+          {(!settingsQuery || 'aivax features memory account balance plan web search fetch reflex rag collection'.includes(settingsQuery)) && (
+            <button
+              className={view === 'aivax' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'aivax' ? 'page' : undefined}
+              onClick={() => {
+                setView('aivax');
+                setError('');
+              }}
+            >
+              <Sparkles size={16} />
+              AIVAX Features
+            </button>
+          )}
+
+          <div className="settings-navigation-separator" role="separator" />
+
           {(!settingsQuery || 'remote control mcp http api key bearer token port'.includes(settingsQuery)) && (
             <button
               className={view === 'remote' ? 'active' : undefined}
@@ -750,10 +770,10 @@ export function SettingsPage({
                 {view === 'mcp'
                   ? mcpNavigation.backLabel
                   : view === 'context-folder'
-                  ? 'Back to folders'
-                  : view === 'model'
-                    ? 'Back to provider'
-                    : 'Back'}
+                    ? 'Back to folders'
+                    : view === 'model'
+                      ? 'Back to provider'
+                      : 'Back'}
               </button>
             )}
             <div className="settings-page-title-row">
@@ -823,8 +843,7 @@ export function SettingsPage({
                               {' · '}
                               {type?.models === 'managed'
                                 ? 'Managed model catalog'
-                                : `${provider.models.length} ${
-                                  provider.models.length === 1 ? 'model' : 'models'
+                                : `${provider.models.length} ${provider.models.length === 1 ? 'model' : 'models'
                                 }`}
                             </small>
                           </span>
@@ -1001,6 +1020,7 @@ export function SettingsPage({
             )}
 
             {view === 'remote' && <RemoteSettings />}
+            {view === 'aivax' && <AivaxFeaturesSettings />}
             {view === 'archive' && <ArchiveSettings />}
             {view === 'mcp' && (
               <McpSettings
@@ -1164,109 +1184,109 @@ export function SettingsPage({
                   </div>
                   <div className="settings-section-card settings-form settings-row-card">
                     <label className="settings-field settings-field-wide">
-                    <span>Chat reasoning traces</span>
-                    <select
-                    value={tuningDraft.chatReasoningTraces}
-                    onChange={(event) => {
-                    setTuningSaved(false);
-                    setTuningDraft((current) => ({
-                    ...current,
-                    chatReasoningTraces: event.target.value,
-                    }));
-                    }}
-                    >
-                    <option value="visible">Visible</option>
-                    <option value="hidden">Hidden</option>
-                    </select>
-                    <small>
-                    Controls whether reasoning and tool trace blocks appear in chats.
-                    </small>
+                      <span>Chat reasoning traces</span>
+                      <select
+                        value={tuningDraft.chatReasoningTraces}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            chatReasoningTraces: event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="visible">Visible</option>
+                        <option value="hidden">Hidden</option>
+                      </select>
+                      <small>
+                        Controls whether reasoning and tool trace blocks appear in chats.
+                      </small>
                     </label>
                     <label className="settings-field settings-field-wide">
-                    <span>Default permission mode</span>
-                    <select
-                    value={tuningDraft.defaultPermissionMode}
-                    onChange={(event) => {
-                    setTuningSaved(false);
-                    setTuningDraft((current) => ({
-                    ...current,
-                    defaultPermissionMode: event.target.value,
-                    }));
-                    }}
-                    >
-                    <option value="ask_for_approval">Ask for approval</option>
-                    <option value="approve_for_me">Approve for me</option>
-                    <option value="full_access">Full access</option>
-                    </select>
-                    <small>
-                    Used as the initial permission mode when a new conversation is created.
-                    </small>
+                      <span>Default permission mode</span>
+                      <select
+                        value={tuningDraft.defaultPermissionMode}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            defaultPermissionMode: event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="ask_for_approval">Ask for approval</option>
+                        <option value="approve_for_me">Approve for me</option>
+                        <option value="full_access">Full access</option>
+                      </select>
+                      <small>
+                        Used as the initial permission mode when a new conversation is created.
+                      </small>
                     </label>
                     <label className="settings-field settings-field-wide">
-                    <span>Message delivery mode</span>
-                    <select
-                    value={tuningDraft.messageDeliveryMode}
-                    onChange={(event) => {
-                    setTuningSaved(false);
-                    setTuningDraft((current) => ({
-                    ...current,
-                    messageDeliveryMode: event.target.value,
-                    }));
-                    }}
-                    >
-                    <option value="queue">Queue · Enter queues</option>
-                    <option value="steer">Steer · Enter steers</option>
-                    </select>
-                    <small>
-                    Queue uses Enter to enqueue and Ctrl+Enter to steer. Steer reverses these shortcuts.
-                    </small>
+                      <span>Message delivery mode</span>
+                      <select
+                        value={tuningDraft.messageDeliveryMode}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            messageDeliveryMode: event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="queue">Queue · Enter queues</option>
+                        <option value="steer">Steer · Enter steers</option>
+                      </select>
+                      <small>
+                        Queue uses Enter to enqueue and Ctrl+Enter to steer. Steer reverses these shortcuts.
+                      </small>
                     </label>
                     <label className="settings-field settings-field-wide">
-                    <span>Terminal shell</span>
-                    <select
-                    value={tuningDraft.terminalShell}
-                    disabled={!terminalShells}
-                    onChange={(event) => {
-                    setTuningSaved(false);
-                    setTuningDraft((current) => ({
-                    ...current,
-                    terminalShell: event.target.value,
-                    }));
-                    }}
-                    >
-                    {!selectedTerminalShell && tuningDraft.terminalShell !== 'auto' && (
-                    <option value={tuningDraft.terminalShell} disabled>
-                    {tuningDraft.terminalShell} · Not installed
-                    </option>
-                    )}
-                    {terminalShells?.map((shell) => (
-                    <option key={shell.id} value={shell.id}>
-                    {shell.label}
-                    </option>
-                    ))}
-                    </select>
-                    <small className={
-                    terminalShellError || (terminalShells && !selectedTerminalShell)
-                    ? 'settings-field-warning'
-                    : undefined
-                    }>
-                    {!terminalShells
-                    ? 'Detecting installed shells...'
-                    : terminalShellError
-                    ? `Unable to detect installed shells: ${terminalShellError}`
-                    : selectedTerminalShell
-                    ? `Commands run with ${selectedTerminalShell.label}. The installation is checked again before every command.`
-                    : 'This shell is no longer installed. Choose an available option to continue.'}
-                    </small>
+                      <span>Terminal shell</span>
+                      <select
+                        value={tuningDraft.terminalShell}
+                        disabled={!terminalShells}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            terminalShell: event.target.value,
+                          }));
+                        }}
+                      >
+                        {!selectedTerminalShell && tuningDraft.terminalShell !== 'auto' && (
+                          <option value={tuningDraft.terminalShell} disabled>
+                            {tuningDraft.terminalShell} · Not installed
+                          </option>
+                        )}
+                        {terminalShells?.map((shell) => (
+                          <option key={shell.id} value={shell.id}>
+                            {shell.label}
+                          </option>
+                        ))}
+                      </select>
+                      <small className={
+                        terminalShellError || (terminalShells && !selectedTerminalShell)
+                          ? 'settings-field-warning'
+                          : undefined
+                      }>
+                        {!terminalShells
+                          ? 'Detecting installed shells...'
+                          : terminalShellError
+                            ? `Unable to detect installed shells: ${terminalShellError}`
+                            : selectedTerminalShell
+                              ? `Commands run with ${selectedTerminalShell.label}. The installation is checked again before every command.`
+                              : 'This shell is no longer installed. Choose an available option to continue.'}
+                      </small>
                     </label>
                     {terminalShellError && (
-                    <button
-                    className="button button-secondary"
-                    type="button"
-                    onClick={() => setTerminalShellLoadAttempt((attempt) => attempt + 1)}
-                    >
-                    Try again
-                    </button>
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={() => setTerminalShellLoadAttempt((attempt) => attempt + 1)}
+                      >
+                        Try again
+                      </button>
                     )}
                   </div>
                 </section>
@@ -1327,24 +1347,24 @@ export function SettingsPage({
                   </div>
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
-                    <span>Automatic compaction threshold</span>
-                    <select
-                    value={tuningDraft.automaticCompactionThreshold}
-                    onChange={(event) => {
-                    setTuningSaved(false);
-                    setTuningDraft((current) => ({
-                    ...current,
-                    automaticCompactionThreshold: Number(event.target.value),
-                    }));
-                    }}
-                    >
-                    <option value={0.8}>80%</option>
-                    <option value={0.9}>90%</option>
-                    <option value={0.95}>95%</option>
-                    </select>
-                    <small>
-                    Creates a context checkpoint after the selected share of the model window is used.
-                    </small>
+                      <span>Automatic compaction threshold</span>
+                      <select
+                        value={tuningDraft.automaticCompactionThreshold}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            automaticCompactionThreshold: Number(event.target.value),
+                          }));
+                        }}
+                      >
+                        <option value={0.8}>80%</option>
+                        <option value={0.9}>90%</option>
+                        <option value={0.95}>95%</option>
+                      </select>
+                      <small>
+                        Creates a context checkpoint after the selected share of the model window is used.
+                      </small>
                     </label>
                   </div>
                 </section>
@@ -1355,47 +1375,47 @@ export function SettingsPage({
                   </div>
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
-                    <span>Tool output length</span>
-                    <select
-                    value={tuningDraft.toolOutputLimit ?? 'none'}
-                    onChange={(event) => {
-                    setTuningSaved(false);
-                    setTuningDraft((current) => ({
-                    ...current,
-                    toolOutputLimit: event.target.value === 'none'
-                    ? null
-                    : Number(event.target.value),
-                    }));
-                    }}
-                    >
-                    <option value={4_096}>Small · 1,024 tokens</option>
-                    <option value={8_192}>Medium · 2,048 tokens</option>
-                    <option value={32_768}>Long · 8,192 tokens</option>
-                    <option value="none">Disabled · No limit</option>
-                    </select>
-                    <small>
-                    Token count is estimated as output length divided by 4. Disabling truncation can exhaust the context window.
-                    </small>
+                      <span>Tool output length</span>
+                      <select
+                        value={tuningDraft.toolOutputLimit ?? 'none'}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            toolOutputLimit: event.target.value === 'none'
+                              ? null
+                              : Number(event.target.value),
+                          }));
+                        }}
+                      >
+                        <option value={4_096}>Small · 1,024 tokens</option>
+                        <option value={8_192}>Medium · 2,048 tokens</option>
+                        <option value={32_768}>Long · 8,192 tokens</option>
+                        <option value="none">Disabled · No limit</option>
+                      </select>
+                      <small>
+                        Token count is estimated as output length divided by 4. Disabling truncation can exhaust the context window.
+                      </small>
                     </label>
                     <label className="settings-field settings-field-wide">
-                    <span>Terminal timeout</span>
-                    <input
-                    type="number"
-                    min="5"
-                    max="300"
-                    step="1"
-                    value={tuningDraft.terminalTimeoutSeconds}
-                    onChange={(event) => {
-                    setTuningSaved(false);
-                    setTuningDraft((current) => ({
-                    ...current,
-                    terminalTimeoutSeconds: Number(event.target.value),
-                    }));
-                    }}
-                    />
-                    <small>
-                    Default wait in seconds when a terminal command does not provide its own timeout. From 5 to 300.
-                    </small>
+                      <span>Terminal timeout</span>
+                      <input
+                        type="number"
+                        min="5"
+                        max="300"
+                        step="1"
+                        value={tuningDraft.terminalTimeoutSeconds}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            terminalTimeoutSeconds: Number(event.target.value),
+                          }));
+                        }}
+                      />
+                      <small>
+                        Default wait in seconds when a terminal command does not provide its own timeout. From 5 to 300.
+                      </small>
                     </label>
                   </div>
                 </section>
@@ -1406,24 +1426,24 @@ export function SettingsPage({
                   </div>
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
-                    <span>Max concurrent sub-agents per thread</span>
-                    <input
-                    type="number"
-                    min="1"
-                    max="128"
-                    step="1"
-                    value={tuningDraft.maxConcurrentSubagents}
-                    onChange={(event) => {
-                    setTuningSaved(false);
-                    setTuningDraft((current) => ({
-                    ...current,
-                    maxConcurrentSubagents: Number(event.target.value),
-                    }));
-                    }}
-                    />
-                    <small>
-                    Global maximum of sub-agents that may run at the same time. From 1 to 128.
-                    </small>
+                      <span>Max concurrent sub-agents per thread</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="128"
+                        step="1"
+                        value={tuningDraft.maxConcurrentSubagents}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            maxConcurrentSubagents: Number(event.target.value),
+                          }));
+                        }}
+                      />
+                      <small>
+                        Global maximum of sub-agents that may run at the same time. From 1 to 128.
+                      </small>
                     </label>
                   </div>
                 </section>
@@ -1434,24 +1454,24 @@ export function SettingsPage({
                   </div>
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
-                    <span>Diagnosis log level</span>
-                    <select
-                    value={tuningDraft.logLevel}
-                    onChange={(event) => {
-                    setTuningSaved(false);
-                    setTuningDraft((current) => ({
-                    ...current,
-                    logLevel: event.target.value,
-                    }));
-                    }}
-                    >
-                    <option value="verbose">Verbose · Detailed timings and errors</option>
-                    <option value="minimal">Minimal · Errors only</option>
-                    <option value="disabled">Disabled · No logging</option>
-                    </select>
-                    <small>
-                    Logs never include prompts, messages, tool inputs, attachments, API keys, or user file paths.
-                    </small>
+                      <span>Diagnosis log level</span>
+                      <select
+                        value={tuningDraft.logLevel}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            logLevel: event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="verbose">Verbose · Detailed timings and errors</option>
+                        <option value="minimal">Minimal · Errors only</option>
+                        <option value="disabled">Disabled · No logging</option>
+                      </select>
+                      <small>
+                        Logs never include prompts, messages, tool inputs, attachments, API keys, or user file paths.
+                      </small>
                     </label>
                   </div>
                 </section>
@@ -1467,29 +1487,29 @@ export function SettingsPage({
                   </div>
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
-                    <span>Personality</span>
-                    <select
-                    value={tuningDraft.personality ?? 'none'}
-                    onChange={(event) => {
-                    setTuningSaved(false);
-                    setTuningDraft((current) => ({
-                    ...current,
-                    personality: event.target.value === 'none'
-                    ? null
-                    : event.target.value,
-                    }));
-                    }}
-                    >
-                    <option value="none">None</option>
-                    <option value="candid">Candid</option>
-                    <option value="cynical">Cynical</option>
-                    <option value="friendly">Friendly</option>
-                    <option value="pragmatic">Pragmatic</option>
-                    <option value="quirky">Quirky</option>
-                    </select>
-                    <small>
-                    {personalityDescriptions[tuningDraft.personality ?? 'none']}
-                    </small>
+                      <span>Personality</span>
+                      <select
+                        value={tuningDraft.personality ?? 'none'}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            personality: event.target.value === 'none'
+                              ? null
+                              : event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="none">None</option>
+                        <option value="candid">Candid</option>
+                        <option value="cynical">Cynical</option>
+                        <option value="friendly">Friendly</option>
+                        <option value="pragmatic">Pragmatic</option>
+                        <option value="quirky">Quirky</option>
+                      </select>
+                      <small>
+                        {personalityDescriptions[tuningDraft.personality ?? 'none']}
+                      </small>
                     </label>
                   </div>
                 </section>
@@ -1724,10 +1744,9 @@ export function SettingsPage({
                         {selectedType?.models === 'managed'
                           ? 'Managed by the provider'
                           : selectedProvider
-                          ? `${selectedProvider.models.length} ${
-                            selectedProvider.models.length === 1 ? 'model' : 'models'
-                          }`
-                          : 'Save this provider before adding models.'}
+                            ? `${selectedProvider.models.length} ${selectedProvider.models.length === 1 ? 'model' : 'models'
+                            }`
+                            : 'Save this provider before adding models.'}
                       </p>
                     </div>
                     {selectedProvider && selectedType?.models === 'custom' && (
@@ -1978,11 +1997,11 @@ export function SettingsPage({
                       ? !modelDraft
                       : view === 'default-models'
                         ? !defaultModelsDraft
-                          || (defaultModelsDraft.subagents.enabled && [
-                            defaultModelsDraft.subagents.small,
-                            defaultModelsDraft.subagents.medium,
-                            defaultModelsDraft.subagents.large,
-                          ].some((selection) => !selection))
+                        || (defaultModelsDraft.subagents.enabled && [
+                          defaultModelsDraft.subagents.small,
+                          defaultModelsDraft.subagents.medium,
+                          defaultModelsDraft.subagents.large,
+                        ].some((selection) => !selection))
                         : !tuningDraft
                         || !selectedTerminalShell
                         || !Number.isInteger(tuningDraft.terminalTimeoutSeconds)
@@ -2044,8 +2063,8 @@ export function SettingsPage({
                     : view === 'model'
                       ? 'Save model'
                       : view === 'default-models'
-                      ? defaultModelsSaved ? 'Saved' : 'Save default models'
-                      : tuningSaved ? 'Saved' : 'Save changes'}
+                        ? defaultModelsSaved ? 'Saved' : 'Save default models'
+                        : tuningSaved ? 'Saved' : 'Save changes'}
               </button>
             </div>
           </footer>

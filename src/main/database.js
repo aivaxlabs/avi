@@ -32,6 +32,7 @@ const db = new DatabaseSync(join(storageDir, 'aivax.sqlite'));
 const secureStoragePath = join(storageDir, 'secure-storage.json');
 db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
 const secureStorage = {
+  aivaxAccessToken: null,
   mcpOAuthSessions: {},
   providerCredentials: {},
   remoteApiKey: null,
@@ -54,6 +55,14 @@ const defaultTuningSettings = Object.freeze({
 const defaultRemoteSettings = Object.freeze({
   enabled: false,
   port: 18992,
+});
+const defaultAivaxSettings = Object.freeze({
+  memoryEnabled: false,
+  memoryCollectionId: null,
+  memoryCollectionName: null,
+  advancedFetchEnabled: false,
+  webSearchEnabled: false,
+  reflexSearchEnabled: false,
 });
 const defaultDesktopSettings = Object.freeze({
   closeToTray: false,
@@ -852,6 +861,7 @@ export function getPreferences() {
     defaultModels: normalizeDefaultModels(readJson('defaultModels')),
     tuning: normalizeTuningSettings(readJson('tuningSettings')),
     desktop: normalizeDesktopSettings(readJson('desktopSettings')),
+    aivax: { ...getAivaxSettings(), connected: Boolean(getAivaxAccessToken()) },
     archive: getArchiveSettings(),
   };
 }
@@ -892,6 +902,30 @@ export function setRemoteSettings(value) {
   const settings = normalizeRemoteSettings(value, true);
   writeJson('remoteSettings', settings);
   return settings;
+}
+
+export function getAivaxSettings() {
+  return normalizeAivaxSettings(readJson('aivaxSettings'));
+}
+
+export function setAivaxSettings(value) {
+  const settings = normalizeAivaxSettings(value, true);
+  writeJson('aivaxSettings', settings);
+  return settings;
+}
+
+export function getAivaxAccessToken() {
+  return secureStorage.aivaxAccessToken;
+}
+
+export function setAivaxAccessToken(value) {
+  writeSecureFileValue('aivax-access-token', value);
+  secureStorage.aivaxAccessToken = value;
+}
+
+export function deleteAivaxAccessToken() {
+  deleteSecureFileValue('aivax-access-token');
+  secureStorage.aivaxAccessToken = null;
 }
 
 export function getRemoteApiKey() {
@@ -977,8 +1011,10 @@ export async function initializeSecureStorage() {
   const storedKey = readSecureFileValue('provider-credentials-key');
   const legacyProviderCredentials = readSecureFileValue('provider-credentials');
   const remoteApiKey = readSecureFileValue('remote-api-key');
+  const aivaxAccessToken = readSecureFileValue('aivax-access-token');
   secureStorage.mcpOAuthSessions = mcpOAuthSessions ? parse(mcpOAuthSessions, {}) : {};
   secureStorage.remoteApiKey = remoteApiKey || null;
+  secureStorage.aivaxAccessToken = aivaxAccessToken || null;
   const encryptedCredentials = readJson('providerCredentialsV2');
 
   let currentEncryptedCredentials = encryptedCredentials;
@@ -1838,6 +1874,34 @@ function normalizeRemoteSettings(value, strict = false) {
     throw new Error('Remote settings are invalid.');
   }
   return normalized;
+}
+
+function normalizeAivaxSettings(value, strict = false) {
+  const settings = value && typeof value === 'object' ? value : {};
+  const normalized = {
+    memoryEnabled: settings.memoryEnabled === true,
+    memoryCollectionId: typeof settings.memoryCollectionId === 'string' && settings.memoryCollectionId.trim()
+      ? settings.memoryCollectionId.trim()
+      : null,
+    memoryCollectionName: typeof settings.memoryCollectionName === 'string' && settings.memoryCollectionName.trim()
+      ? settings.memoryCollectionName.trim()
+      : null,
+    advancedFetchEnabled: settings.advancedFetchEnabled === true,
+    webSearchEnabled: settings.webSearchEnabled === true,
+    reflexSearchEnabled: settings.reflexSearchEnabled === true,
+  };
+  if (strict && (
+    typeof settings.memoryEnabled !== 'boolean'
+    || ![null, 'string'].includes(settings.memoryCollectionId === null ? null : typeof settings.memoryCollectionId)
+    || ![null, 'string'].includes(settings.memoryCollectionName === null ? null : typeof settings.memoryCollectionName)
+    || typeof settings.advancedFetchEnabled !== 'boolean'
+    || typeof settings.webSearchEnabled !== 'boolean'
+    || typeof settings.reflexSearchEnabled !== 'boolean'
+    || (normalized.memoryEnabled && !normalized.memoryCollectionId)
+  )) {
+    throw new Error('AIVAX feature settings are invalid.');
+  }
+  return { ...defaultAivaxSettings, ...normalized };
 }
 
 function normalizeTuningSettings(value, strict = false) {
