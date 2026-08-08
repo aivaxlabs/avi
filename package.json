@@ -13,7 +13,7 @@
   "main": "src/main/main.js",
   "scripts": {
     "dev": "bun scripts/dev.mjs",
-    "dev:devtools": "bun scripts/dev.mjs --devtools",
+    "dev:devtools": "bun scripts/dev.mjs --devtools --skip-single-instance",
     "start": "electron .",
     "styles": "cascadium build -d src/styles -x .xcss -o src/renderer/styles.css --p:pretty true --p:filenametag relative",
     "styles:watch": "cascadium watch -d src/styles -x .xcss -o src/renderer/styles.css --p:pretty true --p:filenametag relative",
