@@ -1416,7 +1416,12 @@ function openTerminalAt(folderPath) {
     process.platform,
     getPreferences().tuning?.terminalShell,
   );
-  const shellName = terminalShell.executable.replaceAll('\\', '/').split('/').at(-1).toLowerCase();
+  const shellName = terminalShell.executable
+    .replaceAll('\\', '/')
+    .split('/')
+    .at(-1)
+    .toLowerCase()
+    .replace(/\.exe$/, '');
 
   if (process.platform === 'darwin') {
     spawn('open', ['-a', 'Terminal', folderPath], { shell: false });
