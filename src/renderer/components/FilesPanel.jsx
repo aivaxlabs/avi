@@ -38,11 +38,11 @@ import 'prismjs/components/prism-typescript';
 import 'prismjs/components/prism-yaml';
 import 'prismjs/plugins/diff-highlight/prism-diff-highlight';
 import 'prismjs/plugins/diff-highlight/prism-diff-highlight.css';
-import iconTheme from '../../../fileicons/studio-icons.json';
+import iconTheme from '../../../assets/fileicons/studio-icons.json';
 import { formatBytes } from '../lib/files.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 
-const iconAssets = import.meta.glob('../../../fileicons/images/*.svg', {
+const iconAssets = import.meta.glob('../../../assets/fileicons/images/*.svg', {
   eager: true,
   import: 'default',
   query: '?url',
