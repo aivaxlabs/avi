@@ -121,17 +121,25 @@ export class ModelProvider {
         if (signal.aborted) {
           throw signal.reason instanceof Error ? signal.reason : error;
         }
-        if (!connectTimedOut) throw error;
-        traceError('provider.connect-timeout', {
+        if (!connectTimedOut && !(error instanceof TypeError)) throw error;
+        traceError(connectTimedOut ? 'provider.connect-timeout' : 'provider.transport-error', {
           provider_id: this.config.id,
           model: model.modelId,
           attempt,
           duration_ms: Date.now() - attemptStartedAt,
+          ...(!connectTimedOut && {
+            error: error instanceof Error ? error.message : String(error),
+          }),
         });
-        retryError = {
-          code: 'server_timeout',
-          message: 'The server did not respond within 30 seconds.',
-        };
+        retryError = connectTimedOut
+          ? {
+              code: 'server_timeout',
+              message: 'The server did not respond within 30 seconds.',
+            }
+          : {
+              code: 'provider_error',
+              message: error.message || 'The provider connection was interrupted.',
+            };
       } finally {
         clearTimeout(connectTimeout);
       }
@@ -174,7 +182,28 @@ export class ModelProvider {
         try {
           if (signal.aborted) abortReader();
           while (true) {
-            const { value, done } = await reader.read();
+            let chunk;
+            try {
+              chunk = await reader.read();
+            } catch (error) {
+              if (signal.aborted) {
+                throw signal.reason instanceof Error ? signal.reason : error;
+              }
+              if (!(error instanceof TypeError)) throw error;
+              traceError('provider.stream-transport-error', {
+                provider_id: this.config.id,
+                model: model.modelId,
+                attempt,
+                duration_ms: Date.now() - attemptStartedAt,
+                error: error.message,
+              });
+              retryError = {
+                code: 'provider_error',
+                message: error.message || 'The provider stream was interrupted.',
+              };
+              break;
+            }
+            const { value, done } = chunk;
             if (signal.aborted) {
               throw signal.reason instanceof Error
                 ? signal.reason

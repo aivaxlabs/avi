@@ -579,6 +579,44 @@ try {
   assert.equal(providerErrorEvents.filter((event) => event.type === 'retry').length, 1);
   assert.equal(providerErrorEvents.filter((event) => event.type === 'error').length, 0);
 
+  let requestTransportAttempts = 0;
+  const requestTransportEvents = [];
+  await stream(
+    createProvider(async () => {
+      requestTransportAttempts += 1;
+      if (requestTransportAttempts === 1) throw new TypeError('fetch failed');
+      return new Response('data: [DONE]\n\n', { status: 200 });
+    }),
+    null,
+    new AbortController().signal,
+    (event) => requestTransportEvents.push(event),
+  );
+  assert.equal(requestTransportAttempts, 2);
+  assert.equal(requestTransportEvents.filter((event) => event.type === 'retry').length, 1);
+  assert.equal(requestTransportEvents.filter((event) => event.type === 'error').length, 0);
+
+  let streamTransportAttempts = 0;
+  const streamTransportEvents = [];
+  await stream(
+    createProvider(async () => {
+      streamTransportAttempts += 1;
+      if (streamTransportAttempts > 1) {
+        return new Response('data: [DONE]\n\n', { status: 200 });
+      }
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.error(new TypeError('terminated'));
+        },
+      }), { status: 200 });
+    }),
+    null,
+    new AbortController().signal,
+    (event) => streamTransportEvents.push(event),
+  );
+  assert.equal(streamTransportAttempts, 2);
+  assert.equal(streamTransportEvents.filter((event) => event.type === 'retry').length, 1);
+  assert.equal(streamTransportEvents.filter((event) => event.type === 'error').length, 0);
+
   let serverErrorAttempts = 0;
   const serverErrorEvents = [];
   const serverErrorResult = await stream(
