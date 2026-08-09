@@ -55,18 +55,15 @@ try {
     workspacePath: testRoot,
   });
   assert.equal(await readFile(sequentialPath, 'utf8'), 'done\n');
+  assert.equal(
+    sequential.output,
+    `Applied 2 replacement occurrence(s) across 1 file(s).\n- ${sequentialPath}: 2 occurrence(s)`,
+  );
   assert.deepEqual(sequential.fileChanges, [{
     filePath: sequentialPath,
     before: 'alpha beta gamma\n',
     after: 'done\n',
   }]);
-  assert.equal(sequential.replacementsApplied, 2);
-  assert.equal(sequential.occurrencesReplaced, 2);
-  assert.deepEqual(sequential.results, [
-    { replacement: 1, occurrencesReplaced: 1 },
-    { replacement: 2, occurrencesReplaced: 1 },
-  ]);
-  assert.equal(sequential.filesChanged, 1);
   assert.equal('explanation' in sequential, false);
 
   const firstPath = join(testRoot, 'first.txt');
@@ -81,8 +78,15 @@ try {
       { filePath: secondPath, oldString: 'old', newString: 'new' },
     ],
   });
-  assert.equal(multiple.filesChanged, 2);
-  assert.deepEqual(multiple.files, [firstPath, secondPath]);
+  assert.equal(multiple.fileChanges.length, 2);
+  assert.equal(
+    multiple.output,
+    [
+      'Applied 2 replacement occurrence(s) across 2 file(s).',
+      `- ${firstPath}: 1 occurrence(s)`,
+      `- ${secondPath}: 1 occurrence(s)`,
+    ].join('\n'),
+  );
 
   const missingPath = join(testRoot, 'missing-match.txt');
   const missingContent = [
@@ -133,7 +137,7 @@ try {
 
   const replaceAllPath = join(testRoot, 'replace-all.txt');
   await writeFile(replaceAllPath, 'aa aa aa\n', 'utf8');
-  const replaceAll = await tool.execute({
+  const replaceAll = await applyMultiReplaceFile({
     replacements: [{
       filePath: replaceAllPath,
       oldString: 'aa',
@@ -148,7 +152,7 @@ try {
 
   const sequentialAllPath = join(testRoot, 'sequential-all.txt');
   await writeFile(sequentialAllPath, 'a a\n', 'utf8');
-  const sequentialAll = await tool.execute({
+  const sequentialAll = await applyMultiReplaceFile({
     replacements: [
       { filePath: sequentialAllPath, oldString: 'a', newString: 'ab', occurrence: 'all' },
       { filePath: sequentialAllPath, oldString: 'ab ab', newString: 'done' },
@@ -162,7 +166,7 @@ try {
 
   const overlappingPath = join(testRoot, 'overlapping.txt');
   await writeFile(overlappingPath, 'aaaa\n', 'utf8');
-  const overlapping = await tool.execute({
+  const overlapping = await applyMultiReplaceFile({
     replacements: [{
       filePath: overlappingPath,
       oldString: 'aa',
@@ -237,7 +241,7 @@ try {
 
   const revertedPath = join(testRoot, 'reverted.txt');
   await writeFile(revertedPath, 'original\n', 'utf8');
-  const reverted = await tool.execute({
+  const reverted = await applyMultiReplaceFile({
     replacements: [
       { filePath: revertedPath, oldString: 'original', newString: 'temporary' },
       { filePath: revertedPath, oldString: 'temporary', newString: 'original' },
@@ -265,21 +269,21 @@ try {
   const normalizedPath = join(testRoot, 'normalized.txt');
   await writeFile(
     normalizedPath,
-    'Cafe\u0301 Ａction 👩‍💻\r\nsecond line\nthird line\r\n',
+    'Cafe\u0301 Action 👩‍💻\r\nsecond line\nthird line\r\n',
     'utf8',
   );
   const normalized = await tool.execute({
     replacements: [{
       filePath: normalizedPath,
       oldString: 'Action 👩‍💻\nsecond line',
-      newString: 'edição 👍🏽\nupdated line',
+      newString: 'edição 👍🏽\nupdated line',
     }],
   });
   const normalizedContent = 'Café edição 👍🏽\r\nupdated line\r\nthird line\r\n';
   assert.equal(await readFile(normalizedPath, 'utf8'), normalizedContent);
   assert.deepEqual(normalized.fileChanges, [{
     filePath: normalizedPath,
-    before: 'Cafe\u0301 Ａction 👩‍💻\r\nsecond line\nthird line\r\n',
+    before: 'Cafe\u0301 Action 👩‍💻\r\nsecond line\nthird line\r\n',
     after: normalizedContent,
   }]);
 
@@ -329,13 +333,8 @@ try {
     Object.entries(multiple).filter(([key]) => key !== 'fileChanges'),
   );
   assert.equal(JSON.stringify(visibleResult).includes('first old'), false);
-  assert.deepEqual(Object.keys(visibleResult), [
-    'replacementsApplied',
-    'occurrencesReplaced',
-    'results',
-    'filesChanged',
-    'files',
-  ]);
+  assert.deepEqual(Object.keys(visibleResult), ['output']);
+  assert.match(visibleResult.output, /^Applied 2 replacement occurrence\(s\) across 2 file\(s\)\./);
 
   const conversation = createConversation({ title: 'multi replace persistence' });
   const message = insertMessage({

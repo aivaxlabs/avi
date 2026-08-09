@@ -55,6 +55,46 @@ assert.equal(events.some((event) => event.type === 'run-state' && !event.running
 runner.close(session.id);
 assert.throws(() => runner.state(session.id), /no longer available/);
 
+let tasksRound = 0;
+let tasksOutput = null;
+provider.stream = async ({ toolHistory, onEvent }) => {
+  tasksRound += 1;
+  if (tasksRound === 1) {
+    const toolCall = {
+      key: 'tasks-tool',
+      callId: 'tasks-call',
+      name: 'update_tasks',
+      argumentsText: JSON.stringify({
+        __invocation_goal: 'Track Quick Chat progress.',
+        __requires_human_approval: false,
+        tasks: [{
+          title: 'Verify text output',
+          description: 'Confirm lifecycle tools return plain text.',
+          done: false,
+          result: null,
+        }],
+      }),
+    };
+    onEvent({ type: 'tool-call', ...toolCall });
+    return { assistantContent: '', continuation: [], toolCalls: [toolCall] };
+  }
+  tasksOutput = toolHistory[0].results[0].output;
+  return { assistantContent: 'Tasks updated.', continuation: [], toolCalls: [] };
+};
+const tasksSession = runner.createSession();
+await runner.send({
+  sessionId: tasksSession.id,
+  text: 'Track this task.',
+  attachments: [],
+  model: model.id,
+});
+while (runner.state(tasksSession.id).running) {
+  await new Promise((resolve) => setTimeout(resolve, 1));
+}
+assert.equal(tasksOutput, 'Task list updated: 1 task(s).');
+assert.equal(typeof tasksOutput, 'string');
+runner.close(tasksSession.id);
+
 const generatedAttachment = {
   id: 'generated-image-1',
   kind: 'image_url',
@@ -76,7 +116,7 @@ provider.getContributions = () => ({
         path: generatedAttachment.path,
       }]);
       return {
-        output: JSON.stringify({ operation: 'generate', outputPath: generatedAttachment.path }),
+        output: `Image generated.\nSaved to: ${generatedAttachment.path}`,
         mediaContent: [{ type: 'image_url', image_url: { url: generatedAttachment.dataUrl } }],
         attachments: [generatedAttachment, generatedAttachment],
       };

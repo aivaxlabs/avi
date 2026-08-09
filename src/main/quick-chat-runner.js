@@ -341,11 +341,20 @@ export class QuickChatRunner {
 
   async executeTool(tool, input, { session, selection, models, workspacePath, signal }) {
     if (tool.name === 'ask_question') {
-      return this.askQuestion(session.id, input.questions, signal);
+      const result = await this.askQuestion(session.id, input.questions, signal);
+      if (result.cancelled) return 'Question cancelled; no answers were collected.';
+      return [
+        'User answers:',
+        ...result.answers.map(({ question, answer }) => (
+          `- ${question}: ${Array.isArray(answer) ? answer.join(', ') : answer}`
+        )),
+      ].join('\n');
     }
     if (tool.name === 'update_tasks') {
       session.tasks = input.tasks;
-      return { tasks: session.tasks };
+      return session.tasks.length === 0
+        ? 'Task list cleared.'
+        : `Task list updated: ${session.tasks.length} task(s).`;
     }
     if (tool.name === 'start_goal') {
       if (session.goal && !['completed', 'blocked', 'cancelled'].includes(session.goal.status)) {
@@ -357,19 +366,27 @@ export class QuickChatRunner {
         status: 'active',
         startedAt: new Date().toISOString(),
       };
-      return {
-        goal_id: session.goal.id,
-        status: session.goal.status,
-        started_at: session.goal.startedAt,
-        specification: session.goal.specification,
-      };
+      return [
+        'Goal started.',
+        `ID: ${session.goal.id}`,
+        `Status: ${session.goal.status}`,
+        `Started: ${session.goal.startedAt}`,
+        'Specification:',
+        session.goal.specification,
+      ].join('\n');
     }
     if (tool.name === 'update_goal_status') {
       if (!session.goal || session.goal.status !== 'active') {
         throw new Error('No active Quick chat Goal exists.');
       }
       session.goal = { ...session.goal, status: input.status, summary: input.summary };
-      return session.goal;
+      return [
+        `Goal ${session.goal.status}.`,
+        `ID: ${session.goal.id}`,
+        'Summary:',
+        session.goal.summary,
+        `Started: ${session.goal.startedAt}`,
+      ].join('\n');
     }
     if (tool.name === 'chat_spawn_subagent') {
       return this.spawnThread(input, session, models, workspacePath);
@@ -427,7 +444,11 @@ export class QuickChatRunner {
       reasoningEffort: input.reasoning_effort ?? session.reasoningEffort,
       permissionMode: 'approve_for_me',
     });
-    return { thread_id: conversation.id, status: 'working' };
+    return [
+      'Sub-agent started.',
+      `Thread ID: ${conversation.id}`,
+      'Status: working',
+    ].join('\n');
   }
 
   askQuestion(sessionId, questions, signal) {

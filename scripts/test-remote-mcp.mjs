@@ -123,7 +123,7 @@ try {
     arguments: {},
   });
   assert.equal(result.isError, undefined);
-  assert.ok(Array.isArray(JSON.parse(result.content[0].text).threads));
+  assert.match(JSON.parse(result.content[0].text), /^(Threads:|No threads found\.)/);
   await client.close();
 
   const occupied = Bun.serve({

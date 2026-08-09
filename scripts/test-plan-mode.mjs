@@ -223,6 +223,43 @@ try {
     mediaCalls[1].toolHistory[0].results[0].mediaContent[0].image_url.url,
     /^data:image\/png;base64,/,
   );
+  assert.equal(typeof mediaCalls[1].toolHistory[0].results[0].output, 'string');
+  assert.equal(mediaCalls[1].toolHistory[0].results[0].output, `Media file loaded: ${mediaPath}`);
+
+  const textualCalls = [];
+  const textualProvider = {
+    getContributions: () => ({ tools: [] }),
+    stream: async (request) => {
+      textualCalls.push(request);
+      return textualCalls.length === 1
+        ? {
+            assistantContent: '',
+            toolCalls: [{
+              callId: 'list-threads',
+              name: 'chat_list_threads',
+              argumentsText: JSON.stringify({
+                __invocation_goal: 'List available threads.',
+                __requires_human_approval: false,
+              }),
+            }],
+          }
+        : { assistantContent: 'Threads listed.', toolCalls: [] };
+    },
+  };
+  const { runner: textualRunner } = buildRunner(textualProvider);
+  const textualConversation = createConversation({ model: model.id, projectPath: process.cwd() });
+  await textualRunner.send({
+    conversationId: textualConversation.id,
+    model: model.id,
+    text: 'List threads',
+    permissionMode: 'full_access',
+  });
+  await waitFor(() => !textualRunner.runs.has(textualConversation.id));
+  const textualOutput = textualCalls[1].toolHistory[0].results[0].output;
+  assert.equal(typeof textualOutput, 'string');
+  assert.match(textualOutput, /^Threads:\n/);
+  assert.doesNotMatch(textualOutput, /^\{|^"/);
+  assert.match(textualOutput, new RegExp(`ID: ${textualConversation.id}`));
 
   const readMediaFile = CLIENT_TOOLS.find((tool) => tool.name === 'read_media_file');
   const textPath = join(resolvedProfile, 'notes.txt');
@@ -486,7 +523,7 @@ try {
     stream: async ({ toolHistory }) => {
       questionRound += 1;
       if (questionRound > 1) {
-        questionResults.push(JSON.parse(toolHistory[0].results[0].output));
+        questionResults.push(toolHistory[0].results[0].output);
         return { assistantContent: '', toolCalls: [] };
       }
       return {
@@ -549,23 +586,12 @@ try {
     ],
   }), true);
   await waitFor(() => !questionRunner.runs.has(questionConversation.id));
-  assert.deepEqual(questionResults[0], {
-    cancelled: false,
-    answers: [
-      {
-        question: 'Qual período deseja consultar?',
-        answer: 'Últimos 30 dias',
-      },
-      {
-        question: 'Quais situações devem ser incluídas?',
-        answer: ['Pendentes', 'Vencidas'],
-      },
-      {
-        question: 'Informe a placa ou o nome da frota.',
-        answer: 'ABC-1234',
-      },
-    ],
-  });
+  assert.equal(questionResults[0], [
+    'User answers:',
+    '- Qual período deseja consultar?: Últimos 30 dias',
+    '- Quais situações devem ser incluídas?: Pendentes, Vencidas',
+    '- Informe a placa ou o nome da frota.: ABC-1234',
+  ].join('\n'));
   assert.equal(
     getMessages(questionConversation.id)
       .filter((message) => message.role === 'assistant').length,
@@ -580,7 +606,7 @@ try {
     stream: async ({ toolHistory }) => {
       cancelledRound += 1;
       if (cancelledRound > 1) {
-        cancelledResults.push(JSON.parse(toolHistory[0].results[0].output));
+        cancelledResults.push(toolHistory[0].results[0].output);
         return { assistantContent: '', toolCalls: [] };
       }
       return {
@@ -614,10 +640,7 @@ try {
     cancelled: true,
   }), true);
   await waitFor(() => !cancelledRunner.runs.has(cancelledConversation.id));
-  assert.deepEqual(cancelledResults[0], {
-    cancelled: true,
-    answers: [],
-  });
+  assert.equal(cancelledResults[0], 'Question cancelled; no answers were collected.');
   assert.ok(cancelledEvents.some((event) => (
     event.type === 'question-cancelled'
     && event.questionId === cancelledRequest.questionId

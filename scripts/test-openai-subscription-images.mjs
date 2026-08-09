@@ -204,6 +204,7 @@ try {
     quality: 'auto',
     size: 'auto',
   });
+  assert.match(generated.output, /^Image generated with gpt-image-2\.\nSaved to: /);
   assert.equal(generated.attachments[0].source, 'generated_image');
   assert.equal(generated.mediaContent[0].type, 'image_url');
 
@@ -238,7 +239,7 @@ try {
     await Promise.all(editedReferences.map((image) => image.text())),
     ['first', 'second'],
   );
-  assert.equal(JSON.parse(edited.output).operation, 'edit');
+  assert.match(edited.output, /^Image edited with gpt-image-2\.\nSaved to: /);
 
   await assert.rejects(
     tool.execute({ prompt: 'Edit.', num_last_images_to_include: 2 }, {

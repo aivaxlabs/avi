@@ -382,7 +382,12 @@ export function Composer({
       .then((state) => {
         if (!active) return;
         setText(state?.draftText ?? '');
-        setAttachments(state?.attachments ?? []);
+        setAttachments((items) => [
+          ...(state?.attachments ?? []),
+          ...items.filter((item) => !(state?.attachments ?? []).some(
+            (attachment) => attachment.id === item.id,
+          )),
+        ]);
         setPermissionMode(state?.permissionMode ?? defaultPermissionMode);
         setCurrentModel(state?.model || initialModel);
         setReasoningEffort(state?.reasoningEffort ?? null);

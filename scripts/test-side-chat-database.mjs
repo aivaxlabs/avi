@@ -193,12 +193,12 @@ try {
     chatRunner: { runs: new Map() },
     conversationId: parent.id,
   });
-  assert.equal(visibleThreads.threads.some((thread) => thread.id === first.conversation.id), false);
+  assert.doesNotMatch(visibleThreads, new RegExp(`ID: ${first.conversation.id}`));
   const sideChatThreads = await listThreadsTool.execute({}, {
     chatRunner: { runs: new Map() },
     conversationId: first.conversation.id,
   });
-  assert.equal(sideChatThreads.threads.some((thread) => thread.id === second.conversation.id), true);
+  assert.match(sideChatThreads, new RegExp(`ID: ${second.conversation.id}`));
   await assert.rejects(
     () => inspectThreadTool.execute(
       { threadId: first.conversation.id },
@@ -254,11 +254,11 @@ try {
     done: true,
     result: 'Persisted and emitted.',
   }];
-  assert.deepEqual(await updateTasksTool.execute({ tasks: toolTasks }, {
+  assert.equal(await updateTasksTool.execute({ tasks: toolTasks }, {
     chatRunner: { emit: (conversationId, event) => taskEvents.push({ conversationId, event }) },
     conversationId: parent.id,
     workMode: null,
-  }), { tasks: toolTasks });
+  }), 'Task list updated: 1 task(s).');
   assert.deepEqual(listTasks(parent.id), toolTasks);
   await assert.rejects(() => updateTasksTool.execute({
     tasks: [{ title: 'Invalid', description: '', done: 'false', result: null }],
@@ -316,20 +316,23 @@ try {
       ultraMode: true,
     },
   );
-  assert.equal(spawned.status, 'working');
-  assert.equal(getConversation(spawned.thread_id).title, 'Archimedes');
-  assert.equal(getConversation(spawned.thread_id).isSubagent, true);
-  assert.equal(getConversation(spawned.thread_id).parentConversationId, parent.id);
-  assert.equal(getConversation(spawned.thread_id).initialPrompt, 'Inspect the queue.');
-  assert.equal(getConversation(spawned.thread_id).orchestrationMode, 'ultra');
-  assert.equal(getConversation(spawned.thread_id).autoForwardToParent, true);
-  assert.equal(spawnCalls[0].conversationId, spawned.thread_id);
+  assert.match(spawned, /^Sub-agent started\./);
+  assert.match(spawned, /Status: working$/);
+  const spawnedThreadId = spawnCalls[0].conversationId;
+  assert.match(spawned, new RegExp(`Thread ID: ${spawnedThreadId}`));
+  assert.equal(getConversation(spawnedThreadId).title, 'Archimedes');
+  assert.equal(getConversation(spawnedThreadId).isSubagent, true);
+  assert.equal(getConversation(spawnedThreadId).parentConversationId, parent.id);
+  assert.equal(getConversation(spawnedThreadId).initialPrompt, 'Inspect the queue.');
+  assert.equal(getConversation(spawnedThreadId).orchestrationMode, 'ultra');
+  assert.equal(getConversation(spawnedThreadId).autoForwardToParent, true);
+  assert.equal(spawnCalls[0].conversationId, spawnedThreadId);
   assert.equal(spawnCalls[0].reasoningEffort, 'high');
   assert.equal(spawnCalls[0].ultraMode, true);
   assert.equal(spawnCalls[0].text, 'Inspect the queue.');
-  assert.ok(toModelMessages(spawned.thread_id)[0].content.includes('Ultra team'));
+  assert.ok(toModelMessages(spawnedThreadId)[0].content.includes('Ultra team'));
   assert.ok(
-    toModelMessages(spawned.thread_id)[0].content.includes(
+    toModelMessages(spawnedThreadId)[0].content.includes(
       'final assistant response is automatically forwarded',
     ),
   );
@@ -359,11 +362,13 @@ try {
       reasoningEffort: 'high',
     },
   );
-  assert.equal(getConversation(optionalSubagent.thread_id).title, 'Pythagoras');
+  const optionalSubagentThreadId = noResponseCalls[0].conversationId;
+  assert.match(optionalSubagent, new RegExp(`Thread ID: ${optionalSubagentThreadId}`));
+  assert.equal(getConversation(optionalSubagentThreadId).title, 'Pythagoras');
   assert.equal(noResponseCalls[0].text, 'Inspect without a reporting preference.');
-  deleteConversation(optionalSubagent.thread_id, { hard: true });
+  deleteConversation(optionalSubagentThreadId, { hard: true });
   const agentMessage = insertMessage({
-    conversationId: spawned.thread_id,
+    conversationId: spawnedThreadId,
     role: 'user',
     status: 'sent',
     content: 'Persist this prompt without decoration.',
@@ -371,11 +376,11 @@ try {
   });
   assert.equal(agentMessage.content, 'Persist this prompt without decoration.');
   assert.equal(agentMessage.fromAgent, true);
-  assert.equal(getMessages(spawned.thread_id).find((message) => message.id === agentMessage.id)?.fromAgent, true);
+  assert.equal(getMessages(spawnedThreadId).find((message) => message.id === agentMessage.id)?.fromAgent, true);
   const crossAgentCalls = [];
   await sendPromptTool.execute(
     {
-      threadId: spawned.thread_id,
+      threadId: spawnedThreadId,
       prompt: 'Coordinate this finding with the team.',
       low_priority: true,
     },
@@ -554,15 +559,11 @@ try {
   });
   const inspectedQuestion = await inspectThreadTool.execute(
     { threadId: questionConversation.id },
-    { chatRunner: questionRunner, conversationId: spawned.thread_id },
+    { chatRunner: questionRunner, conversationId: spawnedThreadId },
   );
-  assert.equal(inspectedQuestion.thread.status, 'waiting_for_input');
-  assert.equal(Object.hasOwn(inspectedQuestion.thread, 'waitingForInput'), false);
-  assert.equal(inspectedQuestion.turns[0].assistant.some((event) => (
-    event.type === 'tool_call'
-    && event.name === 'ask_question'
-    && event.arguments.questions[0].question === pendingQuestions[0].question
-  )), true);
+  assert.match(inspectedQuestion, /Status: waiting_for_input/);
+  assert.match(inspectedQuestion, /Tool call: ask_question/);
+  assert.match(inspectedQuestion, new RegExp(pendingQuestions[0].question.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   const questionSendCalls = [];
   questionRunner.send = async (payload) => {
     questionSendCalls.push(payload);
@@ -571,26 +572,23 @@ try {
   };
   const queuedDuringQuestion = await sendPromptTool.execute(
     { threadId: questionConversation.id, prompt: 'Handle this after the answer.', low_priority: true },
-    { chatRunner: questionRunner, conversationId: spawned.thread_id },
+    { chatRunner: questionRunner, conversationId: spawnedThreadId },
   );
-  assert.equal(queuedDuringQuestion.status, 'queued_waiting_for_input');
-  assert.equal(Object.hasOwn(queuedDuringQuestion, 'mode'), false);
+  assert.match(queuedDuringQuestion, /Status: queued_waiting_for_input$/);
   assert.equal(questionSendCalls[0].steer, false);
   assert.equal(questionRunner.pendingQuestions.has('pending-question'), true);
   assert.equal(questionResult, null);
   const stillWaiting = await inspectThreadTool.execute(
     { threadId: questionConversation.id },
-    { chatRunner: questionRunner, conversationId: spawned.thread_id },
+    { chatRunner: questionRunner, conversationId: spawnedThreadId },
   );
-  assert.equal(stillWaiting.thread.status, 'waiting_for_input');
+  assert.match(stillWaiting, /Status: waiting_for_input/);
 
   const questionOverride = await sendPromptTool.execute(
     { threadId: questionConversation.id, prompt: 'Use the smallest safe scope.' },
-    { chatRunner: questionRunner, conversationId: spawned.thread_id },
+    { chatRunner: questionRunner, conversationId: spawnedThreadId },
   );
-  assert.equal(questionOverride.status, 'steered');
-  assert.equal(Object.hasOwn(questionOverride, 'mode'), false);
-  assert.equal(Object.hasOwn(questionOverride, 'overrodeQuestion'), false);
+  assert.match(questionOverride, /Status: steered$/);
   assert.equal(questionSendCalls[1].steer, true);
   assert.equal(questionRunner.pendingQuestions.size, 0);
   assert.deepEqual(questionResult, { cancelled: true, answers: [] });
@@ -601,7 +599,7 @@ try {
   });
   deleteConversation(questionConversation.id, { hard: true });
 
-  runtimeRunner.runs.set(spawned.thread_id, {});
+  runtimeRunner.runs.set(spawnedThreadId, {});
   await runtimeRunner.send({
     conversationId: parent.id,
     model: runtimeModel.id,
@@ -613,7 +611,7 @@ try {
   }
   assert.deepEqual(
     threadContexts[0].map(({ threadId }) => threadId),
-    [subagent.conversation.id, spawned.thread_id, failedSubagent.conversation.id],
+    [subagent.conversation.id, spawnedThreadId, failedSubagent.conversation.id],
   );
   assert.equal(threadContexts[0].some(({ threadId }) => threadId === parent.id), false);
   assert.equal(threadContexts[0].some(({ threadId }) => threadId === taskPeer.id), false);
@@ -631,7 +629,7 @@ try {
         status: 'completed',
       },
       {
-        threadId: spawned.thread_id,
+        threadId: spawnedThreadId,
         initialPrompt: 'Inspect the queue.',
         status: 'in_progress',
       },
@@ -643,7 +641,7 @@ try {
     ],
   );
 
-  runtimeRunner.runs.delete(spawned.thread_id);
+  runtimeRunner.runs.delete(spawnedThreadId);
   await runtimeRunner.send({
     conversationId: subagent.conversation.id,
     model: runtimeModel.id,
@@ -656,13 +654,13 @@ try {
   assert.equal(subagentContexts[1].length, 2);
   assert.deepEqual(
     threadContexts[1].map(({ threadId }) => threadId),
-    [parent.id, spawned.thread_id, failedSubagent.conversation.id],
+    [parent.id, spawnedThreadId, failedSubagent.conversation.id],
   );
   assert.equal(threadContexts[1].some(({ threadId }) => threadId === subagent.conversation.id), false);
   assert.deepEqual(
     subagentContexts[1].map(({ threadId, status }) => ({ threadId, status })),
     [
-      { threadId: spawned.thread_id, status: 'failed' },
+      { threadId: spawnedThreadId, status: 'failed' },
       { threadId: failedSubagent.conversation.id, status: 'failed' },
     ],
   );
@@ -678,7 +676,7 @@ try {
   }
   assert.deepEqual(
     threadContexts[2].map(({ threadId }) => threadId),
-    [parent.id, subagent.conversation.id, spawned.thread_id, failedSubagent.conversation.id],
+    [parent.id, subagent.conversation.id, spawnedThreadId, failedSubagent.conversation.id],
   );
   assert.equal(threadContexts[2].some(({ threadId }) => threadId === third.conversation.id), false);
   assert.equal(threadContexts[2].some(({ threadId }) => threadId === second.conversation.id), false);
@@ -834,11 +832,11 @@ try {
           return { queued: true, message: { id: 'orchestrator-message' } };
         },
       },
-      conversationId: spawned.thread_id,
+      conversationId: spawnedThreadId,
     },
   );
-  assert.equal(orchestratorMessage.threadId, parent.id);
-  assert.equal(orchestratorMessage.status, 'queued');
+  assert.match(orchestratorMessage, new RegExp(`Thread ID: ${parent.id}`));
+  assert.match(orchestratorMessage, /Status: queued$/);
 
   assert.equal(orchestratorMessageCalls[0].text, 'Queue inspection completed.');
   assert.equal(orchestratorMessageCalls[0].ultraMode, true);
@@ -864,7 +862,8 @@ try {
       workMode: 'plan',
     },
   );
-  const planSubagent = getConversation(planSpawn.thread_id);
+  const planSubagent = getConversation(planSpawnCalls[0].conversationId);
+  assert.match(planSpawn, new RegExp(`Thread ID: ${planSubagent.id}`));
   assert.equal(planSubagent.orchestrationMode, 'plan');
   assert.equal(planSpawnCalls[0].workMode, 'plan');
   const planContext = toModelMessages(planSubagent.id)[0].content;
@@ -926,7 +925,7 @@ try {
   assert.equal(getConversation(second.conversation.id), null);
   assert.equal(getConversation(third.conversation.id), null);
   assert.equal(getConversation(subagent.conversation.id), null);
-  assert.equal(getConversation(spawned.thread_id), null);
+  assert.equal(getConversation(spawnedThreadId), null);
   console.log('Child-thread database and sub-agent tool flow passed.');
 } finally {
   database?.closeDatabase();

@@ -20,6 +20,10 @@ try {
     filePath: existingPath,
     content: 'one\nchanged\nthree\nfour',
   });
+  assert.equal(
+    changed.output,
+    `Wrote ${Buffer.byteLength('one\nchanged\nthree\nfour', 'utf8')} bytes to ${existingPath}.`,
+  );
   assert.deepEqual(changed.fileChanges, [{
     filePath: existingPath,
     before: 'one\ntwo\nthree',
@@ -31,6 +35,7 @@ try {
     filePath: existingPath,
     content: 'one\nchanged\nthree\nfour',
   });
+  assert.equal(unchanged.output, `File unchanged: ${existingPath}.`);
   assert.deepEqual(unchanged.fileChanges, []);
 
   const createdPath = join(testRoot, 'created.txt');
@@ -38,6 +43,7 @@ try {
     filePath: createdPath,
     content: 'new file',
   });
+  assert.equal(created.output, `Wrote 8 bytes to ${createdPath}.`);
   assert.equal(created.fileChanges[0].before, null);
 
   const edits = consolidateFileEdits([

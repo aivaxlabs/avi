@@ -674,10 +674,11 @@ try {
     { seconds: 5 },
     { conversationId: 'sleep-owner', chatRunner: { runs: new Map() } },
   );
-  assert.ok(sleepResult.sleptSeconds >= 4.9, JSON.stringify(sleepResult));
-  assert.match(sleepResult.wokeAt, /\d/);
-  assert.deepEqual(sleepResult.terminals, []);
-  assert.deepEqual(sleepResult.subagents, []);
+  assert.equal(typeof sleepResult, 'string');
+  assert.match(sleepResult, /Slept (?:4\.9\d|5(?:\.\d+)?) seconds\./);
+  assert.match(sleepResult, /Woke at: .*\d/);
+  assert.match(sleepResult, /Terminals:\nNone\./);
+  assert.match(sleepResult, /Sub-agents:\nNone\./);
   assert.ok(Date.now() - sleepStartedAt >= 4_900);
   await assert.rejects(
     sleep.execute({ seconds: 4 }, { conversationId: 'sleep-owner' }),
@@ -691,7 +692,11 @@ try {
     content: writtenContent,
   });
   assert.equal(readFileSync(writtenFile, 'utf8'), writtenContent);
-  assert.equal(writeResult.bytesWritten, Buffer.byteLength(writtenContent, 'utf8'));
+  assert.equal(
+    writeResult.output,
+    `Wrote ${Buffer.byteLength(writtenContent, 'utf8')} bytes to ${writtenFile}.`,
+  );
+  assert.equal(writeResult.fileChanges.length, 1);
   await assert.rejects(
     writeFileTool.execute({ filePath: 'relative.md', content: '' }),
     /filePath must be absolute/,
@@ -712,9 +717,8 @@ try {
       conversationId: 'failed-terminal-owner',
     },
   );
-  assert.equal(failedTerminal.status, 'failed');
-  assert.equal(failedTerminal.exitCode, 7, JSON.stringify(failedTerminal));
-  assert.equal(failedTerminal.shell, terminalShell.label);
+  assert.equal(typeof failedTerminal, 'string');
+  assert.match(failedTerminal, /Exit code: 7/);
 
   if (process.platform === 'win32') {
     const originalShell = process.env.SHELL;
@@ -738,9 +742,7 @@ try {
             conversationId: 'git-bash-terminal-owner',
           },
         );
-        assert.equal(gitBashTerminal.status, 'completed');
-        assert.equal(gitBashTerminal.shell, 'Git Bash');
-        assert.equal(gitBashTerminal.output, 'git-bash-ok');
+        assert.equal(gitBashTerminal, 'git-bash-ok');
       }
     } finally {
       if (originalShell === undefined) delete process.env.SHELL;
@@ -772,7 +774,7 @@ try {
     },
   );
   setTimeout(() => awaitedController.abort('stop'), 100);
-  assert.equal((await awaitedTerminal).status, 'stopped');
+  assert.match(await awaitedTerminal, /Status: stopped/);
 
   stopTerminalOwner = 'background-terminal-owner';
   const backgroundTerminal = await runInTerminal.execute(
@@ -789,15 +791,17 @@ try {
       conversationId: stopTerminalOwner,
     },
   );
-  assert.equal(backgroundTerminal.status, 'running');
+  assert.match(backgroundTerminal, /Status: running/);
+  const terminalId = backgroundTerminal.match(/^Terminal ID: (.+)$/m)?.[1];
+  assert.ok(terminalId);
   stopTerminals(stopTerminalOwner);
   const terminalDeadline = Date.now() + 5_000;
   let stoppedTerminal = backgroundTerminal;
-  while (stoppedTerminal.status === 'running' && Date.now() < terminalDeadline) {
+  while (/Status: running/.test(stoppedTerminal) && Date.now() < terminalDeadline) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 25));
-    stoppedTerminal = await readTerminalOutput.execute({ id: backgroundTerminal.id });
+    stoppedTerminal = await readTerminalOutput.execute({ id: terminalId });
   }
-  assert.equal(stoppedTerminal.status, 'stopped');
+  assert.match(stoppedTerminal, /Status: stopped/);
   }
 
   closeDatabase();

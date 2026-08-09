@@ -290,11 +290,13 @@ try {
   assert.equal(completionCalls.length, 2);
   assert.ok(completionCalls[0].tools.some((tool) => tool.name === 'update_goal_status'));
   assert.ok(!completionCalls[0].tools.some((tool) => tool.name === 'start_goal'));
-  const completionResult = JSON.parse(completionCalls[1].toolHistory[0].results[0].output);
-  assert.equal(completionResult.status, 'completed');
-  assert.equal(completionResult.tokens_transacted, 110);
-  assert.equal(typeof completionResult.elapsed_ms, 'number');
-  assert.match(completionResult.final_response_instruction, /token volume.*time spent/);
+  const completionResult = completionCalls[1].toolHistory[0].results[0].output;
+  assert.equal(typeof completionResult, 'string');
+  assert.match(completionResult, /^Goal completed\./);
+  assert.match(completionResult, new RegExp(`ID: ${completedGoal.id}`));
+  assert.match(completionResult, /Summary:\nImplementation and tests are complete\./);
+  assert.match(completionResult, /Tokens transacted: 110/);
+  assert.match(completionResult, /Active time: \d+ ms/);
   assert.deepEqual(
     getMessages(completionConversation.id).map((message) => message.workMode),
     ['goal', 'goal'],

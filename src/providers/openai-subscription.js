@@ -788,11 +788,7 @@ async function generateOrEditImage(providerId, input, context, services) {
     dataUrl: `data:image/png;base64,${imageBase64}`,
   };
   return {
-    output: JSON.stringify({
-      model: IMAGE_MODEL,
-      operation: imagePaths.length > 0 ? 'edit' : 'generate',
-      outputPath,
-    }),
+    output: `Image ${imagePaths.length > 0 ? 'edited' : 'generated'} with ${IMAGE_MODEL}.\nSaved to: ${outputPath}`,
     mediaContent: [{ type: 'image_url', image_url: { url: attachment.dataUrl } }],
     attachments: [attachment],
   };

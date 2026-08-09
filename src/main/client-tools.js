@@ -229,7 +229,9 @@ export const CLIENT_TOOLS = Object.freeze([
       }
       const persisted = replaceTasks(conversationId, normalized);
       chatRunner.emit(conversationId, { type: 'tasks', tasks: persisted });
-      return { tasks: persisted };
+      return persisted.length === 0
+        ? 'Task list cleared.'
+        : `Task list updated: ${persisted.length} task(s).`;
     },
   },
   {
@@ -271,12 +273,14 @@ export const CLIENT_TOOLS = Object.freeze([
         permissionMode,
         ultraMode,
       });
-      return {
-        goal_id: result.goal.id,
-        status: result.goal.status,
-        started_at: result.goal.startedAt,
-        specification: result.goal.specification,
-      };
+      return [
+        'Goal started.',
+        `ID: ${result.goal.id}`,
+        `Status: ${result.goal.status}`,
+        `Started: ${result.goal.startedAt}`,
+        'Specification:',
+        result.goal.specification,
+      ].join('\n');
     },
   },
   {
@@ -307,11 +311,20 @@ export const CLIENT_TOOLS = Object.freeze([
       }
       const normalizedSummary = String(summary ?? '').trim();
       if (!normalizedSummary) throw new Error('summary is required.');
-      return chatRunner.changeGoal({
+      const result = await chatRunner.changeGoal({
         conversationId,
         action: status,
         summary: normalizedSummary,
       });
+      return [
+        `Goal ${result.status}.`,
+        `ID: ${result.goal_id}`,
+        'Summary:',
+        result.summary,
+        `Tokens transacted: ${result.tokens_transacted}`,
+        `Active time: ${result.active_time_ms} ms`,
+        `Started: ${result.started_at}`,
+      ].join('\n');
     },
   },
   {
@@ -395,11 +408,18 @@ export const CLIENT_TOOLS = Object.freeze([
         };
       });
 
-      return chatRunner.askQuestion({
+      const result = await chatRunner.askQuestion({
         conversationId,
         questions: normalizedQuestions,
         signal,
       });
+      if (result.cancelled) return 'Question cancelled; no answers were collected.';
+      return [
+        'User answers:',
+        ...result.answers.map(({ question, answer }) => (
+          `- ${question}: ${Array.isArray(answer) ? answer.join(', ') : answer}`
+        )),
+      ].join('\n');
     },
   },
   {
@@ -436,7 +456,16 @@ export const CLIENT_TOOLS = Object.freeze([
         if (folder) folder.threadCount += 1;
       }
 
-      return { folders: [...folders.values()] };
+      const results = [...folders.values()];
+      if (results.length === 0) return 'No folders found.';
+      return [
+        'Folders:',
+        results.map((folder) => [
+          `- ${folder.name}`,
+          `  Path: ${folder.path}`,
+          `  Threads: ${folder.threadCount}`,
+        ].join('\n')).join('\n--------\n'),
+      ].join('\n');
     },
   },
   {
@@ -482,7 +511,19 @@ export const CLIENT_TOOLS = Object.freeze([
           updatedAt: conversation.updatedAt,
         }));
 
-      return { threads };
+      if (threads.length === 0) return 'No threads found.';
+      return [
+        'Threads:',
+        threads.map((thread) => [
+          `- ${thread.title}`,
+          `  ID: ${thread.id}`,
+          `  Folder: ${thread.folderPath}`,
+          `  Model: ${thread.model}`,
+          `  Status: ${thread.status}`,
+          `  Created: ${thread.createdAt}`,
+          `  Updated: ${thread.updatedAt}`,
+        ].join('\n')).join('\n--------\n'),
+      ].join('\n');
     },
   },
   {
@@ -621,18 +662,24 @@ export const CLIENT_TOOLS = Object.freeze([
         }
       }
 
-      return {
-        thread: {
-          id: conversation.id,
-          title: getConversation(conversation.id).title,
-          folderPath: projectPath,
-          model: selectedModel.id,
-          reasoningEffort: selectedReasoningEffort,
-          status: message ? wait_for_response === true ? 'completed' : 'running' : 'idle',
-        },
-        promptMessageId: message?.id ?? null,
-        response,
+      const thread = {
+        id: conversation.id,
+        title: getConversation(conversation.id).title,
+        folderPath: projectPath,
+        model: selectedModel.id,
+        reasoningEffort: selectedReasoningEffort,
+        status: message ? wait_for_response === true ? 'completed' : 'running' : 'idle',
       };
+      return [
+        `Thread created: ${thread.title}`,
+        `ID: ${thread.id}`,
+        `Folder: ${thread.folderPath}`,
+        `Model: ${thread.model}`,
+        `Reasoning effort: ${thread.reasoningEffort ?? 'default'}`,
+        `Status: ${thread.status}`,
+        ...(message ? [`Prompt message ID: ${message.id}`] : []),
+        ...(response ? ['', `Response status: ${response.status}`, 'Response:', response.text] : []),
+      ].join('\n');
     },
   },
   {
@@ -751,10 +798,11 @@ export const CLIENT_TOOLS = Object.freeze([
         project: { path: parent.projectPath },
       });
 
-      return {
-        thread_id: subagent.id,
-        status: sent.queued ? 'queued' : 'working',
-      };
+      return [
+        'Sub-agent started.',
+        `Thread ID: ${subagent.id}`,
+        `Status: ${sent.queued ? 'queued' : 'working'}`,
+      ].join('\n');
     },
   },
   {
@@ -825,15 +873,17 @@ export const CLIENT_TOOLS = Object.freeze([
       if (!low_priority && pendingQuestion) {
         chatRunner.answerQuestion({ questionId: pendingQuestion.questionId, cancelled: true });
       }
-      return {
-        threadId: conversation.id,
-        messageId: result.message.id,
-        status: result.queued
-          ? low_priority
-            ? pendingQuestion ? 'queued_waiting_for_input' : 'queued'
-            : 'steered'
-          : 'running',
-      };
+      const status = result.queued
+        ? low_priority
+          ? pendingQuestion ? 'queued_waiting_for_input' : 'queued'
+          : 'steered'
+        : 'running';
+      return [
+        'Prompt sent.',
+        `Thread ID: ${conversation.id}`,
+        `Message ID: ${result.message.id}`,
+        `Status: ${status}`,
+      ].join('\n');
     },
   },
   {
@@ -859,10 +909,9 @@ export const CLIENT_TOOLS = Object.freeze([
       }
       const interrupted = chatRunner.runs.has(conversation.id);
       chatRunner.requestSteer(conversation.id);
-      return {
-        threadId: conversation.id,
-        interrupted,
-      };
+      return interrupted
+        ? `Thread ${conversation.id} interrupted.`
+        : `Thread ${conversation.id} was not running.`;
     },
   },
   {
@@ -968,18 +1017,35 @@ export const CLIENT_TOOLS = Object.freeze([
       });
 
       const pendingQuestion = chatRunner.getPendingQuestion?.(conversation.id) ?? null;
-      return {
-        thread: {
-          id: conversation.id,
-          title: conversation.title,
-          folderPath: conversation.projectPath,
-          model: conversation.model,
-          status: pendingQuestion
-            ? 'waiting_for_input'
-            : chatRunner.runs.has(conversation.id) ? 'running' : 'idle',
-        },
-        turns: inspectedTurns,
-      };
+      const status = pendingQuestion
+        ? 'waiting_for_input'
+        : chatRunner.runs.has(conversation.id) ? 'running' : 'idle';
+      const renderedTurns = inspectedTurns.flatMap((turn) => [
+        `User (${turn.user.status}):\n${turn.user.message}`,
+        ...turn.assistant.map((event) => {
+          if (event.type === 'message') return `Assistant (${event.status}):\n${event.text}`;
+          if (event.type === 'tool_call') {
+            return `Tool call: ${event.name}\nArguments: ${
+              typeof event.arguments === 'string'
+                ? event.arguments
+                : JSON.stringify(event.arguments)
+            }`;
+          }
+          return `Tool result${event.isError ? ' (error)' : ''}:\n${event.output}${
+            event.truncated ? '\n[tool output truncated]' : ''
+          }`;
+        }),
+      ]);
+      return [
+        `Thread: ${conversation.title}`,
+        `ID: ${conversation.id}`,
+        `Folder: ${conversation.projectPath}`,
+        `Model: ${conversation.model}`,
+        `Status: ${status}`,
+        '',
+        'Recent turns:',
+        ...(renderedTurns.length > 0 ? renderedTurns : ['None.']),
+      ].join('\n\n');
     },
   },
   {
@@ -1001,8 +1067,8 @@ export const CLIENT_TOOLS = Object.freeze([
       required: ['search_terms'],
       additionalProperties: false,
     },
-    execute: async ({ search_terms }, { aivax, signal }) => (
-      await requestAivax('/api/v1/query', {
+    execute: async ({ search_terms }, { aivax, signal }) => {
+      const results = await requestAivax('/api/v1/query', {
         body: {
           terms: search_terms,
           collections: [aivax.memoryCollectionId],
@@ -1013,11 +1079,17 @@ export const CLIENT_TOOLS = Object.freeze([
         },
         responseType: 'array',
         signal,
-      })
-    ).map(({ documentName, documentContent }) => ({
-      name: documentName,
-      content: documentContent,
-    })),
+      });
+      if (results.length === 0) return 'No memory results found.';
+      return [
+        'Memory results:',
+        results.map(({ documentName, documentContent }) => [
+          `title: ${documentName}`,
+          'content:',
+          documentContent,
+        ].join('\n')).join('\n--------\n'),
+      ].join('\n');
+    },
   },
   {
     name: 'memory_write',
@@ -1048,20 +1120,23 @@ export const CLIENT_TOOLS = Object.freeze([
       required: ['name', 'contents'],
       additionalProperties: false,
     },
-    execute: async ({ name, contents, reference, tags }, { aivax, signal }) => requestAivax(
-      `/api/v1/collections/${encodeURIComponent(aivax.memoryCollectionId)}/documents`,
-      {
-        method: 'PUT',
-        body: {
-          name,
-          contents,
-          ...(reference === undefined ? {} : { reference }),
-          ...(tags === undefined ? {} : { tags }),
+    execute: async ({ name, contents, reference, tags }, { aivax, signal }) => {
+      await requestAivax(
+        `/api/v1/collections/${encodeURIComponent(aivax.memoryCollectionId)}/documents`,
+        {
+          method: 'PUT',
+          body: {
+            name,
+            contents,
+            ...(reference === undefined ? {} : { reference }),
+            ...(tags === undefined ? {} : { tags }),
+          },
+          responseType: 'object',
+          signal,
         },
-        responseType: 'object',
-        signal,
-      },
-    ),
+      );
+      return `Memory file written: ${name}.`;
+    },
   },
   {
     name: 'web_search',
@@ -1088,9 +1163,8 @@ export const CLIENT_TOOLS = Object.freeze([
       required: ['query'],
       additionalProperties: false,
     },
-    execute: async ({ query, location, country, language, sites }, { signal }) => requestAivax(
-      '/api/v1/web/search',
-      {
+    execute: async ({ query, location, country, language, sites }, { signal }) => {
+      const result = await requestAivax('/api/v1/web/search', {
         body: {
           query: location ? `${query} ${location}` : query,
           topn: 10,
@@ -1100,8 +1174,19 @@ export const CLIENT_TOOLS = Object.freeze([
         },
         responseType: 'object',
         signal,
-      },
-    ),
+      });
+      const results = result?.results ?? [];
+      if (results.length === 0) return `No web results found for "${query}".`;
+      return [
+        `Web results for "${query}":`,
+        results.map(({ title, url, text }) => [
+          `title: ${title}`,
+          `url: ${url}`,
+          'content:',
+          text,
+        ].join('\n')).join('\n--------\n'),
+      ].join('\n');
+    },
   },
   {
     name: 'read_url',
@@ -1138,11 +1223,12 @@ export const CLIENT_TOOLS = Object.freeze([
         const fetched = result?.results?.[0];
         if (fetched?.error) throw new Error(fetched.error);
         const content = fetched?.extractedText ?? '';
-        return {
-          url: target.href,
-          content: content.slice(0, MAX_READ_URL_CHARS),
-          truncated: content.length > MAX_READ_URL_CHARS,
-        };
+        return [
+          `URL: ${target.href}`,
+          '',
+          content.slice(0, MAX_READ_URL_CHARS),
+          ...(content.length > MAX_READ_URL_CHARS ? ['', '[content truncated]'] : []),
+        ].join('\n');
       }
 
       const response = await fetch(`https://r.jina.ai/${target.href}`, {
@@ -1154,11 +1240,12 @@ export const CLIENT_TOOLS = Object.freeze([
         throw new Error(content || `Jina Reader returned ${response.status} ${response.statusText}.`);
       }
 
-      return {
-        url: target.href,
-        content: content.slice(0, MAX_READ_URL_CHARS),
-        truncated: content.length > MAX_READ_URL_CHARS,
-      };
+      return [
+        `URL: ${target.href}`,
+        '',
+        content.slice(0, MAX_READ_URL_CHARS),
+        ...(content.length > MAX_READ_URL_CHARS ? ['', '[content truncated]'] : []),
+      ].join('\n');
     },
   },
   {
@@ -1205,28 +1292,37 @@ export const CLIENT_TOOLS = Object.freeze([
       });
       const wokeAt = new Date();
 
-      return {
-        sleptSeconds: Math.round((Date.now() - startedAt) / 10) / 100,
-        wokeAt: wokeAt.toString(),
-        terminals: [...terminals.values()]
-          .filter((terminal) => terminal.conversationId === conversationId)
-          .map((terminal) => ({
-            id: terminal.id,
-            command: terminal.command,
-            status: terminalStatus(terminal),
-          })),
-        subagents: listAllConversations()
-          .filter((conversation) => (
-            conversation.isSubagent && conversation.parentConversationId === conversationId
-          ))
-          .map((subagent) => ({
-            id: subagent.id,
-            title: subagent.title,
-            status: chatRunner?.getPendingQuestion?.(subagent.id)
-              ? 'waiting_for_input'
-              : chatRunner?.runs?.has(subagent.id) ? 'running' : 'idle',
-          })),
-      };
+      const sleptSeconds = Math.round((Date.now() - startedAt) / 10) / 100;
+      const matchingTerminals = [...terminals.values()]
+        .filter((terminal) => terminal.conversationId === conversationId);
+      const subagents = listAllConversations()
+        .filter((conversation) => (
+          conversation.isSubagent && conversation.parentConversationId === conversationId
+        ));
+      return [
+        `Slept ${sleptSeconds} seconds.`,
+        `Woke at: ${wokeAt.toString()}`,
+        '',
+        'Terminals:',
+        ...(matchingTerminals.length > 0
+          ? matchingTerminals.map((terminal) => [
+              `- ID: ${terminal.id}`,
+              `  Status: ${terminalStatus(terminal)}`,
+              `  Command: ${terminal.command}`,
+            ].join('\n'))
+          : ['None.']),
+        '',
+        'Sub-agents:',
+        ...(subagents.length > 0
+          ? subagents.map((subagent) => [
+              `- ${subagent.title}`,
+              `  Thread ID: ${subagent.id}`,
+              `  Status: ${chatRunner?.getPendingQuestion?.(subagent.id)
+                ? 'waiting_for_input'
+                : chatRunner?.runs?.has(subagent.id) ? 'running' : 'idle'}`,
+            ].join('\n'))
+          : ['None.']),
+      ].join('\n');
     },
   },
   {
@@ -1467,7 +1563,23 @@ export const CLIENT_TOOLS = Object.freeze([
       required: ['replacements'],
       additionalProperties: false,
     },
-    execute: (input) => applyMultiReplaceFile(input),
+    execute: async (input) => {
+      const result = await applyMultiReplaceFile(input);
+      return {
+        output: [
+          `Applied ${result.occurrencesReplaced} replacement occurrence(s) across ${result.filesChanged} file(s).`,
+          ...result.files.map((filePath) => {
+            const occurrences = result.results.reduce((total, item, index) => (
+              resolve(input.replacements[index].filePath) === filePath
+                ? total + item.occurrencesReplaced
+                : total
+            ), 0);
+            return `- ${filePath}: ${occurrences} occurrence(s)`;
+          }),
+        ].join('\n'),
+        fileChanges: result.fileChanges,
+      };
+    },
   },
   {
     name: 'write_file',
@@ -1501,15 +1613,16 @@ export const CLIENT_TOOLS = Object.freeze([
         if (error?.code !== 'ENOENT') throw error;
       }
       await writeFile(filePath, content, 'utf8');
-      return {
+      const fileChanges = beforeContent === content ? [] : [{
         filePath,
-        encoding: 'utf8',
-        bytesWritten: Buffer.byteLength(content, 'utf8'),
-        fileChanges: beforeContent === content ? [] : [{
-          filePath,
-          before: beforeContent,
-          after: content,
-        }],
+        before: beforeContent,
+        after: content,
+      }];
+      return {
+        output: fileChanges.length === 0
+          ? `File unchanged: ${filePath}.`
+          : `Wrote ${Buffer.byteLength(content, 'utf8')} bytes to ${filePath}.`,
+        fileChanges,
       };
     },
   },
@@ -1547,13 +1660,11 @@ export const CLIENT_TOOLS = Object.freeze([
 
       const content = await readFile(filePath, 'utf8');
       const lines = content.replaceAll('\r\n', '\n').split('\n');
-      return {
-        filePath,
-        startLine,
-        endLine: Math.min(endLine, lines.length),
-        totalLines: lines.length,
-        content: lines.slice(startLine - 1, endLine).join('\n'),
-      };
+      const actualEndLine = Math.min(endLine, lines.length);
+      return [
+        `${filePath} (lines ${startLine}-${actualEndLine} of ${lines.length}):`,
+        lines.slice(startLine - 1, endLine).join('\n'),
+      ].join('\n');
     },
   },
 ]);
