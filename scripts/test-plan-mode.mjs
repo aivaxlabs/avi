@@ -43,8 +43,10 @@ try {
   const {
     closeDatabase,
     createConversation,
+    getConversation,
     getMessages,
     insertMessage,
+    updateConversation,
   } = database;
   const model = {
     id: 'test:model',
@@ -148,6 +150,7 @@ try {
     getMessages(planConversation.id).map((message) => message.workMode),
     ['plan', 'plan'],
   );
+  assert.equal(getConversation(planConversation.id).orchestrationMode, 'plan');
   const planningRoot = join(planWorkspace, '.agents', 'plannings');
   const planningDirectories = readdirSync(planningRoot);
   assert.equal(planningDirectories.length, 1);
@@ -156,6 +159,25 @@ try {
     readFileSync(join(planningRoot, planningDirectories[0], 'Release plan.md'), 'utf8'),
     'Complete plan\n',
   );
+
+  await planRunner.send({
+    conversationId: planConversation.id,
+    model: model.id,
+    text: 'Continue planning in the conversation mode.',
+    permissionMode: 'full_access',
+  });
+  await waitFor(() => !planRunner.runs.has(planConversation.id));
+  assert.equal(planCalls.at(-1).invocationContext.workMode, 'plan');
+
+  updateConversation(planConversation.id, { orchestrationMode: null });
+  await planRunner.send({
+    conversationId: planConversation.id,
+    model: model.id,
+    text: 'Continue outside Plan mode.',
+    permissionMode: 'full_access',
+  });
+  await waitFor(() => !planRunner.runs.has(planConversation.id));
+  assert.equal(planCalls.at(-1).invocationContext.workMode, null);
 
   const mediaPath = join(resolvedProfile, 'pixel.png');
   writeFileSync(mediaPath, Buffer.from(

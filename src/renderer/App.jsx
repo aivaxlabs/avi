@@ -891,30 +891,71 @@ export default function App() {
     const normalizedWorkMode = ['plan', 'goal'].includes(nextWorkMode)
       ? nextWorkMode
       : null;
-    if (normalizedWorkMode === 'plan') {
-      changeUltraMode(false);
+    const target = conversationId
+      ? [...conversations, ...sideChats, ...subagents]
+        .find((conversation) => conversation.id === conversationId)
+      : null;
+    if (target?.isSubagent) return false;
+    if (
+      normalizedWorkMode === 'plan'
+      && target?.goal
+      && ['active', 'paused'].includes(target.goal.status)
+    ) {
+      const stopped = await changeGoal(conversationId, 'stop');
+      if (!stopped) return false;
     }
-    if (normalizedWorkMode === 'plan' && conversationId) {
-      const target = [
-        ...conversations,
-        ...sideChats,
-        ...subagents,
-      ].find((conversation) => conversation.id === conversationId);
-      if (target?.goal && ['active', 'paused'].includes(target.goal.status)) {
-        const stopped = await changeGoal(conversationId, 'stop');
-        if (!stopped) return false;
+    const orchestrationMode = normalizedWorkMode === 'plan'
+      ? 'plan'
+      : target?.orchestrationMode === 'plan'
+        ? null
+        : undefined;
+    if (target && !target.isSubagent && orchestrationMode !== undefined) {
+      try {
+        const updated = await api.conversations.update({
+          id: conversationId,
+          orchestrationMode,
+        });
+        if (updated.isSideChat) {
+          setSideChats((state) => upsertById(state, updated));
+        } else {
+          setConversations((state) => upsertById(state, updated).sort(sortByUpdatedAt));
+        }
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : String(nextError));
+        return false;
       }
     }
     setWorkMode(normalizedWorkMode);
+    if (normalizedWorkMode === 'plan') setUltraMode(false);
     return true;
   }
 
-  function changeUltraMode(enabled) {
+  async function changeUltraMode(enabled, conversationId = selectedId) {
     const nextUltraMode = Boolean(enabled);
-    if (nextUltraMode && workMode === 'plan') {
-      setWorkMode(null);
+    const target = conversationId
+      ? [...conversations, ...sideChats, ...subagents]
+        .find((conversation) => conversation.id === conversationId)
+      : null;
+    if (target?.isSubagent) return false;
+    if (target) {
+      try {
+        const updated = await api.conversations.update({
+          id: conversationId,
+          orchestrationMode: nextUltraMode ? 'ultra' : null,
+        });
+        if (updated.isSideChat) {
+          setSideChats((state) => upsertById(state, updated));
+        } else {
+          setConversations((state) => upsertById(state, updated).sort(sortByUpdatedAt));
+        }
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : String(nextError));
+        return false;
+      }
     }
+    if (nextUltraMode) setWorkMode(null);
     setUltraMode(nextUltraMode);
+    return true;
   }
 
   async function startGoal({
@@ -1025,6 +1066,11 @@ export default function App() {
     const goalSpecification = 'Start implementation by establishing a well-defined Goal for this plan. Define the final objective, acceptance criteria, validation requirements, and execution rules before proceeding, then carry the work through to completion.';
 
     if (action === 'goal' || action === 'ultra-goal') {
+      if (action === 'ultra-goal') {
+        if (!await changeUltraMode(true, conversationId)) return false;
+      } else if (!await changeWorkMode(null, conversationId)) {
+        return false;
+      }
       return startGoal({
         conversationId,
         model,
@@ -1053,7 +1099,10 @@ export default function App() {
       return true;
     }
 
-    await changeWorkMode(null, conversationId);
+    const modeChanged = action === 'ultra'
+      ? await changeUltraMode(true, conversationId)
+      : await changeWorkMode(null, conversationId);
+    if (!modeChanged) return false;
     await sendMessage({
       text: 'Implement this plan',
       attachments: [],
@@ -1572,9 +1621,13 @@ export default function App() {
               onChooseProject={chatOnChooseProject}
               onUseHome={chatOnUseHome}
               onToggleFavorite={chatOnToggleFavorite}
-              workMode={selectedId ? null : workMode}
+              workMode={selectedId
+                ? currentConversation?.orchestrationMode === 'plan' ? 'plan' : null
+                : workMode}
               onWorkModeChange={chatOnWorkModeChange}
-              ultraMode={selectedId ? false : ultraMode}
+              ultraMode={selectedId
+                ? currentConversation?.orchestrationMode === 'ultra'
+                : ultraMode}
               onUltraModeChange={chatOnUltraModeChange}
               onGoalAction={chatOnGoalAction}
               pendingAttachment={pendingComposerAttachment}
@@ -1789,6 +1842,7 @@ export default function App() {
                 onToggleFavorite={toggleFavorite}
                 workMode={null}
                 onWorkModeChange={changeWorkMode}
+                onUltraModeChange={changeUltraMode}
                 onGoalAction={(thread, action, specification) => (
                   changeGoal(thread.id, action, specification)
                 )}

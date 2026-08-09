@@ -927,7 +927,9 @@ export const ChatView = memo(function ChatView({
           onWorkModeChange(nextWorkMode, currentConversation?.id)
         )}
         ultraMode={ultraMode}
-        onUltraModeChange={onUltraModeChange}
+        onUltraModeChange={(enabled) => (
+          onUltraModeChange(enabled, currentConversation?.id)
+        )}
         goal={currentConversation?.goal}
         onGoalAction={onGoalAction}
         pendingAttachment={pendingAttachment}

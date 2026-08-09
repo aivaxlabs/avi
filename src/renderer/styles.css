@@ -7832,6 +7832,12 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     pointer-events: all;
 }
 
+.composer-wrap svg {
+    display: block;
+    flex: 0 0 auto;
+    margin: 0;
+}
+
 .composer-wrap .composer-wrap-strip {
     position: relative;
     z-index: 0;
@@ -7859,7 +7865,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .composer-wrap .goal-strip > svg {
-    color: var(--text-1);
+    color: var(--text-2);
 }
 
 .composer-wrap .goal-strip.paused > svg {

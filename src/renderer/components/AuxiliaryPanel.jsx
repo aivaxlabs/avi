@@ -196,6 +196,7 @@ export function AuxiliaryPanel({
   onToggleFavorite,
   workMode,
   onWorkModeChange,
+  onUltraModeChange,
   onGoalAction,
   messageDeliveryMode = 'queue',
   defaultPermissionMode = 'approve_for_me',
@@ -578,8 +579,10 @@ export function AuxiliaryPanel({
             onChooseProject={() => {}}
             onUseHome={() => {}}
             onToggleFavorite={onToggleFavorite}
-            workMode={workMode}
+            workMode={activeThread.orchestrationMode === 'plan' ? 'plan' : workMode}
             onWorkModeChange={onWorkModeChange}
+            ultraMode={activeThread.orchestrationMode === 'ultra'}
+            onUltraModeChange={onUltraModeChange}
             onGoalAction={(action, specification) => (
               onGoalAction(activeThread, action, specification)
             )}

@@ -19,8 +19,10 @@ try {
   const {
     closeDatabase,
     createConversation,
+    getConversation,
     getGoalForConversation,
     getMessages,
+    updateConversation,
   } = database;
   const model = {
     id: 'test:model',
@@ -98,6 +100,36 @@ try {
       .filter((message) => ['user', 'assistant'].includes(message.role))
       .every((message) => message.ultraMode),
   );
+  assert.equal(getConversation(conversation.id).orchestrationMode, 'ultra');
+
+  await runner.send({
+    conversationId: conversation.id,
+    model: model.id,
+    text: 'Continue in the conversation mode.',
+  });
+  const persistentUltraDeadline = Date.now() + 5_000;
+  while (runner.runs.has(conversation.id)) {
+    if (Date.now() >= persistentUltraDeadline) {
+      throw new Error('Timed out waiting for persistent Ultra mode.');
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+  }
+  assert.equal(getMessages(conversation.id).findLast((message) => message.role === 'user').ultraMode, true);
+
+  updateConversation(conversation.id, { orchestrationMode: null });
+  await runner.send({
+    conversationId: conversation.id,
+    model: model.id,
+    text: 'Continue without Ultra mode.',
+  });
+  const regularModeDeadline = Date.now() + 5_000;
+  while (runner.runs.has(conversation.id)) {
+    if (Date.now() >= regularModeDeadline) {
+      throw new Error('Timed out waiting after disabling Ultra mode.');
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+  }
+  assert.equal(getMessages(conversation.id).findLast((message) => message.role === 'user').ultraMode, false);
 
   const planConversation = createConversation({
     model: model.id,

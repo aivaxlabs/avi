@@ -484,6 +484,28 @@ if (!conversationColumns.some((column) => column.name === 'initial_prompt')) {
 if (!conversationColumns.some((column) => column.name === 'orchestration_mode')) {
   db.exec('ALTER TABLE conversations ADD COLUMN orchestration_mode TEXT');
 }
+if (!db.prepare("SELECT 1 FROM session_values WHERE key = 'conversationModesMigrated'").get()) {
+  db.exec(`
+    UPDATE conversations
+    SET orchestration_mode = CASE
+      WHEN (
+        SELECT work_mode
+        FROM conversation_composer_states
+        WHERE conversation_id = conversations.id
+      ) = 'plan' THEN 'plan'
+      WHEN COALESCE((
+        SELECT ultra_mode
+        FROM conversation_composer_states
+        WHERE conversation_id = conversations.id
+      ), 0) = 1 THEN 'ultra'
+      ELSE orchestration_mode
+    END
+    WHERE conversation_type != 'subagent' AND orchestration_mode IS NULL;
+
+    INSERT INTO session_values (key, value, updated_at)
+    VALUES ('conversationModesMigrated', 'true', CURRENT_TIMESTAMP);
+  `);
+}
 if (!conversationColumns.some((column) => column.name === 'auto_forward_to_parent')) {
   db.exec('ALTER TABLE conversations ADD COLUMN auto_forward_to_parent INTEGER NOT NULL DEFAULT 0');
 }
@@ -609,6 +631,10 @@ const statements = {
     SET title = COALESCE(@title, title),
         model = COALESCE(@model, model),
         title_status = COALESCE(@titleStatus, title_status),
+        orchestration_mode = CASE
+          WHEN @orchestrationModeChanged = 1 THEN @orchestrationMode
+          ELSE orchestration_mode
+        END,
         context_checkpoint = COALESCE(@contextCheckpoint, context_checkpoint),
         checkpoint_message_id = COALESCE(@checkpointMessageId, checkpoint_message_id),
         context_tokens = COALESCE(@contextTokens, context_tokens),
@@ -1153,18 +1179,30 @@ export function createConversation({
   return getConversation(conversation.id);
 }
 
-export function ensureConversation(conversationId, model, project = {}) {
+export function ensureConversation(
+  conversationId,
+  model,
+  project = {},
+  orchestrationMode = null,
+) {
   const existing = conversationId ? getConversation(conversationId) : null;
   if (existing) {
-    if (model && model !== existing.model) {
-      updateConversation(existing.id, { model });
-    }
+    const updates = {
+      ...(model && model !== existing.model ? { model } : {}),
+      ...(
+        !existing.orchestrationMode && ['plan', 'ultra'].includes(orchestrationMode)
+          ? { orchestrationMode }
+          : {}
+      ),
+    };
+    if (Object.keys(updates).length > 0) updateConversation(existing.id, updates);
     return getConversation(existing.id);
   }
   return createConversation({
     model,
     projectPath: project.path,
     gitBranch: project.gitBranch,
+    orchestrationMode,
   });
 }
 
@@ -1172,6 +1210,7 @@ export function updateConversation(id, {
   title = null,
   model = null,
   titleStatus = null,
+  orchestrationMode = undefined,
   contextCheckpoint = null,
   checkpointMessageId = null,
   contextTokens = null,
@@ -1181,6 +1220,10 @@ export function updateConversation(id, {
     title,
     model,
     titleStatus,
+    orchestrationMode: ['plan', 'ultra'].includes(orchestrationMode)
+      ? orchestrationMode
+      : null,
+    orchestrationModeChanged: orchestrationMode !== undefined ? 1 : 0,
     contextCheckpoint,
     checkpointMessageId,
     contextTokens,

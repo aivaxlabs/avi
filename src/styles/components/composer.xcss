@@ -12,6 +12,12 @@
     pointer-events: all;
   }
 
+  svg {
+    display: block;
+    flex: 0 0 auto;
+    margin: 0;
+  }
+
   .composer-wrap-strip {
     position: relative;
     z-index: 0;
@@ -38,7 +44,7 @@
     padding: 7px 10px 7px 12px;
 
     > svg {
-      color: var(--text-1);
+      color: var(--text-2);
     }
 
     &.paused > svg {

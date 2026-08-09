@@ -423,7 +423,12 @@ export class ChatRunner {
   }) {
     const normalizedSpecification = String(specification ?? '').trim();
     if (!normalizedSpecification) throw new Error('Goal specification is required.');
-    const conversation = ensureConversation(conversationId, model, project);
+    const conversation = ensureConversation(
+      conversationId,
+      model,
+      project,
+      ultraMode ? 'ultra' : null,
+    );
     const preparedSpecification = sendInitialPrompt
       ? await this.prepareInitialPrompt(conversation, normalizedSpecification, { improveGoal: true })
       : normalizedSpecification;
@@ -670,7 +675,19 @@ export class ChatRunner {
     if (!text && attachments.length === 0) {
       throw new Error('Write a message or attach a file.');
     }
-    const conversation = ensureConversation(conversationId, model, project);
+    const conversation = ensureConversation(
+      conversationId,
+      model,
+      project,
+      workMode === 'plan' ? 'plan' : ultraMode ? 'ultra' : null,
+    );
+    if (conversation.orchestrationMode === 'plan') {
+      workMode = 'plan';
+      ultraMode = false;
+    } else {
+      ultraMode = conversation.orchestrationMode === 'ultra';
+      if (workMode === 'plan') workMode = null;
+    }
     if (!hidden && text) {
       void this.prepareInitialPrompt(conversation, text).catch((error) => {
         traceError('auxiliary.title-generation-error', {

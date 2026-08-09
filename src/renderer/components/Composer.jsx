@@ -373,8 +373,8 @@ export function Composer({
     setPermissionMode(defaultPermissionMode);
     setCurrentModel(initialModel);
     setReasoningEffort(null);
-    setWorkMode(conversationId ? null : initialWorkMode);
-    setUltraMode(conversationId ? false : initialUltraMode);
+    setWorkMode(initialWorkMode);
+    setUltraMode(initialUltraMode);
 
     if (!conversationId) return () => { active = false; };
 
@@ -386,8 +386,6 @@ export function Composer({
         setPermissionMode(state?.permissionMode ?? defaultPermissionMode);
         setCurrentModel(state?.model || initialModel);
         setReasoningEffort(state?.reasoningEffort ?? null);
-        setWorkMode(state?.workMode ?? null);
-        setUltraMode(Boolean(state?.ultraMode));
         hydratedConversationIdRef.current = conversationId;
       })
       .catch(() => {
@@ -402,6 +400,11 @@ export function Composer({
       }
     };
   }, [conversationId]);
+
+  useEffect(() => {
+    setWorkMode(initialWorkMode);
+    setUltraMode(initialUltraMode);
+  }, [initialUltraMode, initialWorkMode]);
 
   useEffect(() => {
     if (!conversationId || hydratedConversationIdRef.current !== conversationId) return undefined;
@@ -582,11 +585,12 @@ export function Composer({
     if (normalizedWorkMode === 'plan') setUltraMode(false);
   }
 
-  function changeUltraMode(enabled) {
+  async function changeUltraMode(enabled) {
     const nextUltraMode = Boolean(enabled);
+    const accepted = await onUltraModeChange?.(nextUltraMode);
+    if (accepted === false) return;
     setUltraMode(nextUltraMode);
     if (nextUltraMode) setWorkMode(null);
-    onUltraModeChange?.(nextUltraMode);
   }
 
   async function submit({ steer = false } = {}) {
@@ -1151,7 +1155,7 @@ export function Composer({
               }
             }}
           >
-            {editingQueuedMessageId === queuedMenu.messageId ? 'Opening…' : 'Edit message'}
+            {editingQueuedMessageId === queuedMenu.messageId ? 'Opening...' : 'Edit message'}
           </DropdownMenuItem>
         </DropdownMenu>,
         document.body,
