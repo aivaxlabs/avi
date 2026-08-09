@@ -55,6 +55,8 @@ contextBridge.exposeInMainWorld('chatApp', {
     restore: (conversationId) => invoke('archive:restore', conversationId),
     delete: (conversationId) => invoke('archive:delete', conversationId),
     maintenance: () => invoke('archive:maintenance'),
+    temporaryStorage: () => invoke('archive:temporary-storage'),
+    clearTemporaryStorage: () => invoke('archive:clear-temporary-storage'),
   },
   conversations: {
     list: () => invoke('conversations:list'),

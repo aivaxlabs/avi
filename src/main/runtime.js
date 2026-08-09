@@ -82,6 +82,7 @@ import { ChatRunner } from './chat-runner.js';
 import { QuickChatRunner } from './quick-chat-runner.js';
 import { validateDefaultModels } from './default-models.js';
 import { stopConversationTerminals } from './client-tools.js';
+import { clearTemporaryStorage, getTemporaryStorage } from './temporary-storage.js';
 import {
   listContextItems,
   resolveInstallationContextPath,
@@ -824,6 +825,8 @@ function registerIpc() {
     stats: getArchiveStats(),
     conversations: listArchivedConversations().map(refreshConversationProject),
   }));
+  applicationIpc.handle('archive:temporary-storage', () => getTemporaryStorage());
+  applicationIpc.handle('archive:clear-temporary-storage', () => clearTemporaryStorage());
 
   applicationIpc.handle('conversations:list', () => listConversationsWithProjects());
   applicationIpc.handle('conversations:create', (_event, payload = {}) => (
@@ -1310,7 +1313,7 @@ function registerIpc() {
         name: 'Avi',
         displayPath: 'AVI/context',
       });
-    } catch {}
+    } catch { }
     for (const conversation of listConversations()) {
       const projectPath = resolve(conversation.projectPath);
       if (projectPath === resolve(homedir())) continue;
@@ -1441,7 +1444,7 @@ function openTerminalAt(folderPath) {
     for (const [command, args] of linuxTerminals) {
       if (spawnSync('which', [command], { stdio: 'ignore' }).status !== 0) continue;
       const child = spawn(command, args, { shell: false, detached: true });
-      child.once('error', () => {});
+      child.once('error', () => { });
       child.unref();
       return;
     }

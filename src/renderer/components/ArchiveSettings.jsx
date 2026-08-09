@@ -24,11 +24,17 @@ const disposableDeletionOptions = [
   { value: '30', label: 'After 30 days' },
   { value: 'never', label: 'Never' },
 ];
+const byteFormatter = new Intl.NumberFormat('en-US', {
+  style: 'unit',
+  unit: 'megabyte',
+  maximumFractionDigits: 1,
+});
 
 export function ArchiveSettings() {
   const [state, setState] = useState(null);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
+  const [temporaryStorage, setTemporaryStorage] = useState(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -37,6 +43,13 @@ export function ArchiveSettings() {
     window.chatApp.archive.state()
       .then((next) => {
         if (active) setState(next);
+      })
+      .catch((nextError) => {
+        if (active) setError(nextError instanceof Error ? nextError.message : String(nextError));
+      });
+    window.chatApp.archive.temporaryStorage()
+      .then((storage) => {
+        if (active) setTemporaryStorage(storage);
       })
       .catch((nextError) => {
         if (active) setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -200,7 +213,36 @@ export function ArchiveSettings() {
           <div><Database size={16} /><span><strong>{state.stats.total}</strong>Total conversations</span></div>
           <div><Database size={16} /><span><strong>{state.stats.active}</strong>Active conversations</span></div>
           <div><Archive size={16} /><span><strong>{state.stats.archived}</strong>Archived conversations</span></div>
-          <div><HardDrive size={16} /><span><strong>{new Intl.NumberFormat('en-US', { style: 'unit', unit: 'megabyte', maximumFractionDigits: 1 }).format(state.stats.diskBytes / 1_048_576)}</strong>Conversation storage</span></div>
+          <div><HardDrive size={16} /><span><strong>{byteFormatter.format(state.stats.diskBytes / 1_048_576)}</strong>Conversation storage</span></div>
+        </div>
+        <div className="settings-section-card archive-maintenance">
+          <span>
+            <strong>Temporary storage</strong>
+            <small>{temporaryStorage ? `${byteFormatter.format(temporaryStorage.bytes / 1_048_576)} in ${temporaryStorage.path}` : 'Calculating temporary storage...'}</small>
+          </span>
+          <button
+            className="danger"
+            type="button"
+            disabled={busy || !temporaryStorage?.bytes}
+            onClick={async () => {
+              if (!window.confirm('Delete all Avi temporary storage? Temporary attachments, tool outputs, logs, and cached media will be permanently removed.')) return;
+              setBusy(true);
+              setError('');
+              setNotice('');
+              try {
+                const storage = await window.chatApp.archive.clearTemporaryStorage();
+                setTemporaryStorage(storage);
+                setNotice('Temporary storage deleted.');
+              } catch (nextError) {
+                setError(nextError instanceof Error ? nextError.message : String(nextError));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <Trash2 size={14} />
+            Delete temporary storage
+          </button>
         </div>
         <div className="settings-section-card archive-maintenance">
           <span>

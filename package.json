@@ -35,6 +35,7 @@
     "test:files": "bun scripts/test-files-panel.mjs",
     "test:side-chat": "bun scripts/test-side-chat-database.mjs",
     "test:archive": "electron --no-sandbox scripts/test-archive-database.mjs",
+    "test:temporary-storage": "bun scripts/test-temporary-storage.mjs",
     "test:search": "electron --no-sandbox scripts/test-search-core.mjs",
     "package": "bun run build && bun scripts/package.mjs"
   },
