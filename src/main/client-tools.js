@@ -1001,18 +1001,23 @@ export const CLIENT_TOOLS = Object.freeze([
       required: ['search_terms'],
       additionalProperties: false,
     },
-    execute: async ({ search_terms }, { aivax, signal }) => requestAivax('/api/v1/query', {
-      body: {
-        terms: search_terms,
-        collections: [aivax.memoryCollectionId],
-        top: 20,
-        includeReferences: false,
-        reranker: 'rrf',
-        minScore: 0.2,
-      },
-      responseType: 'array',
-      signal,
-    }),
+    execute: async ({ search_terms }, { aivax, signal }) => (
+      await requestAivax('/api/v1/query', {
+        body: {
+          terms: search_terms,
+          collections: [aivax.memoryCollectionId],
+          top: 20,
+          includeReferences: false,
+          reranker: 'rrf',
+          minScore: 0.2,
+        },
+        responseType: 'array',
+        signal,
+      })
+    ).map(({ documentName, documentContent }) => ({
+      name: documentName,
+      content: documentContent,
+    })),
   },
   {
     name: 'memory_write',
