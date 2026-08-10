@@ -16,6 +16,7 @@ let database;
 try {
   database = await import('../src/main/database.js');
   const { ChatRunner } = await import('../src/main/chat-runner.js');
+  const { resolveDynamicContext } = await import('../src/main/context-injection.js');
   const {
     closeDatabase,
     createConversation,
@@ -95,6 +96,20 @@ try {
   assert.ok(calls.every((call) => call.invocationContext.orchestrationRole === 'orchestrator'));
   assert.equal(calls[0].invocationContext.goal.id, getGoalForConversation(conversation.id).id);
   assert.ok(calls[0].tools.some((tool) => tool.name === 'chat_spawn_subagent'));
+  const ultraWorkModeContext = (await resolveDynamicContext(calls[0].invocationContext)).match(
+    /<work_mode mode="ultra" role="orchestrator">[\s\S]*?<\/work_mode>/,
+  )?.[0] ?? '';
+  for (const requirement of [
+    'selected Ultra for complex work',
+    'must run a model-driven production, independent critique, correction, and fresh validation loop',
+    'must not be the independent final reviewer',
+    'Do not conclude before independent critique has challenged the latest relevant candidate',
+    'There is no predetermined number of agents or rounds',
+    'further work would only repeat existing evidence',
+  ]) {
+    assert.ok(ultraWorkModeContext.includes(requirement));
+  }
+  assert.doesNotMatch(await resolveDynamicContext(calls[0].invocationContext), /\btrivial(?:ity|ities)?\b/i);
   assert.ok(
     getMessages(conversation.id)
       .filter((message) => ['user', 'assistant'].includes(message.role))

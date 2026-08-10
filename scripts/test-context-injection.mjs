@@ -514,19 +514,41 @@ try {
     orchestrationRole: 'orchestrator',
   });
   assert.ok(ultraContext.startsWith(baseInstructions.trim()));
+  const ultraWorkModeContext = ultraContext.match(
+    /<work_mode mode="ultra" role="orchestrator">[\s\S]*?<\/work_mode>/,
+  )?.[0] ?? '';
   for (const requirement of [
     '<work_mode mode="ultra" role="orchestrator">',
+    'deliberately selected Ultra for complex work',
+    'must run a model-driven production, independent critique, correction, and fresh validation loop',
+    'Do not limit the result to the literal wording of the request',
+    'do not expand speculatively',
+    'smallest direct protection against a concrete, reproducible failure',
+    'immediate, observable consequence',
+    'Do not invent requirements',
     'chat_spawn_subagent',
     'chat_send_prompt',
-    'independent judges or reviewers',
+    'Avoid orchestration thrashing',
+    'gather relevant completed reports',
+    'must not be the independent final reviewer',
+    'seek counterexamples',
+    'Distinguish material defects from preferences',
+    'sub-agent reports as evidence, not authority',
+    'absence of reported findings is not proof of correctness',
+    'validate the corrected candidate after the last relevant change',
+    'Do not conclude before independent critique has challenged the latest relevant candidate',
+    'Do not reopen resolved findings or repeat equivalent reviews without new evidence',
+    'There is no predetermined number of agents or rounds',
+    'further work would only repeat existing evidence',
     'Ultra mode may operate together with an active Goal',
     'incompatible with Plan mode',
-    'diminishing value',
+    'remaining blocker or unverified limitation',
   ]) {
-    if (!ultraContext.includes(requirement)) {
+    if (!ultraWorkModeContext.includes(requirement)) {
       throw new Error(`Ultra context is missing: ${requirement}`);
     }
   }
+  assert.doesNotMatch(ultraContext, /\btrivial(?:ity|ities)?\b/i);
   assert.ok(!injected.includes('<work_mode mode="ultra"'));
   assert.ok(!(await resolveDynamicContext({
     workspacePath: root,
