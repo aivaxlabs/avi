@@ -120,6 +120,7 @@ export default function App() {
   const [approvalRequests, setApprovalRequests] = useState([]);
   const [approvalResolving, setApprovalResolving] = useState(false);
   const [questionRequests, setQuestionRequests] = useState([]);
+  const [goalPreparations, setGoalPreparations] = useState({});
   const [workMode, setWorkMode] = useState(null);
   const [ultraMode, setUltraMode] = useState(false);
   const approvalDialogRef = useRef(null);
@@ -976,6 +977,11 @@ export default function App() {
     try {
       const selectedIdBeforeStart = selectedConversationIdRef.current;
       await changeWorkMode(null, conversationId);
+      const preparationKey = conversationId ?? 'draft';
+      setGoalPreparations((state) => ({
+        ...state,
+        [preparationKey]: { conversationId, specification },
+      }));
       const result = await api.goals.start({
         conversationId,
         model,
@@ -1007,6 +1013,13 @@ export default function App() {
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       return false;
+    } finally {
+      const preparationKey = conversationId ?? 'draft';
+      setGoalPreparations((state) => {
+        const next = { ...state };
+        delete next[preparationKey];
+        return next;
+      });
     }
   }
 
@@ -1494,6 +1507,7 @@ export default function App() {
             completedUnseen={completedUnseen}
             approvalPending={approvalPending}
             inputPending={inputPending}
+            homePath={appState.defaultProject.path}
             onQuickChat={() => api.quickChat.open().catch((nextError) => {
               setError(nextError instanceof Error ? nextError.message : String(nextError));
             })}
@@ -1629,6 +1643,7 @@ export default function App() {
                 ? currentConversation?.orchestrationMode === 'ultra'
                 : ultraMode}
               onUltraModeChange={chatOnUltraModeChange}
+              goalPreparation={goalPreparations[selectedId ?? 'draft'] ?? null}
               onGoalAction={chatOnGoalAction}
               pendingAttachment={pendingComposerAttachment}
               onPendingAttachmentConsumed={chatOnPendingAttachmentConsumed}

@@ -1345,12 +1345,15 @@ function WorkedBlock({ items, messages, label, onOpenFileReference, onFileRefere
 function ThinkingGroup({ items, streaming, trailing }) {
   const [manualOpen, setManualOpen] = useState(null);
   const open = manualOpen ?? (streaming && trailing);
+  const tools = items.filter((item) => ['tool', 'tool-call', 'server-tool'].includes(item.type));
   const label = groupLabel(items);
+  const toolsLabel = groupLabel(tools);
 
   return (
-    <div className={classNames('thinking-group', open && 'open')}>
+    <div className={classNames('thinking-group', tools.length > 0 && 'has-tools', open && 'open')}>
       <button type="button" className="thinking-summary" onClick={() => setManualOpen(!open)}>
-        <span>{label}</span>
+        <span className="thinking-label">{label}</span>
+        <span className="tools-label">{toolsLabel}</span>
         {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
       </button>
       <div className="thinking-details" aria-hidden={!open}>

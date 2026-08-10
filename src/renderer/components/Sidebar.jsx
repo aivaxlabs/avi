@@ -56,6 +56,7 @@ export function Sidebar({
   collapsed,
   orchestrationOpen,
   onToggleCollapsed,
+  homePath,
 }) {
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [filterMenuPosition, setFilterMenuPosition] = useState(null);
@@ -89,6 +90,8 @@ export function Sidebar({
         const current = groupsByValue.get(key) ?? {
           key,
           label,
+          isHome: conversationGrouping === 'folder'
+            && (!conversation.projectPath || conversation.projectPath === homePath),
           preset: conversationGrouping === 'model'
             ? { modelId: conversation.model }
             : {
@@ -114,7 +117,11 @@ export function Sidebar({
       }
 
       return [...groupsByValue.values()]
-        .sort((a, b) => b.latestTime - a.latestTime || a.label.localeCompare(b.label));
+        .sort((a, b) => (
+          Number(a.isHome) - Number(b.isHome)
+          || b.latestTime - a.latestTime
+          || a.label.localeCompare(b.label)
+        ));
     }
 
     const todayStart = new Date(now).setHours(0, 0, 0, 0);
@@ -142,7 +149,7 @@ export function Sidebar({
     }
 
     return groups.filter((group) => group.items.length > 0);
-  }, [conversationGrouping, conversations, models, now]);
+  }, [conversationGrouping, conversations, homePath, models, now]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -286,14 +293,20 @@ export function Sidebar({
         document.body,
       )}
       <div className="conversation-list">
-        {conversationGroups.map((group) => {
+        {conversationGroups.map((group, index) => {
           const expanded = Boolean(expandedGroups[group.key]);
           const visibleItems = expanded ? group.items : group.items.slice(0, GROUP_LIMIT);
+          const groupLabel = conversationGrouping === 'folder' && group.isHome
+            ? 'Chats'
+            : group.label;
           return (
             <section key={group.key} className="conversation-group">
+              {conversationGrouping === 'folder' && !group.isHome && index === 0 && (
+                <div className="conversation-section-label">Folders</div>
+              )}
               <div
                 className="conversation-group-header"
-                onContextMenu={conversationGrouping === 'folder'
+                onContextMenu={conversationGrouping === 'folder' && !group.isHome
                   ? (event) => {
                       event.preventDefault();
                       folderMenuButtonRef.current = event.currentTarget;
@@ -305,18 +318,23 @@ export function Sidebar({
                     }
                   : undefined}
               >
-                <span title={group.label}>{group.label}</span>
+                <span className="conversation-group-title" title={groupLabel}>
+                  {conversationGrouping === 'folder' && !group.isHome && (
+                    <Folder size={13} aria-hidden="true" />
+                  )}
+                  <span>{groupLabel}</span>
+                </span>
                 {conversationGrouping !== 'chronological' && (
                   <div className="conversation-group-actions">
                     <button
                       type="button"
-                      aria-label={`New chat with ${group.label}`}
-                      title={`New chat with ${group.label}`}
+                      aria-label={`New chat with ${groupLabel}`}
+                      title={`New chat with ${groupLabel}`}
                       onClick={() => onNewChat(group.preset)}
                     >
                       <Plus size={13} />
                     </button>
-                    {conversationGrouping === 'folder' && (
+                    {conversationGrouping === 'folder' && !group.isHome && (
                       <button
                         className={folderMenu?.key === group.key ? 'active' : undefined}
                         type="button"

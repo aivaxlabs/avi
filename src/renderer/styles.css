@@ -5189,7 +5189,15 @@ html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #roo
     margin: 6px 0;
 }
 
-.reasoning-traces-hidden .thinking-group {
+.reasoning-traces-hidden .thinking-group:not(.has-tools), .reasoning-traces-hidden .thinking-group .reasoning-text, .reasoning-traces-hidden .thinking-group .thinking-label {
+    display: none;
+}
+
+.reasoning-traces-hidden .thinking-group .tools-label {
+    display: inline;
+}
+
+.tools-label {
     display: none;
 }
 
@@ -7872,6 +7880,14 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     color: var(--text-3);
 }
 
+.composer-wrap .goal-strip.preparing {
+    grid-template-columns: auto minmax(0, 1fr);
+}
+
+.composer-wrap .goal-strip-spinner {
+    animation: goal-strip-spin 900ms linear infinite;
+}
+
 .composer-wrap .goal-strip-copy {
     min-width: 0;
     display: grid;
@@ -8571,6 +8587,12 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     outline-offset: -2px;
 }
 
+@keyframes goal-strip-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 @media (max-width: 860px) {
     .composer-wrap .model-pill {
         max-width: 120px;
@@ -8860,6 +8882,13 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     margin-top: 1.25em;
 }
 
+.sidebar .conversation-section-label {
+    min-width: 0;
+    margin: 4px 6px 2px 10px;
+    color: var(--text-3);
+    font-weight: 600;
+}
+
 .sidebar .conversation-group-header {
     min-width: 0;
     min-height: 22px;
@@ -8871,7 +8900,18 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     color: var(--text-3);
 }
 
-.sidebar .conversation-group-header > span {
+.sidebar .conversation-group-header > .conversation-group-title {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sidebar .conversation-group-header > .conversation-group-title > svg {
+    flex: 0 0 auto;
+}
+
+.sidebar .conversation-group-header > .conversation-group-title > span {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -8964,7 +9004,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 
 .sidebar .conversation-show-toggle {
     width: fit-content;
-    margin: 2px 0 4px 4px;
+    margin: 2px 0 4px 23px;
     padding: 4px 6px;
     color: var(--text-3);
     background: transparent;
@@ -8999,6 +9039,16 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     padding: 6px 12px;
 }
 
+.sidebar .nav-actions button svg, .sidebar .settings-button svg {
+    width: 16px;
+    height: 16px;
+    opacity: .7;
+}
+
+.sidebar .nav-actions button:hover svg, .sidebar .settings-button:hover svg {
+    opacity: 1;
+}
+
 .sidebar .settings-button {
     margin: auto 4px 4px 4px;
     width: calc(100% - 8px);
@@ -9011,6 +9061,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 
 .sidebar .conversation-main {
     padding: 6px 10px;
+    padding-left: 29px;
 }
 
 .sidebar-collapsed .sidebar {

@@ -2,7 +2,19 @@
   margin: 6px 0;
 }
 
-.reasoning-traces-hidden .thinking-group {
+.reasoning-traces-hidden {
+  .thinking-group:not(.has-tools),
+  .thinking-group .reasoning-text,
+  .thinking-group .thinking-label {
+    display: none;
+  }
+
+  .thinking-group .tools-label {
+    display: inline;
+  }
+}
+
+.tools-label {
   display: none;
 }
 

@@ -157,6 +157,7 @@ export function Composer({
   ultraMode: initialUltraMode = false,
   onUltraModeChange,
   goal = null,
+  goalPreparation = null,
   onGoalAction,
   pendingAttachment,
   onPendingAttachmentConsumed,
@@ -329,7 +330,7 @@ export function Composer({
   const activeCommandOption = commandOptions[commandIndex] ?? commandOptions[0] ?? null;
   const activeGoal = goal && ['active', 'paused'].includes(goal.status) ? goal : null;
   const effectiveWorkMode = activeGoal ? 'goal' : workMode;
-  const canSend = !commandMode && (
+  const canSend = !goalPreparation && !commandMode && (
     effectiveWorkMode === 'goal' && !activeGoal
       ? Boolean(text.trim())
       : Boolean(text.trim() || attachments.length > 0)
@@ -870,6 +871,19 @@ export function Composer({
             Send
           </button>
         </div>
+      )}
+      {goalPreparation && !activeGoal && (
+        <ComposerStrip
+          className="goal-strip preparing"
+          aria-label="Defining Goal criteria"
+          aria-live="polite"
+        >
+          <LoaderCircle className="goal-strip-spinner" size={15} aria-hidden="true" />
+          <span className="goal-strip-copy">
+            <strong title={goalPreparation.specification}>{goalPreparation.specification}</strong>
+            <small>Defining Goal criteria...</small>
+          </span>
+        </ComposerStrip>
       )}
       {activeGoal && (
         <ComposerStrip
@@ -1580,7 +1594,16 @@ export function Composer({
               </DropdownMenu>
             )}
           </div>
-          {!canSend && isRunning ? (
+          {goalPreparation ? (
+            <button
+              className="round-button send-button"
+              type="button"
+              disabled
+              aria-label="Defining Goal criteria"
+            >
+              <LoaderCircle className="goal-strip-spinner" size={16} aria-hidden="true" />
+            </button>
+          ) : !canSend && isRunning ? (
             <button
               className="round-button send-button"
               type="button"

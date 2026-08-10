@@ -50,6 +50,20 @@
     &.paused > svg {
       color: var(--text-3);
     }
+
+    &.preparing {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+  }
+
+  .goal-strip-spinner {
+    animation: goal-strip-spin 900ms linear infinite;
+  }
+
+  @keyframes goal-strip-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .goal-strip-copy {
