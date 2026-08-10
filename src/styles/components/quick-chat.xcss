@@ -244,13 +244,19 @@ html.quick-chat-window #root {
   font-weight: 600;
 }
 
+.quick-question-options {
+  display: grid;
+  gap: 8px;
+}
+
 .quick-question label {
   display: flex;
   align-items: center;
   gap: 7px;
 }
 
-.quick-question textarea {
+.quick-question textarea,
+.quick-question-custom-input {
   width: 100%;
   min-height: 72px;
   padding: 8px;

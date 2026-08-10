@@ -840,6 +840,33 @@ body.panel-resizing * {
     accent-color: var(--background-5);
 }
 
+.question-card-custom-option {
+    display: grid;
+    gap: 7px;
+}
+
+.question-card-custom-input {
+    width: 100%;
+    padding: 9px 11px;
+    color: var(--text-1);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+    font: inherit;
+    font-size: 12px;
+}
+
+.question-card-custom-input:focus-visible {
+    border-color: var(--text-3);
+    outline: 0;
+    box-shadow: 0 0 0 3px var(--background-3);
+}
+
+.question-card-custom-input:disabled {
+    opacity: .55;
+    cursor: wait;
+}
+
 .question-card-option-copy {
     min-width: 0;
     overflow-wrap: anywhere;
@@ -5163,13 +5190,18 @@ html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #roo
     font-weight: 600;
 }
 
+.quick-question-options {
+    display: grid;
+    gap: 8px;
+}
+
 .quick-question label {
     display: flex;
     align-items: center;
     gap: 7px;
 }
 
-.quick-question textarea {
+.quick-question textarea, .quick-question-custom-input {
     width: 100%;
     min-height: 72px;
     padding: 8px;

@@ -313,15 +313,31 @@ function hasFileTransfer(dataTransfer) {
 }
 
 function QuickQuestion({ request, onResolve }) {
-  const [answers, setAnswers] = useState(() => request.questions.map(() => ''));
-  const complete = useMemo(() => request.questions.every((question, index) => (
-    question.type === 'multiple_choice' ? answers[index]?.length > 0 : Boolean(answers[index])
-  )), [answers, request.questions]);
+  const [answers, setAnswers] = useState(() => request.questions.map((question) => (
+    question.type === 'multiple_choice' ? [] : ''
+  )));
+  const [customAnswers, setCustomAnswers] = useState(() => request.questions.map(() => ''));
+  const [customActive, setCustomActive] = useState(() => request.questions.map(() => false));
+  const complete = useMemo(() => request.questions.every((question, index) => {
+    if (question.type === 'free_text') return Boolean(answers[index]?.trim());
+    if (customActive[index]) return Boolean(customAnswers[index]?.trim());
+    return question.type === 'multiple_choice'
+      ? answers[index]?.length > 0
+      : Boolean(answers[index]);
+  }), [answers, customActive, customAnswers, request.questions]);
 
   return (
     <form className="quick-question" onSubmit={(event) => {
       event.preventDefault();
-      if (complete) onResolve(answers);
+      if (!complete) return;
+      onResolve(request.questions.map((question, index) => ({
+        question: question.question,
+        answer: customActive[index]
+          ? question.type === 'multiple_choice'
+            ? [...answers[index], customAnswers[index].trim()]
+            : customAnswers[index].trim()
+          : answers[index],
+      })));
     }}>
       {request.questions.map((question, index) => (
         <fieldset key={`${question.question}:${index}`}>
@@ -332,28 +348,69 @@ function QuickQuestion({ request, onResolve }) {
               next[index] = event.target.value;
               return next;
             })} />
-          ) : question.options.map((option) => (
-            <label key={option}>
-              <input
-                type={question.type === 'multiple_choice' ? 'checkbox' : 'radio'}
-                name={`question-${index}`}
-                checked={question.type === 'multiple_choice'
-                  ? answers[index]?.includes(option)
-                  : answers[index] === option}
-                onChange={(event) => setAnswers((current) => {
-                  const next = [...current];
-                  if (question.type === 'multiple_choice') {
-                    const selected = new Set(next[index] || []);
-                    if (event.target.checked) selected.add(option);
-                    else selected.delete(option);
-                    next[index] = [...selected];
-                  } else next[index] = option;
-                  return next;
-                })}
-              />
-              {option}
-            </label>
-          ))}
+          ) : (
+            <div className="quick-question-options">
+              {question.options.map((option) => (
+                <label key={option}>
+                  <input
+                    type={question.type === 'multiple_choice' ? 'checkbox' : 'radio'}
+                    name={`question-${index}`}
+                    checked={question.type === 'multiple_choice'
+                      ? answers[index]?.includes(option)
+                      : answers[index] === option && !customActive[index]}
+                    onChange={(event) => {
+                      if (question.type === 'single_choice') {
+                        setCustomActive((current) => {
+                          const next = [...current];
+                          next[index] = false;
+                          return next;
+                        });
+                      }
+                      setAnswers((current) => {
+                        const next = [...current];
+                        if (question.type === 'multiple_choice') {
+                          const selected = new Set(next[index] || []);
+                          if (event.target.checked) selected.add(option);
+                          else selected.delete(option);
+                          next[index] = [...selected];
+                        } else next[index] = option;
+                        return next;
+                      });
+                    }}
+                  />
+                  {option}
+                </label>
+              ))}
+              <label>
+                <input
+                  type={question.type === 'multiple_choice' ? 'checkbox' : 'radio'}
+                  name={`question-${index}`}
+                  checked={customActive[index]}
+                  onChange={(event) => setCustomActive((current) => {
+                    const next = [...current];
+                    next[index] = event.target.checked;
+                    return next;
+                  })}
+                />
+                Other
+              </label>
+              {customActive[index] && (
+                <input
+                  className="quick-question-custom-input"
+                  type="text"
+                  value={customAnswers[index]}
+                  placeholder="Type your answer"
+                  aria-label={`${question.question} — custom answer`}
+                  autoFocus
+                  onChange={(event) => setCustomAnswers((current) => {
+                    const next = [...current];
+                    next[index] = event.target.value;
+                    return next;
+                  })}
+                />
+              )}
+            </div>
+          )}
         </fieldset>
       ))}
       <div>

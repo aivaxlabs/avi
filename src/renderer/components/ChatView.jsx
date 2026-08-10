@@ -172,6 +172,8 @@ export const ChatView = memo(function ChatView({
   const [selectionAction, setSelectionAction] = useState(null);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [questionAnswers, setQuestionAnswers] = useState([]);
+  const [questionCustomAnswers, setQuestionCustomAnswers] = useState([]);
+  const [questionCustomActive, setQuestionCustomActive] = useState([]);
   const [questionResolving, setQuestionResolving] = useState(false);
   const modelName = getModelDisplayName(models, currentModel);
   const pendingMessages = currentMessages
@@ -205,11 +207,17 @@ export const ChatView = memo(function ChatView({
   const activeQuestion = questionRequest?.questions[questionIndex] ?? null;
   const allQuestionsAnswered = Boolean(
     questionRequest
-    && questionRequest.questions.every((question, index) => (
-      question.type === 'multiple_choice'
+    && questionRequest.questions.every((question, index) => {
+      if (question.type === 'free_text') {
+        return Boolean(String(questionAnswers[index] ?? '').trim());
+      }
+      if (questionCustomActive[index]) {
+        return Boolean(String(questionCustomAnswers[index] ?? '').trim());
+      }
+      return question.type === 'multiple_choice'
         ? questionAnswers[index]?.length > 0
-        : Boolean(String(questionAnswers[index] ?? '').trim())
-    )),
+        : Boolean(String(questionAnswers[index] ?? '').trim());
+    }),
   );
 
   function scrollToBottom() {
@@ -302,6 +310,8 @@ export const ChatView = memo(function ChatView({
     setQuestionAnswers(questionRequest?.questions.map((question) => (
       question.type === 'multiple_choice' ? [] : ''
     )) ?? []);
+    setQuestionCustomAnswers(questionRequest?.questions.map(() => '') ?? []);
+    setQuestionCustomActive(questionRequest?.questions.map(() => false) ?? []);
     setQuestionResolving(false);
   }, [questionRequest?.questionId]);
 
@@ -618,7 +628,11 @@ export const ChatView = memo(function ChatView({
         questionRequest,
         questionRequest.questions.map((question, index) => ({
           question: question.question,
-          answer: questionAnswers[index],
+          answer: questionCustomActive[index]
+            ? question.type === 'multiple_choice'
+              ? [...questionAnswers[index], questionCustomAnswers[index].trim()]
+              : questionCustomAnswers[index].trim()
+            : questionAnswers[index],
         })),
         cancelled,
       );
@@ -774,7 +788,8 @@ export const ChatView = memo(function ChatView({
                           const inputId = `question-${questionRequest.questionId}-${questionIndex}-${optionIndex}`;
                           const checked = activeQuestion.type === 'multiple_choice'
                             ? questionAnswers[questionIndex]?.includes(option)
-                            : questionAnswers[questionIndex] === option;
+                            : questionAnswers[questionIndex] === option
+                              && !questionCustomActive[questionIndex];
                           return (
                             <label
                               key={`${option}:${optionIndex}`}
@@ -806,6 +821,14 @@ export const ChatView = memo(function ChatView({
                                   }
                                   return next;
                                 })}
+                                onClick={() => {
+                                  if (activeQuestion.type !== 'single_choice') return;
+                                  setQuestionCustomActive((state) => {
+                                    const next = [...state];
+                                    next[questionIndex] = false;
+                                    return next;
+                                  });
+                                }}
                               />
                               <span className="question-card-option-copy">
                                 <ReactMarkdown
@@ -818,6 +841,40 @@ export const ChatView = memo(function ChatView({
                             </label>
                           );
                         })}
+                        <div className="question-card-custom-option">
+                          <label className="question-card-option">
+                            <input
+                              type={activeQuestion.type === 'multiple_choice'
+                                ? 'checkbox'
+                                : 'radio'}
+                              name={`question-${questionRequest.questionId}-${questionIndex}`}
+                              checked={Boolean(questionCustomActive[questionIndex])}
+                              disabled={questionResolving}
+                              onChange={(event) => setQuestionCustomActive((state) => {
+                                const next = [...state];
+                                next[questionIndex] = event.target.checked;
+                                return next;
+                              })}
+                            />
+                            <span className="question-card-option-copy">Other</span>
+                          </label>
+                          {questionCustomActive[questionIndex] && (
+                            <input
+                              className="question-card-custom-input"
+                              type="text"
+                              value={questionCustomAnswers[questionIndex] ?? ''}
+                              placeholder="Type your answer"
+                              aria-label={`${activeQuestion.question} — custom answer`}
+                              disabled={questionResolving}
+                              autoFocus
+                              onChange={(event) => setQuestionCustomAnswers((state) => {
+                                const next = [...state];
+                                next[questionIndex] = event.target.value;
+                                return next;
+                              })}
+                            />
+                          )}
+                        </div>
                       </div>
                     )}
                   </fieldset>
@@ -835,9 +892,11 @@ export const ChatView = memo(function ChatView({
                       aria-label="Question navigation"
                     >
                       {questionRequest.questions.map((question, index) => {
-                        const answered = question.type === 'multiple_choice'
-                          ? questionAnswers[index]?.length > 0
-                          : Boolean(String(questionAnswers[index] ?? '').trim());
+                        const answered = questionCustomActive[index]
+                          ? Boolean(String(questionCustomAnswers[index] ?? '').trim())
+                          : question.type === 'multiple_choice'
+                            ? questionAnswers[index]?.length > 0
+                            : Boolean(String(questionAnswers[index] ?? '').trim());
                         return (
                           <button
                             key={`${questionRequest.questionId}:${index}`}

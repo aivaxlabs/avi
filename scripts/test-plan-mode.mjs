@@ -573,11 +573,11 @@ try {
     answers: [
       {
         question: 'Qual período deseja consultar?',
-        answer: 'Últimos 30 dias',
+        answer: 'Período personalizado',
       },
       {
         question: 'Quais situações devem ser incluídas?',
-        answer: ['Pendentes', 'Vencidas'],
+        answer: ['Pendentes', 'Vencidas', 'Em análise manual'],
       },
       {
         question: 'Informe a placa ou o nome da frota.',
@@ -588,8 +588,8 @@ try {
   await waitFor(() => !questionRunner.runs.has(questionConversation.id));
   assert.equal(questionResults[0], [
     'User answers:',
-    '- Qual período deseja consultar?: Últimos 30 dias',
-    '- Quais situações devem ser incluídas?: Pendentes, Vencidas',
+    '- Qual período deseja consultar?: Período personalizado',
+    '- Quais situações devem ser incluídas?: Pendentes, Vencidas, Em análise manual',
     '- Informe a placa ou o nome da frota.: ABC-1234',
   ].join('\n'));
   assert.equal(

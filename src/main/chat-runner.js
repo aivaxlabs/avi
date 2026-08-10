@@ -2391,20 +2391,17 @@ export class ChatRunner {
         if (
           !Array.isArray(answer.answer)
           || answer.answer.length === 0
-          || answer.answer.some((option) => !question.options.includes(option))
+          || answer.answer.some((option) => typeof option !== 'string' || !option.trim())
         ) {
           throw new Error(`Answer ${index + 1} must contain selected options.`);
         }
         return {
           question: question.question,
-          answer: [...new Set(answer.answer)],
+          answer: [...new Set(answer.answer.map((option) => option.trim()))],
         };
       }
       const value = typeof answer.answer === 'string' ? answer.answer.trim() : '';
-      if (
-        !value
-        || (question.type === 'single_choice' && !question.options.includes(value))
-      ) {
+      if (!value) {
         throw new Error(`Answer ${index + 1} must be non-empty.`);
       }
       return {
