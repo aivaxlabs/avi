@@ -1717,6 +1717,14 @@ export const CLIENT_TOOLS = Object.freeze([
 ]);
 
 export function decorateToolsForInvocation(tools, permissionMode = 'approve_for_me') {
+  const toolNames = new Set();
+  for (const tool of tools) {
+    const name = String(tool?.name ?? '');
+    if (!name) throw new Error('Every chat tool requires a name.');
+    if (toolNames.has(name)) throw new Error(`Chat tool name "${name}" is duplicated.`);
+    toolNames.add(name);
+  }
+
   return tools.map((tool) => ({
     ...tool,
     inputSchema: {

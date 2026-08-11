@@ -1,11 +1,11 @@
 ---
 name: agent-customization
-description: Create, update, review, or debug Avi context: instructions, skills, workflows, and MCP configuration. Use when deciding which Avi primitive to use, where files belong, why context was not discovered, how /workflow and $skill invocation works, or which frontmatter fields Avi supports.
+description: Create, update, review, or debug Avi customization: instructions, skills, workflows, MCP configuration, and trusted plugins. Use when deciding which Avi primitive to use, where files belong, why context was not discovered, how /workflow and $skill invocation works, which frontmatter fields Avi supports, or when a plugin is appropriate.
 user-invocable: false
 ---
 # Avi Context Customization
 
-Use this skill to customize Avi with the four supported context primitives: **instructions, skills, workflows, and MCP**.
+Use this skill to customize Avi with five supported primitives: **instructions, skills, workflows, MCP, and plugins**.
 
 Avi does not discover VS Code or Copilot prompt files, hooks, custom-agent files, `.github` customization folders, or `.claude` skill folders. Runtime features such as Plan, Goal, Ultra, and sub-agents are Avi features, not additional context file types.
 
@@ -17,18 +17,20 @@ Avi does not discover VS Code or Copilot prompt files, hooks, custom-agent files
 | A repeatable procedure selected explicitly for a task | Workflow |
 | Specialized knowledge or a procedure that benefits from references, scripts, examples, or assets | Skill |
 | Tools or live context from an external process, service, or API | MCP |
+| A trusted install-wide JavaScript extension contributing multiple Avi capabilities or main-process behavior | Plugin |
 
-Use instructions for behavior that should apply repeatedly. Use a workflow or skill for task-specific guidance so it does not consume every conversation's instruction context. Use MCP only when the agent needs a runtime integration; static guidance belongs in instructions or a skill.
+Use instructions for behavior that should apply repeatedly. Use a workflow or skill for task-specific guidance so it does not consume every conversation's instruction context. Use MCP only when the agent needs a runtime integration; static guidance belongs in instructions or a skill. Use a plugin only when trusted executable extension code is necessary; plugins run with Avi main-process privileges.
 
 ## Supported locations
 
 `$HOME` the user's home directory, and `$PWD` the active project folder.
 
-| Scope | Instructions | Workflows | Skills | MCP |
-|---|---|---|---|---|
-| User-global | `$HOME/.agents/AGENTS.md` | `$HOME/.agents/workflows/*.md` | `$HOME/.agents/skills/<name>/SKILL.md` | `$HOME/.agents/mcpconfig.json` |
-| Project | `$PWD/AGENTS.md` | `$PWD/.agents/workflows/*.md` | `$PWD/.agents/skills/<name>/SKILL.md` | `$PWD/.agents/mcpconfig.json` |
-| Project subdirectory | `<dir>/AGENTS.md` | `<dir>/.agents/workflows/*.md` | `<dir>/.agents/skills/<name>/SKILL.md` | Configure the project scope |
+| Scope | Instructions | Workflows | Skills | MCP | Plugins |
+|---|---|---|---|---|---|
+| User-global | `$HOME/.agents/AGENTS.md` | `$HOME/.agents/workflows/*.md` | `$HOME/.agents/skills/<name>/SKILL.md` | `$HOME/.agents/mcpconfig.json` | — |
+| Project | `$PWD/AGENTS.md` | `$PWD/.agents/workflows/*.md` | `$PWD/.agents/skills/<name>/SKILL.md` | `$PWD/.agents/mcpconfig.json` | — |
+| Project subdirectory | `<dir>/AGENTS.md` | `<dir>/.agents/workflows/*.md` | `<dir>/.agents/skills/<name>/SKILL.md` | Configure the project scope | — |
+| Avi installation | Built-in context | Built-in context | Built-in context | — | `$INSTALL_DIR/plugins/*.js` |
 
 A bare `$PWD/context/` directory is not a context root; project skills and workflows belong under `$PWD/.agents/`.
 
@@ -67,6 +69,8 @@ If `name` is omitted, a skill uses its folder name and a workflow uses its filen
 
 Other fields such as `applyTo`, `context-embeddable`, `disable-model-invocation`, `agent`, `model`, `tools`, `hooks`, and `tags` do not control Avi behavior. `embeddable` applies only to instruction files; skills and workflows are already cataloged without embedding their full body. `user-invocable: false` only hides the composer command; the item remains in the catalog available to the model. Do not use frontmatter to imply restrictions or capabilities that Avi will not enforce.
 
+Plugin parameters do not come from workflow or skill frontmatter. They are JavaScript definition and contribution fields from the versioned plugin contract.
+
 ## Creation process
 
 1. **Inspect existing context.** Check the target scope and avoid duplicate names or conflicting guidance.
@@ -102,5 +106,6 @@ Avi may recognize some legacy instruction filenames for compatibility, but new p
 - [Writing effective instructions](./references/agent-instructions.md)
 - [Instruction discovery and hierarchy](./references/instructions.md)
 - [MCP configuration](./references/mcp.md)
+- [Plugins](./references/plugins.md)
 - [Skills](./references/skills.md)
 - [Workflows](./references/workflows.md)

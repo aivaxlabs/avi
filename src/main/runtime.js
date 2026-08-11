@@ -81,7 +81,7 @@ import { loginToAivax, requestAivax } from './aivax-client.js';
 import { ChatRunner } from './chat-runner.js';
 import { QuickChatRunner } from './quick-chat-runner.js';
 import { validateDefaultModels } from './default-models.js';
-import { stopConversationTerminals } from './client-tools.js';
+import { CLIENT_TOOLS, stopConversationTerminals } from './client-tools.js';
 import { clearTemporaryStorage, getTemporaryStorage } from './temporary-storage.js';
 import {
   listContextItems,
@@ -98,6 +98,7 @@ import {
 } from './files.js';
 import { ModelProviderRegistry } from './model-provider.js';
 import { McpManager } from './mcp-manager.js';
+import { PluginManager } from './plugin-manager.js';
 import { RemoteMcpServer } from './remote-mcp-server.js';
 import {
   listInstalledTerminalShells,
@@ -111,19 +112,22 @@ import {
 import { providerTypes } from '../providers/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const providerRegistry = new ModelProviderRegistry({
-  getProviders: listProviders,
-  providerTypes,
-  services: {
-    credentials: {
-      get: getProviderCredentials,
-      set: setProviderCredentials,
-      delete: deleteProviderCredentials,
-    },
-    clipboard: { writeText: (value) => clipboard.writeText(value) },
-    shell: { openExternal: (url) => shell.openExternal(url) },
+const pluginsDirectory = app.isPackaged
+  ? join(dirname(process.execPath), 'plugins')
+  : join(app.getAppPath(), 'plugins');
+const pluginManager = new PluginManager({
+  pluginsDir: pluginsDirectory,
+  reservedToolNames: [
+    ...CLIENT_TOOLS.map((tool) => tool.name),
+    'openai_subscription_generate_or_edit_image',
+  ],
+  reservedIds: {
+    providers: providerTypes.map((provider) => provider.descriptor.id),
+    themes: ['axion', 'monokai', 'absolute', 'code', 'goblin'],
+    personalities: ['candid', 'cynical', 'friendly', 'pragmatic', 'quirky'],
   },
 });
+let providerRegistry;
 let startHidden = process.argv.includes('--hidden');
 let mainWindow;
 let tray;
@@ -199,6 +203,27 @@ if (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin
 await initializeSecureStorage();
 runArchiveMaintenance();
 setTraceLevel(getPreferences().tuning.logLevel);
+await pluginManager.initialize();
+for (const failure of pluginManager.getFailures()) {
+  traceError('plugin.load-error', {
+    operation: 'startup',
+    plugin: failure.pluginId ?? failure.fileName,
+    error: failure.error,
+  });
+}
+providerRegistry = new ModelProviderRegistry({
+  getProviders: listProviders,
+  providerTypes: [...providerTypes, ...pluginManager.getProviderTypes()],
+  services: {
+    credentials: {
+      get: getProviderCredentials,
+      set: setProviderCredentials,
+      delete: deleteProviderCredentials,
+    },
+    clipboard: { writeText: (value) => clipboard.writeText(value) },
+    shell: { openExternal: (url) => shell.openExternal(url) },
+  },
+});
 traceVerbose('app.started', { log_level: getPreferences().tuning.logLevel });
 resourceSnapshotInterval = setInterval(() => {
   const memory = process.memoryUsage();
@@ -432,6 +457,10 @@ function initializeServices() {
     mcpManager = new McpManager({
       sendEvent: (payload) => sendRendererEvent('mcp:event', payload),
       openExternal: (url) => shell.openExternal(url),
+      managedServers: pluginManager.getContributions('mcps').map((server) => ({
+        name: `plugin-${server.pluginId}-${server.id}`,
+        config: server.config,
+      })),
     });
     mcpManager.initializeGlobal().catch((error) => sendRendererEvent('mcp:event', {
       type: 'configuration-error',
@@ -442,7 +471,9 @@ function initializeServices() {
     chatRunner = new ChatRunner({
       registry: providerRegistry,
       mcpManager,
-      getPreferences,
+      getPreferences: runtimePreferences,
+      getPluginTools,
+      getPluginContext: pluginInvocationContext,
       sendEvent: (payload) => {
         sendRendererEvent('chat:event', payload);
         if (
@@ -483,7 +514,9 @@ function initializeServices() {
       registry: providerRegistry,
       mcpManager,
       chatRunner,
-      getPreferences,
+      getPreferences: runtimePreferences,
+      getPluginTools,
+      getPluginContext: pluginInvocationContext,
       sendEvent: sendQuickChatEvent,
       stopBackgroundTasks: stopConversationTerminals,
     });
@@ -501,6 +534,52 @@ function initializeServices() {
       traceError('remote.start-error', { error: error instanceof Error ? error.message : String(error) });
     });
   }
+}
+
+function getPluginTools() {
+  return pluginManager.getContributions('tools').map((tool) => ({
+    ...tool,
+    ...pluginManager.getHandlers('tools', tool.name),
+  }));
+}
+
+function pluginContextRoots() {
+  const plugins = new Map(pluginManager.list().map((plugin) => [plugin.id, plugin]));
+  return [...new Map(pluginManager.getContributions('context').map((item) => [
+    item.pluginId,
+    {
+      id: item.pluginId,
+      name: plugins.get(item.pluginId)?.name ?? item.pluginId,
+      path: item.root,
+    },
+  ])).values()];
+}
+
+function pluginInvocationContext() {
+  return {
+    pluginContextRoots: pluginContextRoots(),
+    pluginPersonalities: pluginManager.getContributions('personalities'),
+  };
+}
+
+function runtimePreferences() {
+  const preferences = getPreferences();
+  const personalityIds = new Set([
+    'candid',
+    'cynical',
+    'friendly',
+    'pragmatic',
+    'quirky',
+    ...pluginManager.getContributions('personalities').map((personality) => personality.id),
+  ]);
+  return personalityIds.has(preferences.tuning.personality)
+    ? preferences
+    : { ...preferences, tuning: { ...preferences.tuning, personality: null } };
+}
+
+function resolvePluginPanel(panelId) {
+  const match = /^plugin:([^:]+):(.+)$/.exec(String(panelId ?? ''));
+  return match ? pluginManager.getHandlers('auxiliaryPanels', match[2]) : null;
 }
 
 function createTray() {
@@ -622,11 +701,19 @@ function registerIpc() {
 
 
   applicationIpc.handle('app:state', () => ({
-    ...getPreferences(),
+    ...runtimePreferences(),
     defaultModelWarnings: validateDefaultModels(
       getPreferences().defaultModels,
       providerRegistry.listModels(),
     ),
+    pluginCatalog: {
+      themes: pluginManager.getContributions('themes'),
+      personalities: pluginManager.getContributions('personalities').map(({ instructions, ...personality }) => personality),
+    },
+    pluginFailures: pluginManager.getFailures().map(({ sourcePath, pluginId, ...failure }) => ({
+      ...failure,
+      id: pluginId,
+    })),
     platform: process.platform,
     defaultProject: inspectProjectFolder(homedir()),
     windowMaterial: getNativeWindowOptions().backgroundMaterial ?? null,
@@ -663,6 +750,18 @@ function registerIpc() {
     ];
   });
   applicationIpc.handle('tuning:save', (_event, tuning) => {
+    const personalityIds = new Set([
+      null,
+      'candid',
+      'cynical',
+      'friendly',
+      'pragmatic',
+      'quirky',
+      ...pluginManager.getContributions('personalities').map((personality) => personality.id),
+    ]);
+    if (!personalityIds.has(tuning?.personality ?? null)) {
+      throw new Error('Choose an available personality.');
+    }
     resolveTerminalShell(process.env, process.platform, tuning?.terminalShell);
     const saved = setTuningSettings(tuning);
     setTraceLevel(saved.logLevel);
@@ -1082,15 +1181,31 @@ function registerIpc() {
     const conversation = payload.conversationId
       ? getConversation(payload.conversationId)
       : null;
-    return providerRegistry.listAuxiliaryPanels({
-      conversation,
-      workspacePath: conversation?.projectPath ?? null,
-    });
+    return [
+      ...providerRegistry.listAuxiliaryPanels({
+        conversation,
+        workspacePath: conversation?.projectPath ?? null,
+      }),
+      ...pluginManager.getContributions('auxiliaryPanels').map((panel) => ({
+        id: `plugin:${panel.pluginId}:${panel.id}`,
+        title: panel.title,
+        icon: panel.icon ?? null,
+        providerId: `plugin:${panel.pluginId}`,
+        providerName: panel.pluginId,
+      })),
+    ];
   });
   applicationIpc.handle('providers:auxiliary-panel', (_event, payload = {}) => {
     const conversation = payload.conversationId
       ? getConversation(payload.conversationId)
       : null;
+    const pluginPanel = resolvePluginPanel(payload.panelId);
+    if (pluginPanel) {
+      return pluginPanel.load({
+        conversation,
+        workspacePath: conversation?.projectPath ?? null,
+      });
+    }
     return providerRegistry.readAuxiliaryPanel(payload.panelId, {
       conversation,
       workspacePath: conversation?.projectPath ?? null,
@@ -1100,6 +1215,16 @@ function registerIpc() {
     const conversation = payload.conversationId
       ? getConversation(payload.conversationId)
       : null;
+    const pluginPanel = resolvePluginPanel(payload.panelId);
+    if (pluginPanel) {
+      if (typeof pluginPanel.invokeAction !== 'function') {
+        throw new Error('The plugin panel action is unavailable.');
+      }
+      return pluginPanel.invokeAction(payload.action, payload.input, {
+        conversation,
+        workspacePath: conversation?.projectPath ?? null,
+      });
+    }
     return providerRegistry.invokeAuxiliaryPanelAction(
       payload.panelId,
       payload.action,
@@ -1114,6 +1239,33 @@ function registerIpc() {
   applicationIpc.handle('models:list', () => providerRegistry.listModels());
   applicationIpc.handle('models:favorites', () => listFavorites());
   applicationIpc.handle('models:favorite', (_event, { modelId, favorited }) => setFavorite(modelId, favorited));
+
+  applicationIpc.handle('plugins:list', () => {
+    const status = pluginManager.getStatus();
+    return {
+      ...status,
+      failures: status.failures.map(({ sourcePath, pluginId, ...failure }) => ({
+        ...failure,
+        id: pluginId,
+      })),
+    };
+  });
+  applicationIpc.handle('plugins:sideload', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      defaultPath: homedir(),
+      properties: ['openFile'],
+      filters: [{ name: 'JavaScript plugins', extensions: ['js'] }],
+    });
+    return canceled ? null : pluginManager.sideload(filePaths[0]);
+  });
+  applicationIpc.handle('plugins:docs', async () => {
+    const docsPath = app.isPackaged
+      ? join(process.resourcesPath, 'docs', 'Plugins.md')
+      : join(app.getAppPath(), 'docs', 'Plugins.md');
+    const error = await shell.openPath(docsPath);
+    if (error) throw new Error(`Could not open plugin documentation: ${error}`);
+    return true;
+  });
 
   applicationIpc.handle('mcp:state', () => mcpManager.snapshot());
   applicationIpc.handle('mcp:folders', async () => {
@@ -1300,6 +1452,11 @@ function registerIpc() {
     const globalPath = join(homedir(), '.agents');
     const installationPath = resolveInstallationContextPath();
     const folders = new Map([
+      ...pluginContextRoots().map((plugin) => [plugin.path.toLowerCase(), {
+        path: plugin.path,
+        name: plugin.name,
+        displayPath: `Plugin: ${plugin.id}`,
+      }]),
       [globalPath.toLowerCase(), {
         path: globalPath,
         name: 'Global',
@@ -1350,11 +1507,14 @@ function registerIpc() {
   applicationIpc.handle('context:folder', async (_event, folderPath) => {
     const startedAt = Date.now();
     const installationPath = resolveInstallationContextPath();
-    const scope = resolve(folderPath) === resolve(installationPath) ? 'installation' : 'folder';
+    const pluginRoot = pluginContextRoots().find((item) => resolve(item.path) === resolve(folderPath));
+    const scope = pluginRoot
+      ? 'plugin'
+      : resolve(folderPath) === resolve(installationPath) ? 'installation' : 'folder';
     traceVerbose('context.folder-opened', { operation: 'context:folder', scope });
     try {
       const result = await listContextItems(folderPath, {
-        includeRootCatalog: scope === 'installation',
+        includeRootCatalog: scope === 'installation' || scope === 'plugin',
         scope,
       });
       traceVerbose('context.folder-loaded', {
@@ -1383,14 +1543,19 @@ function registerIpc() {
         ? { path: workspacePath, scope: 'workspace' }
         : null,
       { path: globalPath, scope: 'global' },
-      { path: installationPath, scope: 'installation' },
+      { path: installationPath, scope: 'installation', includeRootCatalog: true },
+      ...pluginContextRoots().map((plugin) => ({
+        path: plugin.path,
+        scope: 'plugin',
+        includeRootCatalog: true,
+      })),
     ]
       .filter((root, index, items) => (
         root
         && items.findIndex((item) => item?.path.toLowerCase() === root.path.toLowerCase()) === index
       ));
     const contexts = await Promise.all(roots.map((root) => listContextItems(root.path, {
-      includeRootCatalog: resolve(root.path) === resolve(installationPath),
+      includeRootCatalog: root.includeRootCatalog === true,
       scope: root.scope,
     })));
     const commands = new Map();

@@ -54,8 +54,8 @@ function ThemePreview({ theme, mode, active }) {
   );
 }
 
-export function AppearanceSettings({ appearance, previewScheme, onChange }) {
-  const activeTheme = themes.find((theme) => theme.id === appearance.themeId) ?? themes[0];
+export function AppearanceSettings({ appearance, previewScheme, onChange, themeCatalog = themes }) {
+  const activeTheme = themeCatalog.find((theme) => theme.id === appearance.themeId) ?? themeCatalog[0];
   const shownMode = previewScheme === 'system'
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : previewScheme;
@@ -96,7 +96,7 @@ export function AppearanceSettings({ appearance, previewScheme, onChange }) {
           <p>Select a theme to preview it live. The change is applied immediately.</p>
         </div>
         <div className="appearance-theme-grid">
-          {themes.map((theme) => {
+          {themeCatalog.map((theme) => {
             const selected = theme.id === appearance.themeId;
             return (
               <button

@@ -39,6 +39,7 @@ import { AppearanceSettings } from './AppearanceSettings.jsx';
 import { ArchiveSettings } from './ArchiveSettings.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { McpSettings } from './McpSettings.jsx';
+import { PluginsSettings } from './PluginsSettings.jsx';
 import { RemoteSettings } from './RemoteSettings.jsx';
 
 const reasoningEfforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -313,6 +314,7 @@ export function SettingsPage({
   initialContextFolder = null,
   initialView = null,
   appearance,
+  pluginCatalog = {},
   desktop,
   onAppearanceChange,
   onDesktopChange,
@@ -354,6 +356,18 @@ export function SettingsPage({
   const selectedTerminalShell = terminalShells?.find(
     (shell) => shell.id === tuningDraft?.terminalShell,
   );
+  const personalities = [
+    { id: 'none', name: 'None', description: personalityDescriptions.none },
+    ...Object.entries(personalityDescriptions)
+      .filter(([id]) => id !== 'none')
+      .map(([id, description]) => ({ id, name: `${id[0].toUpperCase()}${id.slice(1)}`, description })),
+    ...(pluginCatalog.personalities ?? []).filter((personality) => (
+      personality?.id && !Object.hasOwn(personalityDescriptions, personality.id)
+    )),
+  ];
+  const activePersonality = personalities.find(
+    (personality) => personality.id === (tuningDraft.personality ?? 'none'),
+  ) ?? personalities[0];
 
   useEffect(() => {
     if (view !== 'context-folders') return undefined;
@@ -504,6 +518,7 @@ export function SettingsPage({
     'context-folders': 'Context',
     'context-folder': selectedContextFolder?.name || 'Context',
     mcp: mcpNavigation?.title || 'MCP servers',
+    plugins: 'Plugins',
     remote: 'Remote control',
     aivax: 'AIVAX Features',
     archive: 'Archive',
@@ -524,6 +539,7 @@ export function SettingsPage({
     'context-folder': selectedContextFolder?.displayPath || '',
     mcp: mcpNavigation?.description
       || 'Manage global and per-folder Model Context Protocol servers.',
+    plugins: 'View trusted JavaScript plugins installed in Avi.',
     remote: 'Expose Avi orchestration through a local authenticated MCP server.',
     aivax: 'Add persistent memory, richer web tools, and Reflex search through AIVAX.',
     archive: 'Manage conversation retention, archived threads, and storage cleanup.',
@@ -533,7 +549,7 @@ export function SettingsPage({
     personalization: 'Choose Avi’s personality, theme, and color scheme.',
     about: 'Project information, version, and links.',
   }[view];
-  const showInlineBack = !['list', 'context-folders', 'mcp', 'remote', 'aivax', 'archive', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
+  const showInlineBack = !['list', 'context-folders', 'mcp', 'plugins', 'remote', 'aivax', 'archive', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
 
   return (
@@ -664,6 +680,17 @@ export function SettingsPage({
             >
               <RadioTower size={16} />
               MCP Servers
+            </button>
+          )}
+          {(!settingsQuery || 'plugins extensions javascript themes personalities tools'.includes(settingsQuery)) && (
+            <button
+              className={view === 'plugins' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'plugins' ? 'page' : undefined}
+              onClick={() => { setView('plugins'); setError(''); }}
+            >
+              <Boxes size={16} />
+              Plugins
             </button>
           )}
 
@@ -1020,6 +1047,7 @@ export function SettingsPage({
             )}
 
             {view === 'remote' && <RemoteSettings />}
+            {view === 'plugins' && <PluginsSettings />}
             {view === 'aivax' && <AivaxFeaturesSettings />}
             {view === 'archive' && <ArchiveSettings />}
             {view === 'mcp' && (
@@ -1500,22 +1528,18 @@ export function SettingsPage({
                           }));
                         }}
                       >
-                        <option value="none">None</option>
-                        <option value="candid">Candid</option>
-                        <option value="cynical">Cynical</option>
-                        <option value="friendly">Friendly</option>
-                        <option value="pragmatic">Pragmatic</option>
-                        <option value="quirky">Quirky</option>
+                        {personalities.map((personality) => (
+                          <option key={personality.id} value={personality.id}>{personality.name}</option>
+                        ))}
                       </select>
-                      <small>
-                        {personalityDescriptions[tuningDraft.personality ?? 'none']}
-                      </small>
+                      <small>{activePersonality.description}</small>
                     </label>
                   </div>
                 </section>
                 <AppearanceSettings
                   appearance={appearance}
                   previewScheme={previewScheme}
+                  themeCatalog={pluginCatalog.themes ?? []}
                   onChange={(next) => {
                     setPreviewScheme(next.scheme);
                     onAppearanceChange(next);

@@ -2,7 +2,7 @@ export const THEMES_STORAGE_KEY = 'aivax.appearance';
 
 export const DEFAULT_THEME_ID = 'axion';
 
-export const themes = Object.freeze([
+const builtInThemes = Object.freeze([
   {
     id: 'axion',
     name: 'Axion',
@@ -30,6 +30,19 @@ export const themes = Object.freeze([
     tagline: 'Codex blue on crisp neutral surfaces. Focused, technical, and sharp.',
   },
 ]);
+
+export let themes = builtInThemes;
+
+export function setPluginThemes(pluginThemes = []) {
+  const builtInIds = new Set(builtInThemes.map((theme) => theme.id));
+  const seen = new Set(builtInIds);
+  const validPluginThemes = pluginThemes.filter((theme) => {
+    if (!theme?.id || !theme.name || seen.has(theme.id)) return false;
+    seen.add(theme.id);
+    return true;
+  });
+  themes = Object.freeze([...builtInThemes, ...validPluginThemes]);
+}
 
 export function getTheme(id) {
   return themes.find((theme) => theme.id === id) ?? themes[0];

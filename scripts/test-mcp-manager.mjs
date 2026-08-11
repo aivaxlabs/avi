@@ -9,6 +9,16 @@ import { McpManager } from '../src/main/mcp-manager.js';
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, '..');
 
+async function assertRejects(action, pattern) {
+  try {
+    await action();
+  } catch (error) {
+    if (pattern.test(error instanceof Error ? error.message : String(error))) return;
+    throw error;
+  }
+  throw new Error(`Expected rejection matching ${pattern}.`);
+}
+
 const testRoot = await mkdtemp(join(tmpdir(), 'aivax-mcp-test-'));
 const workspaceRoot = join(testRoot, 'workspace');
 const globalRoot = join(testRoot, 'global');
@@ -44,11 +54,36 @@ try {
     globalRoot,
     sendEvent: () => {},
     openExternal: async () => {},
+    managedServers: [{
+      name: 'plugin-demo-managed',
+      config: {
+        type: 'stdio',
+        command: process.execPath,
+        args: [serverPath],
+        env: { ELECTRON_RUN_AS_NODE: '1' },
+      },
+    }],
   });
   console.log('Connecting test MCP server...');
   const runtime = await manager.ensureWorkspace(workspaceRoot);
   const tool = runtime.tools.find((item) => item.name === 'mcp_sdk_test_count');
   if (!tool) throw new Error('Prefixed MCP tool was not discovered.');
+  const managedTool = runtime.tools.find((item) => item.name === 'mcp_plugin-demo-managed_count');
+  if (!managedTool) {
+    const servers = await manager.listWorkspace(workspaceRoot);
+    throw new Error(`Managed plugin MCP tool was not discovered. Tools=${runtime.tools.map((item) => item.name).join(',')} Servers=${servers.map((server) => `${server.name}:${server.status}`).join(',')}`);
+  }
+  const managedServer = (await manager.listWorkspace(workspaceRoot))
+    .find((item) => item.name === 'plugin-demo-managed');
+  if (!managedServer?.managed) throw new Error('Managed plugin MCP was not marked read-only.');
+  await assertRejects(
+    () => manager.setServerEnabled(managedServer.key, false),
+    /Managed MCP server .* is read-only/,
+  );
+  await assertRejects(
+    () => manager.removeServer(globalRoot, managedServer.name),
+    /Managed MCP server .* is read-only/,
+  );
   const exposedSchema = decorateToolsForInvocation([tool])[0].inputSchema;
   if (
     !Object.hasOwn(exposedSchema.properties ?? {}, '__invocation_goal')
@@ -171,9 +206,30 @@ try {
     .find((item) => item.scope === 'folder' && item.name === 'SDK Test');
   console.log('Restarting test MCP server...');
   await manager.restartServer(server.key);
-  if (manager.runtimeForWorkspace(workspaceRoot).tools.length !== 1) {
-    throw new Error('MCP server did not recover after restart.');
+  if (manager.runtimeForWorkspace(workspaceRoot).tools.length !== 2) {
+    throw new Error('MCP servers did not remain available after restart.');
   }
+
+  const collisionRoot = join(testRoot, 'collision-global');
+  await mkdir(join(collisionRoot, '.agents'), { recursive: true });
+  await writeFile(join(collisionRoot, '.agents', 'mcpconfig.json'), JSON.stringify({
+    servers: {
+      'plugin-demo-managed': { type: 'stdio', command: 'replacement' },
+    },
+  }));
+  const collisionManager = new McpManager({
+    globalRoot: collisionRoot,
+    sendEvent: () => {},
+    openExternal: async () => {},
+    managedServers: [{
+      name: 'plugin-demo-managed',
+      config: { type: 'stdio', command: process.execPath },
+    }],
+  });
+  await assertRejects(
+    () => collisionManager.loadScope(collisionRoot, 'global'),
+    /conflicts with a managed plugin server/,
+  );
 
   console.log('MCP manager test passed.');
 } finally {

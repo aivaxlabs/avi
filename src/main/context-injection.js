@@ -77,12 +77,16 @@ export const dynamicContextInjectors = new Map([
         ].join('\n')
       : ''
   )],
-  ['personality', ({ tuning } = {}) => ({
+  ['personality', ({ tuning, pluginPersonalities = [] } = {}) => ({
     candid: candidPersonality,
     cynical: cynicalPersonality,
     friendly: friendlyPersonality,
     pragmatic: pragmaticPersonality,
     quirky: quirkyPersonality,
+    ...Object.fromEntries(pluginPersonalities.map((personality) => [
+      personality.id,
+      personality.instructions,
+    ])),
   }[tuning?.personality] ?? '')],
   ['mcp', ({ mcpInstructions = [] } = {}) => (
     mcpInstructions
@@ -343,7 +347,7 @@ export const dynamicContextInjectors = new Map([
       '</current_workspace>',
     ].join('\n');
   }],
-  ['instructions', async ({ workspacePath, installationContextPath } = {}) => {
+  ['instructions', async ({ workspacePath, installationContextPath, pluginContextRoots = [] } = {}) => {
     const startedAt = Date.now();
     traceVerbose('context.injection-discovery-started', {
       operation: 'resolve-instructions',
@@ -355,6 +359,12 @@ export const dynamicContextInjectors = new Map([
         path: path.resolve(installationContextPath || resolveInstallationContextPath()),
         includeRootCatalog: true,
       },
+      ...pluginContextRoots.map((plugin) => ({
+        id: `plugin:${plugin.id}`,
+        label: `$INSTALL_DIR/plugins/${plugin.id}`,
+        path: path.resolve(plugin.path),
+        includeRootCatalog: true,
+      })),
       {
         id: 'global',
         label: '$HOME/.agents',
@@ -369,11 +379,7 @@ export const dynamicContextInjectors = new Map([
       !(root.id === 'workspace' && isHomeDirectory(root.path))
       && items.findIndex((item) => normalizePathKey(item.path) === normalizePathKey(root.path)) === index
     ));
-    const instructionContexts = {
-      installation: '',
-      global: '',
-      workspace: '',
-    };
+    const instructionContexts = new Map();
     const contextSections = [];
 
     for (const root of roots) {
@@ -440,13 +446,16 @@ export const dynamicContextInjectors = new Map([
         );
       }
       if (instructionSections.length > 0) {
-        instructionContexts[root.id] = [
-          `<${root.id}_instructions>`,
+        const instructionTag = root.id.startsWith('plugin:')
+          ? 'plugin_instructions'
+          : `${root.id}_instructions`;
+        instructionContexts.set(root.id, [
+          `<${instructionTag}>`,
           `Source: ${root.label}`,
           `Root: ${escapeXml(root.path)}`,
           ...instructionSections,
-          `</${root.id}_instructions>`,
-        ].join('\n');
+          `</${instructionTag}>`,
+        ].join('\n'));
       }
 
       const catalogSections = [];
@@ -484,9 +493,7 @@ export const dynamicContextInjectors = new Map([
       duration_ms: Date.now() - startedAt,
     });
     return [
-      instructionContexts.installation,
-      instructionContexts.global,
-      instructionContexts.workspace,
+      ...roots.map((root) => instructionContexts.get(root.id) ?? ''),
       contextSections.length > 0
         ? [
             '<available_context>',

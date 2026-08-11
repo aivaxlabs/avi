@@ -37,6 +37,7 @@ import { CLIENT_TOOLS, decorateToolsForInvocation } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
 import { normalizeAttachmentsForModel } from './files.js';
 import { StreamAccumulator } from './streaming.js';
+import { composeToolsWithPlugins } from './tool-composition.js';
 import {
   traceError,
   traceVerbose,
@@ -207,6 +208,8 @@ export class ChatRunner {
     registry,
     mcpManager,
     getPreferences = readPreferences,
+    getPluginTools = () => [],
+    getPluginContext = () => ({}),
     sendEvent,
     sendCompletionNotification,
     savePermissionGuidance,
@@ -215,6 +218,8 @@ export class ChatRunner {
     this.registry = registry;
     this.mcpManager = mcpManager;
     this.getPreferences = getPreferences;
+    this.getPluginTools = getPluginTools;
+    this.getPluginContext = getPluginContext;
     this.sendEvent = sendEvent;
     this.sendCompletionNotification = sendCompletionNotification;
     this.savePermissionGuidance = savePermissionGuidance;
@@ -1582,6 +1587,7 @@ export class ChatRunner {
       const tuning = preferences.tuning;
       const aivax = preferences.aivax;
       const contextLimit = selection.model.context.input;
+      const pluginTools = workMode === 'plan' ? [] : this.getPluginTools();
       const providerTools = workMode === 'plan'
         ? []
         : selection.provider.getContributions({
@@ -1589,8 +1595,7 @@ export class ChatRunner {
             conversation: currentConversation,
             workspacePath,
           }).tools;
-      const availableTools = decorateToolsForInvocation([
-        ...CLIENT_TOOLS
+      const coreTools = CLIENT_TOOLS
           .filter((tool) => (
             tool.name !== 'read_media_file'
             || selection.model.capabilities?.images
@@ -1649,10 +1654,15 @@ export class ChatRunner {
               };
             }
             return tool;
-          }),
+          });
+      const extensionTools = [
         ...providerTools.map((tool) => ({ ...tool, providerTool: true })),
         ...mcpRuntime.tools,
-      ], permissionMode);
+      ];
+      const availableTools = decorateToolsForInvocation(
+        composeToolsWithPlugins(coreTools, pluginTools, extensionTools),
+        permissionMode,
+      );
       const toolHistory = initialToolHistory.map((round) => ({
         ...round,
         toolCalls: [...round.toolCalls],
@@ -1752,6 +1762,7 @@ export class ChatRunner {
               conversationId,
               workspacePath,
               mcpInstructions: mcpRuntime.instructions,
+              ...this.getPluginContext(),
               permissionMode,
               workMode,
               ultraMode,

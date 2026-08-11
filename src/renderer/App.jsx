@@ -21,7 +21,7 @@ import {
   resolvedScheme,
   saveAppearance,
 } from './lib/apply-theme.js';
-import { getTheme } from './lib/themes.js';
+import { getTheme, setPluginThemes, themes } from './lib/themes.js';
 
 const api = window.chatApp;
 const sidebarWidthStorageKey = 'aivax.layout.sidebar-width';
@@ -205,11 +205,12 @@ export default function App() {
     (panel) => openProviderPanelIds.includes(panel.id),
   ), [openProviderPanelIds, providerPanels]);
   const [appearance, setAppearance] = useState(readAppearance);
+  const [appearanceReady, setAppearanceReady] = useState(false);
 
   useEffect(() => {
     applyTheme(appearance);
-    saveAppearance(appearance);
-  }, [appearance]);
+    if (appearanceReady) saveAppearance(appearance);
+  }, [appearance, appearanceReady]);
 
   useEffect(() => onSystemSchemeChange(() => {
     setAppearance((current) => (current.scheme === 'system' ? { ...current } : current));
@@ -236,10 +237,17 @@ export default function App() {
         nextMcpState,
       ]) => {
         if (!active) return;
+        setPluginThemes(nextAppState.pluginCatalog?.themes);
+        setAppearance(readAppearance());
+        setAppearanceReady(true);
         setAppState(nextAppState);
-        if (nextAppState.defaultModelWarnings?.length) {
-          setError(nextAppState.defaultModelWarnings.map((warning) => warning.message).join(' '));
-        }
+        const startupErrors = [
+          ...(nextAppState.defaultModelWarnings ?? []).map((warning) => warning.message),
+          ...(nextAppState.pluginFailures ?? []).map((failure) => (
+            `${failure.id || failure.fileName || 'Plugin'} failed to load: ${failure.error}`
+          )),
+        ];
+        if (startupErrors.length) setError(startupErrors.join(' '));
         setConversations(nextConversations);
         setProviders(nextProviders);
         setProviderTypes(nextProviderTypes);
@@ -1454,6 +1462,10 @@ export default function App() {
           tuning={appState.tuning}
           models={models}
           defaultModels={appState.defaultModels}
+          pluginCatalog={{
+            themes,
+            personalities: appState.pluginCatalog?.personalities ?? [],
+          }}
           initialContextFolder={settingsContextFolder}
           initialView={settingsInitialView}
           appearance={appearance}

@@ -48,6 +48,7 @@ const allowedDetails = new Set([
   'output_tokens',
   'parent_thread_id',
   'phase',
+  'plugin',
   'provider',
   'provider_id',
   'provider_latency_ms',

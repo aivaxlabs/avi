@@ -5,6 +5,7 @@ import { CLIENT_TOOLS, decorateToolsForInvocation } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
 import { normalizeAttachmentsForModel } from './files.js';
 import { StreamAccumulator } from './streaming.js';
+import { composeToolsWithPlugins } from './tool-composition.js';
 import { traceError, traceVerbose } from './trace-log.js';
 
 export class QuickChatRunner {
@@ -13,6 +14,8 @@ export class QuickChatRunner {
     mcpManager,
     chatRunner,
     getPreferences,
+    getPluginTools = () => [],
+    getPluginContext = () => ({}),
     sendEvent,
     stopBackgroundTasks,
   }) {
@@ -20,6 +23,8 @@ export class QuickChatRunner {
     this.mcpManager = mcpManager;
     this.chatRunner = chatRunner;
     this.getPreferences = getPreferences;
+    this.getPluginTools = getPluginTools;
+    this.getPluginContext = getPluginContext;
     this.sendEvent = sendEvent;
     this.stopBackgroundTasks = stopBackgroundTasks;
     this.sessions = new Map();
@@ -142,13 +147,13 @@ export class QuickChatRunner {
       const models = this.registry.listModels();
       const preferences = this.getPreferences();
       const aivax = preferences.aivax;
+      const pluginTools = this.getPluginTools();
       const providerTools = selection.provider.getContributions({
         model: selection.model,
         conversation: null,
         workspacePath,
       }).tools;
-      const availableTools = decorateToolsForInvocation([
-        ...CLIENT_TOOLS
+      const coreTools = CLIENT_TOOLS
           .filter((tool) => (
             tool.name !== 'read_media_file'
             || selection.model.capabilities?.images
@@ -170,10 +175,15 @@ export class QuickChatRunner {
                   this.getPreferences().defaultModels,
                 ),
               }
-            : tool),
-        ...providerTools,
-        ...mcpRuntime.tools,
-      ], 'full_access');
+            : tool);
+      const availableTools = decorateToolsForInvocation(
+        composeToolsWithPlugins(
+          coreTools,
+          pluginTools,
+          [...providerTools, ...mcpRuntime.tools],
+        ),
+        'full_access',
+      );
       const messages = session.messages
         .filter((message) => message.id !== assistantMessage.id)
         .map((message) => messageToApiBlock(message, selection.model.capabilities));
@@ -191,6 +201,7 @@ export class QuickChatRunner {
             conversationId: session.id,
             workspacePath,
             mcpInstructions: mcpRuntime.instructions,
+            ...this.getPluginContext(),
             permissionMode: 'full_access',
             orchestrationRole: 'orchestrator',
             quickChat: true,

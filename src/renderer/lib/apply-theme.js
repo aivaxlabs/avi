@@ -28,8 +28,17 @@ export function resolvedScheme(scheme) {
 
 export function applyTheme({ themeId, scheme }) {
   const root = document.documentElement;
-  root.setAttribute('data-theme', getTheme(themeId).id);
+  const theme = getTheme(themeId);
+  root.setAttribute('data-theme', theme.id);
   root.setAttribute('data-color-scheme', resolvedScheme(scheme));
+
+  let style = document.getElementById('avi-plugin-theme');
+  if (!style && theme.css) {
+    style = document.createElement('style');
+    style.id = 'avi-plugin-theme';
+    document.head.append(style);
+  }
+  if (style) style.textContent = theme.css ?? '';
 }
 
 export function onSystemSchemeChange(listener) {

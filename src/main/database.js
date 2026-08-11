@@ -1957,9 +1957,8 @@ function normalizeTuningSettings(value, strict = false) {
   const maxConcurrentSubagents = Number(tuning.maxConcurrentSubagents);
 
   const normalized = {
-    personality: ['candid', 'cynical', 'friendly', 'pragmatic', 'quirky'].includes(
-      tuning.personality,
-    )
+    personality: typeof tuning.personality === 'string'
+      && /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/i.test(tuning.personality)
       ? tuning.personality
       : defaultTuningSettings.personality,
     chatReasoningTraces: ['visible', 'hidden'].includes(tuning.chatReasoningTraces)

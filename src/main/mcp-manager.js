@@ -16,6 +16,7 @@ import {
   getMcpOAuthSessions,
   setMcpOAuthSessions,
 } from './database.js';
+import { normalizeMcpServer } from './mcp-config.js';
 import {
   traceError,
   traceVerbose,
@@ -23,8 +24,6 @@ import {
 
 const GLOBAL_ROOT = resolve(homedir());
 const CLIENT_INFO = Object.freeze({ name: 'Avi', version: packageMetadata.version });
-const SERVER_TYPES = new Set(['stdio', 'streamable-http', 'sse']);
-const AUTH_TYPES = new Set(['auto', 'none', 'bearer', 'oauth2']);
 const MAX_LOG_ENTRIES = 200;
 
 class McpOAuthProvider {
@@ -148,10 +147,13 @@ export class McpManager {
     sendEvent,
     openExternal,
     globalRoot = GLOBAL_ROOT,
+    managedServers = [],
   }) {
     this.sendEvent = sendEvent;
     this.openExternal = openExternal;
     this.globalRoot = resolve(globalRoot);
+    this.managedServers = managedServers;
+    this.managedServerNames = new Set(managedServers.map((server) => server.name));
     this.scopes = new Map();
     this.records = new Map();
     this.oauthSessions = getMcpOAuthSessions();
@@ -283,6 +285,12 @@ export class McpManager {
     );
     const name = String(value?.name ?? '').trim();
     if (!name) throw new Error('Server name is required.');
+    if (
+      rootPath === this.globalRoot
+      && (this.managedServerNames.has(name) || this.managedServerNames.has(previousName))
+    ) {
+      throw new Error(`Managed MCP server "${previousName || name}" is read-only.`);
+    }
 
     const config = this.normalizeServer(value?.config);
     const configFile = await this.readConfig(scope.configPath);
@@ -334,6 +342,9 @@ export class McpManager {
       rootPath === this.globalRoot ? 'global' : 'folder',
     );
     const configFile = await this.readConfig(scope.configPath);
+    if (rootPath === this.globalRoot && this.managedServerNames.has(name)) {
+      throw new Error(`Managed MCP server "${name}" is read-only.`);
+    }
     if (!Object.hasOwn(configFile.servers, name)) return this.listFolder(rootPath);
 
     const record = scope.records.get(name);
@@ -357,6 +368,7 @@ export class McpManager {
   async setServerEnabled(serverKey, enabled) {
     const record = this.records.get(serverKey);
     if (!record) throw new Error('MCP server not found.');
+    if (record.managed) throw new Error(`Managed MCP server "${record.name}" is read-only.`);
     return this.saveServer(record.rootPath, record.name, {
       name: record.name,
       config: { ...record.config, enabled },
@@ -528,7 +540,20 @@ export class McpManager {
       records: new Map(),
     };
     const configFile = await this.readConfig(scope.configPath);
-    const configuredNames = new Set(Object.keys(configFile.servers));
+    if (kind === 'global') {
+      const collision = Object.keys(configFile.servers)
+        .find((name) => this.managedServerNames.has(name));
+      if (collision) {
+        throw new Error(`Global MCP server "${collision}" conflicts with a managed plugin server.`);
+      }
+    }
+    const servers = kind === 'global'
+      ? {
+          ...Object.fromEntries(this.managedServers.map((server) => [server.name, server.config])),
+          ...configFile.servers,
+        }
+      : configFile.servers;
+    const configuredNames = new Set(Object.keys(servers));
 
     for (const [name, record] of scope.records) {
       if (configuredNames.has(name)) continue;
@@ -537,7 +562,7 @@ export class McpManager {
       this.records.delete(record.key);
     }
 
-    for (const [name, value] of Object.entries(configFile.servers)) {
+    for (const [name, value] of Object.entries(servers)) {
       const config = this.normalizeServer(value);
       const current = scope.records.get(name);
       if (current && JSON.stringify(current.config) === JSON.stringify(config)) continue;
@@ -554,6 +579,7 @@ export class McpManager {
         scopeState: scope,
         name,
         prefix: `mcp_${this.sanitizeName(name)}_`,
+        managed: kind === 'global' && this.managedServerNames.has(name),
         config,
         status: config.enabled ? 'idle' : 'disabled',
         tools: [],
@@ -992,55 +1018,7 @@ export class McpManager {
   }
 
   normalizeServer(value) {
-    const server = value && typeof value === 'object' ? value : {};
-    const rawType = String(server.type ?? '').trim().toLowerCase();
-    const type = rawType === 'http' ? 'streamable-http' : rawType;
-    if (!SERVER_TYPES.has(type)) {
-      throw new Error('Choose stdio, streamable-http, or sse as the MCP transport.');
-    }
-
-    if (type === 'stdio') {
-      const command = String(server.command ?? '').trim();
-      if (!command) throw new Error('Stdio MCP servers require an executable.');
-      return {
-        type,
-        enabled: server.enabled !== false,
-        command,
-        args: Array.isArray(server.args) ? server.args.map(String) : [],
-        cwd: String(server.cwd ?? '').trim(),
-        env: Object.fromEntries(
-          Object.entries(server.env ?? {}).map(([key, entry]) => [key, String(entry)]),
-        ),
-      };
-    }
-
-    const url = String(server.url ?? '').trim();
-    try {
-      const parsed = new URL(url);
-      if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error();
-    } catch {
-      throw new Error('Remote MCP servers require a valid HTTP or HTTPS URL.');
-    }
-    const authValue = server.auth && typeof server.auth === 'object'
-      ? server.auth
-      : { type: server.auth ?? 'auto' };
-    const authType = String(authValue.type ?? 'auto').trim().toLowerCase();
-    if (!AUTH_TYPES.has(authType)) throw new Error('Choose a supported authentication mode.');
-
-    return {
-      type,
-      enabled: server.enabled !== false,
-      url,
-      headers: Object.fromEntries(
-        Object.entries(server.headers ?? {}).map(([key, entry]) => [key, String(entry)]),
-      ),
-      auth: {
-        type: authType,
-        token: String(authValue.token ?? '').trim(),
-        clientId: String(authValue.clientId ?? '').trim(),
-        clientSecret: String(authValue.clientSecret ?? '').trim(),
-      },
-    };
+    return normalizeMcpServer(value);
   }
 
   async readConfig(configPath) {
@@ -1077,6 +1055,7 @@ export class McpManager {
       rootPath: record.rootPath,
       type: record.config.type,
       enabled: record.config.enabled,
+      managed: record.managed === true,
       status: shadowed ? 'shadowed' : record.status,
       toolCount: record.tools.length,
       error: record.error,

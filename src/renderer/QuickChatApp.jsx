@@ -4,6 +4,8 @@ import { createMp3Attachment } from './lib/audio.js';
 import { fileToAttachment, formatBytes, textToAttachment } from './lib/files.js';
 import { Message } from './components/Message.jsx';
 import { ModelPicker } from './components/ModelPicker.jsx';
+import { applyTheme, readAppearance } from './lib/apply-theme.js';
+import { setPluginThemes } from './lib/themes.js';
 
 const api = window.chatApp;
 const sessionId = new URLSearchParams(window.location.search).get('session');
@@ -23,10 +25,13 @@ export default function QuickChatApp() {
 
   useEffect(() => {
     Promise.all([
+      api.app.state(),
       api.quickChat.state(sessionId),
       api.models.list(),
       api.models.favorites(),
-    ]).then(([state, availableModels, favoriteModels]) => {
+    ]).then(([appState, state, availableModels, favoriteModels]) => {
+      setPluginThemes(appState.pluginCatalog?.themes);
+      applyTheme(readAppearance());
       setModel(state.model);
       setMessages(state.messages);
       setRunning(state.running);

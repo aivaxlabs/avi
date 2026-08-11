@@ -99,6 +99,11 @@ contextBridge.exposeInMainWorld('chatApp', {
     favorites: () => invoke('models:favorites'),
     favorite: (payload) => invoke('models:favorite', payload),
   },
+  plugins: {
+    list: () => invoke('plugins:list'),
+    sideload: () => invoke('plugins:sideload'),
+    docs: () => invoke('plugins:docs'),
+  },
   mcp: {
     state: () => invoke('mcp:state'),
     folders: () => invoke('mcp:folders'),
