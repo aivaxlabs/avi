@@ -72,7 +72,7 @@ export const dynamicContextInjectors = new Map([
     aivax?.connected && aivax.memoryEnabled && aivax.memoryCollectionId
       ? [
           '## Memory',
-          'Use the available memory tools to retrieve persistent user context and save durable preferences or newly discovered knowledge when useful.',
+          'Use the available memory tools to retrieve persistent user context, save durable knowledge, and delete obsolete memory files when useful.',
           'Always search memory before starting substantive work. Write only information that will remain useful beyond the current conversation.',
         ].join('\n')
       : ''

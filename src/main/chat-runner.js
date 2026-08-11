@@ -1598,7 +1598,7 @@ export class ChatRunner {
             || selection.model.capabilities?.pdfFiles
           ))
           .filter((tool) => workMode !== 'plan' || PLAN_TOOL_NAMES.has(tool.name))
-          .filter((tool) => !['memory_search', 'memory_write'].includes(tool.name) || (
+          .filter((tool) => !['memory_search', 'memory_write', 'memory_delete'].includes(tool.name) || (
             aivax?.connected && aivax.memoryEnabled && aivax.memoryCollectionId
           ))
           .filter((tool) => tool.name !== 'web_search' || (

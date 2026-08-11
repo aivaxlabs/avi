@@ -155,7 +155,7 @@ export class QuickChatRunner {
             || selection.model.capabilities?.audio
             || selection.model.capabilities?.pdfFiles
           ))
-          .filter((tool) => !['memory_search', 'memory_write'].includes(tool.name) || (
+          .filter((tool) => !['memory_search', 'memory_write', 'memory_delete'].includes(tool.name) || (
             aivax?.connected && aivax.memoryEnabled && aivax.memoryCollectionId
           ))
           .filter((tool) => tool.name !== 'web_search' || (

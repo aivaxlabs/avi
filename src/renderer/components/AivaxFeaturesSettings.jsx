@@ -178,13 +178,13 @@ export function AivaxFeaturesSettings() {
       <section className="settings-section">
         <div className="settings-section-heading">
           <h3>Memory</h3>
-          <p>Give Avi persistent read and write memory through an AIVAX RAG collection.</p>
+          <p>Give Avi persistent memory tools through an AIVAX RAG collection.</p>
         </div>
         <div className="settings-section-card settings-form settings-row-card">
           <label className="settings-toggle-row">
             <span>
               <strong>Enable memory features</strong>
-              <small>Add persistent memory search and write tools to agents.</small>
+              <small>Add persistent memory search, write, and delete tools to agents.</small>
             </span>
             <input
               className="appearance-desktop-switch"

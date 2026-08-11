@@ -1139,6 +1139,53 @@ export const CLIENT_TOOLS = Object.freeze([
     },
   },
   {
+    name: 'memory_delete',
+    description: 'Delete one or more files from persistent AIVAX memory by exact name.',
+    canEditFile: false,
+    canPerformDestructiveActions: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        names: {
+          type: 'array',
+          minItems: 1,
+          uniqueItems: true,
+          items: { type: 'string', minLength: 1 },
+          description: 'One or more exact file names to delete from memory.',
+        },
+      },
+      required: ['names'],
+      additionalProperties: false,
+    },
+    execute: async ({ names }, { aivax, signal }) => {
+      const collectionPath = `/api/v1/collections/${encodeURIComponent(aivax.memoryCollectionId)}/documents`;
+      const deleted = [];
+      const notFound = [];
+
+      for (const name of names) {
+        const documents = await requestAivax(
+          `${collectionPath}?filter=${encodeURIComponent(name)}`,
+          { responseType: 'array', signal },
+        );
+        const document = documents.find((item) => item.name === name);
+        if (!document) {
+          notFound.push(name);
+          continue;
+        }
+        await requestAivax(`${collectionPath}/${encodeURIComponent(document.id)}`, {
+          method: 'DELETE',
+          signal,
+        });
+        deleted.push(name);
+      }
+
+      return [
+        deleted.length > 0 ? `Deleted memory files: ${deleted.join(', ')}.` : 'No memory files were deleted.',
+        ...(notFound.length > 0 ? [`Memory files not found: ${notFound.join(', ')}.`] : []),
+      ].join('\n');
+    },
+  },
+  {
     name: 'web_search',
     description: 'Search the web using AIVAX with optional country, language, and domain filters.',
     approval: 'never',

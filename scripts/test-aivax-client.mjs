@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { loginToAivax, requestAivax } from '../src/main/aivax-client.js';
+import { CLIENT_TOOLS } from '../src/main/client-tools.js';
 
 const originalFetch = globalThis.fetch;
 const requests = [];
@@ -7,7 +8,7 @@ let response = null;
 
 globalThis.fetch = async (url, options) => {
   requests.push({ url: String(url), options });
-  return response;
+  return typeof response === 'function' ? response(String(url), options) : response;
 };
 
 const reply = (value, { status = 200, statusText = 'OK' } = {}) => {
@@ -137,6 +138,53 @@ try {
     }),
     /expected an object/,
   );
+
+  const memoryDelete = CLIENT_TOOLS.find((tool) => tool.name === 'memory_delete');
+  assert.ok(memoryDelete);
+  assert.equal(memoryDelete.canPerformDestructiveActions, true);
+  assert.deepEqual(memoryDelete.inputSchema.required, ['names']);
+  assert.equal(memoryDelete.inputSchema.properties.names.minItems, 1);
+  assert.equal(memoryDelete.inputSchema.properties.names.uniqueItems, true);
+
+  response = (url, options) => {
+    if (options.method === 'DELETE') return new Response('', { status: 200 });
+    const name = new URL(url).searchParams.get('filter');
+    return new Response(JSON.stringify({
+      data: name === 'remove/me.md'
+        ? [
+            { id: 'wrong-document', name: 'remove/me.md.backup' },
+            { id: 'document/id', name: 'remove/me.md' },
+          ]
+        : [],
+    }), { status: 200 });
+  };
+  const deleteResult = await memoryDelete.execute({
+    names: ['remove/me.md', 'missing.md'],
+  }, {
+    aivax: { memoryCollectionId: 'collection/id' },
+    signal: new AbortController().signal,
+  });
+  assert.equal(deleteResult, [
+    'Deleted memory files: remove/me.md.',
+    'Memory files not found: missing.md.',
+  ].join('\n'));
+  assert.deepEqual(requests.slice(-3).map(({ url, options }) => ({
+    url,
+    method: options.method,
+  })), [
+    {
+      url: 'https://inference.aivax.net/api/v1/collections/collection%2Fid/documents?filter=remove%2Fme.md',
+      method: 'GET',
+    },
+    {
+      url: 'https://inference.aivax.net/api/v1/collections/collection%2Fid/documents/document%2Fid',
+      method: 'DELETE',
+    },
+    {
+      url: 'https://inference.aivax.net/api/v1/collections/collection%2Fid/documents?filter=missing.md',
+      method: 'GET',
+    },
+  ]);
 
   reply({ message: 'Invalid login key.', data: null }, { status: 401, statusText: 'Unauthorized' });
   await assert.rejects(
