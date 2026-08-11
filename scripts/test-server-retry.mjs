@@ -1275,11 +1275,21 @@ try {
       ?.status,
     'completed',
   );
+  const contextMessages = database.getMessages(contextConversation.id);
+  const contextAssistant = contextMessages.findLast((message) => message.role === 'assistant');
+  assert.equal(contextAssistant?.content, 'Recovered after compaction.');
+  assert.deepEqual(
+    contextAssistant?.segments.map((segment) => segment.type),
+    ['context-compression', 'content'],
+  );
+  assert.equal(contextAssistant?.segments[0].contentOffset, 0);
+  assert.equal(contextAssistant?.segments[0].status, 'completed');
   assert.equal(
-    database.getMessages(contextConversation.id)
-      .findLast((message) => message.role === 'assistant')
-      ?.content,
-    'Recovered after compaction.',
+    contextMessages.find((message) => (
+      message.role === 'system'
+      && message.segments.some((segment) => segment.type === 'context-compression')
+    ))?.hidden,
+    true,
   );
   assert.deepEqual(
     database.toModelMessages(contextConversation.id).map(({ role, content }) => ({

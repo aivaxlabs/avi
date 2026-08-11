@@ -1201,12 +1201,32 @@ export class ChatRunner {
       inputTokens: Math.ceil(JSON.stringify(compressionMessages).length / 4),
       outputTokens: null,
     };
+    const timelineAccumulator = automatic
+      && existingRun?.kind === 'chat'
+      && getMessage(existingRun.assistantMessageId)?.status === 'streaming'
+      ? existingRun.accumulator
+      : null;
+    let timelineCompressionSegment = null;
+    if (timelineAccumulator) {
+      timelineAccumulator.apply({
+        ...compressionSegment,
+        contentOffset: timelineAccumulator.content.length,
+        status: 'streaming',
+      });
+      timelineCompressionSegment = timelineAccumulator.segments.at(-1);
+      const updatedAssistant = updateMessage(existingRun.assistantMessageId, {
+        content: timelineAccumulator.content,
+        segments: timelineAccumulator.segments,
+      });
+      this.emit(conversation.id, { type: 'message', message: updatedAssistant });
+    }
     const compressionMessage = insertMessage({
       conversationId: conversation.id,
       role: 'system',
       status: 'streaming',
       content: '',
       segments: [compressionSegment],
+      hidden: Boolean(timelineAccumulator),
     });
     this.emit(conversation.id, { type: 'message', message: compressionMessage });
 
@@ -1256,14 +1276,23 @@ export class ChatRunner {
         checkpointMessageId: checkpointMessage.id,
         contextTokens: outputTokens,
       });
+      const completedSegment = {
+        ...compressionSegment,
+        inputTokens: compressionUsage?.inputTokens ?? compressionSegment.inputTokens,
+        outputTokens: updatedConversation.contextTokens,
+      };
       const completedMessage = updateMessage(compressionMessage.id, {
         status: 'completed',
-        segments: [{
-          ...compressionSegment,
-          inputTokens: compressionUsage?.inputTokens ?? compressionSegment.inputTokens,
-          outputTokens: updatedConversation.contextTokens,
-        }],
+        segments: [completedSegment],
       });
+      if (timelineAccumulator) {
+        Object.assign(timelineCompressionSegment, completedSegment, { status: 'completed' });
+        const updatedAssistant = updateMessage(existingRun.assistantMessageId, {
+          content: timelineAccumulator.content,
+          segments: timelineAccumulator.segments,
+        });
+        this.emit(conversation.id, { type: 'message', message: updatedAssistant });
+      }
       this.emit(conversation.id, { type: 'message', message: completedMessage });
       this.emit(conversation.id, { type: 'conversation', conversation: updatedConversation });
       traceVerbose('chat.context-compacted', traceContext(conversation.id, selection, {
@@ -1276,15 +1305,26 @@ export class ChatRunner {
       return updatedConversation;
     } catch (error) {
       const stopped = controller.signal.aborted;
+      const failedSegment = {
+        ...compressionSegment,
+        error: stopped
+          ? 'Context compression stopped.'
+          : 'Context compression failed.',
+      };
       const failedMessage = updateMessage(compressionMessage.id, {
         status: stopped ? 'aborted' : 'error',
-        segments: [{
-          ...compressionSegment,
-          error: stopped
-            ? 'Context compression stopped.'
-            : 'Context compression failed.',
-        }],
+        segments: [failedSegment],
       });
+      if (timelineAccumulator) {
+        Object.assign(timelineCompressionSegment, failedSegment, {
+          status: stopped ? 'aborted' : 'error',
+        });
+        const updatedAssistant = updateMessage(existingRun.assistantMessageId, {
+          content: timelineAccumulator.content,
+          segments: timelineAccumulator.segments,
+        });
+        this.emit(conversation.id, { type: 'message', message: updatedAssistant });
+      }
       this.emit(conversation.id, { type: 'message', message: failedMessage });
       if (stopped) return getConversation(conversation.id);
       throw error;
@@ -1625,10 +1665,15 @@ export class ChatRunner {
       let contextCompactionRequested = false;
       const applyCompactionCheckpoint = (compressedConversation) => {
         toolHistory.length = 0;
-        accumulator.segments = [];
+        accumulator.segments = accumulator.segments
+          .filter((segment) => segment.type === 'context-compression')
+          .map((segment) => ({ ...segment, contentOffset: 0 }));
         accumulator.usage = null;
         accumulator.error = null;
-        accumulator.nextSequence = 1;
+        accumulator.nextSequence = Math.max(
+          0,
+          ...accumulator.segments.map((segment) => Number(segment.sequence) || 0),
+        ) + 1;
         liveContextTokens = compressedConversation.contextTokens;
         contextCompactionRequested = false;
         persistAssistant({ force: true });

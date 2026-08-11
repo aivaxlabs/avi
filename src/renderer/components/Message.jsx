@@ -213,20 +213,9 @@ export function Message({
     ? message.segments.find((segment) => segment.type === 'context-compression')
     : null;
   if (compression) {
-    const label = message.status === 'streaming'
-      ? 'Compressing context'
-      : message.status === 'completed'
-        ? `Context compressed from ${compactTokenFormatter.format(compression.inputTokens)
-        } tokens to ${compactTokenFormatter.format(compression.outputTokens)
-        } tokens`
-        : compression.error ?? 'Context compression stopped.';
     return (
       <article className="message-row context-compression-row" aria-live="polite">
-        <div className="context-compression-indicator">
-          <span className={message.status === 'streaming' ? 'assistant-placeholder' : ''}>
-            {label}
-          </span>
-        </div>
+        <ContextCompressionIndicator compression={compression} status={message.status} />
       </article>
     );
   }
@@ -859,6 +848,10 @@ function TimelineItem({
   onOpenFileReference,
   onFileReferenceAction,
 }) {
+  if (item.type === 'context-compression') {
+    return <ContextCompressionIndicator compression={item} status={item.status} />;
+  }
+
   if (item.type === 'content') {
     return (
       <MarkdownSegment
@@ -877,6 +870,21 @@ function TimelineItem({
       streaming={streaming}
       trailing={trailing}
     />
+  );
+}
+
+function ContextCompressionIndicator({ compression, status }) {
+  const label = status === 'streaming'
+    ? 'Compressing context'
+    : status === 'completed'
+      ? `Context compressed from ${compactTokenFormatter.format(compression.inputTokens)
+      } tokens to ${compactTokenFormatter.format(compression.outputTokens)
+      } tokens`
+      : compression.error ?? 'Context compression stopped.';
+  return (
+    <div className="context-compression-indicator" aria-live="polite">
+      <span className={status === 'streaming' ? 'assistant-placeholder' : ''}>{label}</span>
+    </div>
   );
 }
 
@@ -1289,7 +1297,22 @@ function WorkedMessage({ message, onOpenFileReference, onFileReferenceAction }) 
 }
 
 function buildMessageTimeline(message) {
-  const parsedTimeline = buildTimelineFromContent(message.content || '');
+  const compressionSegments = (message.segments ?? [])
+    .filter((segment) => segment.type === 'context-compression')
+    .sort((left, right) => left.contentOffset - right.contentOffset);
+  const parsedTimeline = [];
+  let contentOffset = 0;
+  for (const compression of compressionSegments) {
+    parsedTimeline.push(...buildTimelineFromContent(
+      (message.content || '').slice(contentOffset, compression.contentOffset),
+    ));
+    parsedTimeline.push(compression);
+    contentOffset = compression.contentOffset;
+  }
+  parsedTimeline.push(...buildTimelineFromContent((message.content || '').slice(contentOffset)));
+  parsedTimeline.forEach((item, index) => {
+    item.id = `timeline-${index}-${item.id}`;
+  });
   const toolSegments = (message.segments ?? []).filter((segment) => segment.type === 'tool-call');
   for (const timelineItem of parsedTimeline) {
     if (timelineItem.type !== 'thinking') continue;

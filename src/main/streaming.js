@@ -146,6 +146,19 @@ export class StreamAccumulator {
       }
       return;
     }
+    if (event.type === 'context-compression') {
+      const last = this.segments.at(-1);
+      if (['running', 'streaming'].includes(last?.status)) {
+        last.status = 'completed';
+      }
+      this.segments.push({
+        ...event,
+        id: event.id ?? `context-compression-${this.nextSequence}`,
+        sequence: this.nextSequence,
+      });
+      this.nextSequence += 1;
+      return;
+    }
     if (event.type === 'error') {
       this.error = { code: event.code, message: event.message };
       const retry = this.segments.find((segment) => segment.type === 'retry');
