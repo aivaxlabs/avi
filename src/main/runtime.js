@@ -1031,7 +1031,8 @@ function registerIpc() {
     }
   });
   applicationIpc.handle('orchestration:overview', (_event, range = {}) => {
-    const conversations = listAllConversations();
+    const conversations = listAllConversations()
+      .filter((conversation) => conversation.conversationType === 'thread');
     const now = Date.now();
     const defaultFrom = new Date();
     defaultFrom.setHours(0, 0, 0, 0);
