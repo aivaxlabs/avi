@@ -45,27 +45,29 @@
   }
 }
 
-.markdown-body .code-block pre {
-  max-width: 100%;
-  margin: 0;
-  padding: 13px 14px;
-  overflow-x: auto;
-  overflow-y: auto;
-  color: var(--text-1);
-  background: transparent;
-  border-radius: 0;
-  font-size: 13px;
-  line-height: 1.55;
-  tab-size: 2;
-}
+.markdown-body .code-block {
+  pre {
+    max-width: 100%;
+    margin: 0;
+    padding: 13px 14px;
+    overflow-x: auto;
+    overflow-y: auto;
+    color: var(--text-1);
+    background: transparent;
+    border-radius: 0;
+    font-size: 13px;
+    line-height: 1.55;
+    tab-size: 2;
+  }
 
-.markdown-body .code-block code {
-  display: block;
-  width: max-content;
-  min-width: 100%;
-  padding: 0;
-  color: inherit;
-  background: transparent;
-  font-family: var(--font-code);
-  white-space: pre;
+  code {
+    display: block;
+    width: max-content;
+    min-width: 100%;
+    padding: 0;
+    color: inherit;
+    background: transparent;
+    font-family: var(--font-code);
+    white-space: pre;
+  }
 }

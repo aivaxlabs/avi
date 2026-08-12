@@ -7,9 +7,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
-  MessageSquare,
   RefreshCw,
-  Sparkles,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -20,6 +18,20 @@ const compactNumber = new Intl.NumberFormat('en-US', {
 const fullNumber = new Intl.NumberFormat('en-US');
 const relativeTime = new Intl.RelativeTimeFormat('en-US', { numeric: 'auto' });
 const dateLabel = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
+const TOKEN_CHART_WIDTH = 1_000;
+const TOKEN_CHART_HEIGHT = 240;
+const TOKEN_CHART_TOP = 12;
+const TOKEN_CHART_BOTTOM = 228;
+const TOKEN_CHART_COLORS = [
+  'var(--primary-color)',
+  'var(--text-1)',
+  'var(--success-color)',
+  '#8b72d9',
+  '#d56f52',
+  '#3f8fa3',
+  '#b5862c',
+  '#c65d87',
+];
 const toLocalInput = (date) => {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
@@ -40,7 +52,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
   }));
   const rangePickerRef = useRef(null);
   const modelsById = useMemo(
-    () => new Map(models.map((model) => [model.id, model.name])),
+    () => new Map(models.map((model) => [model.id, model])),
     [models],
   );
 
@@ -88,10 +100,147 @@ export function OrchestrationPage({ models, onOpenThread }) {
 
   const rangeCaption = range.label || `${dateLabel.format(new Date(range.from))} – ${dateLabel.format(new Date(range.to))}`;
 
-  const topModelCount = Math.max(
-    1,
-    ...(overview?.metrics.topModels ?? []).map((model) => model.messages),
-  );
+  const modelUsageGroups = useMemo(() => {
+    const groups = new Map();
+    for (const usage of overview?.metrics.topModels ?? []) {
+      const catalogModel = modelsById.get(usage.id);
+      const providerId = catalogModel?.providerId ?? 'unknown';
+      const group = groups.get(providerId) ?? {
+        id: providerId,
+        name: catalogModel?.providerName ?? 'Unknown provider',
+        tokens: 0,
+        models: [],
+      };
+      group.tokens += usage.tokens;
+      group.models.push({
+        ...usage,
+        name: catalogModel?.name ?? usage.id,
+      });
+      groups.set(providerId, group);
+    }
+
+    return [...groups.values()]
+      .map((group) => ({
+        ...group,
+        models: group.models.sort((a, b) => b.tokens - a.tokens),
+      }))
+      .sort((a, b) => b.tokens - a.tokens);
+  }, [modelsById, overview?.metrics.topModels]);
+
+  const dailyTokenChart = useMemo(() => {
+    const firstDay = new Date(range.from);
+    const lastDay = new Date(range.to);
+    if (!Number.isFinite(firstDay.getTime()) || !Number.isFinite(lastDay.getTime())) {
+      return { dateTicks: [], maximum: 0, series: [], yTicks: [] };
+    }
+    firstDay.setHours(0, 0, 0, 0);
+    lastDay.setHours(0, 0, 0, 0);
+
+    const days = [];
+    const dayIndexes = new Map();
+    for (const cursor = new Date(firstDay); cursor <= lastDay; cursor.setDate(cursor.getDate() + 1)) {
+      const timestamp = cursor.getTime();
+      dayIndexes.set(timestamp, days.length);
+      days.push(timestamp);
+    }
+
+    const providers = new Map(modelUsageGroups.map((provider) => [provider.id, {
+      id: provider.id,
+      name: provider.name,
+      tokens: 0,
+      values: Array(days.length).fill(0),
+    }]));
+    for (const dailyUsage of overview?.metrics.dailyTokens ?? []) {
+      const dayIndex = dayIndexes.get(Number(dailyUsage.date));
+      if (dayIndex === undefined) continue;
+
+      for (const modelUsage of dailyUsage.models ?? []) {
+        const catalogModel = modelsById.get(modelUsage.id);
+        const providerId = catalogModel?.providerId ?? 'unknown';
+        const provider = providers.get(providerId) ?? {
+          id: providerId,
+          name: catalogModel?.providerName ?? 'Unknown provider',
+          tokens: 0,
+          values: Array(days.length).fill(0),
+        };
+        const tokens = Number(modelUsage.tokens) || 0;
+        provider.tokens += tokens;
+        provider.values[dayIndex] += tokens;
+        providers.set(providerId, provider);
+      }
+    }
+
+    const providersWithUsage = [...providers.values()]
+      .filter((provider) => provider.tokens > 0)
+      .sort((a, b) => b.tokens - a.tokens);
+    let maximum = 0;
+    for (const provider of providersWithUsage) {
+      for (const tokens of provider.values) maximum = Math.max(maximum, tokens);
+    }
+
+    let scaleMaximum = 0;
+    if (maximum > 0) {
+      const magnitude = 10 ** Math.floor(Math.log10(maximum));
+      const normalizedMaximum = maximum / magnitude;
+      const scaleFactor = normalizedMaximum <= 1
+        ? 1
+        : normalizedMaximum <= 2
+          ? 2
+          : normalizedMaximum <= 5
+            ? 5
+            : 10;
+      scaleMaximum = scaleFactor * magnitude;
+    }
+
+    const series = providersWithUsage.map((provider, providerIndex) => {
+      const points = provider.values.map((tokens, dayIndex) => ({
+        date: days[dayIndex],
+        tokens,
+        x: days.length === 1
+          ? TOKEN_CHART_WIDTH / 2
+          : (dayIndex / (days.length - 1)) * TOKEN_CHART_WIDTH,
+        y: TOKEN_CHART_TOP + (1 - (tokens / scaleMaximum))
+          * (TOKEN_CHART_BOTTOM - TOKEN_CHART_TOP),
+      }));
+      const linePoints = points.map((point) => `${point.x},${point.y}`).join(' ');
+      return {
+        ...provider,
+        areaPoints: points.length
+          ? `${points[0].x},${TOKEN_CHART_BOTTOM} ${linePoints} ${points.at(-1).x},${TOKEN_CHART_BOTTOM}`
+          : '',
+        color: TOKEN_CHART_COLORS[providerIndex % TOKEN_CHART_COLORS.length],
+        linePoints,
+        points,
+      };
+    });
+    const yTicks = scaleMaximum > 0
+      ? Array.from({ length: 5 }, (_, index) => ({
+        value: scaleMaximum * ((4 - index) / 4),
+        y: TOKEN_CHART_TOP + ((TOKEN_CHART_BOTTOM - TOKEN_CHART_TOP) * index) / 4,
+      }))
+      : [];
+    const dateTickCount = Math.min(5, days.length);
+    const dateTickIndexes = dateTickCount <= 1
+      ? days.length ? [0] : []
+      : [...new Set(Array.from(
+        { length: dateTickCount },
+        (_, index) => Math.round((index * (days.length - 1)) / (dateTickCount - 1)),
+      ))];
+    const dateTicks = dateTickIndexes.map((dayIndex) => ({
+      align: days.length === 1
+        ? 'center'
+        : dayIndex === 0
+          ? 'start'
+          : dayIndex === days.length - 1
+            ? 'end'
+            : 'center',
+      date: days[dayIndex],
+      label: dateLabel.format(days[dayIndex]),
+      x: days.length === 1 ? 50 : (dayIndex / (days.length - 1)) * 100,
+    }));
+
+    return { dateTicks, maximum, series, yTicks };
+  }, [modelUsageGroups, modelsById, overview?.metrics.dailyTokens, range.from, range.to]);
 
   return (
     <main className="orchestration-page">
@@ -215,26 +364,40 @@ export function OrchestrationPage({ models, onOpenThread }) {
       ) : (
         <>
           {activeTab === 'models' && (
-            <section className="orchestration-kpis" aria-label={`${rangeCaption} indicators`}>
-              <KpiCard
-                icon={<MessageSquare size={17} />}
-                label="Model responses"
-                value={fullNumber.format(overview?.metrics.responses ?? 0)}
-                caption={rangeCaption}
-              />
-              <KpiCard
-                icon={<Bot size={17} />}
-                label="Models used"
-                value={fullNumber.format(overview?.metrics.modelsUsed ?? 0)}
-                caption={rangeCaption}
-              />
-              <KpiCard
-                icon={<Sparkles size={17} />}
-                label="Token volume"
-                value={compactNumber.format(overview?.metrics.tokens ?? 0)}
-                title={fullNumber.format(overview?.metrics.tokens ?? 0)}
-                caption={rangeCaption}
-              />
+            <section className="token-overview" aria-label={`${rangeCaption} token usage`}>
+              <div className="token-overview-total">
+                <span>Processed tokens</span>
+                <strong title={fullNumber.format(overview?.metrics.tokens ?? 0)}>
+                  {compactNumber.format(overview?.metrics.tokens ?? 0)}
+                </strong>
+                <small>{fullNumber.format(overview?.metrics.responses ?? 0)} model responses</small>
+              </div>
+              <dl className="token-overview-metrics">
+                <div>
+                  <dt>Input</dt>
+                  <dd title={fullNumber.format(overview?.metrics.inputTokens ?? 0)}>
+                    {compactNumber.format(overview?.metrics.inputTokens ?? 0)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Cached input</dt>
+                  <dd title={fullNumber.format(overview?.metrics.cachedInputTokens ?? 0)}>
+                    {compactNumber.format(overview?.metrics.cachedInputTokens ?? 0)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Output</dt>
+                  <dd title={fullNumber.format(overview?.metrics.outputTokens ?? 0)}>
+                    {compactNumber.format(overview?.metrics.outputTokens ?? 0)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Reasoning</dt>
+                  <dd title={fullNumber.format(overview?.metrics.reasoningTokens ?? 0)}>
+                    {compactNumber.format(overview?.metrics.reasoningTokens ?? 0)}
+                  </dd>
+                </div>
+              </dl>
             </section>
           )}
 
@@ -257,7 +420,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
                         <TaskRow
                           key={task.id}
                           task={task}
-                          modelName={modelsById.get(task.model) ?? task.model}
+                          modelName={modelsById.get(task.model)?.name ?? task.model}
                           onOpen={() => onOpenThread(task.id)}
                         />
                       ))
@@ -284,7 +447,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
                         <TaskRow
                           key={task.id}
                           task={task}
-                          modelName={modelsById.get(task.model) ?? task.model}
+                          modelName={modelsById.get(task.model)?.name ?? task.model}
                           status="Needs attention"
                           attention
                           onOpen={() => onOpenThread(task.id)}
@@ -312,7 +475,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
                       <TaskRow
                         key={task.id}
                         task={task}
-                        modelName={modelsById.get(task.model) ?? task.model}
+                        modelName={modelsById.get(task.model)?.name ?? task.model}
                         ongoing
                         onOpen={() => onOpenThread(task.id)}
                       />
@@ -328,84 +491,205 @@ export function OrchestrationPage({ models, onOpenThread }) {
             )}
 
             {activeTab === 'models' && (
-              <section className="orchestration-section model-usage-section">
-                <div className="orchestration-section-heading">
-                <div>
-                  <span className="section-icon"><Bot size={16} /></span>
-                  <h2>Top 10 most used models</h2>
-                </div>
-                <span className="section-caption">{rangeCaption}</span>
-              </div>
-              <div className="model-usage-list">
-                {overview?.metrics.topModels.length
-                  ? overview.metrics.topModels.map((model, index) => (
-                    <article className="model-usage-row" key={model.id}>
-                      <div className="model-usage-header">
-                        <span className="model-rank">{index + 1}</span>
-                        <div className="model-usage-copy">
-                          <strong>{modelsById.get(model.id) ?? model.id}</strong>
-                          <span>{model.messages} {model.messages === 1 ? 'response' : 'responses'}</span>
-                        </div>
-                        <strong className="model-token-total" title={`${fullNumber.format(model.tokens)} total tokens`}>
-                          {compactNumber.format(model.tokens)}
-                          <span>total</span>
-                        </strong>
+              <>
+                <section className="orchestration-section daily-token-section">
+                  <div className="orchestration-section-heading daily-token-heading">
+                    <div>
+                      <span className="section-icon"><Activity size={16} /></span>
+                      <div className="daily-token-title">
+                        <h2>Daily tokens</h2>
+                        <span>Token volume by provider</span>
                       </div>
-                      <div className="model-usage-track" aria-hidden="true">
-                        <span style={{ width: `${(model.messages / topModelCount) * 100}%` }} />
+                    </div>
+                    {dailyTokenChart.series.length > 0 && (
+                      <div className="daily-token-legend" aria-label="Providers">
+                        {dailyTokenChart.series.map((provider) => (
+                          <span className="daily-token-legend-item" key={provider.id}>
+                            <i
+                              className="daily-token-legend-dot"
+                              style={{ '--chart-color': provider.color }}
+                              aria-hidden="true"
+                            />
+                            <span>{provider.name}</span>
+                          </span>
+                        ))}
                       </div>
-                      <dl className="model-metrics">
-                        <div>
-                          <dt>Input tokens</dt>
-                          <dd title={fullNumber.format(model.inputTokens)}>{compactNumber.format(model.inputTokens)}</dd>
-                        </div>
-                        <div>
-                          <dt>Cached tokens</dt>
-                          <dd title={fullNumber.format(model.cachedInputTokens)}>{compactNumber.format(model.cachedInputTokens)}</dd>
-                        </div>
-                        <div>
-                          <dt>Output tokens</dt>
-                          <dd title={fullNumber.format(model.outputTokens)}>{compactNumber.format(model.outputTokens)}</dd>
-                        </div>
-                        {model.timedMessages === model.messages && (
-                          <div>
-                            <dt>Model time</dt>
-                            <dd>{model.durationMs >= 3_600_000
-                              ? `${Math.floor(model.durationMs / 3_600_000)}h ${Math.floor((model.durationMs % 3_600_000) / 60_000)}m`
-                              : model.durationMs >= 60_000
-                                ? `${Math.floor(model.durationMs / 60_000)}m ${Math.floor((model.durationMs % 60_000) / 1_000)}s`
-                                : `${(model.durationMs / 1_000).toFixed(model.durationMs < 10_000 ? 1 : 0)}s`}</dd>
+                    )}
+                  </div>
+                  <div className="daily-token-chart">
+                    {dailyTokenChart.maximum > 0
+                      ? (
+                        <div
+                          className="daily-token-chart-layout"
+                          role="img"
+                          aria-label={`${rangeCaption} daily token usage. ${dailyTokenChart.series
+                            .map((provider) => `${provider.name}: ${fullNumber.format(provider.tokens)} tokens`)
+                            .join(', ')}`}
+                        >
+                          <div className="daily-token-y-axis" aria-hidden="true">
+                            {dailyTokenChart.yTicks.map((tick) => (
+                              <span
+                                key={tick.value}
+                                style={{ top: `${(tick.y / TOKEN_CHART_HEIGHT) * 100}%` }}
+                              >
+                                {compactNumber.format(tick.value)}
+                              </span>
+                            ))}
                           </div>
-                        )}
-                      </dl>
-                    </article>
-                  ))
-                  : (
-                    <EmptyState
-                      icon={<Bot size={18} />}
-                      text={loading ? 'Loading models...' : `No models used during ${rangeCaption.toLowerCase()}.`}
-                    />
-                  )}
-                </div>
-              </section>
+                          <div className="daily-token-plot">
+                            <svg
+                              viewBox={`0 0 ${TOKEN_CHART_WIDTH} ${TOKEN_CHART_HEIGHT}`}
+                              preserveAspectRatio="none"
+                              aria-hidden="true"
+                            >
+                              <g className="daily-token-grid">
+                                {dailyTokenChart.yTicks.map((tick) => (
+                                  <line
+                                    key={tick.value}
+                                    x1="0"
+                                    x2={TOKEN_CHART_WIDTH}
+                                    y1={tick.y}
+                                    y2={tick.y}
+                                  />
+                                ))}
+                              </g>
+                              {dailyTokenChart.series.map((provider) => (
+                                <g
+                                  className="daily-token-series"
+                                  key={provider.id}
+                                  style={{ '--chart-color': provider.color }}
+                                >
+                                  <polygon className="daily-token-area" points={provider.areaPoints} />
+                                  <polyline className="daily-token-line" points={provider.linePoints} />
+                                  {provider.points.map((point) => point.tokens > 0 && (
+                                    <circle
+                                      className="daily-token-point"
+                                      key={point.date}
+                                      cx={point.x}
+                                      cy={point.y}
+                                      r="3.5"
+                                    >
+                                      <title>
+                                        {provider.name} · {dateLabel.format(point.date)}: {fullNumber.format(point.tokens)} tokens
+                                      </title>
+                                    </circle>
+                                  ))}
+                                </g>
+                              ))}
+                            </svg>
+                            <div className="daily-token-x-axis" aria-hidden="true">
+                              {dailyTokenChart.dateTicks.map((tick) => (
+                                <span
+                                  className={tick.align}
+                                  key={tick.date}
+                                  style={{ left: `${tick.x}%` }}
+                                >
+                                  {tick.label}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                      : (
+                        <EmptyState
+                          icon={<Activity size={18} />}
+                          text={loading ? 'Loading daily usage...' : `No token usage during ${rangeCaption.toLowerCase()}.`}
+                        />
+                      )}
+                  </div>
+                </section>
+
+                <section className="orchestration-section model-usage-section">
+                  <div className="orchestration-section-heading">
+                    <div>
+                      <span className="section-icon"><Bot size={16} /></span>
+                      <h2>Usage by provider and model</h2>
+                    </div>
+                    <span className="section-caption">
+                      {overview?.metrics.modelsUsed ?? 0} models · {rangeCaption}
+                    </span>
+                  </div>
+                  <div className="provider-usage-list">
+                    {modelUsageGroups.length
+                      ? modelUsageGroups.map((provider) => (
+                        <article className="provider-usage-group" key={provider.id}>
+                          <header className="provider-usage-header">
+                            <div>
+                              <span className="provider-mark" aria-hidden="true">
+                                {provider.name.slice(0, 1).toUpperCase()}
+                              </span>
+                              <div>
+                                <h3>{provider.name}</h3>
+                                <span>{provider.models.length} {provider.models.length === 1 ? 'model' : 'models'}</span>
+                              </div>
+                            </div>
+                            <div className="provider-token-total">
+                              <strong title={`${fullNumber.format(provider.tokens)} tokens`}>
+                                {compactNumber.format(provider.tokens)}
+                              </strong>
+                              <span>
+                                {overview?.metrics.tokens
+                                  ? `${((provider.tokens / overview.metrics.tokens) * 100).toFixed(1)}% of tokens`
+                                  : '0% of tokens'}
+                              </span>
+                            </div>
+                          </header>
+                          <div className="provider-usage-track" aria-hidden="true">
+                            <span style={{
+                              width: `${overview?.metrics.tokens
+                                ? (provider.tokens / overview.metrics.tokens) * 100
+                                : 0}%`,
+                            }} />
+                          </div>
+                          <div className="provider-model-list">
+                            {provider.models.map((model) => (
+                              <div className="provider-model-row" key={model.id}>
+                                <div className="provider-model-name">
+                                  <strong>{model.name}</strong>
+                                  <span>{model.messages} {model.messages === 1 ? 'response' : 'responses'}</span>
+                                </div>
+                                <dl className="provider-model-metrics">
+                                  <div>
+                                    <dt>Total</dt>
+                                    <dd title={fullNumber.format(model.tokens)}>{compactNumber.format(model.tokens)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>Input</dt>
+                                    <dd title={fullNumber.format(model.inputTokens)}>{compactNumber.format(model.inputTokens)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>Cached</dt>
+                                    <dd title={fullNumber.format(model.cachedInputTokens)}>{compactNumber.format(model.cachedInputTokens)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>Output</dt>
+                                    <dd title={fullNumber.format(model.outputTokens)}>{compactNumber.format(model.outputTokens)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>Reasoning</dt>
+                                    <dd title={fullNumber.format(model.reasoningTokens)}>{compactNumber.format(model.reasoningTokens)}</dd>
+                                  </div>
+                                </dl>
+                              </div>
+                            ))}
+                          </div>
+                        </article>
+                      ))
+                      : (
+                        <EmptyState
+                          icon={<Bot size={18} />}
+                          text={loading ? 'Loading models...' : `No models used during ${rangeCaption.toLowerCase()}.`}
+                        />
+                      )}
+                  </div>
+                </section>
+              </>
             )}
           </div>
         </>
       )}
     </main>
-  );
-}
-
-function KpiCard({ icon, label, value, title, caption }) {
-  return (
-    <article className="orchestration-kpi">
-      <span className="kpi-icon">{icon}</span>
-      <div>
-        <span>{label}</span>
-        <strong title={title}>{value}</strong>
-      </div>
-      <small>{caption}</small>
-    </article>
   );
 }
 

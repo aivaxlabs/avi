@@ -158,30 +158,34 @@
   transition: transform 180ms var(--base-transition);
 }
 
-.tool-entry[open] .tool-line-chevron {
-  transform: rotate(90deg);
+.tool-entry[open] {
+  .tool-line-chevron {
+    transform: rotate(90deg);
+  }
 }
 
-.tool-line strong {
-  color: var(--text-1);
-  font-weight: 400;
-}
+.tool-line {
+  strong {
+    color: var(--text-1);
+    font-weight: 400;
+  }
 
-.tool-line .tool-line-pending-text {
-  color: transparent;
-  font-weight: 500;
-  -webkit-text-fill-color: transparent;
-  background: var(--text-1) -webkit-gradient(linear,
-      100% 0,
-      0 0,
-      from(var(--text-1)),
-      color-stop(0.5, var(--text-4)),
-      to(var(--text-1)));
-  background-repeat: no-repeat;
-  background-size: 50% 200%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  animation: thinking-gradient 2s linear infinite;
+  .tool-line-pending-text {
+    color: transparent;
+    font-weight: 500;
+    -webkit-text-fill-color: transparent;
+    background: var(--text-1) -webkit-gradient(linear,
+        100% 0,
+        0 0,
+        from(var(--text-1)),
+        color-stop(0.5, var(--text-4)),
+        to(var(--text-1)));
+    background-repeat: no-repeat;
+    background-size: 50% 200%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    animation: thinking-gradient 2s linear infinite;
+  }
 }
 
 .tool-details {

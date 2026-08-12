@@ -285,21 +285,28 @@
       transform 180ms var(--base-transition);
   }
 
-  .queued-messages li:hover .queued-message-grip,
-  .queued-messages li:focus-within .queued-message-grip,
-  .queued-message-grip:focus-visible {
-    opacity: 1;
+  .queued-messages li {
+    &:hover .queued-message-grip,
+    &:focus-within .queued-message-grip {
+      opacity: 1;
+    }
   }
 
-  .queued-message-grip:hover,
-  .queued-message-grip:focus-visible {
-    color: var(--text-1);
-    background: var(--item-hover);
-  }
+  .queued-message-grip {
+    &:focus-visible {
+      opacity: 1;
+    }
 
-  .queued-message-grip:active {
-    cursor: grabbing;
-    transform: scale(.92);
+    &:hover,
+    &:focus-visible {
+      color: var(--text-1);
+      background: var(--item-hover);
+    }
+
+    &:active {
+      cursor: grabbing;
+      transform: scale(.92);
+    }
   }
 
   .queued-message-position {
@@ -336,41 +343,45 @@
     transition: opacity 180ms var(--base-transition);
   }
 
-  .queued-messages li:hover .queued-message-actions,
-  .queued-messages li:focus-within .queued-message-actions,
-  .queued-messages li.menu-open .queued-message-actions {
-    opacity: 1;
+  .queued-messages li {
+    &:hover .queued-message-actions,
+    &:focus-within .queued-message-actions,
+    &.menu-open .queued-message-actions {
+      opacity: 1;
+    }
   }
 
-  .queued-message-actions button {
-    min-width: 26px;
-    height: 26px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    padding: 0 7px;
-    color: var(--text-3);
-    background: transparent;
-    border-radius: 9999px;
-    font-size: 11px;
-    transition: color 180ms var(--base-transition),
-      background 180ms var(--base-transition),
-      transform 180ms var(--base-transition);
+  .queued-message-actions {
+    button {
+      min-width: 26px;
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 0 7px;
+      color: var(--text-3);
+      background: transparent;
+      border-radius: 9999px;
+      font-size: 11px;
+      transition: color 180ms var(--base-transition),
+        background 180ms var(--base-transition),
+        transform 180ms var(--base-transition);
 
-    &:hover,
-    &:focus-visible {
-      color: var(--text-1);
-      background: var(--item-hover);
-    }
+      &:hover,
+      &:focus-visible {
+        color: var(--text-1);
+        background: var(--item-hover);
+      }
 
-    &.active {
-      color: var(--text-1);
-      background: var(--item-active);
-    }
+      &.active {
+        color: var(--text-1);
+        background: var(--item-active);
+      }
 
-    &:active {
-      transform: scale(.94);
+      &:active {
+        transform: scale(.94);
+      }
     }
   }
 
@@ -648,13 +659,15 @@
     color: var(--text-3);
   }
 
-  .model-input-trigger svg {
-    color: var(--text-3);
-  }
+  .model-input-trigger {
+    svg {
+      color: var(--text-3);
+    }
 
-  .model-input-trigger:hover {
-    color: var(--text-1);
-    background: var(--background-4);
+    &:hover {
+      color: var(--text-1);
+      background: var(--background-4);
+    }
   }
 
   .model-input-menu {
@@ -683,9 +696,11 @@
     gap: 2px;
   }
 
-  .model-menu-section + .model-menu-section {
-    padding-top: 8px;
-    border-top: 1px solid var(--border-color);
+  .model-menu-section {
+    + .model-menu-section {
+      padding-top: 8px;
+      border-top: 1px solid var(--border-color);
+    }
   }
 
   .model-menu-section-title {
@@ -773,10 +788,12 @@
     width: 138px;
   }
 
-  .model-reasoning-submenu .dropdown-menu-item:focus-visible,
-  .model-reasoning-trigger:focus-visible {
-    outline: 2px solid var(--text-3);
-    outline-offset: -2px;
+  .model-reasoning-submenu .dropdown-menu-item,
+  .model-reasoning-trigger {
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: -2px;
+    }
   }
 
   .model-reasoning-check {

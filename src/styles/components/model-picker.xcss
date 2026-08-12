@@ -215,20 +215,22 @@
     gap: 1px;
   }
 
-  .model-row-content small {
-    color: var(--text-4);
-    font-size: inherit;
-    font-weight: 400;
-  }
+  .model-row-content {
+    small {
+      color: var(--text-4);
+      font-size: inherit;
+      font-weight: 400;
+    }
 
-  .model-row-content span {
-    color: var(--text-2);
+    span {
+      color: var(--text-2);
 
-    &:nth-child(2) {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      color: var(--text-3);
+      &:nth-child(2) {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--text-3);
+      }
     }
   }
 

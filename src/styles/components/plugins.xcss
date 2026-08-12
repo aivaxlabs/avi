@@ -47,13 +47,31 @@
   }
 
   .plugin-card-main { min-width: 0; flex: 1; }
-  .plugin-card-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
-  .plugin-card-actions .danger { color: var(--danger-color); }
-  .plugin-card-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-  .plugin-card-title strong { font-size: 13px; font-weight: 550; }
-  .plugin-card-title > span { color: var(--text-3); font-size: 10px; }
-  .plugin-card p { margin-top: 5px; color: var(--text-2); font-size: 11px; line-height: 1.5; }
-  .plugin-card small { display: block; margin-top: 5px; color: var(--text-3); overflow-wrap: anywhere; }
+
+  .plugin-card-actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+
+    .danger { color: var(--danger-color); }
+  }
+
+  .plugin-card-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+
+    strong { font-size: 13px; font-weight: 550; }
+    > span { color: var(--text-3); font-size: 10px; }
+  }
+
+  .plugin-card {
+    p { margin-top: 5px; color: var(--text-2); font-size: 11px; line-height: 1.5; }
+    small { display: block; margin-top: 5px; color: var(--text-3); overflow-wrap: anywhere; }
+  }
 
   .plugin-status,
   .plugin-capabilities span {
@@ -63,12 +81,22 @@
     background: var(--background-2);
   }
 
-  .plugin-status.error { color: var(--danger-color); }
-  .plugin-status.disabled,
-  .plugin-status.pending-disable,
-  .plugin-status.pending-enable { color: var(--warn-color); }
-  .plugin-capabilities { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
-  .plugin-capabilities span { color: var(--text-2); font-size: 9px; }
+  .plugin-status {
+    &.error { color: var(--danger-color); }
+
+    &.disabled,
+    &.pending-disable,
+    &.pending-enable { color: var(--warn-color); }
+  }
+
+  .plugin-capabilities {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 9px;
+
+    span { color: var(--text-2); font-size: 9px; }
+  }
   .plugin-error { margin-top: 9px; color: var(--danger-color); font-size: 11px; overflow-wrap: anywhere; }
   .plugins-empty { display: flex; align-items: center; gap: 9px; color: var(--text-3); font-size: 11px; }
 

@@ -7,8 +7,8 @@
   display: grid;
   gap: 2px;
   z-index: 120;
-  background: var(--background-1);
-  border: 1px solid var(--border-color);
+  background: --background-1;
+  border: 1px solid --border-color;
   border-radius: 16px;
   box-shadow: 0 4px 9px #00000011;
 
@@ -27,7 +27,7 @@
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    color: var(--text-1);
+    color: --text-1;
     background: transparent;
     border-radius: 12px;
     text-align: left;
@@ -38,24 +38,24 @@
     }
 
     &:hover {
-      background: var(--item-hover);
+      background: --item-hover;
     }
 
     &.active {
-      background: var(--item-active);
+      background: --item-active;
     }
 
     &:disabled {
-      color: var(--text-4);
+      color: --text-4;
       pointer-events: none;
 
       svg {
-        color: var(--text-4);
+        color: --text-4;
       }
     }
 
     svg {
-      color: var(--text-3);
+      color: --text-3;
     }
 
     span {
@@ -69,12 +69,12 @@
   .dropdown-menu-divider {
     height: 1px;
     margin: 2px 4px;
-    background: var(--background-4);
+    background: --background-4;
   }
 
   .dropdown-menu-empty {
     padding: 7px 9px;
-    color: var(--text-3);
+    color: --text-3;
     font-size: 12px;
   }
 }
