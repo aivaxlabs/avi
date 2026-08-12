@@ -48,6 +48,7 @@ let stopTerminals;
 try {
   database = await import('../src/main/database.js');
   const { ChatRunner } = await import('../src/main/chat-runner.js');
+  const { mapToolCalls } = await import('../src/main/tool-concurrency.js');
   const clientTools = await import('../src/main/client-tools.js');
   const { resolveTerminalShell } = await import('../src/main/terminal-shell.js');
   stopTerminals = clientTools.stopConversationTerminals;
@@ -67,6 +68,30 @@ try {
     reasoning: [],
     context: { input: 100_000, output: 10_000 },
   };
+
+  const pendingToolResolvers = [];
+  const startedToolCalls = [];
+  const mappedToolCalls = mapToolCalls(
+    Array.from({ length: 6 }, (_, index) => index),
+    (index) => {
+      startedToolCalls.push(index);
+      return new Promise((resolveTool) => {
+        pendingToolResolvers[index] = () => resolveTool(`result-${index}`);
+      });
+    },
+  );
+  await waitFor(() => startedToolCalls.length === 4);
+  assert.deepEqual(startedToolCalls, [0, 1, 2, 3]);
+  pendingToolResolvers[2]();
+  await waitFor(() => startedToolCalls.length === 5);
+  assert.deepEqual(startedToolCalls, [0, 1, 2, 3, 4]);
+  pendingToolResolvers[0]();
+  await waitFor(() => startedToolCalls.length === 6);
+  for (const index of [1, 3, 4, 5]) pendingToolResolvers[index]();
+  assert.deepEqual(
+    await mappedToolCalls,
+    Array.from({ length: 6 }, (_, index) => `result-${index}`),
+  );
 
   function buildRunner(provider, stoppedBackgroundTasks = []) {
     return new ChatRunner({
@@ -538,12 +563,13 @@ try {
     model: model.id,
     text: 'Queue after the final inference.',
   });
+  await waitFor(() => Boolean(finishFirstTool) && Boolean(finishSecondTool));
+  assert.deepEqual(executedTools.map(([name]) => name), ['first', 'second']);
   assert.equal(executedTools[0][1].aborted, false);
-  finishFirstTool();
-  await waitFor(() => Boolean(finishSecondTool));
   assert.equal(executedTools[1][1].aborted, false);
   assert.equal(inferenceBoundaryCalls.length, 1);
   finishSecondTool();
+  finishFirstTool();
   await waitFor(() => inferenceBoundaryCalls.length === 3);
   await waitFor(() => !inferenceBoundaryRunner.runs.has(inferenceBoundaryConversation.id));
   assert.equal(inferenceBoundaryCalls[0].signal.aborted, false);

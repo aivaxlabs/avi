@@ -6,6 +6,7 @@ import { applySubagentModelSchema } from './default-models.js';
 import { normalizeAttachmentsForModel } from './files.js';
 import { StreamAccumulator } from './streaming.js';
 import { composeToolsWithPlugins } from './tool-composition.js';
+import { mapToolCalls } from './tool-concurrency.js';
 import { traceError, traceVerbose } from './trace-log.js';
 
 export class QuickChatRunner {
@@ -233,8 +234,7 @@ export class QuickChatRunner {
         });
 
         if (turn.toolCalls.length === 0) break;
-        const results = [];
-        for (const toolCall of turn.toolCalls) {
+        const results = await mapToolCalls(turn.toolCalls, async (toolCall) => {
           const tool = availableTools.find((item) => item.name === toolCall.name);
           let output;
           let mediaContent;
@@ -302,8 +302,8 @@ export class QuickChatRunner {
             isError,
           });
           this.updateAssistant(session, assistantMessage, accumulator, 'streaming');
-          results.push({ callId: toolCall.callId, output, isError, mediaContent });
-        }
+          return { callId: toolCall.callId, output, isError, mediaContent };
+        });
         toolHistory.push({
           assistantContent: turn.assistantContent,
           continuation: turn.continuation,

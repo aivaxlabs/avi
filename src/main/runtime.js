@@ -1073,13 +1073,16 @@ function registerIpc() {
         .filter((message) => isInRange(message.createdAt))
         .map((message) => ({ ...message, conversationModel: task.model }))
     ));
+    const assistantMessages = messagesInRange.filter((message) => message.role === 'assistant');
     const modelUsage = new Map();
+    const dailyModelUsage = new Map();
 
-    for (const message of messagesInRange.filter((item) => item.role === 'assistant')) {
+    for (const message of assistantMessages) {
       const model = message.model || message.conversationModel || 'Unknown model';
       const inputTokens = Number(message.usage?.inputTokens) || 0;
       const cachedInputTokens = Number(message.usage?.cachedInputTokens) || 0;
       const outputTokens = Number(message.usage?.outputTokens) || 0;
+      const reasoningTokens = Number(message.usage?.reasoningTokens) || 0;
       const totalTokens = Number(message.usage?.totalTokens) || inputTokens + outputTokens;
       const usage = modelUsage.get(model) ?? {
         id: model,
@@ -1087,6 +1090,7 @@ function registerIpc() {
         inputTokens: 0,
         cachedInputTokens: 0,
         outputTokens: 0,
+        reasoningTokens: 0,
         durationMs: 0,
         timedMessages: 0,
         tokens: 0,
@@ -1095,22 +1099,46 @@ function registerIpc() {
       usage.inputTokens += inputTokens;
       usage.cachedInputTokens += cachedInputTokens;
       usage.outputTokens += outputTokens;
+      usage.reasoningTokens += reasoningTokens;
       if (Number.isFinite(message.usage?.durationMs)) {
         usage.durationMs += message.usage.durationMs;
         usage.timedMessages += 1;
       }
       usage.tokens += totalTokens;
       modelUsage.set(model, usage);
+
+      const createdAt = new Date(message.createdAt);
+      const day = new Date(
+        createdAt.getFullYear(),
+        createdAt.getMonth(),
+        createdAt.getDate(),
+      ).getTime();
+      const modelsForDay = dailyModelUsage.get(day) ?? new Map();
+      const usageForDay = modelsForDay.get(model) ?? { id: model, tokens: 0 };
+      usageForDay.tokens += totalTokens;
+      modelsForDay.set(model, usageForDay);
+      dailyModelUsage.set(day, modelsForDay);
     }
 
     return {
       metrics: {
-        responses: messagesInRange.filter((message) => message.role === 'assistant').length,
+        responses: assistantMessages.length,
         modelsUsed: modelUsage.size,
         tokens: [...modelUsage.values()].reduce((total, usage) => total + usage.tokens, 0),
+        inputTokens: [...modelUsage.values()].reduce((total, usage) => total + usage.inputTokens, 0),
+        cachedInputTokens: [...modelUsage.values()]
+          .reduce((total, usage) => total + usage.cachedInputTokens, 0),
+        outputTokens: [...modelUsage.values()].reduce((total, usage) => total + usage.outputTokens, 0),
+        reasoningTokens: [...modelUsage.values()]
+          .reduce((total, usage) => total + usage.reasoningTokens, 0),
         topModels: [...modelUsage.values()]
-          .sort((a, b) => b.messages - a.messages || b.tokens - a.tokens)
-          .slice(0, 10),
+          .sort((a, b) => b.tokens - a.tokens || b.messages - a.messages),
+        dailyTokens: [...dailyModelUsage.entries()]
+          .sort(([left], [right]) => left - right)
+          .map(([date, modelsForDay]) => ({
+            date,
+            models: [...modelsForDay.values()].sort((a, b) => b.tokens - a.tokens),
+          })),
       },
       ongoing: tasks
         .filter((task) => task.ongoing)
@@ -1388,6 +1416,7 @@ function registerIpc() {
     };
   });
   applicationIpc.handle('chat:retry', (_event, payload) => chatRunner.retry(payload));
+  applicationIpc.handle('chat:expand-prompt', (_event, payload) => chatRunner.expandPrompt(payload));
   applicationIpc.handle('chat:resolve-approval', async (_event, payload) => {
     const result = await chatRunner.resolveApproval(payload);
     refreshTrayMenu();

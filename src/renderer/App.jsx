@@ -1659,6 +1659,14 @@ export default function App() {
               models={models}
               favorites={favorites}
               onSend={chatOnSend}
+              onExpandPrompt={async (payload) => {
+                try {
+                  return await api.chat.expandPrompt(payload);
+                } catch (nextError) {
+                  setError(nextError instanceof Error ? nextError.message : String(nextError));
+                  return null;
+                }
+              }}
               onImplementPlan={chatOnImplementPlan}
               questionRequest={questionRequests.find(
                 (request) => request.conversationId === selectedId,

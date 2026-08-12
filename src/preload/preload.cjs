@@ -133,6 +133,7 @@ contextBridge.exposeInMainWorld('chatApp', {
   chat: {
     send: (payload) => invoke('chat:send', payload),
     retry: (payload) => invoke('chat:retry', payload),
+    expandPrompt: (payload) => invoke('chat:expand-prompt', payload),
     resolveApproval: (payload) => invoke('chat:resolve-approval', payload),
     answerQuestion: (payload) => invoke('chat:answer-question', payload),
     compress: (payload) => invoke('chat:compress', payload),

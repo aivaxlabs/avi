@@ -126,6 +126,7 @@ export function Composer({
   conversationId,
   isRunning,
   onSend,
+  onExpandPrompt,
   onStop,
   onCompress,
   onCreateSideChat,
@@ -172,6 +173,7 @@ export function Composer({
   const [workMode, setWorkMode] = useState(initialWorkMode);
   const [ultraMode, setUltraMode] = useState(initialUltraMode);
   const [plusOpen, setPlusOpen] = useState(false);
+  const [promptExpanding, setPromptExpanding] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [permissionMenuOpen, setPermissionMenuOpen] = useState(false);
   const [permissionMode, setPermissionMode] = useState(defaultPermissionMode);
@@ -202,8 +204,12 @@ export function Composer({
   const projectMenuRef = useRef(null);
   const projectSearchRef = useRef(null);
   const textAreaRef = useRef(null);
+  const textRef = useRef(text);
+  const conversationIdRef = useRef(conversationId);
   const composerStatesRef = useRef(new Map());
   const hydratedConversationIdRef = useRef(null);
+  textRef.current = text;
+  conversationIdRef.current = conversationId;
   if (conversationId) {
     composerStatesRef.current.set(conversationId, {
       conversationId,
@@ -330,7 +336,7 @@ export function Composer({
   const activeCommandOption = commandOptions[commandIndex] ?? commandOptions[0] ?? null;
   const activeGoal = goal && ['active', 'paused'].includes(goal.status) ? goal : null;
   const effectiveWorkMode = activeGoal ? 'goal' : workMode;
-  const canSend = !goalPreparation && !commandMode && (
+  const canSend = !goalPreparation && !promptExpanding && !commandMode && (
     effectiveWorkMode === 'goal' && !activeGoal
       ? Boolean(text.trim())
       : Boolean(text.trim() || attachments.length > 0)
@@ -1376,6 +1382,43 @@ export function Composer({
                   }}
                 >
                   Plan
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  icon={promptExpanding
+                    ? <LoaderCircle className="goal-strip-spinner" size={14} />
+                    : <Sparkles size={14} />}
+                  disabled={promptExpanding || !text.trim()}
+                  onClick={async () => {
+                    const sourcePrompt = text;
+                    const sourceConversationId = conversationId;
+                    setPlusOpen(false);
+                    setPromptExpanding(true);
+                    try {
+                      const expandedPrompt = await onExpandPrompt?.({
+                        conversationId,
+                        prompt: sourcePrompt,
+                      });
+                      if (
+                        typeof expandedPrompt !== 'string'
+                        || !expandedPrompt.trim()
+                        || textRef.current !== sourcePrompt
+                        || conversationIdRef.current !== sourceConversationId
+                      ) return;
+                      setText(expandedPrompt);
+                      setCursorPosition(expandedPrompt.length);
+                      queueMicrotask(() => {
+                        textAreaRef.current?.focus();
+                        textAreaRef.current?.setSelectionRange(
+                          expandedPrompt.length,
+                          expandedPrompt.length,
+                        );
+                      });
+                    } finally {
+                      setPromptExpanding(false);
+                    }
+                  }}
+                >
+                  {promptExpanding ? 'Expanding prompt...' : 'Expand prompt'}
                 </DropdownMenuItem>
                 <DropdownMenuItem icon={<HardDrive size={14} />} onClick={attachFromComputer}>
                   Attach from computer

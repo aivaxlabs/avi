@@ -115,6 +115,7 @@ export const ChatView = memo(function ChatView({
   favorites,
   isRunning,
   onSend,
+  onExpandPrompt,
   onStop,
   onCompress,
   onCreateSideChat,
@@ -956,6 +957,7 @@ export const ChatView = memo(function ChatView({
         conversationId={currentConversation?.id ?? null}
         isRunning={isRunning}
         onSend={onSend}
+        onExpandPrompt={onExpandPrompt}
         onStop={onStop}
         onCompress={onCompress}
         onCreateSideChat={onCreateSideChat}
