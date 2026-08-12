@@ -43,8 +43,12 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Allow Cascadium execution
+        if: runner.os != 'Windows'
+        run: chmod +x node_modules/@cypherpotato/cascadium/dist/*/cascadium
+
       - name: Build installers
-        run: bun run package -- ${{ matrix.package-args }}
+        run: bun run package -- ${{ matrix.package-args }} --publish never
 
       - name: Upload installers
         uses: actions/upload-artifact@v4
