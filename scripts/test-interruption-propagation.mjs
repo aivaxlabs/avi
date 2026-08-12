@@ -36,6 +36,10 @@ assert.match(composerSource, /Prioritize after the current assistant turn/);
 assert.doesNotMatch(composerSource, /Stop the current response and send this message next/);
 assert.match(appSource, /steerMessageIds \?\? \[\]/);
 assert.match(appSource, /queuedMessageIds \?\? \[\]/);
+assert.match(appSource, /api\.plugins\.restoreReload\(\)/);
+assert.match(appSource, /restoredReload\.conversationIds\.map\(async \(id\)/);
+assert.match(appSource, /api\.plugins\.completeReload\(\)/);
+assert.match(appSource, /window\.localStorage\.setItem\('aivax\.composer\.draft'/);
 
 const queueSteerOnly = process.argv.includes('--queue-steer-only');
 let database;
@@ -114,6 +118,11 @@ try {
     text: 'Original prompt',
   });
   await waitFor(() => inferenceCalls.length === 1);
+  assert.deepEqual(inferenceRunner.reloadSnapshot(), {
+    conversationIds: [inferenceConversation.id],
+    approvals: [],
+    questions: [],
+  });
   await inferenceRunner.send({
     conversationId: inferenceConversation.id,
     model: model.id,
@@ -135,6 +144,11 @@ try {
   assert.equal(inferenceCalls[0].aborted, false);
   finishInference();
   await waitFor(() => !inferenceRunner.runs.has(inferenceConversation.id));
+  assert.deepEqual(inferenceRunner.reloadSnapshot(), {
+    conversationIds: [],
+    approvals: [],
+    questions: [],
+  });
   assert.equal(inferenceCalls[0].aborted, false);
   assert.equal(inferenceCalls.length, 2);
   assert.deepEqual(

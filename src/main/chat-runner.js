@@ -647,6 +647,27 @@ export class ChatRunner {
     }
   }
 
+  reloadSnapshot() {
+    return {
+      conversationIds: [...this.runs.keys()],
+      approvals: [...this.pendingApprovals.entries()].map(([approvalId, pending]) => ({
+        type: 'permission-request',
+        conversationId: pending.conversationId,
+        approvalId,
+        toolName: pending.toolName,
+        invocationSummary: pending.invocationSummary,
+        workspacePath: pending.workspacePath,
+        input: pending.input,
+      })),
+      questions: [...this.pendingQuestions.entries()].map(([questionId, pending]) => ({
+        type: 'question-request',
+        conversationId: pending.conversationId,
+        questionId,
+        questions: pending.questions,
+      })),
+    };
+  }
+
   async send({
     conversationId,
     model,
@@ -1979,9 +2000,12 @@ export class ChatRunner {
                   rejectApproval(controller.signal.reason ?? new Error('Tool approval was cancelled.'));
                 };
                 this.pendingApprovals.set(approvalId, {
-                  approvalPattern,
+                  conversationId,
+                  toolName: toolCall.name,
                   invocationSummary,
                   workspacePath,
+                  input,
+                  approvalPattern,
                   finish: (decision) => {
                     controller.signal.removeEventListener('abort', abortApproval);
                     resolveApproval(decision);
