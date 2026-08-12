@@ -1,5 +1,7 @@
 import {
   Archive,
+  ChevronLeft,
+  ChevronRight,
   Database,
   HardDrive,
   RotateCcw,
@@ -29,10 +31,13 @@ const byteFormatter = new Intl.NumberFormat('en-US', {
   unit: 'megabyte',
   maximumFractionDigits: 1,
 });
+const archivePageSize = 20;
 
 export function ArchiveSettings() {
   const [state, setState] = useState(null);
   const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [listLoading, setListLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [temporaryStorage, setTemporaryStorage] = useState(null);
   const [error, setError] = useState('');
@@ -40,13 +45,24 @@ export function ArchiveSettings() {
 
   useEffect(() => {
     let active = true;
-    window.chatApp.archive.state()
+    setListLoading(true);
+    window.chatApp.archive.state({ query, page, pageSize: archivePageSize })
       .then((next) => {
         if (active) setState(next);
       })
       .catch((nextError) => {
         if (active) setError(nextError instanceof Error ? nextError.message : String(nextError));
+      })
+      .finally(() => {
+        if (active) setListLoading(false);
       });
+    return () => {
+      active = false;
+    };
+  }, [page, query]);
+
+  useEffect(() => {
+    let active = true;
     window.chatApp.archive.temporaryStorage()
       .then((storage) => {
         if (active) setTemporaryStorage(storage);
@@ -59,10 +75,8 @@ export function ArchiveSettings() {
     };
   }, []);
 
-  const conversations = (state?.conversations ?? []).filter((conversation) => {
-    const term = query.trim().toLowerCase();
-    return !term || `${conversation.title} ${conversation.firstPrompt}`.toLowerCase().includes(term);
-  });
+  const conversations = state?.conversations ?? [];
+  const archiveOptions = { query, page, pageSize: archivePageSize };
 
   async function run(mutation) {
     setBusy(true);
@@ -71,6 +85,7 @@ export function ArchiveSettings() {
     try {
       const next = await mutation();
       setState(next);
+      setPage(next.pagination.page);
       return next;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -105,7 +120,7 @@ export function ArchiveSettings() {
               onChange={(event) => run(() => window.chatApp.archive.save({
                 ...state.settings,
                 archiveAfterDays: event.target.value === 'never' ? null : Number(event.target.value),
-              }))}
+              }, archiveOptions))}
             >
               {retentionOptions.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
@@ -120,7 +135,7 @@ export function ArchiveSettings() {
               onChange={(event) => run(() => window.chatApp.archive.save({
                 ...state.settings,
                 deleteArchivedAfterDays: event.target.value === 'never' ? null : Number(event.target.value),
-              }))}
+              }, archiveOptions))}
             >
               {archivedDeletionOptions.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
@@ -135,7 +150,7 @@ export function ArchiveSettings() {
               onChange={(event) => run(() => window.chatApp.archive.save({
                 ...state.settings,
                 deleteDisposableAfterDays: event.target.value === 'never' ? null : Number(event.target.value),
-              }))}
+              }, archiveOptions))}
             >
               {disposableDeletionOptions.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
@@ -157,10 +172,13 @@ export function ArchiveSettings() {
             value={query}
             placeholder="Search archived conversations..."
             aria-label="Search archived conversations"
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(1);
+            }}
           />
         </div>
-        <div className="settings-section-card archive-list">
+        <div className={`settings-section-card archive-list${listLoading ? ' is-loading' : ''}`} aria-busy={listLoading}>
           {conversations.length ? conversations.map((conversation) => (
             <div className="archive-row" key={conversation.id}>
               <span className="settings-entity-icon"><Archive size={16} /></span>
@@ -176,7 +194,7 @@ export function ArchiveSettings() {
                   type="button"
                   disabled={busy}
                   title="Restore conversation"
-                  onClick={() => run(() => window.chatApp.archive.restore(conversation.id))}
+                  onClick={() => run(() => window.chatApp.archive.restore(conversation.id, archiveOptions))}
                 >
                   <RotateCcw size={14} />
                   Restore
@@ -188,7 +206,7 @@ export function ArchiveSettings() {
                   title="Delete permanently"
                   onClick={() => {
                     if (!window.confirm('Permanently delete this conversation and all of its child conversations? This cannot be undone.')) return;
-                    run(() => window.chatApp.archive.delete(conversation.id));
+                    run(() => window.chatApp.archive.delete(conversation.id, archiveOptions));
                   }}
                 >
                   <Trash2 size={14} />
@@ -202,6 +220,34 @@ export function ArchiveSettings() {
             </div>
           )}
         </div>
+        {state.pagination.total > 0 && (
+          <nav className="archive-pagination" aria-label="Archive pages">
+            <span>
+              {state.pagination.total} archived conversation{state.pagination.total === 1 ? '' : 's'}
+              {' · '}Page {state.pagination.page} of {state.pagination.totalPages}
+            </span>
+            <span>
+              <button
+                type="button"
+                disabled={busy || listLoading || state.pagination.page === 1}
+                aria-label="Previous archive page"
+                onClick={() => setPage(state.pagination.page - 1)}
+              >
+                <ChevronLeft size={14} />
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={busy || listLoading || state.pagination.page === state.pagination.totalPages}
+                aria-label="Next archive page"
+                onClick={() => setPage(state.pagination.page + 1)}
+              >
+                Next
+                <ChevronRight size={14} />
+              </button>
+            </span>
+          </nav>
+        )}
       </section>
 
       <section className="settings-section">
@@ -255,7 +301,7 @@ export function ArchiveSettings() {
             disabled={busy}
             onClick={async () => {
               if (!window.confirm('Run forced cleanup now? Eligible conversations will be archived or permanently deleted according to the current settings.')) return;
-              const next = await run(() => window.chatApp.archive.maintenance());
+              const next = await run(() => window.chatApp.archive.maintenance(archiveOptions));
               if (next?.maintenance) {
                 setNotice(`Cleanup complete: ${next.maintenance.archived} archived, ${next.maintenance.deletedArchived} archived deleted, ${next.maintenance.deletedDisposable} disposable deleted.`);
               }

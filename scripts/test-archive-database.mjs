@@ -14,6 +14,7 @@ try {
   database = await import('../src/main/database.js');
   const {
     archiveConversation,
+    countArchivedConversations,
     createConversation,
     deleteConversation,
     forkConversation,
@@ -62,7 +63,11 @@ try {
   assert.equal(listSideChats(parent.id).length, 0);
   assert.equal(listSubagents(parent.id).length, 0);
   assert.equal(searchChats('searchable text').length, 0);
-  assert.deepEqual(listArchivedConversations('fixture').map((item) => item.id), [parent.id]);
+  assert.equal(countArchivedConversations(), 1);
+  assert.equal(countArchivedConversations('fixture'), 1);
+  assert.equal(countArchivedConversations('missing'), 0);
+  assert.deepEqual(listArchivedConversations('fixture', { limit: 1, offset: 0 }).map((item) => item.id), [parent.id]);
+  assert.deepEqual(listArchivedConversations('fixture', { limit: 1, offset: 1 }), []);
   assert.deepEqual(getArchiveStats(), {
     total: 3,
     active: 0,

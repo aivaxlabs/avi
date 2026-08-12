@@ -715,6 +715,18 @@ const statements = {
       AND archived_at IS NULL
     ORDER BY updated_at DESC
   `),
+  countArchivedConversations: db.prepare(`
+    SELECT COUNT(*) AS total
+    FROM conversations c
+    WHERE deleted_at IS NULL
+      AND archived_at IS NOT NULL
+      AND conversation_type = 'thread'
+      AND (@query = '' OR title LIKE @pattern ESCAPE '\\' OR EXISTS (
+        SELECT 1 FROM messages
+        WHERE conversation_id = c.id AND hidden = 0
+          AND content LIKE @pattern ESCAPE '\\'
+      ))
+  `),
   listArchivedConversations: db.prepare(`
     SELECT c.*,
       COALESCE((
@@ -726,13 +738,13 @@ const statements = {
     WHERE deleted_at IS NULL
       AND archived_at IS NOT NULL
       AND conversation_type = 'thread'
-      AND (? = '' OR title LIKE ? ESCAPE '\\' OR EXISTS (
+      AND (@query = '' OR title LIKE @pattern ESCAPE '\\' OR EXISTS (
         SELECT 1 FROM messages
         WHERE conversation_id = c.id AND hidden = 0
-          AND content LIKE ? ESCAPE '\\'
+          AND content LIKE @pattern ESCAPE '\\'
       ))
     ORDER BY archived_at DESC
-    LIMIT 200
+    LIMIT @limit OFFSET @offset
   `),
   getConversation: db.prepare(`
     SELECT c.*,
@@ -1240,11 +1252,25 @@ export function listAllConversations() {
   return statements.listAllConversations.all().map(mapConversation);
 }
 
-export function listArchivedConversations(query = '') {
+export function countArchivedConversations(query = '') {
+  const normalized = String(query ?? '').trim();
+  const pattern = `%${normalized.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+  return Number(statements.countArchivedConversations.get({
+    query: normalized,
+    pattern,
+  })?.total) || 0;
+}
+
+export function listArchivedConversations(query = '', { limit = 200, offset = 0 } = {}) {
   const normalized = String(query ?? '').trim();
   const pattern = `%${normalized.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
   return statements.listArchivedConversations
-    .all(normalized, pattern, pattern)
+    .all({
+      query: normalized,
+      pattern,
+      limit: Math.max(1, Math.trunc(Number(limit)) || 200),
+      offset: Math.max(0, Math.trunc(Number(offset)) || 0),
+    })
     .map(mapConversation);
 }
 
