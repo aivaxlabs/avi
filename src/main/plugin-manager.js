@@ -13,6 +13,8 @@ import {
 } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import extractZip from 'extract-zip';
+import semver from 'semver';
 import { normalizeMcpServer } from './mcp-config.js';
 import { pluginApi, PLUGIN_API_VERSION } from './plugin-api.js';
 
@@ -64,6 +66,11 @@ const HANDLER_KEYS = Object.freeze({
 const EMPTY_CONTRIBUTIONS = Object.freeze(Object.fromEntries(
   CONTRIBUTION_TYPES.map((type) => [type, Object.freeze([])]),
 ));
+const ENTRYPOINT = 'plugin.js';
+const DISABLED_ENTRYPOINT = 'plugin.js.disabled';
+const MANIFEST = '.avi-plugin.json';
+const MAX_ZIP_ENTRIES = 1_000;
+const MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
 
 export class PluginManager {
   constructor({
@@ -86,6 +93,7 @@ export class PluginManager {
     );
     this.reservedToolNames = new Set(reservedToolNames.map((name) => String(name).toLowerCase()));
     this.plugins = new Map();
+    this.inventory = [];
     this.failures = [];
     this.restartRequired = false;
   }
@@ -97,39 +105,51 @@ export class PluginManager {
       entries = await readdir(this.pluginsDir, { withFileTypes: true });
     } catch (error) {
       this.plugins = new Map();
+      this.inventory = [];
       this.failures = [{
         fileName: 'plugins',
         error: `Plugin directory is unavailable: ${error instanceof Error ? error.message : String(error)}`,
       }];
       return this.getStatus();
     }
-    const files = entries
-      .filter((entry) => entry.isFile() && !entry.name.startsWith('.') && extname(entry.name) === '.js')
+    const directories = entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
       .map((entry) => entry.name)
       .sort((left, right) => left.localeCompare(right, 'en'));
     const candidates = [];
+    const disabled = [];
     const failures = [];
 
-    for (const fileName of files) {
-      const sourcePath = join(this.pluginsDir, fileName);
-      let timeout;
+    for (const directoryName of directories) {
+      const directory = join(this.pluginsDir, directoryName);
+      const sourcePath = join(directory, ENTRYPOINT);
+      const disabledPath = join(directory, DISABLED_ENTRYPOINT);
       try {
-        candidates.push(await Promise.race([
-          this.#load(sourcePath),
-          new Promise((_, reject) => {
-            timeout = setTimeout(() => reject(
-              new Error(`Plugin "${fileName}" did not load within ${this.loadTimeoutMs} ms.`),
-            ), this.loadTimeoutMs);
-          }),
-        ]));
+        this.#requireId(directoryName, 'Plugin directory ID');
+        const [sourceExists, disabledExists] = await Promise.all([
+          this.#regularFileExists(sourcePath),
+          this.#regularFileExists(disabledPath),
+        ]);
+        if (sourceExists && disabledExists) {
+          throw new Error(`Plugin directory "${directoryName}" contains both ${ENTRYPOINT} and ${DISABLED_ENTRYPOINT}.`);
+        }
+        if (disabledExists) {
+          disabled.push(await this.#readDisabledRecord(directoryName));
+          continue;
+        }
+        if (!sourceExists) throw new Error(`Plugin directory "${directoryName}" does not contain ${ENTRYPOINT}.`);
+        const candidate = await this.#loadWithTimeout(sourcePath, directoryName);
+        if (candidate.id.toLowerCase() !== directoryName.toLowerCase()) {
+          throw new Error(`Plugin ID "${candidate.id}" does not match directory "${directoryName}".`);
+        }
+        candidates.push(candidate);
       } catch (error) {
         failures.push({
-          fileName,
+          fileName: `${directoryName}/${ENTRYPOINT}`,
           sourcePath,
+          pluginId: ID_PATTERN.test(directoryName) ? directoryName : undefined,
           error: error instanceof Error ? error.message : String(error),
         });
-      } finally {
-        clearTimeout(timeout);
       }
     }
 
@@ -169,6 +189,19 @@ export class PluginManager {
     }
 
     this.plugins = new Map(materialized.map((plugin) => [plugin.id.toLowerCase(), plugin]));
+    const loadedIds = new Set(materialized.map((plugin) => plugin.id.toLowerCase()));
+    this.inventory = [
+      ...materialized.map((plugin) => this.#pluginRecord(plugin)),
+      ...disabled,
+      ...failures
+        .filter((failure) => failure.pluginId && !loadedIds.has(failure.pluginId.toLowerCase()))
+        .map((failure) => this.#disabledRecord(failure.pluginId, {
+          fileName: ENTRYPOINT,
+          enabled: true,
+          status: 'error',
+          error: failure.error,
+        })),
+    ].sort((left, right) => left.id.localeCompare(right.id, 'en'));
     this.failures = failures;
     try {
       await this.#cleanupMaterialized(new Set(materialized.map((plugin) => plugin.id.toLowerCase())));
@@ -182,20 +215,7 @@ export class PluginManager {
   }
 
   list() {
-    return [...this.plugins.values()].map((plugin) => ({
-      id: plugin.id,
-      name: plugin.name,
-      description: plugin.description,
-      version: plugin.version,
-      status: 'loaded',
-      directory: this.pluginsDir,
-      fileName: basename(plugin.sourcePath),
-      capabilities: CONTRIBUTION_TYPES.filter((type) => plugin.contributions[type].length > 0),
-      contributions: Object.fromEntries(CONTRIBUTION_TYPES.map((type) => [
-        type,
-        plugin.contributions[type].length,
-      ])),
-    }));
+    return this.inventory.map((plugin) => ({ ...plugin }));
   }
 
   getStatus() {
@@ -245,36 +265,333 @@ export class PluginManager {
     return null;
   }
 
-  async sideload(sourcePath) {
+  async setEnabled(id, enabled) {
+    if (typeof enabled !== 'boolean') throw new Error('Plugin enabled state must be a boolean.');
+    const plugin = this.#inventoryEntry(id);
+    if (plugin.enabled === enabled) return { ...plugin, restartRequired: this.restartRequired };
+    const directory = plugin.directory;
+    const source = join(directory, enabled ? DISABLED_ENTRYPOINT : ENTRYPOINT);
+    const destination = join(directory, enabled ? ENTRYPOINT : DISABLED_ENTRYPOINT);
+    await this.#assertManagedRegularFile(source);
+    await this.#assertMissing(destination, `Plugin entrypoint "${basename(destination)}" already exists.`);
+    if (!enabled) await this.#writeManifest(directory, plugin);
+    await rename(source, destination);
+    Object.assign(plugin, {
+      fileName: basename(destination),
+      enabled,
+      status: enabled
+        ? (plugin.runtimeLoaded ? 'loaded' : 'pending enable')
+        : (plugin.runtimeLoaded ? 'pending disable' : 'disabled'),
+    });
+    this.restartRequired = true;
+    return { ...plugin, restartRequired: true };
+  }
+
+  async remove(id) {
+    const plugin = this.#inventoryEntry(id);
+    const directory = plugin.directory;
+    const directoryStat = await lstat(directory);
+    if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
+      throw new Error('The managed plugin package must be a regular directory.');
+    }
+    await rm(directory, { recursive: true });
+    this.inventory = this.inventory.filter((entry) => entry !== plugin);
+    if (plugin.runtimeLoaded) this.restartRequired = true;
+    return { id: plugin.id, restartRequired: this.restartRequired };
+  }
+
+  async sideload(sourcePath, { confirmDowngrade = async () => false } = {}) {
     const source = resolve(sourcePath);
-    if (extname(source) !== '.js' || basename(source).startsWith('.')) {
-      throw new Error('Only a single non-hidden .js plugin file can be sideloaded.');
+    const extension = extname(source).toLowerCase();
+    if (!['.js', '.zip'].includes(extension) || basename(source).startsWith('.')) {
+      throw new Error('Only a non-hidden .js or .zip plugin package can be sideloaded.');
     }
     const sourceStat = await lstat(source);
     if (!sourceStat.isFile() || sourceStat.isSymbolicLink()) {
       throw new Error('The sideload source must be a regular file.');
     }
-    const destination = join(this.pluginsDir, basename(source));
-    if (source.toLowerCase() === destination.toLowerCase()) {
-      throw new Error('The plugin is already in the plugin directory.');
-    }
     await mkdir(this.pluginsDir, { recursive: true });
+    const stagingRoot = join(this.pluginsDir, `.install-${randomUUID()}`);
+    const stagedPackage = join(stagingRoot, 'package');
+    let backup;
     try {
-      await lstat(destination);
-      throw new Error(`Plugin file "${basename(source)}" already exists.`);
+      await mkdir(stagedPackage, { recursive: true });
+      if (extension === '.js') {
+        await copyFile(source, join(stagedPackage, ENTRYPOINT), 0x1);
+      } else {
+        let entryCount = 0;
+        let uncompressedBytes = 0;
+        const archivePaths = new Set();
+        await extractZip(source, {
+          dir: stagedPackage,
+          onEntry: (entry) => {
+            const normalized = entry.fileName.replaceAll('\\', '/');
+            const normalizedKey = normalized.toLowerCase();
+            const mode = (entry.externalFileAttributes >> 16) & 0xFFFF;
+            entryCount += 1;
+            uncompressedBytes += Number(entry.uncompressedSize ?? 0);
+            if (entryCount > MAX_ZIP_ENTRIES || uncompressedBytes > MAX_UNCOMPRESSED_BYTES) {
+              throw new Error('ZIP plugin package is too large.');
+            }
+            if (archivePaths.has(normalizedKey)) {
+              throw new Error(`ZIP entry "${entry.fileName}" is duplicated.`);
+            }
+            archivePaths.add(normalizedKey);
+            if (normalized.startsWith('/') || /^[a-z]:\//i.test(normalized)
+              || normalized.split('/').includes('..') || (mode & 0o170000) === 0o120000) {
+              throw new Error(`ZIP entry "${entry.fileName}" is not safe to extract.`);
+            }
+          },
+        });
+      }
+      await this.#assertPackageTree(stagedPackage);
+      const stagedEntrypoint = join(stagedPackage, ENTRYPOINT);
+      await this.#assertManagedRegularFile(stagedEntrypoint);
+      const candidate = await this.#loadWithTimeout(stagedEntrypoint, basename(source));
+      const matches = this.inventory.filter((plugin) => plugin.id.toLowerCase() === candidate.id.toLowerCase());
+      if (matches.length > 1) {
+        throw new Error(`Plugin ID "${candidate.id}" has multiple case-insensitive installation directories. Remove the duplicates before installing.`);
+      }
+      const existing = matches[0];
+      const destination = existing?.directory ?? join(this.pluginsDir, candidate.id.toLowerCase());
+      const installedVersion = existing ? semver.valid(String(existing.version)) : null;
+      if (installedVersion && semver.lt(this.#semanticVersion(candidate.version), installedVersion)) {
+        const confirmed = await confirmDowngrade({
+          id: candidate.id,
+          name: candidate.name,
+          installedVersion: existing.version,
+          incomingVersion: candidate.version,
+        });
+        if (!confirmed) return null;
+      }
+      const claimed = Object.fromEntries([
+        ['plugins', new Map()],
+        ['tools', new Map([...this.reservedToolNames].map((name) => [name, 'Avi']))],
+        ...['auxiliaryPanels', 'themes', 'personalities', 'providers'].map((type) => [
+          type,
+          new Map([...this.reservedIds[type]].map((id) => [id, 'Avi'])),
+        ]),
+      ]);
+      for (const plugin of this.plugins.values()) {
+        if (plugin.id.toLowerCase() !== candidate.id.toLowerCase()) this.#claim(plugin, claimed);
+      }
+      this.#claim(candidate, claimed);
+      const contextCheck = join(stagingRoot, 'context-check');
+      await mkdir(contextCheck, { recursive: true });
+      for (const item of candidate.contributions.context) {
+        const target = resolve(contextCheck, item.public.path);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, item.public.content, { encoding: 'utf8', flag: 'wx' });
+      }
+      await this.#writeManifest(stagedPackage, candidate);
+      if (existing?.enabled === false) {
+        await rename(join(stagedPackage, ENTRYPOINT), join(stagedPackage, DISABLED_ENTRYPOINT));
+      }
+      try {
+        await lstat(destination);
+        backup = join(this.pluginsDir, `.backup-${candidate.id}-${randomUUID()}`);
+        await rename(destination, backup);
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+      try {
+        await rename(stagedPackage, destination);
+      } catch (error) {
+        if (backup) {
+          try {
+            await rename(backup, destination);
+            backup = null;
+          } catch (rollbackError) {
+            throw new Error(
+              `Plugin installation failed and the previous version could not be restored. Recovery copy: ${backup}. Install error: ${error instanceof Error ? error.message : String(error)}. Rollback error: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}.`,
+            );
+          }
+        }
+        throw error;
+      }
+      if (backup) {
+        try {
+          await rm(backup, { recursive: true, force: true });
+          backup = null;
+        } catch (error) {
+          this.failures.push({
+            fileName: basename(backup),
+            error: `Plugin recovery backup cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
+      }
+      const runtimeLoaded = existing?.runtimeLoaded ?? false;
+      const record = existing?.enabled === false
+        ? this.#disabledRecord(candidate.id, {
+            name: candidate.name,
+            description: candidate.description,
+            version: candidate.version,
+            directory: destination,
+            status: 'disabled',
+          })
+        : this.#pluginRecord(candidate, {
+            directory: destination,
+            status: runtimeLoaded ? 'pending update' : 'pending enable',
+            runtimeLoaded,
+          });
+      this.inventory = [
+        ...this.inventory.filter((plugin) => plugin.id.toLowerCase() !== candidate.id.toLowerCase()),
+        record,
+      ].sort((left, right) => left.id.localeCompare(right.id, 'en'));
+      this.restartRequired = true;
+      return {
+        id: candidate.id,
+        name: candidate.name,
+        version: candidate.version,
+        path: join(destination, ENTRYPOINT),
+        replaced: !!existing,
+        restartRequired: true,
+      };
+    } finally {
+      try {
+        await rm(stagingRoot, { recursive: true, force: true });
+      } catch (error) {
+        this.failures.push({
+          fileName: basename(stagingRoot),
+          error: `Plugin installation staging cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    }
+  }
+
+  #pluginRecord(plugin, overrides = {}) {
+    return {
+      id: plugin.id,
+      name: plugin.name,
+      description: plugin.description,
+      version: plugin.version,
+      status: 'loaded',
+      enabled: true,
+      runtimeLoaded: true,
+      directory: dirname(plugin.sourcePath),
+      fileName: ENTRYPOINT,
+      capabilities: CONTRIBUTION_TYPES.filter((type) => plugin.contributions[type].length > 0),
+      contributions: Object.fromEntries(CONTRIBUTION_TYPES.map((type) => [
+        type,
+        plugin.contributions[type].length,
+      ])),
+      ...overrides,
+    };
+  }
+
+  #disabledRecord(id, overrides = {}) {
+    return {
+      id,
+      name: id,
+      description: '',
+      version: '',
+      status: 'disabled',
+      enabled: false,
+      runtimeLoaded: false,
+      directory: join(this.pluginsDir, id),
+      fileName: DISABLED_ENTRYPOINT,
+      capabilities: [],
+      contributions: Object.fromEntries(CONTRIBUTION_TYPES.map((type) => [type, 0])),
+      ...overrides,
+    };
+  }
+
+  #inventoryEntry(id) {
+    const normalized = this.#requireId(id, 'Plugin ID');
+    const plugin = this.inventory.find((entry) => entry.id.toLowerCase() === normalized.toLowerCase());
+    if (!plugin) throw new Error(`Plugin "${normalized}" is not managed by Avi.`);
+    return plugin;
+  }
+
+  async #assertManagedRegularFile(path) {
+    const file = await lstat(path);
+    if (!file.isFile() || file.isSymbolicLink()) {
+      throw new Error('The managed plugin source must be a regular file.');
+    }
+  }
+
+  async #assertMissing(path, message) {
+    try {
+      await lstat(path);
+      throw new Error(message);
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error;
     }
-    const temporary = `${destination}.${randomUUID()}.tmp`;
+  }
+
+  async #regularFileExists(path) {
     try {
-      await copyFile(source, temporary, 0x1);
-      await rename(temporary, destination);
+      const entry = await lstat(path);
+      if (entry.isSymbolicLink()) throw new Error(`Plugin path "${path}" cannot be a symbolic link.`);
+      return entry.isFile();
     } catch (error) {
-      await rm(temporary, { force: true });
+      if (error?.code === 'ENOENT') return false;
       throw error;
     }
-    this.restartRequired = true;
-    return { fileName: basename(source), path: destination, restartRequired: true };
+  }
+
+  async #readDisabledRecord(id) {
+    const directory = join(this.pluginsDir, id);
+    try {
+      const manifest = JSON.parse(await readFile(join(directory, MANIFEST), 'utf8'));
+      if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)
+        || manifest.id?.toLowerCase() !== id.toLowerCase()) {
+        throw new Error('manifest metadata does not match its plugin directory');
+      }
+      return this.#disabledRecord(id, {
+        name: this.#requireText(manifest.name, 'Plugin name'),
+        description: manifest.description == null ? '' : this.#requireText(manifest.description, 'Plugin description'),
+        version: this.#requireText(manifest.version, 'Plugin version'),
+      });
+    } catch (error) {
+      return this.#disabledRecord(id, {
+        error: `Disabled plugin metadata is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
+  async #writeManifest(directory, plugin) {
+    await writeFile(join(directory, MANIFEST), `${JSON.stringify({
+      id: plugin.id,
+      name: plugin.name,
+      description: plugin.description ?? '',
+      version: plugin.version,
+    }, null, 2)}\n`, 'utf8');
+  }
+
+  async #assertPackageTree(root) {
+    const visit = async (directory) => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name);
+        const info = await lstat(path);
+        if (info.isSymbolicLink()) throw new Error(`Plugin package cannot contain symbolic link "${relative(root, path)}".`);
+        if (info.isDirectory()) await visit(path);
+        else if (!info.isFile()) throw new Error(`Plugin package entry "${relative(root, path)}" is not a regular file.`);
+      }
+    };
+    await visit(root);
+  }
+
+  #semanticVersion(version) {
+    const normalized = semver.valid(String(version));
+    if (!normalized) throw new Error(`Plugin version "${version}" must be a valid semantic version.`);
+    return normalized;
+  }
+
+  async #loadWithTimeout(sourcePath, label) {
+    let timeout;
+    try {
+      return await Promise.race([
+        this.#load(sourcePath),
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(
+            new Error(`Plugin "${label}" did not load within ${this.loadTimeoutMs} ms.`),
+          ), this.loadTimeoutMs);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async #load(sourcePath) {
@@ -305,6 +622,7 @@ export class PluginManager {
     const id = this.#requireId(definition.id, 'Plugin ID');
     const name = this.#requireText(definition.name, 'Plugin name');
     const version = this.#requireText(definition.version, 'Plugin version');
+    this.#semanticVersion(version);
     const description = definition.description == null
       ? ''
       : this.#requireText(definition.description, 'Plugin description');

@@ -997,7 +997,7 @@ export const ChatView = memo(function ChatView({
         onPendingAttachmentConsumed={onPendingAttachmentConsumed}
         messageDeliveryMode={messageDeliveryMode}
         draftKey={draftKey}
-        autoFocus={Boolean(currentConversation?.isSideChat)}
+        autoFocus={!currentConversation || Boolean(currentConversation.isSideChat)}
         defaultPermissionMode={defaultPermissionMode}
       />
       {selectionAction && createPortal(

@@ -2,7 +2,7 @@
 
 Use a plugin when one trusted, install-wide JavaScript extension needs to contribute multiple Avi capabilities or main-process behavior. For static guidance alone, prefer instructions, a workflow, or a skill. For a standalone external integration, prefer MCP.
 
-Read `docs/Plugins.md` before authoring or reviewing a plugin. The implementation contract is a trusted single-file ESM `.js` loaded at startup from `$INSTALL_DIR/plugins`.
+Read `docs/Plugins.md` before authoring or reviewing a plugin. The executable contract is a trusted ESM `plugin.js` loaded from `$INSTALL_DIR/plugins/<plugin-id>/plugin.js`. Installation accepts a `.js` source or a `.zip` package with optional supporting files.
 
 ## Version 1 contract
 
@@ -52,7 +52,7 @@ Plugin context command precedence is workspace → global → installation → p
 
 Plugins run with Avi main-process privileges and are not sandboxed. Review the entire source, dependencies it launches, endpoints, CSS, schemas, file/process/network behavior, and credential handling. Never hard-code secrets.
 
-Sideloading copies one reviewed `.js` file into `$INSTALL_DIR/plugins` and requires restart. It can fail when the installation directory is unwritable. Version 1 is file-presence based and has no enable, disable, update, remove, settings, disposal, or lifecycle API. Installers and updaters can replace installation files.
+Installation stages and executes one reviewed `.js` entrypoint or a reviewed `.zip` package for validation, then writes `$INSTALL_DIR/plugins/<id>/plugin.js`. The source filename is ignored. Reinstalling the same or a newer version atomically replaces the folder; an older version requires confirmation. Settings can disable a plugin by renaming its entrypoint to `plugin.js.disabled`, re-enable it, or remove the entire folder. Disabled code remains listed through host-written metadata but is never imported or executed. Loaded contributions remain active until restart because plugins run in the main process. Installation-directory permissions and installers/updaters can affect these files.
 
 Never install or execute third-party plugin code without explicit user authority. Use the `/create-plugin` workflow to implement minimally and validate through the real loader before sideloading.
 

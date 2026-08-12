@@ -226,6 +226,7 @@ export default function App() {
       api.models.list(),
       api.models.favorites(),
       api.mcp.state(),
+      api.plugins.restoreReload(),
     ])
       .then(async ([
         nextAppState,
@@ -235,6 +236,7 @@ export default function App() {
         nextModels,
         nextFavorites,
         nextMcpState,
+        restoredReload,
       ]) => {
         if (!active) return;
         setPluginThemes(nextAppState.pluginCatalog?.themes);
@@ -254,6 +256,29 @@ export default function App() {
         setModels(nextModels);
         setFavorites(nextFavorites);
         setMcpState(nextMcpState);
+        if (restoredReload) {
+          const restoredMessages = await Promise.all(restoredReload.conversationIds.map(async (id) => (
+            [id, await api.conversations.messages(id)]
+          )));
+          if (!active) return;
+          setMessagesByConversation((current) => Object.fromEntries([
+            ...Object.entries(current),
+            ...restoredMessages.map(([id, messages]) => [
+              id,
+              (current[id] ?? []).reduce(
+                (items, message) => upsertMessage(items, message),
+                messages,
+              ),
+            ]),
+          ]));
+          const completedReload = await api.plugins.completeReload();
+          if (!active || !completedReload) return;
+          setRunning(Object.fromEntries(
+            completedReload.conversationIds.map((conversationId) => [conversationId, true]),
+          ));
+          setApprovalRequests(completedReload.approvals);
+          setQuestionRequests(completedReload.questions);
+        }
         const authServers = nextMcpState.servers
           .filter((server) => server.status === 'auth-required');
         const failedServers = nextMcpState.servers
@@ -323,9 +348,19 @@ export default function App() {
     }
   }, [currentConversation?.goal?.status, currentConversation?.id, workMode]);
 
-  useEffect(() => api.app.onNavigate(async ({ view, conversationId }) => {
+  useEffect(() => api.app.onNavigate(async ({ view, conversationId, project, draftText }) => {
     setOrchestrationOpen(false);
     setSearchOpen(false);
+    if (view === 'new-conversation') {
+      window.localStorage.setItem('aivax.composer.draft', String(draftText ?? ''));
+      setSettingsContextFolder(null);
+      setSettingsInitialView(null);
+      setSettingsOpen(false);
+      setDraftProject(project ?? appState?.defaultProject ?? null);
+      selectedConversationIdRef.current = null;
+      setSelectedId(null);
+      return;
+    }
     if (view === 'settings') {
       setSettingsContextFolder(null);
       setSettingsInitialView(null);
@@ -806,10 +841,12 @@ export default function App() {
         result,
       ),
     }));
-    setRunning((state) => ({
-      ...state,
-      [result.conversation.id]: !result.queued,
-    }));
+    if (!result.queued) {
+      setRunning((state) => ({
+        ...state,
+        [result.conversation.id]: true,
+      }));
+    }
   }
 
   async function stopConversation(conversationId = selectedId) {
@@ -1013,10 +1050,12 @@ export default function App() {
           setSelectedId(result.conversation.id);
         }
       }
-      setRunning((state) => ({
-        ...state,
-        [result.conversation.id]: !result.queued,
-      }));
+      if (!result.queued) {
+        setRunning((state) => ({
+          ...state,
+          [result.conversation.id]: true,
+        }));
+      }
       return true;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));

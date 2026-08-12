@@ -10144,6 +10144,26 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     gap: 8px;
 }
 
+.plugins-settings .plugins-developer-tools {
+    position: relative;
+}
+
+.plugins-settings .plugins-developer-tools .secondary-mini svg:last-child {
+    margin-left: 1px;
+}
+
+.plugins-settings .plugins-developer-tools .dropdown-menu {
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 20;
+    width: 190px;
+    border-radius: 10px;
+}
+
+.plugins-settings .plugins-developer-tools .dropdown-menu-item {
+    border-radius: 7px;
+}
+
 .plugins-settings .plugins-restart {
     align-items: center;
     padding: 10px 12px;
@@ -10166,9 +10186,29 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     color: var(--text-3);
 }
 
+.plugins-settings .plugin-card.disabled {
+    background: color-mix(in srgb, var(--background-1) 74%, var(--background-2));
+}
+
+.plugins-settings .plugin-card.disabled > svg, .plugins-settings .plugin-card.disabled .plugin-card-main {
+    opacity: .66;
+}
+
 .plugins-settings .plugin-card-main {
     min-width: 0;
     flex: 1;
+}
+
+.plugins-settings .plugin-card-actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.plugins-settings .plugin-card-actions .danger {
+    color: var(--danger-color);
 }
 
 .plugins-settings .plugin-card-title {
@@ -10213,6 +10253,10 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     color: var(--danger-color);
 }
 
+.plugins-settings .plugin-status.disabled, .plugins-settings .plugin-status.pending-disable, .plugins-settings .plugin-status.pending-enable {
+    color: var(--warn-color);
+}
+
 .plugins-settings .plugin-capabilities {
     display: flex;
     flex-wrap: wrap;
@@ -10238,6 +10282,18 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     gap: 9px;
     color: var(--text-3);
     font-size: 11px;
+}
+
+@media (max-width: 680px) {
+    .plugins-settings .plugin-card {
+        flex-wrap: wrap;
+    }
+
+    .plugins-settings .plugin-card-actions {
+        width: 100%;
+        padding-left: 30px;
+        justify-content: flex-start;
+    }
 }
 /* themes\axion.xcss */
 [data-theme="axion"] {

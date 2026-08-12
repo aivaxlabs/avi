@@ -136,6 +136,7 @@ let quickChatRunner;
 let mcpManager;
 let remoteMcpServer;
 let remoteStartError = '';
+let reloadSnapshot = null;
 const quickChatWindows = new Map();
 let shutdownStarted = false;
 let shutdownReady = false;
@@ -1255,9 +1256,42 @@ function registerIpc() {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
       defaultPath: homedir(),
       properties: ['openFile'],
-      filters: [{ name: 'JavaScript plugins', extensions: ['js'] }],
+      filters: [{ name: 'Plugin packages', extensions: ['js', 'zip'] }],
     });
-    return canceled ? null : pluginManager.sideload(filePaths[0]);
+    if (canceled) return null;
+    return pluginManager.sideload(filePaths[0], {
+      confirmDowngrade: async ({ name, installedVersion, incomingVersion }) => {
+        const { response } = await dialog.showMessageBox(mainWindow, {
+          type: 'warning',
+          title: 'Install older plugin version?',
+          message: `${name} ${incomingVersion} is older than the installed version ${installedVersion}.`,
+          detail: 'Installing it replaces the entire plugin folder. The currently loaded version remains active until Avi restarts.',
+          buttons: ['Cancel', 'Install older version'],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        });
+        return response === 1;
+      },
+    });
+  });
+  applicationIpc.handle('plugins:set-enabled', (_event, { id, enabled }) => (
+    pluginManager.setEnabled(id, enabled)
+  ));
+  applicationIpc.handle('plugins:remove', async (_event, { id }) => {
+    const plugin = pluginManager.list().find((entry) => entry.id === id);
+    if (!plugin) throw new Error(`Plugin "${String(id ?? '')}" is not managed by Avi.`);
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Remove plugin?',
+      message: `Remove ${plugin.name || plugin.id}?`,
+      detail: `This permanently deletes the entire ${plugin.id} plugin folder.`,
+      buttons: ['Cancel', 'Remove'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    return response === 1 ? pluginManager.remove(id) : null;
   });
   applicationIpc.handle('plugins:docs', async () => {
     const docsPath = app.isPackaged
@@ -1265,6 +1299,34 @@ function registerIpc() {
       : join(app.getAppPath(), 'docs', 'Plugins.md');
     const error = await shell.openPath(docsPath);
     if (error) throw new Error(`Could not open plugin documentation: ${error}`);
+    return true;
+  });
+  applicationIpc.handle('plugins:reload-window', () => {
+    reloadSnapshot = chatRunner.reloadSnapshot();
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reload();
+    }, 0);
+    return true;
+  });
+  applicationIpc.handle('plugins:restore-reload', () => reloadSnapshot);
+  applicationIpc.handle('plugins:complete-reload', () => {
+    const snapshot = reloadSnapshot;
+    if (!snapshot) return null;
+    const current = chatRunner.reloadSnapshot();
+    const snapshotIds = new Set(snapshot.conversationIds);
+    reloadSnapshot = null;
+    return {
+      conversationIds: current.conversationIds.filter((id) => snapshotIds.has(id)),
+      approvals: current.approvals.filter((request) => snapshotIds.has(request.conversationId)),
+      questions: current.questions.filter((request) => snapshotIds.has(request.conversationId)),
+    };
+  });
+  applicationIpc.handle('plugins:create', () => {
+    openMainView({
+      view: 'new-conversation',
+      project: inspectProjectFolder(homedir()),
+      draftText: '/create-plugin Create a plugin that does...',
+    });
     return true;
   });
 
@@ -1622,14 +1684,33 @@ function openTerminalAt(folderPath) {
     : shellName === 'cmd'
       ? ['/K', 'cd', '/d', folderPath]
       : ['-c', `cd ${quotedPath} && exec ${terminalShell.executable}`];
-  const child = spawn(terminalShell.executable, args, {
-    cwd: folderPath,
-    detached: process.platform === 'linux',
-    env: process.env,
-    shell: false,
-    windowsHide: false,
-  });
-  if (process.platform === 'linux') child.unref();
+  const child = process.platform === 'win32'
+    ? spawn(process.env.ComSpec || 'cmd.exe', [
+      '/d',
+      '/s',
+      '/c',
+      'start',
+      '',
+      '/D',
+      folderPath,
+      terminalShell.executable,
+      ...args,
+    ], {
+      cwd: folderPath,
+      detached: true,
+      env: process.env,
+      shell: false,
+      stdio: 'ignore',
+      windowsHide: true,
+    })
+    : spawn(terminalShell.executable, args, {
+      cwd: folderPath,
+      detached: process.platform === 'linux',
+      env: process.env,
+      shell: false,
+      windowsHide: false,
+    });
+  if (process.platform === 'win32' || process.platform === 'linux') child.unref();
   child.once('error', (error) => {
     traceError('shell.open-terminal-error', {
       error: error instanceof Error ? error.message : String(error),

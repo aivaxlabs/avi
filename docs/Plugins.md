@@ -1,6 +1,6 @@
 # Plugins
 
-Plugins extend Avi with trusted main-process JavaScript. Version 1 supports a single ECMAScript module (`.js`) per plugin. A plugin can contribute context files, MCP server descriptors, chat tools, declarative auxiliary panels, themes, personalities, and model-provider implementations.
+Plugins extend Avi with trusted main-process JavaScript. Every plugin package has one ECMAScript module entrypoint named `plugin.js`; a package can be installed from a `.js` file or a `.zip` archive containing `plugin.js` and optional supporting files. A plugin can contribute context files, MCP server descriptors, chat tools, declarative auxiliary panels, themes, personalities, and model-provider implementations.
 
 > **Security boundary:** a plugin is not sandboxed. Importing it executes code with the same operating-system and Electron main-process privileges as Avi. A plugin can read or change local files, access credentials available to the process, use the network, start processes, and inspect data that Avi can access. Install only code you have reviewed and trust.
 
@@ -8,14 +8,15 @@ Plugins cannot inject arbitrary renderer JavaScript. Auxiliary panels, themes, a
 
 ## Version 1 at a glance
 
-- Source: one non-hidden, regular `.js` file using ESM syntax.
-- Loading: top-level plugin files are discovered and loaded at Avi startup in deterministic filename order. Each asynchronous import/factory has a 10-second timeout.
+- Source: one non-hidden, regular `.js` file or `.zip` package. The entrypoint is always `plugin.js` and uses ESM syntax.
+- Storage: installed packages live at `$INSTALL_DIR/plugins/<plugin-id>/`; enabled entrypoints are `plugin.js`, while disabled entrypoints are `plugin.js.disabled`.
+- Loading: plugin directories are discovered by ID and enabled entrypoints are loaded at Avi startup in deterministic directory order. Each asynchronous import/factory has a 10-second timeout.
 - Export: a default object or a default async factory receiving `pluginApi`.
 - API compatibility: both the host API and definition use `apiVersion: 1`.
 - Metadata: `id`, `name`, and `version` are required. `description` is optional and preserved in plugin status.
 - Atomicity: import, factory, validation, collision, or context-materialization failure rejects the entire plugin. Avi does not load only the valid contributions.
 - Collisions: plugin IDs and contributed tool, provider, auxiliary-panel, theme, and personality IDs are unique case-insensitively across loaded plugins.
-- Installation: sideloading copies the source into `$INSTALL_DIR/plugins` and requires an Avi restart. There is no v1 enable, disable, update, remove, settings, disposal, or lifecycle API.
+- Installation: Avi stages and validates the selected `.js` or `.zip`, then installs it at `$INSTALL_DIR/plugins/<plugin-id>/plugin.js`. Reinstalling the same or a newer version replaces the entire package; installing an older version requires native confirmation. Settings can enable, disable, or remove installed packages. These storage changes require restart to update contributions already loaded in the main process. There is no plugin-defined settings, disposal, or lifecycle API.
 - Diagnostics: startup failures are recorded in Avi's plugin status, written to `trace.log`, and shown as startup warnings.
 
 `$INSTALL_DIR` means Avi's installed application directory. It is not necessarily writable. System-wide installations can require elevated filesystem permission, and an installer or updater can replace files under that directory.
@@ -528,9 +529,13 @@ Replace example endpoints and authentication with a reviewed implementation. Do 
 
 ## Installation and maintenance
 
-Use **Settings → Plugins → Sideload plugin** to select one `.js` file. Avi copies it into `$INSTALL_DIR/plugins`; it does not execute the selected source in place. The copy fails if the destination filename already exists, the source is hidden, not a regular file, a symbolic link, not `.js`, or the destination is unwritable. Restart Avi after a successful sideload.
+Use **Settings → Plugins → Install .js or .zip** to select a package. For a `.js` source, its original filename does not matter: Avi copies it to a staging directory as `plugin.js`. For a `.zip`, Avi safely extracts the archive into staging and requires a regular root `plugin.js`; supporting files and directories are preserved. Archive traversal paths, symbolic links, excessive entry counts, and excessive declared uncompressed size are rejected.
 
-Version 1 has no in-app update or removal API. When Avi is fully closed, a user with filesystem permission can replace or remove the corresponding top-level `.js` file manually; the next startup reflects file presence. Back up reviewed source before modifying an installation, and remember that installers/updaters can replace installation files.
+Avi executes the staged entrypoint to validate the trusted package before installation. The default export must include `apiVersion`, `id`, `name`, and a valid semantic `version` such as `1.0.0`; abbreviated or embedded-number versions are rejected; the validated ID determines `$INSTALL_DIR/plugins/<id>`. The folder name and exported ID must match on subsequent startup. A validation or extraction failure leaves the currently installed package untouched.
+
+When the same ID is already installed, the entire folder is replaced atomically after staging succeeds. The same version or a newer version installs immediately. An older version opens a native confirmation showing the installed and incoming versions; canceling leaves the installed folder unchanged. Replacement prepares the filesystem for the next startup, so currently loaded code can remain active until restart.
+
+Settings lists enabled `plugin.js` and disabled `plugin.js.disabled` entrypoints. Disabling renames only the entrypoint; enabling restores it; removing permanently deletes the entire `<id>` directory after native confirmation. Avi writes `.avi-plugin.json` metadata so disabled packages remain identifiable without importing or executing `plugin.js.disabled`. Do not edit that manifest or create both entrypoints. Enable, disable, install, replacement, and removal of a loaded plugin show **Restart Avi to apply plugin changes**.
 
 Never edit `plugins/.avi`: it is regenerated and cleaned by the manager.
 
@@ -569,7 +574,7 @@ These tests validate the host contract; they do not make third-party code trustw
 
 ## Author checklist
 
-1. Keep the plugin in one reviewed ESM `.js` file.
+1. Keep the executable entrypoint in one reviewed ESM `plugin.js`; put optional supporting files beside it only when packaging a `.zip`.
 2. Use `apiVersion: 1` in both host compatibility checks and the definition.
 3. Use stable lowercase kebab-case IDs and check collisions.
 4. Keep descriptor data plain and serializable; keep handlers top-level.

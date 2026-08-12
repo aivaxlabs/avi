@@ -102,7 +102,13 @@ contextBridge.exposeInMainWorld('chatApp', {
   plugins: {
     list: () => invoke('plugins:list'),
     sideload: () => invoke('plugins:sideload'),
+    setEnabled: (payload) => invoke('plugins:set-enabled', payload),
+    remove: (payload) => invoke('plugins:remove', payload),
     docs: () => invoke('plugins:docs'),
+    reloadWindow: () => invoke('plugins:reload-window'),
+    restoreReload: () => invoke('plugins:restore-reload'),
+    completeReload: () => invoke('plugins:complete-reload'),
+    create: () => invoke('plugins:create'),
   },
   mcp: {
     state: () => invoke('mcp:state'),
