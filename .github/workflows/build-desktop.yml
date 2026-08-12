@@ -19,10 +19,18 @@ jobs:
             os: windows-latest
             package-args: --x64
             artifact-name: avi-windows-x64
+          - name: Windows arm64
+            os: windows-latest
+            package-args: --arm64
+            artifact-name: avi-windows-arm64
           - name: Linux x64
             os: ubuntu-latest
             package-args: --x64
             artifact-name: avi-linux-x64
+          - name: Linux arm64
+            os: ubuntu-latest
+            package-args: --arm64
+            artifact-name: avi-linux-arm64
           - name: macOS x64 and arm64
             os: macos-latest
             package-args: --x64 --arm64
