@@ -93,6 +93,15 @@ Avi is an harness built from scratch which brings model conversations, cross-pro
   - Choose different personalities for the chat (friendly, candid, cynical, etc.)
   - Choose interface themes
 
+Planned features (roadmap):
+- Pets!
+- Computer use tools
+- Side browser panel
+- Terminal auxiliary panel (to view running background terminals and inspect them)
+- Improve /ultra mode
+- Add more providers (Cursor, Claude Code, Antigravity)
+- Mobile app (PWA)
+
 ## Getting started
 
 ### Prerequisites
