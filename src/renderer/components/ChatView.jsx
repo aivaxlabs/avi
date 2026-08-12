@@ -5,12 +5,13 @@ import {
   MessagesSquare,
   UploadCloud,
 } from 'lucide-react';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Composer } from './Composer.jsx';
-import { groupAssistantTurns } from '../lib/message-groups.js';
+import { consolidateFileEdits } from '../lib/file-edits.js';
+import { groupAssistantTurns, isHumanUserMessage } from '../lib/message-groups.js';
 import { Message } from './Message.jsx';
 
 const emptyChatBackgroundShader = `
@@ -194,6 +195,18 @@ export const ChatView = memo(function ChatView({
     .filter((message) => !message.hidden)
     .filter((message) => !['queued', 'steered'].includes(message.status));
   const groupedMessages = groupAssistantTurns(visibleMessages);
+  const editStats = useMemo(() => {
+    const lastUserMessageIndex = currentMessages.findLastIndex((message) => (
+      !message.hidden && isHumanUserMessage(message)
+    ));
+    return consolidateFileEdits(
+      currentMessages.slice(lastUserMessageIndex + 1).filter((message) => !message.hidden),
+    ).reduce((stats, edit) => ({
+      files: stats.files + 1,
+      additions: stats.additions + edit.additions,
+      deletions: stats.deletions + edit.deletions,
+    }), { files: 0, additions: 0, deletions: 0 });
+  }, [currentMessages]);
   const lastAssistantMessage = visibleMessages.findLast((message) => message.role === 'assistant');
   const lastMessage = visibleMessages.at(-1);
   const isEmptyChat = visibleMessages.length === 0;
@@ -965,6 +978,7 @@ export const ChatView = memo(function ChatView({
         tasks={tasks}
         onOpenTasks={onOpenTasks}
         onOpenSubagents={onOpenSubagents}
+        editStats={editStats}
         steeredMessages={steeredMessages}
         queuedMessages={queuedMessages}
         onCancelQueued={onCancelQueued}

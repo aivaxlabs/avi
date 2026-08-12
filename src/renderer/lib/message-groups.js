@@ -34,6 +34,12 @@ export function parseStructuredUserMessage(message) {
   return null;
 }
 
+export function isHumanUserMessage(message) {
+  return message?.role === 'user'
+    && message.fromAgent !== true
+    && !parseStructuredUserMessage(message);
+}
+
 export function groupAssistantTurns(messages) {
   const grouped = [];
   let turn = [];
@@ -59,7 +65,7 @@ export function groupAssistantTurns(messages) {
     const belongsToAssistantTurn = (
       message.role === 'assistant'
       || message.fromAgent === true
-      || Boolean(parseStructuredUserMessage(message))
+      || (message.role === 'user' && !isHumanUserMessage(message))
     );
     if (!belongsToAssistantTurn) {
       flushTurn();

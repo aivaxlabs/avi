@@ -21,6 +21,10 @@ export default function QuickChatApp() {
   const [fileDropActive, setFileDropActive] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState(null);
   const scrollRef = useRef(null);
+  const autoScrollTimerRef = useRef(null);
+  const autoScrollTargetRef = useRef(null);
+  const manualScrollDuringRunRef = useRef(false);
+  const wasRunningRef = useRef(false);
   const dragDepthRef = useRef(0);
 
   useEffect(() => {
@@ -58,9 +62,57 @@ export default function QuickChatApp() {
     });
   }, []);
 
+  const lastMessage = messages.at(-1);
+  const streamScrollKey = [
+    lastMessage?.id ?? '',
+    lastMessage?.updatedAt ?? '',
+    lastMessage?.content?.length ?? 0,
+    questionRequest?.questionId ?? '',
+  ].join(':');
+
+  function scrollToBottom() {
+    const scrollElement = scrollRef.current;
+    if (scrollElement) {
+      const target = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight);
+      autoScrollTargetRef.current = target;
+      scrollElement.scrollTop = target;
+    }
+  }
+
+  function scheduleScrollToBottom(delay = 50) {
+    if (autoScrollTimerRef.current !== null) return;
+
+    autoScrollTimerRef.current = window.setTimeout(() => {
+      autoScrollTimerRef.current = null;
+      requestAnimationFrame(scrollToBottom);
+    }, delay);
+  }
+
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages]);
+    scheduleScrollToBottom(0);
+
+    return () => {
+      window.clearTimeout(autoScrollTimerRef.current);
+      autoScrollTimerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!running) scheduleScrollToBottom(0);
+  }, [messages.length, running]);
+
+  useEffect(() => {
+    if (running && !wasRunningRef.current) {
+      manualScrollDuringRunRef.current = false;
+    }
+    wasRunningRef.current = running;
+  }, [running]);
+
+  useEffect(() => {
+    if (running && !manualScrollDuringRunRef.current) {
+      scheduleScrollToBottom();
+    }
+  }, [running, streamScrollKey]);
 
   const selectedModel = models.find((item) => item.id === model);
   const modelName = selectedModel?.name ?? selectedModel?.modelId ?? 'Choose model';
@@ -100,7 +152,35 @@ export default function QuickChatApp() {
           <span>Drop files to attach</span>
         </div>
       )}
-      <section className="quick-chat-scroll" ref={scrollRef}>
+      <section
+        className="quick-chat-scroll"
+        ref={scrollRef}
+        onScroll={(event) => {
+          if (!running) return;
+
+          const scrollElement = event.currentTarget;
+          const reachedBottom = (
+            scrollElement.scrollHeight
+            - scrollElement.scrollTop
+            - scrollElement.clientHeight
+          ) <= 24;
+          const matchedAutoScroll = (
+            autoScrollTargetRef.current !== null
+            && Math.abs(scrollElement.scrollTop - autoScrollTargetRef.current) <= 1
+          );
+          autoScrollTargetRef.current = null;
+          if (matchedAutoScroll) {
+            manualScrollDuringRunRef.current = false;
+            return;
+          }
+
+          manualScrollDuringRunRef.current = !reachedBottom;
+          if (!reachedBottom) {
+            window.clearTimeout(autoScrollTimerRef.current);
+            autoScrollTimerRef.current = null;
+          }
+        }}
+      >
         {messages.length === 0 ? (
           <div className="quick-chat-empty">
             <strong>What can I help with?</strong>

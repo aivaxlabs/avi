@@ -102,7 +102,9 @@ html.quick-chat-window #root {
     width: 100%;
     min-height: 52px;
     max-height: 260px;
+    field-sizing: content;
     resize: none;
+    overflow-y: auto;
     color: var(--text-1);
     background: transparent;
     border: 0;
@@ -145,6 +147,8 @@ html.quick-chat-window #root {
 .quick-icon-button svg,
 .quick-send-button svg {
   display: block;
+  width: 16px;
+  height: 16px;
 }
 
 .quick-icon-button:hover,

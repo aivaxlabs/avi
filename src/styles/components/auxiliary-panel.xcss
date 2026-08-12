@@ -500,6 +500,7 @@
 
   .subagent-list {
     min-height: 0;
+    height: 100%;
     padding: 10px;
     overflow: auto;
   }

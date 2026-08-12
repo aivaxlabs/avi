@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   groupAssistantTurns,
+  isHumanUserMessage,
   parseStructuredUserMessage,
 } from '../src/renderer/lib/message-groups.js';
 
@@ -30,6 +31,12 @@ const agentPrompt = {
 };
 const finalAssistant = message('7', 'assistant', 'Final answer');
 const nextHuman = message('8', 'user', 'Follow-up');
+
+assert.equal(isHumanUserMessage(human), true);
+assert.equal(isHumanUserMessage(report), false);
+assert.equal(isHumanUserMessage(crossThread), false);
+assert.equal(isHumanUserMessage(agentPrompt), false);
+assert.equal(isHumanUserMessage(assistantOne), false);
 
 assert.deepEqual(groupAssistantTurns([
   human,

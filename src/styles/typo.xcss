@@ -1,3 +1,11 @@
+:root {
+  --font-xl: 1.125rem;
+  --font-lg: 1.05rem;
+  --font-md: 1rem;
+  --font-sm: .9rem;
+  --font-xs: .87rem;
+}
+
 button,
 input,
 textarea,

@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Clock3,
   CornerDownLeft,
+  FileDiff,
   FileText,
   FolderOpen,
   GitBranch,
@@ -99,6 +100,11 @@ const composerCommands = [
     description: 'Create a detailed checkpoint and compress the conversation context',
   },
   {
+    id: 'optimize-prompt',
+    name: 'optimize-prompt',
+    description: 'Expand and optimize the current prompt using the auxiliary model',
+  },
+  {
     id: 'side',
     name: 'side',
     description: 'Fork this chat into a temporary side panel',
@@ -134,6 +140,7 @@ export function Composer({
   tasks = [],
   onOpenTasks,
   onOpenSubagents,
+  editStats = null,
   steeredMessages = [],
   queuedMessages = [],
   onCancelQueued,
@@ -206,6 +213,7 @@ export function Composer({
   const textAreaRef = useRef(null);
   const textRef = useRef(text);
   const conversationIdRef = useRef(conversationId);
+  const promptExpandingRef = useRef(false);
   const composerStatesRef = useRef(new Map());
   const hydratedConversationIdRef = useRef(null);
   textRef.current = text;
@@ -655,6 +663,50 @@ export function Composer({
     });
   }
 
+  async function optimizePrompt(sourcePrompt, { replaceDraft = false } = {}) {
+    if (promptExpandingRef.current) return;
+
+    const sourceConversationId = conversationId;
+    if (replaceDraft) {
+      setCommandStage(null);
+      setCommandDraft(null);
+      setCommandIndex(0);
+      setText(sourcePrompt);
+      textRef.current = sourcePrompt;
+      setCursorPosition(sourcePrompt.length);
+      queueMicrotask(() => {
+        textAreaRef.current?.focus();
+        textAreaRef.current?.setSelectionRange(sourcePrompt.length, sourcePrompt.length);
+      });
+    }
+    if (!sourcePrompt.trim()) return;
+
+    setPlusOpen(false);
+    promptExpandingRef.current = true;
+    setPromptExpanding(true);
+    try {
+      const expandedPrompt = await onExpandPrompt?.({
+        conversationId: sourceConversationId,
+        prompt: sourcePrompt,
+      });
+      if (
+        typeof expandedPrompt !== 'string'
+        || !expandedPrompt.trim()
+        || textRef.current !== sourcePrompt
+        || conversationIdRef.current !== sourceConversationId
+      ) return;
+      setText(expandedPrompt);
+      setCursorPosition(expandedPrompt.length);
+      queueMicrotask(() => {
+        textAreaRef.current?.focus();
+        textAreaRef.current?.setSelectionRange(expandedPrompt.length, expandedPrompt.length);
+      });
+    } finally {
+      promptExpandingRef.current = false;
+      setPromptExpanding(false);
+    }
+  }
+
   function activateCommandOption(option) {
     if (!option) return;
 
@@ -684,6 +736,12 @@ export function Composer({
       if (option.id === 'compress') {
         exitCommandMode();
         onCompress();
+        return;
+      }
+      if (option.id === 'optimize-prompt') {
+        optimizePrompt(`${text.slice(0, commandStart)}${text.slice(cursorPosition)}`, {
+          replaceDraft: true,
+        });
         return;
       }
       if (option.id === 'side') {
@@ -862,6 +920,19 @@ export function Composer({
 
   return (
     <section ref={containerRef} className="composer-wrap">
+      {editStats?.files > 0 && (
+        <div
+          className="edit-counter-pill"
+          role="status"
+          aria-live="polite"
+          aria-label={`${editStats.files} ${editStats.files === 1 ? 'file' : 'files'} touched, ${editStats.additions} lines added, ${editStats.deletions} lines removed`}
+        >
+          <FileDiff size={14} aria-hidden="true" />
+          <span>{editStats.files} {editStats.files === 1 ? 'file' : 'files'}</span>
+          <span className="edit-counter-additions">+{editStats.additions}</span>
+          <span className="edit-counter-deletions">-{editStats.deletions}</span>
+        </div>
+      )}
       {recording && (
         <div className="recording-bar">
           <span className="record-dot" />
@@ -1185,7 +1256,7 @@ export function Composer({
         </DropdownMenu>,
         document.body,
       )}
-      <div className="composer">
+      <div className={`composer${promptExpanding ? ' prompt-optimizing' : ''}`} aria-busy={promptExpanding}>
         {commandMode && (
           <section
             className="command-picker"
@@ -1294,6 +1365,12 @@ export function Composer({
             ))}
           </div>
         )}
+        {promptExpanding && (
+          <div className="prompt-optimization-status" role="status" aria-live="polite">
+            <LoaderCircle size={14} />
+            <span>Optimizing prompt...</span>
+          </div>
+        )}
         <div className="composer-main">
           <textarea
             ref={textAreaRef}
@@ -1388,37 +1465,9 @@ export function Composer({
                     ? <LoaderCircle className="goal-strip-spinner" size={14} />
                     : <Sparkles size={14} />}
                   disabled={promptExpanding || !text.trim()}
-                  onClick={async () => {
-                    const sourcePrompt = text;
-                    const sourceConversationId = conversationId;
-                    setPlusOpen(false);
-                    setPromptExpanding(true);
-                    try {
-                      const expandedPrompt = await onExpandPrompt?.({
-                        conversationId,
-                        prompt: sourcePrompt,
-                      });
-                      if (
-                        typeof expandedPrompt !== 'string'
-                        || !expandedPrompt.trim()
-                        || textRef.current !== sourcePrompt
-                        || conversationIdRef.current !== sourceConversationId
-                      ) return;
-                      setText(expandedPrompt);
-                      setCursorPosition(expandedPrompt.length);
-                      queueMicrotask(() => {
-                        textAreaRef.current?.focus();
-                        textAreaRef.current?.setSelectionRange(
-                          expandedPrompt.length,
-                          expandedPrompt.length,
-                        );
-                      });
-                    } finally {
-                      setPromptExpanding(false);
-                    }
-                  }}
+                  onClick={() => optimizePrompt(text)}
                 >
-                  {promptExpanding ? 'Expanding prompt...' : 'Expand prompt'}
+                  {promptExpanding ? 'Optimizing prompt...' : 'Expand prompt'}
                 </DropdownMenuItem>
                 <DropdownMenuItem icon={<HardDrive size={14} />} onClick={attachFromComputer}>
                   Attach from computer
