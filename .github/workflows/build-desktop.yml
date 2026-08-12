@@ -1,0 +1,55 @@
+name: Build desktop releases
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            os: windows-latest
+            package-args: --x64
+            artifact-name: avi-windows-x64
+          - name: Linux x64
+            os: ubuntu-latest
+            package-args: --x64
+            artifact-name: avi-linux-x64
+          - name: macOS x64 and arm64
+            os: macos-latest
+            package-args: --x64 --arm64
+            artifact-name: avi-macos
+
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build installers
+        run: bun run package -- ${{ matrix.package-args }}
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14
