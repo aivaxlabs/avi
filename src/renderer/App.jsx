@@ -105,6 +105,7 @@ export default function App() {
   const [providerPanels, setProviderPanels] = useState([]);
   const [openProviderPanelIds, setOpenProviderPanelIds] = useState([]);
   const [filesTabOpen, setFilesTabOpen] = useState(false);
+  const [gitReviewTabOpen, setGitReviewTabOpen] = useState(false);
   const [subagentsTabOpen, setSubagentsTabOpen] = useState(false);
   const [tasksTabOpen, setTasksTabOpen] = useState(false);
   const [auxiliaryPanelVisible, setAuxiliaryPanelVisible] = useState(false);
@@ -671,6 +672,7 @@ export default function App() {
       if (
         sideChats.some((sideChat) => sideChat.id === current)
         || (current === 'files' && filesTabOpen)
+        || (current === 'git-review' && gitReviewTabOpen)
         || (current === 'subagents' && subagentsTabOpen)
         || (current === 'tasks' && tasksTabOpen)
         || openProviderPanels.some((panel) => panel.id === current)
@@ -679,10 +681,11 @@ export default function App() {
       }
       return sideChats[0]?.id
         ?? (filesTabOpen ? 'files' : null)
+        ?? (gitReviewTabOpen ? 'git-review' : null)
         ?? (tasksTabOpen ? 'tasks' : null)
         ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null);
     });
-  }, [filesTabOpen, openProviderPanels, sideChats, subagentsTabOpen, tasksTabOpen]);
+  }, [filesTabOpen, gitReviewTabOpen, openProviderPanels, sideChats, subagentsTabOpen, tasksTabOpen]);
 
   useEffect(() => {
     const syncWindowWidth = () => setWindowWidth(window.innerWidth);
@@ -1218,6 +1221,8 @@ export default function App() {
     if (activeAuxiliaryTab === id) {
       const nextTab = remaining[Math.min(index, remaining.length - 1)]?.id
         ?? (filesTabOpen ? 'files' : null)
+        ?? (gitReviewTabOpen ? 'git-review' : null)
+        ?? (tasksTabOpen ? 'tasks' : null)
         ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null);
       setActiveAuxiliaryTab(nextTab);
     }
@@ -1739,12 +1744,14 @@ export default function App() {
                   setActiveAuxiliaryTab((current) => (
                     sideChats.some((sideChat) => sideChat.id === current)
                     || (current === 'files' && filesTabOpen)
+                    || (current === 'git-review' && gitReviewTabOpen)
                     || (current === 'subagents' && subagentsTabOpen)
                     || (current === 'tasks' && tasksTabOpen)
                     || openProviderPanels.some((panel) => panel.id === current)
                       ? current
                       : sideChats[0]?.id
                         ?? (filesTabOpen ? 'files' : null)
+                        ?? (gitReviewTabOpen ? 'git-review' : null)
                         ?? (tasksTabOpen ? 'tasks' : null)
                         ?? (subagentsTabOpen
                           ? 'subagents'
@@ -1775,6 +1782,7 @@ export default function App() {
                 providerPanels={providerPanels}
                 openProviderPanels={openProviderPanels}
                 filesTabOpen={filesTabOpen}
+                gitReviewTabOpen={gitReviewTabOpen}
                 subagentsTabOpen={subagentsTabOpen}
                 tasksTabOpen={tasksTabOpen}
                 canCreateSideChat={Boolean(currentConversation)}
@@ -1782,7 +1790,7 @@ export default function App() {
                   setActiveAuxiliaryTab(tabId);
                   if (tabId === 'subagents') {
                     setActiveSubagentId(null);
-                  } else if (tabId === 'files') {
+                  } else if (tabId === 'files' || tabId === 'git-review') {
                     setActiveSubagentId(null);
                   } else if (
                     !providerPanels.some((panel) => panel.id === tabId)
@@ -1802,6 +1810,17 @@ export default function App() {
                     );
                   }
                 }}
+                onCloseGitReviewTab={() => {
+                  setGitReviewTabOpen(false);
+                  if (activeAuxiliaryTab === 'git-review') {
+                    setActiveAuxiliaryTab(
+                      sideChats[0]?.id
+                        ?? (filesTabOpen ? 'files' : null)
+                        ?? (tasksTabOpen ? 'tasks' : null)
+                        ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null),
+                    );
+                  }
+                }}
                 onCloseTasksTab={() => {
                   setTasksTabOpen(false);
                   setActiveAuxiliaryTab(null);
@@ -1812,9 +1831,18 @@ export default function App() {
                   if (activeAuxiliaryTab === 'subagents') {
                     setActiveAuxiliaryTab(
                       sideChats[0]?.id
-                        ?? (filesTabOpen ? 'files' : openProviderPanels[0]?.id ?? null),
+                        ?? (filesTabOpen ? 'files' : null)
+                        ?? (gitReviewTabOpen ? 'git-review' : null)
+                        ?? openProviderPanels[0]?.id
+                        ?? null,
                     );
                   }
+                }}
+                onOpenGitReviewTab={() => {
+                  setGitReviewTabOpen(true);
+                  setActiveSubagentId(null);
+                  setActiveAuxiliaryTab('git-review');
+                  setAuxiliaryPanelVisible(true);
                 }}
                 onOpenFilesTab={() => {
                   setFilesTabOpen(true);
@@ -1847,6 +1875,7 @@ export default function App() {
                     setActiveAuxiliaryTab(
                       remaining[Math.min(index, remaining.length - 1)]
                         ?? (filesTabOpen ? 'files' : null)
+                        ?? (gitReviewTabOpen ? 'git-review' : null)
                         ?? (subagentsTabOpen ? 'subagents' : sideChats[0]?.id ?? null),
                     );
                   }
@@ -1855,6 +1884,14 @@ export default function App() {
                 onCreateSideChat={createSideChat}
                 onAddToChat={setPendingComposerAttachment}
                 onAskInSideChat={createSideChat}
+                onRunAgent={(payload) => sendMessage({
+                  ...payload,
+                  conversationId: selectedId,
+                  model: currentModel,
+                  project: currentProject,
+                  workMode: null,
+                  ultraMode: false,
+                })}
                 pendingSideChatAttachment={pendingSideChatAttachment}
                 onPendingSideChatAttachmentConsumed={(attachmentId) => {
                   setPendingSideChatAttachment((current) => (

@@ -1,0 +1,745 @@
+.git-review-panel {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  color: var(--text-2);
+  overflow: hidden;
+  container-type: inline-size;
+  font-size: var(--font-sm);
+
+  button {
+    font: inherit;
+  }
+}
+
+.git-review-topbar,
+.git-review-repository-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--border-color);
+
+  > span:first-child {
+    min-width: 0;
+    flex: 1;
+    display: grid;
+    gap: 1px;
+
+    strong,
+    small {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    strong {
+      color: var(--text-1);
+      font-size: var(--font-md);
+    }
+
+    small {
+      color: var(--text-3);
+      font-size: var(--font-xs);
+    }
+  }
+
+  > div {
+    display: flex;
+    gap: 5px;
+  }
+
+  button {
+    min-height: 27px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 0 8px;
+    color: var(--text-2);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: var(--font-sm);
+
+    &:hover:not(:disabled) {
+      color: var(--text-1);
+      background: var(--item-hover);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: 1px;
+    }
+
+    &:disabled {
+      opacity: .4;
+    }
+  }
+}
+
+.git-review-topbar {
+  background: var(--background-1);
+}
+
+.git-review-notice {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  color: var(--text-2);
+  background: var(--background-2);
+  border-bottom: 1px solid var(--border-color);
+  font-size: var(--font-sm);
+
+  &.error,
+  &.warning {
+    color: var(--git-conflict-status-color);
+  }
+
+  &.success {
+    color: var(--git-untracked-status-color);
+  }
+
+  span {
+    min-width: 0;
+    flex: 1;
+  }
+
+  button {
+    min-height: 24px;
+    padding: 0 6px;
+    color: inherit;
+    background: transparent;
+    border-radius: 5px;
+
+    &:hover {
+      background: var(--item-hover);
+    }
+  }
+}
+
+.git-review-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scroll-behavior: smooth;
+}
+
+.git-review-repository {
+  min-width: 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.git-review-repository-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 6px 8px;
+  background: var(--background-1);
+
+  .git-review-repository-toggle {
+    min-width: 0;
+    flex: 1;
+    justify-content: flex-start;
+    padding-left: 4px;
+    background: transparent;
+    border-color: transparent;
+
+    > span:nth-child(2) {
+      min-width: 0;
+      flex: 1;
+      display: grid;
+      gap: 1px;
+      text-align: left;
+
+      strong,
+      small {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      strong {
+        font-size: var(--font-md);
+      }
+
+      small {
+        font-size: var(--font-xs);
+      }
+
+      i {
+        color: var(--git-untracked-status-color);
+        font-style: normal;
+      }
+
+      b {
+        color: var(--git-conflict-status-color);
+        font-weight: 500;
+      }
+    }
+  }
+}
+
+.git-review-branch {
+  max-width: 130px;
+  display: inline-flex !important;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 4px !important;
+  flex: 0 0 auto !important;
+  overflow: hidden;
+  color: var(--text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-xs);
+}
+
+.git-review-file-nav {
+  position: sticky;
+  top: 40px;
+  z-index: 6;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--background-1) 94%, transparent);
+  border-bottom: 1px solid var(--border-color);
+  backdrop-filter: blur(8px);
+}
+
+.git-review-file-picker {
+  position: relative;
+  width: min(310px, 100%);
+
+  &.open {
+    z-index: 8;
+  }
+}
+
+.git-review-file-picker-trigger {
+  width: 100%;
+  height: 30px;
+  display: grid;
+  grid-template-columns: 17px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  color: var(--text-2);
+  background: var(--background-1);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  text-align: left;
+  font-size: var(--font-sm);
+
+  &:hover,
+  &[aria-expanded="true"] {
+    color: var(--text-1);
+    background: var(--background-2);
+    border-color: color-mix(in srgb, var(--text-3) 60%, var(--border-color));
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 1px;
+  }
+
+  > svg {
+    color: var(--text-3);
+  }
+
+  > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > small {
+    min-width: 19px;
+    padding: 1px 5px;
+    color: var(--text-3);
+    background: var(--background-2);
+    border-radius: 9px;
+    text-align: center;
+    font-size: var(--font-xs);
+  }
+}
+
+.git-review-file-picker-popover {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 9;
+  width: min(520px, calc(100cqw - 16px));
+  padding: 6px;
+  background: var(--background-1);
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  box-shadow: 0 16px 40px rgb(0 0 0 / .24);
+}
+
+.git-review-file-search {
+  height: 32px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 7px;
+  color: var(--text-3);
+  background: var(--background-0);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+
+  &:focus-within {
+    border-color: var(--text-3);
+    box-shadow: 0 0 0 1px var(--text-3);
+  }
+
+  input {
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    color: var(--text-1);
+    background: transparent;
+    border: 0;
+    outline: 0;
+    font: inherit;
+    font-size: var(--font-sm);
+  }
+
+  button {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    color: var(--text-3);
+    background: transparent;
+    border-radius: 50%;
+
+    &:hover {
+      color: var(--text-1);
+      background: var(--item-hover);
+    }
+  }
+}
+
+.git-review-file-results {
+  max-height: min(360px, 55vh);
+  margin-top: 5px;
+  overflow-y: auto;
+
+  > button {
+    width: 100%;
+    min-width: 0;
+    min-height: 32px;
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 7px;
+    color: var(--text-2);
+    background: transparent;
+    border-radius: 5px;
+    text-align: left;
+    font-size: var(--font-sm);
+
+    &:hover,
+    &:focus-visible {
+      color: var(--text-1);
+      background: var(--item-hover);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: -2px;
+    }
+
+    > span:nth-child(2) {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: var(--font-mono);
+    }
+
+    > .git-review-file-status:first-child {
+      justify-content: center;
+    }
+
+    > .git-review-file-status:last-child {
+      min-width: 90px;
+      justify-content: flex-end;
+
+      > svg {
+        display: none;
+      }
+    }
+  }
+}
+
+.git-review-file-results-empty {
+  display: block;
+  padding: 16px 8px;
+  color: var(--text-3);
+  text-align: center;
+  font-size: var(--font-sm);
+}
+
+.git-review-file-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  font-size: var(--font-xs);
+
+  > b {
+    min-width: 10px;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    text-align: center;
+  }
+
+  > span {
+    color: currentColor;
+  }
+}
+
+.git-review-diffs {
+  min-width: 0;
+  padding: 8px;
+}
+
+.git-review-file {
+  min-width: 0;
+  scroll-margin-top: 78px;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  overflow: hidden;
+
+  + .git-review-file {
+    margin-top: 9px;
+  }
+
+  > header {
+    min-width: 0;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 9px;
+    background: var(--background-2);
+    border-bottom: 1px solid var(--border-color);
+
+    strong {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      color: var(--text-1);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: var(--font-sm);
+      font-weight: 500;
+    }
+
+    small {
+      padding: 2px 5px;
+      color: var(--text-3);
+      background: var(--background-1);
+      border-radius: 4px;
+      font-size: var(--font-xs);
+    }
+  }
+}
+
+.git-review-diff {
+  max-width: 100%;
+  max-height: 560px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  color: var(--text-2);
+  background: var(--background-0);
+  white-space: pre;
+  tab-size: 2;
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  line-height: 1.55;
+
+  &:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: -2px;
+  }
+
+  > code {
+    min-width: max-content;
+    display: block;
+    padding: 9px 11px;
+    color: inherit;
+    font: inherit;
+    white-space: pre;
+
+    .token.deleted:not(.prefix) {
+      background-color: var(--diff-removed-bg);
+    }
+
+    .token.inserted:not(.prefix) {
+      background-color: var(--diff-added-bg);
+    }
+
+    .token.deleted-sign .token.prefix,
+    .token.inserted-sign .token.prefix {
+      background-color: var(--diff-relative-margin-bg);
+    }
+  }
+}
+
+.git-review-clean,
+.git-review-no-diff,
+.git-review-empty {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  padding: 26px;
+  color: var(--text-3);
+  text-align: center;
+  font-size: var(--font-sm);
+
+  strong {
+    color: var(--text-2);
+    font-size: var(--font-md);
+  }
+}
+
+.git-review-empty {
+  height: 100%;
+  align-content: center;
+}
+
+.git-review-annotation {
+  position: fixed;
+  z-index: 150;
+  width: min(300px, calc(100vw - 16px));
+  background: var(--background-1);
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  box-shadow: 0 10px 32px rgb(0 0 0 / .24);
+  padding: 7px;
+
+  textarea {
+    width: 100%;
+    min-height: 62px;
+    resize: vertical;
+    padding: 7px;
+    color: var(--text-1);
+    background: var(--background-0);
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    outline: 0;
+    font: inherit;
+    font-size: var(--font-md);
+
+    &:focus {
+      border-color: var(--text-3);
+    }
+  }
+
+  footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 5px;
+    padding-top: 6px;
+
+    button {
+      min-height: 25px;
+      padding: 0 8px;
+      color: var(--text-2);
+      background: var(--background-2);
+      border: 1px solid var(--border-color);
+      border-radius: 5px;
+      font-size: var(--font-sm);
+    }
+  }
+}
+
+.git-review-dialog-backdrop {
+  z-index: 180;
+}
+
+.git-review-dialog {
+  width: min(660px, 100%);
+  max-height: min(760px, 90vh);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 18px;
+  color: var(--text-1);
+  background: var(--background-2);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
+  overflow: hidden;
+
+  .dialog-header p {
+    margin: 2px 0 0;
+    color: var(--text-3);
+    font-size: var(--font-sm);
+    line-height: 1.5;
+  }
+
+  .dialog-footer {
+    min-width: 0;
+    margin-top: 0;
+
+    > span {
+      color: var(--text-3);
+      line-height: 1.45;
+    }
+
+    > div {
+      flex: 0 0 auto;
+      display: flex;
+      gap: 7px;
+    }
+
+    button {
+      white-space: nowrap;
+
+      &:focus-visible {
+        outline: 2px solid var(--text-3);
+        outline-offset: 2px;
+      }
+
+      &:disabled {
+        opacity: .5;
+        cursor: wait;
+      }
+    }
+  }
+
+  @media (max-width: 700px) {
+    max-height: 100vh;
+    border: 0;
+    border-radius: 0;
+  }
+
+  @media (max-width: 560px) {
+    .dialog-footer {
+      align-items: stretch;
+      display: grid;
+
+      > div {
+        justify-content: end;
+      }
+    }
+  }
+}
+
+.git-review-plan-list {
+  min-height: 0;
+  margin-right: -6px;
+  padding-right: 6px;
+  overflow: auto;
+
+  section + section {
+    margin-top: 16px;
+  }
+
+  h3 {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 0 8px;
+    color: var(--text-2);
+    font-size: var(--font-sm);
+    font-weight: 500;
+
+    svg {
+      color: var(--text-3);
+    }
+  }
+
+  article {
+    padding: 10px 12px;
+    background: var(--background-3);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+
+    & + article {
+      margin-top: 8px;
+    }
+
+    strong {
+      color: var(--text-1);
+      font-size: var(--font-md);
+      font-weight: 500;
+    }
+
+    ul {
+      margin: 7px 0 0;
+      padding-left: 18px;
+      color: var(--text-3);
+      font-family: var(--font-code);
+      font-size: var(--font-sm);
+      line-height: 1.5;
+    }
+  }
+}
+
+.status-added {
+  color: var(--git-untracked-status-color);
+}
+
+.status-untracked {
+  color: color-mix(in srgb, var(--git-untracked-status-color) 72%, var(--text-2));
+}
+
+.status-conflict {
+  color: var(--git-conflict-status-color);
+}
+
+.status-deleted {
+  color: color-mix(in srgb, var(--git-conflict-status-color) 78%, var(--text-2));
+}
+
+.status-modified {
+  color: var(--git-modified-status-color);
+}
+
+.status-renamed {
+  color: color-mix(in srgb, var(--git-modified-status-color) 65%, var(--text-2));
+}
+
+.spin {
+  animation: git-review-spin .8s linear infinite;
+}
+
+@keyframes git-review-spin {
+  to { transform: rotate(360deg); }
+}
+
+@container (max-width: 520px) {
+  .git-review-topbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+
+    > span:first-child {
+      flex-basis: 100%;
+    }
+  }
+
+  .git-review-repository-header {
+    flex-wrap: wrap;
+
+    .git-review-repository-toggle {
+      flex-basis: 100%;
+    }
+  }
+
+  .git-review-branch {
+    max-width: 100px;
+  }
+}

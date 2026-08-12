@@ -50,11 +50,11 @@ contextBridge.exposeInMainWorld('chatApp', {
     save: (settings) => invoke('tuning:save', settings),
   },
   archive: {
-    state: (query) => invoke('archive:state', query),
-    save: (settings) => invoke('archive:save', settings),
-    restore: (conversationId) => invoke('archive:restore', conversationId),
-    delete: (conversationId) => invoke('archive:delete', conversationId),
-    maintenance: () => invoke('archive:maintenance'),
+    state: (options) => invoke('archive:state', options),
+    save: (settings, options) => invoke('archive:save', settings, options),
+    restore: (conversationId, options) => invoke('archive:restore', conversationId, options),
+    delete: (conversationId, options) => invoke('archive:delete', conversationId, options),
+    maintenance: (options) => invoke('archive:maintenance', options),
     temporaryStorage: () => invoke('archive:temporary-storage'),
     clearTemporaryStorage: () => invoke('archive:clear-temporary-storage'),
   },
@@ -86,6 +86,8 @@ contextBridge.exposeInMainWorld('chatApp', {
   providers: {
     list: () => invoke('providers:list'),
     types: () => invoke('providers:types'),
+    normalize: (provider) => invoke('providers:normalize', provider),
+    importFromUrl: (url) => invoke('providers:import-from-url', url),
     save: (provider) => invoke('providers:save', provider),
     remove: (providerId) => invoke('providers:remove', providerId),
     state: (providerId) => invoke('providers:state', providerId),
@@ -159,6 +161,12 @@ contextBridge.exposeInMainWorld('chatApp', {
     open: (payload) => invoke('files:open', payload),
     reveal: (payload) => invoke('files:reveal', payload),
     copyPath: (payload) => invoke('files:copy-path', payload),
+  },
+  gitReview: {
+    state: (conversationId) => invoke('git-review:state', conversationId),
+    plan: (payload) => invoke('git-review:plan', payload),
+    commit: (payload) => invoke('git-review:commit', payload),
+    push: (payload) => invoke('git-review:push', payload),
   },
   attachments: {
     imageAction: (payload) => invoke('attachments:image-action', payload),

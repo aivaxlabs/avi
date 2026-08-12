@@ -30,6 +30,14 @@ mark {
     background: var(--highlight-color);
 }
 /* typo.xcss */
+:root {
+    --font-xl: 1.125rem;
+    --font-lg: 1.05rem;
+    --font-md: 1rem;
+    --font-sm: .9rem;
+    --font-xs: .87rem;
+}
+
 button, input, textarea, select {
     font: inherit;
 }
@@ -1740,6 +1748,46 @@ body.panel-resizing * {
     white-space: nowrap;
 }
 
+.settings-page .settings-add-provider-group {
+    position: relative;
+    flex: 0 0 auto;
+    display: inline-flex;
+    border-radius: 9999px;
+}
+
+.settings-page .settings-add-provider-group:has(.settings-add-provider-menu-trigger:focus-visible) {
+    outline: 2px solid var(--text-3);
+    outline-offset: 2px;
+}
+
+.settings-page .settings-add-provider-group .settings-add-provider {
+    border-radius: 9999px 0 0 9999px;
+}
+
+.settings-page .settings-add-provider-group .settings-add-provider-menu-trigger {
+    min-width: 30px;
+    display: grid;
+    place-items: center;
+    padding: 7px;
+    border-left: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    border-radius: 0 9999px 9999px 0;
+}
+
+.settings-page .settings-add-provider-group .settings-add-provider-menu-trigger:focus-visible {
+    outline: none;
+}
+
+.settings-page .settings-add-provider-group .settings-add-provider-menu {
+    top: calc(100% + 5px);
+    right: 0;
+    width: 180px;
+    border-radius: 8px;
+}
+
+.settings-page .settings-add-provider-group .settings-add-provider-menu .dropdown-menu-item {
+    border-radius: 5px;
+}
+
 .settings-page .settings-actions .primary-mini, .settings-page .mcp-editor-actions .primary-mini {
     transition: background-color 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
 }
@@ -2149,6 +2197,296 @@ body.panel-resizing * {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+}
+
+.settings-page .provider-import-dialog-backdrop {
+    z-index: 85;
+}
+
+.settings-page .provider-import-dialog {
+    width: min(660px, 100%);
+    max-height: min(760px, 90vh);
+    display: grid;
+    gap: 16px;
+    padding: 18px;
+    color: var(--text-1);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
+    overflow: auto;
+}
+
+.settings-page .provider-import-dialog .dialog-header p {
+    max-width: 520px;
+    margin: 2px 0 0;
+    color: var(--text-3);
+    font-size: .9rem;
+    line-height: 1.5;
+}
+
+.settings-page .provider-import-dialog .dialog-footer {
+    margin-top: 0;
+    align-items: end;
+}
+
+.settings-page .provider-import-dialog .dialog-footer > span {
+    max-width: 390px;
+    line-height: 1.45;
+}
+
+.settings-page .provider-import-dialog .dialog-footer > div {
+    display: flex;
+    gap: 7px;
+}
+
+.settings-page .provider-import-dialog .dialog-footer .primary-mini {
+    color: var(--text-5);
+    background: var(--background-5);
+    border-color: transparent;
+}
+
+.settings-page .provider-import-dialog .dialog-footer button:disabled {
+    opacity: .5;
+    cursor: wait;
+}
+
+.settings-page .provider-import-source-dialog {
+    width: min(520px, 100%);
+}
+
+.settings-page .provider-share-dialog {
+    width: min(470px, 100%);
+    gap: 18px;
+    padding: 20px;
+    overflow: visible;
+}
+
+.settings-page .provider-share-dialog .dialog-header p {
+    max-width: 360px;
+}
+
+.settings-page .provider-share-dialog .dialog-footer {
+    align-items: center;
+    justify-content: space-between;
+}
+
+.settings-page .provider-share-dialog .dialog-footer > div {
+    flex-wrap: wrap;
+    justify-content: end;
+}
+
+.settings-page .provider-share-dialog .dialog-footer button {
+    white-space: nowrap;
+}
+
+.settings-page .provider-share-summary, .settings-page .provider-share-warning {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+}
+
+.settings-page .provider-share-summary > span:last-child, .settings-page .provider-share-warning > span:last-child {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.settings-page .provider-share-summary strong, .settings-page .provider-share-warning strong {
+    color: var(--text-1);
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.settings-page .provider-share-summary small, .settings-page .provider-share-warning small {
+    color: var(--text-3);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.settings-page .provider-share-summary {
+    padding: 2px 0;
+}
+
+.settings-page .provider-share-icon {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    color: var(--text-2);
+    background: var(--background-3);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.settings-page .provider-share-warning {
+    align-items: start;
+    padding: 11px 12px;
+    background: var(--background-3);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.settings-page .provider-share-warning > svg {
+    flex: 0 0 auto;
+    margin-top: 1px;
+    color: var(--text-2);
+}
+
+.settings-page .provider-import-url-field, .settings-page .provider-import-json-field {
+    display: grid;
+    gap: 7px;
+    color: var(--text-1);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.settings-page .provider-import-url-field input, .settings-page .provider-import-json-field input, .settings-page .provider-import-url-field textarea, .settings-page .provider-import-json-field textarea {
+    width: 100%;
+    padding: 10px 11px;
+    color: var(--text-1);
+    background: var(--background-4);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 13px;
+}
+
+.settings-page .provider-import-url-field input:focus-visible, .settings-page .provider-import-json-field input:focus-visible, .settings-page .provider-import-url-field textarea:focus-visible, .settings-page .provider-import-json-field textarea:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 1px;
+}
+
+.settings-page .provider-import-url-field textarea, .settings-page .provider-import-json-field textarea {
+    min-height: 210px;
+    resize: vertical;
+    font-family: var(--font-mono);
+    line-height: 1.5;
+    tab-size: 2;
+}
+
+.settings-page .provider-import-url-field small, .settings-page .provider-import-json-field small {
+    color: var(--text-3);
+    font-weight: 400;
+    line-height: 1.45;
+}
+
+.settings-page .provider-import-review {
+    display: grid;
+    gap: 14px;
+}
+
+.settings-page .provider-import-review dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    margin: 0;
+    overflow: hidden;
+    background: var(--border-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.settings-page .provider-import-review dl div {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+    padding: 10px 11px;
+    background: var(--background-3);
+}
+
+.settings-page .provider-import-review dl dt {
+    color: var(--text-3);
+    font-size: 11px;
+}
+
+.settings-page .provider-import-review dl dd {
+    margin: 0;
+    overflow: hidden;
+    color: var(--text-1);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-page .provider-import-review section {
+    display: grid;
+    gap: 8px;
+}
+
+.settings-page .provider-import-review section > strong {
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.settings-page .provider-import-review section > p {
+    margin: 0;
+    color: var(--text-3);
+    font-size: 12px;
+}
+
+.settings-page .provider-import-review ul {
+    max-height: 190px;
+    display: grid;
+    gap: 1px;
+    margin: 0;
+    padding: 1px;
+    overflow: auto;
+    list-style: none;
+    background: var(--border-color);
+    border-radius: 8px;
+}
+
+.settings-page .provider-import-review li {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+    padding: 8px 10px;
+    background: var(--background-3);
+}
+
+.settings-page .provider-import-review li span, .settings-page .provider-import-review li small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-page .provider-import-review li span {
+    font-size: 12px;
+}
+
+.settings-page .provider-import-review li small {
+    color: var(--text-3);
+    font-size: 11px;
+}
+
+.settings-page .provider-import-warning, .settings-page .provider-import-error {
+    margin: 0;
+    padding: 9px 10px;
+    color: var(--text-2);
+    background: var(--background-4);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.settings-page .provider-import-error {
+    color: var(--text-1);
+}
+
+.settings-page .settings-provider-notice {
+    padding: 9px 11px;
+    color: var(--text-2);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 12px;
+}
+
+.settings-page .settings-provider-notice.error {
+    color: var(--text-1);
 }
 
 .settings-page .settings-list-summary {
@@ -2868,6 +3206,40 @@ body.panel-resizing * {
     min-height: 160px;
 }
 
+.settings-page .archive-list.is-loading {
+    opacity: 0.6;
+}
+
+.settings-page .archive-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--text-3);
+    font-size: 12px;
+}
+
+.settings-page .archive-pagination > span:last-child {
+    display: flex;
+    gap: 6px;
+}
+
+.settings-page .archive-pagination button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 9px;
+    color: var(--text-2);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+}
+
+.settings-page .archive-pagination button:hover:not(:disabled) {
+    color: var(--text-1);
+    background: var(--item-hover);
+}
+
 .settings-page .archive-stats {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3266,6 +3638,34 @@ body.panel-resizing * {
     line-height: 1.45;
 }
 
+@media (max-width: 560px) {
+    .settings-page .provider-import-dialog .dialog-footer {
+        align-items: stretch;
+        display: grid;
+    }
+
+    .settings-page .provider-import-dialog .dialog-footer > span {
+        max-width: none;
+    }
+
+    .settings-page .provider-import-dialog .dialog-footer > div {
+        justify-content: end;
+    }
+
+    .settings-page .provider-share-dialog .dialog-footer {
+        display: flex;
+        align-items: center;
+    }
+
+    .settings-page .provider-share-dialog .dialog-footer > div {
+        max-width: 260px;
+    }
+
+    .settings-page .provider-import-review dl {
+        grid-template-columns: 1fr;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .settings-page .settings-about-link {
         transition: none;
@@ -3281,6 +3681,13 @@ body.panel-resizing * {
 
     .settings-page .provider-type-card {
         transition: none;
+    }
+}
+
+@media (max-width: 520px) {
+    .settings-page .archive-pagination {
+        align-items: flex-start;
+        flex-direction: column;
     }
 }
 
@@ -3381,6 +3788,12 @@ body.panel-resizing * {
     .settings-page .aivax-features-settings .aivax-collection-create-actions .button {
         width: 100%;
         justify-content: center;
+    }
+
+    .settings-page .provider-import-dialog {
+        max-height: 100vh;
+        border: 0;
+        border-radius: 0;
     }
 
     .settings-page .settings-entity-main {
@@ -4950,6 +5363,747 @@ button svg {
         animation-duration: 1.6s;
     }
 }
+/* components\git-review.xcss */
+.git-review-panel {
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    color: var(--text-2);
+    overflow: hidden;
+    container-type: inline-size;
+    font-size: var(--font-sm);
+}
+
+.git-review-panel button {
+    font: inherit;
+}
+
+.git-review-topbar, .git-review-repository-header {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 9px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.git-review-topbar > span:first-child, .git-review-repository-header > span:first-child {
+    min-width: 0;
+    flex: 1;
+    display: grid;
+    gap: 1px;
+}
+
+.git-review-topbar > span:first-child strong, .git-review-repository-header > span:first-child strong, .git-review-topbar > span:first-child small, .git-review-repository-header > span:first-child small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.git-review-topbar > span:first-child strong, .git-review-repository-header > span:first-child strong {
+    color: var(--text-1);
+    font-size: var(--font-md);
+}
+
+.git-review-topbar > span:first-child small, .git-review-repository-header > span:first-child small {
+    color: var(--text-3);
+    font-size: var(--font-xs);
+}
+
+.git-review-topbar > div, .git-review-repository-header > div {
+    display: flex;
+    gap: 5px;
+}
+
+.git-review-topbar button, .git-review-repository-header button {
+    min-height: 27px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 0 8px;
+    color: var(--text-2);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    font-size: var(--font-sm);
+}
+
+.git-review-topbar button:hover:not(:disabled), .git-review-repository-header button:hover:not(:disabled) {
+    color: var(--text-1);
+    background: var(--item-hover);
+}
+
+.git-review-topbar button:focus-visible, .git-review-repository-header button:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 1px;
+}
+
+.git-review-topbar button:disabled, .git-review-repository-header button:disabled {
+    opacity: .4;
+}
+
+.git-review-topbar {
+    background: var(--background-1);
+}
+
+.git-review-notice {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 10px;
+    color: var(--text-2);
+    background: var(--background-2);
+    border-bottom: 1px solid var(--border-color);
+    font-size: var(--font-sm);
+}
+
+.git-review-notice.error, .git-review-notice.warning {
+    color: var(--git-conflict-status-color);
+}
+
+.git-review-notice.success {
+    color: var(--git-untracked-status-color);
+}
+
+.git-review-notice span {
+    min-width: 0;
+    flex: 1;
+}
+
+.git-review-notice button {
+    min-height: 24px;
+    padding: 0 6px;
+    color: inherit;
+    background: transparent;
+    border-radius: 5px;
+}
+
+.git-review-notice button:hover {
+    background: var(--item-hover);
+}
+
+.git-review-content {
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    scroll-behavior: smooth;
+}
+
+.git-review-repository {
+    min-width: 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.git-review-repository-header {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    padding: 6px 8px;
+    background: var(--background-1);
+}
+
+.git-review-repository-header .git-review-repository-toggle {
+    min-width: 0;
+    flex: 1;
+    justify-content: flex-start;
+    padding-left: 4px;
+    background: transparent;
+    border-color: transparent;
+}
+
+.git-review-repository-header .git-review-repository-toggle > span:nth-child(2) {
+    min-width: 0;
+    flex: 1;
+    display: grid;
+    gap: 1px;
+    text-align: left;
+}
+
+.git-review-repository-header .git-review-repository-toggle > span:nth-child(2) strong, .git-review-repository-header .git-review-repository-toggle > span:nth-child(2) small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.git-review-repository-header .git-review-repository-toggle > span:nth-child(2) strong {
+    font-size: var(--font-md);
+}
+
+.git-review-repository-header .git-review-repository-toggle > span:nth-child(2) small {
+    font-size: var(--font-xs);
+}
+
+.git-review-repository-header .git-review-repository-toggle > span:nth-child(2) i {
+    color: var(--git-untracked-status-color);
+    font-style: normal;
+}
+
+.git-review-repository-header .git-review-repository-toggle > span:nth-child(2) b {
+    color: var(--git-conflict-status-color);
+    font-weight: 500;
+}
+
+.git-review-branch {
+    max-width: 130px;
+    display: inline-flex !important;
+    grid-auto-flow: column;
+    align-items: center;
+    gap: 4px !important;
+    flex: 0 0 auto !important;
+    overflow: hidden;
+    color: var(--text-3);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-xs);
+}
+
+.git-review-file-nav {
+    position: sticky;
+    top: 40px;
+    z-index: 6;
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    padding: 6px 8px;
+    background: color-mix(in srgb, var(--background-1) 94%, transparent);
+    border-bottom: 1px solid var(--border-color);
+    backdrop-filter: blur(8px);
+}
+
+.git-review-file-picker {
+    position: relative;
+    width: min(310px, 100%);
+}
+
+.git-review-file-picker.open {
+    z-index: 8;
+}
+
+.git-review-file-picker-trigger {
+    width: 100%;
+    height: 30px;
+    display: grid;
+    grid-template-columns: 17px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 7px;
+    padding: 0 9px;
+    color: var(--text-2);
+    background: var(--background-1);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    text-align: left;
+    font-size: var(--font-sm);
+}
+
+.git-review-file-picker-trigger:hover, .git-review-file-picker-trigger[aria-expanded="true"] {
+    color: var(--text-1);
+    background: var(--background-2);
+    border-color: color-mix(in srgb, var(--text-3) 60%, var(--border-color));
+}
+
+.git-review-file-picker-trigger:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 1px;
+}
+
+.git-review-file-picker-trigger > svg {
+    color: var(--text-3);
+}
+
+.git-review-file-picker-trigger > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.git-review-file-picker-trigger > small {
+    min-width: 19px;
+    padding: 1px 5px;
+    color: var(--text-3);
+    background: var(--background-2);
+    border-radius: 9px;
+    text-align: center;
+    font-size: var(--font-xs);
+}
+
+.git-review-file-picker-popover {
+    position: absolute;
+    top: calc(100% + 5px);
+    left: 0;
+    z-index: 9;
+    width: min(520px, calc(100cqw - 16px));
+    padding: 6px;
+    background: var(--background-1);
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+    box-shadow: 0 16px 40px rgb(0 0 0 / .24);
+}
+
+.git-review-file-search {
+    height: 32px;
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) 24px;
+    align-items: center;
+    gap: 6px;
+    padding: 0 7px;
+    color: var(--text-3);
+    background: var(--background-0);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+}
+
+.git-review-file-search:focus-within {
+    border-color: var(--text-3);
+    box-shadow: 0 0 0 1px var(--text-3);
+}
+
+.git-review-file-search input {
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    color: var(--text-1);
+    background: transparent;
+    border: 0;
+    outline: 0;
+    font: inherit;
+    font-size: var(--font-sm);
+}
+
+.git-review-file-search button {
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    color: var(--text-3);
+    background: transparent;
+    border-radius: 50%;
+}
+
+.git-review-file-search button:hover {
+    color: var(--text-1);
+    background: var(--item-hover);
+}
+
+.git-review-file-results {
+    max-height: min(360px, 55vh);
+    margin-top: 5px;
+    overflow-y: auto;
+}
+
+.git-review-file-results > button {
+    width: 100%;
+    min-width: 0;
+    min-height: 32px;
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 7px;
+    color: var(--text-2);
+    background: transparent;
+    border-radius: 5px;
+    text-align: left;
+    font-size: var(--font-sm);
+}
+
+.git-review-file-results > button:hover, .git-review-file-results > button:focus-visible {
+    color: var(--text-1);
+    background: var(--item-hover);
+}
+
+.git-review-file-results > button:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: -2px;
+}
+
+.git-review-file-results > button > span:nth-child(2) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+}
+
+.git-review-file-results > button > .git-review-file-status:first-child {
+    justify-content: center;
+}
+
+.git-review-file-results > button > .git-review-file-status:last-child {
+    min-width: 90px;
+    justify-content: flex-end;
+}
+
+.git-review-file-results > button > .git-review-file-status:last-child > svg {
+    display: none;
+}
+
+.git-review-file-results-empty {
+    display: block;
+    padding: 16px 8px;
+    color: var(--text-3);
+    text-align: center;
+    font-size: var(--font-sm);
+}
+
+.git-review-file-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+    font-size: var(--font-xs);
+}
+
+.git-review-file-status > b {
+    min-width: 10px;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    text-align: center;
+}
+
+.git-review-file-status > span {
+    color: currentColor;
+}
+
+.git-review-diffs {
+    min-width: 0;
+    padding: 8px;
+}
+
+.git-review-file {
+    min-width: 0;
+    scroll-margin-top: 78px;
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    overflow: hidden;
+}
+
+.git-review-file + .git-review-file {
+    margin-top: 9px;
+}
+
+.git-review-file > header {
+    min-width: 0;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 9px;
+    background: var(--background-2);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.git-review-file > header strong {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    color: var(--text-1);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-sm);
+    font-weight: 500;
+}
+
+.git-review-file > header small {
+    padding: 2px 5px;
+    color: var(--text-3);
+    background: var(--background-1);
+    border-radius: 4px;
+    font-size: var(--font-xs);
+}
+
+.git-review-diff {
+    max-width: 100%;
+    max-height: 560px;
+    margin: 0;
+    padding: 0;
+    overflow: auto;
+    color: var(--text-2);
+    background: var(--background-0);
+    white-space: pre;
+    tab-size: 2;
+    font-family: var(--font-mono);
+    font-size: var(--font-sm);
+    line-height: 1.55;
+}
+
+.git-review-diff:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: -2px;
+}
+
+.git-review-diff > code {
+    min-width: max-content;
+    display: block;
+    padding: 9px 11px;
+    color: inherit;
+    font: inherit;
+    white-space: pre;
+}
+
+.git-review-diff > code .token.deleted:not(.prefix) {
+    background-color: var(--diff-removed-bg);
+}
+
+.git-review-diff > code .token.inserted:not(.prefix) {
+    background-color: var(--diff-added-bg);
+}
+
+.git-review-diff > code .token.deleted-sign .token.prefix, .git-review-diff > code .token.inserted-sign .token.prefix {
+    background-color: var(--diff-relative-margin-bg);
+}
+
+.git-review-clean, .git-review-no-diff, .git-review-empty {
+    display: grid;
+    place-items: center;
+    gap: 6px;
+    padding: 26px;
+    color: var(--text-3);
+    text-align: center;
+    font-size: var(--font-sm);
+}
+
+.git-review-clean strong, .git-review-no-diff strong, .git-review-empty strong {
+    color: var(--text-2);
+    font-size: var(--font-md);
+}
+
+.git-review-empty {
+    height: 100%;
+    align-content: center;
+}
+
+.git-review-annotation {
+    position: fixed;
+    z-index: 150;
+    width: min(300px, calc(100vw - 16px));
+    background: var(--background-1);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    box-shadow: 0 10px 32px rgb(0 0 0 / .24);
+    padding: 7px;
+}
+
+.git-review-annotation textarea {
+    width: 100%;
+    min-height: 62px;
+    resize: vertical;
+    padding: 7px;
+    color: var(--text-1);
+    background: var(--background-0);
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    outline: 0;
+    font: inherit;
+    font-size: var(--font-md);
+}
+
+.git-review-annotation textarea:focus {
+    border-color: var(--text-3);
+}
+
+.git-review-annotation footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 5px;
+    padding-top: 6px;
+}
+
+.git-review-annotation footer button {
+    min-height: 25px;
+    padding: 0 8px;
+    color: var(--text-2);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    font-size: var(--font-sm);
+}
+
+.git-review-dialog-backdrop {
+    z-index: 180;
+}
+
+.git-review-dialog {
+    width: min(660px, 100%);
+    max-height: min(760px, 90vh);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 16px;
+    padding: 18px;
+    color: var(--text-1);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
+    overflow: hidden;
+}
+
+.git-review-dialog .dialog-header p {
+    margin: 2px 0 0;
+    color: var(--text-3);
+    font-size: var(--font-sm);
+    line-height: 1.5;
+}
+
+.git-review-dialog .dialog-footer {
+    min-width: 0;
+    margin-top: 0;
+}
+
+.git-review-dialog .dialog-footer > span {
+    color: var(--text-3);
+    line-height: 1.45;
+}
+
+.git-review-dialog .dialog-footer > div {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 7px;
+}
+
+.git-review-dialog .dialog-footer button {
+    white-space: nowrap;
+}
+
+.git-review-dialog .dialog-footer button:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 2px;
+}
+
+.git-review-dialog .dialog-footer button:disabled {
+    opacity: .5;
+    cursor: wait;
+}
+
+.git-review-plan-list {
+    min-height: 0;
+    margin-right: -6px;
+    padding-right: 6px;
+    overflow: auto;
+}
+
+.git-review-plan-list section + section {
+    margin-top: 16px;
+}
+
+.git-review-plan-list h3 {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 0 8px;
+    color: var(--text-2);
+    font-size: var(--font-sm);
+    font-weight: 500;
+}
+
+.git-review-plan-list h3 svg {
+    color: var(--text-3);
+}
+
+.git-review-plan-list article {
+    padding: 10px 12px;
+    background: var(--background-3);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.git-review-plan-list article + article {
+    margin-top: 8px;
+}
+
+.git-review-plan-list article strong {
+    color: var(--text-1);
+    font-size: var(--font-md);
+    font-weight: 500;
+}
+
+.git-review-plan-list article ul {
+    margin: 7px 0 0;
+    padding-left: 18px;
+    color: var(--text-3);
+    font-family: var(--font-code);
+    font-size: var(--font-sm);
+    line-height: 1.5;
+}
+
+.status-added {
+    color: var(--git-untracked-status-color);
+}
+
+.status-untracked {
+    color: color-mix(in srgb, var(--git-untracked-status-color) 72%, var(--text-2));
+}
+
+.status-conflict {
+    color: var(--git-conflict-status-color);
+}
+
+.status-deleted {
+    color: color-mix(in srgb, var(--git-conflict-status-color) 78%, var(--text-2));
+}
+
+.status-modified {
+    color: var(--git-modified-status-color);
+}
+
+.status-renamed {
+    color: color-mix(in srgb, var(--git-modified-status-color) 65%, var(--text-2));
+}
+
+.spin {
+    animation: git-review-spin .8s linear infinite;
+}
+
+@media (max-width: 700px) {
+    .git-review-dialog {
+        max-height: 100vh;
+        border: 0;
+        border-radius: 0;
+    }
+}
+
+@media (max-width: 560px) {
+    .git-review-dialog .dialog-footer {
+        align-items: stretch;
+        display: grid;
+    }
+
+    .git-review-dialog .dialog-footer > div {
+        justify-content: end;
+    }
+}
+
+@keyframes git-review-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@container (max-width: 520px) {
+    .git-review-topbar {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .git-review-topbar > span:first-child {
+        flex-basis: 100%;
+    }
+
+    .git-review-repository-header {
+        flex-wrap: wrap;
+    }
+
+    .git-review-repository-header .git-review-repository-toggle {
+        flex-basis: 100%;
+    }
+
+    .git-review-branch {
+        max-width: 100px;
+    }
+}
 /* components\quick-chat.xcss */
 html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #root {
     background: var(--background-1);
@@ -5053,7 +6207,9 @@ html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #roo
     width: 100%;
     min-height: 52px;
     max-height: 260px;
+    field-sizing: content;
     resize: none;
+    overflow-y: auto;
     color: var(--text-1);
     background: transparent;
     border: 0;
@@ -5092,6 +6248,8 @@ html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #roo
 
 .quick-icon-button svg, .quick-send-button svg {
     display: block;
+    width: 16px;
+    height: 16px;
 }
 
 .quick-icon-button:hover, .quick-icon-button.active {
@@ -7679,6 +8837,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 
 .auxiliary-panel .subagent-list {
     min-height: 0;
+    height: 100%;
     padding: 10px;
     overflow: auto;
 }
@@ -8170,6 +9329,37 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     margin: 0;
 }
 
+.composer-wrap .edit-counter-pill {
+    width: fit-content;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 auto 8px;
+    padding: 6px 12px;
+    color: var(--text-2);
+    background: color-mix(in srgb, var(--background-2) 92%, transparent);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    pointer-events: none;
+    font-size: .9rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.composer-wrap .edit-counter-pill > svg {
+    color: var(--text-3);
+}
+
+.composer-wrap .edit-counter-pill .edit-counter-additions {
+    color: var(--success-color);
+}
+
+.composer-wrap .edit-counter-pill .edit-counter-deletions {
+    color: var(--danger-color);
+}
+
 .composer-wrap .composer-wrap-strip {
     position: relative;
     z-index: 0;
@@ -8537,8 +9727,28 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     outline: 3px solid var(--primary-color-opaque);
 }
 
+.composer-wrap .composer.prompt-optimizing {
+    border-color: color-mix(in srgb, var(--primary-color) 55%, var(--border-color));
+    outline: 3px solid var(--primary-color-opaque);
+}
+
 .composer-wrap .composer:has(.model-input-menu) {
     z-index: 3;
+}
+
+.composer-wrap .prompt-optimization-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 1px 6px 5px;
+    color: var(--link-color);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.composer-wrap .prompt-optimization-status svg {
+    flex: 0 0 auto;
+    animation: goal-strip-spin 900ms linear infinite;
 }
 
 .composer-wrap .composer-main {
@@ -9460,55 +10670,55 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --prism-class: #ffa657;
 }
 
-.code-block, .files-code {
+.code-block, .files-code, .git-review-diff {
     font-family: var(--font-code);
 }
 
-.code-block .token.comment, .files-code .token.comment, .code-block .token.prolog, .files-code .token.prolog, .code-block .token.doctype, .files-code .token.doctype, .code-block .token.cdata, .files-code .token.cdata {
+.code-block .token.comment, .files-code .token.comment, .git-review-diff .token.comment, .code-block .token.prolog, .files-code .token.prolog, .git-review-diff .token.prolog, .code-block .token.doctype, .files-code .token.doctype, .git-review-diff .token.doctype, .code-block .token.cdata, .files-code .token.cdata, .git-review-diff .token.cdata {
     color: var(--prism-comment);
 }
 
-.code-block .token.punctuation, .files-code .token.punctuation {
+.code-block .token.punctuation, .files-code .token.punctuation, .git-review-diff .token.punctuation {
     color: var(--prism-punctuation);
 }
 
-.code-block .token.property, .files-code .token.property, .code-block .token.tag, .files-code .token.tag, .code-block .token.boolean, .files-code .token.boolean, .code-block .token.constant, .files-code .token.constant, .code-block .token.symbol, .files-code .token.symbol, .code-block .token.deleted, .files-code .token.deleted {
+.code-block .token.property, .files-code .token.property, .git-review-diff .token.property, .code-block .token.tag, .files-code .token.tag, .git-review-diff .token.tag, .code-block .token.boolean, .files-code .token.boolean, .git-review-diff .token.boolean, .code-block .token.constant, .files-code .token.constant, .git-review-diff .token.constant, .code-block .token.symbol, .files-code .token.symbol, .git-review-diff .token.symbol, .code-block .token.deleted, .files-code .token.deleted, .git-review-diff .token.deleted {
     color: var(--prism-property);
 }
 
-.code-block .token.selector, .files-code .token.selector, .code-block .token.attr-name, .files-code .token.attr-name, .code-block .token.char, .files-code .token.char, .code-block .token.builtin, .files-code .token.builtin, .code-block .token.inserted, .files-code .token.inserted {
+.code-block .token.selector, .files-code .token.selector, .git-review-diff .token.selector, .code-block .token.attr-name, .files-code .token.attr-name, .git-review-diff .token.attr-name, .code-block .token.char, .files-code .token.char, .git-review-diff .token.char, .code-block .token.builtin, .files-code .token.builtin, .git-review-diff .token.builtin, .code-block .token.inserted, .files-code .token.inserted, .git-review-diff .token.inserted {
     color: var(--prism-selector);
 }
 
-.code-block .token.operator, .files-code .token.operator, .code-block .token.entity, .files-code .token.entity, .code-block .token.url, .files-code .token.url, .code-block .language-css .token.string, .files-code .language-css .token.string, .code-block .style .token.string, .files-code .style .token.string {
+.code-block .token.operator, .files-code .token.operator, .git-review-diff .token.operator, .code-block .token.entity, .files-code .token.entity, .git-review-diff .token.entity, .code-block .token.url, .files-code .token.url, .git-review-diff .token.url, .code-block .language-css .token.string, .files-code .language-css .token.string, .git-review-diff .language-css .token.string, .code-block .style .token.string, .files-code .style .token.string, .git-review-diff .style .token.string {
     color: var(--prism-operator);
 }
 
-.code-block .token.atrule, .files-code .token.atrule, .code-block .token.attr-value, .files-code .token.attr-value, .code-block .token.keyword, .files-code .token.keyword {
+.code-block .token.atrule, .files-code .token.atrule, .git-review-diff .token.atrule, .code-block .token.attr-value, .files-code .token.attr-value, .git-review-diff .token.attr-value, .code-block .token.keyword, .files-code .token.keyword, .git-review-diff .token.keyword {
     color: var(--prism-keyword);
 }
 
-.code-block .token.function, .files-code .token.function {
+.code-block .token.function, .files-code .token.function, .git-review-diff .token.function {
     color: var(--prism-function);
 }
 
-.code-block .token.regex, .files-code .token.regex, .code-block .token.important, .files-code .token.important, .code-block .token.variable, .files-code .token.variable, .code-block .token.string, .files-code .token.string {
+.code-block .token.regex, .files-code .token.regex, .git-review-diff .token.regex, .code-block .token.important, .files-code .token.important, .git-review-diff .token.important, .code-block .token.variable, .files-code .token.variable, .git-review-diff .token.variable, .code-block .token.string, .files-code .token.string, .git-review-diff .token.string {
     color: var(--prism-string);
 }
 
-.code-block .token.number, .files-code .token.number {
+.code-block .token.number, .files-code .token.number, .git-review-diff .token.number {
     color: var(--prism-number);
 }
 
-.code-block .token.class-name, .files-code .token.class-name {
+.code-block .token.class-name, .files-code .token.class-name, .git-review-diff .token.class-name {
     color: var(--prism-class);
 }
 
-.code-block .token.important, .files-code .token.important, .code-block .token.bold, .files-code .token.bold {
+.code-block .token.important, .files-code .token.important, .git-review-diff .token.important, .code-block .token.bold, .files-code .token.bold, .git-review-diff .token.bold {
     font-weight: 500;
 }
 
-.code-block .token.italic, .files-code .token.italic {
+.code-block .token.italic, .files-code .token.italic, .git-review-diff .token.italic {
     font-style: italic;
 }
 /* components\appearance.xcss */

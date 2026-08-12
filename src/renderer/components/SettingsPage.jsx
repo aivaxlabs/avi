@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronDown,
   CircleOff,
+  ClipboardPaste,
   Copy,
   Ellipsis,
   ExternalLink,
@@ -17,6 +18,7 @@ import {
   Github,
   Globe2,
   Info,
+  Link,
   Network,
   Palette,
   Pencil,
@@ -25,10 +27,12 @@ import {
   Save,
   Search,
   Server,
+  Share2,
   SlidersHorizontal,
   Sparkles,
   Trash2,
   Workflow,
+  X,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
@@ -333,6 +337,11 @@ export function SettingsPage({
   const [modelIndex, setModelIndex] = useState(-1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [providerListMessage, setProviderListMessage] = useState('');
+  const [providerImportOpen, setProviderImportOpen] = useState(false);
+  const [providerImportDialog, setProviderImportDialog] = useState(null);
+  const [providerShareDialog, setProviderShareDialog] = useState(null);
+  const providerImportRef = useRef(null);
   const [contextFolders, setContextFolders] = useState([]);
   const [selectedContextFolder, setSelectedContextFolder] = useState(initialContextFolder);
   const [contextFolder, setContextFolder] = useState(null);
@@ -368,6 +377,23 @@ export function SettingsPage({
   const activePersonality = personalities.find(
     (personality) => personality.id === (tuningDraft.personality ?? 'none'),
   ) ?? personalities[0];
+
+  useEffect(() => {
+    if (!providerImportOpen) return undefined;
+
+    const closeOnPointerDown = (event) => {
+      if (!providerImportRef.current?.contains(event.target)) setProviderImportOpen(false);
+    };
+    const closeOnKeyDown = (event) => {
+      if (event.key === 'Escape') setProviderImportOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnPointerDown);
+    document.addEventListener('keydown', closeOnKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnPointerDown);
+      document.removeEventListener('keydown', closeOnKeyDown);
+    };
+  }, [providerImportOpen]);
 
   useEffect(() => {
     if (view !== 'context-folders') return undefined;
@@ -476,6 +502,34 @@ export function SettingsPage({
     }
   }
 
+  async function shareProvider(includeApiKey) {
+    const sharedProvider = structuredClone(providerShareDialog);
+    if (!includeApiKey) delete sharedProvider.apiKey;
+    await navigator.clipboard.writeText(JSON.stringify(sharedProvider, null, 2));
+    setProviderShareDialog(null);
+    setProviderListMessage(
+      `Provider "${providerShareDialog.name}" copied to the clipboard ${includeApiKey ? 'with' : 'without'} its API key.`,
+    );
+  }
+
+  async function reviewProviderImport(json, source) {
+    if (!json.trim()) throw new Error('The provider JSON is empty.');
+    let importedProvider;
+    try {
+      importedProvider = JSON.parse(json);
+    } catch {
+      throw new Error('The provider import does not contain valid JSON.');
+    }
+    if (!importedProvider || typeof importedProvider !== 'object' || Array.isArray(importedProvider)) {
+      throw new Error('The shared JSON must contain one provider.');
+    }
+    const provider = await window.chatApp.providers.normalize({
+      ...importedProvider,
+      id: crypto.randomUUID(),
+    });
+    setProviderImportDialog({ mode: 'review', provider, source });
+  }
+
   function startProviderCreation(interfaceId) {
     const type = providerTypes.find((item) => item.id === interfaceId);
     const provider = {
@@ -551,6 +605,12 @@ export function SettingsPage({
   }[view];
   const showInlineBack = !['list', 'context-folders', 'mcp', 'plugins', 'remote', 'aivax', 'archive', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
+  const importedProvider = providerImportDialog?.mode === 'review'
+    ? providerImportDialog.provider
+    : null;
+  const importedProviderType = providerTypes.find(
+    (type) => type.id === importedProvider?.interface,
+  );
 
   return (
     <section className="settings-page">
@@ -809,13 +869,60 @@ export function SettingsPage({
                 <p>{pageDescription}</p>
               </div>
               {view === 'list' && (
-                <button className="primary-mini settings-add-provider" type="button" onClick={() => {
-                  setView('type');
-                  setError('');
-                }}>
-                  <Plus size={14} />
-                  Add provider
-                </button>
+                <div className="settings-add-provider-group" ref={providerImportRef}>
+                  <button
+                    className="primary-mini settings-add-provider"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setView('type');
+                      setError('');
+                      setProviderListMessage('');
+                    }}
+                  >
+                    <Plus size={14} />
+                    Add provider
+                  </button>
+                  <button
+                    className="primary-mini settings-add-provider-menu-trigger"
+                    type="button"
+                    disabled={busy}
+                    aria-label="More provider actions"
+                    aria-haspopup="menu"
+                    aria-expanded={providerImportOpen}
+                    onClick={() => setProviderImportOpen((open) => !open)}
+                  >
+                    <ChevronDown size={14} />
+                  </button>
+                  {providerImportOpen && (
+                    <DropdownMenu className="settings-add-provider-menu" role="menu">
+                      <DropdownMenuItem
+                        icon={<ClipboardPaste size={14} />}
+                        role="menuitem"
+                        onClick={() => {
+                          setProviderImportOpen(false);
+                          setProviderListMessage('');
+                          setError('');
+                          setProviderImportDialog({ mode: 'json', json: '' });
+                        }}
+                      >
+                        Import
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        icon={<Link size={14} />}
+                        role="menuitem"
+                        onClick={() => {
+                          setProviderImportOpen(false);
+                          setProviderListMessage('');
+                          setError('');
+                          setProviderImportDialog({ mode: 'url', url: '' });
+                        }}
+                      >
+                        Import from URL
+                      </DropdownMenuItem>
+                    </DropdownMenu>
+                  )}
+                </div>
               )}
               {view === 'mcp' && mcpNavigation?.onAction && (
                 <button
@@ -835,6 +942,14 @@ export function SettingsPage({
           <div className="settings-content-inner">
             {view === 'list' && (
               <section className="settings-section">
+                {(error || providerListMessage) && (
+                  <div
+                    className={classNames('settings-provider-notice', error && 'error')}
+                    role={error ? 'alert' : 'status'}
+                  >
+                    {error || providerListMessage}
+                  </div>
+                )}
                 <div className="settings-list-summary">
                   <span>{providers.length} {providers.length === 1 ? 'provider' : 'providers'}</span>
                   <span>{providers.filter((provider) => provider.enabled !== false).length} active</span>
@@ -883,6 +998,15 @@ export function SettingsPage({
                           disabled={busy}
                           label={`Actions for ${provider.name}`}
                           items={[
+                            {
+                              label: 'Share',
+                              icon: <Share2 size={14} />,
+                              onClick: () => {
+                                setProviderShareDialog(provider);
+                                setProviderListMessage('');
+                                setError('');
+                              },
+                            },
                             {
                               label: enabled ? 'Disable' : 'Enable',
                               icon: enabled ? <CircleOff size={14} /> : <CheckCircle2 size={14} />,
@@ -2094,6 +2218,317 @@ export function SettingsPage({
           </footer>
         )}
       </main>
+      {providerShareDialog && (
+        <div
+          className="dialog-backdrop provider-import-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target !== event.currentTarget || busy) return;
+            setProviderShareDialog(null);
+            setError('');
+          }}
+        >
+          <div
+            className="provider-import-dialog provider-share-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="provider-share-dialog-title"
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape' || busy) return;
+              event.preventDefault();
+              setProviderShareDialog(null);
+              setError('');
+            }}
+          >
+            <header className="dialog-header">
+              <div>
+                <h2 id="provider-share-dialog-title">Share provider</h2>
+                <p>Copy this provider’s endpoints, models, and settings as JSON.</p>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                disabled={busy}
+                aria-label="Close provider share dialog"
+                onClick={() => {
+                  setProviderShareDialog(null);
+                  setError('');
+                }}
+              >
+                <X size={16} />
+              </button>
+            </header>
+
+            <div className="provider-share-summary">
+              <span className="provider-share-icon" aria-hidden="true">
+                <Share2 size={17} />
+              </span>
+              <span>
+                <strong>{providerShareDialog.name}</strong>
+                <small>{providerShareDialog.models.length} {providerShareDialog.models.length === 1 ? 'model' : 'models'} included</small>
+              </span>
+            </div>
+
+            {providerShareDialog.apiKey && (
+              <div className="provider-share-warning">
+                <Info size={16} aria-hidden="true" />
+                <span>
+                  <strong>API key detected</strong>
+                  <small>Only include it when sharing with someone you trust.</small>
+                </span>
+              </div>
+            )}
+
+            <footer className="dialog-footer">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setProviderShareDialog(null);
+                  setError('');
+                }}
+              >
+                Cancel
+              </button>
+              <div>
+                <button
+                  className="primary-mini"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => runProviderMutation(() => shareProvider(false))}
+                >
+                  {busy ? 'Copying...' : providerShareDialog.apiKey ? 'Copy without key' : 'Copy provider'}
+                </button>
+                {providerShareDialog.apiKey && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => runProviderMutation(() => shareProvider(true))}
+                  >
+                    Include API key
+                  </button>
+                )}
+              </div>
+            </footer>
+          </div>
+        </div>
+      )}
+      {providerImportDialog && (
+        <div
+          className="dialog-backdrop provider-import-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target !== event.currentTarget || busy) return;
+            setProviderImportDialog(null);
+            setError('');
+          }}
+        >
+          <form
+            className={classNames(
+              'provider-import-dialog',
+              providerImportDialog.mode !== 'review' && 'provider-import-source-dialog',
+            )}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="provider-import-dialog-title"
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape' || busy) return;
+              event.preventDefault();
+              setProviderImportDialog(null);
+              setError('');
+            }}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (busy) return;
+              if (providerImportDialog.mode === 'url') {
+                runProviderMutation(async () => {
+                  const url = providerImportDialog.url.trim();
+                  if (!url) throw new Error('Enter a provider JSON URL.');
+                  const json = await window.chatApp.providers.importFromUrl(url);
+                  await reviewProviderImport(json, url);
+                });
+                return;
+              }
+              if (providerImportDialog.mode === 'json') {
+                runProviderMutation(() => reviewProviderImport(providerImportDialog.json, 'Pasted JSON'));
+                return;
+              }
+              runProviderMutation(async () => {
+                const nextProviders = await onSave(importedProvider);
+                const saved = nextProviders.find((provider) => provider.id === importedProvider.id);
+                setProviderImportDialog(null);
+                setProviderListMessage(`Imported provider "${saved?.name ?? importedProvider.name}".`);
+              });
+            }}
+          >
+            <header className="dialog-header">
+              <div>
+                <h2 id="provider-import-dialog-title">
+                  {providerImportDialog.mode === 'url'
+                    ? 'Import provider from URL'
+                    : providerImportDialog.mode === 'json'
+                      ? 'Import provider'
+                      : 'Review provider import'}
+                </h2>
+                <p>
+                  {providerImportDialog.mode === 'url'
+                    ? 'Enter a direct HTTP or HTTPS link to a shared provider JSON file.'
+                    : providerImportDialog.mode === 'json'
+                      ? 'Paste a shared provider JSON to review it before importing.'
+                      : 'Confirm these connection details before adding the provider to Avi.'}
+                </p>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                disabled={busy}
+                aria-label="Close provider import dialog"
+                onClick={() => {
+                  setProviderImportDialog(null);
+                  setError('');
+                }}
+              >
+                <X size={16} />
+              </button>
+            </header>
+
+            {providerImportDialog.mode === 'url' ? (
+              <label className="provider-import-url-field" htmlFor="provider-import-url">
+                <span>JSON URL</span>
+                <input
+                  id="provider-import-url"
+                  type="url"
+                  autoFocus
+                  required
+                  disabled={busy}
+                  placeholder="https://example.com/provider.json"
+                  value={providerImportDialog.url}
+                  onChange={(event) => setProviderImportDialog({
+                    mode: 'url',
+                    url: event.target.value,
+                  })}
+                />
+                <small>The file is downloaded for review and is not imported automatically.</small>
+              </label>
+            ) : providerImportDialog.mode === 'json' ? (
+              <label className="provider-import-json-field" htmlFor="provider-import-json">
+                <span>Provider JSON</span>
+                <textarea
+                  id="provider-import-json"
+                  autoFocus
+                  required
+                  disabled={busy}
+                  spellCheck="false"
+                  placeholder={'{\n  "name": "Example provider",\n  ...\n}'}
+                  value={providerImportDialog.json}
+                  onChange={(event) => setProviderImportDialog({
+                    mode: 'json',
+                    json: event.target.value,
+                  })}
+                />
+                <small>The provider will be validated and shown for confirmation before it is imported.</small>
+              </label>
+            ) : (
+              <div className="provider-import-review">
+                <dl>
+                  <div>
+                    <dt>Name</dt>
+                    <dd>{importedProvider.name}</dd>
+                  </div>
+                  <div>
+                    <dt>Source</dt>
+                    <dd title={providerImportDialog.source}>{providerImportDialog.source}</dd>
+                  </div>
+                  <div>
+                    <dt>Interface</dt>
+                    <dd>{importedProviderType?.name ?? importedProvider.interface}</dd>
+                  </div>
+                  <div>
+                    <dt>Base URL</dt>
+                    <dd>{importedProvider.baseUrl || 'Managed by provider'}</dd>
+                  </div>
+                  <div>
+                    <dt>API endpoint</dt>
+                    <dd>{importedProviderType?.endpoint || 'Managed by provider'}</dd>
+                  </div>
+                  <div>
+                    <dt>API key</dt>
+                    <dd>{importedProvider.apiKey ? 'Included · ••••••••' : 'Not included'}</dd>
+                  </div>
+                  <div>
+                    <dt>Status</dt>
+                    <dd>{importedProvider.enabled ? 'Active' : 'Disabled'}</dd>
+                  </div>
+                  {(importedProviderType?.fields ?? []).map((field) => (
+                    <div key={field.id}>
+                      <dt>{field.label}</dt>
+                      <dd>{importedProvider[field.id] || 'Not set'}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <section>
+                  <strong>Models</strong>
+                  {importedProviderType?.models === 'managed' ? (
+                    <p>Managed model catalog</p>
+                  ) : importedProvider.models.length ? (
+                    <ul>
+                      {importedProvider.models.map((model) => (
+                        <li key={model.id}>
+                          <span>{model.name}</span>
+                          <small>{model.id}{model.enabled ? '' : ' · Disabled'}</small>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>No models included</p>
+                  )}
+                </section>
+                {importedProvider.apiKey && (
+                  <p className="provider-import-warning">
+                    This import includes a secret API key. Only continue if you trust the source.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {error && <div className="provider-import-error" role="alert">{error}</div>}
+            <footer className="dialog-footer">
+              <span>
+                {providerImportDialog.mode === 'url'
+                  ? 'The response is limited to 1 MB and must contain one provider.'
+                  : providerImportDialog.mode === 'json'
+                    ? 'The JSON must contain one shared provider.'
+                    : 'A new provider ID will be generated; existing providers will not be overwritten.'}
+              </span>
+              <div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setProviderImportDialog(null);
+                    setError('');
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="primary-mini"
+                  type="submit"
+                  disabled={busy
+                    || (providerImportDialog.mode === 'url' && !providerImportDialog.url.trim())
+                    || (providerImportDialog.mode === 'json' && !providerImportDialog.json.trim())}
+                >
+                  {busy
+                    ? providerImportDialog.mode === 'url'
+                      ? 'Loading...'
+                      : providerImportDialog.mode === 'json' ? 'Validating...' : 'Importing...'
+                    : ['url', 'json'].includes(providerImportDialog.mode)
+                      ? 'Review provider'
+                      : 'Import provider'}
+                </button>
+              </div>
+            </footer>
+          </form>
+        </div>
+      )}
     </section>
   );
 }

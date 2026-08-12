@@ -25,7 +25,8 @@
 }
 
 .code-block,
-.files-code {
+.files-code,
+.git-review-diff {
   font-family: var(--font-code);
 
   .token.comment,

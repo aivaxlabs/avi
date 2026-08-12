@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Files,
   Gauge,
+  GitPullRequest,
   MessageSquarePlus,
   ListChecks,
   Plus,
@@ -15,22 +16,16 @@ import {
 import { ChatView } from './ChatView.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { FilesPanel } from './FilesPanel.jsx';
+import { GitReviewPanel } from './GitReviewPanel.jsx';
 import { ProviderPanel } from './ProviderPanel.jsx';
 
 const subagentsTabId = 'subagents';
 const filesTabId = 'files';
+const gitReviewTabId = 'git-review';
 const tasksTabId = 'tasks';
 const subagentAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
 
-function AuxiliaryAddMenu({
-  providerPanels,
-  canCreateSideChat,
-  onCreateSideChat,
-  onOpenFilesTab,
-  onOpenTasksTab,
-  onOpenSubagentsTab,
-  onOpenProviderPanel,
-}) {
+function AuxiliaryAddMenu({ panels }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
 
@@ -70,68 +65,24 @@ function AuxiliaryAddMenu({
           role="menu"
           aria-label="Auxiliary panel options"
         >
-          <DropdownMenuItem
-            icon={<MessageSquarePlus size={14} />}
-            role="menuitem"
-            disabled={!canCreateSideChat}
-            title={canCreateSideChat
-              ? 'Create a side chat'
-              : 'Start a conversation before creating a side chat'}
-            onClick={() => {
-              setOpen(false);
-              onCreateSideChat();
-            }}
-          >
-            Side chat
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            icon={<Files size={14} />}
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onOpenFilesTab();
-            }}
-          >
-            Files
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            icon={<ListChecks size={14} />}
-            role="menuitem"
-            disabled={!canCreateSideChat}
-            title={canCreateSideChat
-              ? 'View tasks for this conversation'
-              : 'Start a conversation before opening tasks'}
-            onClick={() => {
-              setOpen(false);
-              onOpenTasksTab();
-            }}
-          >
-            Tasks
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            icon={<Bot size={14} />}
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onOpenSubagentsTab();
-            }}
-          >
-            Sub-agents
-          </DropdownMenuItem>
-          {providerPanels.map((panel) => (
-            <DropdownMenuItem
-              icon={<Gauge size={14} />}
-              key={panel.id}
-              role="menuitem"
-              title={`${panel.title} - ${panel.providerName}`}
-              onClick={() => {
-                setOpen(false);
-                onOpenProviderPanel(panel.id);
-              }}
-            >
-              {panel.title}
-            </DropdownMenuItem>
-          ))}
+          {panels.map((panel) => {
+            const Icon = panel.icon;
+            return (
+              <DropdownMenuItem
+                icon={<Icon size={14} />}
+                key={panel.id}
+                role="menuitem"
+                disabled={panel.disabled}
+                title={panel.title}
+                onClick={() => {
+                  setOpen(false);
+                  panel.onOpen();
+                }}
+              >
+                {panel.label}
+              </DropdownMenuItem>
+            );
+          })}
         </DropdownMenu>
       )}
     </div>
@@ -156,15 +107,18 @@ export function AuxiliaryPanel({
   providerPanels = [],
   openProviderPanels = [],
   filesTabOpen,
+  gitReviewTabOpen,
   subagentsTabOpen,
   tasksTabOpen,
   canCreateSideChat,
   onSelectTab,
   onCloseSideChat,
   onCloseFilesTab,
+  onCloseGitReviewTab,
   onCloseSubagentsTab,
   onCloseTasksTab,
   onOpenFilesTab,
+  onOpenGitReviewTab,
   onOpenTasksTab,
   onOpenSubagentsTab,
   onOpenProviderPanel,
@@ -173,6 +127,7 @@ export function AuxiliaryPanel({
   onCreateSideChat,
   onAddToChat,
   onAskInSideChat,
+  onRunAgent,
   pendingSideChatAttachment,
   onPendingSideChatAttachmentConsumed,
   fileNavigation,
@@ -201,6 +156,68 @@ export function AuxiliaryPanel({
   messageDeliveryMode = 'queue',
   defaultPermissionMode = 'approve_for_me',
 }) {
+  const availablePanels = [
+    {
+      id: 'side-chat',
+      label: 'Side chat',
+      description: 'Fork this conversation',
+      icon: MessageSquarePlus,
+      disabled: !canCreateSideChat,
+      title: canCreateSideChat
+        ? 'Create a side chat'
+        : 'Start a conversation before creating a side chat',
+      onOpen: onCreateSideChat,
+    },
+    {
+      id: filesTabId,
+      label: 'Files',
+      description: 'Browse the current directory',
+      icon: Files,
+      disabled: false,
+      title: 'Browse the current directory',
+      onOpen: onOpenFilesTab,
+    },
+    {
+      id: gitReviewTabId,
+      label: 'Git Review',
+      description: 'Review changes and create commits',
+      icon: GitPullRequest,
+      disabled: !canCreateSideChat,
+      title: canCreateSideChat
+        ? 'Review Git changes'
+        : 'Start a conversation before opening Git Review',
+      onOpen: onOpenGitReviewTab,
+    },
+    {
+      id: tasksTabId,
+      label: 'Tasks',
+      description: "View this conversation's task list",
+      icon: ListChecks,
+      disabled: !canCreateSideChat,
+      title: canCreateSideChat
+        ? 'View tasks for this conversation'
+        : 'Start a conversation before opening tasks',
+      onOpen: onOpenTasksTab,
+    },
+    {
+      id: subagentsTabId,
+      label: 'Sub-agents',
+      description: 'View orchestrated tasks',
+      icon: Bot,
+      disabled: false,
+      title: 'View orchestrated tasks',
+      onOpen: onOpenSubagentsTab,
+    },
+    ...providerPanels.map((panel) => ({
+      id: panel.id,
+      label: panel.title,
+      description: `Provided by ${panel.providerName}`,
+      icon: Gauge,
+      disabled: false,
+      title: `${panel.title} - ${panel.providerName}`,
+      onOpen: () => onOpenProviderPanel(panel.id),
+    })),
+  ];
   const tabs = [
     ...sideChats.map((sideChat) => ({
       id: sideChat.id,
@@ -215,6 +232,9 @@ export function AuxiliaryPanel({
           running: false,
           type: 'files',
         }]
+      : []),
+    ...(gitReviewTabOpen
+      ? [{ id: gitReviewTabId, label: 'Git Review', running: false, type: 'git-review' }]
       : []),
     ...(tasksTabOpen
       ? [{ id: tasksTabId, label: 'Tasks', running: false, type: 'tasks' }]
@@ -235,6 +255,7 @@ export function AuxiliaryPanel({
   ];
   const activeSideChat = sideChats.find((sideChat) => sideChat.id === activeTab) ?? null;
   const showingFiles = activeTab === filesTabId;
+  const showingGitReview = activeTab === gitReviewTabId;
   const showingSubagents = activeTab === subagentsTabId;
   const showingTasks = activeTab === tasksTabId;
   const activeProviderPanel = openProviderPanels.find((panel) => panel.id === activeTab) ?? null;
@@ -296,6 +317,8 @@ export function AuxiliaryPanel({
                       <Bot size={14} aria-hidden="true" />
                     ) : tab.type === 'files' ? (
                       <Files size={14} aria-hidden="true" />
+                    ) : tab.type === 'git-review' ? (
+                      <GitPullRequest size={14} aria-hidden="true" />
                     ) : tab.type === 'provider' ? (
                       <Gauge size={14} aria-hidden="true" />
                     ) : (
@@ -322,6 +345,8 @@ export function AuxiliaryPanel({
                           ? onCloseSubagentsTab()
                         : tab.type === 'files'
                           ? onCloseFilesTab()
+                        : tab.type === 'git-review'
+                          ? onCloseGitReviewTab()
                         : tab.type === 'provider'
                           ? onCloseProviderPanel(tab.id)
                           : onCloseSideChat(tab.id)
@@ -332,15 +357,7 @@ export function AuxiliaryPanel({
                 </div>
               ))}
             </div>
-            <AuxiliaryAddMenu
-              providerPanels={providerPanels}
-              canCreateSideChat={canCreateSideChat}
-              onCreateSideChat={onCreateSideChat}
-              onOpenFilesTab={onOpenFilesTab}
-              onOpenTasksTab={onOpenTasksTab}
-              onOpenSubagentsTab={onOpenSubagentsTab}
-              onOpenProviderPanel={onOpenProviderPanel}
-            />
+            <AuxiliaryAddMenu panels={availablePanels} />
             <button
               className="auxiliary-tab-close"
               type="button"
@@ -355,15 +372,7 @@ export function AuxiliaryPanel({
           <div className="auxiliary-empty-header">
             <span>Auxiliary panel</span>
             <div className="auxiliary-empty-actions">
-              <AuxiliaryAddMenu
-                providerPanels={providerPanels}
-                canCreateSideChat={canCreateSideChat}
-                onCreateSideChat={onCreateSideChat}
-                onOpenFilesTab={onOpenFilesTab}
-                onOpenTasksTab={onOpenTasksTab}
-                onOpenSubagentsTab={onOpenSubagentsTab}
-                onOpenProviderPanel={onOpenProviderPanel}
-              />
+              <AuxiliaryAddMenu panels={availablePanels} />
               <button
                 className="auxiliary-tab-close"
                 type="button"
@@ -413,6 +422,15 @@ export function AuxiliaryPanel({
             navigation={fileNavigation}
             onNavigationConsumed={onFileNavigationConsumed}
           />
+        ) : showingGitReview ? (
+          <GitReviewPanel
+            conversationId={conversationId}
+            model={fallbackModel}
+            project={project}
+            onAddToChat={onAddToChat}
+            onAskInSideChat={canCreateSideChat ? onAskInSideChat : undefined}
+            onRunAgent={onRunAgent}
+          />
         ) : activeProviderPanel ? (
           <ProviderPanel
             panel={activeProviderPanel}
@@ -421,66 +439,25 @@ export function AuxiliaryPanel({
         ) : !hasActiveTab ? (
           <div className="auxiliary-empty">
             <p>Open in this panel</p>
-            <button
-              type="button"
-              disabled={!canCreateSideChat}
-              title={canCreateSideChat
-                ? 'Create a side chat'
-                : 'Start a conversation before creating a side chat'}
-              onClick={onCreateSideChat}
-            >
-              <MessageSquarePlus size={16} aria-hidden="true" />
-              <span>
-                <strong>Side chat</strong>
-                <small>Fork this conversation</small>
-              </span>
-              <ChevronRight size={15} aria-hidden="true" />
-            </button>
-            <button type="button" onClick={onOpenFilesTab}>
-              <Files size={16} aria-hidden="true" />
-              <span>
-                <strong>Files</strong>
-                <small>Browse the current directory</small>
-              </span>
-              <ChevronRight size={15} aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              disabled={!canCreateSideChat}
-              title={canCreateSideChat
-                ? 'View tasks for this conversation'
-                : 'Start a conversation before opening tasks'}
-              onClick={onOpenTasksTab}
-            >
-              <ListChecks size={16} aria-hidden="true" />
-              <span>
-                <strong>Tasks</strong>
-                <small>View this conversation's task list</small>
-              </span>
-              <ChevronRight size={15} aria-hidden="true" />
-            </button>
-            <button type="button" onClick={onOpenSubagentsTab}>
-              <Bot size={16} aria-hidden="true" />
-              <span>
-                <strong>Sub-agents</strong>
-                <small>View orchestrated tasks</small>
-              </span>
-              <ChevronRight size={15} aria-hidden="true" />
-            </button>
-            {providerPanels.map((panel) => (
-              <button
-                key={panel.id}
-                type="button"
-                onClick={() => onOpenProviderPanel(panel.id)}
-              >
-                <Gauge size={16} aria-hidden="true" />
-                <span>
-                  <strong>{panel.title}</strong>
-                  <small>Provided by {panel.providerName}</small>
-                </span>
-                <ChevronRight size={15} aria-hidden="true" />
-              </button>
-            ))}
+            {availablePanels.map((panel) => {
+              const Icon = panel.icon;
+              return (
+                <button
+                  key={panel.id}
+                  type="button"
+                  disabled={panel.disabled}
+                  title={panel.title}
+                  onClick={panel.onOpen}
+                >
+                  <Icon size={16} aria-hidden="true" />
+                  <span>
+                    <strong>{panel.label}</strong>
+                    <small>{panel.description}</small>
+                  </span>
+                  <ChevronRight size={15} aria-hidden="true" />
+                </button>
+              );
+            })}
           </div>
         ) : showingSubagents && !activeSubagent && subagents.length === 0 ? (
           <div className="subagent-empty">

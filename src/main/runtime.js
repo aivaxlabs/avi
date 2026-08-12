@@ -34,6 +34,7 @@ import { Worker } from 'node:worker_threads';
 import {
   archiveConversation,
   closeDatabase,
+  countArchivedConversations,
   createConversation,
   deleteAivaxAccessToken,
   deleteConversation,
@@ -96,6 +97,11 @@ import {
   resolveWorkspacePath,
   searchWorkspaceFiles,
 } from './files.js';
+import {
+  commitGitPlan,
+  pushGitRepository,
+  reviewGitWorkspace,
+} from './git-review.js';
 import { ModelProviderRegistry } from './model-provider.js';
 import { McpManager } from './mcp-manager.js';
 import { PluginManager } from './plugin-manager.js';
@@ -901,30 +907,42 @@ function registerIpc() {
     return remoteState();
   });
 
-  const archiveState = (query = '') => ({
-    settings: getArchiveSettings(),
-    conversations: listArchivedConversations(query).map(refreshConversationProject),
-    stats: getArchiveStats(),
-  });
-  applicationIpc.handle('archive:state', (_event, query = '') => archiveState(query));
-  applicationIpc.handle('archive:save', (_event, settings) => ({
-    ...archiveState(),
+  const archiveState = (options = {}) => {
+    const query = typeof options === 'string' ? options : String(options?.query ?? '');
+    const pageSize = Math.min(100, Math.max(1, Math.trunc(Number(options?.pageSize)) || 20));
+    const total = countArchivedConversations(query);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(totalPages, Math.max(1, Math.trunc(Number(options?.page)) || 1));
+    return {
+      settings: getArchiveSettings(),
+      conversations: listArchivedConversations(query, {
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+      }).map(refreshConversationProject),
+      pagination: { page, pageSize, total, totalPages },
+      stats: getArchiveStats(),
+    };
+  };
+  applicationIpc.handle('archive:state', (_event, options = {}) => archiveState(options));
+  applicationIpc.handle('archive:save', (_event, settings, options = {}) => ({
+    ...archiveState(options),
     settings: setArchiveSettings(settings),
   }));
-  applicationIpc.handle('archive:restore', (_event, conversationId) => {
+  applicationIpc.handle('archive:restore', (_event, conversationId, options = {}) => {
     restoreConversation(conversationId);
-    return archiveState();
+    return archiveState(options);
   });
-  applicationIpc.handle('archive:delete', (_event, conversationId) => {
+  applicationIpc.handle('archive:delete', (_event, conversationId, options = {}) => {
     deleteConversation(conversationId, { hard: true });
-    return archiveState();
+    return archiveState(options);
   });
-  applicationIpc.handle('archive:maintenance', () => ({
-    ...archiveState(),
-    maintenance: runArchiveMaintenance(),
-    stats: getArchiveStats(),
-    conversations: listArchivedConversations().map(refreshConversationProject),
-  }));
+  applicationIpc.handle('archive:maintenance', (_event, options = {}) => {
+    const maintenance = runArchiveMaintenance();
+    return {
+      ...archiveState(options),
+      maintenance,
+    };
+  });
   applicationIpc.handle('archive:temporary-storage', () => getTemporaryStorage());
   applicationIpc.handle('archive:clear-temporary-storage', () => clearTemporaryStorage());
 
@@ -1186,6 +1204,49 @@ function registerIpc() {
 
   applicationIpc.handle('providers:list', () => listProviders());
   applicationIpc.handle('providers:types', () => providerRegistry.listTypes());
+  applicationIpc.handle('providers:normalize', (_event, payload) => (
+    providerRegistry.normalizeConfig(payload)
+  ));
+  applicationIpc.handle('providers:import-from-url', async (_event, value) => {
+    let url;
+    try {
+      url = new URL(String(value ?? '').trim());
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error();
+    } catch {
+      throw new Error('Provider import URL must be a valid HTTP or HTTPS URL.');
+    }
+
+    const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) {
+      throw new Error(`Provider import failed with HTTP ${response.status}.`);
+    }
+    const declaredLength = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declaredLength) && declaredLength > 1_048_576) {
+      throw new Error('Provider import response exceeds the 1 MB limit.');
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('Provider import returned an empty response.');
+    const chunks = [];
+    let totalLength = 0;
+    while (true) {
+      const { done, value: chunk } = await reader.read();
+      if (done) break;
+      totalLength += chunk.byteLength;
+      if (totalLength > 1_048_576) {
+        await reader.cancel();
+        throw new Error('Provider import response exceeds the 1 MB limit.');
+      }
+      chunks.push(chunk);
+    }
+    const bytes = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(bytes);
+  });
   applicationIpc.handle('providers:save', (_event, payload) => {
     const provider = providerRegistry.normalizeConfig(payload);
     const providers = listProviders();
@@ -1436,6 +1497,36 @@ function registerIpc() {
   applicationIpc.handle('chat:stop', (_event, conversationId) => {
     chatRunner.stop(conversationId, { includeSubagents: true });
     return true;
+  });
+  applicationIpc.handle('git-review:state', (_event, conversationId) => {
+    const conversation = getConversation(conversationId);
+    if (!conversation) throw new Error('Start a conversation before opening Git Review.');
+    return reviewGitWorkspace(conversation.projectPath);
+  });
+  applicationIpc.handle('git-review:plan', async (_event, payload = {}) => {
+    const conversation = getConversation(payload.conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    const review = await reviewGitWorkspace(conversation.projectPath);
+    const repository = review.repositories.find((item) => item.path === payload.repositoryPath);
+    if (!repository) throw new Error('Repository not found. Refresh Git Review.');
+    if (!repository.commitPlanAvailable) {
+      throw new Error('This repository is too large to create a safe commit plan.');
+    }
+    return chatRunner.createCommitPlan({ model: payload.model, repository });
+  });
+  applicationIpc.handle('git-review:commit', (_event, payload = {}) => {
+    const conversation = getConversation(payload.conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    return commitGitPlan(
+      conversation.projectPath,
+      payload.repositoryPath,
+      payload.commits,
+    );
+  });
+  applicationIpc.handle('git-review:push', (_event, payload = {}) => {
+    const conversation = getConversation(payload.conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    return pushGitRepository(conversation.projectPath, payload.repositoryPath);
   });
   applicationIpc.handle('goals:start', async (_event, payload = {}) => {
     const result = await chatRunner.startGoal({
