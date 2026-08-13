@@ -54,6 +54,7 @@ import {
   getProviderCredentials,
   getRemoteApiKey,
   getRemoteSettings,
+  getThreadSearchManifest,
   initializeSecureStorage,
   listAllConversations,
   listArchivedConversations,
@@ -76,10 +77,11 @@ import {
   setProviders,
   setRemoteApiKey,
   setRemoteSettings,
+  setThreadSearchManifest,
   setTuningSettings,
   updateConversation,
 } from './database.js';
-import { loginToAivax, requestAivax } from './aivax-client.js';
+import { indexAivaxDocuments, loginToAivax, requestAivax } from './aivax-client.js';
 import { ChatRunner } from './chat-runner.js';
 import { QuickChatRunner } from './quick-chat-runner.js';
 import { validateDefaultModels } from './default-models.js';
@@ -114,8 +116,15 @@ import {
 import {
   setTraceLevel,
   traceError,
+  traceInfo,
   traceVerbose,
 } from './trace-log.js';
+import {
+  buildThreadSearchDocuments,
+  compareThreadSearchManifests,
+  createThreadSearchManifest,
+  THREAD_SEARCH_SYNC_INTERVAL_MS,
+} from './thread-search-index.js';
 import { providerTypes } from '../providers/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -157,6 +166,8 @@ let shutdownReady = false;
 let isQuitting = false;
 let lastCpuUsage = process.cpuUsage();
 let resourceSnapshotInterval;
+let threadSearchSyncInterval;
+let threadSearchSyncPromise = null;
 const ipcHandlers = new Map();
 const applicationIpc = { handle: (channel, handler) => ipcHandlers.set(channel, handler) };
 
@@ -167,6 +178,7 @@ app.on('before-quit', (event) => {
   if (shutdownStarted) return;
   shutdownStarted = true;
   clearInterval(resourceSnapshotInterval);
+  clearInterval(threadSearchSyncInterval);
   for (const sessionId of quickChatWindows.keys()) quickChatRunner?.close(sessionId);
   Promise.resolve(chatRunner?.shutdown())
     .then(() => mcpManager?.closeAll())
@@ -259,6 +271,51 @@ ipcMain.handle('avi:invoke', invokeApplicationRequest);
 await applyLoginSettings();
 createTray();
 createWindow();
+void synchronizeThreadSearchIndex();
+threadSearchSyncInterval = setInterval(() => void synchronizeThreadSearchIndex(), THREAD_SEARCH_SYNC_INTERVAL_MS);
+threadSearchSyncInterval.unref();
+
+async function synchronizeThreadSearchIndex() {
+  const settings = getAivaxSettings();
+  const collectionId = settings.threadSearchCollectionId;
+  if (!getAivaxAccessToken() || !collectionId) return null;
+  if (threadSearchSyncPromise) return threadSearchSyncPromise;
+
+  threadSearchSyncPromise = (async () => {
+    const startedAt = Date.now();
+    const documents = buildThreadSearchDocuments(listConversations(), getMessages);
+    const nextManifest = createThreadSearchManifest(documents);
+    const changes = compareThreadSearchManifests(
+      getThreadSearchManifest(collectionId),
+      nextManifest,
+    );
+    try {
+      const response = await indexAivaxDocuments(collectionId, documents);
+      setThreadSearchManifest(collectionId, nextManifest);
+      traceInfo('aivax.thread-search-index-completed', {
+        consumed_credits: response.consumedCredits,
+        document_count: documents.length,
+        documents_indexed: changes.added,
+        documents_updated: changes.updated,
+        documents_skipped: response.data.skipped ?? changes.skipped,
+        documents_removed: changes.removed,
+        duration_ms: Date.now() - startedAt,
+      });
+      return response;
+    } catch (error) {
+      traceError('aivax.thread-search-index-error', {
+        document_count: documents.length,
+        duration_ms: Date.now() - startedAt,
+        status: error?.status,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  })().finally(() => {
+    threadSearchSyncPromise = null;
+  });
+  return threadSearchSyncPromise;
+}
 
 async function invokeApplicationRequest(event, { channel, payload } = {}) {
   if (!event.senderFrame?.url || !isTrustedRendererUrl(event.senderFrame.url)) {
@@ -858,7 +915,6 @@ function registerIpc() {
         memoryEnabled: false,
         advancedFetchEnabled: false,
         webSearchEnabled: false,
-        reflexSearchEnabled: false,
       });
       return { connected: false, account: null, settings };
     }
@@ -874,6 +930,7 @@ function registerIpc() {
       responseType: 'object',
     });
     setAivaxAccessToken(login.accessToken);
+    void synchronizeThreadSearchIndex();
     return { connected: true, account, settings: getAivaxSettings() };
   });
   applicationIpc.handle('aivax:disconnect', () => {
@@ -883,13 +940,18 @@ function registerIpc() {
       memoryEnabled: false,
       advancedFetchEnabled: false,
       webSearchEnabled: false,
-      reflexSearchEnabled: false,
     });
     return { connected: false, account: null, settings };
   });
   applicationIpc.handle('aivax:save', (_event, settings) => {
     if (!getAivaxAccessToken()) throw new Error('Connect an AIVAX account first.');
-    return setAivaxSettings(settings);
+    const previousCollectionId = getAivaxSettings().threadSearchCollectionId;
+    const saved = setAivaxSettings(settings);
+    if (
+      saved.threadSearchCollectionId
+      && saved.threadSearchCollectionId !== previousCollectionId
+    ) void synchronizeThreadSearchIndex();
+    return saved;
   });
   applicationIpc.handle('aivax:collections', () => requestAivax('/api/v1/collections', {
     responseType: 'array',
@@ -1045,16 +1107,16 @@ function registerIpc() {
   let searchWorker = null;
   let searchSequence = 0;
   const pendingSearches = new Map();
-  const runChatSearch = (query, { includeRecentCandidates = false } = {}) => new Promise((resolve, reject) => {
+  const runChatSearch = (query) => new Promise((resolve, reject) => {
     if (!searchWorker) {
       searchWorker = new Worker(new URL('./search-worker.js', import.meta.url));
       searchWorker.unref();
-      searchWorker.on('message', ({ id, results, olderResults, recentCandidates, error }) => {
+      searchWorker.on('message', ({ id, results, error }) => {
         const settle = pendingSearches.get(id);
         if (!settle) return;
         pendingSearches.delete(id);
         if (error) settle.reject(new Error(error));
-        else settle.resolve(recentCandidates ? { olderResults, recentCandidates } : results);
+        else settle.resolve(results);
       });
       searchWorker.on('error', (error) => {
         searchWorker = null;
@@ -1064,42 +1126,54 @@ function registerIpc() {
     }
     const id = ++searchSequence;
     pendingSearches.set(id, { resolve, reject });
-    searchWorker.postMessage({ id, query, includeRecentCandidates });
+    searchWorker.postMessage({ id, query });
   });
   applicationIpc.handle('conversations:search', async (_event, query) => {
-    const reflexEnabled = Boolean(getAivaxAccessToken() && getAivaxSettings().reflexSearchEnabled);
-    const search = await runChatSearch(query, { includeRecentCandidates: reflexEnabled });
-    if (Array.isArray(search)) return search;
-    const { olderResults, recentCandidates } = search;
-    if (recentCandidates.length === 0) return olderResults;
+    const collectionId = getAivaxAccessToken() && getAivaxSettings().threadSearchCollectionId;
+    if (!collectionId) return runChatSearch(query);
+    const startedAt = Date.now();
     try {
-      const reranked = await requestAivax('/api/v1/generations/rerank', {
+      const response = await requestAivax('/api/v1/query', {
         body: {
-          model: '@aivax/reflex-v1',
-          query: String(query),
-          documents: recentCandidates.map((result) => [
-            result.title,
-            result.folderDisplayPath,
-            result.content,
-          ].filter(Boolean).join('\n')),
-          top_n: 20,
-          min_score: 0,
+          terms: [String(query)],
+          collections: [collectionId],
+          top: 20,
+          includeReferences: false,
+          reranker: 'rrf',
+          minScore: 0.2,
         },
-        responseType: 'object',
+        includeResponseMetadata: true,
+        responseType: 'array',
       });
       const seenConversations = new Set();
-      const recentResults = (reranked?.results ?? [])
-        .map((result) => recentCandidates[result.index])
-        .filter((result) => result && !seenConversations.has(result.conversationId))
-        .filter((result) => {
-          seenConversations.add(result.conversationId);
-          return true;
-        });
-      return [...recentResults, ...olderResults]
-        .filter((result) => !seenConversations.has(result.conversationId) || recentResults.includes(result))
-        .slice(0, 20);
+      const results = response.data.flatMap((result) => {
+        const conversationId = result.metadata?.threadId;
+        const conversation = conversationId ? getConversation(conversationId) : null;
+        if (!conversation || conversation.conversationType !== 'thread' || seenConversations.has(conversationId)) return [];
+        seenConversations.add(conversationId);
+        return [{
+          score: result.score,
+          conversationId,
+          messageId: result.metadata?.assistantMessageId ?? null,
+          title: conversation.title,
+          role: 'assistant',
+          content: String(result.documentContent ?? ''),
+          updatedAt: result.metadata?.updatedAt ?? conversation.updatedAt,
+          folderPath: conversation.projectPath,
+          folderName: conversation.projectName,
+          folderDisplayPath: conversation.projectDisplayPath,
+        }];
+      });
+      traceInfo('aivax.thread-search-completed', {
+        consumed_credits: response.consumedCredits,
+        duration_ms: Date.now() - startedAt,
+        item_count: results.length,
+      });
+      return results;
     } catch (error) {
-      traceError('aivax.reflex-search-error', {
+      traceError('aivax.thread-search-error', {
+        duration_ms: Date.now() - startedAt,
+        status: error?.status,
         error: error instanceof Error ? error.message : String(error),
       });
       return runChatSearch(query);

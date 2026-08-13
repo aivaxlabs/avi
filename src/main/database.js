@@ -62,7 +62,8 @@ const defaultAivaxSettings = Object.freeze({
   memoryCollectionName: null,
   advancedFetchEnabled: false,
   webSearchEnabled: false,
-  reflexSearchEnabled: false,
+  threadSearchCollectionId: null,
+  threadSearchCollectionName: null,
 });
 const defaultDesktopSettings = Object.freeze({
   closeToTray: false,
@@ -950,6 +951,22 @@ export function setAivaxSettings(value) {
   const settings = normalizeAivaxSettings(value, true);
   writeJson('aivaxSettings', settings);
   return settings;
+}
+
+export function getThreadSearchManifest(collectionId) {
+  const manifests = readJson('threadSearchManifests');
+  return manifests && typeof manifests === 'object' && manifests[collectionId]
+    ? manifests[collectionId]
+    : {};
+}
+
+export function setThreadSearchManifest(collectionId, manifest) {
+  const manifests = readJson('threadSearchManifests');
+  writeJson('threadSearchManifests', {
+    ...(manifests && typeof manifests === 'object' ? manifests : {}),
+    [collectionId]: manifest,
+  });
+  return manifest;
 }
 
 export function getAivaxAccessToken() {
@@ -1957,7 +1974,12 @@ function normalizeAivaxSettings(value, strict = false) {
       : null,
     advancedFetchEnabled: settings.advancedFetchEnabled === true,
     webSearchEnabled: settings.webSearchEnabled === true,
-    reflexSearchEnabled: settings.reflexSearchEnabled === true,
+    threadSearchCollectionId: typeof settings.threadSearchCollectionId === 'string' && settings.threadSearchCollectionId.trim()
+      ? settings.threadSearchCollectionId.trim()
+      : null,
+    threadSearchCollectionName: typeof settings.threadSearchCollectionName === 'string' && settings.threadSearchCollectionName.trim()
+      ? settings.threadSearchCollectionName.trim()
+      : null,
   };
   if (strict && (
     typeof settings.memoryEnabled !== 'boolean'
@@ -1965,8 +1987,10 @@ function normalizeAivaxSettings(value, strict = false) {
     || ![null, 'string'].includes(settings.memoryCollectionName === null ? null : typeof settings.memoryCollectionName)
     || typeof settings.advancedFetchEnabled !== 'boolean'
     || typeof settings.webSearchEnabled !== 'boolean'
-    || typeof settings.reflexSearchEnabled !== 'boolean'
+    || ![null, 'string'].includes(settings.threadSearchCollectionId === null ? null : typeof settings.threadSearchCollectionId)
+    || ![null, 'string'].includes(settings.threadSearchCollectionName === null ? null : typeof settings.threadSearchCollectionName)
     || (normalized.memoryEnabled && !normalized.memoryCollectionId)
+    || (normalized.threadSearchCollectionId && normalized.threadSearchCollectionId === normalized.memoryCollectionId)
   )) {
     throw new Error('AIVAX feature settings are invalid.');
   }

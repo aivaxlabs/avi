@@ -16,6 +16,7 @@ export async function loginToAivax(loginKey, { signal } = {}) {
 export async function requestAivax(path, {
   accessToken = getAivaxAccessToken(),
   body,
+  includeResponseMetadata = false,
   method = body === undefined ? 'GET' : 'POST',
   responseType,
   signal,
@@ -24,13 +25,14 @@ export async function requestAivax(path, {
     throw new Error('Connect an AIVAX account in Settings first.');
   }
 
+  const multipart = body instanceof FormData;
   const response = await fetch(new URL(path, AIVAX_API_BASE_URL), {
     method,
     headers: {
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...(body === undefined || multipart ? {} : { 'Content-Type': 'application/json' }),
     },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    ...(body === undefined ? {} : { body: multipart ? body : JSON.stringify(body) }),
     signal,
   });
   const text = await response.text();
@@ -57,5 +59,28 @@ export async function requestAivax(path, {
   if (responseType === 'object' && (!result || typeof result !== 'object' || Array.isArray(result))) {
     throw new Error('AIVAX returned an invalid response: expected an object.');
   }
+  if (includeResponseMetadata) {
+    return {
+      data: result,
+      consumedCredits: Number(response.headers.get('Consumed-Credits')) || 0,
+      status: response.status,
+    };
+  }
   return result;
+}
+
+export function indexAivaxDocuments(collectionId, documents, options = {}) {
+  const form = new FormData();
+  form.append('documents', new Blob([
+    documents.map((document) => JSON.stringify(document)).join('\n'),
+  ], { type: 'application/x-ndjson' }), 'avi-thread-search.jsonl');
+  return requestAivax(
+    `/api/v1/collections/${encodeURIComponent(collectionId)}/documents?insert-mode=sync`,
+    {
+      ...options,
+      body: form,
+      includeResponseMetadata: true,
+      responseType: 'object',
+    },
+  );
 }

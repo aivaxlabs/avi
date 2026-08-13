@@ -21,10 +21,16 @@ const allowedDetails = new Set([
   'code',
   'compaction_ratio',
   'concurrent_runs',
+  'consumed_credits',
   'cpu_system_ms',
   'cpu_user_ms',
   'context_limit',
   'context_tokens',
+  'document_count',
+  'documents_indexed',
+  'documents_removed',
+  'documents_skipped',
+  'documents_updated',
   'duration_ms',
   'error',
   'external_mb',
@@ -110,6 +116,11 @@ export function setTraceLevel(level) {
 export function traceError(event, details = {}) {
   if (traceLevel === 'disabled') return;
   writeTrace('ERROR', event, details);
+}
+
+export function traceInfo(event, details = {}) {
+  if (traceLevel === 'disabled') return;
+  writeTrace('INFO', event, details);
 }
 
 export function traceVerbose(event, details = {}) {
