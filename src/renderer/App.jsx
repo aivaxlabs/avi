@@ -207,11 +207,30 @@ export default function App() {
   ), [openProviderPanelIds, providerPanels]);
   const [appearance, setAppearance] = useState(readAppearance);
   const [appearanceReady, setAppearanceReady] = useState(false);
+  const [chatBackgroundUrl, setChatBackgroundUrl] = useState(null);
 
   useEffect(() => {
     applyTheme(appearance);
     if (appearanceReady) saveAppearance(appearance);
   }, [appearance, appearanceReady]);
+
+  useEffect(() => {
+    let active = true;
+    if (!appearance.backgroundFile) {
+      setChatBackgroundUrl(null);
+      return undefined;
+    }
+    api.appearance.background(appearance.backgroundFile)
+      .then((url) => {
+        if (active) setChatBackgroundUrl(url);
+      })
+      .catch(() => {
+        if (active) setChatBackgroundUrl(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [appearance.backgroundFile]);
 
   useEffect(() => onSystemSchemeChange(() => {
     setAppearance((current) => (current.scheme === 'system' ? { ...current } : current));
@@ -1513,8 +1532,21 @@ export default function App() {
           initialContextFolder={settingsContextFolder}
           initialView={settingsInitialView}
           appearance={appearance}
+          backgroundUrl={chatBackgroundUrl}
           desktop={appState.desktop}
           onAppearanceChange={setAppearance}
+          onBackgroundSelect={async () => {
+            const backgroundFile = await api.appearance.selectBackground();
+            if (!backgroundFile) return;
+            const backgroundUrl = await api.appearance.background(backgroundFile);
+            setChatBackgroundUrl(backgroundUrl);
+            setAppearance((current) => ({ ...current, backgroundFile }));
+          }}
+          onBackgroundRemove={async () => {
+            await api.appearance.removeBackground();
+            setChatBackgroundUrl(null);
+            setAppearance((current) => ({ ...current, backgroundFile: null }));
+          }}
           onDesktopChange={async (desktop) => {
             const saved = await api.desktop.save(desktop);
             setAppState((current) => ({ ...current, desktop: saved }));
@@ -1660,6 +1692,9 @@ export default function App() {
               {...shell}
               emptyBackgroundEnabled={getTheme(appearance.themeId).emptyChatBackground !== false}
               emptyBackgroundThemeKey={`${appearance.themeId}:${resolvedScheme(appearance.scheme)}`}
+              backgroundUrl={chatBackgroundUrl}
+              backgroundBlendMode={appearance.backgroundBlendMode}
+              backgroundOpacity={appearance.backgroundOpacity}
               currentProject={currentProject}
               models={models}
               favorites={favorites}

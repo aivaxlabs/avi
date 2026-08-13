@@ -6,6 +6,18 @@
   overflow: hidden;
   isolation: isolate;
 
+  .chat-background-image {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    pointer-events: none;
+    user-select: none;
+    contain: strict;
+  }
+
   .empty-chat-background {
     position: absolute;
     inset: 0;

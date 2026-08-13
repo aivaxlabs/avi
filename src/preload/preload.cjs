@@ -30,6 +30,11 @@ contextBridge.exposeInMainWorld('chatApp', {
     answerQuestion: (payload) => invoke('quick-chat:answer-question', payload),
     onEvent: (callback) => subscribe('quick-chat:event', callback),
   },
+  appearance: {
+    selectBackground: () => invoke('appearance:select-background'),
+    background: (fileName) => invoke('appearance:background', fileName),
+    removeBackground: () => invoke('appearance:remove-background'),
+  },
   desktop: {
     save: (settings) => invoke('desktop:save', settings),
   },

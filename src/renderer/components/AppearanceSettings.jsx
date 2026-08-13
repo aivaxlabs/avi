@@ -1,11 +1,55 @@
-import { Check, Monitor, Moon, Sun } from 'lucide-react';
+import { Check, ImagePlus, Monitor, Moon, Sun, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { classNames } from '../lib/format.js';
 import { themes } from '../lib/themes.js';
+import { Message } from './Message.jsx';
 
 const schemeOptions = Object.freeze([
   { id: 'system', label: 'System', icon: Monitor },
   { id: 'light', label: 'Light', icon: Sun },
   { id: 'dark', label: 'Dark', icon: Moon },
+]);
+const blendModeOptions = Object.freeze([
+  'normal',
+  'multiply',
+  'screen',
+  'overlay',
+  'darken',
+  'lighten',
+  'color-dodge',
+  'color-burn',
+  'hard-light',
+  'soft-light',
+  'difference',
+  'exclusion',
+  'hue',
+  'saturation',
+  'color',
+  'luminosity',
+]);
+const backgroundPreviewMessages = Object.freeze([
+  {
+    id: 'background-preview-user',
+    role: 'user',
+    content: 'Can you help me personalize this workspace without making the chat harder to read?',
+    status: 'completed',
+    attachments: [],
+    segments: [],
+    continuations: [],
+    createdAt: '2026-01-01T12:00:00.000Z',
+    updatedAt: '2026-01-01T12:00:00.000Z',
+  },
+  {
+    id: 'background-preview-assistant',
+    role: 'assistant',
+    content: 'Absolutely. Try a subtle image, then use [blend mode](https://developer.mozilla.org/docs/Web/CSS/mix-blend-mode) and [opacity](https://developer.mozilla.org/docs/Web/CSS/opacity) to keep every message clear.\n\nThis preview uses the same message components as your chat.',
+    status: 'completed',
+    attachments: [],
+    segments: [],
+    continuations: [],
+    createdAt: '2026-01-01T12:00:05.000Z',
+    updatedAt: '2026-01-01T12:00:05.000Z',
+  },
 ]);
 
 function ThemePreview({ theme, mode, active }) {
@@ -54,8 +98,17 @@ function ThemePreview({ theme, mode, active }) {
   );
 }
 
-export function AppearanceSettings({ appearance, previewScheme, onChange, themeCatalog = themes }) {
-  const activeTheme = themeCatalog.find((theme) => theme.id === appearance.themeId) ?? themeCatalog[0];
+export function AppearanceSettings({
+  appearance,
+  backgroundUrl,
+  previewScheme,
+  onChange,
+  onBackgroundSelect,
+  onBackgroundRemove,
+  themeCatalog = themes,
+}) {
+  const [backgroundBusy, setBackgroundBusy] = useState(false);
+  const [backgroundError, setBackgroundError] = useState('');
   const shownMode = previewScheme === 'system'
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : previewScheme;
@@ -122,16 +175,121 @@ export function AppearanceSettings({ appearance, previewScheme, onChange, themeC
 
       <section className="settings-section">
         <div className="settings-section-heading">
-          <h3>Preview</h3>
-          <p>
-            {activeTheme.name}
-            {' · '}
-            {shownMode === 'dark' ? 'Dark' : 'Light'}
-            {' mode'}
-          </p>
+          <h3>Background</h3>
+          <p>Choose an image shown behind the main chat. Avi stores its own managed copy.</p>
         </div>
-        <div className="settings-section-card appearance-live-preview-card">
-          <ThemePreview theme={activeTheme} mode={shownMode} active />
+        <div className="settings-section-card appearance-background-card">
+          <div
+            className="appearance-background-preview chat-area"
+            aria-label={backgroundUrl ? 'Chat background preview' : 'Chat preview without a background image'}
+          >
+            {backgroundUrl && (
+              <div
+                className="chat-background-image"
+                style={{
+                  backgroundImage: `url(${JSON.stringify(backgroundUrl)})`,
+                  mixBlendMode: appearance.backgroundBlendMode,
+                  opacity: appearance.backgroundOpacity,
+                }}
+                aria-hidden="true"
+              />
+            )}
+            <div className="chat-scroll" inert="" aria-hidden="true">
+              <div className="messages-column">
+                {backgroundPreviewMessages.map((message) => (
+                  <Message
+                    key={message.id}
+                    message={message}
+                    modelName="Avi"
+                    workedMessages={[]}
+                    showContinuations={false}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="appearance-background-editor">
+            <label className="appearance-background-control">
+              <span>Blend mode</span>
+              <select
+                value={appearance.backgroundBlendMode}
+                onChange={(event) => onChange({
+                  ...appearance,
+                  backgroundBlendMode: event.target.value,
+                })}
+              >
+                {blendModeOptions.map((mode) => (
+                  <option key={mode} value={mode}>{mode}</option>
+                ))}
+              </select>
+            </label>
+
+            <div className="appearance-background-control appearance-background-opacity">
+              <span className="appearance-background-control-heading">
+                <label htmlFor="chat-background-opacity">Opacity</label>
+                <output htmlFor="chat-background-opacity">
+                  {Math.round(appearance.backgroundOpacity * 100)}%
+                </output>
+              </span>
+              <input
+                id="chat-background-opacity"
+                type="range"
+                min="0.05"
+                max="0.8"
+                step="0.05"
+                value={appearance.backgroundOpacity}
+                onChange={(event) => onChange({
+                  ...appearance,
+                  backgroundOpacity: Number(event.target.value),
+                })}
+              />
+            </div>
+
+            <div className="appearance-background-actions">
+              <button
+                type="button"
+                className="settings-button appearance-background-select"
+                disabled={backgroundBusy}
+                onClick={async () => {
+                  setBackgroundBusy(true);
+                  setBackgroundError('');
+                  try {
+                    await onBackgroundSelect();
+                  } catch (error) {
+                    setBackgroundError(error instanceof Error ? error.message : String(error));
+                  } finally {
+                    setBackgroundBusy(false);
+                  }
+                }}
+              >
+                <ImagePlus size={14} />
+                {backgroundBusy ? 'Selecting...' : backgroundUrl ? 'Change image' : 'Select image'}
+              </button>
+              {backgroundUrl && (
+                <button
+                  type="button"
+                  className="appearance-background-remove"
+                  disabled={backgroundBusy}
+                  onClick={async () => {
+                    setBackgroundBusy(true);
+                    setBackgroundError('');
+                    try {
+                      await onBackgroundRemove();
+                    } catch (error) {
+                      setBackgroundError(error instanceof Error ? error.message : String(error));
+                    } finally {
+                      setBackgroundBusy(false);
+                    }
+                  }}
+                >
+                  <Trash2 size={14} />
+                  Remove
+                </button>
+              )}
+            </div>
+            {backgroundError && <p className="appearance-background-error" role="alert">{backgroundError}</p>}
+          </div>
         </div>
       </section>
     </div>

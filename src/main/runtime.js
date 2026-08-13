@@ -14,6 +14,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import {
   access,
   appendFile,
+  copyFile,
   mkdir,
   readFile,
   rm,
@@ -118,6 +119,13 @@ import {
 import { providerTypes } from '../providers/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const chatBackgroundMimeTypes = Object.freeze({
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+});
 const pluginsDirectory = app.isPackaged
   ? join(dirname(process.execPath), 'plugins')
   : join(app.getAppPath(), 'plugins');
@@ -731,6 +739,54 @@ function registerIpc() {
       throw new Error('Only HTTP and HTTPS links can be opened.');
     }
     return shell.openExternal(target.href);
+  });
+  applicationIpc.handle('appearance:select-background', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      defaultPath: homedir(),
+      properties: ['openFile'],
+      filters: [{
+        name: 'Images',
+        extensions: ['gif', 'jpeg', 'jpg', 'png', 'webp'],
+      }],
+    });
+    if (canceled) return null;
+
+    const sourcePath = filePaths[0];
+    const extension = extname(sourcePath).toLowerCase();
+    if (!chatBackgroundMimeTypes[extension]) {
+      throw new TypeError('Select a GIF, JPEG, PNG, or WebP image.');
+    }
+
+    const backgroundDirectory = join(homedir(), '.aivax', 'chat-backgrounds');
+    const fileName = `chat-background${extension}`;
+    const destinationPath = join(backgroundDirectory, fileName);
+    await mkdir(backgroundDirectory, { recursive: true });
+    if (resolve(sourcePath) !== resolve(destinationPath)) {
+      await copyFile(sourcePath, destinationPath);
+    }
+    await Promise.all(Object.keys(chatBackgroundMimeTypes)
+      .filter((otherExtension) => otherExtension !== extension)
+      .map((otherExtension) => rm(
+        join(backgroundDirectory, `chat-background${otherExtension}`),
+        { force: true },
+      )));
+    return fileName;
+  });
+  applicationIpc.handle('appearance:background', async (_event, fileName) => {
+    const extension = extname(String(fileName ?? '')).toLowerCase();
+    if (fileName !== `chat-background${extension}` || !chatBackgroundMimeTypes[extension]) {
+      throw new TypeError('Invalid managed background image.');
+    }
+    const image = await readFile(join(homedir(), '.aivax', 'chat-backgrounds', fileName));
+    return `data:${chatBackgroundMimeTypes[extension]};base64,${image.toString('base64')}`;
+  });
+  applicationIpc.handle('appearance:remove-background', async () => {
+    const backgroundDirectory = join(homedir(), '.aivax', 'chat-backgrounds');
+    await Promise.all(Object.keys(chatBackgroundMimeTypes).map((extension) => rm(
+      join(backgroundDirectory, `chat-background${extension}`),
+      { force: true },
+    )));
+    return true;
   });
   applicationIpc.handle('desktop:save', async (_event, settings) => {
     const saved = setDesktopSettings(settings);

@@ -15,7 +15,40 @@ export function readAppearance() {
   const stored = readStoredAppearance();
   const themeId = getTheme(stored.themeId).id;
   const scheme = ['light', 'dark', 'system'].includes(stored.scheme) ? stored.scheme : 'system';
-  return { themeId, scheme };
+  const backgroundFile = /^chat-background\.(gif|jpe?g|png|webp)$/.test(stored.backgroundFile)
+    ? stored.backgroundFile
+    : null;
+  const backgroundBlendMode = [
+    'normal',
+    'multiply',
+    'screen',
+    'overlay',
+    'darken',
+    'lighten',
+    'color-dodge',
+    'color-burn',
+    'hard-light',
+    'soft-light',
+    'difference',
+    'exclusion',
+    'hue',
+    'saturation',
+    'color',
+    'luminosity',
+  ].includes(stored.backgroundBlendMode)
+    ? stored.backgroundBlendMode
+    : 'screen';
+  const storedOpacity = Number(stored.backgroundOpacity);
+  const backgroundOpacity = Number.isFinite(storedOpacity)
+    ? Math.max(0.05, Math.min(0.8, storedOpacity))
+    : 0.2;
+  return {
+    themeId,
+    scheme,
+    backgroundFile,
+    backgroundBlendMode,
+    backgroundOpacity,
+  };
 }
 
 export function saveAppearance(appearance) {

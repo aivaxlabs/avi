@@ -158,6 +158,9 @@ export const ChatView = memo(function ChatView({
   draftKey,
   emptyBackgroundEnabled = true,
   emptyBackgroundThemeKey,
+  backgroundUrl = null,
+  backgroundBlendMode = 'screen',
+  backgroundOpacity = 0.2,
 }) {
   const chatAreaRef = useRef(null);
   const composerRef = useRef(null);
@@ -664,7 +667,18 @@ export const ChatView = memo(function ChatView({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {!compact && emptyBackgroundEnabled && (
+      {!compact && backgroundUrl && (
+        <div
+          className="chat-background-image"
+          style={{
+            backgroundImage: `url(${JSON.stringify(backgroundUrl)})`,
+            mixBlendMode: backgroundBlendMode,
+            opacity: backgroundOpacity,
+          }}
+          aria-hidden="true"
+        />
+      )}
+      {!compact && !backgroundUrl && emptyBackgroundEnabled && (
         <canvas
           ref={emptyBackgroundRef}
           className="empty-chat-background"

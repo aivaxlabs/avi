@@ -318,9 +318,12 @@ export function SettingsPage({
   initialContextFolder = null,
   initialView = null,
   appearance,
+  backgroundUrl,
   pluginCatalog = {},
   desktop,
   onAppearanceChange,
+  onBackgroundSelect,
+  onBackgroundRemove,
   onDesktopChange,
   onClose,
   onSave,
@@ -1662,12 +1665,15 @@ export function SettingsPage({
                 </section>
                 <AppearanceSettings
                   appearance={appearance}
+                  backgroundUrl={backgroundUrl}
                   previewScheme={previewScheme}
                   themeCatalog={pluginCatalog.themes ?? []}
                   onChange={(next) => {
                     setPreviewScheme(next.scheme);
                     onAppearanceChange(next);
                   }}
+                  onBackgroundSelect={onBackgroundSelect}
+                  onBackgroundRemove={onBackgroundRemove}
                 />
               </div>
             )}
