@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -12,6 +12,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const root = await mkdtemp(join(tmpdir(), 'avi-git-review-'));
+const linkedRepository = await mkdtemp(join(tmpdir(), 'avi-git-review-linked-'));
 const repository = join(root, 'project');
 const remote = join(root, 'remote.git');
 
@@ -64,7 +65,63 @@ try {
   );
   assert.equal(await readFile(join(repository, 'tracked.txt'), 'utf8'), 'changed again\n');
 
+  const nestedRepository = join(root, 'group', 'nested');
+  const depthThreeRepository = join(root, 'one', 'two', 'three');
+  const tooDeepRepository = join(root, 'one', 'two', 'other', 'four');
+  const containingRepository = join(root, 'containing');
+  const hiddenNestedRepository = join(containingRepository, 'nested');
+  await Promise.all([
+    mkdir(nestedRepository, { recursive: true }),
+    mkdir(depthThreeRepository, { recursive: true }),
+    mkdir(tooDeepRepository, { recursive: true }),
+    mkdir(hiddenNestedRepository, { recursive: true }),
+  ]);
+  await Promise.all([
+    execFileAsync('git', ['init', nestedRepository]),
+    execFileAsync('git', ['init', depthThreeRepository]),
+    execFileAsync('git', ['init', tooDeepRepository]),
+    execFileAsync('git', ['init', containingRepository]),
+    execFileAsync('git', ['init', hiddenNestedRepository]),
+    execFileAsync('git', ['init', linkedRepository]),
+  ]);
+  await writeFile(join(linkedRepository, 'linked.txt'), 'linked change\n');
+  await symlink(
+    linkedRepository,
+    join(root, 'linked-repository'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  );
+  await symlink(
+    root,
+    join(linkedRepository, 'workspace-cycle'),
+    process.platform === 'win32' ? 'junction' : 'dir',
+  );
+
+  const discovered = await reviewGitWorkspace(root);
+  const discoveredPaths = discovered.repositories.map(({ path }) => path);
+  assert.ok(discoveredPaths.includes('project'));
+  assert.ok(discoveredPaths.includes('group/nested'));
+  assert.ok(discoveredPaths.includes('one/two/three'));
+  assert.ok(discoveredPaths.includes('containing'));
+  assert.ok(discoveredPaths.includes('linked-repository'));
+  assert.ok(!discoveredPaths.includes('one/two/other/four'));
+  assert.ok(!discoveredPaths.includes('containing/nested'));
+  assert.match(
+    discovered.repositories.find(({ path }) => path === 'linked-repository').files
+      .find(({ path }) => path === 'linked.txt').diff,
+    /linked change/,
+  );
+
+  await unlink(join(linkedRepository, 'workspace-cycle'));
+  await commitGitPlan(root, 'linked-repository', [
+    { message: 'Add linked content', files: ['linked.txt'] },
+  ]);
+  assert.equal((await reviewGitWorkspace(root)).repositories
+    .find(({ path }) => path === 'linked-repository').files.length, 0);
+
   console.log('Git Review tests passed.');
 } finally {
-  await rm(root, { recursive: true, force: true });
+  await Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(linkedRepository, { recursive: true, force: true }),
+  ]);
 }

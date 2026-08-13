@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readdir } from 'node:fs/promises';
+import { readdir, realpath, stat } from 'node:fs/promises';
 import { basename, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { resolveWorkspacePath } from './files.js';
@@ -38,39 +38,70 @@ async function runGit(repository, args, options = {}) {
   }
 }
 
-async function resolveRepository(workspacePath, repositoryPath) {
-  const repository = resolveWorkspacePath(workspacePath, repositoryPath === '.' ? '' : repositoryPath);
-  const result = await runGit(repository, ['rev-parse', '--show-toplevel']);
-  const topLevel = resolve(result.stdout.trim());
-  if (topLevel.toLowerCase() !== resolve(repository).toLowerCase()) {
-    throw new Error('The selected path is not a repository root.');
-  }
-  return repository;
-}
+const pathKey = (path) => process.platform === 'win32' ? path.toLowerCase() : path;
 
 async function discoverRepositories(workspacePath) {
   const root = resolveWorkspacePath(workspacePath);
   let level = [root];
   const repositories = [];
+  const visitedDirectories = new Set();
 
   for (let depth = 0; depth <= 3 && level.length > 0 && repositories.length < repositoryLimit; depth += 1) {
-    const inspected = await Promise.all(level.map(async (directory) => {
-      const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
-      const isRepository = entries.some((entry) => entry.name === '.git');
-      return {
-        repository: isRepository ? directory : null,
-        directories: depth === 3 || (isRepository && depth > 0)
-          ? []
-          : entries
-            .filter((entry) => entry.isDirectory() && entry.name !== '.git')
-            .map((entry) => resolve(directory, entry.name)),
-      };
-    }));
-    repositories.push(...inspected.flatMap(({ repository }) => repository ? [repository] : []));
-    level = inspected.flatMap(({ directories }) => directories);
+    const nextLevel = [];
+    for (const directory of level) {
+      let canonicalDirectory;
+      let entries;
+      try {
+        canonicalDirectory = await realpath(directory);
+        const key = pathKey(canonicalDirectory);
+        if (visitedDirectories.has(key)) continue;
+        visitedDirectories.add(key);
+        entries = await readdir(directory, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      const hasGitMarker = entries.some((entry) => entry.name.toLowerCase() === '.git');
+      if (hasGitMarker) {
+        const topLevelResult = await runGit(directory, ['rev-parse', '--show-toplevel'], { allowFailure: true });
+        const topLevel = topLevelResult.ok
+          ? await realpath(topLevelResult.stdout.trim()).catch(() => null)
+          : null;
+        if (topLevel && pathKey(topLevel) === pathKey(canonicalDirectory)) {
+          repositories.push({
+            directory: canonicalDirectory,
+            path: relative(root, directory).replaceAll('\\', '/') || '.',
+          });
+          continue;
+        }
+      }
+
+      if (depth === 3) continue;
+      const childDirectories = await Promise.all(entries
+        .filter((entry) => entry.name.toLowerCase() !== '.git')
+        .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true }))
+        .map(async (entry) => {
+          if (entry.isDirectory()) return resolve(directory, entry.name);
+          if (!entry.isSymbolicLink()) return null;
+          const child = resolve(directory, entry.name);
+          return (await stat(child).catch(() => null))?.isDirectory() ? child : null;
+        }));
+      nextLevel.push(...childDirectories.filter(Boolean));
+    }
+    level = nextLevel;
   }
 
   return repositories.slice(0, repositoryLimit);
+}
+
+async function resolveRepository(workspacePath, repositoryPath) {
+  if (typeof repositoryPath !== 'string') throw new Error('The repository path is invalid.');
+  const requestedPath = repositoryPath.replaceAll('\\', '/');
+  const repository = (await discoverRepositories(workspacePath)).find(({ path }) => (
+    pathKey(path) === pathKey(requestedPath)
+  ));
+  if (!repository) throw new Error('The selected repository was not found in the current workspace.');
+  return repository.directory;
 }
 
 function parseStatus(output) {
@@ -131,18 +162,18 @@ async function readFileDiff(repository, file, hasHead) {
 
 export async function reviewGitWorkspace(workspacePath) {
   const root = resolveWorkspacePath(workspacePath);
-  const repositoryPaths = await discoverRepositories(root);
+  const discoveredRepositories = await discoverRepositories(root);
   let remainingDiffBytes = totalDiffLimit;
   let anyDiffTruncated = false;
 
   const repositories = [];
-  for (const repository of repositoryPaths) {
+  for (const { directory, path: repositoryPath } of discoveredRepositories) {
     const [branchResult, statusResult, headResult] = await Promise.all([
-      runGit(repository, ['branch', '--show-current'], { allowFailure: true }),
-      runGit(repository, [
+      runGit(directory, ['branch', '--show-current'], { allowFailure: true }),
+      runGit(directory, [
         '-c', 'core.quotepath=false', 'status', '--porcelain=v1', '-z', '--untracked-files=all',
       ]),
-      runGit(repository, ['rev-parse', '--verify', 'HEAD'], { allowFailure: true }),
+      runGit(directory, ['rev-parse', '--verify', 'HEAD'], { allowFailure: true }),
     ]);
     const parsed = parseStatus(statusResult.stdout);
     const files = [];
@@ -152,7 +183,7 @@ export async function reviewGitWorkspace(workspacePath) {
         anyDiffTruncated = true;
         continue;
       }
-      const next = await readFileDiff(repository, file, headResult.ok);
+      const next = await readFileDiff(directory, file, headResult.ok);
       if (next.diffBytes > remainingDiffBytes) {
         next.diff = `${next.diff.slice(0, remainingDiffBytes)}\n\n[Workspace diff limit reached]`;
         next.diffBytes = remainingDiffBytes;
@@ -162,13 +193,12 @@ export async function reviewGitWorkspace(workspacePath) {
       anyDiffTruncated ||= next.diffTruncated;
       files.push(next);
     }
-    const repositoryPath = relative(root, repository).replaceAll('\\', '/') || '.';
     const branch = branchResult.stdout.trim() || (headResult.ok
-      ? `detached@${(await runGit(repository, ['rev-parse', '--short', 'HEAD'])).stdout.trim()}`
+      ? `detached@${(await runGit(directory, ['rev-parse', '--short', 'HEAD'])).stdout.trim()}`
       : 'No commits');
     repositories.push({
       id: repositoryPath,
-      name: basename(repository),
+      name: repositoryPath === '.' ? basename(root) : basename(repositoryPath),
       path: repositoryPath,
       branch,
       files,
