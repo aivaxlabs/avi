@@ -48,8 +48,7 @@ const CONTINUING_GOAL_STATUSES = new Set(['active', 'paused']);
 const TERMINAL_GOAL_STATUSES = new Set(['completed', 'blocked', 'cancelled']);
 const STREAM_PERSIST_INTERVAL_MS = 120;
 const STREAM_RENDER_INTERVAL_MS = 240;
-const AUXILIARY_TASK_TIMEOUT_MS = 30_000;
-const COMMIT_PLAN_TIMEOUT_MS = 5 * 60_000;
+const AUXILIARY_MODEL_TIMEOUT_MS = 300_000;
 const AUXILIARY_GOAL_CONTEXT_TURN_COUNT = 4;
 const AUXILIARY_PROMPT_CONTEXT_TURN_COUNT = 8;
 const RECENT_ASSISTANT_TURN_COUNT = 4;
@@ -325,7 +324,7 @@ export class ChatRunner {
         toolHistory: [],
         reasoningEffort: configuredModel.reasoningEffort,
         invocationContext: { auxiliary: true },
-        signal: AbortSignal.timeout(AUXILIARY_TASK_TIMEOUT_MS),
+        signal: AbortSignal.timeout(AUXILIARY_MODEL_TIMEOUT_MS),
         onEvent: () => {},
       });
       if (turn.toolCalls.length > 0) {
@@ -413,7 +412,7 @@ export class ChatRunner {
         ? configuredModel.reasoningEffort
         : null,
       invocationContext: { auxiliary: true },
-      signal: AbortSignal.timeout(COMMIT_PLAN_TIMEOUT_MS),
+      signal: AbortSignal.timeout(AUXILIARY_MODEL_TIMEOUT_MS),
       onEvent: () => {},
     });
     if (turn.toolCalls.length > 0) throw new Error('The model attempted to call a tool.');
@@ -502,7 +501,7 @@ export class ChatRunner {
         toolHistory: [],
         reasoningEffort: configuredModel.reasoningEffort,
         invocationContext: { auxiliary: true },
-        signal: AbortSignal.timeout(AUXILIARY_TASK_TIMEOUT_MS),
+        signal: AbortSignal.timeout(AUXILIARY_MODEL_TIMEOUT_MS),
         onEvent: () => {},
       });
       if (turn.toolCalls.length > 0) {
