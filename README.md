@@ -27,7 +27,7 @@ Avi is an harness built from scratch which brings model conversations, cross-pro
   - Fast startup, launches with the system
   - Few dependencies, easy to maintain
 - **Multiple providers**: connect multiple AI providers and customize the models you’ll use for each provider.
-  - OpenAI Subscription: your ChatGPT subscription – no need for Codex ACP
+  - OpenAI Codex: uses your existing local Codex CLI session
   - OpenAI-Compatible endpoints: /v1/responses and /v1/chat/completions
   - Model-specific settings: capabilities, reasoning supported
 - **Plugins**: install trusted `.js` or `.zip` extensions from Settings, with controls to enable, disable, replace, and remove packages.
@@ -84,7 +84,7 @@ Avi is an harness built from scratch which brings model conversations, cross-pro
 - **Side panel**:
   - View files, git changes in the side panel
   - View tasks started by the agent during its threads
-  - View provider limits and consumption (OpenAI Subscription only)
+  - View provider limits and consumption (OpenAI Codex only)
 - **Archive and retention**:
   - Search, restore, or permanently delete archived conversations.
   - Configure automatic retention for regular and disposable conversations.
@@ -137,9 +137,9 @@ No environment variables are required for normal development. Providers and MCP 
 
 Open **Settings → Providers**, then choose one of the supported connection types:
 
-### OpenAI Subscription
+### OpenAI Codex
 
-Connect a ChatGPT account through the browser-based OAuth flow. Supported models are managed by Avi and become available after authorization.
+Sign in once with the Codex CLI (`codex login`). Avi reads that local session on demand and never opens, stores, or refreshes a separate ChatGPT OAuth session. Supported models are managed by Avi and become available when the Codex CLI session is available.
 
 ### OpenAI Compatible
 
