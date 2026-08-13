@@ -20,7 +20,9 @@ try {
     forkConversation,
     getArchiveSettings,
     getArchiveStats,
+    getAivaxSettings,
     getConversation,
+    getThreadSearchManifest,
     insertMessage,
     listArchivedConversations,
     listConversations,
@@ -29,7 +31,9 @@ try {
     restoreConversation,
     runArchiveMaintenance,
     searchChats,
+    setAivaxSettings,
     setArchiveSettings,
+    setThreadSearchManifest,
   } = database;
 
   assert.deepEqual(getArchiveSettings(), {
@@ -37,6 +41,30 @@ try {
     deleteArchivedAfterDays: 30,
     deleteDisposableAfterDays: 1,
   });
+  assert.deepEqual(getAivaxSettings(), {
+    memoryEnabled: false,
+    memoryCollectionId: null,
+    memoryCollectionName: null,
+    advancedFetchEnabled: false,
+    webSearchEnabled: false,
+    threadSearchCollectionId: null,
+    threadSearchCollectionName: null,
+  });
+  assert.deepEqual(setAivaxSettings({
+    ...getAivaxSettings(),
+    threadSearchCollectionId: 'search-collection',
+    threadSearchCollectionName: 'Thread search',
+  }), {
+    ...getAivaxSettings(),
+    threadSearchCollectionId: 'search-collection',
+    threadSearchCollectionName: 'Thread search',
+  });
+  assert.throws(() => setAivaxSettings({
+    ...getAivaxSettings(),
+    memoryCollectionId: 'search-collection',
+  }), /AIVAX feature settings are invalid/);
+  assert.deepEqual(setThreadSearchManifest('search-collection', { document: 'hash' }), { document: 'hash' });
+  assert.deepEqual(getThreadSearchManifest('search-collection'), { document: 'hash' });
   assert.throws(() => setArchiveSettings({
     archiveAfterDays: 8,
     deleteArchivedAfterDays: 30,

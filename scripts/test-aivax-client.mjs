@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { loginToAivax, requestAivax } from '../src/main/aivax-client.js';
+import { indexAivaxDocuments, loginToAivax, requestAivax } from '../src/main/aivax-client.js';
 import { CLIENT_TOOLS } from '../src/main/client-tools.js';
 
 const originalFetch = globalThis.fetch;
@@ -80,6 +80,35 @@ try {
     minScore: 0.2,
   });
 
+  response = new Response(JSON.stringify({ data: { enqueued: 1, skipped: 2 } }), {
+    headers: { 'Consumed-Credits': '0.00125' },
+  });
+  const indexed = await indexAivaxDocuments('collection/id', [{
+    docid: 'avi-thread:thread-id:user-id',
+    text: 'Title: Thread\nUser: Hello\nAssistant: Hi',
+    __meta: { threadId: 'thread-id' },
+  }], { accessToken: 'test-access-token' });
+  assert.deepEqual(indexed, {
+    data: { enqueued: 1, skipped: 2 },
+    consumedCredits: 0.00125,
+    status: 200,
+  });
+  const indexRequest = requests.at(-1);
+  assert.equal(indexRequest.url, 'https://inference.aivax.net/api/v1/collections/collection%2Fid/documents?insert-mode=sync');
+  assert.equal(indexRequest.options.method, 'POST');
+  assert.equal(indexRequest.options.headers.Authorization, 'Bearer test-access-token');
+  assert.equal(indexRequest.options.headers['Content-Type'], undefined);
+  assert.ok(indexRequest.options.body instanceof FormData);
+  assert.equal(indexRequest.options.body.get('insert-mode'), null);
+  const jsonlFile = indexRequest.options.body.get('documents');
+  assert.equal(jsonlFile.name, 'avi-thread-search.jsonl');
+  assert.equal(jsonlFile.type, 'application/x-ndjson');
+  assert.deepEqual(JSON.parse(await jsonlFile.text()), {
+    docid: 'avi-thread:thread-id:user-id',
+    text: 'Title: Thread\nUser: Hello\nAssistant: Hi',
+    __meta: { threadId: 'thread-id' },
+  });
+
   for (const [path, payload] of [
     ['/api/v1/collections', { collectionId: 'collection-id' }],
     ['/api/v1/collections/collection-id/documents', { documentId: 'document-id', state: 'Created' }],
@@ -93,33 +122,6 @@ try {
       responseType: 'object',
     }), payload);
   }
-
-  const rerankPayload = {
-    id: 'request-id',
-    model: '@aivax/reflex-v1',
-    results: [{ index: 0, relevance_score: 1, document: { text: 'Document' } }],
-    usage: { input_tokens: 1, cached_input_tokens: 0, total_tokens: 1, cost: 0 },
-  };
-  reply({ message: null, data: rerankPayload });
-  assert.deepEqual(await requestAivax('/api/v1/generations/rerank', {
-    accessToken: 'test-access-token',
-    body: {
-      model: '@aivax/reflex-v1',
-      query: 'semantic query',
-      documents: ['First conversation', 'Second conversation'],
-      top_n: 20,
-      min_score: 0,
-    },
-    responseType: 'object',
-  }), rerankPayload);
-  assert.equal(requests.at(-1).url, 'https://inference.aivax.net/api/v1/generations/rerank');
-  assert.deepEqual(JSON.parse(requests.at(-1).options.body), {
-    model: '@aivax/reflex-v1',
-    query: 'semantic query',
-    documents: ['First conversation', 'Second conversation'],
-    top_n: 20,
-    min_score: 0,
-  });
 
   reply({ message: null, data: { not: 'an array' } });
   await assert.rejects(
