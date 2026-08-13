@@ -598,7 +598,7 @@ export function SettingsPage({
       || 'Manage global and per-folder Model Context Protocol servers.',
     plugins: 'View trusted JavaScript plugins installed in Avi.',
     remote: 'Expose Avi orchestration through a local authenticated MCP server.',
-    aivax: 'Add persistent memory, richer web tools, and Reflex search through AIVAX.',
+    aivax: 'Add persistent memory, richer web tools, and semantic thread search through AIVAX.',
     archive: 'Manage conversation retention, archived threads, and storage cleanup.',
     'default-models': 'Choose models for supporting tasks, supervision, and sub-agent orchestration.',
     general: 'Configure chat behavior and desktop integration.',
@@ -758,7 +758,7 @@ export function SettingsPage({
           )}
 
           <div className="settings-navigation-separator" role="separator" />
-          {(!settingsQuery || 'aivax features memory account balance plan web search fetch reflex rag collection'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'aivax features memory account balance plan web search fetch semantic thread rag collection index'.includes(settingsQuery)) && (
             <button
               className={view === 'aivax' ? 'active' : undefined}
               type="button"

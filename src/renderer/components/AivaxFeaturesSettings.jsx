@@ -12,8 +12,8 @@ export function AivaxFeaturesSettings() {
   const [collections, setCollections] = useState([]);
   const [loginKey, setLoginKey] = useState('');
   const [newCollectionName, setNewCollectionName] = useState('');
-  const [collectionPickerOpen, setCollectionPickerOpen] = useState(false);
-  const [collectionCreateOpen, setCollectionCreateOpen] = useState(false);
+  const [collectionPickerTarget, setCollectionPickerTarget] = useState(null);
+  const [collectionCreateTarget, setCollectionCreateTarget] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -217,7 +217,7 @@ export function AivaxFeaturesSettings() {
               className="button button-secondary aivax-collection-picker-trigger"
               type="button"
               disabled={!state.connected || busy}
-              onClick={() => setCollectionPickerOpen(true)}
+              onClick={() => setCollectionPickerTarget('memory')}
             >
               {state.settings.memoryCollectionName ?? 'Select a collection'}
               <ChevronDown size={14} />
@@ -226,8 +226,8 @@ export function AivaxFeaturesSettings() {
         </div>
       </section>
 
-      {collectionPickerOpen && (
-        <div className="dialog-backdrop aivax-collection-dialog-backdrop" onMouseDown={() => !busy && setCollectionPickerOpen(false)}>
+      {collectionPickerTarget && (
+        <div className="dialog-backdrop aivax-collection-dialog-backdrop" onMouseDown={() => !busy && setCollectionPickerTarget(null)}>
           <section
             className="aivax-collection-dialog"
             role="dialog"
@@ -235,21 +235,31 @@ export function AivaxFeaturesSettings() {
             aria-labelledby="aivax-collection-dialog-title"
             onMouseDown={(event) => event.stopPropagation()}
             onKeyDown={(event) => {
-              if (event.key === 'Escape' && !busy) setCollectionPickerOpen(false);
+              if (event.key === 'Escape' && !busy) setCollectionPickerTarget(null);
             }}
           >
             <header className="dialog-header">
               <div>
-                <h2 id="aivax-collection-dialog-title">Choose a memory collection</h2>
-                <p>Select where Avi can save and retrieve persistent memory.</p>
+                <h2 id="aivax-collection-dialog-title">
+                  Choose a {collectionPickerTarget === 'memory' ? 'memory' : 'thread search'} collection
+                </h2>
+                <p>{collectionPickerTarget === 'memory'
+                  ? 'Select where Avi can save and retrieve persistent memory.'
+                  : 'Select a dedicated collection. Avi replaces its complete contents during each thread sync.'}</p>
               </div>
-              <button className="icon-button tiny" type="button" aria-label="Close collection picker" disabled={busy} onClick={() => setCollectionPickerOpen(false)}>
+              <button className="icon-button tiny" type="button" aria-label="Close collection picker" disabled={busy} onClick={() => setCollectionPickerTarget(null)}>
                 <X size={16} />
               </button>
             </header>
             <div className="aivax-collection-list" role="listbox" aria-label="AIVAX collections">
               {collections.map((collection) => {
-                const selected = collection.id === state.settings.memoryCollectionId;
+                const selectedId = collectionPickerTarget === 'memory'
+                  ? state.settings.memoryCollectionId
+                  : state.settings.threadSearchCollectionId;
+                const unavailable = collectionPickerTarget === 'memory'
+                  ? collection.id === state.settings.threadSearchCollectionId
+                  : collection.id === state.settings.memoryCollectionId;
+                const selected = collection.id === selectedId;
                 return (
                   <button
                     className={selected ? 'selected' : ''}
@@ -257,19 +267,25 @@ export function AivaxFeaturesSettings() {
                     type="button"
                     role="option"
                     aria-selected={selected}
-                    disabled={busy}
+                    disabled={busy || unavailable}
                     onClick={async () => {
                       setBusy(true);
                       setError('');
                       try {
                         const settings = await window.chatApp.aivax.save({
                           ...state.settings,
-                          memoryEnabled: state.settings.memoryEnabled,
-                          memoryCollectionId: collection.id,
-                          memoryCollectionName: collection.name,
+                          ...(collectionPickerTarget === 'memory'
+                            ? {
+                                memoryCollectionId: collection.id,
+                                memoryCollectionName: collection.name,
+                              }
+                            : {
+                                threadSearchCollectionId: collection.id,
+                                threadSearchCollectionName: collection.name,
+                              }),
                         });
                         setState((current) => ({ ...current, settings }));
-                        setCollectionPickerOpen(false);
+                        setCollectionPickerTarget(null);
                       } catch (nextError) {
                         setError(nextError instanceof Error ? nextError.message : String(nextError));
                       } finally {
@@ -282,18 +298,19 @@ export function AivaxFeaturesSettings() {
                       <small>{collection.documentCount?.totalDocuments ?? 0} documents</small>
                     </span>
                     {selected && <span className="aivax-collection-selected">Selected</span>}
+                    {unavailable && <span className="aivax-collection-selected">In use</span>}
                   </button>
                 );
               })}
-              {collections.length === 0 && <p className="aivax-collection-empty">No collections yet. Create your first one to use memory.</p>}
+              {collections.length === 0 && <p className="aivax-collection-empty">No collections yet. Create your first one.</p>}
             </div>
             <button
               className="button button-secondary aivax-collection-create-trigger"
               type="button"
               disabled={busy}
               onClick={() => {
-                setCollectionPickerOpen(false);
-                setCollectionCreateOpen(true);
+                setCollectionCreateTarget(collectionPickerTarget);
+                setCollectionPickerTarget(null);
               }}
             >
               <Plus size={14} />
@@ -303,8 +320,8 @@ export function AivaxFeaturesSettings() {
         </div>
       )}
 
-      {collectionCreateOpen && (
-        <div className="dialog-backdrop aivax-collection-dialog-backdrop" onMouseDown={() => !busy && setCollectionCreateOpen(false)}>
+      {collectionCreateTarget && (
+        <div className="dialog-backdrop aivax-collection-dialog-backdrop" onMouseDown={() => !busy && setCollectionCreateTarget(null)}>
           <section
             className="aivax-collection-dialog aivax-collection-create-dialog"
             role="dialog"
@@ -312,7 +329,7 @@ export function AivaxFeaturesSettings() {
             aria-labelledby="aivax-collection-create-dialog-title"
             onMouseDown={(event) => event.stopPropagation()}
             onKeyDown={(event) => {
-              if (event.key === 'Escape' && !busy) setCollectionCreateOpen(false);
+              if (event.key === 'Escape' && !busy) setCollectionCreateTarget(null);
             }}
           >
             <header className="dialog-header">
@@ -320,7 +337,7 @@ export function AivaxFeaturesSettings() {
                 <h2 id="aivax-collection-create-dialog-title">Create a new collection</h2>
                 <p>Give the collection a clear name so it is easy to find later.</p>
               </div>
-              <button className="icon-button tiny" type="button" aria-label="Close collection creation dialog" disabled={busy} onClick={() => setCollectionCreateOpen(false)}>
+              <button className="icon-button tiny" type="button" aria-label="Close collection creation dialog" disabled={busy} onClick={() => setCollectionCreateTarget(null)}>
                 <X size={16} />
               </button>
             </header>
@@ -338,12 +355,19 @@ export function AivaxFeaturesSettings() {
                   if (created.collection) {
                     const settings = await window.chatApp.aivax.save({
                       ...state.settings,
-                      memoryCollectionId: created.collection.id,
-                      memoryCollectionName: created.collection.name,
+                      ...(collectionCreateTarget === 'memory'
+                        ? {
+                            memoryCollectionId: created.collection.id,
+                            memoryCollectionName: created.collection.name,
+                          }
+                        : {
+                            threadSearchCollectionId: created.collection.id,
+                            threadSearchCollectionName: created.collection.name,
+                          }),
                     });
                     setState((current) => ({ ...current, settings }));
                   }
-                  setCollectionCreateOpen(false);
+                  setCollectionCreateTarget(null);
                 } catch (nextError) {
                   setError(nextError instanceof Error ? nextError.message : String(nextError));
                 } finally {
@@ -356,7 +380,7 @@ export function AivaxFeaturesSettings() {
                 <input autoFocus value={newCollectionName} disabled={busy} onChange={(event) => setNewCollectionName(event.target.value)} placeholder="e.g. Team knowledge" />
               </label>
               <div className="aivax-collection-create-actions">
-                <button className="button button-secondary" type="button" disabled={busy} onClick={() => setCollectionCreateOpen(false)}>
+                <button className="button button-secondary" type="button" disabled={busy} onClick={() => setCollectionCreateTarget(null)}>
                   Cancel
                 </button>
                 <button className="button button-primary" type="submit" disabled={busy || !newCollectionName.trim()}>
@@ -413,36 +437,31 @@ export function AivaxFeaturesSettings() {
       <section className="settings-section">
         <div className="settings-section-heading">
           <h3>In-app search</h3>
-          <p>Improve thread ranking with the AIVAX Reflex reranker.</p>
+          <p>Search indexed thread turns semantically through a dedicated AIVAX RAG collection.</p>
         </div>
         <div className="settings-section-card settings-form settings-row-card">
-          <label className="settings-toggle-row">
+          <div className="settings-card-row aivax-collection-row">
             <span>
-              <strong>Use Reflex for thread search</strong>
-              <small>Rerank local search candidates remotely. Local search remains available if Reflex fails.</small>
+              <strong>Thread search collection</strong>
+              <small>{state.settings.threadSearchCollectionName
+                ?? 'Choose a dedicated collection to enable semantic thread search.'}</small>
             </span>
-            <input
-              className="appearance-desktop-switch"
-              type="checkbox"
+            <button
+              className="button button-secondary aivax-collection-picker-trigger"
+              type="button"
               disabled={!state.connected || busy}
-              checked={state.settings.reflexSearchEnabled}
-              onChange={async (event) => {
-                setBusy(true);
-                setError('');
-                try {
-                  const settings = await window.chatApp.aivax.save({
-                    ...state.settings,
-                    reflexSearchEnabled: event.target.checked,
-                  });
-                  setState((current) => ({ ...current, settings }));
-                } catch (nextError) {
-                  setError(nextError instanceof Error ? nextError.message : String(nextError));
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            />
-          </label>
+              onClick={() => setCollectionPickerTarget('threadSearch')}
+            >
+              {state.settings.threadSearchCollectionName ?? 'Select a collection'}
+              <ChevronDown size={14} />
+            </button>
+          </div>
+          <div className="settings-card-row aivax-account-row">
+            <span>
+              <strong>Collection ownership</strong>
+              <small>Avi synchronizes on startup and every 15 minutes, replacing all documents in this collection. Do not share it with Memory or other data.</small>
+            </span>
+          </div>
         </div>
       </section>
 
