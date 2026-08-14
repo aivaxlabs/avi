@@ -719,6 +719,54 @@ try {
   fullStopRunner.stop(subagent.id);
   await waitFor(() => !fullStopRunner.runs.has(subagent.id));
 
+  const inheritedPermissionSends = [];
+  const permissionChatRunner = {
+    runs: new Map(),
+    emit: () => {},
+    send: async (input) => {
+      inheritedPermissionSends.push(input);
+      return { message: { id: `permission-message-${inheritedPermissionSends.length}` } };
+    },
+  };
+  const chatCreateThread = clientTools.CLIENT_TOOLS.find(
+    (tool) => tool.name === 'chat_create_thread',
+  );
+  const chatSpawnSubagent = clientTools.CLIENT_TOOLS.find(
+    (tool) => tool.name === 'chat_spawn_subagent',
+  );
+  const chatSendPrompt = clientTools.CLIENT_TOOLS.find(
+    (tool) => tool.name === 'chat_send_prompt',
+  );
+  const permissionContext = {
+    chatRunner: permissionChatRunner,
+    conversationId: parent.id,
+    model: model.id,
+    models: [model],
+    reasoningEffort: null,
+    permissionMode: 'full_access',
+    workspacePath: process.cwd(),
+    tuning: { maxConcurrentSubagents: 128 },
+    defaultModels: { subagents: { enabled: false } },
+    workMode: null,
+    ultraMode: false,
+  };
+  await chatCreateThread.execute(
+    { prompt: 'Create a full-access thread' },
+    permissionContext,
+  );
+  await chatSpawnSubagent.execute(
+    { prompt: 'Start a full-access sub-agent' },
+    permissionContext,
+  );
+  await chatSendPrompt.execute(
+    { threadId: subagent.id, prompt: 'Continue with full access' },
+    permissionContext,
+  );
+  assert.deepEqual(
+    inheritedPermissionSends.map((input) => input.permissionMode),
+    ['full_access', 'full_access', 'full_access'],
+  );
+
   const sleep = clientTools.CLIENT_TOOLS.find((tool) => tool.name === 'sleep');
   const runInTerminal = clientTools.CLIENT_TOOLS.find((tool) => tool.name === 'run_in_terminal');
   const readTerminalOutput = clientTools.CLIENT_TOOLS.find(

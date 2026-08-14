@@ -413,6 +413,35 @@ try {
     'plan',
   );
 
+  const earlierAssistant = getMessages(retryConversation.id)
+    .findLast((message) => message.role === 'assistant');
+  await retryRunner.send({
+    conversationId: retryConversation.id,
+    model: model.id,
+    text: 'Retry only this latest user message',
+  });
+  await waitFor(() => retryCalls.length === 3);
+  await waitFor(() => !retryRunner.runs.has(retryConversation.id));
+  const staleLatestAssistant = getMessages(retryConversation.id)
+    .findLast((message) => message.role === 'assistant');
+  await retryRunner.retry({
+    conversationId: retryConversation.id,
+    model: model.id,
+    assistantMessageId: earlierAssistant.id,
+  });
+  await waitFor(() => retryCalls.length === 4);
+  await waitFor(() => !retryRunner.runs.has(retryConversation.id));
+  assert.equal(retryCalls[3].messages.at(-1).role, 'user');
+  assert.equal(retryCalls[3].messages.at(-1).content, 'Retry only this latest user message');
+  assert.equal(
+    getMessages(retryConversation.id).some((message) => message.id === staleLatestAssistant.id),
+    false,
+  );
+  assert.equal(
+    getMessages(retryConversation.id).some((message) => message.id === earlierAssistant.id),
+    true,
+  );
+
   let inventedToolRound = 0;
   const inventedToolProvider = {
     getContributions: () => ({

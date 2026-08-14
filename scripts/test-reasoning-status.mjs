@@ -3,7 +3,16 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Message } from '../src/renderer/components/Message.jsx';
 
-const renderMessage = (reasoning = []) => {
+const renderMessage = (
+  reasoning = [],
+  {
+    status = 'streaming',
+    runActive = true,
+    canRetry = false,
+    canResume = false,
+    showContinuations = false,
+  } = {},
+) => {
   const segments = reasoning.map((text, index) => ({
     id: `reasoning-${index}`,
     sequence: index + 1,
@@ -15,7 +24,7 @@ const renderMessage = (reasoning = []) => {
     message: {
       id: 'assistant-message',
       role: 'assistant',
-      status: 'streaming',
+      status,
       content: segments.map((segment) => `<think>${segment.text}</think>`).join(''),
       segments,
       attachments: [],
@@ -27,9 +36,11 @@ const renderMessage = (reasoning = []) => {
     },
     modelName: 'Test model',
     workedMessages: [],
-    runActive: true,
+    runActive,
     questionPending: false,
-    showContinuations: false,
+    showContinuations,
+    canRetry,
+    canResume,
   }));
 };
 
@@ -63,5 +74,32 @@ assert.equal((mixedReasoning.match(/class="reasoning-text"/g) ?? []).length, 1);
 const nextResponse = renderMessage();
 assert.match(nextResponse, />Thinking</);
 assert.doesNotMatch(nextResponse, /Inspecting the renderer flow/);
+
+const retryableResponse = renderMessage([], {
+  status: 'completed',
+  runActive: false,
+  canRetry: true,
+});
+assert.match(retryableResponse, /aria-label="Retry response"/);
+
+const responseWithoutRetry = renderMessage([], {
+  status: 'completed',
+  runActive: false,
+  showContinuations: true,
+});
+assert.doesNotMatch(responseWithoutRetry, /aria-label="Retry response"/);
+
+const retryableFailure = renderMessage([], {
+  status: 'error',
+  runActive: false,
+  canResume: true,
+});
+assert.match(retryableFailure, />Try again</);
+
+const historicalFailure = renderMessage([], {
+  status: 'error',
+  runActive: false,
+});
+assert.doesNotMatch(historicalFailure, />Try again</);
 
 console.log('Reasoning status tests passed.');

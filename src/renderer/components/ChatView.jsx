@@ -773,6 +773,22 @@ export const ChatView = memo(function ChatView({
                       ['waiting', 'working'].includes(subagent.status)
                     ))
                   }
+                  canRetry={
+                    message.id === lastAssistantMessage?.id
+                    && message.status === 'completed'
+                    && !isRunning
+                    && !subagents?.some((subagent) => (
+                      ['waiting', 'working'].includes(subagent.status)
+                    ))
+                  }
+                  canResume={
+                    message.id === lastAssistantMessage?.id
+                    && ['error', 'aborted'].includes(message.status)
+                    && !isRunning
+                    && !subagents?.some((subagent) => (
+                      ['waiting', 'working'].includes(subagent.status)
+                    ))
+                  }
                 />
             ))}
             {semaphoreWait && (

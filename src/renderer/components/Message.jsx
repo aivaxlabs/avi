@@ -110,56 +110,41 @@ const MARKDOWN_PLUGINS = Object.freeze([
       }
 
       node.children = node.children.flatMap((child) => {
-        if (child.type !== 'text') {
+        if (child.type !== 'html') {
           walk(child);
           return child;
         }
 
-        const parts = [];
-        const pattern = /#file:(?:<([^>\r\n]+)>|([^\s<>"'`]+?))(?::(\d+)(?:-(\d+))?)?(?=[),.;!?]*(?:\s|$))/g;
-        let cursor = 0;
-        let match;
-        while ((match = pattern.exec(child.value)) !== null) {
-          const path = match[1] ?? match[2];
-          const lineFrom = match[3] ? Number(match[3]) : null;
-          const lineTo = match[3] ? Number(match[4] ?? match[3]) : null;
-          if (
-            !path
-            || (lineFrom !== null && (
-              lineFrom < 1
-              || lineTo < lineFrom
-            ))
-          ) {
-            continue;
-          }
-          if (match.index > cursor) {
-            parts.push({
-              type: 'text',
-              value: child.value.slice(cursor, match.index),
-            });
-          }
-          parts.push({
-            type: 'link',
-            url: `#file-reference=${encodeURIComponent(JSON.stringify({
-              path,
-              lineFrom,
-              lineTo,
-            }))}`,
-            children: [{
-              type: 'text',
-              value: match[0],
-            }],
-          });
-          cursor = match.index + match[0].length;
+        const match = /^<fileref\b([^<>]*)\/>$/i.exec(child.value);
+        if (!match) return child;
+        const path = attributeValue(match[1], 'path');
+        const normalizedPath = path.replaceAll('\\', '/');
+        const lineFromText = attributeValue(match[1], 'line-from');
+        const lineToText = attributeValue(match[1], 'line-to');
+        const lineFrom = /^\d+$/.test(lineFromText) ? Number(lineFromText) : null;
+        const lineTo = /^\d+$/.test(lineToText) ? Number(lineToText) : lineFrom;
+        if (
+          !normalizedPath.startsWith('./')
+          || normalizedPath.split('/').includes('..')
+          || (lineFromText && lineFrom === null)
+          || (lineToText && lineTo === null)
+          || (lineToText && lineFrom === null)
+          || (lineFrom !== null && (lineFrom < 1 || lineTo < lineFrom))
+        ) {
+          return child;
         }
-        if (parts.length === 0) return child;
-        if (cursor < child.value.length) {
-          parts.push({
+        return {
+          type: 'link',
+          url: `#file-reference=${encodeURIComponent(JSON.stringify({
+            path,
+            lineFrom,
+            lineTo,
+          }))}`,
+          children: [{
             type: 'text',
-            value: child.value.slice(cursor),
-          });
-        }
-        return parts;
+            value: child.value,
+          }],
+        };
       });
     };
 
@@ -207,6 +192,8 @@ export function Message({
   onOpenFileReference,
   onFileReferenceAction,
   showContinuations,
+  canRetry,
+  canResume,
 }) {
   if (message.role === 'user') {
     return <UserMessage message={message} />;
@@ -239,6 +226,8 @@ export function Message({
       onOpenFileReference={onOpenFileReference}
       onFileReferenceAction={onFileReferenceAction}
       showContinuations={showContinuations}
+      canRetry={canRetry}
+      canResume={canResume}
     />
   );
 }
@@ -450,6 +439,8 @@ function AssistantMessage({
   onOpenFileReference,
   onFileReferenceAction,
   showContinuations,
+  canRetry,
+  canResume,
 }) {
   const [usageOpen, setUsageOpen] = useState(false);
   const [showAllEdits, setShowAllEdits] = useState(false);
@@ -492,9 +483,7 @@ function AssistantMessage({
     message.usage?.latencyMs,
     message.usage?.durationMs,
   ].some((value) => Number.isFinite(value));
-  const canResumeFromFailure = showContinuations
-    && message.status !== 'completed'
-    && !activelyStreaming;
+  const canResumeFromFailure = canResume && !activelyStreaming;
   const edits = useMemo(
     () => consolidateFileEdits([...workedMessages, message]),
     [message, workedMessages],
@@ -703,7 +692,7 @@ function AssistantMessage({
               >
                 {responseCopied ? <Check size={15} /> : <Copy size={15} />}
               </button>
-              {showContinuations && message.status === 'completed' && (
+              {canRetry && (
                 <button
                   className="message-action-icon"
                   type="button"
