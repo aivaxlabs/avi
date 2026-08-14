@@ -1344,6 +1344,7 @@ export function SettingsPage({
                         <small>Suggest up to four likely replies after the assistant finishes.</small>
                       </span>
                       <input
+                        className="appearance-desktop-switch"
                         type="checkbox"
                         checked={tuningDraft.continuationRepliesEnabled}
                         onChange={(event) => {
