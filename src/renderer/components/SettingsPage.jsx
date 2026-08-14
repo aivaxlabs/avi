@@ -1338,6 +1338,23 @@ export function SettingsPage({
                     <p>Set the defaults used by conversations and terminal commands.</p>
                   </div>
                   <div className="settings-section-card settings-form settings-row-card">
+                    <label className="settings-toggle-row">
+                      <span>
+                        <strong>Continuation replies</strong>
+                        <small>Suggest up to four likely replies after the assistant finishes.</small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={tuningDraft.continuationRepliesEnabled}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            continuationRepliesEnabled: event.target.checked,
+                          }));
+                        }}
+                      />
+                    </label>
                     <label className="settings-field settings-field-wide">
                       <span>Chat reasoning traces</span>
                       <select

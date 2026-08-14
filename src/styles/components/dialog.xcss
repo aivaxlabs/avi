@@ -61,8 +61,8 @@
 }
 
 .search-dialog {
-  width: min(640px, 100%);
-  max-height: min(620px, 76vh);
+  width: min(700px, 100%);
+  max-height: min(680px, 80vh);
   grid-template-rows: auto minmax(0, 1fr);
   padding: 0;
   overflow: hidden;
@@ -110,14 +110,14 @@
 }
 
 .search-dialog .dialog-search {
-  min-height: 58px;
-  margin: 0;
+  min-height: 52px;
+  margin: 10px;
   gap: 10px;
-  padding: 0 16px;
+  padding: 0 14px;
   color: --text-3;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
+  background: --background-0;
+  border: 1px solid --border-color;
+  border-radius: 11px;
 
   input {
     min-width: 0;
@@ -395,17 +395,20 @@
 
 .search-dialog .search-results {
   min-height: 0;
-  padding: 7px;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 0 10px 10px;
   overflow: auto;
-  border-top: 1px solid --border-color;
 
   .search-results-label {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 7px 9px 6px;
+    padding: 8px 8px 5px;
     color: --text-3;
     font-size: 11px;
+    font-weight: 500;
 
     span {
       min-width: 20px;
@@ -421,21 +424,22 @@
     width: 100%;
     min-width: 0;
     display: grid;
-    grid-template-columns: minmax(140px, 34%) minmax(0, 1fr);
-    align-items: center;
-    gap: 16px;
-    min-height: 44px;
-    padding: 8px 10px;
+    grid-template-columns: 24px minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+    min-height: 62px;
+    padding: 10px 12px;
     text-align: left;
     color: --text-1;
     background: transparent;
-    border: 0;
+    border: 1px solid transparent;
     border-radius: 10px;
-    transition: background 120ms --base-transition;
+    transition: background 120ms --base-transition, border-color 120ms --base-transition;
 
     &:hover,
     &.active {
       background: --item-hover;
+      border-color: --border-color;
     }
 
     &:focus-visible {
@@ -443,21 +447,35 @@
       outline-offset: -2px;
     }
 
-    strong,
-    span {
+    .search-result-icon {
+      margin-top: 2px;
+      color: --text-3;
+    }
+
+    .search-result-copy {
       min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      display: grid;
+      gap: 4px;
     }
 
     .search-result-heading {
+      min-width: 0;
       display: flex;
       align-items: center;
-      gap: 7px;
+      gap: 8px;
+
+      strong {
+        min-width: 0;
+        overflow: hidden;
+        font-size: 13px;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
 
       small {
-        max-width: 45%;
+        flex: 0 1 auto;
+        max-width: 34%;
         overflow: hidden;
         padding: 2px 6px;
         color: --text-3;
@@ -469,21 +487,22 @@
       }
     }
 
-    strong {
-      font-size: 13px;
-      font-weight: 500;
-    }
-
-    span {
+    .search-result-preview {
+      min-width: 0;
+      overflow: hidden;
       color: --text-3;
       font-size: 12px;
+      line-height: 1.35;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
   }
 
   @media (max-width: 560px) {
     button {
-      grid-template-columns: 1fr;
-      gap: 2px;
+      grid-template-columns: 20px minmax(0, 1fr);
+      min-height: 58px;
+      padding-inline: 9px;
     }
   }
 }

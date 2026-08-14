@@ -1,4 +1,4 @@
-import { LoaderCircle, Search } from 'lucide-react';
+import { LoaderCircle, MessageSquareText, Search } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 export function SearchDialog({ onClose, onSelect }) {
@@ -113,11 +113,16 @@ export function SearchDialog({ onClose, onSelect }) {
                 onMouseMove={() => setSelectedIndex(index)}
                 onClick={() => selectResult(result)}
               >
-                <span className="search-result-heading">
-                  <strong>{result.title}</strong>
-                  <small title={result.folderDisplayPath}>{result.folderName}</small>
+                <MessageSquareText className="search-result-icon" size={18} aria-hidden="true" />
+                <span className="search-result-copy">
+                  <span className="search-result-heading">
+                    <strong>{result.title}</strong>
+                    <small title={result.folderDisplayPath}>{result.folderName}</small>
+                  </span>
+                  <span className="search-result-preview">
+                    {result.content || 'No preview available.'}
+                  </span>
                 </span>
-                <span>{result.content || 'No preview available.'}</span>
               </button>
             ))}
             {!searching && results.length === 0 && (

@@ -102,7 +102,7 @@ export function PluginsSettings() {
             </button>
             {developerToolsOpen && (
               <DropdownMenu role="menu" aria-label="Plugin developer tools">
-                <DropdownMenuItem icon={<RefreshCw size={14} />} role="menuitem" onClick={() => runDeveloperTool('reloadWindow')}>Reload window</DropdownMenuItem>
+                <DropdownMenuItem icon={<RefreshCw size={14} />} role="menuitem" onClick={() => runDeveloperTool('restartAvi')}>Restart Avi</DropdownMenuItem>
                 <DropdownMenuItem icon={<BookOpen size={14} />} role="menuitem" onClick={() => runDeveloperTool('docs')}>Open plugin docs</DropdownMenuItem>
                 <DropdownMenuItem icon={<FileCode2 size={14} />} role="menuitem" onClick={() => runDeveloperTool('create')}>Create plugin</DropdownMenuItem>
               </DropdownMenu>

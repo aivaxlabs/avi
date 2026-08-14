@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   LoaderCircle,
   MessageSquarePlus,
+  Moon,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
@@ -41,6 +42,7 @@ export function Sidebar({
   completedUnseen,
   approvalPending = {},
   inputPending = {},
+  semaphoreWaiting = {},
   onNewChat,
   onQuickChat,
   onSelect,
@@ -116,12 +118,42 @@ export function Sidebar({
         groupsByValue.set(key, current);
       }
 
-      return [...groupsByValue.values()]
+      const groupedConversations = [...groupsByValue.values()]
         .sort((a, b) => (
           Number(a.isHome) - Number(b.isHome)
           || b.latestTime - a.latestTime
           || a.label.localeCompare(b.label)
         ));
+
+      if (conversationGrouping === 'folder') {
+        const workingTasks = sortedConversations.filter((conversation) => (
+          running[conversation.id]
+          || approvalPending[conversation.id]
+          || inputPending[conversation.id]
+          || semaphoreWaiting[conversation.id]
+          || conversation.needsAttention
+        ));
+        const workingTaskIds = new Set(workingTasks.map((conversation) => conversation.id));
+        const reviewTasks = sortedConversations.filter((conversation) => (
+          completedUnseen[conversation.id]
+          && !workingTaskIds.has(conversation.id)
+        ));
+        const taskGroups = [
+          { key: 'tasks:working', label: 'Working tasks', items: workingTasks, isTaskGroup: true },
+          { key: 'tasks:review', label: 'Review', items: reviewTasks, isTaskGroup: true },
+        ].filter((group) => group.items.length > 0);
+        const firstFolderIndex = groupedConversations.findIndex((group) => !group.isHome);
+
+        return [
+          ...taskGroups,
+          ...groupedConversations.map((group, index) => ({
+            ...group,
+            showFoldersLabel: index === firstFolderIndex,
+          })),
+        ];
+      }
+
+      return groupedConversations;
     }
 
     const todayStart = new Date(now).setHours(0, 0, 0, 0);
@@ -149,7 +181,18 @@ export function Sidebar({
     }
 
     return groups.filter((group) => group.items.length > 0);
-  }, [conversationGrouping, conversations, homePath, models, now]);
+  }, [
+    approvalPending,
+    completedUnseen,
+    conversationGrouping,
+    conversations,
+    homePath,
+    inputPending,
+    models,
+    now,
+    running,
+    semaphoreWaiting,
+  ]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -293,7 +336,7 @@ export function Sidebar({
         document.body,
       )}
       <div className="conversation-list">
-        {conversationGroups.map((group, index) => {
+        {conversationGroups.map((group) => {
           const expanded = Boolean(expandedGroups[group.key]);
           const visibleItems = expanded ? group.items : group.items.slice(0, GROUP_LIMIT);
           const groupLabel = conversationGrouping === 'folder' && group.isHome
@@ -301,12 +344,12 @@ export function Sidebar({
             : group.label;
           return (
             <section key={group.key} className="conversation-group">
-              {conversationGrouping === 'folder' && !group.isHome && index === 0 && (
-                <div className="conversation-section-label">Folders</div>
+              {group.showFoldersLabel && (
+                <div className="conversation-group-header">Folders</div>
               )}
               <div
                 className="conversation-group-header"
-                onContextMenu={conversationGrouping === 'folder' && !group.isHome
+                onContextMenu={conversationGrouping === 'folder' && !group.isHome && !group.isTaskGroup
                   ? (event) => {
                       event.preventDefault();
                       folderMenuButtonRef.current = event.currentTarget;
@@ -319,12 +362,12 @@ export function Sidebar({
                   : undefined}
               >
                 <span className="conversation-group-title" title={groupLabel}>
-                  {conversationGrouping === 'folder' && !group.isHome && (
+                  {conversationGrouping === 'folder' && !group.isHome && !group.isTaskGroup && (
                     <Folder size={13} aria-hidden="true" />
                   )}
                   <span>{groupLabel}</span>
                 </span>
-                {conversationGrouping !== 'chronological' && (
+                {conversationGrouping !== 'chronological' && !group.isTaskGroup && (
                   <div className="conversation-group-actions">
                     <button
                       type="button"
@@ -432,6 +475,7 @@ export function Sidebar({
                   completedUnseen={Boolean(completedUnseen[conversation.id])}
                   approvalPending={Boolean(approvalPending[conversation.id])}
                   inputPending={Boolean(inputPending[conversation.id])}
+                  semaphoreWaiting={Boolean(semaphoreWaiting[conversation.id])}
                   needsAttention={Boolean(conversation.needsAttention)}
                   now={now}
                   onSelect={() => onSelect(conversation.id)}
@@ -471,6 +515,7 @@ function ConversationItem({
   completedUnseen,
   approvalPending,
   inputPending,
+  semaphoreWaiting,
   needsAttention,
   now,
   onSelect,
@@ -544,6 +589,8 @@ function ConversationItem({
           <TriangleAlert className="attention-indicator" size={13} aria-label="Awaiting approval" />
         ) : inputPending ? (
           <TriangleAlert className="attention-indicator" size={13} aria-label="Awaiting input" />
+        ) : semaphoreWaiting ? (
+          <Moon className="sleep-indicator" size={13} aria-label="Waiting for semaphore" />
         ) : running ? (
           <LoaderCircle className="run-spinner" size={12} aria-label="Working" />
         ) : needsAttention ? (

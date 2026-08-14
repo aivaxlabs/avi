@@ -205,13 +205,6 @@
     }
   }
 
-  .conversation-section-label {
-    min-width: 0;
-    margin: 4px 6px 2px 10px;
-    color: var(--text-3);
-    font-weight: 600;
-  }
-
   .conversation-group-header {
     min-width: 0;
     min-height: 22px;
@@ -350,6 +343,11 @@
   .attention-indicator {
     flex: 0 0 auto;
     color: var(--warn-color);
+  }
+
+  .sleep-indicator {
+    flex: 0 0 auto;
+    color: var(--text-3);
   }
 
   .run-spinner {
