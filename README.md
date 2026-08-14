@@ -30,25 +30,32 @@ Avi is an harness built from scratch which brings model conversations, cross-pro
   - OpenAI Subscription: your ChatGPT subscription – no need for Codex ACP
   - OpenAI-Compatible endpoints: /v1/responses and /v1/chat/completions
   - Model-specific settings: capabilities, reasoning supported
-- **Plugins**: install trusted `.js` or `.zip` extensions from Settings, with controls to enable, disable, replace, and remove packages.
+- **Extensible**:
+  - Plugins allow providing providers, themes, auxiliary panels, commands, skills, and many features for Avi.
+  - Install trusted `.js` or `.zip` extensions from Settings, with controls to enable, disable, replace, and remove packages.
   - Extend Avi with context, MCP servers, chat tools, auxiliary panels, themes, personalities, and model providers.
   - Plugin packages are validated before installation and loaded atomically at startup.
 - **AIVAX Features**: optional integration for persistent memory, advanced web tools, and remote conversation-search reranking.
   - Connect an AIVAX account and choose which external capabilities to enable.
   - Agents can search, write, and delete persistent memory; fetch rich web content; and search the web with filters.
-- **Powerful sub-agents**: sub-agents can actively communicate with the orchestrator and other sub-agents.
+  - Semantic search across your threads and conversations.
+- **Powerful sub-agents**:
+  - Sub-agents can actively communicate with the orchestrator and other sub-agents.
   - Define sub-agent levels: model + reasoning per sub-agent invocation level (low, medium, high), lets you choose which models and providers will run different task types
   - Active communication: sub-agents can send messages to the orchestrator and other sub-agents while working, and vice versa.
   - Sub-agent view panel: track sub-agent progress via the side panel.
-- **Powerful orchestration**: chats have advanced reflection and orchestration tools.
+- **Powerful orchestration**:
   - Start, inspect, and converse with parallel threads: agents can view conversations, work folders, tasks, monitor and supervise other agents.
+  - Shared semaphore queues by agents to order long tasks among agents.
   - Remote MCP: persistent server that provides orchestration tools to connect to external services (Claude, ChatGPT, etc.)
-  - Orchestration panel: view ongoing tasks, newly completed tasks, consumption insights
-- **MCP client**: MCP client scoped per project
+  - Orchestration panel: view ongoing tasks, newly completed tasks, consumption insights.
+- **MCP client**:
+  - MCP client scoped globally or per project
   - MCP control panel: view MCP tools, provided instructions
   - Isolation: separate MCP servers by folder or globally
   - Diagnostics: visually check servers that failed or are slow to start
-- **Context management and discovery**: advanced discovery of skills, workflows, and instructions
+- **Context management and discovery**:
+  - Advanced discovery of skills, workflows, and instructions
   - Recursive context listing: searches for skills and workflows in the current folder and globally (in $HOME/.agents) without the agent having to search
   - Automatic contextualization: injects AGENTS.md, MEMORY.md, AGENTS.foobar.md... automatically into the agent’s context.
   - Slash commands: invoke workflows with /command and skills via $skill in the composer.
@@ -63,6 +70,7 @@ Avi is an harness built from scratch which brings model conversations, cross-pro
   - Structured agent questions support single-choice, multiple-choice, free-text, and custom answers.
   - Automatic context compression on provider errors (context_length_exceeded) or when reaching user‐defined threshold.
   - Resume button on stopped or failed chats, which continue from the last assistant turn.
+  - Improve your prompts and their clarity with /optimize-prompt.
 - **Goals and targets**:
   - Goals can be started with /goal or by the agent itself.
   - Helper model expands the goal with completion criteria, execution rules, and relevant meta‐information.
@@ -73,7 +81,7 @@ Avi is an harness built from scratch which brings model conversations, cross-pro
   - Has a rigid workflow of recognition, judgment, and refinement of the work done.
   - Can consume many more tokens.
   - Can be used together with goals.
-- **Planning mode**:
+- **Plan mode**:
   - Agent uses sub‐agents to create an execution plan for a task.
   - Delegates sub‐agents for exploration, research, and independent checks to refine the plan.
   - Instructs sub‐agents to talk actively with each other to reach a consensus.
@@ -92,6 +100,7 @@ Avi is an harness built from scratch which brings model conversations, cross-pro
 - **Customizable**:
   - Choose different personalities for the chat (friendly, candid, cynical, etc.)
   - Choose interface themes
+  - Choose custom wallpapers in chat.
 
 Planned features (roadmap):
 - Pets!
@@ -101,6 +110,28 @@ Planned features (roadmap):
 - Improve /ultra mode
 - Add more providers (Cursor, Claude Code, Antigravity)
 - Mobile app (PWA)
+
+## Supported providers
+
+For now, you can configure inference providers with the internal providers:
+- OpenAI chat/completions API
+- OpenAI responses API
+- OpenAI Subscription (Codex)
+
+OpenAI Subscription is the only AI subscription that allows OAuth2 and consuming its API directly, so we do not provide support for Claude Code or Antigravity.
+
+These providers allow use via ACP command line to avoid being banned; however, ACP‑based providers are problematic for use in Avi because:
+- they have their own function sets;
+- they do not allow expanding their tools, instructions, or context directly;
+- they control their session lifecycle internally.
+
+For Avi to work well, it needs full freedom with the provider, including providing instructions, tools, controlling sessions and messages.
+
+If you think this is a mistake, you can:
+- create a plugin with your provider; test it
+- fork Avi and open a PR with a new provider.
+
+For subscriptions like Kimi Code, GLM, Xiaomi, Qwen, all provide an API compatible with OpenAI Responses or Chat completions, which makes it easy to "plug" the model directly into Avi.
 
 ## Getting started
 

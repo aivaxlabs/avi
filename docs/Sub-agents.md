@@ -25,6 +25,21 @@ When a sub-agent completes or fails, Avi automatically steers a `<subagent_repor
 
 A prioritized message supersedes a pending structured question. Use it for urgent corrections; use low priority for normal coordination.
 
+## Semaphore coordination
+
+Instructions can require agents to protect shared work with an Avi-managed named semaphore. Semaphore names are application-wide: the same name always refers to the same semaphore across every thread, project, folder, and workspace in the running Avi application.
+
+- `sleep_semaphore(name, count, maxCount)` acquires permits immediately when capacity is available. It must be the only tool call in that model round;
+- when capacity is unavailable, Avi stores the thread in a strict FIFO queue, finishes the current inference, and marks the thread with a moon icon;
+- the sleeping thread shows the semaphore name and its current queue position;
+- **Run now** removes that wait and resumes the agent without granting semaphore permits;
+- **Cancel semaphore** removes that wait without resuming the agent;
+- `release_semaphore(name, count)` releases permits owned by the current thread and automatically resumes FIFO waiters as capacity becomes available.
+
+A resumed thread receives an internal user message explaining whether permits were granted or the wait was overridden. While a thread owns permits, every inference receives context requiring it to release the exact permits promptly after the protected work, including before reporting a blocker or finishing.
+
+Semaphore owners and wait queues persist in SQLite across Avi restarts. Archiving or deleting a thread removes its waits and owned permits so queued agents cannot remain blocked by a missing thread.
+
 ## Plan and Ultra teams
 
 In Plan mode, the entire team remains read-only and conversation tools are restricted to the current Plan orchestration team. In Ultra mode, sub-agents receive a specialist contract, while the orchestrator remains responsible for independent critique, correction, fresh validation, and the integrated final result.

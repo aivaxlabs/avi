@@ -6,10 +6,13 @@ Avi distributes advanced controls between **Settings → General** and **Setting
 
 | Setting | Default | Effect |
 |---|---|---|
+| Continuation replies | Enabled | Uses the auxiliary model to suggest up to four likely user replies after a response finishes |
 | Chat reasoning traces | Visible | Shows or hides reasoning and tool trace blocks |
 | Default permission mode | Approve for me | Initial permission state for a new conversation |
 | Message delivery mode | Queue | Enter queues; Ctrl+Enter steers |
 | Terminal shell | Auto | Shell used by terminal tools |
+
+Continuation replies are generated only when an auxiliary model is configured, the latest assistant response is complete, and no sub-agent is still working. Sending any message removes the suggestions.
 
 With Message delivery set to Steer, the Enter and Ctrl+Enter behaviors are reversed. Avi detects installed shells with a ten-second UI timeout and checks the selected shell again before each command.
 

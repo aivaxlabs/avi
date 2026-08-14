@@ -6,7 +6,7 @@
 
 | Setting | Used for | Behavior when unset |
 |---|---|---|
-| Auxiliary model | Supporting tasks such as title and Goal preparation | The flow uses its direct fallback behavior |
+| Auxiliary model | Supporting tasks such as title and Goal preparation, plus optional continuation replies | The flow uses its direct fallback behavior |
 | Supervision model | Reviewing Goal completion | The Goal or orchestrator model is used |
 | Quick chat model | Required initial model for Quick Chat | Quick Chat cannot open |
 | Small, Medium, Large model | Sub-agent model levels | The orchestrator or last-used model may be used at runtime |
