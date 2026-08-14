@@ -76,6 +76,12 @@ try {
   let completeTitleGeneration;
   const auxiliaryProvider = {
     stream: async (request) => {
+      if (request.messages.at(-1)?.content === 'Generate the continuation replies for the conversation above.') {
+        return {
+          assistantContent: JSON.stringify({ continuations: [] }),
+          toolCalls: [],
+        };
+      }
       auxiliaryCalls.push(request);
       if (auxiliaryCalls.length === 2) {
         return new Promise((resolveTitle) => {

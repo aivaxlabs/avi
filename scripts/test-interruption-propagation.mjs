@@ -93,14 +93,14 @@ try {
     Array.from({ length: 6 }, (_, index) => `result-${index}`),
   );
 
-  function buildRunner(provider, stoppedBackgroundTasks = []) {
+  function buildRunner(provider, stoppedBackgroundTasks = [], events = []) {
     return new ChatRunner({
       registry: {
         resolve: () => ({ model, provider }),
         listModels: () => [model],
       },
       mcpManager: null,
-      sendEvent: () => {},
+      sendEvent: (event) => events.push(event),
       stopBackgroundTasks: (conversationId) => stoppedBackgroundTasks.push(conversationId),
     });
   }
@@ -147,6 +147,7 @@ try {
     conversationIds: [inferenceConversation.id],
     approvals: [],
     questions: [],
+    semaphoreWaits: [],
   });
   await inferenceRunner.send({
     conversationId: inferenceConversation.id,
@@ -173,6 +174,7 @@ try {
     conversationIds: [],
     approvals: [],
     questions: [],
+    semaphoreWaits: [],
   });
   assert.equal(inferenceCalls[0].aborted, false);
   assert.equal(inferenceCalls.length, 2);
@@ -610,7 +612,8 @@ try {
     }),
   };
   const stoppedBackgroundTasks = [];
-  const fullStopRunner = buildRunner(fullStopProvider, stoppedBackgroundTasks);
+  const fullStopEvents = [];
+  const fullStopRunner = buildRunner(fullStopProvider, stoppedBackgroundTasks, fullStopEvents);
   const parent = createConversation({ model: model.id, projectPath: process.cwd() });
   const subagent = forkConversation(parent.id, { subagent: true }).conversation;
   await fullStopRunner.send({
@@ -646,10 +649,24 @@ try {
     model: model.id,
     text: 'Keep this sub-agent prompt queued',
   });
-  fullStopRunner.stop(parent.id, { includeSubagents: true });
+  fullStopRunner.stop(parent.id, { includeSubagents: true, stoppedByUser: true });
   assert.equal(fullStopSignals.every((signal) => signal.aborted), true);
   assert.deepEqual(new Set(stoppedBackgroundTasks), new Set([parent.id, subagent.id]));
   await waitFor(() => fullStopRunner.runs.size === 0);
+  assert.equal(
+    fullStopEvents.filter((event) => (
+      event.type === 'run-state' && !event.running && event.stoppedByUser
+    )).length,
+    2,
+  );
+  assert.equal(
+    fullStopEvents.filter((event) => (
+      event.type === 'message'
+      && event.message.status === 'aborted'
+      && event.message.stoppedByUser
+    )).length,
+    2,
+  );
   assert.deepEqual(
     fullStopRunner.getQueuedItems(parent.id, model.id)
       .map((item) => item.userMessageId),

@@ -506,7 +506,9 @@ export const CLIENT_TOOLS = Object.freeze([
           title: conversation.title,
           folderPath: conversation.projectPath,
           model: conversation.model,
-          status: chatRunner.runs.has(conversation.id) ? 'running' : 'idle',
+          status: chatRunner.semaphores.waitSnapshot(conversation.id)
+            ? 'sleeping'
+            : chatRunner.runs.has(conversation.id) ? 'running' : 'idle',
           createdAt: conversation.createdAt,
           updatedAt: conversation.updatedAt,
         }));
@@ -1019,7 +1021,9 @@ export const CLIENT_TOOLS = Object.freeze([
       const pendingQuestion = chatRunner.getPendingQuestion?.(conversation.id) ?? null;
       const status = pendingQuestion
         ? 'waiting_for_input'
-        : chatRunner.runs.has(conversation.id) ? 'running' : 'idle';
+        : chatRunner.semaphores.waitSnapshot(conversation.id)
+          ? 'sleeping'
+          : chatRunner.runs.has(conversation.id) ? 'running' : 'idle';
       const renderedTurns = inspectedTurns.flatMap((turn) => [
         `User (${turn.user.status}):\n${turn.user.message}`,
         ...turn.assistant.map((event) => {
@@ -1369,6 +1373,89 @@ export const CLIENT_TOOLS = Object.freeze([
                 : chatRunner?.runs?.has(subagent.id) ? 'running' : 'idle'}`,
             ].join('\n'))
           : ['None.']),
+      ].join('\n');
+    },
+  },
+  {
+    name: 'sleep_semaphore',
+    description: 'Acquire permits from an application-wide Avi-managed named semaphore shared by every thread. This must be the only tool call in its model round. If permits are unavailable, this tool ends the current inference and suspends the thread in a FIFO queue; Avi automatically resumes the thread when its turn is granted.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 200,
+          description: 'Semaphore name defined by the user or project instructions.',
+        },
+        count: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 1_000_000,
+          description: 'Number of permits to acquire.',
+        },
+        maxCount: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 1_000_000,
+          description: 'Fixed maximum permit count for this named semaphore.',
+        },
+      },
+      required: ['name', 'count', 'maxCount'],
+      additionalProperties: false,
+    },
+    execute: async ({ name, count, maxCount }, { chatRunner, conversationId }) => {
+      const result = chatRunner.acquireSemaphore({ conversationId, name, count, maxCount });
+      if (result.acquired) {
+        return [
+          `Semaphore "${result.name}" granted ${result.count} permit(s). It is safe to begin the protected work.`,
+          `You now own these permits. Call release_semaphore(name: "${result.name}", count: ${result.count}) promptly after the protected work is complete, including before reporting a blocker or finishing the task.`,
+        ].join('\n');
+      }
+      return {
+        output: [
+          `Waiting for semaphore "${result.name}". Queue position: ${result.position}.`,
+          'This inference is ending now. Do not continue the protected work in this turn.',
+          'Avi will automatically invoke this thread with a system-user message when the permits are granted. The user may also run now or cancel this semaphore wait.',
+        ].join('\n'),
+        suspendRun: true,
+      };
+    },
+  },
+  {
+    name: 'release_semaphore',
+    description: 'Release permits currently owned by this thread. Releasing permits automatically grants queued waiters in strict FIFO order when capacity permits.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 200,
+          description: 'Semaphore name whose permits should be released.',
+        },
+        count: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 1_000_000,
+          description: 'Number of owned permits to release.',
+        },
+      },
+      required: ['name', 'count'],
+      additionalProperties: false,
+    },
+    execute: async ({ name, count }, { chatRunner, conversationId }) => {
+      const result = chatRunner.releaseSemaphore({ conversationId, name, count });
+      return [
+        `Released ${result.released} permit(s) from semaphore "${result.name}".`,
+        `Permits still owned by this thread: ${result.remaining}.`,
+        `Queued threads activated: ${result.activated}.`,
       ].join('\n');
     },
   },

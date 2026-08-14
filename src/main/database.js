@@ -43,6 +43,7 @@ let providerCredentialsKey = null;
 const defaultTuningSettings = Object.freeze({
   personality: null,
   chatReasoningTraces: 'visible',
+  continuationRepliesEnabled: true,
   automaticCompactionThreshold: 0.9,
   toolOutputLimit: 8_192,
   defaultPermissionMode: 'approve_for_me',
@@ -1644,6 +1645,22 @@ export function forkConversation(id, {
       checkpointMessageId: copiedMessageIds.get(source.checkpointMessageId) ?? null,
       contextTokens: source.contextTokens,
     });
+    if (sideChat) {
+      insertMessage({
+        conversationId: target.id,
+        role: 'user',
+        status: 'sent',
+        hidden: true,
+        content: [
+          '<side-chat-instructions>',
+          'You are in a quick context forked from the main orchestrator to answer questions, explain the current implementation, or clarify what the orchestrator is doing.',
+          'Do not make modifications or take actions directly from this side chat.',
+          'If the user asks for guidance or an adjustment, inform the parent orchestrator about the decisions made with the user by using chat_send_prompt.',
+          '</side-chat-instructions>',
+        ].join('\n'),
+        createdAt: new Date(now + messages.length).toISOString(),
+      });
+    }
   }
   return {
     conversation: getConversation(target.id),
@@ -1906,6 +1923,15 @@ function readJson(key) {
   return row ? parse(row.value, null) : null;
 }
 
+export function getSemaphoreState() {
+  return readJson('semaphores');
+}
+
+export function setSemaphoreState(state) {
+  writeJson('semaphores', state);
+  return state;
+}
+
 function normalizeArchiveSettings(value, strict = false) {
   const settings = value && typeof value === 'object' ? value : {};
   const normalized = {
@@ -2014,6 +2040,9 @@ function normalizeTuningSettings(value, strict = false) {
     chatReasoningTraces: ['visible', 'hidden'].includes(tuning.chatReasoningTraces)
       ? tuning.chatReasoningTraces
       : defaultTuningSettings.chatReasoningTraces,
+    continuationRepliesEnabled: typeof tuning.continuationRepliesEnabled === 'boolean'
+      ? tuning.continuationRepliesEnabled
+      : defaultTuningSettings.continuationRepliesEnabled,
     automaticCompactionThreshold: [0.8, 0.9, 0.95].includes(automaticCompactionThreshold)
       ? automaticCompactionThreshold
       : defaultTuningSettings.automaticCompactionThreshold,

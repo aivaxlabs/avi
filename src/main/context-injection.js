@@ -58,6 +58,7 @@ const POST_INSTRUCTION_CONTEXT_ORDER = [
   'ultra',
   'goal',
   'tasks',
+  'semaphores',
   'subagents',
   'current-thread',
   'environment',
@@ -165,6 +166,18 @@ export const dynamicContextInjectors = new Map([
             ? 'The user paused automatic Goal iterations. Finish the current iteration responsibly, but do not assume the pause cancels the goal.'
             : 'Automatic Goal iterations are active.',
           '</goal_mode>',
+        ].join('\n')
+      : ''
+  )],
+  ['semaphores', ({ semaphoreHoldings = [] } = {}) => (
+    Array.isArray(semaphoreHoldings) && semaphoreHoldings.length > 0
+      ? [
+          '<semaphore_locks>',
+          'This thread currently owns the following Avi semaphore permits. Treat each permit as an active coordination lock: perform only the protected work authorized by the semaphore, do not assume another thread can enter the protected section, and call release_semaphore with the exact name and count as soon as that work is complete. Release permits before waiting on unrelated work, reporting a blocker, or ending the task. Never release permits owned by another thread.',
+          ...semaphoreHoldings.map((holding) => (
+            `<semaphore name="${escapeXml(holding.name)}" count="${holding.count}" max_count="${holding.maxCount}" />`
+          )),
+          '</semaphore_locks>',
         ].join('\n')
       : ''
   )],

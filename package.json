@@ -1,6 +1,6 @@
 {
   "name": "avi",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local desktop workspace for AI conversations, tools, and orchestration.",
   "author": "AIVAX Labs",
   "homepage": "https://avi.aivax.net",
@@ -12,8 +12,7 @@
   "type": "module",
   "main": "src/main/main.js",
   "scripts": {
-    "dev": "bun scripts/dev.mjs",
-    "dev:devtools": "bun scripts/dev.mjs --devtools --skip-single-instance",
+    "dev": "bun scripts/dev.mjs --devtools --skip-single-instance",
     "start": "electron .",
     "styles": "cascadium build -d src/styles -x .xcss -o src/renderer/styles.css --p:pretty true --p:filenametag relative",
     "styles:watch": "cascadium watch -d src/styles -x .xcss -o src/renderer/styles.css --p:pretty true --p:filenametag relative",
@@ -31,6 +30,7 @@
     "test:provider-auth": "bun scripts/test-openai-subscription-auth.mjs",
     "test:provider-images": "bun scripts/test-openai-subscription-images.mjs",
     "test:interruptions": "bun scripts/test-interruption-propagation.mjs",
+    "test:semaphores": "electron --no-sandbox scripts/test-semaphores.mjs",
     "test:mcp": "bun scripts/test-mcp-manager.mjs",
     "test:remote": "bun scripts/test-remote-mcp.mjs",
     "test:default-models": "bun scripts/test-default-models.mjs",

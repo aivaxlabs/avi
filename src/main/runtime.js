@@ -549,7 +549,7 @@ function initializeServices() {
       sendEvent: (payload) => {
         sendRendererEvent('chat:event', payload);
         if (
-          ['conversation', 'run-state', 'question-request', 'question-cancelled', 'permission-request', 'permission-cancelled']
+          ['conversation', 'run-state', 'semaphore-state', 'question-request', 'question-cancelled', 'permission-request', 'permission-cancelled']
             .includes(payload.type)
           || (payload.type === 'message' && payload.message?.role === 'user')
         ) refreshTrayMenu();
@@ -670,9 +670,11 @@ function refreshTrayMenu() {
     const run = chatRunner?.runs.get(conversation.id);
     const status = ['approval', 'question'].includes(run?.phase)
       ? 'input required'
-      : run
-        ? 'working'
-        : 'done';
+      : chatRunner?.semaphores.waitSnapshot(conversation.id)
+        ? 'sleeping'
+        : run
+          ? 'working'
+          : 'done';
     return {
       label: `${conversation.title} - ${status}`,
       click: () => openMainView({ view: 'conversation', conversationId: conversation.id }),
@@ -1051,11 +1053,14 @@ function registerIpc() {
     return archiveState(options);
   });
   applicationIpc.handle('archive:delete', (_event, conversationId, options = {}) => {
+    chatRunner.removeConversationSemaphores([conversationId]);
     deleteConversation(conversationId, { hard: true });
+    chatRunner.semaphores.cleanMissingConversations();
     return archiveState(options);
   });
   applicationIpc.handle('archive:maintenance', (_event, options = {}) => {
     const maintenance = runArchiveMaintenance();
+    chatRunner.semaphores.cleanMissingConversations();
     return {
       ...archiveState(options),
       maintenance,
@@ -1081,18 +1086,32 @@ function registerIpc() {
   applicationIpc.handle('tasks:list', (_event, conversationId) => listTasks(conversationId));
   applicationIpc.handle('conversations:archive', (_event, conversationId) => {
     chatRunner.stop(conversationId, { includeSubagents: true });
-    for (const sideChat of listSideChats(conversationId)) {
-      chatRunner.stop(sideChat.id);
-    }
+    const children = [
+      ...listSubagents(conversationId),
+      ...listSideChats(conversationId),
+    ];
+    for (const child of children) chatRunner.stop(child.id);
+    chatRunner.removeConversationSemaphores([
+      conversationId,
+      ...children.map((child) => child.id),
+    ]);
     archiveConversation(conversationId);
+    chatRunner.semaphores.cleanMissingConversations();
     return listConversationsWithProjects();
   });
   applicationIpc.handle('conversations:delete', (_event, conversationId) => {
     chatRunner.stop(conversationId, { includeSubagents: true });
-    for (const sideChat of listSideChats(conversationId)) {
-      chatRunner.stop(sideChat.id);
-    }
+    const children = [
+      ...listSubagents(conversationId),
+      ...listSideChats(conversationId),
+    ];
+    for (const child of children) chatRunner.stop(child.id);
+    chatRunner.removeConversationSemaphores([
+      conversationId,
+      ...children.map((child) => child.id),
+    ]);
     deleteConversation(conversationId);
+    chatRunner.semaphores.cleanMissingConversations();
     return listConversationsWithProjects();
   });
   applicationIpc.handle('conversations:fork', (_event, payload) => {
@@ -1325,6 +1344,7 @@ function registerIpc() {
     const sideChat = getConversation(sideChatId);
     if (!sideChat?.isSideChat) return false;
     chatRunner.stop(sideChat.id);
+    chatRunner.removeConversationSemaphores([sideChat.id]);
     deleteConversation(sideChat.id, { hard: true });
     return true;
   });
@@ -1520,11 +1540,9 @@ function registerIpc() {
     if (error) throw new Error(`Could not open plugin documentation: ${error}`);
     return true;
   });
-  applicationIpc.handle('plugins:reload-window', () => {
-    reloadSnapshot = chatRunner.reloadSnapshot();
-    setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reload();
-    }, 0);
+  applicationIpc.handle('plugins:restart-avi', () => {
+    app.relaunch();
+    app.quit();
     return true;
   });
   applicationIpc.handle('plugins:restore-reload', () => reloadSnapshot);
@@ -1538,6 +1556,7 @@ function registerIpc() {
       conversationIds: current.conversationIds.filter((id) => snapshotIds.has(id)),
       approvals: current.approvals.filter((request) => snapshotIds.has(request.conversationId)),
       questions: current.questions.filter((request) => snapshotIds.has(request.conversationId)),
+      semaphoreWaits: current.semaphoreWaits,
     };
   });
   applicationIpc.handle('plugins:create', () => {
@@ -1599,8 +1618,12 @@ function registerIpc() {
   applicationIpc.handle('mcp:inspect', (_event, serverKey) => mcpManager.inspectServer(serverKey));
   applicationIpc.handle('mcp:authenticate', (_event, serverKey) => mcpManager.authenticate(serverKey));
 
+  applicationIpc.handle('chat:state', () => chatRunner.reloadSnapshot());
   applicationIpc.handle('chat:send', async (_event, payload) => {
-    const result = await chatRunner.send(payload);
+    const result = await chatRunner.send({
+      ...payload,
+      userInitiated: true,
+    });
     return {
       ...result,
       conversation: refreshConversationProject(result.conversation),
@@ -1624,8 +1647,14 @@ function registerIpc() {
   }));
   applicationIpc.handle('chat:cancel-queued', (_event, payload) => chatRunner.cancelQueuedMessage(payload));
   applicationIpc.handle('chat:reorder-queued', (_event, payload) => chatRunner.reorderQueuedMessages(payload));
+  applicationIpc.handle('chat:run-semaphore-now', (_event, conversationId) => (
+    chatRunner.runSemaphoreNow(conversationId)
+  ));
+  applicationIpc.handle('chat:cancel-semaphore', (_event, conversationId) => (
+    chatRunner.cancelSemaphore(conversationId)
+  ));
   applicationIpc.handle('chat:stop', (_event, conversationId) => {
-    chatRunner.stop(conversationId, { includeSubagents: true });
+    chatRunner.stop(conversationId, { includeSubagents: true, stoppedByUser: true });
     return true;
   });
   applicationIpc.handle('git-review:state', (_event, conversationId) => {

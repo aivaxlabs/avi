@@ -155,6 +155,7 @@ export class QuickChatRunner {
         workspacePath,
       }).tools;
       const coreTools = CLIENT_TOOLS
+          .filter((tool) => !['sleep_semaphore', 'release_semaphore'].includes(tool.name))
           .filter((tool) => (
             tool.name !== 'read_media_file'
             || selection.model.capabilities?.images

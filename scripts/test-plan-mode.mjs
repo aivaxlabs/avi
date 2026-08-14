@@ -143,7 +143,9 @@ try {
       'read_file',
       'read_terminal_output',
       'read_url',
+      'release_semaphore',
       'sleep',
+      'sleep_semaphore',
     ],
   );
   assert.deepEqual(

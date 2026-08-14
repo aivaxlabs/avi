@@ -36,6 +36,7 @@ try {
   assert.deepEqual(getPreferences().tuning, {
     personality: null,
     chatReasoningTraces: 'visible',
+    continuationRepliesEnabled: true,
     automaticCompactionThreshold: 0.9,
     toolOutputLimit: 8_192,
     defaultPermissionMode: 'approve_for_me',
@@ -48,6 +49,7 @@ try {
   assert.deepEqual(setTuningSettings({
     personality: 'friendly',
     chatReasoningTraces: 'hidden',
+    continuationRepliesEnabled: false,
     automaticCompactionThreshold: 0.8,
     toolOutputLimit: null,
     defaultPermissionMode: 'ask_for_approval',
@@ -59,6 +61,7 @@ try {
   }), {
     personality: 'friendly',
     chatReasoningTraces: 'hidden',
+    continuationRepliesEnabled: false,
     automaticCompactionThreshold: 0.8,
     toolOutputLimit: null,
     defaultPermissionMode: 'ask_for_approval',
@@ -70,6 +73,7 @@ try {
   });
   assert.equal(getPreferences().tuning.personality, 'friendly');
   assert.equal(getPreferences().tuning.chatReasoningTraces, 'hidden');
+  assert.equal(getPreferences().tuning.continuationRepliesEnabled, false);
   assert.equal(getPreferences().tuning.terminalTimeoutSeconds, 45);
   assert.equal(getPreferences().tuning.logLevel, 'verbose');
   for (const toolOutputLimit of [4_096, 8_192, 32_768]) {
@@ -161,17 +165,31 @@ try {
   assert.equal(first.conversation.contextCheckpoint, 'Checkpoint snapshot');
   assert.equal(first.conversation.contextTokens, 321);
   const firstMessages = getMessages(first.conversation.id);
-  assert.equal(firstMessages.length, 2);
+  assert.equal(firstMessages.length, 3);
+  assert.equal(firstMessages.at(-1).role, 'user');
+  assert.equal(firstMessages.at(-1).hidden, true);
+  assert.match(firstMessages.at(-1).content, /^<side-chat-instructions>/);
+  assert.match(firstMessages.at(-1).content, /Do not make modifications or take actions/);
+  assert.match(firstMessages.at(-1).content, /inform the parent orchestrator/);
   const sideChatModelMessages = toModelMessages(first.conversation.id);
   assert.equal(sideChatModelMessages[0].role, 'system');
   assert.ok(sideChatModelMessages[0].content.includes('thread_type: side_chat'));
   assert.ok(sideChatModelMessages[0].content.includes(`thread_id: ${first.conversation.id}`));
   assert.ok(sideChatModelMessages[0].content.includes(`parent_thread_id: ${parent.id}`));
+  assert.equal(sideChatModelMessages.at(-1).role, 'user');
+  assert.equal(sideChatModelMessages.at(-1).content, firstMessages.at(-1).content);
+  const sideChatReply = insertMessage({
+    conversationId: first.conversation.id,
+    role: 'assistant',
+    status: 'completed',
+    content: 'Side chat answer',
+  });
   const retryModelMessages = toModelMessagesThroughUser(
     first.conversation.id,
-    firstMessages[1].id,
+    sideChatReply.id,
   );
   assert.equal(retryModelMessages[0].content, sideChatModelMessages[0].content);
+  assert.equal(retryModelMessages.at(-1).content, firstMessages.at(-1).content);
   assert.equal(
     toModelMessages(parent.id).some((message) => (
       message.role === 'system' && message.content.includes('thread_type: side_chat')

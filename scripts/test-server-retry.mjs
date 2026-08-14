@@ -1467,6 +1467,150 @@ try {
     'error',
   );
 
+  const compactionFallbackRequests = [];
+  const compactionFallbackProvider = {
+    getContributions: () => ({ tools: [] }),
+    stream: async ({ messages }) => {
+      compactionFallbackRequests.push(structuredClone(messages));
+      if (compactionFallbackRequests.length < 4) {
+        const error = new Error('Input exceeds the context window.');
+        error.status = 400;
+        throw error;
+      }
+      return {
+        assistantContent: 'Fallback checkpoint.',
+        continuation: [],
+        toolCalls: [],
+      };
+    },
+  };
+  const compactionFallbackRunner = new ChatRunner({
+    registry: {
+      resolve: () => ({ model, provider: compactionFallbackProvider }),
+      listModels: () => [model],
+    },
+    mcpManager: null,
+    sendEvent: () => {},
+  });
+  const compactionFallbackConversation = database.createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  database.insertMessage({
+    conversationId: compactionFallbackConversation.id,
+    role: 'user',
+    status: 'sent',
+    content: 'Create a fallback checkpoint.',
+  });
+  const compactionFallbackMessages = [
+    { role: 'user', content: 'First turn.' },
+    { role: 'assistant', content: 'First intermediate assistant.' },
+    { role: 'assistant', content: 'First final assistant.' },
+    { role: 'user', content: 'Second turn.' },
+    { role: 'assistant', content: 'Second intermediate assistant.' },
+    { role: 'assistant', content: 'Second final assistant.' },
+  ];
+  const compactionFallbackToolHistory = Array.from({ length: 10 }, (_, index) => ({
+    assistantContent: `Tool assistant ${index}.`,
+    continuation: [{
+      type: 'function_call',
+      call_id: `fallback-tool-${index}`,
+      name: 'fallback_tool',
+      arguments: '{}',
+    }],
+    toolCalls: [{
+      callId: `fallback-tool-${index}`,
+      name: 'fallback_tool',
+      argumentsText: '{}',
+    }],
+    results: [{
+      callId: `fallback-tool-${index}`,
+      output: `Fallback tool result ${index}.`,
+      isError: false,
+    }],
+  }));
+  await compactionFallbackRunner.compress({
+    conversationId: compactionFallbackConversation.id,
+    model: model.id,
+    contextMessages: compactionFallbackMessages,
+    contextToolHistory: compactionFallbackToolHistory,
+  });
+  assert.equal(compactionFallbackRequests.length, 4);
+  const fallbackContexts = compactionFallbackRequests.map((request) => JSON.parse(
+    request.at(-2).content
+      .replace('<in_flight_context>\n', '')
+      .replace('\n</in_flight_context>', ''),
+  ));
+  assert.deepEqual(
+    fallbackContexts.map(({ toolHistory }) => toolHistory.map((round) => round.results[0].callId)),
+    [
+      Array.from({ length: 10 }, (_, index) => `fallback-tool-${index}`),
+      Array.from({ length: 9 }, (_, index) => `fallback-tool-${index + 1}`),
+      Array.from({ length: 8 }, (_, index) => `fallback-tool-${index + 2}`),
+      Array.from({ length: 8 }, (_, index) => `fallback-tool-${index + 2}`),
+    ],
+  );
+  for (const { toolHistory } of fallbackContexts) {
+    for (const round of toolHistory) {
+      assert.deepEqual(
+        round.toolCalls.map((toolCall) => toolCall.callId),
+        round.results.map((result) => result.callId),
+      );
+    }
+  }
+  assert.match(JSON.stringify(compactionFallbackRequests[2]), /First intermediate assistant/);
+  assert.doesNotMatch(JSON.stringify(compactionFallbackRequests[3]), /First intermediate assistant/);
+  assert.doesNotMatch(JSON.stringify(compactionFallbackRequests[3]), /Second intermediate assistant/);
+  assert.match(JSON.stringify(compactionFallbackRequests[3]), /First final assistant/);
+  assert.match(JSON.stringify(compactionFallbackRequests[3]), /Second final assistant/);
+
+  let exhaustedCompactionAttempts = 0;
+  const exhaustedCompactionRunner = new ChatRunner({
+    registry: {
+      resolve: () => ({
+        model,
+        provider: {
+          getContributions: () => ({ tools: [] }),
+          stream: async () => {
+            exhaustedCompactionAttempts += 1;
+            const error = new Error('Maximum context length exceeded.');
+            error.status = 413;
+            throw error;
+          },
+        },
+      }),
+      listModels: () => [model],
+    },
+    mcpManager: null,
+    sendEvent: () => {},
+  });
+  const exhaustedCompactionConversation = database.createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  database.insertMessage({
+    conversationId: exhaustedCompactionConversation.id,
+    role: 'user',
+    status: 'sent',
+    content: 'Exhaust compaction fallbacks.',
+  });
+  await assert.rejects(
+    exhaustedCompactionRunner.compress({
+      conversationId: exhaustedCompactionConversation.id,
+      model: model.id,
+      contextMessages: compactionFallbackMessages,
+      contextToolHistory: compactionFallbackToolHistory,
+    }),
+    /Maximum context length exceeded/,
+  );
+  assert.equal(exhaustedCompactionAttempts, 4);
+  assert.equal(
+    database.getMessages(exhaustedCompactionConversation.id)
+      .findLast((message) => message.role === 'system')
+      ?.status,
+    'error',
+  );
+
   database.closeDatabase();
   database = null;
   console.log('Server retry tests passed.');

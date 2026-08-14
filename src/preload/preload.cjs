@@ -112,7 +112,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     setEnabled: (payload) => invoke('plugins:set-enabled', payload),
     remove: (payload) => invoke('plugins:remove', payload),
     docs: () => invoke('plugins:docs'),
-    reloadWindow: () => invoke('plugins:reload-window'),
+    restartAvi: () => invoke('plugins:restart-avi'),
     restoreReload: () => invoke('plugins:restore-reload'),
     completeReload: () => invoke('plugins:complete-reload'),
     create: () => invoke('plugins:create'),
@@ -138,6 +138,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     removeKey: () => invoke('remote:remove-key'),
   },
   chat: {
+    state: () => invoke('chat:state'),
     send: (payload) => invoke('chat:send', payload),
     retry: (payload) => invoke('chat:retry', payload),
     expandPrompt: (payload) => invoke('chat:expand-prompt', payload),
@@ -146,6 +147,8 @@ contextBridge.exposeInMainWorld('chatApp', {
     compress: (payload) => invoke('chat:compress', payload),
     cancelQueued: (payload) => invoke('chat:cancel-queued', payload),
     reorderQueued: (payload) => invoke('chat:reorder-queued', payload),
+    runSemaphoreNow: (conversationId) => invoke('chat:run-semaphore-now', conversationId),
+    cancelSemaphore: (conversationId) => invoke('chat:cancel-semaphore', conversationId),
     stop: (conversationId) => invoke('chat:stop', conversationId),
   },
   tasks: {
