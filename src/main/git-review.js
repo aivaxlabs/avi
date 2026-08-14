@@ -201,15 +201,16 @@ async function readFileDiff(repository, file, hasHead) {
   }).filter(Boolean);
   const omittedCharacters = Math.max(0, originalDiff.length - retainedCharacters);
   const omission = `[omitted: ${omittedHunks} hunks; ${omittedCharacters} chars]`;
-  const diff = [...summary, ...samples, omission].filter(Boolean).join('\n');
+  const agentDiff = [...summary, ...samples, omission].filter(Boolean).join('\n');
 
   return {
     ...file,
-    diff,
+    diff: originalDiff,
+    agentDiff,
     additions,
     deletions,
-    diffBytes: Buffer.byteLength(diff, 'utf8'),
-    diffCharacters: diff.length,
+    diffBytes: Buffer.byteLength(agentDiff, 'utf8'),
+    diffCharacters: agentDiff.length,
     diffTruncated: omittedHunks > 0 || omittedCharacters > 0,
     binary: originalDiff.includes('Binary files ') || originalDiff.includes('GIT binary patch'),
   };

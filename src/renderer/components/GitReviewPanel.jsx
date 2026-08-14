@@ -206,7 +206,10 @@ export function GitReviewPanel({
   const [plans, setPlans] = useState(null);
   const [busyRepositories, setBusyRepositories] = useState(new Set());
   const [committing, setCommitting] = useState(false);
+  const [visibleDiffs, setVisibleDiffs] = useState(new Set());
+  const [diffHeights, setDiffHeights] = useState(new Map());
   const panelRef = useRef(null);
+  const contentRef = useRef(null);
   const fileSearchRef = useRef(null);
 
   const changedRepositories = useMemo(() => (
@@ -215,20 +218,22 @@ export function GitReviewPanel({
       : []
   ), [review]);
   const highlightedDiffs = useMemo(() => new Map(
-    (review?.repositories ?? []).flatMap((repository) => repository.files.map((file) => {
+    (review?.repositories ?? []).flatMap((repository) => repository.files.flatMap((file) => {
+      const key = JSON.stringify([repository.id, file.path]);
+      if (!visibleDiffs.has(key)) return [];
       const lowerName = file.path.toLowerCase().split('/').at(-1);
       const extension = lowerName.includes('.') ? lowerName.split('.').at(-1) : lowerName;
       const language = diffLanguages[lowerName] ?? diffLanguages[extension];
       const diffLanguage = language ? `diff-${language}` : 'diff';
-      return [
-        `${repository.id}\0${file.path}`,
+      return [[
+        key,
         {
           html: Prism.highlight(file.diff, Prism.languages.diff, diffLanguage),
           language: diffLanguage,
         },
-      ];
+      ]];
     })),
-  ), [review]);
+  ), [review, visibleDiffs]);
 
   async function refresh() {
     if (!conversationId) return;
@@ -258,8 +263,39 @@ export function GitReviewPanel({
     setFilePickerRepositoryId(null);
     setFileQuery('');
     setSelection(null);
+    setVisibleDiffs(new Set());
+    setDiffHeights(new Map());
     if (conversationId) refresh();
   }, [conversationId, project?.path]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver((entries) => {
+      const measuredHeights = entries.flatMap((entry) => {
+        if (entry.isIntersecting) return [];
+        const body = entry.target.querySelector('.git-review-diff');
+        return body ? [[entry.target.dataset.gitReviewDiffKey, body.getBoundingClientRect().height]] : [];
+      });
+      if (measuredHeights.length > 0) {
+        setDiffHeights((current) => {
+          const next = new Map(current);
+          for (const [key, height] of measuredHeights) next.set(key, height);
+          return next;
+        });
+      }
+      setVisibleDiffs((current) => {
+        const next = new Set(current);
+        for (const entry of entries) {
+          const key = entry.target.dataset.gitReviewDiffKey;
+          if (entry.isIntersecting) next.add(key); else next.delete(key);
+        }
+        return next;
+      });
+    }, { root: contentRef.current, rootMargin: '600px 0px' });
+    for (const element of contentRef.current?.querySelectorAll('[data-git-review-diff-key]') ?? []) {
+      observer.observe(element);
+    }
+    return () => observer.disconnect();
+  }, [review, expanded]);
 
   useEffect(() => {
     if (!menu) return undefined;
@@ -458,7 +494,7 @@ export function GitReviewPanel({
         <button type="button" aria-label="Dismiss" onClick={() => setNotice(null)}><X size={13} /></button>
       </div>}
 
-      <div className="git-review-content">
+      <div className="git-review-content" ref={contentRef}>
         {loading && !review ? (
           <div className="git-review-empty"><RefreshCw className="spin" size={20} /><strong>Loading changes</strong></div>
         ) : !review ? (
@@ -564,15 +600,26 @@ export function GitReviewPanel({
                   </div>
                   <div className="git-review-diffs">
                     {repository.files.map((file) => {
-                      const highlightedDiff = highlightedDiffs.get(`${repository.id}\0${file.path}`);
+                      const key = JSON.stringify([repository.id, file.path]);
+                      const highlightedDiff = highlightedDiffs.get(key);
+                      const visible = visibleDiffs.has(key);
+                      const estimatedHeight = diffHeights.get(key)
+                        ?? Math.min(560, Math.max(42, file.diff.split('\n').length * 18 + 18));
                       return (
-                        <article id={`git-review-${repository.id}-${file.path}`} className="git-review-file" key={file.path}>
-                          <header><FileStatus status={file.status} /><strong>{file.path}</strong>{file.staged && <small>staged</small>}{file.unstaged && <small>unstaged</small>}{file.diffTruncated && <small>truncated</small>}</header>
-                          {file.diff ? (
+                        <article
+                          id={`git-review-${repository.id}-${file.path}`}
+                          className="git-review-file"
+                          key={file.path}
+                          data-git-review-diff-key={key}
+                        >
+                          <header><FileStatus status={file.status} /><strong>{file.path}</strong>{file.staged && <small>staged</small>}{file.unstaged && <small>unstaged</small>}</header>
+                          {visible ? (file.diff ? (
                             <pre className={`git-review-diff diff-highlight language-${highlightedDiff.language}`} tabIndex={0} onMouseUp={(event) => updateSelection(event, repository, file)} onKeyUp={(event) => updateSelection(event, repository, file)}>
                               <code className={`diff-highlight language-${highlightedDiff.language}`} dangerouslySetInnerHTML={{ __html: highlightedDiff.html }} />
                             </pre>
-                          ) : <div className="git-review-no-diff">{file.binary ? 'Binary file changed' : 'No textual diff available'}</div>}
+                          ) : <div className="git-review-no-diff">{file.binary ? 'Binary file changed' : 'No textual diff available'}</div>) : (
+                            <div aria-hidden="true" style={{ height: estimatedHeight }} />
+                          )}
                         </article>
                       );
                     })}

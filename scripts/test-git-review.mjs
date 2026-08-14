@@ -113,33 +113,39 @@ try {
 
   const maximumAllowedDiffs = (await reviewGitWorkspace(root)).repositories
     .find(({ path }) => path === 'large-diffs');
-  assert.ok(maximumAllowedDiffs.files.every((file) => file.diff.length <= 500));
+  assert.ok(maximumAllowedDiffs.files.every((file) => file.agentDiff.length <= 500));
   assert.ok(maximumAllowedDiffs.diffCharacters <= 128_000);
   assert.equal(maximumAllowedDiffs.commitPlanAvailable, true);
-  const compactDiff = maximumAllowedDiffs.files.find(({ path }) => path === 'large-1.txt').diff;
-  assert.ok(compactDiff.length <= 500);
-  assert.match(compactDiff, /^modified: large-1\.txt/m);
-  assert.match(compactDiff, /changes: \+3 -3; hunks: 1/);
-  assert.match(compactDiff, /\[omitted: 0 hunks; \d+ chars\]/);
+  const largeFile = maximumAllowedDiffs.files.find(({ path }) => path === 'large-1.txt');
+  assert.match(largeFile.diff, /changed middle 1/);
+  assert.doesNotMatch(largeFile.diff, /\[omitted:/);
+  assert.ok(largeFile.diff.length > 500);
+  assert.ok(largeFile.agentDiff.length <= 500);
+  assert.match(largeFile.agentDiff, /^modified: large-1\.txt/m);
+  assert.match(largeFile.agentDiff, /changes: \+3 -3; hunks: 1/);
+  assert.match(largeFile.agentDiff, /\[omitted: 0 hunks; \d+ chars\]/);
 
-  const hunkDiff = maximumAllowedDiffs.files.find(({ path }) => path === 'hunks.txt').diff;
-  assert.ok(hunkDiff.length <= 500);
-  assert.match(hunkDiff, /changes: \+3 -3; hunks: 3/);
-  assert.match(hunkDiff, /first changed/);
-  assert.match(hunkDiff, /middle changed/);
-  assert.match(hunkDiff, /last changed/);
-  assert.doesNotMatch(hunkDiff, /^ unchanged/m);
+  const hunkFile = maximumAllowedDiffs.files.find(({ path }) => path === 'hunks.txt');
+  assert.doesNotMatch(hunkFile.diff, /\[omitted:/);
+  assert.ok(hunkFile.agentDiff.length <= 500);
+  assert.match(hunkFile.agentDiff, /changes: \+3 -3; hunks: 3/);
+  assert.match(hunkFile.agentDiff, /first changed/);
+  assert.match(hunkFile.agentDiff, /middle changed/);
+  assert.match(hunkFile.agentDiff, /last changed/);
+  assert.doesNotMatch(hunkFile.agentDiff, /^ unchanged/m);
 
-  const newFileDiff = maximumAllowedDiffs.files.find(({ path }) => path === 'new-large.txt').diff;
-  assert.ok(newFileDiff.length <= 500);
-  assert.match(newFileDiff, /^untracked: new-large\.txt/m);
-  assert.match(newFileDiff, /changes: \+82 -0; hunks: 1/);
-  assert.match(newFileDiff, /metadata: new file mode 100644/);
-  assert.match(newFileDiff, /\+new first/);
-  assert.match(newFileDiff, /\+new middle 40/);
-  assert.match(newFileDiff, /\+new last/);
-  assert.match(newFileDiff, /\[omitted: 0 hunks; \d+ chars\]/);
-  assert.ok(newFileDiff.length < (await readFile(join(largeDiffRepository, 'new-large.txt'), 'utf8')).length);
+  const newFile = maximumAllowedDiffs.files.find(({ path }) => path === 'new-large.txt');
+  assert.match(newFile.diff, /\+new middle 79/);
+  assert.doesNotMatch(newFile.diff, /\[omitted:/);
+  assert.ok(newFile.agentDiff.length <= 500);
+  assert.match(newFile.agentDiff, /^untracked: new-large\.txt/m);
+  assert.match(newFile.agentDiff, /changes: \+82 -0; hunks: 1/);
+  assert.match(newFile.agentDiff, /metadata: new file mode 100644/);
+  assert.match(newFile.agentDiff, /\+new first/);
+  assert.match(newFile.agentDiff, /\+new middle 40/);
+  assert.match(newFile.agentDiff, /\+new last/);
+  assert.match(newFile.agentDiff, /\[omitted: 0 hunks; \d+ chars\]/);
+  assert.ok(newFile.agentDiff.length < (await readFile(join(largeDiffRepository, 'new-large.txt'), 'utf8')).length);
 
   for (let index = 249; index <= 270; index += 1) {
     await writeFile(join(largeDiffRepository, `large-${index}.txt`), [
@@ -151,7 +157,7 @@ try {
   }
   const overLimitDiffs = (await reviewGitWorkspace(root)).repositories
     .find(({ path }) => path === 'large-diffs');
-  assert.ok(overLimitDiffs.files.every((file) => file.diff.length <= 500));
+  assert.ok(overLimitDiffs.files.every((file) => file.agentDiff.length <= 500));
   assert.ok(overLimitDiffs.diffCharacters > 128_000);
   assert.equal(overLimitDiffs.commitPlanAvailable, false);
 
