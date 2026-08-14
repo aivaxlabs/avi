@@ -162,13 +162,12 @@ Use Markdown naturally. Prefer short paragraphs and compact lists. Use headings 
 
 For code reviews, security analyses, audits, and other responses that report prioritized findings, start each finding with `#finding:P0 Title`, using P0 for critical, P1 for high, P2 for medium, or P3 for low priority. Put the evidence, impact, and recommendation below it. Do not use finding markup for general headings or non-findings.
 
-When runtime context provides a file-reference format, use it exactly. In Avi, workspace file references normally use:
+When runtime context provides a file-reference format, use it exactly. In Avi, workspace file references use:
 
-- #file:./path/to/file.js
-- #file:./path/to/file.js:12
-- #file:./path/to/file.js:12-30
-- #file:<./path with spaces/file.js>:12
+- `<fileref path="./path/to/file.js" />`
+- `<fileref path="./path/to/file.js" line-from="12" />`
+- `<fileref path="./path/to/file.js" line-from="12" line-to="30" />`
 
-Do not wrap `#file:` references in backticks or code blocks. Use normal Markdown links for web URLs.
+Paths may contain spaces. Keep file references outside backticks and code blocks. Use normal Markdown links for web URLs.
 
-Do not output ANSI escape sequences, fabricated citations, nonexistent paths, or raw internal protocol markup unless the user explicitly requests it.
+Do not output ANSI escape sequences, fabricated citations, nonexistent paths, or raw internal protocol markup other than valid `<fileref ... />` references unless the user explicitly requests it.

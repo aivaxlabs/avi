@@ -15,6 +15,7 @@ import {
   isAbsolute,
   relative,
   resolve,
+  sep,
 } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createInterface } from 'node:readline';
@@ -149,28 +150,11 @@ export async function normalizeAttachmentsForModel(attachments, capabilities = {
       );
     if (supported) return attachment;
 
-    let path = null;
-    if (typeof attachment.path === 'string' && isAbsolute(attachment.path)) {
-      try {
-        const realPath = await realpath(attachment.path);
-        if ((await lstat(realPath)).isFile()) path = realPath;
-      } catch {}
+    const materialized = await materializeAttachment(attachment);
+    if (!materialized) {
+      throw new Error(`Could not create a local copy of "${attachment.name ?? 'attachment'}".`);
     }
-
-    let temporary = Boolean(attachment.temporary);
-    if (!path) {
-      const buffer = attachmentToBuffer(attachment);
-      if (!buffer) {
-        throw new Error(`Could not create a local copy of "${attachment.name ?? 'attachment'}".`);
-      }
-
-      await mkdir(temporaryAttachmentDirectory, { recursive: true });
-      const safeName = basename(attachment.name || 'attachment')
-        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
-      path = resolve(temporaryAttachmentDirectory, `${crypto.randomUUID()}-${safeName}`);
-      await writeFile(path, buffer);
-      temporary = true;
-    }
+    const { path, temporary } = materialized;
 
     const {
       base64: _base64,
@@ -185,6 +169,27 @@ export async function normalizeAttachmentsForModel(attachments, capabilities = {
       temporary,
     };
   }));
+}
+
+export async function materializeAttachment(attachment) {
+  if (typeof attachment.path === 'string' && isAbsolute(attachment.path)) {
+    try {
+      const path = await realpath(attachment.path);
+      if ((await lstat(path)).isFile()) {
+        return { path, temporary: Boolean(attachment.temporary), materialized: false };
+      }
+    } catch {}
+  }
+
+  const buffer = attachmentToBuffer(attachment);
+  if (!buffer) return null;
+
+  await mkdir(temporaryAttachmentDirectory, { recursive: true });
+  const safeName = basename(attachment.name || 'attachment.bin')
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
+  const path = resolve(temporaryAttachmentDirectory, `${crypto.randomUUID()}-${safeName}`);
+  await writeFile(path, buffer);
+  return { path, temporary: true, materialized: true };
 }
 
 function attachmentToBuffer(attachment) {
@@ -508,13 +513,21 @@ export function resolveWorkspacePath(folderPath, targetPath = '') {
   const root = resolve(folderPath);
   const path = resolve(root, targetPath);
   const relativePath = relative(root, path);
-  if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+  if (
+    relativePath === '..'
+    || relativePath.startsWith(`..${sep}`)
+    || isAbsolute(relativePath)
+  ) {
     throw new Error(`"${targetPath}" is outside the current directory.`);
   }
   const realRoot = realpathSync.native(root);
   const realPath = realpathSync.native(path);
   const realRelativePath = relative(realRoot, realPath);
-  if (realRelativePath.startsWith('..') || isAbsolute(realRelativePath)) {
+  if (
+    realRelativePath === '..'
+    || realRelativePath.startsWith(`..${sep}`)
+    || isAbsolute(realRelativePath)
+  ) {
     throw new Error(`"${targetPath}" resolves outside the current directory.`);
   }
   return realPath;

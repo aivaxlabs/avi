@@ -15,6 +15,7 @@ import {
   normalizeAttachmentsForModel,
   readWorkspaceFile,
   readWorkspaceFileDiff,
+  resolveWorkspacePath,
   searchWorkspaceFiles,
 } from '../src/main/files.js';
 
@@ -151,7 +152,40 @@ try {
     0,
   );
 
-  await assert.rejects(() => readWorkspaceFile(testRoot, '..\\outside.txt'));
+  const insidePath = join(testRoot, 'inside.txt');
+  const siblingRoot = `${testRoot}-other`;
+  const outsidePath = join(siblingRoot, 'outside.txt');
+  await mkdir(siblingRoot, { recursive: true });
+  await writeFile(insidePath, 'inside\n');
+  await writeFile(outsidePath, 'outside\n');
+  assert.equal(resolveWorkspacePath(testRoot, './inside.txt'), insidePath);
+  assert.equal(resolveWorkspacePath(testRoot, 'nested/../inside.txt'), insidePath);
+  await assert.rejects(() => readWorkspaceFile(testRoot, '../outside.txt'));
+  assert.throws(() => resolveWorkspacePath(testRoot, outsidePath), /outside the current directory/);
+  assert.throws(
+    () => resolveWorkspacePath(testRoot, `../${siblingRoot.split(/[\\/]/).at(-1)}/outside.txt`),
+    /outside the current directory/,
+  );
+  assert.throws(
+    () => resolveWorkspacePath(testRoot, 'nested/../../outside.txt'),
+    /outside the current directory/,
+  );
+
+  const externalLink = join(testRoot, 'external-link');
+  const linkResult = process.platform === 'win32'
+    ? spawnSync('cmd', ['/c', 'mklink', '/J', externalLink, siblingRoot], {
+        encoding: 'utf8',
+        windowsHide: true,
+      })
+    : spawnSync('ln', ['-s', siblingRoot, externalLink], {
+        encoding: 'utf8',
+        windowsHide: true,
+      });
+  assert.equal(linkResult.status, 0, linkResult.stderr || linkResult.stdout);
+  assert.throws(
+    () => resolveWorkspacePath(testRoot, join('external-link', 'outside.txt')),
+    /resolves outside the current directory/,
+  );
 
   const imageData = Buffer.from('image-data');
   const pdfData = Buffer.from('pdf-data');
@@ -241,4 +275,5 @@ try {
   console.log('Files panel tests passed.');
 } finally {
   await rm(testRoot, { recursive: true, force: true });
+  await rm(`${testRoot}-other`, { recursive: true, force: true });
 }

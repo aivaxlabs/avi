@@ -354,7 +354,7 @@ export const dynamicContextInjectors = new Map([
     return [
       '<current_workspace>',
       `Current directory: ${escapeXml(currentDirectory)}`,
-      'When mentioning an existing workspace file, use #file:./path, #file:./path:12, or #file:./path:12-52 so the user can open it from the chat. Do not wrap the reference in backticks or a Markdown code block. Wrap paths containing whitespace in angle brackets before the optional line suffix, for example #file:<./path with spaces.js>:12.',
+      'When mentioning an existing workspace file, use <fileref path="./path" />, <fileref path="./path" line-from="12" />, or <fileref path="./path" line-from="12" line-to="52" /> so the user can open it from the chat. Paths may contain spaces. Keep file references outside backticks and Markdown code blocks.',
       'Directory structure:',
       ...structure,
       '</current_workspace>',

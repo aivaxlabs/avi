@@ -366,9 +366,9 @@ try {
     || injected.includes('Ignored Visual Studio instructions')
     || !injected.includes(`Command execution shell: ${terminalShell.label}`)
     || injected.includes('<current_workspace>')
-    || !injectedUserContext.includes('#file:./path:12-52')
-    || !injectedUserContext.includes('#file:<./path with spaces.js>:12')
-    || !injectedUserContext.includes('Do not wrap the reference in backticks')
+    || !injectedUserContext.includes('<fileref path="./path" line-from="12" line-to="52" />')
+    || !injectedUserContext.includes('Paths may contain spaces')
+    || !injectedUserContext.includes('Keep file references outside backticks')
   ) {
     throw new Error('Context variants did not follow the expected root and nested rules.');
   }
