@@ -179,8 +179,10 @@ const TOOL_ICONS = Object.freeze({
   read_file: FileText,
   read_terminal_output: TerminalSquare,
   read_url: Globe,
+  release_semaphore: Moon,
   run_in_terminal: TerminalSquare,
   sleep: Moon,
+  sleep_semaphore: Moon,
   send_to_terminal: TerminalSquare,
   start_goal: Target,
   update_goal_status: Target,
@@ -464,6 +466,15 @@ function AssistantMessage({
     () => partitionTimeline(timeline, activelyStreaming),
     [activelyStreaming, timeline],
   );
+  const thinkingLabel = useMemo(() => {
+    let label = 'Thinking';
+    for (const segment of message.segments ?? []) {
+      if (segment.type !== 'reasoning') continue;
+      const statusLabel = parseReasoningStatus(segment.text);
+      if (statusLabel !== null) label = statusLabel;
+    }
+    return label;
+  }, [message.segments]);
   const durationLabel = formatWorkedDuration(
     workedStartedAt ?? message.createdAt,
     activelyStreaming ? null : message.updatedAt,
@@ -652,7 +663,11 @@ function AssistantMessage({
           document.body,
         )}
         {activelyStreaming && !questionPending && (
-          <div className="assistant-placeholder">Thinking</div>
+          <div className="assistant-placeholder" aria-live="polite">
+            <span key={thinkingLabel} className="assistant-placeholder-label">
+              {thinkingLabel}
+            </span>
+          </div>
         )}
         {!activelyStreaming && message.status === 'completed' && edits.length > 0 && (
           <EditSummary
@@ -796,7 +811,7 @@ function AssistantMessage({
         )}
         {showContinuations && message.continuations.length > 0 && (
           <div className="continuations">
-            {message.continuations.map((topic) => (
+            {message.continuations.slice(0, 4).map((topic) => (
               <button key={topic} type="button" onClick={() => onSendContinuation(topic)}>
                 {topic}
               </button>
@@ -1683,6 +1698,7 @@ function pushContent(timeline, text) {
 }
 
 function pushReasoning(items, text, timelineIndex) {
+  if (parseReasoningStatus(text) !== null) return;
   const normalized = stripTags(text).trim();
   if (!normalized) return;
   items.push({
@@ -1748,6 +1764,12 @@ function attributeValue(text, name) {
 
 function stripTags(text) {
   return decodeXmlEntities(String(text ?? '').replace(/<\/?[^>]+>/g, ''));
+}
+
+function parseReasoningStatus(text) {
+  const match = /^\*\*((?:(?!\*\*)[^\r\n])+)\*\*$/.exec(String(text ?? ''));
+  const label = match?.[1] ?? '';
+  return label && label.trim() === label ? label : null;
 }
 
 function decodeXmlEntities(text) {

@@ -569,6 +569,16 @@
     }
   }
 
+  .subagent-sleep-indicator {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    padding: 1px;
+    color: --text-2;
+    background: --background-1;
+    border-radius: 999px;
+  }
+
   .subagent-status-dot {
     position: absolute;
     right: -1px;
@@ -582,6 +592,10 @@
     &.working,
     &.failed {
       background: --text-1;
+    }
+
+    &.sleeping {
+      background: --text-3;
     }
   }
 

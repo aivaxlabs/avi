@@ -121,6 +121,8 @@ export default function App() {
   const [approvalRequests, setApprovalRequests] = useState([]);
   const [approvalResolving, setApprovalResolving] = useState(false);
   const [questionRequests, setQuestionRequests] = useState([]);
+  const [semaphoreWaits, setSemaphoreWaits] = useState([]);
+  const [semaphoreResolving, setSemaphoreResolving] = useState(false);
   const [goalPreparations, setGoalPreparations] = useState({});
   const [workMode, setWorkMode] = useState(null);
   const [ultraMode, setUltraMode] = useState(false);
@@ -193,15 +195,18 @@ export default function App() {
       const lastAssistant = messages
         .slice(lastUserIndex + 1)
         .findLast((message) => message.role === 'assistant');
-      const status = running[subagent.id]
-        ? 'working'
-        : lastAssistant?.status === 'completed'
-          ? 'finished'
-          : ['error', 'aborted', 'streaming'].includes(lastAssistant?.status)
-            ? 'failed'
-            : 'waiting';
+      let status = 'waiting';
+      if (semaphoreWaits.some((wait) => wait.conversationId === subagent.id)) {
+        status = 'sleeping';
+      } else if (running[subagent.id]) {
+        status = 'working';
+      } else if (lastAssistant?.status === 'completed') {
+        status = 'finished';
+      } else if (['error', 'aborted', 'streaming'].includes(lastAssistant?.status)) {
+        status = 'failed';
+      }
       return { ...subagent, status };
-    }), [messagesByConversation, running, selectedId, subagents]);
+    }), [messagesByConversation, running, selectedId, semaphoreWaits, subagents]);
   const openProviderPanels = useMemo(() => providerPanels.filter(
     (panel) => openProviderPanelIds.includes(panel.id),
   ), [openProviderPanelIds, providerPanels]);
@@ -246,6 +251,7 @@ export default function App() {
       api.models.list(),
       api.models.favorites(),
       api.mcp.state(),
+      api.chat.state(),
       api.plugins.restoreReload(),
     ])
       .then(async ([
@@ -256,6 +262,7 @@ export default function App() {
         nextModels,
         nextFavorites,
         nextMcpState,
+        nextChatState,
         restoredReload,
       ]) => {
         if (!active) return;
@@ -276,6 +283,7 @@ export default function App() {
         setModels(nextModels);
         setFavorites(nextFavorites);
         setMcpState(nextMcpState);
+        setSemaphoreWaits(nextChatState.semaphoreWaits ?? []);
         if (restoredReload) {
           const restoredMessages = await Promise.all(restoredReload.conversationIds.map(async (id) => (
             [id, await api.conversations.messages(id)]
@@ -298,6 +306,7 @@ export default function App() {
           ));
           setApprovalRequests(completedReload.approvals);
           setQuestionRequests(completedReload.questions);
+          setSemaphoreWaits(completedReload.semaphoreWaits ?? restoredReload.semaphoreWaits ?? []);
         }
         const authServers = nextMcpState.servers
           .filter((server) => server.status === 'auth-required');
@@ -430,9 +439,11 @@ export default function App() {
             conversation.id === event.conversationId
               ? {
                   ...conversation,
-                  needsAttention: ['error', 'aborted'].includes(event.message.status)
+                  needsAttention: !event.message.stoppedByUser && (
+                    ['error', 'aborted'].includes(event.message.status)
                     || event.message.status === 'streaming'
-                    || event.message.role === 'user',
+                    || event.message.role === 'user'
+                  ),
                 }
               : conversation
           )));
@@ -480,9 +491,27 @@ export default function App() {
         }));
       } else if (event.type === 'run-state') {
         setRunning((state) => ({ ...state, [event.conversationId]: event.running }));
-        if (!event.running && event.conversationId !== inspectedConversationIdRef.current) {
+        if (event.stoppedByUser) {
+          setConversations((state) => state.map((conversation) => (
+            conversation.id === event.conversationId
+              ? { ...conversation, needsAttention: false }
+              : conversation
+          )));
+          setCompletedUnseen((state) => {
+            if (!state[event.conversationId]) return state;
+            const next = { ...state };
+            delete next[event.conversationId];
+            return next;
+          });
+        } else if (
+          !event.running
+          && !event.sleeping
+          && event.conversationId !== inspectedConversationIdRef.current
+        ) {
           setCompletedUnseen((state) => ({ ...state, [event.conversationId]: true }));
         }
+      } else if (event.type === 'semaphore-state') {
+        setSemaphoreWaits(event.waits ?? []);
       } else if (event.type === 'mcp-waiting') {
         setMcpWaiting((state) => {
           if (event.waiting) {
@@ -1378,6 +1407,28 @@ export default function App() {
   const chatOnAnswerQuestion = useStableCallback(resolveQuestionRequest);
   const chatOnStop = useStableCallback(stopConversation);
   const chatOnCompress = useStableCallback(compressConversation);
+  const chatOnRunSemaphoreNow = useStableCallback(async (conversationId = selectedId) => {
+    if (!conversationId || semaphoreResolving) return;
+    setSemaphoreResolving(true);
+    try {
+      await api.chat.runSemaphoreNow(conversationId);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setSemaphoreResolving(false);
+    }
+  });
+  const chatOnCancelSemaphore = useStableCallback(async (conversationId = selectedId) => {
+    if (!conversationId || semaphoreResolving) return;
+    setSemaphoreResolving(true);
+    try {
+      await api.chat.cancelSemaphore(conversationId);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setSemaphoreResolving(false);
+    }
+  });
   const chatOnCreateSideChat = useStableCallback(createSideChat);
   const chatOnOpenTasks = useStableCallback(() => {
     setAuxiliaryPanelVisible(true);
@@ -1482,6 +1533,7 @@ export default function App() {
     currentModel,
     contextUsage,
     isRunning: Boolean(selectedId && running[selectedId]),
+    semaphoreWait: semaphoreWaits.find((wait) => wait.conversationId === selectedId) ?? null,
     recentProjects,
     recentModels: (() => {
       const modelsById = new Map(models.map((model) => [model.id, model]));
@@ -1503,6 +1555,7 @@ export default function App() {
     recentProjects,
     running,
     selectedId,
+    semaphoreWaits,
   ]);
 
   if (!appState) {
@@ -1595,6 +1648,9 @@ export default function App() {
             completedUnseen={completedUnseen}
             approvalPending={approvalPending}
             inputPending={inputPending}
+            semaphoreWaiting={Object.fromEntries(
+              semaphoreWaits.map((wait) => [wait.conversationId, true]),
+            )}
             homePath={appState.defaultProject.path}
             onQuickChat={() => api.quickChat.open().catch((nextError) => {
               setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -1712,6 +1768,9 @@ export default function App() {
                 (request) => request.conversationId === selectedId,
               ) ?? null}
               onAnswerQuestion={chatOnAnswerQuestion}
+              onRunSemaphoreNow={chatOnRunSemaphoreNow}
+              onCancelSemaphore={chatOnCancelSemaphore}
+              semaphoreResolving={semaphoreResolving}
               onStop={chatOnStop}
               onCompress={chatOnCompress}
               onCreateSideChat={currentConversation ? chatOnCreateSideChat : undefined}
@@ -1750,6 +1809,7 @@ export default function App() {
               onFileReferenceAction={handleFileReferenceAction}
               messageDeliveryMode={appState.tuning.messageDeliveryMode}
               defaultPermissionMode={appState.tuning.defaultPermissionMode}
+              continuationRepliesEnabled={appState.tuning.continuationRepliesEnabled}
               />
             )}
             {!orchestrationOpen && auxiliaryPanelVisible && (
@@ -1807,6 +1867,7 @@ export default function App() {
                 activeSubagentId={activeSubagentId}
                 messagesByConversation={messagesByConversation}
                 running={running}
+                semaphoreWaits={semaphoreWaits}
                 models={models}
                 favorites={favorites}
                 recentModels={shell.recentModels}
@@ -1968,6 +2029,9 @@ export default function App() {
                 })}
                 questionRequests={questionRequests}
                 onAnswerQuestion={resolveQuestionRequest}
+                onRunSemaphoreNow={chatOnRunSemaphoreNow}
+                onCancelSemaphore={chatOnCancelSemaphore}
+                semaphoreResolving={semaphoreResolving}
                 onStop={stopConversation}
                 onCompress={compressConversation}
                 onFork={forkConversation}
@@ -1994,6 +2058,7 @@ export default function App() {
                 )}
                 messageDeliveryMode={appState.tuning.messageDeliveryMode}
                 defaultPermissionMode={appState.tuning.defaultPermissionMode}
+                continuationRepliesEnabled={appState.tuning.continuationRepliesEnabled}
               />
             )}
           </div>

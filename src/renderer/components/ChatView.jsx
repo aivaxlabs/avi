@@ -3,6 +3,7 @@ import {
   ChevronRight,
   MessageSquarePlus,
   MessagesSquare,
+  Moon,
   UploadCloud,
 } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
@@ -115,6 +116,10 @@ export const ChatView = memo(function ChatView({
   models,
   favorites,
   isRunning,
+  semaphoreWait,
+  onRunSemaphoreNow,
+  onCancelSemaphore,
+  semaphoreResolving = false,
   onSend,
   onExpandPrompt,
   onStop,
@@ -154,6 +159,7 @@ export const ChatView = memo(function ChatView({
   onFileReferenceAction,
   messageDeliveryMode = 'queue',
   defaultPermissionMode = 'approve_for_me',
+  continuationRepliesEnabled = true,
   compact = false,
   draftKey,
   emptyBackgroundEnabled = true,
@@ -181,6 +187,7 @@ export const ChatView = memo(function ChatView({
   const [questionCustomActive, setQuestionCustomActive] = useState([]);
   const [questionResolving, setQuestionResolving] = useState(false);
   const modelName = getModelDisplayName(models, currentModel);
+  const semaphoreCardTitleId = `semaphore-card-title-${currentConversation?.id ?? 'draft'}`;
   const pendingMessages = currentMessages
     .filter((message) => !message.hidden && ['queued', 'steered'].includes(message.status));
   const byQueuePosition = (a, b) => (
@@ -757,9 +764,51 @@ export const ChatView = memo(function ChatView({
                   onImplementPlan={(options) => onImplementPlan?.(options)}
                   onOpenFileReference={onOpenFileReference}
                   onFileReferenceAction={onFileReferenceAction}
-                  showContinuations={message.id === lastAssistantMessage?.id}
+                  showContinuations={
+                    continuationRepliesEnabled
+                    && message.id === lastAssistantMessage?.id
+                    && message.status === 'completed'
+                    && !isRunning
+                    && !subagents?.some((subagent) => (
+                      ['waiting', 'working'].includes(subagent.status)
+                    ))
+                  }
                 />
             ))}
+            {semaphoreWait && (
+              <article
+                className="message-row assistant-row semaphore-inline-row"
+                aria-live="polite"
+              >
+                <section className="semaphore-card" aria-labelledby={semaphoreCardTitleId}>
+                  <Moon size={18} aria-hidden="true" />
+                  <div className="semaphore-card-copy">
+                    <strong id={semaphoreCardTitleId}>Agent sleeping</strong>
+                    <span>
+                      Waiting for semaphore <code>{semaphoreWait.name}</code>. Queue position{' '}
+                      {semaphoreWait.position}.
+                    </span>
+                  </div>
+                  <div className="semaphore-card-actions">
+                    <button
+                      type="button"
+                      disabled={semaphoreResolving}
+                      onClick={() => onRunSemaphoreNow()}
+                    >
+                      Run now
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={semaphoreResolving}
+                      onClick={() => onCancelSemaphore()}
+                    >
+                      Cancel semaphore
+                    </button>
+                  </div>
+                </section>
+              </article>
+            )}
             {questionRequest && activeQuestion && (
               <article
                 className="message-row assistant-row question-inline-row"

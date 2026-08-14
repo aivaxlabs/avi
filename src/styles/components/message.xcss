@@ -330,8 +330,83 @@
   }
 }
 
-.question-inline-row {
+.question-inline-row,
+.semaphore-inline-row {
   width: 100%;
+}
+
+.semaphore-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(760px, 100%);
+  min-width: 0;
+  padding: 14px 16px;
+  color: var(--text-1);
+  background: var(--background-2);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+
+  > svg {
+    flex: 0 0 auto;
+    color: var(--text-3);
+  }
+
+  .semaphore-card-copy {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+    gap: 3px;
+    font-size: 13px;
+    line-height: 1.45;
+
+    span {
+      color: var(--text-2);
+    }
+
+    code {
+      color: var(--text-1);
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .semaphore-card-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 8px;
+
+    button {
+      padding: 7px 10px;
+      color: var(--background-1);
+      background: var(--primary-color);
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+
+      &:hover:not(:disabled) {
+        filter: brightness(1.08);
+      }
+
+      &.secondary {
+        color: var(--text-2);
+        background: var(--background-3);
+      }
+
+      &:disabled {
+        opacity: .55;
+      }
+    }
+  }
+
+  @media (max-width: 620px) {
+    align-items: flex-start;
+    flex-wrap: wrap;
+
+    .semaphore-card-actions {
+      width: 100%;
+      padding-left: 30px;
+    }
+  }
 }
 
 .question-card {
@@ -819,6 +894,7 @@
 
 .assistant-placeholder {
   width: fit-content;
+  overflow: clip;
   color: transparent;
   -webkit-text-fill-color: transparent;
   background: var(--text-1) -webkit-gradient(linear,
@@ -836,6 +912,10 @@
   font-weight: 400;
 }
 
+.assistant-placeholder-label {
+  display: block;
+  animation: thinking-label-swap 180ms var(--base-transition);
+}
 
 .assistant-timeline + .assistant-placeholder {
   margin-top: 8px;
@@ -979,6 +1059,26 @@
 
   100% {
     background-position: 250% 0;
+  }
+}
+
+@keyframes thinking-label-swap {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-placeholder-label {
+    animation: none;
   }
 }
 

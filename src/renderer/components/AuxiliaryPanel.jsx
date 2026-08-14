@@ -10,6 +10,7 @@ import {
   GitPullRequest,
   MessageSquarePlus,
   ListChecks,
+  Moon,
   Plus,
   X,
 } from 'lucide-react';
@@ -97,6 +98,7 @@ export function AuxiliaryPanel({
   activeSubagentId,
   messagesByConversation,
   running,
+  semaphoreWaits = [],
   models,
   favorites,
   recentModels,
@@ -139,6 +141,9 @@ export function AuxiliaryPanel({
   onImplementPlan,
   questionRequests = [],
   onAnswerQuestion,
+  onRunSemaphoreNow,
+  onCancelSemaphore,
+  semaphoreResolving = false,
   onStop,
   onCompress,
   onFork,
@@ -155,6 +160,7 @@ export function AuxiliaryPanel({
   onGoalAction,
   messageDeliveryMode = 'queue',
   defaultPermissionMode = 'approve_for_me',
+  continuationRepliesEnabled = true,
 }) {
   const availablePanels = [
     {
@@ -223,6 +229,7 @@ export function AuxiliaryPanel({
       id: sideChat.id,
       label: sideChat.title,
       running: Boolean(running[sideChat.id]),
+      sleeping: semaphoreWaits.some((wait) => wait.conversationId === sideChat.id),
       type: 'side-chat',
     })),
     ...(filesTabOpen
@@ -321,6 +328,8 @@ export function AuxiliaryPanel({
                       <GitPullRequest size={14} aria-hidden="true" />
                     ) : tab.type === 'provider' ? (
                       <Gauge size={14} aria-hidden="true" />
+                    ) : tab.sleeping ? (
+                      <Moon size={14} aria-label="Waiting for semaphore" />
                     ) : (
                       <span className={`run-dot ${tab.running ? 'live' : ''}`} />
                     )}
@@ -485,7 +494,15 @@ export function AuxiliaryPanel({
                       variant="beam"
                       colors={subagentAvatarColors}
                     />
-                    <span className={`subagent-status-dot ${subagent.status}`} />
+                    {subagent.status === 'sleeping' ? (
+                      <Moon
+                        className="subagent-sleep-indicator"
+                        size={12}
+                        aria-label="Waiting for semaphore"
+                      />
+                    ) : (
+                      <span className={`subagent-status-dot ${subagent.status}`} />
+                    )}
                   </span>
                   <span className="subagent-list-copy">
                     <strong>{subagent.title}</strong>
@@ -516,6 +533,12 @@ export function AuxiliaryPanel({
             models={models}
             favorites={favorites}
             isRunning={Boolean(running[activeThread.id])}
+            semaphoreWait={semaphoreWaits.find(
+              (wait) => wait.conversationId === activeThread.id,
+            ) ?? null}
+            onRunSemaphoreNow={() => onRunSemaphoreNow(activeThread.id)}
+            onCancelSemaphore={() => onCancelSemaphore(activeThread.id)}
+            semaphoreResolving={semaphoreResolving}
             onSend={(payload) => onSend(activeThread, currentModel, payload)}
             onImplementPlan={(options) => onImplementPlan(activeThread, currentModel, options)}
             questionRequest={questionRequests.find(
@@ -575,6 +598,7 @@ export function AuxiliaryPanel({
             )}
             messageDeliveryMode={messageDeliveryMode}
             defaultPermissionMode={defaultPermissionMode}
+            continuationRepliesEnabled={continuationRepliesEnabled}
             draftKey={`aivax.composer.${
               activeThread.isSubagent ? 'subagent' : 'side'
             }.${activeThread.id}`}
