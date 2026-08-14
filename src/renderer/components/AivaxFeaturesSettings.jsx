@@ -402,6 +402,7 @@ export function AivaxFeaturesSettings() {
           {[
             ['advancedFetchEnabled', 'Use AIVAX advanced fetch', 'Replace URL reading with AIVAX HTML, image, document, and OCR extraction.'],
             ['webSearchEnabled', 'Use AIVAX web search', 'Add web search with country, language, and domain filters.'],
+            ['mediaDescriptionsEnabled', 'Use AIVAX Media Descriptions', 'Let read_media_file describe images, videos, audio, and PDFs when the selected model cannot read them.'],
           ].map(([key, title, description]) => (
             <label className="settings-toggle-row" key={key}>
               <span>

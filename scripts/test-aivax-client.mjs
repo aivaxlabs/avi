@@ -1,9 +1,20 @@
 import assert from 'node:assert/strict';
-import { indexAivaxDocuments, loginToAivax, requestAivax } from '../src/main/aivax-client.js';
-import { CLIENT_TOOLS } from '../src/main/client-tools.js';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+const testProfile = mkdtempSync(join(tmpdir(), 'avi-aivax-test-'));
+const resolvedProfile = resolve(testProfile);
+assert.ok(resolvedProfile.startsWith(resolve(tmpdir())));
+process.env.USERPROFILE = resolvedProfile;
+
+const { indexAivaxDocuments, loginToAivax, requestAivax } = await import('../src/main/aivax-client.js');
+const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
+const { closeDatabase } = await import('../src/main/database.js');
 
 const originalFetch = globalThis.fetch;
 const requests = [];
+const materializedAttachmentPaths = [];
 let response = null;
 
 globalThis.fetch = async (url, options) => {
@@ -141,6 +152,147 @@ try {
     /expected an object/,
   );
 
+  const getChatAttachments = CLIENT_TOOLS.find((tool) => tool.name === 'get_chat_attachments');
+  assert.ok(getChatAttachments);
+  assert.match(getChatAttachments.description, /images, audio, and videos attached by the user/);
+  assert.match(getChatAttachments.description, /temporary storage/);
+  const existingImagePath = join(resolvedProfile, 'existing.png');
+  writeFileSync(existingImagePath, Buffer.from('existing-image'));
+  const chatAttachments = await getChatAttachments.execute({}, {
+    userAttachments: [
+      {
+        id: 'existing-image',
+        kind: 'image_url',
+        name: 'existing.png',
+        mime: 'image/png',
+        path: existingImagePath,
+        dataUrl: 'data:image/png;base64,aWdub3JlZA==',
+      },
+      {
+        id: 'inference-image',
+        kind: 'image_url',
+        name: 'inference.png',
+        mime: 'image/png',
+        dataUrl: 'data:image/png;base64,aW5mZXJlbmNlLWltYWdl',
+      },
+      {
+        id: 'inference-audio',
+        kind: 'input_audio',
+        name: 'inference.mp3',
+        mime: 'audio/mpeg',
+        base64: Buffer.from('inference-audio').toString('base64'),
+      },
+      {
+        id: 'inference-video',
+        kind: 'video_url',
+        name: 'inference.mp4',
+        mime: 'video/mp4',
+        dataUrl: 'data:video/mp4;base64,aW5mZXJlbmNlLXZpZGVv',
+      },
+      {
+        id: 'ignored-pdf',
+        kind: 'file',
+        name: 'ignored.pdf',
+        mime: 'application/pdf',
+        dataUrl: 'data:application/pdf;base64,cGRm',
+      },
+    ],
+  });
+  assert.equal(chatAttachments.attachments.length, 4);
+  assert.deepEqual(chatAttachments.attachments[0], {
+    name: 'existing.png',
+    kind: 'image_url',
+    mime: 'image/png',
+    path: existingImagePath,
+    temporary: false,
+    materialized: false,
+  });
+  const materializedAttachments = chatAttachments.attachments.slice(1);
+  assert.deepEqual(materializedAttachments.map(({ name }) => name), [
+    'inference.png',
+    'inference.mp3',
+    'inference.mp4',
+  ]);
+  assert.ok(materializedAttachments.every(({ path, temporary, materialized }) => (
+    path.startsWith(resolve(tmpdir(), '.avi', 'chat-attachments'))
+    && temporary
+    && materialized
+  )));
+  materializedAttachmentPaths.push(...materializedAttachments.map(({ path }) => path));
+  assert.equal(readFileSync(materializedAttachments[0].path, 'utf8'), 'inference-image');
+  assert.equal(readFileSync(materializedAttachments[1].path, 'utf8'), 'inference-audio');
+  assert.equal(readFileSync(materializedAttachments[2].path, 'utf8'), 'inference-video');
+
+  const readMediaFile = CLIENT_TOOLS.find((tool) => tool.name === 'read_media_file');
+  assert.ok(readMediaFile);
+  assert.match(readMediaFile.description, /images, videos, audio, and PDFs/);
+  assert.match(readMediaFile.description, /AIVAX Media Descriptions converts unsupported media to text/);
+  const mediaFixtures = [
+    ['pixel.png', Buffer.from('image'), 'image_url'],
+    ['clip.mp4', Buffer.from('video'), 'video_url'],
+    ['sound.wav', Buffer.from('audio'), 'input_audio'],
+    ['document.pdf', Buffer.from('pdf'), 'file'],
+  ].map(([name, contents, type]) => {
+    const path = join(resolvedProfile, name);
+    writeFileSync(path, contents);
+    return { path, contents, type };
+  });
+  const mediaRequests = [];
+  for (const fixture of mediaFixtures) {
+    assert.equal(await readMediaFile.execute({ path: fixture.path }, {
+      aivax: { connected: true, mediaDescriptionsEnabled: true },
+      capabilities: { images: false, audio: false, pdfFiles: false },
+      requestAivax: async (path, options) => {
+        mediaRequests.push({ path, options });
+        return [{ type: 'text', text: `Resolved ${options.body.input[0].type}` }];
+      },
+      signal: new AbortController().signal,
+    }), `Resolved ${fixture.type}`);
+    const request = mediaRequests.at(-1);
+    assert.equal(request.path, '/api/v1/generations/descriptions');
+    assert.equal(request.options.responseType, 'array');
+    const input = request.options.body.input[0];
+    assert.equal(input.type, fixture.type);
+    if (fixture.type === 'input_audio') {
+      assert.equal(input.input_audio.format, 'wav');
+      assert.equal(input.input_audio.data, fixture.contents.toString('base64'));
+    }
+    if (fixture.type === 'file') {
+      assert.equal(input.file.filename, 'document.pdf');
+      assert.match(input.file.file_data, /^data:application\/pdf;base64,/);
+    }
+  }
+  const mediaRequestCount = mediaRequests.length;
+  await assert.rejects(
+    readMediaFile.execute({ path: mediaFixtures[0].path }, {
+      aivax: { connected: true, mediaDescriptionsEnabled: false },
+      capabilities: { images: false, audio: false, pdfFiles: false },
+      requestAivax: async () => {
+        throw new Error('The disabled fallback must not call AIVAX.');
+      },
+    }),
+    /cannot read this media type/,
+  );
+  assert.equal(mediaRequests.length, mediaRequestCount);
+
+  await assert.rejects(
+    readMediaFile.execute({ path: mediaFixtures[0].path }, {
+      aivax: { connected: true, mediaDescriptionsEnabled: true },
+      capabilities: { images: false, audio: false, pdfFiles: false },
+      requestAivax: async () => [{ type: 'invalid', text: 'Not valid text content.' }],
+    }),
+    /invalid media description/,
+  );
+
+  const directResult = await readMediaFile.execute({ path: mediaFixtures[0].path }, {
+    aivax: { connected: true, mediaDescriptionsEnabled: true },
+    capabilities: { images: true, audio: false, pdfFiles: false },
+    requestAivax: async () => {
+      throw new Error('The direct model path must not call AIVAX.');
+    },
+  });
+  assert.equal(directResult.mediaContent[0].type, 'image_url');
+
   const memoryDelete = CLIENT_TOOLS.find((tool) => tool.name === 'memory_delete');
   assert.ok(memoryDelete);
   assert.equal(memoryDelete.canPerformDestructiveActions, true);
@@ -196,7 +348,10 @@ try {
 
   console.log('AIVAX client contract tests passed.');
 } finally {
+  closeDatabase();
   globalThis.fetch = originalFetch;
+  for (const path of materializedAttachmentPaths) rmSync(path, { force: true });
+  rmSync(testProfile, { recursive: true, force: true });
 }
 
 process.exit(0);

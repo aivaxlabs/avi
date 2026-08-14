@@ -231,6 +231,72 @@ try {
     ),
     /Side chats are private/,
   );
+
+  const inspectionContext = {
+    chatRunner: {
+      runs: new Map(),
+      semaphores: { waitSnapshot: () => null },
+      getPendingQuestion: () => null,
+    },
+    conversationId: parent.id,
+  };
+  const interruptedThread = createConversation({
+    model: 'test:model',
+    projectPath: process.cwd(),
+  });
+  insertMessage({
+    conversationId: interruptedThread.id,
+    role: 'user',
+    status: 'sent',
+    content: 'Interrupted request',
+  });
+  insertMessage({
+    conversationId: interruptedThread.id,
+    role: 'assistant',
+    status: 'aborted',
+    content: 'Interrupted response',
+  });
+  const inspectedInterruptedThread = await inspectThreadTool.execute(
+    { threadId: interruptedThread.id },
+    inspectionContext,
+  );
+  assert.match(inspectedInterruptedThread, /Assistant \(aborted\):\nInterrupted response/);
+  assert.equal(getConversation(interruptedThread.id), null);
+
+  const completedThread = createConversation({
+    model: 'test:model',
+    projectPath: process.cwd(),
+  });
+  insertMessage({
+    conversationId: completedThread.id,
+    role: 'user',
+    status: 'sent',
+    content: 'Completed request',
+  });
+  insertMessage({
+    conversationId: completedThread.id,
+    role: 'assistant',
+    status: 'completed',
+    content: 'Completed response',
+  });
+  await inspectThreadTool.execute({ threadId: completedThread.id }, inspectionContext);
+  assert.equal(getConversation(completedThread.id)?.id, completedThread.id);
+
+  const activeErroredThread = createConversation({
+    model: 'test:model',
+    projectPath: process.cwd(),
+  });
+  insertMessage({
+    conversationId: activeErroredThread.id,
+    role: 'assistant',
+    status: 'error',
+    content: 'Recovering from an error',
+  });
+  inspectionContext.chatRunner.runs.set(activeErroredThread.id, {});
+  await inspectThreadTool.execute({ threadId: activeErroredThread.id }, inspectionContext);
+  assert.equal(getConversation(activeErroredThread.id)?.id, activeErroredThread.id);
+  inspectionContext.chatRunner.runs.delete(activeErroredThread.id);
+
   deleteConversation(first.conversation.id, { hard: true });
   assert.equal(getConversation(first.conversation.id), null);
   assert.equal(listSideChats(parent.id).length, 1);

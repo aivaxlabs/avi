@@ -79,50 +79,23 @@ try {
     [],
   );
 
+  const configuredRegistry = new ModelProviderRegistry({
+    getProviders: () => [legacyConfig, disabledConfig],
+    providerTypes: [openAiSubscriptionProviderType],
+    services,
+  });
+  assert.equal(configuredRegistry.listGlobalTools().length, 1);
+
   const provider = registry.createProvider(legacyConfig);
   const tool = provider.getContributions().tools[0];
   assert.ok(tool);
+  assert.equal(tool.globallyAvailable, true);
   assert.equal(tool.inputSchema.properties.referenced_image_paths.maxItems, 5);
-  assert.equal(tool.inputSchema.properties.num_last_images_to_include.minimum, 1);
-  assert.equal(tool.inputSchema.properties.num_last_images_to_include.maximum, 5);
-
-  await assert.rejects(
-    tool.execute({
-      prompt: 'Edit this image.',
-      referenced_image_paths: [join(workspace, 'reference.png')],
-      num_last_images_to_include: 1,
-    }, {
-      signal: new AbortController().signal,
-      workspacePath: workspace,
-      artifacts: { getRecentGeneratedImages: () => [] },
-    }),
-    /mutually exclusive/,
-  );
-  await assert.rejects(
-    tool.execute({
-      prompt: 'Edit.',
-      referenced_image_paths: [],
-      num_last_images_to_include: 1,
-    }, {
-      signal: new AbortController().signal,
-      workspacePath: workspace,
-      artifacts: { getRecentGeneratedImages: () => [] },
-    }),
-    /mutually exclusive/,
-  );
-  await assert.rejects(
-    tool.execute({ prompt: 'Edit.', num_last_images_to_include: 0 }, {
-      signal: new AbortController().signal,
-      workspacePath: workspace,
-      artifacts: { getRecentGeneratedImages: () => [] },
-    }),
-    /integer between 1 and 5/,
-  );
+  assert.equal('num_last_images_to_include' in tool.inputSchema.properties, false);
   await assert.rejects(
     tool.execute({ prompt: 'Edit.', referenced_image_paths: Array(6).fill('C:\\image.png') }, {
       signal: new AbortController().signal,
       workspacePath: workspace,
-      artifacts: { getRecentGeneratedImages: () => [] },
     }),
     /At most five/,
   );
@@ -130,57 +103,12 @@ try {
     tool.execute({ prompt: 'Edit.', referenced_image_paths: ['relative.png'] }, {
       signal: new AbortController().signal,
       workspacePath: workspace,
-      artifacts: { getRecentGeneratedImages: () => [] },
     }),
     /must be absolute/,
   );
 
-  const firstConversation = database.createConversation({
-    title: 'First',
-    model: 'subscription:model',
-    projectPath: workspace,
-  });
-  const secondConversation = database.createConversation({
-    title: 'Second',
-    model: 'subscription:model',
-    projectPath: workspace,
-  });
   const firstPath = join(workspace, 'first.png');
   const secondPath = join(workspace, 'second.png');
-  const otherPath = join(workspace, 'other.png');
-  database.insertMessage({
-    conversationId: firstConversation.id,
-    role: 'assistant',
-    attachments: [
-      { kind: 'image_url', source: 'generated_image', name: 'first.png', path: firstPath },
-      { kind: 'image_url', source: 'upload', name: 'ignored.png', path: join(workspace, 'ignored.png') },
-    ],
-  });
-  database.insertMessage({
-    conversationId: firstConversation.id,
-    role: 'assistant',
-    attachments: [
-      { kind: 'image_url', source: 'generated_image', name: 'second.png', path: secondPath },
-    ],
-  });
-  database.insertMessage({
-    conversationId: secondConversation.id,
-    role: 'assistant',
-    attachments: [
-      { kind: 'image_url', source: 'generated_image', name: 'other.png', path: otherPath },
-    ],
-  });
-  assert.deepEqual(database.getRecentGeneratedImages(firstConversation.id, { limit: 2 }), [
-    { name: 'first.png', path: firstPath },
-    { name: 'second.png', path: secondPath },
-  ]);
-  assert.deepEqual(database.getRecentGeneratedImages(firstConversation.id, { limit: 1 }), [
-    { name: 'second.png', path: secondPath },
-  ]);
-  assert.throws(
-    () => database.getRecentGeneratedImages(firstConversation.id, { limit: 6 }),
-    /integer between 1 and 5/,
-  );
 
   const requests = [];
   globalThis.fetch = async (url, init) => {
@@ -194,7 +122,6 @@ try {
   const generated = await tool.execute({ prompt: 'Create a lighthouse.' }, {
     signal: new AbortController().signal,
     workspacePath: workspace,
-    artifacts: { getRecentGeneratedImages: () => [] },
   });
   assert.match(requests[0].url, /\/codex\/images\/generations$/);
   assert.deepEqual(JSON.parse(requests[0].init.body), {
@@ -210,24 +137,13 @@ try {
 
   writeFileSync(firstPath, 'first');
   writeFileSync(secondPath, 'second');
-  let requestedLimit = null;
   const edited = await tool.execute({
     prompt: 'Combine the composition.',
-    num_last_images_to_include: 2,
+    referenced_image_paths: [firstPath, secondPath],
   }, {
     signal: new AbortController().signal,
     workspacePath: workspace,
-    artifacts: {
-      getRecentGeneratedImages: ({ limit }) => {
-        requestedLimit = limit;
-        return [
-          { name: 'first.png', path: firstPath },
-          { name: 'second.png', path: secondPath },
-        ];
-      },
-    },
   });
-  assert.equal(requestedLimit, 2);
   assert.match(requests[1].url, /\/codex\/images\/edits$/);
   assert.equal(requests[1].init.body.get('model'), 'gpt-image-2');
   assert.equal(requests[1].init.body.get('quality'), 'auto');
@@ -240,15 +156,6 @@ try {
     ['first', 'second'],
   );
   assert.match(edited.output, /^Image edited with gpt-image-2\.\nSaved to: /);
-
-  await assert.rejects(
-    tool.execute({ prompt: 'Edit.', num_last_images_to_include: 2 }, {
-      signal: new AbortController().signal,
-      workspacePath: workspace,
-      artifacts: { getRecentGeneratedImages: () => [] },
-    }),
-    /0 generated images are available.*2 requested/,
-  );
 
   const uploadedPath = join(workspace, 'uploaded.jpg');
   writeFileSync(uploadedPath, 'uploaded');
@@ -264,30 +171,29 @@ try {
     dataUrl: `data:image/png;base64,${imageBase64}`,
   };
   const aliasModel = {
-    id: 'subscription:image-alias-test',
+    id: 'compatible:image-alias-test',
     modelId: 'image-alias-test',
-    providerId: 'subscription',
-    providerName: 'OpenAI Subscription',
-    interface: 'openai-subscription',
+    providerId: 'compatible',
+    providerName: 'Compatible provider',
+    interface: 'openai-compatible',
     capabilities: { images: true },
     context: { input: 100_000, output: 10_000 },
   };
+  const globalImageTool = {
+    name: 'openai_subscription_generate_or_edit_image',
+    description: 'Test image tool.',
+    inputSchema: { type: 'object', properties: {} },
+    approval: 'never',
+    execute: async (input) => {
+      executedInput = input;
+      return {
+        output: JSON.stringify({ operation: 'edit', outputPath: generatedAttachment.path }),
+        attachments: [generatedAttachment],
+      };
+    },
+  };
   const aliasProvider = {
-    getContributions: () => ({
-      tools: [{
-        name: 'openai_subscription_generate_or_edit_image',
-        description: 'Test image tool.',
-        inputSchema: { type: 'object', properties: {} },
-        approval: 'never',
-        execute: async (input) => {
-          executedInput = input;
-          return {
-            output: JSON.stringify({ operation: 'edit', outputPath: generatedAttachment.path }),
-            attachments: [generatedAttachment],
-          };
-        },
-      }],
-    }),
+    getContributions: () => ({ tools: [] }),
     stream: async () => {
       streamRound += 1;
       return streamRound === 1
@@ -311,6 +217,7 @@ try {
     registry: {
       resolve: () => ({ model: aliasModel, provider: aliasProvider }),
       listModels: () => [aliasModel],
+      listGlobalTools: () => [globalImageTool],
     },
     getPreferences: () => ({ defaultModels: {}, tuning: {} }),
     sendEvent: (event) => aliasEvents.push(event),

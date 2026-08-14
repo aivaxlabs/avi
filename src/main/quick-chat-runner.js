@@ -149,11 +149,20 @@ export class QuickChatRunner {
       const preferences = this.getPreferences();
       const aivax = preferences.aivax;
       const pluginTools = this.getPluginTools();
-      const providerTools = selection.provider.getContributions({
+      const providerContributionContext = {
         model: selection.model,
         conversation: null,
         workspacePath,
-      }).tools;
+      };
+      const selectedProviderTools = selection.provider
+        .getContributions(providerContributionContext)
+        .tools;
+      const selectedProviderToolNames = new Set(selectedProviderTools.map((tool) => tool.name));
+      const providerTools = [
+        ...selectedProviderTools,
+        ...(this.registry.listGlobalTools?.(providerContributionContext) ?? [])
+          .filter((tool) => !selectedProviderToolNames.has(tool.name)),
+      ];
       const coreTools = CLIENT_TOOLS
           .filter((tool) => !['sleep_semaphore', 'release_semaphore'].includes(tool.name))
           .filter((tool) => (
@@ -161,6 +170,7 @@ export class QuickChatRunner {
             || selection.model.capabilities?.images
             || selection.model.capabilities?.audio
             || selection.model.capabilities?.pdfFiles
+            || (aivax?.connected && aivax.mediaDescriptionsEnabled)
           ))
           .filter((tool) => !['memory_search', 'memory_write', 'memory_delete'].includes(tool.name) || (
             aivax?.connected && aivax.memoryEnabled && aivax.memoryCollectionId
@@ -168,16 +178,35 @@ export class QuickChatRunner {
           .filter((tool) => tool.name !== 'web_search' || (
             aivax?.connected && aivax.webSearchEnabled
           ))
-          .map((tool) => ['chat_create_thread', 'chat_spawn_subagent'].includes(tool.name)
-            ? {
+          .map((tool) => {
+            if (tool.name === 'read_media_file') {
+              const supportedMedia = [
+                selection.model.capabilities?.images && 'images',
+                selection.model.capabilities?.audio && 'MP3 audio',
+                selection.model.capabilities?.pdfFiles && 'PDF files',
+              ].filter(Boolean);
+              const fallbackDescription = aivax?.connected && aivax.mediaDescriptionsEnabled
+                ? ' AIVAX Media Descriptions converts unsupported images, videos, audio, and PDFs to text.'
+                : '';
+              return {
+                ...tool,
+                description: supportedMedia.length > 0
+                  ? `Read local ${supportedMedia.join(', ')} using the selected model multimodally.${fallbackDescription} Text files are not supported.`
+                  : `Read local images, videos, audio, and PDFs as text using AIVAX Media Descriptions. Text files are not supported.`,
+              };
+            }
+            if (['chat_create_thread', 'chat_spawn_subagent'].includes(tool.name)) {
+              return {
                 ...tool,
                 inputSchema: applySubagentModelSchema(
                   tool,
                   models,
                   this.getPreferences().defaultModels,
                 ),
-              }
-            : tool);
+              };
+            }
+            return tool;
+          });
       const availableTools = decorateToolsForInvocation(
         composeToolsWithPlugins(
           coreTools,
@@ -419,21 +448,9 @@ export class QuickChatRunner {
       aivax: this.getPreferences().aivax,
       defaultModels: this.getPreferences().defaultModels,
       capabilities: selection.model.capabilities,
-      artifacts: Object.freeze({
-        getRecentGeneratedImages: ({ limit }) => session.messages
-          .flatMap((message) => message.attachments ?? [])
-          .filter((attachment) => (
-            attachment?.kind === 'image_url'
-            && attachment.source === 'generated_image'
-            && typeof attachment.path === 'string'
-            && attachment.path
-          ))
-          .slice(-limit)
-          .map((attachment) => ({
-            name: attachment.name ?? null,
-            path: attachment.path,
-          })),
-      }),
+      userAttachments: session.messages
+        .filter((message) => message.role === 'user')
+        .flatMap((message) => message.attachments),
     });
   }
 

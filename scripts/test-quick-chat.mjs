@@ -109,12 +109,8 @@ provider.getContributions = () => ({
     name: 'openai_subscription_generate_or_edit_image',
     description: 'Generate an image.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: true },
-    execute: async (input, context) => {
-      assert.equal(input.num_last_images_to_include, 1);
-      assert.deepEqual(context.artifacts.getRecentGeneratedImages({ limit: 1 }), [{
-        name: generatedAttachment.name,
-        path: generatedAttachment.path,
-      }]);
+    execute: async (input) => {
+      assert.deepEqual(input.referenced_image_paths, [generatedAttachment.path]);
       return {
         output: `Image generated.\nSaved to: ${generatedAttachment.path}`,
         mediaContent: [{ type: 'image_url', image_url: { url: generatedAttachment.dataUrl } }],
@@ -134,7 +130,7 @@ provider.stream = async ({ onEvent }) => {
         __invocation_goal: 'Generate a kitten image.',
         __requires_human_approval: false,
         prompt: 'A cute kitten.',
-        num_last_images_to_include: 1,
+        referenced_image_paths: [generatedAttachment.path],
       }),
     };
     onEvent({ type: 'tool-call', ...toolCall });

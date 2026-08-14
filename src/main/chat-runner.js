@@ -17,7 +17,6 @@ import {
   getGoalForConversation,
   getMessage,
   getMessages,
-  getRecentGeneratedImages,
   getPreferences as readPreferences,
   insertGoal,
   insertMessage,
@@ -424,7 +423,7 @@ export class ChatRunner {
       status: file.status,
       staged: file.staged,
       unstaged: file.unstaged,
-      diff: file.diff,
+      diff: file.agentDiff,
     }));
     const turn = await selection.provider.stream({
       model: selection.model,
@@ -1400,7 +1399,7 @@ export class ChatRunner {
 
     const messages = toModelMessagesThroughUser(
       conversation.id,
-      assistantMessageId,
+      null,
       { capabilities: selectedModel.model.capabilities },
     );
     if (messages.length === 0) {
@@ -1409,10 +1408,7 @@ export class ChatRunner {
 
     const conversationMessages = getMessages(conversation.id);
     const queue = this.getQueuedItems(conversation.id, model);
-    const assistantIndex = conversationMessages.findIndex((message) => message.id === assistantMessageId);
-    const searchEnd = assistantIndex >= 0 ? assistantIndex : conversationMessages.length;
     const lastUserIndex = conversationMessages
-      .slice(0, searchEnd)
       .findLastIndex((message) => message.role === 'user' && ['sent', 'completed'].includes(message.status));
     const staleMessages = lastUserIndex >= 0 ? conversationMessages.slice(lastUserIndex + 1) : [];
     const sourceUser = lastUserIndex >= 0 ? conversationMessages[lastUserIndex] : null;
@@ -1948,19 +1944,29 @@ export class ChatRunner {
       const aivax = preferences.aivax;
       const contextLimit = selection.model.context.input;
       const pluginTools = workMode === 'plan' ? [] : this.getPluginTools();
+      const providerContributionContext = {
+        model: selection.model,
+        conversation: currentConversation,
+        workspacePath,
+      };
+      const selectedProviderTools = workMode === 'plan'
+        ? []
+        : selection.provider.getContributions(providerContributionContext).tools;
+      const selectedProviderToolNames = new Set(selectedProviderTools.map((tool) => tool.name));
       const providerTools = workMode === 'plan'
         ? []
-        : selection.provider.getContributions({
-            model: selection.model,
-            conversation: currentConversation,
-            workspacePath,
-          }).tools;
+        : [
+            ...selectedProviderTools,
+            ...(this.registry.listGlobalTools?.(providerContributionContext) ?? [])
+              .filter((tool) => !selectedProviderToolNames.has(tool.name)),
+          ];
       const coreTools = CLIENT_TOOLS
           .filter((tool) => (
             tool.name !== 'read_media_file'
             || selection.model.capabilities?.images
             || selection.model.capabilities?.audio
             || selection.model.capabilities?.pdfFiles
+            || (aivax?.connected && aivax.mediaDescriptionsEnabled)
           ))
           .filter((tool) => workMode !== 'plan' || PLAN_TOOL_NAMES.has(tool.name))
           .filter((tool) => !['memory_search', 'memory_write', 'memory_delete'].includes(tool.name) || (
@@ -1982,9 +1988,14 @@ export class ChatRunner {
                 selection.model.capabilities?.audio && 'MP3 audio',
                 selection.model.capabilities?.pdfFiles && 'PDF files',
               ].filter(Boolean);
+              const fallbackDescription = aivax?.connected && aivax.mediaDescriptionsEnabled
+                ? ' AIVAX Media Descriptions converts unsupported images, videos, audio, and PDFs to text.'
+                : '';
               return {
                 ...tool,
-                description: `Read local ${supportedMedia.join(', ')} using the selected model multimodally. Text files are not supported.`,
+                description: supportedMedia.length > 0
+                  ? `Read local ${supportedMedia.join(', ')} using the selected model multimodally.${fallbackDescription} Text files are not supported.`
+                  : `Read local images, videos, audio, and PDFs as text using AIVAX Media Descriptions. Text files are not supported.`,
               };
             }
             if (['chat_create_thread', 'chat_spawn_subagent'].includes(tool.name)) {
@@ -2398,11 +2409,6 @@ export class ChatRunner {
               ? {
                   signal: controller.signal,
                   workspacePath,
-                  artifacts: Object.freeze({
-                    getRecentGeneratedImages: ({ limit }) => (
-                      getRecentGeneratedImages(conversationId, { limit })
-                    ),
-                  }),
                 }
               : {
               signal: controller.signal,
@@ -2419,7 +2425,10 @@ export class ChatRunner {
               tuning,
               aivax,
               defaultModels: preferences.defaultModels,
-                  capabilities: selection.model.capabilities,
+              capabilities: selection.model.capabilities,
+              userAttachments: getMessages(conversationId)
+                .filter((message) => message.role === 'user')
+                .flatMap((message) => message.attachments),
             });
             const generatedAttachments = Array.isArray(value?.attachments)
               ? value.attachments.filter((attachment) => (

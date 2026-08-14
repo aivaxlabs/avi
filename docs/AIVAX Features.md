@@ -20,12 +20,13 @@ All AIVAX features are disabled by default. To enable memory:
 
 The memory toggle remains unavailable without both an account and a collection. When enabled, agents receive memory guidance and the memory search and write tools become available. Store only knowledge that should remain useful beyond the current conversation.
 
-## Web utilities
+## Web and media utilities
 
 - **AIVAX advanced fetch** — expanded extraction for HTML, images, documents, and OCR;
-- **AIVAX web search** — web search with country, language, and domain filters.
+- **AIVAX web search** — web search with country, language, and domain filters;
+- **AIVAX Media Descriptions** — converts local images, videos, audio, and PDFs to text when the selected model cannot read that media type directly.
 
-Advanced fetch and web search depend on the external service.
+These utilities depend on the external service. Media Descriptions is a fallback in `read_media_file`: models that support the supplied media continue to receive it directly. Processing can consume AIVAX balance.
 
 ## In-app search
 

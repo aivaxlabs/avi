@@ -47,6 +47,7 @@ try {
     memoryCollectionName: null,
     advancedFetchEnabled: false,
     webSearchEnabled: false,
+    mediaDescriptionsEnabled: false,
     threadSearchCollectionId: null,
     threadSearchCollectionName: null,
   });

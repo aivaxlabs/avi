@@ -917,6 +917,7 @@ function registerIpc() {
         memoryEnabled: false,
         advancedFetchEnabled: false,
         webSearchEnabled: false,
+        mediaDescriptionsEnabled: false,
       });
       return { connected: false, account: null, settings };
     }
@@ -942,6 +943,7 @@ function registerIpc() {
       memoryEnabled: false,
       advancedFetchEnabled: false,
       webSearchEnabled: false,
+      mediaDescriptionsEnabled: false,
     });
     return { connected: false, account: null, settings };
   });

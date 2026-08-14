@@ -8,6 +8,7 @@ import {
 import { EOL } from 'node:os';
 import {
   basename,
+  extname,
   isAbsolute,
   resolve,
 } from 'node:path';
@@ -16,6 +17,7 @@ import { requestAivax } from './aivax-client.js';
 import {
   attachmentToApiBlock,
   createConversation,
+  deleteConversation,
   forkConversation,
   getConversation,
   getMessages,
@@ -24,7 +26,7 @@ import {
   updateConversation,
 } from './database.js';
 import { resolveSubagentModel } from './default-models.js';
-import { filePathToAttachment } from './files.js';
+import { filePathToAttachment, materializeAttachment } from './files.js';
 import { applyMultiReplaceFile } from './multi-replace-file.js';
 import { resolveTerminalShell } from './terminal-shell.js';
 import { traceVerbose } from './trace-log.js';
@@ -123,8 +125,49 @@ async function waitForTerminal(terminal, { untilExit, timeout }) {
 
 export const CLIENT_TOOLS = Object.freeze([
   {
+    name: 'get_chat_attachments',
+    description: 'Get local paths for images, audio, and videos attached by the user in the current chat. Existing files are returned directly; inference-only media is copied to Avi temporary storage first.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    },
+    execute: async (_input, { userAttachments = [] }) => {
+      const mediaAttachments = userAttachments.filter((attachment) => (
+        ['image_url', 'input_audio', 'video_url'].includes(attachment?.kind)
+        || ['image', 'audio', 'video'].some((type) => attachment?.mime?.startsWith(`${type}/`))
+      ));
+      const results = [];
+      const seen = new Set();
+
+      for (const attachment of mediaAttachments) {
+        const identity = attachment.id
+          ?? attachment.path
+          ?? attachment.dataUrl
+          ?? attachment.base64;
+        if (identity && seen.has(identity)) continue;
+        if (identity) seen.add(identity);
+
+        const localFile = await materializeAttachment(attachment);
+        if (!localFile) continue;
+
+        results.push({
+          name: attachment.name ?? basename(localFile.path),
+          kind: attachment.kind,
+          mime: attachment.mime ?? null,
+          ...localFile,
+        });
+      }
+
+      return { attachments: results };
+    },
+  },
+  {
     name: 'read_media_file',
-    description: 'Read a local media file using the selected model multimodally. Text files are not supported.',
+    description: 'Read local images, videos, audio, and PDFs. The selected model reads supported media directly; when connected and enabled, AIVAX Media Descriptions converts unsupported media to text. Text files are not supported.',
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
@@ -140,7 +183,12 @@ export const CLIENT_TOOLS = Object.freeze([
       required: ['path'],
       additionalProperties: false,
     },
-    execute: async ({ path }, { capabilities = {} }) => {
+    execute: async ({ path }, {
+      aivax,
+      capabilities = {},
+      requestAivax: requestMediaDescription = requestAivax,
+      signal,
+    }) => {
       if (typeof path !== 'string' || !isAbsolute(path)) {
         throw new Error('path must be an absolute file path.');
       }
@@ -153,20 +201,63 @@ export const CLIENT_TOOLS = Object.freeze([
           && attachment.mime === 'application/pdf'
           && capabilities.pdfFiles
         );
-      if (!supported) {
-        if (attachment.kind === 'text_inline') {
-          throw new Error('read_media_file does not read text files. Use read_file instead.');
-        }
-        if (attachment.kind === 'video_url') {
-          throw new Error('The selected model does not expose video input capability.');
-        }
-        throw new Error(`The selected model cannot read this media type (${attachment.mime}).`);
+      if (supported) {
+        return {
+          output: `Media file loaded: ${attachment.path}`,
+          mediaContent: [attachmentToApiBlock(attachment, capabilities)],
+        };
       }
-
-      return {
-        output: `Media file loaded: ${attachment.path}`,
-        mediaContent: [attachmentToApiBlock(attachment, capabilities)],
-      };
+      if (attachment.kind === 'text_inline') {
+        throw new Error('read_media_file does not read text files. Use read_file instead.');
+      }
+      if (aivax?.connected && aivax.mediaDescriptionsEnabled) {
+        const audioFormat = extname(attachment.path).slice(1).toLowerCase();
+        const input = attachment.kind === 'image_url'
+          ? { type: 'image_url', image_url: { url: attachment.dataUrl } }
+          : attachment.kind === 'video_url'
+            ? { type: 'video_url', video_url: { url: attachment.dataUrl } }
+            : attachment.kind === 'input_audio'
+              ? {
+                  type: 'input_audio',
+                  input_audio: {
+                    data: attachment.base64,
+                    format: attachment.format ?? 'mp3',
+                  },
+                }
+              : ['wav', 'm4a', 'flac', 'ogg', 'webm', 'aac'].includes(audioFormat)
+                ? {
+                    type: 'input_audio',
+                    input_audio: {
+                      data: attachment.dataUrl.split(',')[1] ?? '',
+                      format: audioFormat,
+                    },
+                  }
+                : attachment.kind === 'file' && attachment.mime === 'application/pdf'
+                  ? {
+                      type: 'file',
+                      file: {
+                        filename: attachment.name,
+                        file_data: attachment.dataUrl,
+                      },
+                    }
+                  : null;
+        if (input) {
+          const descriptions = await requestMediaDescription('/api/v1/generations/descriptions', {
+            body: { input: [input] },
+            responseType: 'array',
+            signal,
+          });
+          const description = descriptions[0];
+          if (descriptions.length !== 1 || description?.type !== 'text' || typeof description.text !== 'string') {
+            throw new Error('AIVAX returned an invalid media description.');
+          }
+          return description.text;
+        }
+      }
+      if (attachment.kind === 'video_url') {
+        throw new Error('The selected model does not expose video input capability.');
+      }
+      throw new Error(`The selected model cannot read this media type (${attachment.mime}).`);
     },
   },
   {
@@ -576,6 +667,7 @@ export const CLIENT_TOOLS = Object.freeze([
         model,
         models,
         reasoningEffort,
+        permissionMode,
         workspacePath,
         defaultModels,
       },
@@ -644,6 +736,7 @@ export const CLIENT_TOOLS = Object.freeze([
           conversationId: conversation.id,
           model: selectedModel.id,
           reasoningEffort: selectedReasoningEffort,
+          permissionMode,
           text: normalizedPrompt,
           fromAgent: true,
           project: { path: projectPath },
@@ -724,6 +817,7 @@ export const CLIENT_TOOLS = Object.freeze([
         model,
         models,
         reasoningEffort,
+        permissionMode,
         tuning,
         defaultModels,
         workMode,
@@ -794,6 +888,7 @@ export const CLIENT_TOOLS = Object.freeze([
         conversationId: subagent.id,
         model: selectedModel.id,
         reasoningEffort: selectedReasoningEffort,
+        permissionMode,
         text: normalizedPrompt,
         workMode,
         ultraMode,
@@ -833,6 +928,7 @@ export const CLIENT_TOOLS = Object.freeze([
     execute: async ({ threadId, prompt, low_priority = false }, {
       chatRunner,
       conversationId,
+      permissionMode,
       workMode,
     }) => {
       const conversation = getConversation(String(threadId));
@@ -862,6 +958,7 @@ export const CLIENT_TOOLS = Object.freeze([
         conversationId: conversation.id,
         model: conversation.model,
         text: normalizedPrompt,
+        permissionMode,
         steer: !low_priority,
         fromAgent: true,
         workMode: planMode ? 'plan' : workMode,
@@ -1040,7 +1137,7 @@ export const CLIENT_TOOLS = Object.freeze([
           }`;
         }),
       ]);
-      return [
+      const result = [
         `Thread: ${conversation.title}`,
         `ID: ${conversation.id}`,
         `Folder: ${conversation.projectPath}`,
@@ -1050,6 +1147,16 @@ export const CLIENT_TOOLS = Object.freeze([
         'Recent turns:',
         ...(renderedTurns.length > 0 ? renderedTurns : ['None.']),
       ].join('\n\n');
+      const lastMessage = getMessages(conversation.id)
+        .filter((message) => !message.hidden && !['queued', 'steered'].includes(message.status))
+        .at(-1);
+      if (
+        status === 'idle'
+        && ['aborted', 'error'].includes(lastMessage?.status)
+      ) {
+        deleteConversation(conversation.id);
+      }
+      return result;
     },
   },
   {

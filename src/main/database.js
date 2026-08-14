@@ -63,6 +63,7 @@ const defaultAivaxSettings = Object.freeze({
   memoryCollectionName: null,
   advancedFetchEnabled: false,
   webSearchEnabled: false,
+  mediaDescriptionsEnabled: false,
   threadSearchCollectionId: null,
   threadSearchCollectionName: null,
 });
@@ -1526,25 +1527,6 @@ export function getMessages(conversationId) {
   return statements.getMessages.all(conversationId).map(mapMessage);
 }
 
-export function getRecentGeneratedImages(conversationId, { limit }) {
-  if (!Number.isInteger(limit) || limit < 1 || limit > 5) {
-    throw new Error('Generated image limit must be an integer between 1 and 5.');
-  }
-  return getMessages(conversationId)
-    .flatMap((message) => message.attachments)
-    .filter((attachment) => (
-      attachment?.kind === 'image_url'
-      && attachment.source === 'generated_image'
-      && typeof attachment.path === 'string'
-      && attachment.path
-    ))
-    .slice(-limit)
-    .map((attachment) => ({
-      name: attachment.name ?? null,
-      path: attachment.path,
-    }));
-}
-
 export function getMessage(id) {
   const row = statements.getMessage.get(id);
   return row ? mapMessage(row) : null;
@@ -2000,6 +1982,7 @@ function normalizeAivaxSettings(value, strict = false) {
       : null,
     advancedFetchEnabled: settings.advancedFetchEnabled === true,
     webSearchEnabled: settings.webSearchEnabled === true,
+    mediaDescriptionsEnabled: settings.mediaDescriptionsEnabled === true,
     threadSearchCollectionId: typeof settings.threadSearchCollectionId === 'string' && settings.threadSearchCollectionId.trim()
       ? settings.threadSearchCollectionId.trim()
       : null,
@@ -2013,6 +1996,7 @@ function normalizeAivaxSettings(value, strict = false) {
     || ![null, 'string'].includes(settings.memoryCollectionName === null ? null : typeof settings.memoryCollectionName)
     || typeof settings.advancedFetchEnabled !== 'boolean'
     || typeof settings.webSearchEnabled !== 'boolean'
+    || typeof settings.mediaDescriptionsEnabled !== 'boolean'
     || ![null, 'string'].includes(settings.threadSearchCollectionId === null ? null : typeof settings.threadSearchCollectionId)
     || ![null, 'string'].includes(settings.threadSearchCollectionName === null ? null : typeof settings.threadSearchCollectionName)
     || (normalized.memoryEnabled && !normalized.memoryCollectionId)

@@ -522,6 +522,16 @@ export class ModelProviderRegistry {
       .flatMap((provider) => this.createProvider(provider).listModels());
   }
 
+  listGlobalTools(context = {}) {
+    return [...new Map(this.getProviders().flatMap((config) => (
+      this.createProvider(config)
+        .getContributions(context)
+        .tools
+        .filter((tool) => tool.globallyAvailable === true)
+        .map((tool) => [tool.name, tool])
+    ))).values()];
+  }
+
   resolve(modelId) {
     for (const config of this.getProviders()) {
       const provider = this.createProvider(config);

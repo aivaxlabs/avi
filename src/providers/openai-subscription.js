@@ -224,8 +224,8 @@ function getOpenAiSubscriptionContributions({ provider, services }) {
     tools: provider.imageTool === 'disabled' ? [] : [{
       name: 'openai_subscription_generate_or_edit_image',
       description:
-        'Generate a new image or edit one or more local or recently generated reference images '
-        + 'with GPT Image 2. Use only one reference source.',
+        'Generate a new image or edit one or more local reference images with GPT Image 2.',
+      globallyAvailable: true,
       inputSchema: {
         type: 'object',
         properties: {
@@ -238,12 +238,6 @@ function getOpenAiSubscriptionContributions({ provider, services }) {
             items: { type: 'string' },
             maxItems: 5,
             description: 'Absolute paths to local images used as edit targets or references.',
-          },
-          num_last_images_to_include: {
-            type: 'integer',
-            minimum: 1,
-            maximum: 5,
-            description: 'Number of recently generated images from this conversation to edit.',
           },
         },
         required: ['prompt'],
@@ -655,7 +649,7 @@ async function invokeUsageAction(providerId, action, input, services) {
 }
 
 async function generateOrEditImage(providerId, input, context, services) {
-  const { signal, workspacePath, artifacts } = context;
+  const { signal, workspacePath } = context;
   const prompt = String(input?.prompt ?? '').trim();
   if (!prompt) throw new Error('prompt is required.');
 
@@ -665,34 +659,11 @@ async function generateOrEditImage(providerId, input, context, services) {
   const imagePaths = Array.isArray(input?.referenced_image_paths)
     ? input.referenced_image_paths.map((value) => String(value).trim()).filter(Boolean)
     : [];
-  const recentImageCount = input?.num_last_images_to_include;
-  if (input?.referenced_image_paths !== undefined && recentImageCount !== undefined) {
-    throw new Error('referenced_image_paths and num_last_images_to_include are mutually exclusive.');
-  }
   if (imagePaths.length > 5) {
     throw new Error('At most five reference images can be used.');
   }
-  if (recentImageCount !== undefined && (
-    !Number.isInteger(recentImageCount) || recentImageCount < 1 || recentImageCount > 5
-  )) {
-    throw new Error('num_last_images_to_include must be an integer between 1 and 5.');
-  }
   if (imagePaths.some((path) => !isAbsolute(path))) {
     throw new Error('Every referenced image path must be absolute.');
-  }
-
-  if (recentImageCount !== undefined) {
-    const recentImages = await artifacts.getRecentGeneratedImages({ limit: recentImageCount });
-    if (recentImages.length < recentImageCount) {
-      throw new Error(
-        `Only ${recentImages.length} generated image${recentImages.length === 1 ? '' : 's'} `
-        + `are available in this conversation; ${recentImageCount} requested.`,
-      );
-    }
-    if (recentImages.some((image) => !isAbsolute(image.path))) {
-      throw new Error('A recent generated image has an invalid local path.');
-    }
-    imagePaths.push(...recentImages.map((image) => image.path));
   }
 
   const endpoint = imagePaths.length > 0 ? '/codex/images/edits' : '/codex/images/generations';

@@ -9,7 +9,7 @@ Providers contribute models, tools, and auxiliary panels to Avi. Only enabled pr
 3. Open the provider and select **Sign in with ChatGPT**.
 4. Enter the displayed **Security code** on the authorization page and complete sign-in.
 
-The managed catalog currently includes GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; and GPT-5.3 Codex Spark. Fast variants appear when supported. The GPT Image setting controls whether the image generation and editing tool is contributed.
+The managed catalog currently includes GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; and GPT-5.3 Codex Spark. Fast variants appear when supported. The GPT Image setting controls whether the image generation and editing tool is available to every configured model, including models from other providers. Image editing accepts local file references only.
 
 OAuth credentials are encrypted locally. **Disconnect** removes the provider session, and removing the provider also signs it out.
 
