@@ -11,11 +11,8 @@ const gitOptions = {
   windowsHide: true,
 };
 const repositoryLimit = 20;
-const fileLimit = 100;
-const fileDiffLimit = 160 * 1024;
-const totalDiffLimit = 1024 * 1024;
-const commitPlanFileLimit = 30;
-const commitPlanDiffLimit = 512 * 1024;
+const agentFileDiffCharacterLimit = 500;
+const agentTotalDiffCharacterLimit = 32_000 * 4;
 const conflictCodes = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
 
 async function runGit(repository, args, options = {}) {
@@ -107,7 +104,7 @@ async function resolveRepository(workspacePath, repositoryPath) {
 function parseStatus(output) {
   const records = output.split('\0');
   const files = [];
-  for (let index = 0; index < records.length && files.length < fileLimit; index += 1) {
+  for (let index = 0; index < records.length; index += 1) {
     const record = records[index];
     if (!record) continue;
     const code = record.slice(0, 2);
@@ -133,38 +130,94 @@ function parseStatus(output) {
       conflict: conflictCodes.has(code),
     });
   }
-  return { files, truncated: records.filter(Boolean).length > fileLimit };
+  return files;
 }
 
 async function readFileDiff(repository, file, hasHead) {
   const args = file.status === 'untracked'
-    ? ['diff', '--no-index', '--no-ext-diff', '--no-color', '--', '/dev/null', resolve(repository, file.path)]
+    ? ['diff', '--unified=0', '--no-index', '--no-ext-diff', '--no-color', '--', '/dev/null', resolve(repository, file.path)]
     : hasHead
-      ? ['-c', 'core.quotepath=false', 'diff', '--no-ext-diff', '--no-color', 'HEAD', '--', file.path]
-      : ['-c', 'core.quotepath=false', 'diff', '--no-ext-diff', '--no-color', '--cached', '--', file.path];
+      ? ['-c', 'core.quotepath=false', 'diff', '--unified=0', '--no-ext-diff', '--no-color', 'HEAD', '--', file.path]
+      : ['-c', 'core.quotepath=false', 'diff', '--unified=0', '--no-ext-diff', '--no-color', '--cached', '--', file.path];
   const result = await runGit(repository, args, { allowFailure: file.status === 'untracked' });
-  let diff = result.stdout;
+  let originalDiff = result.stdout;
   if (!hasHead && file.status !== 'untracked' && file.unstaged) {
     const unstaged = await runGit(repository, [
-      '-c', 'core.quotepath=false', 'diff', '--no-ext-diff', '--no-color', '--', file.path,
+      '-c', 'core.quotepath=false', 'diff', '--unified=0', '--no-ext-diff', '--no-color', '--', file.path,
     ], { allowFailure: true });
-    diff += unstaged.stdout;
+    originalDiff += unstaged.stdout;
   }
-  const bytes = Buffer.byteLength(diff, 'utf8');
+
+  const lines = originalDiff.split('\n');
+  const metadata = [...new Set(lines.filter((line) => /^(new file mode|deleted file mode|old mode|new mode|similarity index|dissimilarity index|rename from|rename to|copy from|copy to|Binary files |GIT binary patch|Submodule |[-+]Subproject commit )/.test(line)))];
+  const hunkStarts = lines.reduce((indexes, line, index) => {
+    if (line.startsWith('@@')) indexes.push(index);
+    return indexes;
+  }, []);
+  const hunks = hunkStarts.map((start, index) => lines.slice(start, hunkStarts[index + 1] ?? lines.length));
+  const additions = lines.filter((line) => /^\+(?!\+\+)/.test(line)).length;
+  const deletions = lines.filter((line) => /^-(?!--)/.test(line)).length;
+  const summary = [
+    `${file.status}: ${file.previousPath ? `${file.previousPath} -> ` : ''}${file.path}`,
+    `changes: +${additions} -${deletions}; hunks: ${hunks.length}`,
+    ...(metadata.length > 0 ? [`metadata: ${metadata.join('; ')}`] : []),
+  ];
+  const selectedHunkIndexes = [...new Set(hunks.length > 2
+    ? [0, Math.floor(hunks.length / 2), hunks.length - 1]
+    : hunks.map((_, index) => index))];
+  const omittedHunks = hunks.length - selectedHunkIndexes.length;
+  const omissionReserve = `[omitted: ${omittedHunks} hunks; ${originalDiff.length} chars]`.length + 1;
+  const availableCharacters = Math.max(
+    0,
+    agentFileDiffCharacterLimit - summary.join('\n').length - omissionReserve - selectedHunkIndexes.length,
+  );
+  const perHunkCharacters = selectedHunkIndexes.length > 0
+    ? Math.floor(availableCharacters / selectedHunkIndexes.length)
+    : 0;
+  let retainedCharacters = metadata.reduce((total, line) => total + line.length + 1, 0);
+  const samples = selectedHunkIndexes.map((hunkIndex) => {
+    const hunk = hunks[hunkIndex];
+    const changedLines = hunk.slice(1).filter((line) => /^\+(?!\+\+)|^-(?!--)/.test(line));
+    const selectedLineIndexes = [...new Set(changedLines.length > 2
+      ? [0, Math.floor(changedLines.length / 2), changedLines.length - 1]
+      : changedLines.map((_, index) => index))];
+    const header = hunk[0].match(/^@@ .*? @@/)?.[0] ?? hunk[0];
+    retainedCharacters += header.length + 1;
+    const lineBudget = Math.max(0, perHunkCharacters - header.length - selectedLineIndexes.length);
+    const perLineCharacters = selectedLineIndexes.length > 0
+      ? Math.floor(lineBudget / selectedLineIndexes.length)
+      : 0;
+    const sampledLines = selectedLineIndexes.map((lineIndex) => {
+      const line = changedLines[lineIndex];
+      if (line.length <= perLineCharacters) {
+        retainedCharacters += line.length + 1;
+        return line;
+      }
+      const retained = Math.max(0, perLineCharacters - 3);
+      retainedCharacters += retained + 1;
+      return perLineCharacters >= 3 ? `${line.slice(0, retained)}...` : '';
+    }).filter(Boolean);
+    return [header, ...sampledLines].filter(Boolean).join('\n');
+  }).filter(Boolean);
+  const omittedCharacters = Math.max(0, originalDiff.length - retainedCharacters);
+  const omission = `[omitted: ${omittedHunks} hunks; ${omittedCharacters} chars]`;
+  const diff = [...summary, ...samples, omission].filter(Boolean).join('\n');
+
   return {
     ...file,
-    diff: bytes > fileDiffLimit ? `${diff.slice(0, fileDiffLimit)}\n\n[Diff truncated]` : diff,
-    diffBytes: Math.min(bytes, fileDiffLimit),
-    diffTruncated: bytes > fileDiffLimit,
-    binary: diff.includes('Binary files ') || diff.includes('GIT binary patch'),
+    diff,
+    additions,
+    deletions,
+    diffBytes: Buffer.byteLength(diff, 'utf8'),
+    diffCharacters: diff.length,
+    diffTruncated: omittedHunks > 0 || omittedCharacters > 0,
+    binary: originalDiff.includes('Binary files ') || originalDiff.includes('GIT binary patch'),
   };
 }
 
 export async function reviewGitWorkspace(workspacePath) {
   const root = resolveWorkspacePath(workspacePath);
   const discoveredRepositories = await discoverRepositories(root);
-  let remainingDiffBytes = totalDiffLimit;
-  let anyDiffTruncated = false;
 
   const repositories = [];
   for (const { directory, path: repositoryPath } of discoveredRepositories) {
@@ -177,21 +230,8 @@ export async function reviewGitWorkspace(workspacePath) {
     ]);
     const parsed = parseStatus(statusResult.stdout);
     const files = [];
-    for (const file of parsed.files) {
-      if (remainingDiffBytes <= 0) {
-        files.push({ ...file, diff: '', diffBytes: 0, diffTruncated: true, binary: false });
-        anyDiffTruncated = true;
-        continue;
-      }
-      const next = await readFileDiff(directory, file, headResult.ok);
-      if (next.diffBytes > remainingDiffBytes) {
-        next.diff = `${next.diff.slice(0, remainingDiffBytes)}\n\n[Workspace diff limit reached]`;
-        next.diffBytes = remainingDiffBytes;
-        next.diffTruncated = true;
-      }
-      remainingDiffBytes -= next.diffBytes;
-      anyDiffTruncated ||= next.diffTruncated;
-      files.push(next);
+    for (const file of parsed) {
+      files.push(await readFileDiff(directory, file, headResult.ok));
     }
     const branch = branchResult.stdout.trim() || (headResult.ok
       ? `detached@${(await runGit(directory, ['rev-parse', '--short', 'HEAD'])).stdout.trim()}`
@@ -203,39 +243,30 @@ export async function reviewGitWorkspace(workspacePath) {
       branch,
       files,
       conflicts: files.filter((file) => file.conflict).map((file) => file.path),
-      truncated: parsed.truncated || files.some((file) => file.diffTruncated),
-      additions: files.reduce((total, file) => total + (file.diff.match(/^\+(?!\+\+)/gm)?.length ?? 0), 0),
-      deletions: files.reduce((total, file) => total + (file.diff.match(/^-(?!--)/gm)?.length ?? 0), 0),
+      truncated: files.some((file) => file.diffTruncated),
+      additions: files.reduce((total, file) => total + file.additions, 0),
+      deletions: files.reduce((total, file) => total + file.deletions, 0),
       diffBytes: files.reduce((total, file) => total + file.diffBytes, 0),
+      diffCharacters: files.reduce((total, file) => total + file.diffCharacters, 0),
       commitPlanAvailable: files.length > 0
-        && files.length <= commitPlanFileLimit
-        && files.reduce((total, file) => total + file.diffBytes, 0) <= commitPlanDiffLimit
-        && !parsed.truncated
-        && !files.some((file) => file.diffTruncated),
+        && files.reduce((total, file) => total + file.diffCharacters, 0) <= agentTotalDiffCharacterLimit,
     });
   }
 
   const changedFiles = repositories.reduce((total, repository) => total + repository.files.length, 0);
-  const diffBytes = repositories.reduce((total, repository) => total + repository.diffBytes, 0);
   return {
     root,
     name: basename(root),
     repositories,
-    truncated: anyDiffTruncated || repositories.some((repository) => repository.truncated),
+    truncated: repositories.some((repository) => repository.truncated),
     commitPlanAvailable: changedFiles > 0
-      && changedFiles <= commitPlanFileLimit
-      && diffBytes <= commitPlanDiffLimit
-      && !anyDiffTruncated
       && repositories.every((repository) => (
         repository.files.length === 0 || repository.commitPlanAvailable
       )),
     limits: {
       repositories: repositoryLimit,
-      filesPerRepository: fileLimit,
-      fileDiffBytes: fileDiffLimit,
-      totalDiffBytes: totalDiffLimit,
-      commitPlanFiles: commitPlanFileLimit,
-      commitPlanDiffBytes: commitPlanDiffLimit,
+      agentFileDiffCharacters: agentFileDiffCharacterLimit,
+      agentTotalDiffCharacters: agentTotalDiffCharacterLimit,
     },
   };
 }
@@ -246,7 +277,7 @@ export async function commitGitPlan(workspacePath, repositoryPath, commits) {
   const status = parseStatus((await runGit(repository, [
     '-c', 'core.quotepath=false', 'status', '--porcelain=v1', '-z', '--untracked-files=all',
   ])).stdout);
-  const changedFiles = new Set(status.files.map((file) => file.path));
+  const changedFiles = new Set(status.map((file) => file.path));
   const plannedFiles = commits.flatMap((commit) => commit.files ?? []);
   if (
     plannedFiles.length !== new Set(plannedFiles).size

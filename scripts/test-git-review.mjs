@@ -65,6 +65,107 @@ try {
   );
   assert.equal(await readFile(join(repository, 'tracked.txt'), 'utf8'), 'changed again\n');
 
+  const largeDiffRepository = join(root, 'large-diffs');
+  await mkdir(largeDiffRepository);
+  await execFileAsync('git', ['init', largeDiffRepository]);
+  await execFileAsync('git', ['-C', largeDiffRepository, 'config', 'user.name', 'Avi Test']);
+  await execFileAsync('git', ['-C', largeDiffRepository, 'config', 'user.email', 'avi@example.invalid']);
+  for (let index = 1; index <= 270; index += 1) {
+    await writeFile(join(largeDiffRepository, `large-${index}.txt`), [
+      `original first ${index} ${'a'.repeat(400)}`,
+      `original middle ${index} ${'b'.repeat(400)}`,
+      `original last ${index} ${'c'.repeat(400)}`,
+      '',
+    ].join('\n'));
+  }
+  await execFileAsync('git', ['-C', largeDiffRepository, 'add', '.']);
+  await execFileAsync('git', ['-C', largeDiffRepository, 'commit', '-m', 'Initial large files']);
+  for (let index = 1; index <= 248; index += 1) {
+    await writeFile(join(largeDiffRepository, `large-${index}.txt`), [
+      `changed first ${index} ${'x'.repeat(400)}`,
+      `changed middle ${index} ${'y'.repeat(400)}`,
+      `changed last ${index} ${'z'.repeat(400)}`,
+      '',
+    ].join('\n'));
+  }
+  await writeFile(join(largeDiffRepository, 'hunks.txt'), [
+    'first original',
+    ...Array.from({ length: 20 }, (_, index) => `unchanged ${index}`),
+    'middle original',
+    ...Array.from({ length: 20 }, (_, index) => `unchanged later ${index}`),
+    'last original',
+    '',
+  ].join('\n'));
+  await execFileAsync('git', ['-C', largeDiffRepository, 'add', 'hunks.txt']);
+  await execFileAsync('git', ['-C', largeDiffRepository, 'commit', '-m', 'Add hunk fixture']);
+  await writeFile(join(largeDiffRepository, 'hunks.txt'), [
+    'first changed',
+    ...Array.from({ length: 20 }, (_, index) => `unchanged ${index}`),
+    'middle changed',
+    ...Array.from({ length: 20 }, (_, index) => `unchanged later ${index}`),
+    'last changed',
+    '',
+  ].join('\n'));
+  await writeFile(
+    join(largeDiffRepository, 'new-large.txt'),
+    ['new first', ...Array.from({ length: 80 }, (_, index) => `new middle ${index}`), 'new last', ''].join('\n'),
+  );
+
+  const maximumAllowedDiffs = (await reviewGitWorkspace(root)).repositories
+    .find(({ path }) => path === 'large-diffs');
+  assert.ok(maximumAllowedDiffs.files.every((file) => file.diff.length <= 500));
+  assert.ok(maximumAllowedDiffs.diffCharacters <= 128_000);
+  assert.equal(maximumAllowedDiffs.commitPlanAvailable, true);
+  const compactDiff = maximumAllowedDiffs.files.find(({ path }) => path === 'large-1.txt').diff;
+  assert.ok(compactDiff.length <= 500);
+  assert.match(compactDiff, /^modified: large-1\.txt/m);
+  assert.match(compactDiff, /changes: \+3 -3; hunks: 1/);
+  assert.match(compactDiff, /\[omitted: 0 hunks; \d+ chars\]/);
+
+  const hunkDiff = maximumAllowedDiffs.files.find(({ path }) => path === 'hunks.txt').diff;
+  assert.ok(hunkDiff.length <= 500);
+  assert.match(hunkDiff, /changes: \+3 -3; hunks: 3/);
+  assert.match(hunkDiff, /first changed/);
+  assert.match(hunkDiff, /middle changed/);
+  assert.match(hunkDiff, /last changed/);
+  assert.doesNotMatch(hunkDiff, /^ unchanged/m);
+
+  const newFileDiff = maximumAllowedDiffs.files.find(({ path }) => path === 'new-large.txt').diff;
+  assert.ok(newFileDiff.length <= 500);
+  assert.match(newFileDiff, /^untracked: new-large\.txt/m);
+  assert.match(newFileDiff, /changes: \+82 -0; hunks: 1/);
+  assert.match(newFileDiff, /metadata: new file mode 100644/);
+  assert.match(newFileDiff, /\+new first/);
+  assert.match(newFileDiff, /\+new middle 40/);
+  assert.match(newFileDiff, /\+new last/);
+  assert.match(newFileDiff, /\[omitted: 0 hunks; \d+ chars\]/);
+  assert.ok(newFileDiff.length < (await readFile(join(largeDiffRepository, 'new-large.txt'), 'utf8')).length);
+
+  for (let index = 249; index <= 270; index += 1) {
+    await writeFile(join(largeDiffRepository, `large-${index}.txt`), [
+      `changed first ${index} ${'x'.repeat(400)}`,
+      `changed middle ${index} ${'y'.repeat(400)}`,
+      `changed last ${index} ${'z'.repeat(400)}`,
+      '',
+    ].join('\n'));
+  }
+  const overLimitDiffs = (await reviewGitWorkspace(root)).repositories
+    .find(({ path }) => path === 'large-diffs');
+  assert.ok(overLimitDiffs.files.every((file) => file.diff.length <= 500));
+  assert.ok(overLimitDiffs.diffCharacters > 128_000);
+  assert.equal(overLimitDiffs.commitPlanAvailable, false);
+
+  const manyFilesRepository = join(root, 'many-files');
+  await mkdir(manyFilesRepository);
+  await execFileAsync('git', ['init', manyFilesRepository]);
+  for (let index = 1; index <= 31; index += 1) {
+    await writeFile(join(manyFilesRepository, `file-${index}.txt`), `file ${index}\n`);
+  }
+  const manyFiles = (await reviewGitWorkspace(root)).repositories
+    .find(({ path }) => path === 'many-files');
+  assert.equal(manyFiles.files.length, 31);
+  assert.equal(manyFiles.commitPlanAvailable, true);
+
   const nestedRepository = join(root, 'group', 'nested');
   const depthThreeRepository = join(root, 'one', 'two', 'three');
   const tooDeepRepository = join(root, 'one', 'two', 'other', 'four');
