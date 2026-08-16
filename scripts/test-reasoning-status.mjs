@@ -71,6 +71,21 @@ assert.match(mixedReasoning, /Inspecting the renderer flow/);
 assert.match(mixedReasoning, /The regular reasoning remains visible\./);
 assert.equal((mixedReasoning.match(/class="reasoning-text"/g) ?? []).length, 1);
 
+const batchedStatuses = renderMessage([
+  '**Defining constructor logic****Refining option count rounding****Confirming implementation approach**',
+]);
+assert.match(batchedStatuses, /Confirming implementation approach/);
+assert.doesNotMatch(batchedStatuses, /Defining constructor logic/);
+assert.doesNotMatch(batchedStatuses, /Refining option count rounding/);
+assert.doesNotMatch(batchedStatuses, /class="reasoning-text"/);
+
+const statusSequenceWithReasoning = renderMessage([
+  '**Defining constructor logic****Refining option count rounding**\nKeep this reasoning visible.',
+]);
+assert.match(statusSequenceWithReasoning, /Defining constructor logic/);
+assert.match(statusSequenceWithReasoning, /Keep this reasoning visible\./);
+assert.match(statusSequenceWithReasoning, /class="reasoning-text"/);
+
 const nextResponse = renderMessage();
 assert.match(nextResponse, />Thinking</);
 assert.doesNotMatch(nextResponse, /Inspecting the renderer flow/);

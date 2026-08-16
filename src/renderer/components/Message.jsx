@@ -1785,9 +1785,16 @@ function stripTags(text) {
 }
 
 function parseReasoningStatus(text) {
-  const match = /^\*\*((?:(?!\*\*)[^\r\n])+)\*\*$/.exec(String(text ?? ''));
-  const label = match?.[1] ?? '';
-  return label && label.trim() === label ? label : null;
+  const source = String(text ?? '');
+  const statuses = [...source.matchAll(/\*\*((?:(?!\*\*)[^\r\n])+)\*\*/g)];
+  if (
+    statuses.length === 0
+    || statuses.map((status) => status[0]).join('') !== source
+    || statuses.some((status) => !status[1] || status[1].trim() !== status[1])
+  ) {
+    return null;
+  }
+  return statuses.at(-1)[1];
 }
 
 function decodeXmlEntities(text) {
