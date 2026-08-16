@@ -37,6 +37,19 @@
     }
   }
 
+  .external-markdown-link-favicon,
+  .external-markdown-link-icon {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    vertical-align: -.12em;
+  }
+
+  .external-markdown-link-favicon {
+    flex: 0 0 auto;
+    object-fit: contain;
+  }
+
   .file-reference-link {
     display: inline-flex;
     align-items: center;

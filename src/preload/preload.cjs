@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('chatApp', {
   app: {
     state: () => invoke('app:state'),
     openExternal: (url) => invoke('app:open-external', url),
+    favicon: (url) => invoke('app:favicon', url),
     onNavigate: (callback) => subscribe('app:navigate', callback),
   },
   quickChat: {

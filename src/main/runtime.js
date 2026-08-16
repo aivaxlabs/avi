@@ -87,6 +87,7 @@ import { QuickChatRunner } from './quick-chat-runner.js';
 import { validateDefaultModels } from './default-models.js';
 import { CLIENT_TOOLS, stopConversationTerminals } from './client-tools.js';
 import { clearTemporaryStorage, getTemporaryStorage } from './temporary-storage.js';
+import { getFaviconDataUrl } from './favicons.js';
 import {
   listContextItems,
   resolveInstallationContextPath,
@@ -799,6 +800,7 @@ function registerIpc() {
     }
     return shell.openExternal(target.href);
   });
+  applicationIpc.handle('app:favicon', (_event, url) => getFaviconDataUrl(url));
   applicationIpc.handle('appearance:select-background', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
       defaultPath: homedir(),

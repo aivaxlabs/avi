@@ -745,7 +745,17 @@ function AssistantMessage({
                           <dd>{message.usage?.outputTokens?.toLocaleString() ?? '—'}</dd>
                         </div>
                         <div>
-                          <dt>Cached</dt>
+                          <dt>
+                            Cached
+                            {cachedInputPercentage !== null && (
+                              <span className="cached-input-percentage">
+                                {cachedInputPercentage.toLocaleString(undefined, {
+                                  style: 'percent',
+                                  maximumFractionDigits: 1,
+                                })}
+                              </span>
+                            )}
+                          </dt>
                           <dd>{message.usage?.cachedInputTokens?.toLocaleString() ?? '—'}</dd>
                         </div>
                         <div>
