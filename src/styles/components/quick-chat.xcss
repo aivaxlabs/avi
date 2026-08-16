@@ -73,6 +73,10 @@ html.quick-chat-window #root {
   }
 }
 
+.quick-chat-messages {
+  display: block;
+}
+
 .quick-chat-error {
   margin: 0 18px 8px;
   padding: 8px 10px;

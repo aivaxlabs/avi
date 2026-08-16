@@ -172,10 +172,12 @@ export const ChatView = memo(function ChatView({
   const composerRef = useRef(null);
   const emptyBackgroundRef = useRef(null);
   const scrollRef = useRef(null);
+  const messagesColumnRef = useRef(null);
   const autoScrollTimerRef = useRef(null);
   const autoScrollTargetRef = useRef(null);
   const manualScrollDuringRunRef = useRef(false);
   const wasRunningRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
   const dragDepthRef = useRef(0);
   const questionCardRef = useRef(null);
   const [fileDropActive, setFileDropActive] = useState(false);
@@ -368,6 +370,34 @@ export const ChatView = memo(function ChatView({
     observer.observe(composerRef.current);
     return () => observer.disconnect();
   }, [currentConversation?.id]);
+
+  useEffect(() => {
+    const column = messagesColumnRef.current;
+    if (!column) return undefined;
+    if (!isRunning) {
+      lastScrollTopRef.current = scrollRef.current?.scrollTop ?? 0;
+      return undefined;
+    }
+
+    let frame = null;
+    const observer = new ResizeObserver(() => {
+      if (manualScrollDuringRunRef.current) return;
+      if (autoScrollTimerRef.current !== null) return;
+      autoScrollTimerRef.current = window.setTimeout(() => {
+        autoScrollTimerRef.current = null;
+        frame = requestAnimationFrame(scrollToBottom);
+      }, 16);
+    });
+    observer.observe(column);
+    return () => {
+      observer.disconnect();
+      if (frame !== null) cancelAnimationFrame(frame);
+      if (autoScrollTimerRef.current !== null) {
+        window.clearTimeout(autoScrollTimerRef.current);
+        autoScrollTimerRef.current = null;
+      }
+    };
+  }, [currentConversation?.id, isRunning]);
 
   useEffect(() => {
     const canvas = emptyBackgroundRef.current;
@@ -707,17 +737,20 @@ export const ChatView = memo(function ChatView({
         onKeyUp={updateSelectionAction}
         onScroll={(event) => {
           setSelectionAction(null);
+          const scrollElement = event.currentTarget;
+          const previousScrollTop = lastScrollTopRef.current;
+          const currentScrollTop = scrollElement.scrollTop;
+          const scrollTopDelta = currentScrollTop - previousScrollTop;
+          lastScrollTopRef.current = currentScrollTop;
+
           if (!isRunning) return;
 
-          const scrollElement = event.currentTarget;
-          const reachedBottom = (
-            scrollElement.scrollHeight
-            - scrollElement.scrollTop
-            - scrollElement.clientHeight
-          ) <= 24;
+          const distanceFromBottom = scrollElement.scrollHeight
+            - currentScrollTop
+            - scrollElement.clientHeight;
           const matchedAutoScroll = (
             autoScrollTargetRef.current !== null
-            && Math.abs(scrollElement.scrollTop - autoScrollTargetRef.current) <= 1
+            && Math.abs(currentScrollTop - autoScrollTargetRef.current) <= 24
           );
           autoScrollTargetRef.current = null;
           if (matchedAutoScroll) {
@@ -725,10 +758,16 @@ export const ChatView = memo(function ChatView({
             return;
           }
 
-          manualScrollDuringRunRef.current = !reachedBottom;
-          if (!reachedBottom) {
+          const userScrolledUp = scrollTopDelta < 0;
+          if (userScrolledUp && distanceFromBottom > 24) {
+            manualScrollDuringRunRef.current = true;
             window.clearTimeout(autoScrollTimerRef.current);
             autoScrollTimerRef.current = null;
+          } else {
+            manualScrollDuringRunRef.current = false;
+            if (distanceFromBottom <= 24) {
+              scheduleScrollToBottom(0);
+            }
           }
         }}
       >
@@ -737,7 +776,7 @@ export const ChatView = memo(function ChatView({
             <h1>How can I help you today?</h1>
           </div>
         ) : (
-          <div className="messages-column">
+          <div className="messages-column" ref={messagesColumnRef}>
             {groupedMessages.map(({ message, workedMessages, workedStartedAt }) => (
                 <Message
                   key={message.id}

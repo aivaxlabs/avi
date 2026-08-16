@@ -21,10 +21,12 @@ export default function QuickChatApp() {
   const [fileDropActive, setFileDropActive] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState(null);
   const scrollRef = useRef(null);
+  const messagesColumnRef = useRef(null);
   const autoScrollTimerRef = useRef(null);
   const autoScrollTargetRef = useRef(null);
   const manualScrollDuringRunRef = useRef(false);
   const wasRunningRef = useRef(false);
+  const lastScrollTopRef = useRef(0);
   const dragDepthRef = useRef(0);
 
   useEffect(() => {
@@ -114,6 +116,34 @@ export default function QuickChatApp() {
     }
   }, [running, streamScrollKey]);
 
+  useEffect(() => {
+    const column = messagesColumnRef.current;
+    if (!column) return undefined;
+    if (!running) {
+      lastScrollTopRef.current = scrollRef.current?.scrollTop ?? 0;
+      return undefined;
+    }
+
+    let frame = null;
+    const observer = new ResizeObserver(() => {
+      if (manualScrollDuringRunRef.current) return;
+      if (autoScrollTimerRef.current !== null) return;
+      autoScrollTimerRef.current = window.setTimeout(() => {
+        autoScrollTimerRef.current = null;
+        frame = requestAnimationFrame(scrollToBottom);
+      }, 16);
+    });
+    observer.observe(column);
+    return () => {
+      observer.disconnect();
+      if (frame !== null) cancelAnimationFrame(frame);
+      if (autoScrollTimerRef.current !== null) {
+        window.clearTimeout(autoScrollTimerRef.current);
+        autoScrollTimerRef.current = null;
+      }
+    };
+  }, [running]);
+
   const selectedModel = models.find((item) => item.id === model);
   const modelName = selectedModel?.name ?? selectedModel?.modelId ?? 'Choose model';
 
@@ -156,17 +186,20 @@ export default function QuickChatApp() {
         className="quick-chat-scroll"
         ref={scrollRef}
         onScroll={(event) => {
+          const scrollElement = event.currentTarget;
+          const previousScrollTop = lastScrollTopRef.current;
+          const currentScrollTop = scrollElement.scrollTop;
+          const scrollTopDelta = currentScrollTop - previousScrollTop;
+          lastScrollTopRef.current = currentScrollTop;
+
           if (!running) return;
 
-          const scrollElement = event.currentTarget;
-          const reachedBottom = (
-            scrollElement.scrollHeight
-            - scrollElement.scrollTop
-            - scrollElement.clientHeight
-          ) <= 24;
+          const distanceFromBottom = scrollElement.scrollHeight
+            - currentScrollTop
+            - scrollElement.clientHeight;
           const matchedAutoScroll = (
             autoScrollTargetRef.current !== null
-            && Math.abs(scrollElement.scrollTop - autoScrollTargetRef.current) <= 1
+            && Math.abs(currentScrollTop - autoScrollTargetRef.current) <= 24
           );
           autoScrollTargetRef.current = null;
           if (matchedAutoScroll) {
@@ -174,10 +207,16 @@ export default function QuickChatApp() {
             return;
           }
 
-          manualScrollDuringRunRef.current = !reachedBottom;
-          if (!reachedBottom) {
+          const userScrolledUp = scrollTopDelta < 0;
+          if (userScrolledUp && distanceFromBottom > 24) {
+            manualScrollDuringRunRef.current = true;
             window.clearTimeout(autoScrollTimerRef.current);
             autoScrollTimerRef.current = null;
+          } else {
+            manualScrollDuringRunRef.current = false;
+            if (distanceFromBottom <= 24) {
+              scheduleScrollToBottom(0);
+            }
           }
         }}
       >
@@ -186,17 +225,21 @@ export default function QuickChatApp() {
             <strong>What can I help with?</strong>
             <span>This conversation disappears when you close the window.</span>
           </div>
-        ) : messages.map((message, index) => (
-          <Message
-            key={message.id}
-            message={message}
-            modelName={modelName}
-            workedMessages={[]}
-            runActive={running && index === messages.length - 1 && message.role === 'assistant'}
-            questionPending={Boolean(questionRequest && index === messages.length - 1)}
-            showContinuations={false}
-          />
-        ))}
+        ) : (
+          <div className="quick-chat-messages" ref={messagesColumnRef}>
+            {messages.map((message, index) => (
+              <Message
+                key={message.id}
+                message={message}
+                modelName={modelName}
+                workedMessages={[]}
+                runActive={running && index === messages.length - 1 && message.role === 'assistant'}
+                questionPending={Boolean(questionRequest && index === messages.length - 1)}
+                showContinuations={false}
+              />
+            ))}
+          </div>
+        )}
         {questionRequest && (
           <QuickQuestion
             request={questionRequest}
