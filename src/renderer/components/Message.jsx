@@ -115,36 +115,55 @@ const MARKDOWN_PLUGINS = Object.freeze([
           return child;
         }
 
-        const match = /^<fileref\b([^<>]*)\/>$/i.exec(child.value);
-        if (!match) return child;
-        const path = attributeValue(match[1], 'path');
-        const normalizedPath = path.replaceAll('\\', '/');
-        const lineFromText = attributeValue(match[1], 'line-from');
-        const lineToText = attributeValue(match[1], 'line-to');
-        const lineFrom = /^\d+$/.test(lineFromText) ? Number(lineFromText) : null;
-        const lineTo = /^\d+$/.test(lineToText) ? Number(lineToText) : lineFrom;
-        if (
-          !normalizedPath.startsWith('./')
-          || normalizedPath.split('/').includes('..')
-          || (lineFromText && lineFrom === null)
-          || (lineToText && lineTo === null)
-          || (lineToText && lineFrom === null)
-          || (lineFrom !== null && (lineFrom < 1 || lineTo < lineFrom))
-        ) {
-          return child;
+        const parts = [];
+        const pattern = /<fileref\b([^<>]*)\/>/gi;
+        let cursor = 0;
+        let match;
+        while ((match = pattern.exec(child.value)) !== null) {
+          const path = attributeValue(match[1], 'path');
+          const normalizedPath = path.replaceAll('\\', '/');
+          const lineFromText = attributeValue(match[1], 'line-from');
+          const lineToText = attributeValue(match[1], 'line-to');
+          const lineFrom = /^\d+$/.test(lineFromText) ? Number(lineFromText) : null;
+          const lineTo = /^\d+$/.test(lineToText) ? Number(lineToText) : lineFrom;
+          if (
+            !normalizedPath.startsWith('./')
+            || normalizedPath.split('/').includes('..')
+            || (lineFromText && lineFrom === null)
+            || (lineToText && lineTo === null)
+            || (lineToText && lineFrom === null)
+            || (lineFrom !== null && (lineFrom < 1 || lineTo < lineFrom))
+          ) {
+            continue;
+          }
+          if (match.index > cursor) {
+            parts.push({
+              type: 'text',
+              value: child.value.slice(cursor, match.index),
+            });
+          }
+          parts.push({
+            type: 'link',
+            url: `#file-reference=${encodeURIComponent(JSON.stringify({
+              path,
+              lineFrom,
+              lineTo,
+            }))}`,
+            children: [{
+              type: 'text',
+              value: match[0],
+            }],
+          });
+          cursor = match.index + match[0].length;
         }
-        return {
-          type: 'link',
-          url: `#file-reference=${encodeURIComponent(JSON.stringify({
-            path,
-            lineFrom,
-            lineTo,
-          }))}`,
-          children: [{
+        if (parts.length === 0) return child;
+        if (cursor < child.value.length) {
+          parts.push({
             type: 'text',
-            value: child.value,
-          }],
-        };
+            value: child.value.slice(cursor),
+          });
+        }
+        return parts;
       });
     };
 

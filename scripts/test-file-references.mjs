@@ -43,6 +43,20 @@ const noLines = renderReference('<fileref path="./README.md" />');
 assert.match(noLines, />README\.md</);
 assert.doesNotMatch(noLines, /README\.md, line/);
 
+const adjacent = renderReference(
+  '<fileref path="./src/Compiler/Parser.cs" line-from="61" line-to="82" />  \n<fileref path="./src/Compiler/Flattener.cs" line-from="12" line-to="34" />',
+);
+assert.equal(adjacent.match(/class="file-reference-link"/g)?.length, 2);
+assert.match(adjacent, />Parser\.cs, lines 61-82</);
+assert.match(adjacent, />Flattener\.cs, lines 12-34</);
+
+const surroundingText = renderReference(
+  'Compare <fileref path="./before.js" /> with <fileref path="./after.js" />.',
+);
+assert.equal(surroundingText.match(/class="file-reference-link"/g)?.length, 2);
+assert.match(surroundingText, /Compare /);
+assert.match(surroundingText, / with /);
+
 const legacy = renderReference('#file:./docs/AIVAX Features.md:23-29');
 assert.doesNotMatch(legacy, /file-reference-link/);
 assert.match(legacy, /#file:\.\/docs\/AIVAX Features\.md:23-29/);
