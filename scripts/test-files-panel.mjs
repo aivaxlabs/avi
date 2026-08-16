@@ -186,6 +186,37 @@ try {
     () => resolveWorkspacePath(testRoot, join('external-link', 'outside.txt')),
     /resolves outside the current directory/,
   );
+  assert.equal(
+    resolveWorkspacePath(
+      testRoot,
+      join('external-link', 'outside.txt'),
+      { allowExternalSymlinks: true },
+    ),
+    join(externalLink, 'outside.txt'),
+  );
+
+  const rootEntries = await listWorkspaceDirectory(testRoot);
+  assert.deepEqual(
+    rootEntries.find(({ name }) => name === 'external-link'),
+    {
+      name: 'external-link',
+      path: 'external-link',
+      type: 'directory',
+      symbolicLink: true,
+      status: null,
+      repository: false,
+    },
+  );
+  const linkedEntries = await listWorkspaceDirectory(testRoot, 'external-link');
+  assert.equal(linkedEntries[0]?.name, 'outside.txt');
+  assert.equal(linkedEntries[0]?.type, 'file');
+  assert.equal(
+    (await readWorkspaceFile(testRoot, join('external-link', 'outside.txt'))).content,
+    'outside\n',
+  );
+  const linkedWorkspace = await inspectWorkspaceFiles(externalLink);
+  assert.equal(linkedWorkspace.root, externalLink);
+  assert.equal(linkedWorkspace.children[0]?.name, 'outside.txt');
 
   const imageData = Buffer.from('image-data');
   const pdfData = Buffer.from('pdf-data');

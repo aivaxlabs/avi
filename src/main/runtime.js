@@ -1734,17 +1734,29 @@ function registerIpc() {
     searchWorkspaceFiles(payload.folderPath, payload.query)
   ));
   applicationIpc.handle('files:open', async (_event, payload = {}) => {
-    const filePath = resolveWorkspacePath(payload.folderPath, payload.filePath);
+    const filePath = resolveWorkspacePath(
+      payload.folderPath,
+      payload.filePath,
+      { allowExternalSymlinks: true },
+    );
     const error = await shell.openPath(filePath);
     if (error) throw new Error(`Could not open "${payload.filePath}": ${error}`);
     return true;
   });
   applicationIpc.handle('files:reveal', (_event, payload = {}) => {
-    shell.showItemInFolder(resolveWorkspacePath(payload.folderPath, payload.filePath));
+    shell.showItemInFolder(resolveWorkspacePath(
+      payload.folderPath,
+      payload.filePath,
+      { allowExternalSymlinks: true },
+    ));
     return true;
   });
   applicationIpc.handle('files:copy-path', (_event, payload = {}) => {
-    clipboard.writeText(resolveWorkspacePath(payload.folderPath, payload.filePath));
+    clipboard.writeText(resolveWorkspacePath(
+      payload.folderPath,
+      payload.filePath,
+      { allowExternalSymlinks: true },
+    ));
     return true;
   });
   applicationIpc.handle('attachments:image-action', async (_event, payload = {}) => {

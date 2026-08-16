@@ -6,6 +6,7 @@ import {
   readFile,
   readdir,
   realpath,
+  stat,
   writeFile,
 } from 'node:fs/promises';
 import {
@@ -208,7 +209,7 @@ function attachmentToBuffer(attachment) {
 
 export async function inspectWorkspaceFiles(folderPath) {
   const root = resolve(folderPath);
-  const rootStat = await lstat(root);
+  const rootStat = await stat(root);
   if (!rootStat.isDirectory()) throw new Error(`"${folderPath}" is not a directory.`);
 
   let level = [root];
@@ -302,36 +303,41 @@ export async function inspectWorkspaceFiles(folderPath) {
 
 export async function listWorkspaceDirectory(folderPath, directoryPath = '') {
   const root = resolve(folderPath);
-  const targetPath = resolveWorkspacePath(root, directoryPath);
+  const targetPath = resolveWorkspacePath(root, directoryPath, { allowExternalSymlinks: true });
   const state = workspaceStates.get(root.toLowerCase()) ?? {
     repositories: new Set(),
     statuses: new Map(),
   };
   const entries = await readdir(targetPath, { withFileTypes: true });
+  const nodes = await Promise.all(entries.map(async (entry) => {
+    const path = relative(root, resolve(targetPath, entry.name));
+    const absolutePath = resolve(root, path);
+    const symbolicLink = entry.isSymbolicLink();
+    const targetStat = symbolicLink
+      ? await stat(absolutePath).catch(() => null)
+      : entry;
+    const type = targetStat?.isDirectory()
+      ? 'directory'
+      : targetStat?.isFile()
+        ? 'file'
+        : 'symlink';
+    return {
+      name: entry.name,
+      path,
+      type,
+      symbolicLink,
+      status: statusForWorkspacePath(state, root, absolutePath, type === 'directory'),
+      repository: state.repositories.has(absolutePath.toLowerCase()),
+    };
+  }));
 
-  return entries
-    .map((entry) => {
-      const path = relative(root, resolve(targetPath, entry.name));
-      const absolutePath = resolve(root, path);
-      return {
-        name: entry.name,
-        path,
-        type: entry.isDirectory()
-          ? 'directory'
-          : entry.isSymbolicLink()
-            ? 'symlink'
-            : 'file',
-        status: statusForWorkspacePath(state, root, absolutePath, entry.isDirectory()),
-        repository: state.repositories.has(absolutePath.toLowerCase()),
-      };
+  return nodes.sort((left, right) => (
+    Number(right.type === 'directory') - Number(left.type === 'directory')
+    || left.name.localeCompare(right.name, undefined, {
+      numeric: true,
+      sensitivity: 'base',
     })
-    .sort((left, right) => (
-      Number(right.type === 'directory') - Number(left.type === 'directory')
-      || left.name.localeCompare(right.name, undefined, {
-        numeric: true,
-        sensitivity: 'base',
-      })
-    ));
+  ));
 }
 
 export async function searchWorkspaceFiles(folderPath, searchText) {
@@ -477,8 +483,8 @@ export async function readWorkspaceFileDiff(folderPath, filePath) {
 
 export async function readWorkspaceFile(folderPath, filePath) {
   const root = resolve(folderPath);
-  const targetPath = resolveWorkspacePath(root, filePath);
-  const fileStat = await lstat(targetPath);
+  const targetPath = resolveWorkspacePath(root, filePath, { allowExternalSymlinks: true });
+  const fileStat = await stat(targetPath);
   if (!fileStat.isFile()) throw new Error(`"${filePath}" is not a regular file.`);
 
   const result = {
@@ -509,7 +515,11 @@ export async function readWorkspaceFile(folderPath, filePath) {
   };
 }
 
-export function resolveWorkspacePath(folderPath, targetPath = '') {
+export function resolveWorkspacePath(
+  folderPath,
+  targetPath = '',
+  { allowExternalSymlinks = false } = {},
+) {
   const root = resolve(folderPath);
   const path = resolve(root, targetPath);
   const relativePath = relative(root, path);
@@ -524,13 +534,16 @@ export function resolveWorkspacePath(folderPath, targetPath = '') {
   const realPath = realpathSync.native(path);
   const realRelativePath = relative(realRoot, realPath);
   if (
-    realRelativePath === '..'
-    || realRelativePath.startsWith(`..${sep}`)
-    || isAbsolute(realRelativePath)
+    !allowExternalSymlinks
+    && (
+      realRelativePath === '..'
+      || realRelativePath.startsWith(`..${sep}`)
+      || isAbsolute(realRelativePath)
+    )
   ) {
     throw new Error(`"${targetPath}" resolves outside the current directory.`);
   }
-  return realPath;
+  return allowExternalSymlinks ? path : realPath;
 }
 
 function statusForWorkspacePath(state, root, absolutePath, directory) {

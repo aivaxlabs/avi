@@ -658,6 +658,9 @@ export function FilesPanel({
           </span>
           <FileIcon dark={dark} expanded={isExpanded} node={node} />
           <span className="files-node-name">{node.name}</span>
+          {node.symbolicLink && (
+            <FolderSymlink size={12} aria-label="Symbolic link" />
+          )}
           {node.repository && (
             <GitBranch className="files-repository-mark" size={12} aria-label="Git repository" />
           )}
