@@ -9,25 +9,6 @@ button {
   }
 }
 
-.nav-actions button,
-.settings-button,
-.dialog-footer button,
-.code-block-header button,
-.continuations button,
-.project-picker,
-.model-pill,
-.recording-bar button.primary-mini,
-.settings-back,
-.settings-navigation button,
-.settings-inline-back,
-.settings-add-provider,
-.settings-provider-empty .primary-mini,
-.settings-actions .primary-mini,
-.models-editor-header button {
-  border-radius: 9999px;
-  padding: 4px 10px;
-}
-
 .icon-button,
 .round-button,
 .recent-filter-button,

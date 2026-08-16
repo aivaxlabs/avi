@@ -23,6 +23,10 @@
 
   & :hover {
     padding-right: 30px;
+
+    .user-message-content {
+      max-width: min(650px, 78%);
+    }
   }
 }
 
@@ -1121,8 +1125,8 @@
   button {
     width: 28px;
     height: 28px;
-    padding: 4px;
-    opacity: .4;
+    padding: 2px;
+    opacity: .7;
     transition: color .2s var(--base-transition),
       background .2s var(--base-transition),
       opacity .2s var(--base-transition),
@@ -1211,6 +1215,16 @@
     color: var(--text-3);
   }
 
+  .cached-input-percentage {
+    margin-left: 6px;
+    padding: 1px 5px;
+    color: var(--text-2);
+    background: var(--background-2);
+    border-radius: 999px;
+    font-size: .78em;
+    font-variant-numeric: tabular-nums;
+  }
+
   dd {
     margin: 0;
     color: var(--text-1);
@@ -1295,12 +1309,7 @@
   display: grid;
   justify-items: start;
   gap: 5px;
-  opacity: .6;
   transition: .3s var(--base-transition);
-
-  &:hover {
-    opacity: 1;
-  }
 
   button {
     padding: 4px 12px;

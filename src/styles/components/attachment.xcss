@@ -33,6 +33,7 @@
 
     &.context-marker {
       color: var(--text-1);
+      height: 2em;
 
       svg {
         flex: 0 0 auto;

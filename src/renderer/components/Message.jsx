@@ -502,6 +502,12 @@ function AssistantMessage({
     message.usage?.latencyMs,
     message.usage?.durationMs,
   ].some((value) => Number.isFinite(value));
+  const cachedInputTotal = message.usage?.inputTokens + message.usage?.cachedInputTokens;
+  const cachedInputPercentage = Number.isFinite(message.usage?.inputTokens)
+    && Number.isFinite(message.usage?.cachedInputTokens)
+    && cachedInputTotal > 0
+    ? message.usage.cachedInputTokens / cachedInputTotal
+    : null;
   const canResumeFromFailure = canResume && !activelyStreaming;
   const edits = useMemo(
     () => consolidateFileEdits([...workedMessages, message]),
@@ -1175,23 +1181,47 @@ const MarkdownSegment = memo(function MarkdownSegment({
 
 function createMarkdownComponents(finalized, onOpenFileReference, onFileReferenceContextMenu) {
   return {
-    a({
+    a: function MarkdownLink({
       children,
       href,
       node: _node,
+      className,
       ...props
     }) {
+      const external = Boolean(href && /^https?:\/\//i.test(href));
+      const [favicon, setFavicon] = useState(null);
+      useEffect(() => {
+        if (!external) return undefined;
+        let active = true;
+        void window.chatApp.app.favicon(href).then((dataUrl) => {
+          if (active) setFavicon(dataUrl);
+        }).catch(() => {});
+        return () => {
+          active = false;
+        };
+      }, [external, href]);
+
       if (!href?.startsWith('#file-reference=')) {
         return (
           <a
+            className={classNames(
+              className,
+              external && 'file-reference-link external-markdown-link',
+            )}
             href={href}
             {...props}
-            onClick={href && /^https?:\/\//i.test(href) ? (event) => {
+            onClick={external ? (event) => {
               event.preventDefault();
               window.chatApp.app.openExternal(href);
             } : undefined}
           >
-            {children}
+            {external && favicon && (
+              <img className="external-markdown-link-favicon" src={favicon} alt="" />
+            )}
+            {external ? <span>{children}</span> : children}
+            {external && (
+              <ExternalLink className="external-markdown-link-icon" size={12} aria-hidden="true" />
+            )}
           </a>
         );
       }
@@ -1479,12 +1509,14 @@ function MutedSegment({ segment }) {
             />
           )}
           <ToolIcon className="tool-line-icon" size={13} aria-hidden="true" />
-          <strong>{name}</strong>
-          {reason && (
-            <span className={segment.resultText === undefined ? 'tool-line-pending-text' : undefined}>
-              {reason}
-            </span>
-          )}
+          <span>
+            <strong>{name}</strong>
+            {reason && (
+              <span className={segment.resultText === undefined ? 'tool-line-pending-text' : undefined}>
+                {' '}{reason}
+              </span>
+            )}
+          </span>
           <ChevronRight className="tool-line-chevron" size={13} aria-hidden="true" />
         </summary>
         {formattedDetails && (

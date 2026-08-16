@@ -139,6 +139,11 @@ body.panel-resizing * {
     cursor: col-resize !important;
 }
 
+.nav-actions button, .settings-button, .dialog-footer button, .code-block-header button, .continuations button, .project-picker, .model-pill, .recording-bar button.primary-mini, .settings-back, .settings-navigation button, .settings-inline-back, .settings-add-provider, .settings-provider-empty .primary-mini, .settings-actions .primary-mini, .models-editor-header button {
+    border-radius: 9999px;
+    padding: 4px 10px;
+}
+
 @media (max-width: 700px) {
     .app-shell {
         grid-template-columns: 58px minmax(0, 1fr);
@@ -394,6 +399,10 @@ body.panel-resizing * {
 
 .user-row:hover {
     padding-right: 30px;
+}
+
+.user-row:hover .user-message-content {
+    max-width: min(650px, 78%);
 }
 
 .user-message-content {
@@ -1377,8 +1386,8 @@ body.panel-resizing * {
 .assistant-actions button {
     width: 28px;
     height: 28px;
-    padding: 4px;
-    opacity: .4;
+    padding: 2px;
+    opacity: .7;
     transition: color .2s var(--base-transition),
       background .2s var(--base-transition),
       opacity .2s var(--base-transition),
@@ -1459,6 +1468,16 @@ body.panel-resizing * {
     color: var(--text-3);
 }
 
+.message-usage-popover .cached-input-percentage {
+    margin-left: 6px;
+    padding: 1px 5px;
+    color: var(--text-2);
+    background: var(--background-2);
+    border-radius: 999px;
+    font-size: .78em;
+    font-variant-numeric: tabular-nums;
+}
+
 .message-usage-popover dd {
     margin: 0;
     color: var(--text-1);
@@ -1529,12 +1548,7 @@ body.panel-resizing * {
     display: grid;
     justify-items: start;
     gap: 5px;
-    opacity: .6;
     transition: .3s var(--base-transition);
-}
-
-.continuations:hover {
-    opacity: 1;
 }
 
 .continuations button {
@@ -4002,11 +4016,6 @@ button svg {
     margin: 0 4px;
 }
 
-.nav-actions button, .settings-button, .dialog-footer button, .code-block-header button, .continuations button, .project-picker, .model-pill, .recording-bar button.primary-mini, .settings-back, .settings-navigation button, .settings-inline-back, .settings-add-provider, .settings-provider-empty .primary-mini, .settings-actions .primary-mini, .models-editor-header button {
-    border-radius: 9999px;
-    padding: 4px 10px;
-}
-
 .icon-button, .round-button, .recent-filter-button, .user-copy-float, .favorite-button, .sidebar-toggle, .attachment-chip button {
     border-radius: 9999px;
     padding: 0;
@@ -4076,6 +4085,18 @@ button svg {
 .markdown-body a:hover {
     text-decoration: underline;
     text-underline-offset: 2px;
+}
+
+.markdown-body .external-markdown-link-favicon, .markdown-body .external-markdown-link-icon {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    vertical-align: -.12em;
+}
+
+.markdown-body .external-markdown-link-favicon {
+    flex: 0 0 auto;
+    object-fit: contain;
 }
 
 .markdown-body .file-reference-link {
@@ -6298,6 +6319,10 @@ html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #roo
     color: var(--text-3);
 }
 
+.quick-chat-messages {
+    display: block;
+}
+
 .quick-chat-error {
     margin: 0 18px 8px;
     padding: 8px 10px;
@@ -7168,6 +7193,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 
 .attachment-list > .attachment-pill.context-marker, .attachment-strip > .attachment-pill.context-marker, .attachment-list > .attachment-chip.context-marker, .attachment-strip > .attachment-chip.context-marker {
     color: var(--text-1);
+    height: 2em;
 }
 
 .attachment-list > .attachment-pill.context-marker svg, .attachment-strip > .attachment-pill.context-marker svg, .attachment-list > .attachment-chip.context-marker svg, .attachment-strip > .attachment-chip.context-marker svg {
@@ -10735,7 +10761,15 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .sidebar-collapsed .sidebar {
-    padding-inline: 8px;
+    padding-inline: 0;
+    background-color: transparent;
+    border-right-color: transparent;
+    opacity: .4;
+    transition: .3s var(--base-transition);
+}
+
+.sidebar-collapsed .sidebar:hover {
+    opacity: 1;
 }
 
 .sidebar-collapsed .sidebar-titlebar {
@@ -10743,7 +10777,11 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     padding-inline: 0;
 }
 
-.sidebar-collapsed .app-name, .sidebar-collapsed .nav-actions span, .sidebar-collapsed .recent-label, .sidebar-collapsed .conversation-group-header, .sidebar-collapsed .conversation-show-toggle, .sidebar-collapsed .conversation-title, .sidebar-collapsed .conversation-age, .sidebar-collapsed .settings-button span {
+.sidebar-collapsed .nav-actions {
+    padding: 0;
+}
+
+.sidebar-collapsed .app-name, .sidebar-collapsed .nav-actions span, .sidebar-collapsed .recent-label, .sidebar-collapsed .conversation-list, .sidebar-collapsed .settings-button span {
     display: none;
 }
 

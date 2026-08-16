@@ -396,7 +396,15 @@
 }
 
 .sidebar-collapsed .sidebar {
-  padding-inline: 8px;
+  padding-inline: 0;
+  background-color: transparent;
+  border-right-color: transparent;
+  opacity: .4;
+  transition: .3s --base-transition;
+
+  & :hover {
+    opacity: 1;
+  }
 }
 
 .sidebar-collapsed .sidebar-titlebar {
@@ -404,13 +412,14 @@
   padding-inline: 0;
 }
 
+.sidebar-collapsed .nav-actions {
+  padding: 0;
+}
+
 .sidebar-collapsed .app-name,
 .sidebar-collapsed .nav-actions span,
 .sidebar-collapsed .recent-label,
-.sidebar-collapsed .conversation-group-header,
-.sidebar-collapsed .conversation-show-toggle,
-.sidebar-collapsed .conversation-title,
-.sidebar-collapsed .conversation-age,
+.sidebar-collapsed .conversation-list,
 .sidebar-collapsed .settings-button span {
   display: none;
 }
