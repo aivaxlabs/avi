@@ -588,7 +588,7 @@ export class ChatRunner {
     }
   }
 
-  async forwardSubagentResult(message) {
+  async forwardSubagentResult(message, permissionMode = 'approve_for_me') {
     const subagent = message ? getConversation(message.conversationId) : null;
     if (
       !subagent?.isSubagent
@@ -624,6 +624,7 @@ export class ChatRunner {
         workMode: activeGoal ? 'goal' : subagent.orchestrationMode === 'plan' ? 'plan' : null,
         goalId: activeGoal?.id,
         ultraMode: parent.orchestrationMode === 'ultra',
+        permissionMode,
         project: { path: parent.projectPath },
       });
     } catch (forwardError) {
@@ -2648,7 +2649,9 @@ export class ChatRunner {
           });
         }
       }
-      if (!run.suspendAfterTools) await this.forwardSubagentResult(completedMessage);
+      if (!run.suspendAfterTools) {
+        await this.forwardSubagentResult(completedMessage, run.permissionMode);
+      }
       this.logChatTiming(conversationId, selection, {
         phase: 'message-completed',
         assistantMessageId: assistantMessage.id,
@@ -2706,7 +2709,7 @@ export class ChatRunner {
         status: aborted ? 'aborted' : 'error',
         force: true,
       });
-      await this.forwardSubagentResult(failedAssistantMessage);
+      await this.forwardSubagentResult(failedAssistantMessage, run.permissionMode);
       for (const failedUserMessageId of run.userMessageIds) {
         if (aborted && getMessage(failedUserMessageId)?.status !== 'waiting_mcp') continue;
         const failedUserMessage = updateMessage(failedUserMessageId, {

@@ -797,9 +797,10 @@ try {
     status: 'completed',
     content: '<think>Private reasoning</think>Managed final result.',
   });
-  await forwardingRunner.forwardSubagentResult(managedResult);
+  await forwardingRunner.forwardSubagentResult(managedResult, 'full_access');
   assert.equal(forwardingCalls.length, 1);
   assert.equal(forwardingCalls[0].conversationId, parent.id);
+  assert.equal(forwardingCalls[0].permissionMode, 'full_access');
   assert.notEqual(forwardingCalls[0].conversationId, viewedParent.id);
   assert.equal(forwardingCalls[0].steer, true);
   assert.match(forwardingCalls[0].text, /Managed final result\./);
@@ -883,17 +884,21 @@ try {
     },
     sendEvent: () => {},
   });
-  lifecycleRunner.forwardSubagentResult = async (message) => lifecycleResults.push(message);
+  lifecycleRunner.forwardSubagentResult = async (message, permissionMode) => {
+    lifecycleResults.push({ message, permissionMode });
+  };
   await lifecycleRunner.send({
     conversationId: managedSubagent.conversation.id,
     model: runtimeModel.id,
     text: 'Complete the lifecycle task.',
+    permissionMode: 'full_access',
   });
   while (lifecycleRunner.runs.has(managedSubagent.conversation.id)) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 10));
   }
-  assert.equal(lifecycleResults.at(-1).status, 'completed');
-  assert.match(lifecycleResults.at(-1).content, /Lifecycle result\./);
+  assert.equal(lifecycleResults.at(-1).message.status, 'completed');
+  assert.match(lifecycleResults.at(-1).message.content, /Lifecycle result\./);
+  assert.equal(lifecycleResults.at(-1).permissionMode, 'full_access');
 
   await lifecycleRunner.send({
     conversationId: lifecycleErrorSubagent.conversation.id,
@@ -903,8 +908,9 @@ try {
   while (lifecycleRunner.runs.has(lifecycleErrorSubagent.conversation.id)) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 10));
   }
-  assert.equal(lifecycleResults.at(-1).status, 'error');
-  assert.match(lifecycleResults.at(-1).content, /Lifecycle failure\./);
+  assert.equal(lifecycleResults.at(-1).message.status, 'error');
+  assert.match(lifecycleResults.at(-1).message.content, /Lifecycle failure\./);
+  assert.equal(lifecycleResults.at(-1).permissionMode, 'approve_for_me');
 
   const orchestratorMessageCalls = [];
   const orchestratorMessage = await sendPromptTool.execute(
