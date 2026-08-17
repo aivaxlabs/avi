@@ -9,6 +9,8 @@ import { composeToolsWithPlugins } from './tool-composition.js';
 import { mapToolCalls } from './tool-concurrency.js';
 import { traceError, traceVerbose } from './trace-log.js';
 
+const ASK_QUESTION_AFK_TIMEOUT_MS = 60_000;
+
 export class QuickChatRunner {
   constructor({
     registry,
@@ -383,7 +385,12 @@ export class QuickChatRunner {
   async executeTool(tool, input, { session, selection, models, workspacePath, signal }) {
     if (tool.name === 'ask_question') {
       const result = await this.askQuestion(session.id, input.questions, signal);
-      if (result.cancelled) return 'Question cancelled; no answers were collected.';
+      if (result.cancelled) {
+        if (result.afk) {
+          return 'The user is away from keyboard (AFK) and did not answer within 60 seconds. No answers were collected. Decide whether to continue without the answers or stop.';
+        }
+        return 'Question cancelled; no answers were collected.';
+      }
       return [
         'User answers:',
         ...result.answers.map(({ question, answer }) => (
@@ -483,20 +490,41 @@ export class QuickChatRunner {
   askQuestion(sessionId, questions, signal) {
     const questionId = randomUUID();
     return new Promise((resolve, reject) => {
+      let afkTimer = null;
+      const clearAfkTimer = () => {
+        if (afkTimer) {
+          clearTimeout(afkTimer);
+          afkTimer = null;
+        }
+      };
       const abort = () => {
+        clearAfkTimer();
         this.pendingQuestions.delete(questionId);
         reject(signal.reason ?? new Error('Question was cancelled.'));
+      };
+      const finishAfk = () => {
+        clearAfkTimer();
+        this.pendingQuestions.delete(questionId);
+        this.emit(sessionId, {
+          type: 'question-cancelled',
+          questionId,
+          reason: 'afk',
+        });
+        resolve({ cancelled: true, afk: true, answers: [] });
       };
       signal.addEventListener('abort', abort, { once: true });
       this.pendingQuestions.set(questionId, {
         sessionId,
         resolve: (value) => {
+          clearAfkTimer();
           signal.removeEventListener('abort', abort);
           resolve(value);
         },
         reject,
       });
       this.emit(sessionId, { type: 'question-request', questionId, questions });
+      afkTimer = setTimeout(finishAfk, ASK_QUESTION_AFK_TIMEOUT_MS);
+      if (typeof afkTimer.unref === 'function') afkTimer.unref();
     });
   }
 

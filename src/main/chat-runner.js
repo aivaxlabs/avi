@@ -50,6 +50,7 @@ const SEMAPHORE_RESUME_TOKEN = Symbol('semaphore-resume');
 const STREAM_PERSIST_INTERVAL_MS = 120;
 const STREAM_RENDER_INTERVAL_MS = 240;
 const AUXILIARY_MODEL_TIMEOUT_MS = 300_000;
+const ASK_QUESTION_AFK_TIMEOUT_MS = 60_000;
 const AUXILIARY_GOAL_CONTEXT_TURN_COUNT = 4;
 const AUXILIARY_PROMPT_CONTEXT_TURN_COUNT = 8;
 const AUXILIARY_CONTINUATION_CONTEXT_TURN_COUNT = 8;
@@ -2810,7 +2811,7 @@ export class ChatRunner {
     this.semaphores.removeConversations(conversationIds);
   }
 
-  async askQuestion({ conversationId, questions, signal }) {
+  async askQuestion({ conversationId, questions, signal, workMode }) {
     const run = this.runs.get(conversationId);
     if (!run || run.controller.signal !== signal) {
       throw new Error('The active run is no longer available.');
@@ -2821,10 +2822,21 @@ export class ChatRunner {
         : new Error('The question was cancelled.');
     }
 
+    const effectiveWorkMode = workMode ?? run.workMode ?? null;
+    const enableAfkTimeout = effectiveWorkMode !== 'plan';
+
     const questionId = randomUUID();
     run.phase = 'question';
     return new Promise((resolveQuestion, rejectQuestion) => {
+      let afkTimer = null;
+      const clearAfkTimer = () => {
+        if (afkTimer) {
+          clearTimeout(afkTimer);
+          afkTimer = null;
+        }
+      };
       const abortQuestion = () => {
+        clearAfkTimer();
         this.pendingQuestions.delete(questionId);
         this.emit(conversationId, {
           type: 'question-cancelled',
@@ -2836,10 +2848,28 @@ export class ChatRunner {
             : new Error('The question was cancelled.'),
         );
       };
+      const finishAfk = () => {
+        clearAfkTimer();
+        this.pendingQuestions.delete(questionId);
+        if (this.runs.get(conversationId) === run) {
+          run.phase = 'tool';
+        }
+        this.emit(conversationId, {
+          type: 'question-cancelled',
+          questionId,
+          reason: 'afk',
+        });
+        resolveQuestion({
+          cancelled: true,
+          afk: true,
+          answers: [],
+        });
+      };
       this.pendingQuestions.set(questionId, {
         conversationId,
         questions,
         finish: (result) => {
+          clearAfkTimer();
           signal.removeEventListener('abort', abortQuestion);
           if (this.runs.get(conversationId) === run) {
             run.phase = 'tool';
@@ -2848,6 +2878,10 @@ export class ChatRunner {
         },
       });
       signal.addEventListener('abort', abortQuestion, { once: true });
+      if (enableAfkTimeout) {
+        afkTimer = setTimeout(finishAfk, ASK_QUESTION_AFK_TIMEOUT_MS);
+        if (typeof afkTimer.unref === 'function') afkTimer.unref();
+      }
       this.emit(conversationId, {
         type: 'question-request',
         questionId,

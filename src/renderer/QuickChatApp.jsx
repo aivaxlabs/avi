@@ -28,6 +28,11 @@ export default function QuickChatApp() {
   const wasRunningRef = useRef(false);
   const lastScrollTopRef = useRef(0);
   const dragDepthRef = useRef(0);
+  const questionRequestRef = useRef(null);
+
+  useEffect(() => {
+    questionRequestRef.current = questionRequest;
+  }, [questionRequest]);
 
   useEffect(() => {
     Promise.all([
@@ -58,6 +63,10 @@ export default function QuickChatApp() {
         setRunning(event.running);
       } else if (event.type === 'question-request') {
         setQuestionRequest(event);
+      } else if (event.type === 'question-cancelled') {
+        if (event.questionId === questionRequestRef.current?.questionId) {
+          setQuestionRequest(null);
+        }
       } else if (event.type === 'error') {
         setError(event.message);
       }

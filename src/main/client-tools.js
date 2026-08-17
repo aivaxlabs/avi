@@ -461,7 +461,7 @@ export const CLIENT_TOOLS = Object.freeze([
       required: ['questions'],
       additionalProperties: false,
     },
-    execute: async ({ questions }, { chatRunner, conversationId, signal }) => {
+    execute: async ({ questions }, { chatRunner, conversationId, signal, workMode }) => {
       if (!Array.isArray(questions) || questions.length === 0) {
         throw new Error('questions must be a non-empty array.');
       }
@@ -503,8 +503,14 @@ export const CLIENT_TOOLS = Object.freeze([
         conversationId,
         questions: normalizedQuestions,
         signal,
+        workMode: workMode ?? null,
       });
-      if (result.cancelled) return 'Question cancelled; no answers were collected.';
+      if (result.cancelled) {
+        if (result.afk) {
+          return 'The user is away from keyboard (AFK) and did not answer within 60 seconds. No answers were collected. Decide whether to continue without the answers or stop.';
+        }
+        return 'Question cancelled; no answers were collected.';
+      }
       return [
         'User answers:',
         ...result.answers.map(({ question, answer }) => (
