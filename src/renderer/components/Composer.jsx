@@ -173,17 +173,25 @@ export function Composer({
   draftKey = composerDraftKey,
   autoFocus = false,
   defaultPermissionMode = 'approve_for_me',
+  initialState = null,
+  persistState = true,
+  inline = false,
+  onCancel,
 }) {
-  const [text, setText] = useState(() => window.localStorage.getItem(draftKey) ?? '');
-  const [attachments, setAttachments] = useState([]);
-  const [currentModel, setCurrentModel] = useState(initialModel);
-  const [workMode, setWorkMode] = useState(initialWorkMode);
-  const [ultraMode, setUltraMode] = useState(initialUltraMode);
+  const [text, setText] = useState(() => (
+    initialState?.text ?? window.localStorage.getItem(draftKey) ?? ''
+  ));
+  const [attachments, setAttachments] = useState(() => initialState?.attachments ?? []);
+  const [currentModel, setCurrentModel] = useState(initialState?.model ?? initialModel);
+  const [workMode, setWorkMode] = useState(initialState?.workMode ?? initialWorkMode);
+  const [ultraMode, setUltraMode] = useState(initialState?.ultraMode ?? initialUltraMode);
   const [plusOpen, setPlusOpen] = useState(false);
   const [promptExpanding, setPromptExpanding] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [permissionMenuOpen, setPermissionMenuOpen] = useState(false);
-  const [permissionMode, setPermissionMode] = useState(defaultPermissionMode);
+  const [permissionMode, setPermissionMode] = useState(
+    initialState?.permissionMode ?? defaultPermissionMode,
+  );
   const [reasoningMenuOpen, setReasoningMenuOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [commandStage, setCommandStage] = useState(null);
@@ -191,7 +199,7 @@ export function Composer({
   const [commandIndex, setCommandIndex] = useState(0);
   const [cursorPosition, setCursorPosition] = useState(text.length);
   const [contextCommands, setContextCommands] = useState([]);
-  const [reasoningEffort, setReasoningEffort] = useState(null);
+  const [reasoningEffort, setReasoningEffort] = useState(initialState?.reasoningEffort ?? null);
   const [recording, setRecording] = useState(null);
   const [audioLevel, setAudioLevel] = useState(0);
   const [projectSelecting, setProjectSelecting] = useState(false);
@@ -218,7 +226,7 @@ export function Composer({
   const hydratedConversationIdRef = useRef(null);
   textRef.current = text;
   conversationIdRef.current = conversationId;
-  if (conversationId) {
+  if (conversationId && persistState) {
     composerStatesRef.current.set(conversationId, {
       conversationId,
       permissionMode,
@@ -383,6 +391,7 @@ export function Composer({
   useEffect(() => {
     let active = true;
     hydratedConversationIdRef.current = null;
+    if (!persistState) return () => { active = false; };
     setText(conversationId ? '' : window.localStorage.getItem(draftKey) ?? '');
     setAttachments([]);
     setPermissionMode(defaultPermissionMode);
@@ -419,15 +428,16 @@ export function Composer({
         window.chatApp.composerState.save(state).catch(() => {});
       }
     };
-  }, [conversationId]);
+  }, [conversationId, persistState]);
 
   useEffect(() => {
+    if (!persistState) return;
     setWorkMode(initialWorkMode);
     setUltraMode(initialUltraMode);
-  }, [initialUltraMode, initialWorkMode]);
+  }, [initialUltraMode, initialWorkMode, persistState]);
 
   useEffect(() => {
-    if (!conversationId || hydratedConversationIdRef.current !== conversationId) return undefined;
+    if (!persistState || !conversationId || hydratedConversationIdRef.current !== conversationId) return undefined;
     const timer = window.setTimeout(() => {
       const state = composerStatesRef.current.get(conversationId);
       if (state) window.chatApp.composerState.save(state).catch(() => {});
@@ -445,12 +455,13 @@ export function Composer({
   ]);
 
   useEffect(() => {
-    if (conversationId) return undefined;
+    if (!persistState || conversationId) return undefined;
     const timer = window.setTimeout(() => saveComposerDraft(draftKey, text), 250);
     return () => window.clearTimeout(timer);
   }, [conversationId, draftKey, text]);
 
   useEffect(() => {
+    if (!persistState) return undefined;
     const saveOnClose = () => {
       const state = conversationId
         ? composerStatesRef.current.get(conversationId)
@@ -618,13 +629,17 @@ export function Composer({
     const payload = {
       text,
       attachments,
-      steer,
+      steer: inline ? false : steer,
       model: currentModel,
       reasoningEffort: activeReasoningEffort,
       permissionMode,
       workMode: effectiveWorkMode,
       ultraMode,
     };
+    if (inline) {
+      await onSend(payload);
+      return;
+    }
     setText('');
     setCursorPosition(0);
     window.localStorage.removeItem(draftKey);
@@ -859,7 +874,9 @@ export function Composer({
 
     event.preventDefault();
     submit({
-      steer: shouldSteerMessage(messageDeliveryMode, isRunning, event.ctrlKey),
+      steer: inline
+        ? false
+        : shouldSteerMessage(messageDeliveryMode, isRunning, event.ctrlKey),
     });
   }
 
@@ -919,7 +936,10 @@ export function Composer({
   const visibleAttachments = attachments;
 
   return (
-    <section ref={containerRef} className="composer-wrap">
+    <section
+      ref={containerRef}
+      className={`composer-wrap${inline ? ' inline-composer-wrap' : ''}`}
+    >
       {editStats?.files > 0 && (
         <div
           className="edit-counter-pill"
@@ -1557,7 +1577,7 @@ export function Composer({
               }}
             >
               <span className="model-input-label">
-                {modelName || 'Choose model'}
+                {currentModelConfig?.name || modelName || 'Choose model'}
                 {activeReasoningEffort && (
                   <span className="model-input-effort"> - {activeReasoningEffort}</span>
                 )}
@@ -1686,6 +1706,17 @@ export function Composer({
               </DropdownMenu>
             )}
           </div>
+          {inline && (
+            <button
+              className="round-button composer-cancel-button"
+              type="button"
+              onClick={onCancel}
+              aria-label="Cancel editing"
+              title="Cancel editing"
+            >
+              <X size={16} />
+            </button>
+          )}
           {goalPreparation ? (
             <button
               className="round-button send-button"
@@ -1695,7 +1726,7 @@ export function Composer({
             >
               <LoaderCircle className="goal-strip-spinner" size={16} aria-hidden="true" />
             </button>
-          ) : !canSend && isRunning ? (
+          ) : !inline && !canSend && isRunning ? (
             <button
               className="round-button send-button"
               type="button"
@@ -1704,7 +1735,7 @@ export function Composer({
             >
               <Square size={15} />
             </button>
-          ) : canSend || canResumeQueue ? (
+          ) : canSend || (!inline && canResumeQueue) ? (
             <button
               className="round-button send-button"
               type="button"
@@ -1721,7 +1752,9 @@ export function Composer({
                   return;
                 }
                 submit({
-                  steer: shouldSteerMessage(messageDeliveryMode, isRunning, event.ctrlKey),
+                  steer: inline
+                    ? false
+                    : shouldSteerMessage(messageDeliveryMode, isRunning, event.ctrlKey),
                 });
               }}
               aria-label={canSend ? 'Send' : 'Resume queue'}

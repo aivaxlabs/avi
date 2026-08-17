@@ -49,6 +49,13 @@
     }
   }
 
+  &.inline-composer-wrap {
+    position: static;
+    width: 100%;
+    padding: 0;
+    pointer-events: auto;
+  }
+
   .composer-wrap-strip {
     position: relative;
     z-index: 0;

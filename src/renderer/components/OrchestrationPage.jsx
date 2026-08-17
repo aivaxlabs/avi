@@ -7,9 +7,12 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
+  FolderClock,
+  Layers3,
   RefreshCw,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { formatPrice } from '../lib/format.js';
 
 const compactNumber = new Intl.NumberFormat('en-US', {
   notation: 'compact',
@@ -22,6 +25,12 @@ const TOKEN_CHART_WIDTH = 1_000;
 const TOKEN_CHART_HEIGHT = 240;
 const TOKEN_CHART_TOP = 12;
 const TOKEN_CHART_BOTTOM = 228;
+const USAGE_TYPE_LABELS = Object.freeze({
+  subagent: 'Sub-agent',
+  inference: 'Inference',
+  auxiliary: 'Auxiliary',
+  supervision: 'Supervision',
+});
 const TOKEN_CHART_COLORS = [
   'var(--primary-color)',
   'var(--text-1)',
@@ -32,6 +41,25 @@ const TOKEN_CHART_COLORS = [
   '#b5862c',
   '#c65d87',
 ];
+const getScaleMaximum = (maximum) => {
+  if (maximum <= 0) return 0;
+  const magnitude = 10 ** Math.floor(Math.log10(maximum));
+  const normalizedMaximum = maximum / magnitude;
+  const scaleFactor = normalizedMaximum <= 1
+    ? 1
+    : normalizedMaximum <= 2
+      ? 2
+      : normalizedMaximum <= 5
+        ? 5
+        : 10;
+  return scaleFactor * magnitude;
+};
+const drawCurve = (points, firstCommand) => points.reduce((path, point, index) => {
+  if (index === 0) return `${firstCommand}${point.x},${point.y}`;
+  const previous = points[index - 1];
+  const middleX = (previous.x + point.x) / 2;
+  return `${path} C${middleX},${previous.y} ${middleX},${point.y} ${point.x},${point.y}`;
+}, '');
 const toLocalInput = (date) => {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
@@ -39,6 +67,7 @@ const toLocalInput = (date) => {
 
 export function OrchestrationPage({ models, onOpenThread }) {
   const initialFrom = new Date();
+  initialFrom.setDate(1);
   initialFrom.setHours(0, 0, 0, 0);
   const [activeTab, setActiveTab] = useState('tasks');
   const [overview, setOverview] = useState(null);
@@ -48,7 +77,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
   const [range, setRange] = useState(() => ({
     from: toLocalInput(initialFrom),
     to: toLocalInput(new Date()),
-    label: 'Today',
+    label: 'This month',
   }));
   const rangePickerRef = useRef(null);
   const modelsById = useMemo(
@@ -99,6 +128,10 @@ export function OrchestrationPage({ models, onOpenThread }) {
   }, [rangeOpen]);
 
   const rangeCaption = range.label || `${dateLabel.format(new Date(range.from))} – ${dateLabel.format(new Date(range.to))}`;
+  const usageByType = (overview?.metrics.usageByType ?? []).toSorted((a, b) => b.tokens - a.tokens);
+  const usageByProject = (overview?.metrics.usageByProject ?? []).toSorted((a, b) => b.tokens - a.tokens);
+  const maximumTypeUsage = usageByType[0]?.tokens ?? 0;
+  const maximumProjectUsage = usageByProject[0]?.tokens ?? 0;
 
   const modelUsageGroups = useMemo(() => {
     const groups = new Map();
@@ -109,9 +142,13 @@ export function OrchestrationPage({ models, onOpenThread }) {
         id: providerId,
         name: catalogModel?.providerName ?? 'Unknown provider',
         tokens: 0,
+        cost: 0,
+        pricedResponses: 0,
         models: [],
       };
       group.tokens += usage.tokens;
+      group.cost += usage.cost;
+      group.pricedResponses += usage.pricedMessages;
       group.models.push({
         ...usage,
         name: catalogModel?.name ?? usage.id,
@@ -173,74 +210,156 @@ export function OrchestrationPage({ models, onOpenThread }) {
     const providersWithUsage = [...providers.values()]
       .filter((provider) => provider.tokens > 0)
       .sort((a, b) => b.tokens - a.tokens);
-    let maximum = 0;
-    for (const provider of providersWithUsage) {
-      for (const tokens of provider.values) maximum = Math.max(maximum, tokens);
-    }
+    const dailyTotals = days.map((_, dayIndex) => providersWithUsage.reduce(
+      (total, provider) => total + provider.values[dayIndex],
+      0,
+    ));
+    const maximum = Math.max(0, ...dailyTotals);
+    const scaleMaximum = getScaleMaximum(maximum);
 
-    let scaleMaximum = 0;
-    if (maximum > 0) {
-      const magnitude = 10 ** Math.floor(Math.log10(maximum));
-      const normalizedMaximum = maximum / magnitude;
-      const scaleFactor = normalizedMaximum <= 1
-        ? 1
-        : normalizedMaximum <= 2
-          ? 2
-          : normalizedMaximum <= 5
-            ? 5
-            : 10;
-      scaleMaximum = scaleFactor * magnitude;
-    }
-
-    const series = providersWithUsage.map((provider, providerIndex) => {
-      const points = provider.values.map((tokens, dayIndex) => ({
-        date: days[dayIndex],
-        tokens,
-        x: days.length === 1
-          ? TOKEN_CHART_WIDTH / 2
-          : (dayIndex / (days.length - 1)) * TOKEN_CHART_WIDTH,
-        y: TOKEN_CHART_TOP + (1 - (tokens / scaleMaximum))
-          * (TOKEN_CHART_BOTTOM - TOKEN_CHART_TOP),
-      }));
-      const linePoints = points.map((point) => `${point.x},${point.y}`).join(' ');
+    const series = providersWithUsage.map((provider, providerIndex) => ({
+      ...provider,
+      color: TOKEN_CHART_COLORS[providerIndex % TOKEN_CHART_COLORS.length],
+    }));
+    const slotWidth = TOKEN_CHART_WIDTH / Math.max(days.length, 1);
+    const barWidth = Math.min(46, slotWidth * 0.72);
+    const bars = days.map((date, dayIndex) => {
+      let cumulativeTokens = 0;
+      const nonEmptyProviders = series.filter((provider) => provider.values[dayIndex] > 0);
       return {
-        ...provider,
-        areaPoints: points.length
-          ? `${points[0].x},${TOKEN_CHART_BOTTOM} ${linePoints} ${points.at(-1).x},${TOKEN_CHART_BOTTOM}`
-          : '',
-        color: TOKEN_CHART_COLORS[providerIndex % TOKEN_CHART_COLORS.length],
-        linePoints,
-        points,
+        date,
+        x: slotWidth * dayIndex + (slotWidth - barWidth) / 2,
+        segments: nonEmptyProviders.map((provider, segmentIndex) => {
+          const tokens = provider.values[dayIndex];
+          const yBottom = TOKEN_CHART_TOP + (1 - (cumulativeTokens / scaleMaximum))
+            * (TOKEN_CHART_BOTTOM - TOKEN_CHART_TOP);
+          cumulativeTokens += tokens;
+          const yTop = TOKEN_CHART_TOP + (1 - (cumulativeTokens / scaleMaximum))
+            * (TOKEN_CHART_BOTTOM - TOKEN_CHART_TOP);
+          return {
+            color: provider.color,
+            height: yBottom - yTop,
+            id: provider.id,
+            name: provider.name,
+            rounded: segmentIndex === nonEmptyProviders.length - 1,
+            tokens,
+            y: yTop,
+          };
+        }),
       };
     });
     const yTicks = scaleMaximum > 0
-      ? Array.from({ length: 5 }, (_, index) => ({
-        value: scaleMaximum * ((4 - index) / 4),
-        y: TOKEN_CHART_TOP + ((TOKEN_CHART_BOTTOM - TOKEN_CHART_TOP) * index) / 4,
+      ? [scaleMaximum, 0].map((value, index) => ({
+        value,
+        y: index === 0 ? TOKEN_CHART_TOP : TOKEN_CHART_BOTTOM,
       }))
       : [];
-    const dateTickCount = Math.min(5, days.length);
-    const dateTickIndexes = dateTickCount <= 1
-      ? days.length ? [0] : []
-      : [...new Set(Array.from(
-        { length: dateTickCount },
-        (_, index) => Math.round((index * (days.length - 1)) / (dateTickCount - 1)),
-      ))];
+    const dateTickIndexes = days.length > 1 ? [0, days.length - 1] : days.length ? [0] : [];
     const dateTicks = dateTickIndexes.map((dayIndex) => ({
-      align: days.length === 1
-        ? 'center'
-        : dayIndex === 0
-          ? 'start'
-          : dayIndex === days.length - 1
-            ? 'end'
-            : 'center',
+      align: days.length === 1 ? 'center' : dayIndex === 0 ? 'start' : 'end',
+      date: days[dayIndex],
+      label: dateLabel.format(days[dayIndex]),
+      x: days.length === 1 ? 50 : dayIndex === 0 ? 0 : 100,
+    }));
+
+    return { bars, barWidth, dateTicks, maximum, series, yTicks };
+  }, [modelUsageGroups, modelsById, overview?.metrics.dailyTokens, range.from, range.to]);
+
+  const modelTokenChart = useMemo(() => {
+    const firstDay = new Date(range.from);
+    const lastDay = new Date(range.to);
+    if (!Number.isFinite(firstDay.getTime()) || !Number.isFinite(lastDay.getTime())) {
+      return { dateTicks: [], maximum: 0, series: [], yTicks: [] };
+    }
+    firstDay.setHours(0, 0, 0, 0);
+    lastDay.setHours(0, 0, 0, 0);
+
+    const days = [];
+    const dayIndexes = new Map();
+    for (const cursor = new Date(firstDay); cursor <= lastDay; cursor.setDate(cursor.getDate() + 1)) {
+      const timestamp = cursor.getTime();
+      dayIndexes.set(timestamp, days.length);
+      days.push(timestamp);
+    }
+
+    const modelsWithUsage = new Map((overview?.metrics.topModels ?? []).map((model) => [model.id, {
+      id: model.id,
+      name: modelsById.get(model.id)?.name ?? model.id,
+      tokens: 0,
+      values: Array(days.length).fill(0),
+    }]));
+    for (const dailyUsage of overview?.metrics.dailyTokens ?? []) {
+      const dayIndex = dayIndexes.get(Number(dailyUsage.date));
+      if (dayIndex === undefined) continue;
+
+      for (const usage of dailyUsage.models ?? []) {
+        const model = modelsWithUsage.get(usage.id) ?? {
+          id: usage.id,
+          name: modelsById.get(usage.id)?.name ?? usage.id,
+          tokens: 0,
+          values: Array(days.length).fill(0),
+        };
+        const tokens = Number(usage.tokens) || 0;
+        model.tokens += tokens;
+        model.values[dayIndex] += tokens;
+        modelsWithUsage.set(usage.id, model);
+      }
+    }
+
+    const chartModels = [...modelsWithUsage.values()]
+      .filter((model) => model.tokens > 0)
+      .sort((a, b) => b.tokens - a.tokens);
+    const dailyTotals = days.map((_, dayIndex) => chartModels.reduce(
+      (total, model) => total + model.values[dayIndex],
+      0,
+    ));
+    const maximum = Math.max(0, ...dailyTotals);
+    const scaleMaximum = getScaleMaximum(maximum);
+    const cumulativeValues = Array(days.length).fill(0);
+    const series = chartModels.map((model, modelIndex) => {
+      const lowerValues = [...cumulativeValues];
+      const upperValues = model.values.map((tokens, dayIndex) => {
+        cumulativeValues[dayIndex] += tokens;
+        return cumulativeValues[dayIndex];
+      });
+      const xPositions = days.length === 1 ? [0, TOKEN_CHART_WIDTH] : days.map(
+        (_, dayIndex) => (dayIndex / (days.length - 1)) * TOKEN_CHART_WIDTH,
+      );
+      const lowerPoints = xPositions.map((x, pointIndex) => ({
+        x,
+        y: TOKEN_CHART_TOP + (1 - (lowerValues[Math.min(pointIndex, lowerValues.length - 1)] / scaleMaximum))
+          * (TOKEN_CHART_BOTTOM - TOKEN_CHART_TOP),
+      }));
+      const upperPoints = xPositions.map((x, pointIndex) => ({
+        x,
+        y: TOKEN_CHART_TOP + (1 - (upperValues[Math.min(pointIndex, upperValues.length - 1)] / scaleMaximum))
+          * (TOKEN_CHART_BOTTOM - TOKEN_CHART_TOP),
+      }));
+      return {
+        ...model,
+        color: TOKEN_CHART_COLORS[modelIndex % TOKEN_CHART_COLORS.length],
+        path: `${drawCurve(upperPoints, 'M')} ${drawCurve(lowerPoints.toReversed(), 'L')} Z`,
+      };
+    });
+    const yTicks = scaleMaximum > 0
+      ? [scaleMaximum, scaleMaximum / 2, 0].map((value, index) => ({
+        value,
+        y: TOKEN_CHART_TOP + ((TOKEN_CHART_BOTTOM - TOKEN_CHART_TOP) * index) / 2,
+      }))
+      : [];
+    const tickCount = Math.min(6, days.length);
+    const dateTickIndexes = [...new Set(Array.from({ length: tickCount }, (_, index) => (
+      tickCount === 1 ? 0 : Math.round((index / (tickCount - 1)) * (days.length - 1))
+    )))];
+    const dateTicks = dateTickIndexes.map((dayIndex) => ({
+      align: dayIndex === 0 ? 'start' : dayIndex === days.length - 1 ? 'end' : 'center',
       date: days[dayIndex],
       label: dateLabel.format(days[dayIndex]),
       x: days.length === 1 ? 50 : (dayIndex / (days.length - 1)) * 100,
     }));
 
     return { dateTicks, maximum, series, yTicks };
-  }, [modelUsageGroups, modelsById, overview?.metrics.dailyTokens, range.from, range.to]);
+  }, [modelsById, overview?.metrics.dailyTokens, overview?.metrics.topModels, range.from, range.to]);
 
   return (
     <main className="orchestration-page">
@@ -371,6 +490,15 @@ export function OrchestrationPage({ models, onOpenThread }) {
                   {compactNumber.format(overview?.metrics.tokens ?? 0)}
                 </strong>
                 <small>{fullNumber.format(overview?.metrics.responses ?? 0)} model responses</small>
+                <div className="token-overview-cost">
+                  <span>API cost</span>
+                  <strong>
+                    {overview?.metrics.pricedResponses ? formatPrice(overview.metrics.cost) : '—'}
+                  </strong>
+                  <small>
+                    {fullNumber.format(overview?.metrics.pricedResponses ?? 0)} of {fullNumber.format(overview?.metrics.responses ?? 0)} responses priced
+                  </small>
+                </div>
               </div>
               <dl className="token-overview-metrics">
                 <div>
@@ -492,6 +620,85 @@ export function OrchestrationPage({ models, onOpenThread }) {
 
             {activeTab === 'models' && (
               <>
+                <div className="usage-breakdown-grid">
+                  <section className="orchestration-section usage-breakdown-section">
+                    <div className="orchestration-section-heading">
+                      <div>
+                        <span className="section-icon"><Layers3 size={16} /></span>
+                        <div className="daily-token-title">
+                          <h2>Usage Type</h2>
+                          <span>Consumption by inference type</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="usage-breakdown-list">
+                      {usageByType.map((usage) => (
+                        <div className="usage-breakdown-row" key={usage.id}>
+                          <div className="usage-breakdown-content">
+                            <div className="usage-breakdown-copy">
+                              <strong>{USAGE_TYPE_LABELS[usage.id] ?? usage.id}</strong>
+                              <span>{usage.responses} {usage.responses === 1 ? 'response' : 'responses'}</span>
+                            </div>
+                            <div className="usage-breakdown-value">
+                              <strong title={`${fullNumber.format(usage.tokens)} tokens`}>
+                                {compactNumber.format(usage.tokens)}
+                              </strong>
+                              <span>
+                                {overview?.metrics.tokens
+                                  ? `${((usage.tokens / overview.metrics.tokens) * 100).toFixed(1)}%`
+                                  : '0%'}
+                              </span>
+                            </div>
+                          </div>
+                          <span className="usage-breakdown-track" aria-hidden="true">
+                            <span style={{ width: `${maximumTypeUsage ? (usage.tokens / maximumTypeUsage) * 100 : 0}%` }} />
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="orchestration-section usage-breakdown-section">
+                    <div className="orchestration-section-heading">
+                      <div>
+                        <span className="section-icon"><FolderClock size={16} /></span>
+                        <div className="daily-token-title">
+                          <h2>Usage by project</h2>
+                          <span>Five most recently used folders</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="usage-breakdown-list">
+                      {usageByProject.length
+                        ? usageByProject.map((project) => (
+                          <div className="usage-breakdown-row" key={project.path}>
+                            <div className="usage-breakdown-content">
+                              <div className="usage-breakdown-copy">
+                                <strong title={project.displayPath}>{project.name}</strong>
+                                <span title={project.displayPath}>{project.displayPath}</span>
+                              </div>
+                              <div className="usage-breakdown-value">
+                                <strong title={`${fullNumber.format(project.tokens)} tokens`}>
+                                  {compactNumber.format(project.tokens)}
+                                </strong>
+                                <span>{project.responses} {project.responses === 1 ? 'response' : 'responses'}</span>
+                              </div>
+                            </div>
+                            <span className="usage-breakdown-track" aria-hidden="true">
+                              <span style={{ width: `${maximumProjectUsage ? (project.tokens / maximumProjectUsage) * 100 : 0}%` }} />
+                            </span>
+                          </div>
+                        ))
+                        : (
+                          <EmptyState
+                            icon={<FolderClock size={18} />}
+                            text={loading ? 'Loading projects...' : `No project usage during ${rangeCaption.toLowerCase()}.`}
+                          />
+                        )}
+                    </div>
+                  </section>
+                </div>
+
                 <section className="orchestration-section daily-token-section">
                   <div className="orchestration-section-heading daily-token-heading">
                     <div>
@@ -501,20 +708,6 @@ export function OrchestrationPage({ models, onOpenThread }) {
                         <span>Token volume by provider</span>
                       </div>
                     </div>
-                    {dailyTokenChart.series.length > 0 && (
-                      <div className="daily-token-legend" aria-label="Providers">
-                        {dailyTokenChart.series.map((provider) => (
-                          <span className="daily-token-legend-item" key={provider.id}>
-                            <i
-                              className="daily-token-legend-dot"
-                              style={{ '--chart-color': provider.color }}
-                              aria-hidden="true"
-                            />
-                            <span>{provider.name}</span>
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </div>
                   <div className="daily-token-chart">
                     {dailyTokenChart.maximum > 0
@@ -553,26 +746,22 @@ export function OrchestrationPage({ models, onOpenThread }) {
                                   />
                                 ))}
                               </g>
-                              {dailyTokenChart.series.map((provider) => (
-                                <g
-                                  className="daily-token-series"
-                                  key={provider.id}
-                                  style={{ '--chart-color': provider.color }}
-                                >
-                                  <polygon className="daily-token-area" points={provider.areaPoints} />
-                                  <polyline className="daily-token-line" points={provider.linePoints} />
-                                  {provider.points.map((point) => point.tokens > 0 && (
-                                    <circle
-                                      className="daily-token-point"
-                                      key={point.date}
-                                      cx={point.x}
-                                      cy={point.y}
-                                      r="3.5"
+                              {dailyTokenChart.bars.map((bar) => (
+                                <g className="daily-token-bar" key={bar.date}>
+                                  {bar.segments.map((segment) => (
+                                    <rect
+                                      fill={segment.color}
+                                      height={segment.height}
+                                      key={segment.id}
+                                      rx={segment.rounded ? 4 : 0}
+                                      width={dailyTokenChart.barWidth}
+                                      x={bar.x}
+                                      y={segment.y}
                                     >
                                       <title>
-                                        {provider.name} · {dateLabel.format(point.date)}: {fullNumber.format(point.tokens)} tokens
+                                        {dateLabel.format(bar.date)} · {segment.name}: {fullNumber.format(segment.tokens)} tokens
                                       </title>
-                                    </circle>
+                                    </rect>
                                   ))}
                                 </g>
                               ))}
@@ -588,6 +777,18 @@ export function OrchestrationPage({ models, onOpenThread }) {
                                 </span>
                               ))}
                             </div>
+                          </div>
+                          <div className="daily-token-legend" aria-label="Providers">
+                            {dailyTokenChart.series.map((provider) => (
+                              <span className="daily-token-legend-item" key={provider.id}>
+                                <i
+                                  className="daily-token-legend-dot"
+                                  style={{ '--chart-color': provider.color }}
+                                  aria-hidden="true"
+                                />
+                                <span>{provider.name}</span>
+                              </span>
+                            ))}
                           </div>
                         </div>
                       )
@@ -610,6 +811,74 @@ export function OrchestrationPage({ models, onOpenThread }) {
                       {overview?.metrics.modelsUsed ?? 0} models · {rangeCaption}
                     </span>
                   </div>
+                  {modelTokenChart.maximum > 0 && (
+                    <div
+                      className="model-token-chart"
+                      role="img"
+                      aria-label={`${rangeCaption} token usage by model. ${modelTokenChart.series
+                        .map((model) => `${model.name}: ${fullNumber.format(model.tokens)} tokens`)
+                        .join(', ')}`}
+                    >
+                      <div className="model-token-chart-layout">
+                        <div className="model-token-y-axis" aria-hidden="true">
+                          {modelTokenChart.yTicks.map((tick) => (
+                            <span
+                              key={tick.value}
+                              style={{ top: `${(tick.y / TOKEN_CHART_HEIGHT) * 100}%` }}
+                            >
+                              {compactNumber.format(tick.value)}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="model-token-plot">
+                          <svg
+                            viewBox={`0 0 ${TOKEN_CHART_WIDTH} ${TOKEN_CHART_HEIGHT}`}
+                            preserveAspectRatio="none"
+                            aria-hidden="true"
+                          >
+                            <g className="model-token-grid">
+                              {modelTokenChart.yTicks.map((tick) => (
+                                <line
+                                  key={tick.value}
+                                  x1="0"
+                                  x2={TOKEN_CHART_WIDTH}
+                                  y1={tick.y}
+                                  y2={tick.y}
+                                />
+                              ))}
+                            </g>
+                            {modelTokenChart.series.map((model) => (
+                              <path fill={model.color} d={model.path} key={model.id}>
+                                <title>{`${model.name}: ${fullNumber.format(model.tokens)} tokens`}</title>
+                              </path>
+                            ))}
+                          </svg>
+                          <div className="model-token-x-axis" aria-hidden="true">
+                            {modelTokenChart.dateTicks.map((tick) => (
+                              <span
+                                className={tick.align}
+                                key={tick.date}
+                                style={{ left: `${tick.x}%` }}
+                              >
+                                {tick.label}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="model-token-legend" aria-hidden="true">
+                          {modelTokenChart.series.map((model) => (
+                            <span className="model-token-legend-item" key={model.id}>
+                              <i
+                                className="model-token-legend-dot"
+                                style={{ '--chart-color': model.color }}
+                              />
+                              <span>{model.name}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div className="provider-usage-list">
                     {modelUsageGroups.length
                       ? modelUsageGroups.map((provider) => (
@@ -621,7 +890,9 @@ export function OrchestrationPage({ models, onOpenThread }) {
                               </span>
                               <div>
                                 <h3>{provider.name}</h3>
-                                <span>{provider.models.length} {provider.models.length === 1 ? 'model' : 'models'}</span>
+                                <span>
+                                  {provider.models.length} {provider.models.length === 1 ? 'model' : 'models'} · {provider.pricedResponses ? formatPrice(provider.cost) : 'cost unavailable'}
+                                </span>
                               </div>
                             </div>
                             <div className="provider-token-total">
@@ -647,7 +918,12 @@ export function OrchestrationPage({ models, onOpenThread }) {
                               <div className="provider-model-row" key={model.id}>
                                 <div className="provider-model-name">
                                   <strong>{model.name}</strong>
-                                  <span>{model.messages} {model.messages === 1 ? 'response' : 'responses'}</span>
+                                  <span>{model.messages} {model.messages === 1 ? 'response' : 'responses'} · {model.pricedMessages ? formatPrice(model.cost) : 'cost unavailable'}</span>
+                                  <span className="provider-model-pricing">
+                                    {model.pricing
+                                      ? `in ${formatPrice(model.pricing.inputPerMillionTokens)} · cache ${formatPrice(model.pricing.cachedInputPerMillionTokens)} · out ${formatPrice(model.pricing.outputPerMillionTokens)} / 1M`
+                                      : 'API pricing unavailable'}
+                                  </span>
                                 </div>
                                 <dl className="provider-model-metrics">
                                   <div>

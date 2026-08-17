@@ -244,7 +244,7 @@ try {
       capabilities: { images: false, audio: false, pdfFiles: false },
       requestAivax: async (path, options) => {
         mediaRequests.push({ path, options });
-        return [{ type: 'text', text: `Resolved ${options.body.input[0].type}` }];
+        return [{ textContent: `Resolved ${options.body.input[0].type}` }];
       },
       signal: new AbortController().signal,
     }), `Resolved ${fixture.type}`);
@@ -279,7 +279,7 @@ try {
     readMediaFile.execute({ path: mediaFixtures[0].path }, {
       aivax: { connected: true, mediaDescriptionsEnabled: true },
       capabilities: { images: false, audio: false, pdfFiles: false },
-      requestAivax: async () => [{ type: 'invalid', text: 'Not valid text content.' }],
+      requestAivax: async () => [{ type: 'invalid', textContent: null }],
     }),
     /invalid media description/,
   );

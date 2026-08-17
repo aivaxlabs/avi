@@ -23,9 +23,11 @@ try {
     getAivaxSettings,
     getConversation,
     getThreadSearchManifest,
+    insertInferenceUsage,
     insertMessage,
     listArchivedConversations,
     listConversations,
+    listInferenceUsage,
     listSideChats,
     listSubagents,
     restoreConversation,
@@ -71,6 +73,30 @@ try {
     deleteArchivedAfterDays: 30,
     deleteDisposableAfterDays: 1,
   }), /Archive settings are invalid/);
+
+  const usageCreatedAt = '2026-08-04T10:00:00.000Z';
+  insertInferenceUsage({
+    type: 'auxiliary',
+    model: 'test/auxiliary',
+    projectPath: process.cwd(),
+    usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14 },
+    createdAt: usageCreatedAt,
+  });
+  assert.deepEqual(
+    listInferenceUsage('2026-08-04T09:00:00.000Z', '2026-08-04T11:00:00.000Z')
+      .map(({ id, ...usage }) => usage),
+    [{
+      type: 'auxiliary',
+      model: 'test/auxiliary',
+      projectPath: resolve(process.cwd()),
+      usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14 },
+      createdAt: usageCreatedAt,
+    }],
+  );
+  assert.deepEqual(
+    listInferenceUsage('2026-08-04T11:00:00.000Z', '2026-08-04T12:00:00.000Z'),
+    [],
+  );
 
   const parent = createConversation({ model: 'test/model', projectPath: process.cwd() });
   insertMessage({

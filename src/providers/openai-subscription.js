@@ -249,7 +249,7 @@ function getOpenAiSubscriptionContributions({ provider, services }) {
     }],
     auxiliaryPanels: [{
       id: 'usage',
-      title: 'OpenAI usage',
+      title: `${provider.name} — OpenAI usage`,
       icon: 'gauge',
       load: () => readUsage(provider.id, services),
       invokeAction: (action, input) => invokeUsageAction(provider.id, action, input, services),

@@ -248,10 +248,10 @@ export const CLIENT_TOOLS = Object.freeze([
             signal,
           });
           const description = descriptions[0];
-          if (descriptions.length !== 1 || description?.type !== 'text' || typeof description.text !== 'string') {
+          if (descriptions.length !== 1 || typeof description?.textContent !== 'string') {
             throw new Error('AIVAX returned an invalid media description.');
           }
-          return description.text;
+          return description.textContent;
         }
       }
       if (attachment.kind === 'video_url') {

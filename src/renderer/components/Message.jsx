@@ -127,8 +127,7 @@ const MARKDOWN_PLUGINS = Object.freeze([
           const lineFrom = /^\d+$/.test(lineFromText) ? Number(lineFromText) : null;
           const lineTo = /^\d+$/.test(lineToText) ? Number(lineToText) : lineFrom;
           if (
-            !normalizedPath.startsWith('./')
-            || normalizedPath.split('/').includes('..')
+            (!normalizedPath.startsWith('./') && !normalizedPath.startsWith('../'))
             || (lineFromText && lineFrom === null)
             || (lineToText && lineTo === null)
             || (lineToText && lineFrom === null)
@@ -213,9 +212,19 @@ export function Message({
   showContinuations,
   canRetry,
   canResume,
+  editing = false,
+  onEdit,
+  editor = null,
 }) {
   if (message.role === 'user') {
-    return <UserMessage message={message} />;
+    return (
+      <UserMessage
+        message={message}
+        editing={editing}
+        onEdit={onEdit}
+        editor={editor}
+      />
+    );
   }
   const compression = message.role === 'system'
     ? message.segments.find((segment) => segment.type === 'context-compression')
@@ -318,7 +327,7 @@ function AttachmentLightbox({ attachment, onClose }) {
   );
 }
 
-function UserMessage({ message }) {
+function UserMessage({ message, editing, onEdit, editor }) {
   const [lightboxAttachment, setLightboxAttachment] = useState(null);
   const visibleAttachments = message.attachments;
   const content = (message.content ?? '').trim();
@@ -374,6 +383,14 @@ function UserMessage({ message }) {
 
   const hasBubble = Boolean(message.content) || message.status === 'waiting_mcp';
 
+  if (editing) {
+    return (
+      <article className="message-row user-row editing">
+        {editor}
+      </article>
+    );
+  }
+
   return (
     <article className="message-row user-row">
       <div className="user-message-content">
@@ -427,10 +444,29 @@ function UserMessage({ message }) {
             ))}
           </div>
         )}
+        <div className="user-message-actions">
+          {!message.fromAgent && onEdit && (
+            <button
+              className="user-message-action"
+              type="button"
+              aria-label="Edit message"
+              title="Edit"
+              onClick={onEdit}
+            >
+              <FilePenLine size={14} />
+            </button>
+          )}
+          <button
+            className="user-message-action"
+            type="button"
+            aria-label="Copy message"
+            title="Copy"
+            onClick={() => copyText(message.content)}
+          >
+            <Copy size={14} />
+          </button>
+        </div>
       </div>
-      <button className="user-copy-float" type="button" aria-label="Copy message" onClick={() => copyText(message.content)}>
-        <Copy size={14} />
-      </button>
       {lightboxAttachment && (
         <AttachmentLightbox
           attachment={lightboxAttachment}

@@ -766,8 +766,14 @@ export default function App() {
   }
 
   function openFileReference(reference) {
+    const outsideWorkspace = reference.path.replaceAll('\\', '/').split('/').includes('..');
+    if (
+      outsideWorkspace
+      && !window.confirm(`"${reference.path}" is outside the current repository. Continue to open it?`)
+    ) return;
     setFileNavigation({
       ...reference,
+      allowExternalReference: outsideWorkspace,
       id: crypto.randomUUID(),
     });
     setFilesTabOpen(true);
@@ -778,10 +784,16 @@ export default function App() {
 
   async function handleFileReferenceAction(action, reference, project = currentProject) {
     if (!project?.path) return;
+    const outsideWorkspace = reference.path.replaceAll('\\', '/').split('/').includes('..');
+    if (
+      outsideWorkspace
+      && !window.confirm(`"${reference.path}" is outside the current repository. Continue?`)
+    ) return;
     try {
       await api.files[action === 'reveal' ? 'reveal' : 'copyPath']({
         folderPath: project.path,
         filePath: reference.path,
+        allowExternalReference: outsideWorkspace,
       });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -1403,6 +1415,39 @@ export default function App() {
   }
 
   const chatOnSend = useStableCallback(sendMessage);
+  const chatOnReplaceUserMessage = useStableCallback(async (messageId, payload) => {
+    if (!selectedId) return;
+    try {
+      const result = await api.chat.replaceUserMessage({
+        conversationId: selectedId,
+        messageId,
+        model: payload.model,
+        text: payload.text,
+        attachments: payload.attachments,
+        reasoningEffort: payload.reasoningEffort,
+        permissionMode: payload.permissionMode,
+        workMode: payload.workMode,
+        ultraMode: payload.ultraMode,
+      });
+      setConversations((state) => (
+        upsertById(state, result.conversation).sort(sortByUpdatedAt)
+      ));
+      setMessagesByConversation((state) => ({
+        ...state,
+        [result.conversation.id]: upsertMessage(
+          state[result.conversation.id] ?? [],
+          result.message,
+        ),
+      }));
+      setRunning((state) => ({
+        ...state,
+        [result.conversation.id]: !result.queued,
+      }));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      throw nextError;
+    }
+  });
   const chatOnImplementPlan = useStableCallback(implementPlan);
   const chatOnAnswerQuestion = useStableCallback(resolveQuestionRequest);
   const chatOnStop = useStableCallback(stopConversation);
@@ -1755,6 +1800,7 @@ export default function App() {
               models={models}
               favorites={favorites}
               onSend={chatOnSend}
+              onReplaceUserMessage={chatOnReplaceUserMessage}
               onExpandPrompt={async (payload) => {
                 try {
                   return await api.chat.expandPrompt(payload);

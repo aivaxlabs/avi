@@ -60,6 +60,7 @@ import {
   listArchivedConversations,
   listConversations,
   listFavorites,
+  listInferenceUsage,
   listProviders,
   listSideChats,
   listSubagents,
@@ -107,6 +108,7 @@ import {
   reviewGitWorkspace,
 } from './git-review.js';
 import { ModelProviderRegistry } from './model-provider.js';
+import { rankAivaxPricingModels } from './model-pricing.js';
 import { McpManager } from './mcp-manager.js';
 import { PluginManager } from './plugin-manager.js';
 import { RemoteMcpServer } from './remote-mcp-server.js';
@@ -167,6 +169,9 @@ let shutdownReady = false;
 let isQuitting = false;
 let lastCpuUsage = process.cpuUsage();
 let resourceSnapshotInterval;
+let aivaxModelCatalog = [];
+let aivaxModelCatalogExpiresAt = 0;
+let aivaxModelCatalogRequest = null;
 let threadSearchSyncInterval;
 let threadSearchSyncPromise = null;
 const ipcHandlers = new Map();
@@ -1202,11 +1207,38 @@ function registerIpc() {
       return runChatSearch(query);
     }
   });
-  applicationIpc.handle('orchestration:overview', (_event, range = {}) => {
-    const conversations = listAllConversations()
+  applicationIpc.handle('orchestration:overview', async (_event, range = {}) => {
+    if (Date.now() >= aivaxModelCatalogExpiresAt) {
+      aivaxModelCatalogRequest ??= requestAivax('/api/v1/information/models.json', {
+        accessToken: null,
+        responseType: 'array',
+      })
+        .then((providers) => {
+          aivaxModelCatalog = providers.flatMap((provider) => (
+            Array.isArray(provider?.models) ? provider.models : []
+          ));
+          aivaxModelCatalogExpiresAt = Date.now() + 6 * 60 * 60_000;
+        })
+        .catch((error) => {
+          traceError('orchestration.model-pricing-error', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          aivaxModelCatalogRequest = null;
+        });
+      await aivaxModelCatalogRequest;
+    }
+
+    const configuredModels = new Map(
+      providerRegistry.listModels().map((model) => [model.id, model]),
+    );
+    const allConversations = listAllConversations();
+    const conversations = allConversations
       .filter((conversation) => conversation.conversationType === 'thread');
     const now = Date.now();
     const defaultFrom = new Date();
+    defaultFrom.setDate(1);
     defaultFrom.setHours(0, 0, 0, 0);
     const requestedFrom = new Date(range.from).getTime();
     const requestedTo = new Date(range.to).getTime();
@@ -1239,25 +1271,102 @@ function registerIpc() {
         requiresAttention,
       };
     });
-    const messagesInRange = tasks.flatMap((task) => (
-      task.messages
-        .filter((message) => isInRange(message.createdAt))
-        .map((message) => ({ ...message, conversationModel: task.model }))
-    ));
-    const assistantMessages = messagesInRange.filter((message) => message.role === 'assistant');
-    const modelUsage = new Map();
-    const dailyModelUsage = new Map();
+    const projectDetails = new Map(allConversations.map((conversation) => [
+      conversation.projectPath,
+      {
+        path: conversation.projectPath,
+        name: conversation.projectName,
+        displayPath: conversation.projectDisplayPath,
+      },
+    ]));
+    const inferenceRecords = [];
+    for (const conversation of allConversations) {
+      for (const message of getMessages(conversation.id)) {
+        if (message.hidden || message.role !== 'assistant' || !isInRange(message.createdAt)) {
+          continue;
+        }
+        inferenceRecords.push({
+          type: conversation.isSubagent ? 'subagent' : 'inference',
+          model: message.model || conversation.model || 'Unknown model',
+          projectPath: conversation.projectPath,
+          project: projectDetails.get(conversation.projectPath),
+          usage: message.usage,
+          createdAt: message.createdAt,
+        });
+      }
+    }
+    for (const inference of listInferenceUsage(
+      new Date(from).toISOString(),
+      new Date(to).toISOString(),
+    )) {
+      const project = projectDetails.get(inference.projectPath) ?? {
+        path: inference.projectPath,
+        name: inference.projectPath ? basename(inference.projectPath) : 'Unknown project',
+        displayPath: inference.projectPath ?? 'Unknown project',
+      };
+      inferenceRecords.push({ ...inference, project });
+    }
 
-    for (const message of assistantMessages) {
-      const model = message.model || message.conversationModel || 'Unknown model';
-      const inputTokens = Number(message.usage?.inputTokens) || 0;
-      const cachedInputTokens = Number(message.usage?.cachedInputTokens) || 0;
-      const outputTokens = Number(message.usage?.outputTokens) || 0;
-      const reasoningTokens = Number(message.usage?.reasoningTokens) || 0;
-      const totalTokens = Number(message.usage?.totalTokens) || inputTokens + outputTokens;
+    const modelUsage = new Map();
+    const pricingModels = new Map();
+    const dailyModelUsage = new Map();
+    const usageByType = new Map([
+      ['subagent', { id: 'subagent', responses: 0, tokens: 0 }],
+      ['inference', { id: 'inference', responses: 0, tokens: 0 }],
+      ['auxiliary', { id: 'auxiliary', responses: 0, tokens: 0 }],
+      ['supervision', { id: 'supervision', responses: 0, tokens: 0 }],
+    ]);
+    const usageByProject = new Map();
+
+    for (const record of inferenceRecords) {
+      const model = record.model;
+      const inputTokens = Number(record.usage?.inputTokens) || 0;
+      const cachedInputTokens = Number(record.usage?.cachedInputTokens) || 0;
+      const outputTokens = Number(record.usage?.outputTokens) || 0;
+      const reasoningTokens = Number(record.usage?.reasoningTokens) || 0;
+      const totalTokens = Number(record.usage?.totalTokens) || inputTokens + outputTokens;
+      const configuredModel = configuredModels.get(model);
+      const catalogModelId = configuredModel?.modelId ?? model;
+      if (!pricingModels.has(model)) {
+        pricingModels.set(model, rankAivaxPricingModels(
+          catalogModelId,
+          aivaxModelCatalog,
+          configuredModel?.providerId,
+        )[0] ?? null);
+      }
+      const pricedModel = pricingModels.get(model);
+      const pricingTiers = Array.isArray(pricedModel?.pricing)
+        ? [...pricedModel.pricing].sort(
+          (left, right) => Number(right.tokenThreshold || 0) - Number(left.tokenThreshold || 0),
+        )
+        : [];
+      const appliedPricing = pricingTiers.find(
+        (pricing) => inputTokens >= Number(pricing.tokenThreshold || 0),
+      ) ?? null;
+      const inputRate = Number(appliedPricing?.inputPerMillionTokens);
+      const cachedInputRate = Number(appliedPricing?.cachedInputPerMillionTokens);
+      const outputRate = Number(appliedPricing?.outputPerMillionTokens);
+      const hasPricing = Number.isFinite(inputRate)
+        && Number.isFinite(cachedInputRate)
+        && Number.isFinite(outputRate);
+      const recordCost = hasPricing
+        ? (
+          Math.max(0, inputTokens - cachedInputTokens) * inputRate
+          + cachedInputTokens * cachedInputRate
+          + outputTokens * outputRate
+        ) / 1_000_000
+        : 0;
+      const displayPricing = pricingTiers.at(-1) ?? null;
       const usage = modelUsage.get(model) ?? {
         id: model,
         messages: 0,
+        pricedMessages: 0,
+        cost: 0,
+        pricing: displayPricing && {
+          inputPerMillionTokens: Number(displayPricing.inputPerMillionTokens),
+          cachedInputPerMillionTokens: Number(displayPricing.cachedInputPerMillionTokens),
+          outputPerMillionTokens: Number(displayPricing.outputPerMillionTokens),
+        },
         inputTokens: 0,
         cachedInputTokens: 0,
         outputTokens: 0,
@@ -1267,18 +1376,42 @@ function registerIpc() {
         tokens: 0,
       };
       usage.messages += 1;
+      usage.pricedMessages += hasPricing ? 1 : 0;
+      usage.cost += recordCost;
       usage.inputTokens += inputTokens;
       usage.cachedInputTokens += cachedInputTokens;
       usage.outputTokens += outputTokens;
       usage.reasoningTokens += reasoningTokens;
-      if (Number.isFinite(message.usage?.durationMs)) {
-        usage.durationMs += message.usage.durationMs;
+      if (Number.isFinite(record.usage?.durationMs)) {
+        usage.durationMs += record.usage.durationMs;
         usage.timedMessages += 1;
       }
       usage.tokens += totalTokens;
       modelUsage.set(model, usage);
 
-      const createdAt = new Date(message.createdAt);
+      const typeUsage = usageByType.get(record.type);
+      if (typeUsage) {
+        typeUsage.responses += 1;
+        typeUsage.tokens += totalTokens;
+      }
+
+      if (record.projectPath) {
+        const projectUsage = usageByProject.get(record.projectPath) ?? {
+          ...record.project,
+          responses: 0,
+          tokens: 0,
+          latestAt: 0,
+        };
+        projectUsage.responses += 1;
+        projectUsage.tokens += totalTokens;
+        projectUsage.latestAt = Math.max(
+          projectUsage.latestAt,
+          new Date(record.createdAt).getTime() || 0,
+        );
+        usageByProject.set(record.projectPath, projectUsage);
+      }
+
+      const createdAt = new Date(record.createdAt);
       const day = new Date(
         createdAt.getFullYear(),
         createdAt.getMonth(),
@@ -1293,7 +1426,7 @@ function registerIpc() {
 
     return {
       metrics: {
-        responses: assistantMessages.length,
+        responses: inferenceRecords.length,
         modelsUsed: modelUsage.size,
         tokens: [...modelUsage.values()].reduce((total, usage) => total + usage.tokens, 0),
         inputTokens: [...modelUsage.values()].reduce((total, usage) => total + usage.inputTokens, 0),
@@ -1302,6 +1435,9 @@ function registerIpc() {
         outputTokens: [...modelUsage.values()].reduce((total, usage) => total + usage.outputTokens, 0),
         reasoningTokens: [...modelUsage.values()]
           .reduce((total, usage) => total + usage.reasoningTokens, 0),
+        cost: [...modelUsage.values()].reduce((total, usage) => total + usage.cost, 0),
+        pricedResponses: [...modelUsage.values()]
+          .reduce((total, usage) => total + usage.pricedMessages, 0),
         topModels: [...modelUsage.values()]
           .sort((a, b) => b.tokens - a.tokens || b.messages - a.messages),
         dailyTokens: [...dailyModelUsage.entries()]
@@ -1310,6 +1446,10 @@ function registerIpc() {
             date,
             models: [...modelsForDay.values()].sort((a, b) => b.tokens - a.tokens),
           })),
+        usageByType: [...usageByType.values()],
+        usageByProject: [...usageByProject.values()]
+          .sort((a, b) => b.latestAt - a.latestAt)
+          .slice(0, 5),
       },
       ongoing: tasks
         .filter((task) => task.ongoing)
@@ -1633,6 +1773,13 @@ function registerIpc() {
       conversation: refreshConversationProject(result.conversation),
     };
   });
+  applicationIpc.handle('chat:replace-user-message', async (_event, payload) => {
+    const result = await chatRunner.replaceUserMessage(payload);
+    return {
+      ...result,
+      conversation: refreshConversationProject(result.conversation),
+    };
+  });
   applicationIpc.handle('chat:retry', (_event, payload) => chatRunner.retry(payload));
   applicationIpc.handle('chat:expand-prompt', (_event, payload) => chatRunner.expandPrompt(payload));
   applicationIpc.handle('chat:resolve-approval', async (_event, payload) => {
@@ -1727,7 +1874,9 @@ function registerIpc() {
     listWorkspaceDirectory(payload.folderPath, payload.directoryPath)
   ));
   applicationIpc.handle('files:read', (_event, payload = {}) => (
-    readWorkspaceFile(payload.folderPath, payload.filePath)
+    readWorkspaceFile(payload.folderPath, payload.filePath, {
+      allowExternalReference: payload.allowExternalReference === true,
+    })
   ));
   applicationIpc.handle('files:diff', (_event, payload = {}) => (
     readWorkspaceFileDiff(payload.folderPath, payload.filePath)
@@ -1739,7 +1888,10 @@ function registerIpc() {
     const filePath = resolveWorkspacePath(
       payload.folderPath,
       payload.filePath,
-      { allowExternalSymlinks: true },
+      {
+        allowExternalSymlinks: true,
+        allowOutsideRoot: payload.allowExternalReference === true,
+      },
     );
     const error = await shell.openPath(filePath);
     if (error) throw new Error(`Could not open "${payload.filePath}": ${error}`);
@@ -1749,7 +1901,10 @@ function registerIpc() {
     shell.showItemInFolder(resolveWorkspacePath(
       payload.folderPath,
       payload.filePath,
-      { allowExternalSymlinks: true },
+      {
+        allowExternalSymlinks: true,
+        allowOutsideRoot: payload.allowExternalReference === true,
+      },
     ));
     return true;
   });
@@ -1757,7 +1912,10 @@ function registerIpc() {
     clipboard.writeText(resolveWorkspacePath(
       payload.folderPath,
       payload.filePath,
-      { allowExternalSymlinks: true },
+      {
+        allowExternalSymlinks: true,
+        allowOutsideRoot: payload.allowExternalReference === true,
+      },
     ));
     return true;
   });

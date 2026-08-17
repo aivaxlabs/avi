@@ -52,7 +52,9 @@ export class ModelProvider {
 
     return {
       models: Array.isArray(contributions?.models) ? contributions.models : [],
-      tools: Array.isArray(contributions?.tools) ? contributions.tools : [],
+      tools: Array.isArray(contributions?.tools)
+        ? [...new Map(contributions.tools.map((tool) => [tool?.name, tool])).values()]
+        : [],
       auxiliaryPanels: Array.isArray(contributions?.auxiliaryPanels)
         ? contributions.auxiliaryPanels
         : [],

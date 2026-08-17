@@ -481,9 +481,16 @@ export async function readWorkspaceFileDiff(folderPath, filePath) {
   };
 }
 
-export async function readWorkspaceFile(folderPath, filePath) {
+export async function readWorkspaceFile(
+  folderPath,
+  filePath,
+  { allowExternalReference = false } = {},
+) {
   const root = resolve(folderPath);
-  const targetPath = resolveWorkspacePath(root, filePath, { allowExternalSymlinks: true });
+  const targetPath = resolveWorkspacePath(root, filePath, {
+    allowExternalSymlinks: true,
+    allowOutsideRoot: allowExternalReference,
+  });
   const fileStat = await stat(targetPath);
   if (!fileStat.isFile()) throw new Error(`"${filePath}" is not a regular file.`);
 
@@ -518,15 +525,21 @@ export async function readWorkspaceFile(folderPath, filePath) {
 export function resolveWorkspacePath(
   folderPath,
   targetPath = '',
-  { allowExternalSymlinks = false } = {},
+  { allowExternalSymlinks = false, allowOutsideRoot = false } = {},
 ) {
   const root = resolve(folderPath);
   const path = resolve(root, targetPath);
   const relativePath = relative(root, path);
   if (
-    relativePath === '..'
-    || relativePath.startsWith(`..${sep}`)
-    || isAbsolute(relativePath)
+    isAbsolute(targetPath)
+    || (
+      !allowOutsideRoot
+      && (
+        relativePath === '..'
+        || relativePath.startsWith(`..${sep}`)
+        || isAbsolute(relativePath)
+      )
+    )
   ) {
     throw new Error(`"${targetPath}" is outside the current directory.`);
   }
@@ -535,6 +548,7 @@ export function resolveWorkspacePath(
   const realRelativePath = relative(realRoot, realPath);
   if (
     !allowExternalSymlinks
+    && !allowOutsideRoot
     && (
       realRelativePath === '..'
       || realRelativePath.startsWith(`..${sep}`)

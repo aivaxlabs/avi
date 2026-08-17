@@ -340,6 +340,15 @@ db.exec(`
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS inference_usage (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    model TEXT NOT NULL,
+    project_path TEXT,
+    usage TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS goals (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
@@ -374,6 +383,8 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
     ON messages(conversation_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_inference_usage_created
+    ON inference_usage(created_at);
 
   CREATE INDEX IF NOT EXISTS idx_goals_conversation_started
     ON goals(conversation_id, started_at DESC);
@@ -880,6 +891,33 @@ const statements = {
     WHERE id = @id
   `),
   deleteMessage: db.prepare('DELETE FROM messages WHERE id = ?'),
+  listMessagesFrom: db.prepare(`
+    SELECT id FROM messages
+    WHERE conversation_id = ?
+      AND rowid >= (
+        SELECT rowid FROM messages WHERE id = ? AND conversation_id = ?
+      )
+    ORDER BY rowid ASC
+  `),
+  clearCheckpointFrom: db.prepare(`
+    UPDATE conversations
+    SET context_checkpoint = '', checkpoint_message_id = NULL, context_tokens = 0
+    WHERE id = ?
+      AND checkpoint_message_id IN (
+        SELECT id FROM messages
+        WHERE conversation_id = ?
+          AND rowid >= (
+            SELECT rowid FROM messages WHERE id = ? AND conversation_id = ?
+          )
+      )
+  `),
+  deleteMessagesFrom: db.prepare(`
+    DELETE FROM messages
+    WHERE conversation_id = ?
+      AND rowid >= (
+        SELECT rowid FROM messages WHERE id = ? AND conversation_id = ?
+      )
+  `),
   updateQueuePosition: db.prepare(`
     UPDATE messages
     SET queue_position = ?, updated_at = ?
@@ -891,6 +929,15 @@ const statements = {
     ORDER BY created_at ASC
   `),
   getMessage: db.prepare('SELECT * FROM messages WHERE id = ?'),
+  insertInferenceUsage: db.prepare(`
+    INSERT INTO inference_usage (id, type, model, project_path, usage, created_at)
+    VALUES (@id, @type, @model, @projectPath, @usage, @createdAt)
+  `),
+  listInferenceUsage: db.prepare(`
+    SELECT * FROM inference_usage
+    WHERE created_at >= ? AND created_at <= ?
+    ORDER BY created_at ASC
+  `),
   listFavorites: db.prepare('SELECT model_id FROM model_favorites ORDER BY created_at DESC'),
   addFavorite: db.prepare('INSERT OR IGNORE INTO model_favorites (model_id, created_at) VALUES (?, ?)'),
   removeFavorite: db.prepare('DELETE FROM model_favorites WHERE model_id = ?'),
@@ -1425,6 +1472,28 @@ export function getArchiveStats() {
   };
 }
 
+export function insertInferenceUsage({ type, model, projectPath = null, usage, createdAt = timestamp() }) {
+  statements.insertInferenceUsage.run({
+    id: crypto.randomUUID(),
+    type,
+    model,
+    projectPath: projectPath ? resolve(projectPath) : null,
+    usage: stringify(usage ?? {}),
+    createdAt,
+  });
+}
+
+export function listInferenceUsage(from, to) {
+  return statements.listInferenceUsage.all(from, to).map((row) => ({
+    id: row.id,
+    type: row.type,
+    model: row.model,
+    projectPath: row.project_path ? resolve(row.project_path) : null,
+    usage: parse(row.usage, {}),
+    createdAt: row.created_at,
+  }));
+}
+
 export function insertMessage(message) {
   const now = timestamp();
   const row = {
@@ -1521,6 +1590,34 @@ export function deleteMessage(id) {
     touchConversation(message.conversationId);
   }
   return message;
+}
+
+export function deleteMessagesFrom(conversationId, messageId) {
+  const messageIds = statements.listMessagesFrom
+    .all(conversationId, messageId, conversationId)
+    .map((row) => row.id);
+  if (messageIds.length === 0) return [];
+
+  db.exec('BEGIN');
+  try {
+    statements.clearCheckpointFrom.run(
+      conversationId,
+      conversationId,
+      messageId,
+      conversationId,
+    );
+    statements.deleteMessagesFrom.run(conversationId, messageId, conversationId);
+    touchConversation(conversationId);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    traceError('database.transaction-error', {
+      operation: 'delete-messages-from',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+  return messageIds;
 }
 
 export function getMessages(conversationId) {

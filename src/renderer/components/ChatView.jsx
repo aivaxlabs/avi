@@ -121,6 +121,7 @@ export const ChatView = memo(function ChatView({
   onCancelSemaphore,
   semaphoreResolving = false,
   onSend,
+  onReplaceUserMessage,
   onExpandPrompt,
   onStop,
   onCompress,
@@ -188,6 +189,7 @@ export const ChatView = memo(function ChatView({
   const [questionCustomAnswers, setQuestionCustomAnswers] = useState([]);
   const [questionCustomActive, setQuestionCustomActive] = useState([]);
   const [questionResolving, setQuestionResolving] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState(null);
   const modelName = getModelDisplayName(models, currentModel);
   const semaphoreCardTitleId = `semaphore-card-title-${currentConversation?.id ?? 'draft'}`;
   const pendingMessages = currentMessages
@@ -781,6 +783,56 @@ export const ChatView = memo(function ChatView({
                 <Message
                   key={message.id}
                   message={message}
+                  editing={message.id === editingMessageId}
+                  onEdit={onReplaceUserMessage
+                    ? () => setEditingMessageId(message.id)
+                    : undefined}
+                  editor={message.id === editingMessageId ? (
+                    <Composer
+                      key={`edit-${message.id}`}
+                      conversationId={currentConversation?.id}
+                      isRunning={isRunning}
+                      onSend={async (payload) => {
+                        await onReplaceUserMessage(message.id, payload);
+                        setEditingMessageId(null);
+                      }}
+                      onExpandPrompt={onExpandPrompt}
+                      onStop={onStop}
+                      onCompress={onCompress}
+                      models={models}
+                      favorites={favorites}
+                      recentModels={recentModels}
+                      recentProjects={recentProjects}
+                      currentModel={message.model || currentModel}
+                      modelName={getModelDisplayName(models, message.model || currentModel)}
+                      contextUsage={contextUsage}
+                      onChooseModel={() => {}}
+                      project={currentProject}
+                      projectLocked
+                      onChooseProject={onChooseProject}
+                      onUseHome={onUseHome}
+                      onToggleFavorite={onToggleFavorite}
+                      workMode={message.workMode}
+                      onWorkModeChange={() => true}
+                      ultraMode={message.ultraMode}
+                      onUltraModeChange={() => true}
+                      messageDeliveryMode={messageDeliveryMode}
+                      defaultPermissionMode={message.permissionMode || defaultPermissionMode}
+                      initialState={{
+                        text: message.content,
+                        attachments: message.attachments,
+                        model: message.model || currentModel,
+                        reasoningEffort: message.reasoningEffort,
+                        permissionMode: message.permissionMode || defaultPermissionMode,
+                        workMode: message.workMode,
+                        ultraMode: message.ultraMode,
+                      }}
+                      persistState={false}
+                      inline
+                      autoFocus
+                      onCancel={() => setEditingMessageId(null)}
+                    />
+                  ) : null}
                   workedMessages={workedMessages}
                   workedStartedAt={workedStartedAt}
                   modelName={getModelDisplayName(

@@ -57,6 +57,10 @@ assert.equal(surroundingText.match(/class="file-reference-link"/g)?.length, 2);
 assert.match(surroundingText, /Compare /);
 assert.match(surroundingText, / with /);
 
+const external = renderReference('<fileref path="../LightJson/Sources/LightJson/Schema/JsonSchemaLoader.cs" line-from="158" line-to="181" />');
+assert.match(external, /class="file-reference-link"/);
+assert.match(external, /title="Open \.\.\/LightJson\/Sources\/LightJson\/Schema\/JsonSchemaLoader\.cs at lines 158 to 181"/);
+
 const legacy = renderReference('#file:./docs/AIVAX Features.md:23-29');
 assert.doesNotMatch(legacy, /file-reference-link/);
 assert.match(legacy, /#file:\.\/docs\/AIVAX Features\.md:23-29/);
@@ -66,9 +70,7 @@ for (const invalid of [
   '<fileref path="./file.js" line-from="0" />',
   '<fileref path="./file.js" line-from="3" line-to="2" />',
   '<fileref path="./file.js" line-to="2" />',
-  '<fileref path="../outside.js" line-from="1" />',
   '<fileref path="C:\\outside.js" line-from="1" />',
-  '<fileref path="./nested/../../outside.js" line-from="1" />',
 ]) {
   assert.doesNotMatch(renderReference(invalid), /file-reference-link/);
 }

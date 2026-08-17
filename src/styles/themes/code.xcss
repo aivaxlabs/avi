@@ -101,7 +101,7 @@
   .icon-button,
   .round-button,
   .recent-filter-button,
-  .user-copy-float,
+  .user-message-action,
   .favorite-button,
   .sidebar-toggle,
   .attachment-chip button {

@@ -18,15 +18,9 @@
   justify-content: flex-end;
   align-items: start;
   gap: 8px;
-  padding-right: 0;
-  transition: .3s --base-transition;
 
-  & :hover {
-    padding-right: 30px;
-
-    .user-message-content {
-      max-width: min(650px, 78%);
-    }
+  &.editing {
+    width: 100%;
   }
 }
 
@@ -1272,36 +1266,43 @@
   transform: translateY(0);
 }
 
-.user-copy-float {
-  position: absolute;
-  right: 2px;
-  top: 18px;
-  width: 22px;
-  height: 22px;
+.user-message-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s var(--base-transition);
+}
+
+.user-message-action {
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
   padding: 0;
   color: var(--text-3);
   background: transparent;
   border: 0;
-  opacity: 0;
-  pointer-events: none;
-  transition: .3s --base-transition;
-  transform: translateX(-2px);
+
+  &:hover,
+  &:focus-visible {
+    color: var(--text-1);
+    background: var(--item-hover);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .subagent-report-header > button {
+  .subagent-report-header > button,
+  .user-message-actions {
     transition: none;
   }
 }
 
-.user-row:hover .user-copy-float,
-.user-row:focus-within .user-copy-float,
-.user-copy-float:hover {
+.user-row:hover .user-message-actions,
+.user-row:focus-within .user-message-actions {
   opacity: 1;
   pointer-events: auto;
-  transform: translateX(0);
 }
 
 .continuations {

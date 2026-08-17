@@ -470,6 +470,92 @@ try {
     'queued',
   );
 
+  const replacementEvents = [];
+  const replacementRequests = [];
+  const replacementSignals = [];
+  const replacementRunner = buildRunner({
+    getContributions: () => ({ tools: [] }),
+    stream: ({ signal, messages }) => {
+      replacementSignals.push(signal);
+      replacementRequests.push(messages);
+      if (replacementRequests.length > 1) {
+        return Promise.resolve({
+          assistantContent: 'Replacement answer',
+          toolCalls: [],
+        });
+      }
+      return new Promise((_resolveStream, rejectStream) => {
+        signal.addEventListener('abort', () => {
+          const error = new Error('Aborted');
+          error.name = 'AbortError';
+          rejectStream(error);
+        }, { once: true });
+      });
+    },
+  }, [], replacementEvents);
+  const replacementConversation = createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  const originalReplacement = await replacementRunner.send({
+    conversationId: replacementConversation.id,
+    model: model.id,
+    text: 'Original editable prompt',
+  });
+  await waitFor(() => replacementSignals.length === 1);
+  await replacementRunner.send({
+    conversationId: replacementConversation.id,
+    model: model.id,
+    text: 'Queued tail',
+  });
+  await replacementRunner.send({
+    conversationId: replacementConversation.id,
+    model: model.id,
+    text: 'Steered tail',
+    steer: true,
+  });
+  const replaced = await replacementRunner.replaceUserMessage({
+    conversationId: replacementConversation.id,
+    messageId: originalReplacement.message.id,
+    model: model.id,
+    text: 'Edited prompt',
+    attachments: [],
+    reasoningEffort: null,
+    permissionMode: 'full_access',
+    workMode: 'plan',
+    ultraMode: false,
+  });
+  assert.equal(replacementSignals[0].aborted, true);
+  assert.equal(replaced.queued, false);
+  await waitFor(() => !replacementRunner.runs.has(replacementConversation.id));
+  assert.deepEqual(
+    replacementRequests[1]
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content),
+    ['Edited prompt'],
+  );
+  assert.deepEqual(
+    getMessages(replacementConversation.id).map((message) => (
+      message.role === 'user' ? message.content : message.status
+    )),
+    ['Edited prompt', 'completed'],
+  );
+  assert.equal(replacementRunner.pausedQueues.has(replacementConversation.id), false);
+  assert.equal(
+    replacementEvents.filter((event) => event.type === 'message-delete').length,
+    4,
+  );
+  assert.deepEqual(
+    replacementEvents.findLast((event) => event.type === 'queue-order'),
+    {
+      type: 'queue-order',
+      steerMessageIds: [],
+      queuedMessageIds: [],
+      messageIds: [],
+      conversationId: replacementConversation.id,
+    },
+  );
+
   if (!queueSteerOnly) {
     let finishFirstTool;
   let finishSecondTool;

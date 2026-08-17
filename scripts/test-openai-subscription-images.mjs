@@ -65,8 +65,44 @@ try {
     interface: 'openai-subscription',
   });
   assert.equal(legacyConfig.imageTool, 'enabled');
+  const legacyProvider = registry.createProvider(legacyConfig);
+  assert.equal(legacyProvider.getContributions().tools.length, 1);
+  assert.deepEqual(
+    legacyProvider.getContributions().auxiliaryPanels.map(({ id, title, icon }) => ({
+      id,
+      title,
+      icon,
+    })),
+    [{
+      id: 'usage',
+      title: 'OpenAI Subscription — OpenAI usage',
+      icon: 'gauge',
+    }],
+  );
+
+  const duplicateToolProviderType = {
+    ...openAiSubscriptionProviderType,
+    descriptor: {
+      ...openAiSubscriptionProviderType.descriptor,
+      id: 'duplicate-tool-provider',
+    },
+    getContributions: () => ({
+      tools: [{ name: 'duplicate_tool' }, { name: 'duplicate_tool' }],
+    }),
+  };
+  const duplicateToolRegistry = new ModelProviderRegistry({
+    getProviders: () => [],
+    providerTypes: [duplicateToolProviderType],
+    services,
+  });
   assert.equal(
-    registry.createProvider(legacyConfig).getContributions().tools.length,
+    duplicateToolRegistry.createProvider({
+      id: 'duplicate-tools',
+      name: 'Duplicate tools',
+      interface: 'duplicate-tool-provider',
+      enabled: true,
+      models: [],
+    }).getContributions().tools.length,
     1,
   );
 

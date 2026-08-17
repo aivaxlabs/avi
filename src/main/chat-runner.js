@@ -11,6 +11,7 @@ import {
 } from '../shared/textual-blocks.js';
 import {
   deleteMessage,
+  deleteMessagesFrom,
   ensureConversation,
   getConversation,
   getGoal,
@@ -19,6 +20,7 @@ import {
   getMessages,
   getPreferences as readPreferences,
   insertGoal,
+  insertInferenceUsage,
   insertMessage,
   listContinuingGoals,
   listSubagents,
@@ -47,6 +49,7 @@ import {
 const CONTINUING_GOAL_STATUSES = new Set(['active', 'paused']);
 const TERMINAL_GOAL_STATUSES = new Set(['completed', 'blocked', 'cancelled']);
 const SEMAPHORE_RESUME_TOKEN = Symbol('semaphore-resume');
+const REPLACEMENT_SEND_TOKEN = Symbol('replacement-send');
 const STREAM_PERSIST_INTERVAL_MS = 120;
 const STREAM_RENDER_INTERVAL_MS = 240;
 const AUXILIARY_MODEL_TIMEOUT_MS = 300_000;
@@ -244,6 +247,7 @@ export class ChatRunner {
     this.stopBackgroundTasks = stopBackgroundTasks;
     this.runs = new Map();
     this.pausedQueues = new Map();
+    this.replacingConversations = new Set();
     this.pendingApprovals = new Map();
     this.pendingQuestions = new Map();
     this.approvedToolPatterns = new Set();
@@ -342,6 +346,7 @@ export class ChatRunner {
               return { ...block, content: segmentContext || block.content };
             })
         : [];
+      let auxiliaryUsage = null;
       const turn = await selection.provider.stream({
         model: selection.model,
         messages: [
@@ -369,8 +374,18 @@ export class ChatRunner {
         reasoningEffort: configuredModel.reasoningEffort,
         invocationContext: { auxiliary: true },
         signal: AbortSignal.timeout(AUXILIARY_MODEL_TIMEOUT_MS),
-        onEvent: () => {},
+        onEvent: (event) => {
+          if (event.type === 'usage') auxiliaryUsage = event.usage;
+        },
       });
+      if (auxiliaryUsage) {
+        insertInferenceUsage({
+          type: 'auxiliary',
+          model: selection.model.id,
+          projectPath: conversation.projectPath,
+          usage: auxiliaryUsage,
+        });
+      }
       if (turn.toolCalls.length > 0) {
         throw new Error('The auxiliary model attempted to call a tool.');
       }
@@ -426,6 +441,7 @@ export class ChatRunner {
       unstaged: file.unstaged,
       diff: file.agentDiff,
     }));
+    let auxiliaryUsage = null;
     const turn = await selection.provider.stream({
       model: selection.model,
       messages: [
@@ -457,8 +473,18 @@ export class ChatRunner {
         : null,
       invocationContext: { auxiliary: true },
       signal: AbortSignal.timeout(AUXILIARY_MODEL_TIMEOUT_MS),
-      onEvent: () => {},
+      onEvent: (event) => {
+        if (event.type === 'usage') auxiliaryUsage = event.usage;
+      },
     });
+    if (auxiliaryUsage) {
+      insertInferenceUsage({
+        type: 'auxiliary',
+        model: selection.model.id,
+        projectPath: repository.path,
+        usage: auxiliaryUsage,
+      });
+    }
     if (turn.toolCalls.length > 0) throw new Error('The model attempted to call a tool.');
     const output = turn.assistantContent
       .trim()
@@ -517,6 +543,7 @@ export class ChatRunner {
       : [];
 
     try {
+      let auxiliaryUsage = null;
       const turn = await selection.provider.stream({
         model: selection.model,
         messages: [
@@ -546,8 +573,18 @@ export class ChatRunner {
         reasoningEffort: configuredModel.reasoningEffort,
         invocationContext: { auxiliary: true },
         signal: AbortSignal.timeout(AUXILIARY_MODEL_TIMEOUT_MS),
-        onEvent: () => {},
+        onEvent: (event) => {
+          if (event.type === 'usage') auxiliaryUsage = event.usage;
+        },
       });
+      if (auxiliaryUsage) {
+        insertInferenceUsage({
+          type: 'auxiliary',
+          model: selection.model.id,
+          projectPath: conversation?.projectPath,
+          usage: auxiliaryUsage,
+        });
+      }
       if (turn.toolCalls.length > 0) {
         throw new Error('The auxiliary model attempted to call a tool.');
       }
@@ -910,7 +947,14 @@ export class ChatRunner {
     userInitiated = false,
     project = {},
     semaphoreResumeToken = null,
+    replacementSendToken = null,
   }) {
+    if (
+      this.replacingConversations.has(conversationId)
+      && replacementSendToken !== REPLACEMENT_SEND_TOKEN
+    ) {
+      throw new Error('This conversation is replacing a message. Try again when it finishes.');
+    }
     workMode = ['plan', 'goal'].includes(workMode) ? workMode : null;
     ultraMode = Boolean(ultraMode);
     if (workMode === 'plan' && ultraMode) {
@@ -1131,6 +1175,120 @@ export class ChatRunner {
         run.controller.abort('stop');
       }
       this.stopBackgroundTasks?.(id);
+    }
+  }
+
+  async replaceUserMessage({
+    conversationId,
+    messageId,
+    model,
+    text,
+    attachments = [],
+    reasoningEffort = null,
+    permissionMode = 'approve_for_me',
+    workMode = null,
+    ultraMode = false,
+  }) {
+    const message = getMessage(messageId);
+    if (
+      !message
+      || message.conversationId !== conversationId
+      || message.role !== 'user'
+      || message.hidden
+      || message.fromAgent
+      || ['queued', 'steered'].includes(message.status)
+    ) {
+      throw new Error('This message cannot be edited.');
+    }
+    if (this.replacingConversations.has(conversationId)) {
+      throw new Error('This conversation is already replacing a message.');
+    }
+
+    this.replacingConversations.add(conversationId);
+    try {
+      const conversationIds = [
+        conversationId,
+        ...listSubagents(conversationId).map((subagent) => subagent.id),
+      ];
+      const activeRuns = conversationIds.flatMap((id) => {
+        const run = this.runs.get(id);
+        return run ? [run] : [];
+      });
+      const continuation = this.continuationGenerations.get(conversationId);
+      continuation?.controller.abort('replace-message');
+      this.continuationGenerations.delete(conversationId);
+      this.cancelSemaphore(conversationId);
+      this.stop(conversationId, { includeSubagents: true, stoppedByUser: true });
+      await Promise.allSettled(activeRuns.map((run) => run.completion));
+      for (const id of conversationIds) this.pausedQueues.delete(id);
+
+      const deletedMessageIds = deleteMessagesFrom(conversationId, messageId);
+      for (const deletedMessageId of deletedMessageIds) {
+        this.emit(conversationId, {
+          type: 'message-delete',
+          messageId: deletedMessageId,
+        });
+      }
+      this.emit(conversationId, queueOrderEvent(pendingOrder([])));
+      const activeGoal = getGoalForConversation(conversationId);
+      let goalId = null;
+      if (workMode === 'goal') {
+        if (
+          activeGoal
+          && CONTINUING_GOAL_STATUSES.has(activeGoal.status)
+          && message.goalId === activeGoal.id
+        ) {
+          updateGoalRecord({
+            ...activeGoal,
+            specification: String(text ?? '').trim(),
+            revision: activeGoal.revision + 1,
+            model,
+            reasoningEffort,
+            permissionMode,
+            updatedAt: new Date().toISOString(),
+          });
+          this.emitConversation(conversationId);
+        }
+        goalId = activeGoal && CONTINUING_GOAL_STATUSES.has(activeGoal.status)
+          ? activeGoal.id
+          : (await this.startGoal({
+              conversationId,
+              model,
+              specification: text,
+              reasoningEffort,
+              permissionMode,
+              project: { path: getConversation(conversationId)?.projectPath },
+              ultraMode,
+            })).goal.id;
+      } else if (activeGoal && CONTINUING_GOAL_STATUSES.has(activeGoal.status)) {
+        await this.changeGoal({
+          conversationId,
+          action: 'stop',
+          stopRun: false,
+        });
+      }
+      updateConversation(conversationId, {
+        orchestrationMode: workMode === 'plan' ? 'plan' : ultraMode ? 'ultra' : null,
+      });
+
+      return await this.send({
+        conversationId,
+        model,
+        text,
+        attachments,
+        steer: false,
+        reasoningEffort,
+        permissionMode,
+        workMode,
+        ultraMode,
+        goalId,
+        queuePriority: false,
+        userInitiated: true,
+        project: { path: getConversation(conversationId)?.projectPath },
+        replacementSendToken: REPLACEMENT_SEND_TOKEN,
+      });
+    } finally {
+      this.replacingConversations.delete(conversationId);
     }
   }
 
@@ -3085,6 +3243,7 @@ export class ChatRunner {
         ))
         .slice(-AUXILIARY_CONTINUATION_CONTEXT_TURN_COUNT)
         .map((message) => messageToApiBlock(message, selection.model.capabilities));
+      let auxiliaryUsage = null;
       const turn = await selection.provider.stream({
         model: selection.model,
         messages: [
@@ -3116,8 +3275,18 @@ export class ChatRunner {
           controller.signal,
           AbortSignal.timeout(AUXILIARY_MODEL_TIMEOUT_MS),
         ]),
-        onEvent: () => {},
+        onEvent: (event) => {
+          if (event.type === 'usage') auxiliaryUsage = event.usage;
+        },
       });
+      if (auxiliaryUsage) {
+        insertInferenceUsage({
+          type: 'auxiliary',
+          model: selection.model.id,
+          projectPath: conversation.projectPath,
+          usage: auxiliaryUsage,
+        });
+      }
       if (turn.toolCalls.length > 0) {
         throw new Error('The auxiliary model attempted to call a tool.');
       }

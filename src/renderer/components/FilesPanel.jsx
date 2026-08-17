@@ -313,21 +313,20 @@ export function FilesPanel({
     const unresolvedPath = targetInsideRoot
       ? normalizedTarget.slice(normalizedRoot.length + 1)
       : normalizedTarget.replace(/^\.\//, '');
-    if (
-      unresolvedPath.startsWith('/')
+    const outsideWorkspace = unresolvedPath.startsWith('/')
       || /^[a-z]:\//i.test(unresolvedPath)
       || unresolvedPath === '..'
-      || unresolvedPath.startsWith('../')
-    ) {
+      || unresolvedPath.startsWith('../');
+    if (outsideWorkspace && !navigation.allowExternalReference) {
       setError(`"${navigation.path}" is outside the current directory.`);
       onNavigationConsumed?.(navigation.id);
       return undefined;
     }
 
     const separator = project.path.includes('\\') ? '\\' : '/';
-    const relativePath = unresolvedPath.replaceAll('/', separator);
+    const relativePath = (outsideWorkspace ? navigation.path : unresolvedPath).replaceAll('/', separator);
     const pathParts = relativePath.split(separator);
-    const directoryPaths = pathParts.slice(0, -1).map((_, index) => (
+    const directoryPaths = outsideWorkspace ? [] : pathParts.slice(0, -1).map((_, index) => (
       pathParts.slice(0, index + 1).join(separator)
     ));
     setSelectedPath(relativePath);
@@ -344,6 +343,7 @@ export function FilesPanel({
       window.chatApp.files.read({
         folderPath: project.path,
         filePath: relativePath,
+        allowExternalReference: outsideWorkspace,
       }),
       ...directoryPaths.map((directoryPath) => window.chatApp.files.directory({
         folderPath: project.path,

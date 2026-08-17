@@ -170,6 +170,27 @@ try {
     () => resolveWorkspacePath(testRoot, 'nested/../../outside.txt'),
     /outside the current directory/,
   );
+  assert.equal(
+    resolveWorkspacePath(
+      testRoot,
+      `../${siblingRoot.split(/[\\/]/).at(-1)}/outside.txt`,
+      { allowOutsideRoot: true },
+    ),
+    outsidePath,
+  );
+  assert.throws(
+    () => resolveWorkspacePath(testRoot, outsidePath, { allowOutsideRoot: true }),
+    /outside the current directory/,
+  );
+  await assert.rejects(() => readWorkspaceFile(testRoot, '../outside.txt'));
+  assert.equal(
+    (await readWorkspaceFile(
+      testRoot,
+      `../${siblingRoot.split(/[\\/]/).at(-1)}/outside.txt`,
+      { allowExternalReference: true },
+    )).content,
+    'outside\n',
+  );
 
   const externalLink = join(testRoot, 'external-link');
   const linkResult = process.platform === 'win32'
