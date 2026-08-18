@@ -70,7 +70,7 @@ Avi is an harness built from scratch which brings model conversations, cross-pro
   - Structured agent questions support single-choice, multiple-choice, free-text, and custom answers.
   - Automatic context compression on provider errors (context_length_exceeded) or when reaching user‐defined threshold.
   - Resume button on stopped or failed chats, which continue from the last assistant turn.
-  - Improve your prompts and their clarity with /optimize-prompt.
+  - Improve your prompts and their clarity with /optimize-prompt, which also translates them to English.
 - **Goals and targets**:
   - Goals can be started with /goal or by the agent itself.
   - Helper model expands the goal with completion criteria, execution rules, and relevant meta‐information.
@@ -120,7 +120,7 @@ For now, you can configure inference providers with the internal providers:
 
 OpenAI Subscription is the only AI subscription that allows OAuth2 and consuming its API directly, so we do not provide support for Claude Code or Antigravity.
 
-These providers allow use via ACP command line to avoid being banned; however, ACP‑based providers are problematic for use in Avi because:
+These providers allow use via ACP command line to avoid being banned; however, ACP‐based providers are problematic for use in Avi because:
 - they have their own function sets;
 - they do not allow expanding their tools, instructions, or context directly;
 - they control their session lifecycle internally.

@@ -36,7 +36,7 @@ try {
   const calls = [];
   const responses = [
     JSON.stringify({ replacements: { '%tecnologia%': 'test doubles determinísticos' } }),
-    JSON.stringify({ expandedPrompt: 'Valide os testes existentes e descreva os resultados observados.' }),
+    JSON.stringify({ expandedPrompt: 'Validate the existing tests and describe the observed results.' }),
   ];
   const runner = new ChatRunner({
     registry: {
@@ -123,11 +123,14 @@ try {
   });
   assert.equal(
     fullResult,
-    'Valide os testes existentes e descreva os resultados observados.',
+    'Validate the existing tests and describe the observed results.',
   );
   assert.equal(calls.length, 2);
   assert.equal(calls[1].messages.at(-1).content, 'Valide os testes.');
   assert.match(calls[1].messages[0].content, /full prompt/);
+  assert.match(calls[1].messages[0].content, /Translate the expanded prompt to English/);
+  assert.match(calls[1].messages[0].content, /Preserve the user[’']s intent, tone, and established requirements/);
+  assert.doesNotMatch(calls[1].messages[0].content, /Preserve the user[’']s intent, language, tone/);
   assert.deepEqual(getMessages(conversation.id), messagesBefore);
   assert.deepEqual(getConversation(conversation.id), conversationBefore);
 
