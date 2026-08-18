@@ -5,6 +5,7 @@ import { fileToAttachment, formatBytes, textToAttachment } from './lib/files.js'
 import { Message } from './components/Message.jsx';
 import { ModelPicker } from './components/ModelPicker.jsx';
 import { applyTheme, readAppearance } from './lib/apply-theme.js';
+import { useStreamingAutoScroll } from './lib/use-streaming-auto-scroll.js';
 import { setPluginThemes } from './lib/themes.js';
 
 const api = window.chatApp;
@@ -20,13 +21,6 @@ export default function QuickChatApp() {
   const [error, setError] = useState('');
   const [fileDropActive, setFileDropActive] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState(null);
-  const scrollRef = useRef(null);
-  const messagesColumnRef = useRef(null);
-  const autoScrollTimerRef = useRef(null);
-  const autoScrollTargetRef = useRef(null);
-  const manualScrollDuringRunRef = useRef(false);
-  const wasRunningRef = useRef(false);
-  const lastScrollTopRef = useRef(0);
   const dragDepthRef = useRef(0);
   const questionRequestRef = useRef(null);
 
@@ -81,77 +75,15 @@ export default function QuickChatApp() {
     questionRequest?.questionId ?? '',
   ].join(':');
 
-  function scrollToBottom() {
-    const scrollElement = scrollRef.current;
-    if (scrollElement) {
-      const target = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight);
-      autoScrollTargetRef.current = target;
-      scrollElement.scrollTop = target;
-    }
-  }
-
-  function scheduleScrollToBottom(delay = 50) {
-    if (autoScrollTimerRef.current !== null) return;
-
-    autoScrollTimerRef.current = window.setTimeout(() => {
-      autoScrollTimerRef.current = null;
-      requestAnimationFrame(scrollToBottom);
-    }, delay);
-  }
-
-  useEffect(() => {
-    scheduleScrollToBottom(0);
-
-    return () => {
-      window.clearTimeout(autoScrollTimerRef.current);
-      autoScrollTimerRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!running) scheduleScrollToBottom(0);
-  }, [messages.length, running]);
-
-  useEffect(() => {
-    if (running && !wasRunningRef.current) {
-      manualScrollDuringRunRef.current = false;
-    }
-    wasRunningRef.current = running;
-  }, [running]);
-
-  useEffect(() => {
-    if (running && !manualScrollDuringRunRef.current) {
-      scheduleScrollToBottom();
-    }
-  }, [running, streamScrollKey]);
-
-  useEffect(() => {
-    const column = messagesColumnRef.current;
-    if (!column) return undefined;
-    if (!running) {
-      lastScrollTopRef.current = scrollRef.current?.scrollTop ?? 0;
-      return undefined;
-    }
-
-    let frame = null;
-    const observer = new ResizeObserver(() => {
-      if (manualScrollDuringRunRef.current) return;
-      if (autoScrollTimerRef.current !== null) return;
-      autoScrollTimerRef.current = window.setTimeout(() => {
-        autoScrollTimerRef.current = null;
-        frame = requestAnimationFrame(scrollToBottom);
-      }, 16);
-    });
-    observer.observe(column);
-    return () => {
-      observer.disconnect();
-      if (frame !== null) cancelAnimationFrame(frame);
-      if (autoScrollTimerRef.current !== null) {
-        window.clearTimeout(autoScrollTimerRef.current);
-        autoScrollTimerRef.current = null;
-      }
-    };
-  }, [running]);
+  const {
+    scrollRef,
+    messagesColumnRef,
+    handleScroll,
+  } = useStreamingAutoScroll({
+    isRunning: running,
+    resetKey: sessionId,
+    streamKey: streamScrollKey,
+  });
 
   const selectedModel = models.find((item) => item.id === model);
   const modelName = selectedModel?.name ?? selectedModel?.modelId ?? 'Choose model';
@@ -194,40 +126,7 @@ export default function QuickChatApp() {
       <section
         className="quick-chat-scroll"
         ref={scrollRef}
-        onScroll={(event) => {
-          const scrollElement = event.currentTarget;
-          const previousScrollTop = lastScrollTopRef.current;
-          const currentScrollTop = scrollElement.scrollTop;
-          const scrollTopDelta = currentScrollTop - previousScrollTop;
-          lastScrollTopRef.current = currentScrollTop;
-
-          if (!running) return;
-
-          const distanceFromBottom = scrollElement.scrollHeight
-            - currentScrollTop
-            - scrollElement.clientHeight;
-          const matchedAutoScroll = (
-            autoScrollTargetRef.current !== null
-            && Math.abs(currentScrollTop - autoScrollTargetRef.current) <= 24
-          );
-          autoScrollTargetRef.current = null;
-          if (matchedAutoScroll) {
-            manualScrollDuringRunRef.current = false;
-            return;
-          }
-
-          const userScrolledUp = scrollTopDelta < 0;
-          if (userScrolledUp && distanceFromBottom > 24) {
-            manualScrollDuringRunRef.current = true;
-            window.clearTimeout(autoScrollTimerRef.current);
-            autoScrollTimerRef.current = null;
-          } else {
-            manualScrollDuringRunRef.current = false;
-            if (distanceFromBottom <= 24) {
-              scheduleScrollToBottom(0);
-            }
-          }
-        }}
+        onScroll={handleScroll}
       >
         {messages.length === 0 ? (
           <div className="quick-chat-empty">
