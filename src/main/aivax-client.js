@@ -16,6 +16,7 @@ export async function loginToAivax(loginKey, { signal } = {}) {
 export async function requestAivax(path, {
   accessToken = getAivaxAccessToken(),
   body,
+  includeResponseEnvelope = false,
   includeResponseMetadata = false,
   method = body === undefined ? 'GET' : 'POST',
   responseType,
@@ -66,6 +67,7 @@ export async function requestAivax(path, {
       status: response.status,
     };
   }
+  if (includeResponseEnvelope) return value;
   return result;
 }
 
