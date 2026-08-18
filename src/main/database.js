@@ -480,6 +480,13 @@ if (db.prepare("PRAGMA table_info('messages')").all().find((column) => column.na
   `);
 }
 const conversationColumns = db.prepare("PRAGMA table_info('conversations')").all();
+db.exec(`
+  UPDATE messages
+  SET status = 'aborted', updated_at = CURRENT_TIMESTAMP
+  WHERE status = 'streaming'
+    AND role IN ('assistant', 'system');
+`);
+
 if (!conversationColumns.some((column) => column.name === 'project_path')) {
   db.exec('ALTER TABLE conversations ADD COLUMN project_path TEXT');
 }
@@ -1947,7 +1954,9 @@ export function attachmentToApiBlock(attachment, capabilities = {}) {
       : unsupportedAttachmentToApiBlock(attachment);
   }
   if (attachment.kind === 'video_url') {
-    return unsupportedAttachmentToApiBlock(attachment);
+    return capabilities.video
+      ? { type: 'video_url', video_url: { url: attachment.dataUrl } }
+      : unsupportedAttachmentToApiBlock(attachment);
   }
   if (attachment.kind === 'input_audio') {
     return capabilities.audio

@@ -246,7 +246,7 @@ for (const failure of pluginManager.getFailures()) {
 }
 providerRegistry = new ModelProviderRegistry({
   getProviders: listProviders,
-  providerTypes: [...providerTypes, ...pluginManager.getProviderTypes()],
+  providerTypes: () => [...providerTypes, ...pluginManager.getProviderTypes()],
   services: {
     credentials: {
       get: getProviderCredentials,

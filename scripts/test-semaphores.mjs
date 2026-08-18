@@ -159,8 +159,10 @@ try {
 
   const sleepTool = CLIENT_TOOLS.find((tool) => tool.name === 'sleep_semaphore');
   const releaseTool = CLIENT_TOOLS.find((tool) => tool.name === 'release_semaphore');
+  const listTool = CLIENT_TOOLS.find((tool) => tool.name === 'list_semaphores');
   assert.ok(sleepTool);
   assert.ok(releaseTool);
+  assert.ok(listTool);
   assert.deepEqual(sleepTool.inputSchema.required, ['name', 'count', 'maxCount']);
   assert.deepEqual(releaseTool.inputSchema.required, ['name', 'count']);
   assert.equal(sleepTool.approval, 'never');
@@ -291,6 +293,11 @@ try {
     count: 1,
   });
   await waitFor(() => providerRequests.length === 2 && !runner.runs.has(waiter.id));
+  assert.deepEqual(providerRequests[1].invocationContext.semaphoreHoldings, [{
+    name: 'runner-lock',
+    count: 1,
+    maxCount: 1,
+  }]);
   const resumedUserMessage = database.getMessages(waiter.id).findLast((message) => (
     message.role === 'user' && message.fromAgent
   ));

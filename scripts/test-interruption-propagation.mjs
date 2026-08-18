@@ -39,6 +39,7 @@ assert.match(appSource, /queuedMessageIds \?\? \[\]/);
 assert.match(appSource, /api\.plugins\.restoreReload\(\)/);
 assert.match(appSource, /restoredReload\.conversationIds\.map\(async \(id\)/);
 assert.match(appSource, /api\.plugins\.completeReload\(\)/);
+assert.match(appSource, /selectedConversationIdRef\.current === conversationId[\s\S]*setDraftModel\(result\.conversation\.model\)/);
 assert.match(appSource, /window\.localStorage\.setItem\('aivax\.composer\.draft'/);
 
 const queueSteerOnly = process.argv.includes('--queue-steer-only');

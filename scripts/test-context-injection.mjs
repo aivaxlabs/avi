@@ -326,7 +326,6 @@ try {
     }],
   });
   const injectedUserContext = await resolveDynamicUserContext({ workspacePath: root });
-  const terminalShell = resolveTerminalShell();
   if (
     !injected.startsWith(baseInstructions.trim())
     || injected.split(baseInstructions.trim()).length !== 2
@@ -364,7 +363,7 @@ try {
     || injected.includes('Ignored workspace Claude skill')
     || injected.includes('Ignored Git instructions')
     || injected.includes('Ignored Visual Studio instructions')
-    || !injected.includes(`Command execution shell: ${terminalShell.label}`)
+    || injected.includes('Command execution shell:')
     || injected.includes('<current_workspace>')
     || !injectedUserContext.includes('<fileref path="./path" line-from="12" line-to="52" />')
     || !injectedUserContext.includes('Paths may contain spaces')
@@ -573,43 +572,23 @@ try {
 
   const subagentContext = await resolveDynamicContext({
     workspacePath: root,
-    subagents: [
-      {
-        threadId: 'thread-running',
-        name: 'Dorian',
-        initialPrompt: longSubagentPrompt,
-        status: 'in_progress',
-      },
-      {
-        threadId: 'thread-completed',
-        name: 'Euclid',
-        initialPrompt: 'Completed task',
-        status: 'completed',
-      },
-      {
-        threadId: 'thread-failed',
-        name: 'Ada',
-        initialPrompt: 'Failed task',
-        status: 'failed',
-      },
-    ],
+    subagents: [{
+      threadId: 'thread-running',
+      name: 'Dorian',
+      initialPrompt: longSubagentPrompt,
+      status: 'in_progress',
+    }],
+    hasSubagents: true,
   });
-  assert.ok(subagentContext.includes(
-    '<subagent thread_id="thread-running" name="Dorian" status="in_progress">',
-  ));
-  assert.ok(subagentContext.includes(
-    'Sub-agent names are display labels only. Always target and correlate orchestration actions by thread_id',
-  ));
-  assert.ok(subagentContext.includes(
-    `<initial_prompt>${longSubagentPrompt.slice(0, 256)}</initial_prompt>`,
-  ));
-  assert.ok(!subagentContext.includes(longSubagentPrompt));
-  assert.ok(subagentContext.includes(
-    '<subagent thread_id="thread-completed" name="Euclid" status="completed">',
-  ));
-  assert.ok(subagentContext.includes(
-    '<subagent thread_id="thread-failed" name="Ada" status="failed">',
-  ));
+  assert.match(
+    subagentContext,
+    /You have sub-agents and\/or other threads available on this tree\. Inspect them with the thread context or thread directory tools before coordinating work\./,
+  );
+  assert.doesNotMatch(subagentContext, /<subagents>|thread-running|Dorian/);
+  assert.doesNotMatch(
+    await resolveDynamicContext({ workspacePath: root }),
+    /You have sub-agents and\/or other threads available on this tree\./,
+  );
 
   const workspaceTreeRoot = await mkdtemp(path.join(tmpdir(), 'context-workspace-tree-'));
   try {
@@ -731,6 +710,7 @@ try {
       role: 'subagent',
       parentThreadId: 'orchestrator-id',
     },
+    hasThreads: true,
     threads: [
       {
         threadId: 'orchestrator-id',
@@ -756,18 +736,12 @@ try {
   };
   const threadSystemContext = await resolveDynamicContext(threadInvocationContext);
   const threadUserContext = await resolveDynamicUserContext(threadInvocationContext);
-  assert.ok(threadSystemContext.includes('<current_thread id="subagent-id" role="subagent" parent_thread_id="orchestrator-id">'));
-  assert.ok(threadSystemContext.includes('Side chats are private and are intentionally absent'));
-  assert.ok(!threadSystemContext.includes('<thread_directory>'));
-  assert.ok(!threadSystemContext.includes('<current_workspace>'));
-  assert.ok(threadUserContext.startsWith('<thread_directory>'));
-  assert.ok(threadUserContext.includes('<thread id="orchestrator-id" role="orchestrator">'));
-  assert.ok(threadUserContext.includes('<thread id="subagent-id" role="subagent" parent_thread_id="orchestrator-id">'));
-  assert.ok(threadUserContext.includes('<thread id="side-chat-id" role="side_chat" parent_thread_id="orchestrator-id">'));
-  assert.ok(!threadUserContext.includes('status='));
-  assert.ok(threadUserContext.includes('<initial_prompt>Analyze the implementation.</initial_prompt>'));
-  assert.ok(threadUserContext.includes(`<initial_prompt>${`Explore an alternative. ${'x'.repeat(232)}`}...</initial_prompt>`));
-  assert.ok(threadUserContext.includes('</thread_directory>\n\n<current_workspace>'));
+  assert.match(
+    threadSystemContext,
+    /You have sub-agents and\/or other threads available on this tree\./,
+  );
+  assert.doesNotMatch(threadSystemContext, /<current_thread>|<thread_directory>|subagent-id/);
+  assert.doesNotMatch(threadUserContext, /<thread_directory>|orchestrator-id|subagent-id/);
 
   console.log('Context variant discovery passed.');
 } finally {

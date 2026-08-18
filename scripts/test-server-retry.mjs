@@ -91,17 +91,7 @@ try {
 
   const contextInvocation = {
     workspacePath: testProfile,
-    currentThread: {
-      threadId: 'current-thread',
-      role: 'orchestrator',
-    },
-    threads: [{
-      threadId: 'subagent-thread',
-      role: 'subagent',
-      parentThreadId: 'current-thread',
-      initialPrompt: 'Inspect the provider payload.',
-      status: 'completed',
-    }],
+    hasThreads: true,
   };
   const contextBodyInput = {
     provider: {},
@@ -113,13 +103,16 @@ try {
     invocationContext: contextInvocation,
   };
   const responsesContextBody = await responsesApi.createBody(contextBodyInput);
-  assert.ok(responsesContextBody.instructions.includes('<current_thread'));
+  assert.match(
+    responsesContextBody.instructions,
+    /You have sub-agents and\/or other threads available on this tree\./,
+  );
   assert.ok(!responsesContextBody.instructions.includes('<thread_directory>'));
   assert.deepEqual(
     responsesContextBody.input.slice(0, 2).map(({ role }) => role),
     ['user', 'user'],
   );
-  assert.ok(responsesContextBody.input[0].content.startsWith('<thread_directory>'));
+  assert.ok(responsesContextBody.input[0].content.includes('<current_workspace>'));
   assert.equal(responsesContextBody.input[1].content, 'Actual prompt');
 
   const chatContextBody = await chatCompletionsApi.createBody(contextBodyInput);
@@ -128,7 +121,7 @@ try {
     ['system', 'user', 'user'],
   );
   assert.ok(!chatContextBody.messages[0].content.includes('<thread_directory>'));
-  assert.ok(chatContextBody.messages[1].content.startsWith('<thread_directory>'));
+  assert.ok(chatContextBody.messages[1].content.includes('<current_workspace>'));
   assert.equal(chatContextBody.messages[2].content, 'Actual prompt');
 
   const completedToolItem = {

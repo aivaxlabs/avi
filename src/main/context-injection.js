@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { opendir, readFile, readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { resolveTerminalShell } from './terminal-shell.js';
 import {
   traceError,
   traceVerbose,
@@ -59,12 +58,10 @@ const POST_INSTRUCTION_CONTEXT_ORDER = [
   'goal',
   'tasks',
   'semaphores',
-  'subagents',
-  'current-thread',
+  'thread-signal',
   'environment',
 ];
 const USER_CONTEXT_ORDER = [
-  'threads',
   'workspace',
 ];
 
@@ -74,7 +71,8 @@ export const dynamicContextInjectors = new Map([
       ? [
           '## Memory',
           'Use the available memory tools to retrieve persistent user context, save durable knowledge, and delete obsolete memory files when useful.',
-          'Always search memory before starting substantive work. Write only information that will remain useful beyond the current conversation.',
+          'Always search memory before starting any kind of work, implementation, fix or task.',
+          'Write only information that will remain useful beyond the current conversation.'
         ].join('\n')
       : ''
   )],
@@ -197,70 +195,21 @@ export const dynamicContextInjectors = new Map([
         ].join('\n')
       : ''
   )],
-  ['subagents', ({ subagents = [] } = {}) => (
-    Array.isArray(subagents) && subagents.length > 0
-      ? [
-          '<subagents>',
-          'Sub-agent names are display labels only. Always target and correlate orchestration actions by thread_id; use names only when referring to agents conversationally.',
-          ...subagents.flatMap((subagent) => [
-            `<subagent thread_id="${escapeXml(subagent.threadId)}" name="${escapeXml(subagent.name)}" status="${escapeXml(subagent.status)}">`,
-            `<initial_prompt>${escapeXml(
-              String(subagent.initialPrompt ?? '').replace(/\s+/g, ' ').trim().slice(0, 256),
-            )}</initial_prompt>`,
-            '</subagent>',
-          ]),
-          '</subagents>',
-        ].join('\n')
+  ['thread-signal', ({ hasSubagents = false, hasThreads = false } = {}) => (
+    hasSubagents || hasThreads
+      ? 'You have sub-agents and/or other threads available on this tree. Inspect them with the thread context or thread directory tools before coordinating work.'
       : ''
   )],
-  ['current-thread', ({ currentThread } = {}) => (
-    currentThread?.threadId && currentThread?.role
-      ? [
-          `<current_thread id="${escapeXml(currentThread.threadId)}" role="${escapeXml(currentThread.role)}"${currentThread.parentThreadId ? ` parent_thread_id="${escapeXml(currentThread.parentThreadId)}"` : ''}>`,
-          'This identifies the current conversation. The thread directory lists visible conversations, including their roles, relationships, and initial prompts.',
-          currentThread.role === 'side_chat'
-            ? 'As a side chat, you can see your orchestrator and its sub-agents. Other conversation types cannot discover side chats.'
-            : 'Side chats are private and are intentionally absent from your thread directory.',
-          '</current_thread>',
-        ].join('\n')
-      : ''
-  )],
-  ['threads', ({ threads = [] } = {}) => (
-    Array.isArray(threads) && threads.length > 0
-      ? [
-          '<thread_directory>',
-          ...threads.flatMap((thread) => {
-            const initialPrompt = String(thread.initialPrompt ?? '').replace(/\s+/g, ' ').trim();
-            return [
-              `<thread id="${escapeXml(thread.threadId)}" role="${escapeXml(thread.role)}"${thread.parentThreadId ? ` parent_thread_id="${escapeXml(thread.parentThreadId)}"` : ''}>`,
-              `<initial_prompt>${escapeXml(
-                initialPrompt.length > 256
-                  ? `${initialPrompt.slice(0, 256)}...`
-                  : initialPrompt,
-              )}</initial_prompt>`,
-              '</thread>',
-            ];
-          }),
-          '</thread_directory>',
-        ].join('\n')
-      : ''
-  )],
-  ['environment', ({ tuning } = {}) => {
+  ['environment', () => {
     const operatingSystem = {
       win32: 'Windows',
       darwin: 'macOS',
       linux: 'Linux',
     }[process.platform] ?? process.platform;
-    const terminalShell = resolveTerminalShell(
-      process.env,
-      process.platform,
-      tuning?.terminalShell,
-    );
 
     return [
       '<environment_info>',
       `User current OS: ${operatingSystem}`,
-      `Command execution shell: ${terminalShell.label}`,
       '</environment_info>',
     ].join('\n');
   }],
@@ -531,6 +480,7 @@ export async function resolveDynamicUserContext(invocationContext = {}) {
 }
 
 export async function resolveDynamicContext(invocationContext = {}) {
+  // Keep volatile thread listings, prompts, statuses, timestamps, and queue state out of injected context so provider prompt caches remain reusable. Stable availability signals are safe; active semaphore holdings remain explicit because they control required release behavior.
   if (invocationContext.auxiliary) return '';
   if (invocationContext.quickChat) {
     return [

@@ -22,6 +22,7 @@ import {
   getConversation,
   getMessages,
   listAllConversations,
+  listSubagents,
   replaceTasks,
   updateConversation,
 } from './database.js';
@@ -195,6 +196,7 @@ export const CLIENT_TOOLS = Object.freeze([
 
       const attachment = filePathToAttachment(path);
       const supported = (attachment.kind === 'image_url' && capabilities.images)
+        || (attachment.kind === 'video_url' && capabilities.video)
         || (attachment.kind === 'input_audio' && capabilities.audio)
         || (
           attachment.kind === 'file'
@@ -218,40 +220,41 @@ export const CLIENT_TOOLS = Object.freeze([
             ? { type: 'video_url', video_url: { url: attachment.dataUrl } }
             : attachment.kind === 'input_audio'
               ? {
-                  type: 'input_audio',
-                  input_audio: {
-                    data: attachment.base64,
-                    format: attachment.format ?? 'mp3',
-                  },
-                }
+                type: 'input_audio',
+                input_audio: {
+                  data: attachment.base64,
+                  format: attachment.format ?? 'mp3',
+                },
+              }
               : ['wav', 'm4a', 'flac', 'ogg', 'webm', 'aac'].includes(audioFormat)
                 ? {
-                    type: 'input_audio',
-                    input_audio: {
-                      data: attachment.dataUrl.split(',')[1] ?? '',
-                      format: audioFormat,
-                    },
-                  }
+                  type: 'input_audio',
+                  input_audio: {
+                    data: attachment.dataUrl.split(',')[1] ?? '',
+                    format: audioFormat,
+                  },
+                }
                 : attachment.kind === 'file' && attachment.mime === 'application/pdf'
                   ? {
-                      type: 'file',
-                      file: {
-                        filename: attachment.name,
-                        file_data: attachment.dataUrl,
-                      },
-                    }
+                    type: 'file',
+                    file: {
+                      filename: attachment.name,
+                      file_data: attachment.dataUrl,
+                    },
+                  }
                   : null;
         if (input) {
-          const descriptions = await requestMediaDescription('/api/v1/generations/descriptions', {
+          const response = await requestMediaDescription('/api/v1/generations/descriptions', {
             body: { input: [input] },
+            includeResponseEnvelope: true,
             responseType: 'array',
             signal,
           });
-          const description = descriptions[0];
-          if (descriptions.length !== 1 || typeof description?.textContent !== 'string') {
-            throw new Error('AIVAX returned an invalid media description.');
+          if (response.data && response.data[0]) {
+            return JSON.stringify(response.data[0]);
+          } else {
+            return JSON.stringify(response);
           }
-          return description.textContent;
         }
       }
       if (attachment.kind === 'video_url') {
@@ -624,6 +627,82 @@ export const CLIENT_TOOLS = Object.freeze([
         ].join('\n')).join('\n--------\n'),
       ].join('\n');
     },
+  },
+  {
+    name: 'chat_list_thread_context',
+    description: 'List the current thread context, including visible orchestrator and sub-agent threads with statuses and initial prompts.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    },
+    execute: async (_input, { chatRunner, conversationId }) => {
+      const currentConversation = getConversation(conversationId);
+      if (!currentConversation) throw new Error('The current thread was not found.');
+      const teamRootId = currentConversation.isSubagent || currentConversation.isSideChat
+        ? currentConversation.parentConversationId
+        : currentConversation.id;
+      const orchestrator = teamRootId ? getConversation(teamRootId) : null;
+      const subagents = teamRootId ? listSubagents(teamRootId) : [];
+      const visibleConversations = currentConversation.isSubagent
+        ? [orchestrator, ...subagents.filter(({ id }) => id !== currentConversation.id)]
+        : currentConversation.isSideChat
+          ? [orchestrator, ...subagents]
+          : subagents;
+      const threads = visibleConversations.filter(Boolean).map((conversation) => {
+        const messages = getMessages(conversation.id);
+        const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
+        const lastAssistant = messages
+          .slice(lastUserIndex + 1)
+          .findLast((message) => message.role === 'assistant');
+        const initialPrompt = String(
+          conversation.initialPrompt ?? conversation.firstPrompt ?? '',
+        ).replace(/\s+/g, ' ').trim();
+        return {
+          id: conversation.id,
+          title: conversation.title,
+          role: conversation.isSideChat ? 'side_chat' : conversation.isSubagent ? 'subagent' : 'orchestrator',
+          parentId: conversation.parentConversationId,
+          status: chatRunner.semaphores.waitSnapshot(conversation.id)
+            ? 'sleeping'
+            : chatRunner.runs.has(conversation.id)
+              ? 'in_progress'
+              : lastAssistant?.status === 'completed'
+                ? 'completed'
+                : conversation.isSubagent
+                  ? 'failed'
+                  : 'idle',
+          initialPrompt: initialPrompt.length > 256 ? `${initialPrompt.slice(0, 256)}...` : initialPrompt,
+        };
+      });
+      return {
+        currentThread: {
+          id: currentConversation.id,
+          role: currentConversation.isSideChat ? 'side_chat' : currentConversation.isSubagent ? 'subagent' : 'orchestrator',
+          parentId: currentConversation.parentConversationId ?? null,
+        },
+        threads,
+      };
+    },
+  },
+  {
+    name: 'list_semaphores',
+    description: 'List semaphore permits held by or awaited by the current thread.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    },
+    execute: async (_input, { chatRunner, conversationId }) => ({
+      holdings: chatRunner.semaphores.holdings(conversationId),
+      waiting: chatRunner.semaphores.waitSnapshot(conversationId),
+    }),
   },
   {
     name: 'chat_create_thread',
@@ -1063,9 +1142,9 @@ export const CLIENT_TOOLS = Object.freeze([
           const segments = message.segments?.length > 0
             ? message.segments
             : [{
-                type: 'content',
-                text: answerTextFromTextualBlocks(message.content),
-              }];
+              type: 'content',
+              text: answerTextFromTextualBlocks(message.content),
+            }];
           return segments.flatMap((segment) => {
             if (segment.type === 'content' && segment.text) {
               const text = answerTextFromTextualBlocks(segment.text);
@@ -1083,7 +1162,7 @@ export const CLIENT_TOOLS = Object.freeze([
             let args = segment.argumentsText;
             try {
               args = JSON.parse(segment.argumentsText);
-            } catch {}
+            } catch { }
             const events = [{
               type: 'tool_call',
               messageId: message.id,
@@ -1132,15 +1211,13 @@ export const CLIENT_TOOLS = Object.freeze([
         ...turn.assistant.map((event) => {
           if (event.type === 'message') return `Assistant (${event.status}):\n${event.text}`;
           if (event.type === 'tool_call') {
-            return `Tool call: ${event.name}\nArguments: ${
-              typeof event.arguments === 'string'
-                ? event.arguments
-                : JSON.stringify(event.arguments)
-            }`;
+            return `Tool call: ${event.name}\nArguments: ${typeof event.arguments === 'string'
+              ? event.arguments
+              : JSON.stringify(event.arguments)
+              }`;
           }
-          return `Tool result${event.isError ? ' (error)' : ''}:\n${event.output}${
-            event.truncated ? '\n[tool output truncated]' : ''
-          }`;
+          return `Tool result${event.isError ? ' (error)' : ''}:\n${event.output}${event.truncated ? '\n[tool output truncated]' : ''
+            }`;
         }),
       ]);
       const result = [
@@ -1470,21 +1547,21 @@ export const CLIENT_TOOLS = Object.freeze([
         'Terminals:',
         ...(matchingTerminals.length > 0
           ? matchingTerminals.map((terminal) => [
-              `- ID: ${terminal.id}`,
-              `  Status: ${terminalStatus(terminal)}`,
-              `  Command: ${terminal.command}`,
-            ].join('\n'))
+            `- ID: ${terminal.id}`,
+            `  Status: ${terminalStatus(terminal)}`,
+            `  Command: ${terminal.command}`,
+          ].join('\n'))
           : ['None.']),
         '',
         'Sub-agents:',
         ...(subagents.length > 0
           ? subagents.map((subagent) => [
-              `- ${subagent.title}`,
-              `  Thread ID: ${subagent.id}`,
-              `  Status: ${chatRunner?.getPendingQuestion?.(subagent.id)
-                ? 'waiting_for_input'
-                : chatRunner?.runs?.has(subagent.id) ? 'running' : 'idle'}`,
-            ].join('\n'))
+            `- ${subagent.title}`,
+            `  Thread ID: ${subagent.id}`,
+            `  Status: ${chatRunner?.getPendingQuestion?.(subagent.id)
+              ? 'waiting_for_input'
+              : chatRunner?.runs?.has(subagent.id) ? 'running' : 'idle'}`,
+          ].join('\n'))
           : ['None.']),
       ].join('\n');
     },
@@ -1939,10 +2016,10 @@ export function decorateToolsForInvocation(tools, permissionMode = 'approve_for_
           description: tool.approval === 'never'
             ? 'Set this to false because this tool does not require a separate approval.'
             : {
-                ask_for_approval: 'Set this to true for every tool invocation because the user selected Ask for approval, unless explicit user guidance always allows this invocation.',
-                approve_for_me: 'Set this to true only when this specific invocation needs explicit human approval, or false when it can proceed safely.',
-                full_access: 'Set this to false because the user selected Full access.',
-              }[permissionMode] ?? 'Set this to true only when this specific invocation needs explicit human approval.',
+              ask_for_approval: 'Set this to true for every tool invocation because the user selected Ask for approval, unless explicit user guidance always allows this invocation.',
+              approve_for_me: 'Set this to true only when this specific invocation needs explicit human approval, or false when it can proceed safely.',
+              full_access: 'Set this to false because the user selected Full access.',
+            }[permissionMode] ?? 'Set this to true only when this specific invocation needs explicit human approval.',
         },
         ...Object.fromEntries(
           Object.entries(tool.inputSchema.properties ?? {}).filter(
