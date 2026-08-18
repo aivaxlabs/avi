@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createWriteStream } from 'node:fs';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import yazl from 'yazl';
@@ -328,7 +328,67 @@ try {
   await assert.rejects(() => installManager.sideload(duplicateZip), /duplicated/);
   assert.equal((await readdir(installDir)).some((name) => name.startsWith('.install-') || name.startsWith('.backup-')), false);
 
+  // Test ModelProviderRegistry resilience when plugin provider interfaces are unloaded or unavailable
+  const { ModelProviderRegistry } = await import('../src/main/model-provider.js');
+  let dynamicProviders = [
+    {
+      id: 'configured-active',
+      name: 'Active Plugin Provider',
+      interface: 'demo-provider',
+      enabled: true,
+      models: [{ id: 'm1', name: 'Model 1' }],
+    },
+    {
+      id: 'configured-unloaded',
+      name: 'Unloaded OAuth Provider',
+      interface: 'antigravity-oauth',
+      enabled: true,
+      models: [{ id: 'm2', name: 'Model 2' }],
+    },
+  ];
+  const testRegistry = new ModelProviderRegistry({
+    getProviders: () => dynamicProviders,
+    providerTypes: () => manager.getProviderTypes(),
+    services: {},
+  });
+
+  // Verify listTypes only returns loaded provider descriptors
+  assert.deepEqual(testRegistry.listTypes().map((t) => t.id), ['demo-provider']);
+
+  // Verify listModels does NOT throw on the unloaded 'antigravity-oauth' provider
+  const availableModels = testRegistry.listModels();
+  assert.equal(availableModels.length, 1);
+  assert.equal(availableModels[0].id, 'configured-active:m1');
+
+  // Verify listGlobalTools and listAuxiliaryPanels do not throw
+  assert.deepEqual(testRegistry.listGlobalTools(), []);
+  assert.deepEqual(testRegistry.listAuxiliaryPanels(), []);
+
+  // Verify resolve returns null for models from missing provider interfaces without throwing
+  assert.equal(testRegistry.resolve('configured-unloaded:m2'), null);
+
+  // Verify getState returns empty object for missing provider interfaces
+  assert.deepEqual(await testRegistry.getState('configured-unloaded'), {});
+
+  // Verify remove succeeds without throwing when provider interface is missing
+  await testRegistry.remove('configured-unloaded');
+
+  // Verify removing an available provider
+  dynamicProviders = dynamicProviders.filter((p) => p.id !== 'configured-unloaded');
+  assert.equal(testRegistry.listModels().length, 1);
+
+  // Verify startup error logging to trace.log
+  const { traceError, setTraceLevel } = await import('../src/main/trace-log.js');
+  setTraceLevel('minimal');
+  traceError('app.failed-to-start', {
+    operation: 'startup',
+    error: 'Provider interface "antigravity-oauth" is unavailable.',
+  });
+  const traceLogContent = await readFile(join(homedir(), '.aivax', 'trace.log'), 'utf8');
+  assert.match(traceLogContent, /-- ERROR -- app\.failed-to-start: operation="startup" error="Provider interface \\"antigravity-oauth\\" is unavailable\."/);
+
   console.log('Plugin runtime checks passed.');
 } finally {
   await rm(root, { recursive: true, force: true });
 }
+

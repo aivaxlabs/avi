@@ -405,10 +405,19 @@ export class ModelProvider {
 }
 
 export class ModelProviderRegistry {
+  #providerTypes;
+
   constructor({ getProviders, providerTypes, services }) {
     this.getProviders = getProviders;
-    this.providerTypes = new Map(providerTypes.map((type) => [type.descriptor.id, type]));
+    this.#providerTypes = providerTypes;
     this.services = services;
+  }
+
+  get providerTypes() {
+    const types = typeof this.#providerTypes === 'function'
+      ? this.#providerTypes()
+      : this.#providerTypes;
+    return new Map((types ?? []).map((type) => [type.descriptor.id, type]));
   }
 
   listTypes() {
@@ -473,6 +482,7 @@ export class ModelProviderRegistry {
                 images: Boolean(model?.capabilities?.images),
                 audio: Boolean(model?.capabilities?.audio),
                 pdfFiles: Boolean(model?.capabilities?.pdfFiles),
+                video: Boolean(model?.capabilities?.video),
               },
               context: {
                 input: inputContext,
@@ -520,25 +530,55 @@ export class ModelProviderRegistry {
   }
 
   listModels() {
-    return this.getProviders()
-      .flatMap((provider) => this.createProvider(provider).listModels());
+    return this.getProviders().flatMap((config) => {
+      if (!this.providerTypes.has(config.interface)) return [];
+      try {
+        return this.createProvider(config).listModels();
+      } catch (error) {
+        traceError('provider.list-models-error', {
+          provider_id: config.id,
+          interface: config.interface,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return [];
+      }
+    });
   }
 
   listGlobalTools(context = {}) {
-    return [...new Map(this.getProviders().flatMap((config) => (
-      this.createProvider(config)
-        .getContributions(context)
-        .tools
-        .filter((tool) => tool.globallyAvailable === true)
-        .map((tool) => [tool.name, tool])
-    ))).values()];
+    return [...new Map(this.getProviders().flatMap((config) => {
+      if (!this.providerTypes.has(config.interface)) return [];
+      try {
+        return this.createProvider(config)
+          .getContributions(context)
+          .tools
+          .filter((tool) => tool.globallyAvailable === true)
+          .map((tool) => [tool.name, tool]);
+      } catch (error) {
+        traceError('provider.contributions-error', {
+          provider_id: config.id,
+          interface: config.interface,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return [];
+      }
+    })).values()];
   }
 
   resolve(modelId) {
     for (const config of this.getProviders()) {
-      const provider = this.createProvider(config);
-      const model = provider.listModels().find((item) => item.id === modelId);
-      if (model) return { provider, model };
+      if (!this.providerTypes.has(config.interface)) continue;
+      try {
+        const provider = this.createProvider(config);
+        const model = provider.listModels().find((item) => item.id === modelId);
+        if (model) return { provider, model };
+      } catch (error) {
+        traceError('provider.resolve-error', {
+          provider_id: config.id,
+          interface: config.interface,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
     return null;
   }
@@ -546,6 +586,7 @@ export class ModelProviderRegistry {
   async getState(providerId) {
     const config = this.getProviders().find((provider) => provider.id === providerId);
     if (!config) throw new Error('Provider not found.');
+    if (!this.providerTypes.has(config.interface)) return {};
     const provider = this.createProvider(config);
     return typeof provider.implementation.getState === 'function'
       ? provider.implementation.getState({
@@ -558,6 +599,9 @@ export class ModelProviderRegistry {
   async invokeAction(providerId, action, input) {
     const config = this.getProviders().find((provider) => provider.id === providerId);
     if (!config) throw new Error('Provider not found.');
+    if (!this.providerTypes.has(config.interface)) {
+      throw new Error(`Provider interface "${config.interface}" is unavailable.`);
+    }
     const provider = this.createProvider(config);
     if (typeof provider.implementation.invokeAction !== 'function') {
       throw new Error('This provider does not expose settings actions.');
@@ -572,7 +616,7 @@ export class ModelProviderRegistry {
 
   async remove(providerId) {
     const config = this.getProviders().find((provider) => provider.id === providerId);
-    if (!config) return;
+    if (!config || !this.providerTypes.has(config.interface)) return;
     const provider = this.createProvider(config);
     if (typeof provider.implementation.remove === 'function') {
       await provider.implementation.remove({
@@ -584,14 +628,24 @@ export class ModelProviderRegistry {
 
   listAuxiliaryPanels(context = {}) {
     return this.getProviders().flatMap((config) => {
-      const provider = this.createProvider(config);
-      return provider.getContributions(context).auxiliaryPanels.map((panel) => ({
-        id: `${provider.config.id}:${panel.id}`,
-        title: panel.title,
-        icon: panel.icon ?? null,
-        providerId: provider.config.id,
-        providerName: provider.config.name,
-      }));
+      if (!this.providerTypes.has(config.interface)) return [];
+      try {
+        const provider = this.createProvider(config);
+        return provider.getContributions(context).auxiliaryPanels.map((panel) => ({
+          id: `${provider.config.id}:${panel.id}`,
+          title: panel.title,
+          icon: panel.icon ?? null,
+          providerId: provider.config.id,
+          providerName: provider.config.name,
+        }));
+      } catch (error) {
+        traceError('provider.auxiliary-panels-error', {
+          provider_id: config.id,
+          interface: config.interface,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return [];
+      }
     });
   }
 
@@ -600,13 +654,22 @@ export class ModelProviderRegistry {
     const config = this.getProviders().find((provider) => (
       panelId.startsWith(`${provider.id}:`)
     ));
-    if (!config) return null;
-    const provider = this.createProvider(config);
-    const prefix = `${provider.config.id}:`;
-    const panel = provider.getContributions(context).auxiliaryPanels.find(
-      (item) => item.id === panelId.slice(prefix.length),
-    );
-    return panel ? { panel, provider } : null;
+    if (!config || !this.providerTypes.has(config.interface)) return null;
+    try {
+      const provider = this.createProvider(config);
+      const prefix = `${provider.config.id}:`;
+      const panel = provider.getContributions(context).auxiliaryPanels.find(
+        (item) => item.id === panelId.slice(prefix.length),
+      );
+      return panel ? { panel, provider } : null;
+    } catch (error) {
+      traceError('provider.resolve-auxiliary-panel-error', {
+        provider_id: config.id,
+        interface: config.interface,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
   async readAuxiliaryPanel(panelId, context = {}) {
@@ -627,3 +690,4 @@ export class ModelProviderRegistry {
     return panel.invokeAction(action, input, context);
   }
 }
+
