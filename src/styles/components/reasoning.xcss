@@ -118,7 +118,7 @@
 }
 
 .tool-line {
-  display: flex;
+  display: inline;
   flex-wrap: wrap;
   align-items: center;
   width: 100%;
@@ -127,6 +127,13 @@
   line-height: 1.45;
   cursor: pointer;
   list-style: none;
+
+  svg {
+    position: relative;
+    display: inline-block;
+    margin-right: 5px;
+    top: 1px;
+  }
 
   &::-webkit-details-marker {
     display: none;

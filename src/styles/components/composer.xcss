@@ -54,6 +54,11 @@
     width: 100%;
     padding: 0;
     pointer-events: auto;
+
+    .model-input-menu {
+      top: 42px;
+      bottom: auto;
+    }
   }
 
   .composer-wrap-strip {

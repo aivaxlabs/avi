@@ -13,6 +13,7 @@ import remarkGfm from 'remark-gfm';
 import { Composer } from './Composer.jsx';
 import { consolidateFileEdits } from '../lib/file-edits.js';
 import { groupAssistantTurns, isHumanUserMessage } from '../lib/message-groups.js';
+import { useStreamingAutoScroll } from '../lib/use-streaming-auto-scroll.js';
 import { Message } from './Message.jsx';
 
 const emptyChatBackgroundShader = `
@@ -172,13 +173,6 @@ export const ChatView = memo(function ChatView({
   const chatAreaRef = useRef(null);
   const composerRef = useRef(null);
   const emptyBackgroundRef = useRef(null);
-  const scrollRef = useRef(null);
-  const messagesColumnRef = useRef(null);
-  const autoScrollTimerRef = useRef(null);
-  const autoScrollTargetRef = useRef(null);
-  const manualScrollDuringRunRef = useRef(false);
-  const wasRunningRef = useRef(false);
-  const lastScrollTopRef = useRef(0);
   const dragDepthRef = useRef(0);
   const questionCardRef = useRef(null);
   const [fileDropActive, setFileDropActive] = useState(false);
@@ -248,23 +242,16 @@ export const ChatView = memo(function ChatView({
     }),
   );
 
-  function scrollToBottom() {
-    const scrollElement = scrollRef.current;
-    if (scrollElement) {
-      const target = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight);
-      autoScrollTargetRef.current = target;
-      scrollElement.scrollTop = target;
-    }
-  }
-
-  function scheduleScrollToBottom(delay = 50) {
-    if (autoScrollTimerRef.current !== null) return;
-
-    autoScrollTimerRef.current = window.setTimeout(() => {
-      autoScrollTimerRef.current = null;
-      requestAnimationFrame(scrollToBottom);
-    }, delay);
-  }
+  const {
+    scrollRef,
+    messagesColumnRef,
+    handleScroll,
+    scheduleScrollToBottom,
+  } = useStreamingAutoScroll({
+    isRunning,
+    resetKey: currentConversation?.id,
+    streamKey: streamScrollKey,
+  });
 
   function handleDragEnter(event) {
     if (!hasFileTransfer(event.dataTransfer)) return;
@@ -305,35 +292,6 @@ export const ChatView = memo(function ChatView({
   }
 
   useEffect(() => {
-    manualScrollDuringRunRef.current = false;
-    scheduleScrollToBottom(0);
-
-    return () => {
-      window.clearTimeout(autoScrollTimerRef.current);
-      autoScrollTimerRef.current = null;
-    };
-  }, [currentConversation?.id]);
-
-  useEffect(() => {
-    if (!isRunning) {
-      scheduleScrollToBottom(0);
-    }
-  }, [currentConversation?.id, currentMessages.length, isRunning]);
-
-  useEffect(() => {
-    if (isRunning && !wasRunningRef.current) {
-      manualScrollDuringRunRef.current = false;
-    }
-    wasRunningRef.current = isRunning;
-  }, [isRunning]);
-
-  useEffect(() => {
-    if (isRunning && !manualScrollDuringRunRef.current) {
-      scheduleScrollToBottom();
-    }
-  }, [isRunning, streamScrollKey]);
-
-  useEffect(() => {
     setQuestionIndex(0);
     setQuestionAnswers(questionRequest?.questions.map((question) => (
       question.type === 'multiple_choice' ? [] : ''
@@ -366,40 +324,12 @@ export const ChatView = memo(function ChatView({
         `${Math.ceil(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height)}px`,
       );
       if (distanceFromBottom <= 48) {
-        requestAnimationFrame(scrollToBottom);
+        scheduleScrollToBottom(0);
       }
     });
     observer.observe(composerRef.current);
     return () => observer.disconnect();
-  }, [currentConversation?.id]);
-
-  useEffect(() => {
-    const column = messagesColumnRef.current;
-    if (!column) return undefined;
-    if (!isRunning) {
-      lastScrollTopRef.current = scrollRef.current?.scrollTop ?? 0;
-      return undefined;
-    }
-
-    let frame = null;
-    const observer = new ResizeObserver(() => {
-      if (manualScrollDuringRunRef.current) return;
-      if (autoScrollTimerRef.current !== null) return;
-      autoScrollTimerRef.current = window.setTimeout(() => {
-        autoScrollTimerRef.current = null;
-        frame = requestAnimationFrame(scrollToBottom);
-      }, 16);
-    });
-    observer.observe(column);
-    return () => {
-      observer.disconnect();
-      if (frame !== null) cancelAnimationFrame(frame);
-      if (autoScrollTimerRef.current !== null) {
-        window.clearTimeout(autoScrollTimerRef.current);
-        autoScrollTimerRef.current = null;
-      }
-    };
-  }, [currentConversation?.id, isRunning]);
+  }, [currentConversation?.id, scheduleScrollToBottom]);
 
   useEffect(() => {
     const canvas = emptyBackgroundRef.current;
@@ -739,38 +669,7 @@ export const ChatView = memo(function ChatView({
         onKeyUp={updateSelectionAction}
         onScroll={(event) => {
           setSelectionAction(null);
-          const scrollElement = event.currentTarget;
-          const previousScrollTop = lastScrollTopRef.current;
-          const currentScrollTop = scrollElement.scrollTop;
-          const scrollTopDelta = currentScrollTop - previousScrollTop;
-          lastScrollTopRef.current = currentScrollTop;
-
-          if (!isRunning) return;
-
-          const distanceFromBottom = scrollElement.scrollHeight
-            - currentScrollTop
-            - scrollElement.clientHeight;
-          const matchedAutoScroll = (
-            autoScrollTargetRef.current !== null
-            && Math.abs(currentScrollTop - autoScrollTargetRef.current) <= 24
-          );
-          autoScrollTargetRef.current = null;
-          if (matchedAutoScroll) {
-            manualScrollDuringRunRef.current = false;
-            return;
-          }
-
-          const userScrolledUp = scrollTopDelta < 0;
-          if (userScrolledUp && distanceFromBottom > 24) {
-            manualScrollDuringRunRef.current = true;
-            window.clearTimeout(autoScrollTimerRef.current);
-            autoScrollTimerRef.current = null;
-          } else {
-            manualScrollDuringRunRef.current = false;
-            if (distanceFromBottom <= 24) {
-              scheduleScrollToBottom(0);
-            }
-          }
+          handleScroll(event);
         }}
       >
         {isEmptyChat ? (
@@ -874,7 +773,7 @@ export const ChatView = memo(function ChatView({
                   }
                   canResume={
                     message.id === lastAssistantMessage?.id
-                    && ['error', 'aborted'].includes(message.status)
+                    && ['error', 'aborted', 'streaming'].includes(message.status)
                     && !isRunning
                     && !subagents?.some((subagent) => (
                       ['waiting', 'working'].includes(subagent.status)

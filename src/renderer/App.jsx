@@ -1417,9 +1417,10 @@ export default function App() {
   const chatOnSend = useStableCallback(sendMessage);
   const chatOnReplaceUserMessage = useStableCallback(async (messageId, payload) => {
     if (!selectedId) return;
+    const conversationId = selectedId;
     try {
       const result = await api.chat.replaceUserMessage({
-        conversationId: selectedId,
+        conversationId,
         messageId,
         model: payload.model,
         text: payload.text,
@@ -1432,6 +1433,9 @@ export default function App() {
       setConversations((state) => (
         upsertById(state, result.conversation).sort(sortByUpdatedAt)
       ));
+      if (selectedConversationIdRef.current === conversationId) {
+        setDraftModel(result.conversation.model);
+      }
       setMessagesByConversation((state) => ({
         ...state,
         [result.conversation.id]: upsertMessage(

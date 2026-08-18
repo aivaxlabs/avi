@@ -51,6 +51,33 @@ import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { ModelPicker } from './ModelPicker.jsx';
 
 const composerDraftKey = 'aivax.composer.draft';
+const composerReasoningEffortsKey = 'aivax.composer.reasoning-efforts';
+
+function readPersistedReasoningEfforts() {
+  try {
+    const raw = window.localStorage.getItem(composerReasoningEffortsKey);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function readPersistedReasoningEffort(modelId) {
+  if (!modelId) return null;
+  const value = readPersistedReasoningEfforts()[modelId];
+  return typeof value === 'string' ? value : null;
+}
+
+function writePersistedReasoningEffort(modelId, effort) {
+  if (!modelId) return;
+  const map = readPersistedReasoningEfforts();
+  if (effort) map[modelId] = effort;
+  else delete map[modelId];
+  try {
+    window.localStorage.setItem(composerReasoningEffortsKey, JSON.stringify(map));
+  } catch {}
+}
 const permissionModes = [
   {
     id: 'ask_for_approval',
@@ -199,7 +226,7 @@ export function Composer({
   const [commandIndex, setCommandIndex] = useState(0);
   const [cursorPosition, setCursorPosition] = useState(text.length);
   const [contextCommands, setContextCommands] = useState([]);
-  const [reasoningEffort, setReasoningEffort] = useState(initialState?.reasoningEffort ?? null);
+  const [reasoningEffort, setReasoningEffort] = useState(() => initialState?.reasoningEffort ?? readPersistedReasoningEffort(initialModel) ?? null);
   const [recording, setRecording] = useState(null);
   const [audioLevel, setAudioLevel] = useState(0);
   const [projectSelecting, setProjectSelecting] = useState(false);
@@ -396,7 +423,7 @@ export function Composer({
     setAttachments([]);
     setPermissionMode(defaultPermissionMode);
     setCurrentModel(initialModel);
-    setReasoningEffort(null);
+    setReasoningEffort(initialState?.reasoningEffort ?? readPersistedReasoningEffort(initialModel) ?? null);
     setWorkMode(initialWorkMode);
     setUltraMode(initialUltraMode);
 
@@ -428,13 +455,19 @@ export function Composer({
         window.chatApp.composerState.save(state).catch(() => {});
       }
     };
-  }, [conversationId, persistState]);
+  }, [conversationId, persistState, initialModel]);
 
   useEffect(() => {
     if (!persistState) return;
     setWorkMode(initialWorkMode);
     setUltraMode(initialUltraMode);
   }, [initialUltraMode, initialWorkMode, persistState]);
+
+  useEffect(() => {
+    if (!persistState || !currentModel || !reasoningEffort) return;
+    if (!currentModelConfig?.reasoning?.includes(reasoningEffort)) return;
+    writePersistedReasoningEffort(currentModel, reasoningEffort);
+  }, [currentModel, currentModelConfig, persistState, reasoningEffort]);
 
   useEffect(() => {
     if (!persistState || !conversationId || hydratedConversationIdRef.current !== conversationId) return undefined;
@@ -650,7 +683,7 @@ export function Composer({
   function chooseModel(modelId) {
     setCurrentModel(modelId);
     onChooseModel(modelId);
-    setReasoningEffort(null);
+    setReasoningEffort(readPersistedReasoningEffort(modelId) ?? null);
     setReasoningMenuOpen(false);
     setModelMenuOpen(false);
     setModelPickerOpen(false);
@@ -812,6 +845,7 @@ export function Composer({
       chooseModel(option.value);
     } else if (commandMode === 'efforts') {
       setReasoningEffort(option.value);
+      if (persistState) writePersistedReasoningEffort(currentModel, option.value);
     }
     exitCommandMode();
   }
@@ -1356,6 +1390,22 @@ export function Composer({
                     <X size={13} />
                   </button>
                 </figure>
+              ) : attachment.kind === 'video_url' && attachment.dataUrl ? (
+                <figure key={attachment.id} className="attachment-image attachment-video">
+                  <video src={attachment.dataUrl} controls muted preload="metadata" />
+                  <figcaption>
+                    <span title={attachment.name}>{attachment.name}</span>
+                    <small>{formatBytes(attachment.size)}</small>
+                  </figcaption>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${attachment.name}`}
+                    title={`Remove ${attachment.name}`}
+                    onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}
+                  >
+                    <X size={13} />
+                  </button>
+                </figure>
               ) : (
                 <span
                   key={attachment.id}
@@ -1680,6 +1730,7 @@ export function Composer({
                               )}
                               onClick={() => {
                                 setReasoningEffort(effort);
+                                if (persistState) writePersistedReasoningEffort(currentModel, effort);
                                 setReasoningMenuOpen(false);
                                 setModelMenuOpen(false);
                               }}

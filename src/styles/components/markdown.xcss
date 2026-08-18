@@ -108,7 +108,7 @@
   }
 
   .finding-heading {
-    display: flex;
+    display: block;
     align-items: baseline;
     margin: 2.5em 0 .5em 0;
     padding-bottom: .5em;
@@ -119,6 +119,8 @@
 
     &::before {
       content: attr(data-finding-priority);
+      display: inline-block;
+      margin-right: 1em;
       background: color-mix(in srgb, currentColor 9%, transparent);
       border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
       width: 36px;
