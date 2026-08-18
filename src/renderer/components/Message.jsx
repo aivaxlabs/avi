@@ -80,11 +80,10 @@ const MARKDOWN_PLUGINS = Object.freeze([
       if (
         (node.type !== 'paragraph' && node.type !== 'heading')
         || firstChild?.type !== 'text'
-        || node.children.some((child) => child.type === 'break' || /[\r\n]/.test(child.value ?? ''))
       ) {
         continue;
       }
-      const match = /^#finding:(P[0-3])\s+/.exec(firstChild.value);
+      const match = /^[\u200B-\u200D\u2060\uFEFF]*#finding:(P[0-3])\s+/.exec(firstChild.value);
       if (!match) continue;
 
       const priority = match[1];
@@ -302,17 +301,22 @@ function AttachmentLightbox({ attachment, onClose }) {
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [onClose]);
 
+  const isVideo = attachment?.kind === 'video_url';
   return createPortal(
     <div
       className="attachment-lightbox"
       role="dialog"
       aria-modal="true"
-      aria-label={`Image preview: ${attachment.name}`}
+      aria-label={`${isVideo ? 'Video' : 'Image'} preview: ${attachment.name}`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <img src={attachment.dataUrl} alt={attachment.name} />
+      {isVideo ? (
+        <video src={attachment.dataUrl} controls autoPlay />
+      ) : (
+        <img src={attachment.dataUrl} alt={attachment.name} />
+      )}
       <button
         type="button"
         aria-label="Close image preview"
@@ -423,7 +427,13 @@ function UserMessage({ message, editing, onEdit, editor }) {
                       <img src={attachment.dataUrl} alt={attachment.name} />
                     </button>
                   )
-                : (
+                : attachment.kind === 'video_url' && attachment.dataUrl
+                  ? (
+                      <div key={attachment.id} className="user-attachment-video" title={attachment.name}>
+                        <video src={attachment.dataUrl} controls preload="metadata" />
+                      </div>
+                    )
+                  : (
                     <span
                       key={attachment.id}
                       className={`attachment-pill${attachment.kind === 'context_marker' ? ' context-marker' : ''}`}

@@ -143,6 +143,7 @@ export async function normalizeAttachmentsForModel(attachments, capabilities = {
         && (attachment.size ?? Buffer.byteLength(attachment.text ?? '', 'utf8')) <= inlineTextAttachmentSizeLimit
       )
       || (attachment.kind === 'image_url' && capabilities.images)
+      || (attachment.kind === 'video_url' && capabilities.video)
       || (attachment.kind === 'input_audio' && capabilities.audio)
       || (
         attachment.kind === 'file'

@@ -2,6 +2,7 @@ import {
   AudioLines,
   Brain,
   FileText,
+  Film,
   Image,
   Search,
   Server,
@@ -148,6 +149,7 @@ export function ModelPicker({
                       </span>
                       <span className="model-row-capabilities">
                         {model.capabilities.images && <Image size={14} aria-label="Image input" />}
+                        {model.capabilities.video && <Film size={14} aria-label="Video input" />}
                         {model.capabilities.audio && <AudioLines size={14} aria-label="Audio input" />}
                         {model.capabilities.pdfFiles && <FileText size={14} aria-label="PDF file input" />}
                         {model.reasoning.length > 0 && <Brain size={14} aria-label="Reasoning" />}
@@ -200,6 +202,7 @@ export function ModelPicker({
                     <dd>
                       {[
                         previewModel.capabilities.images && 'Images',
+                        previewModel.capabilities.video && 'Video',
                         previewModel.capabilities.audio && 'Audio',
                         previewModel.capabilities.pdfFiles && 'PDF files',
                       ].filter(Boolean).join(', ') || 'Text'}

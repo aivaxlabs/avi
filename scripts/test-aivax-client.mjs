@@ -62,6 +62,13 @@ try {
     responseType: 'array',
   }), collectionsPayload);
 
+  reply({ message: null, data: collectionsPayload });
+  assert.deepEqual(await requestAivax('/api/v1/generations/descriptions', {
+    accessToken: 'test-access-token',
+    includeResponseEnvelope: true,
+    responseType: 'array',
+  }), { message: null, data: collectionsPayload });
+
   const queryPayload = [{
     documentId: 'document-id',
     documentName: 'memory.md',
@@ -244,12 +251,13 @@ try {
       capabilities: { images: false, audio: false, pdfFiles: false },
       requestAivax: async (path, options) => {
         mediaRequests.push({ path, options });
-        return [{ textContent: `Resolved ${options.body.input[0].type}` }];
+        return { data: [{ textContent: `Resolved ${options.body.input[0].type}` }] };
       },
       signal: new AbortController().signal,
     }), `Resolved ${fixture.type}`);
     const request = mediaRequests.at(-1);
     assert.equal(request.path, '/api/v1/generations/descriptions');
+    assert.equal(request.options.includeResponseEnvelope, true);
     assert.equal(request.options.responseType, 'array');
     const input = request.options.body.input[0];
     assert.equal(input.type, fixture.type);
@@ -262,6 +270,14 @@ try {
       assert.match(input.file.file_data, /^data:application\/pdf;base64,/);
     }
   }
+  assert.equal(await readMediaFile.execute({ path: mediaFixtures[1].path }, {
+    aivax: { connected: true, mediaDescriptionsEnabled: true },
+    capabilities: { images: false, audio: false, pdfFiles: false },
+    requestAivax: async () => ({
+      data: [{ textContent: 'First video segment.' }],
+    }),
+  }), 'First video segment.');
+
   const mediaRequestCount = mediaRequests.length;
   await assert.rejects(
     readMediaFile.execute({ path: mediaFixtures[0].path }, {
@@ -279,7 +295,7 @@ try {
     readMediaFile.execute({ path: mediaFixtures[0].path }, {
       aivax: { connected: true, mediaDescriptionsEnabled: true },
       capabilities: { images: false, audio: false, pdfFiles: false },
-      requestAivax: async () => [{ type: 'invalid', textContent: null }],
+      requestAivax: async () => ({ data: [{ type: 'invalid', textContent: null }] }),
     }),
     /invalid media description/,
   );

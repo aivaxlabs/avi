@@ -170,6 +170,7 @@ export class QuickChatRunner {
           .filter((tool) => (
             tool.name !== 'read_media_file'
             || selection.model.capabilities?.images
+            || selection.model.capabilities?.video
             || selection.model.capabilities?.audio
             || selection.model.capabilities?.pdfFiles
             || (aivax?.connected && aivax.mediaDescriptionsEnabled)
@@ -184,6 +185,7 @@ export class QuickChatRunner {
             if (tool.name === 'read_media_file') {
               const supportedMedia = [
                 selection.model.capabilities?.images && 'images',
+                selection.model.capabilities?.video && 'videos',
                 selection.model.capabilities?.audio && 'MP3 audio',
                 selection.model.capabilities?.pdfFiles && 'PDF files',
               ].filter(Boolean);

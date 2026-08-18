@@ -49,6 +49,7 @@ import { RemoteSettings } from './RemoteSettings.jsx';
 const reasoningEfforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const capabilityOptions = [
   { value: 'images', label: 'Images' },
+  { value: 'video', label: 'Video' },
   { value: 'audio', label: 'Audio' },
   { value: 'pdfFiles', label: 'PDF files' },
 ];
@@ -1928,7 +1929,7 @@ export function SettingsPage({
                           id: '',
                           name: '',
                           enabled: true,
-                          capabilities: { images: false, audio: false, pdfFiles: false },
+                          capabilities: { images: false, video: false, audio: false, pdfFiles: false },
                           context: { input: '', output: '' },
                           reasoning: [],
                         });

@@ -6,6 +6,9 @@ function toResponsesContent(content) {
     if (item.type === 'image_url') {
       return { type: 'input_image', image_url: item.image_url?.url };
     }
+    if (item.type === 'video_url') {
+      return { type: 'input_video', video_url: item.video_url?.url };
+    }
     if (item.type === 'file') {
       return {
         type: 'input_file',
