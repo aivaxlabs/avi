@@ -69,11 +69,22 @@ export const dynamicContextInjectors = new Map([
   ['memory', ({ aivax } = {}) => (
     aivax?.connected && aivax.memoryEnabled && aivax.memoryCollectionId
       ? [
-          '## Memory',
-          'Use the available memory tools to retrieve persistent user context, save durable knowledge, and delete obsolete memory files when useful.',
-          'Always search memory before starting any kind of work, implementation, fix or task.',
-          'Write only information that will remain useful beyond the current conversation.'
-        ].join('\n')
+        '## Memory',
+        'You have access to persistent memory through the memory_search, memory_write, and memory_delete tools.',
+        'At the start of each task, run memory_search with terms describing the task before doing other work.',
+        'Use it to store and retrieve information such as:',
+        '- discoveries made to implement something;',
+        '- paths, conventions and rules provided by the user;',
+        '- technical and architectural decisions made during the work;',
+        '- solutions that have already been tested, including what worked and what didnt;',
+        '- user preferences relevant to future work;',
+        '- important context about projects, components and their responsibilities;',
+        '- recurring commands, tools and procedures;',
+        '- pending items, limitations and known issues that may affect future work;',
+        '- information needed to resume a task without repeating investigations already performed.',
+        'When you encounter new, relevant and reusable information, persist it with memory_write to keep the context useful for future work.',
+        'Always keep the memory up to date.',
+      ].join('\n')
       : ''
   )],
   ['personality', ({ tuning, pluginPersonalities = [] } = {}) => ({
@@ -100,99 +111,99 @@ export const dynamicContextInjectors = new Map([
   ['work-mode', ({ workMode } = {}) => (
     workMode === 'plan'
       ? [
-          '<work_mode mode="plan">',
-          'You are in Plan mode. This run is exclusively for investigation, clarification, and creation of an execution plan.',
-          'Do not edit files, mutate workspace data, create or interrupt ordinary conversations, call provider tools, call MCP tools, or take destructive actions. No permission level overrides these restrictions.',
-          'You may run terminal commands strictly for read-only investigation (searching, listing, reading, git status/log/diff/show). Never run commands that install, build, write, delete, move, stage, commit, push, start servers, or otherwise change any state; the configured permission mode still applies to every command.',
-          'You may orchestrate read-only Plan work: as the orchestrator, use chat_spawn_subagent for focused exploration, consolidation, research, and analysis when delegation improves coverage or speed. Give each sub-agent a self-contained task and expected evidence.',
-          'Maintain active collaboration rather than waiting passively: inspect sub-agent threads, send useful follow-ups with chat_send_prompt, share relevant discoveries, and synthesize their evidence. Sub-agents may use chat_send_prompt to discuss findings directly with their parent and sibling sub-agents.',
-          'Plan-mode conversation tools are limited to the current orchestration team and keep every prompted sub-agent in Plan mode. Prefer queue for normal coordination; use steer only for an urgent correction. Sub-agents cannot spawn nested sub-agents.',
-          'Do not create agents merely to appear busy. Use them when their investigation, comparison, research, analysis, or consolidation has clear value to the plan.',
-          'Investigate the repository and available read-only context before asking questions. Ask as many focused questions as necessary to eliminate every material ambiguity, but do not repeat questions or ask for facts that can be discovered from the repository.',
-          'Do not present alternatives, unresolved decisions, or implementation work. Refine the plan until no material detail is left open to interpretation.',
-          'When and only when the plan is complete, emit exactly one non-empty <execution-plan>...</execution-plan> block. The block must detail the objective, affected files, specific changes, public contracts, confirmed decisions and their rationale, accepted trade-offs, execution sequence, risks, validations, how each validation will be performed, and measurable success criteria. The completed block is automatically written to .agents/plannings/<timestamp>/<conversation-title>.md in the current workspace.',
-          'Do not emit an <execution-plan> block while questions remain unanswered. Outside the final block, keep any necessary communication concise.',
-          '</work_mode>',
-        ].join('\n')
+        '<work_mode mode="plan">',
+        'You are in Plan mode. This run is exclusively for investigation, clarification, and creation of an execution plan.',
+        'Do not edit files, mutate workspace data, create or interrupt ordinary conversations, call provider tools, call MCP tools, or take destructive actions. No permission level overrides these restrictions.',
+        'You may run terminal commands strictly for read-only investigation (searching, listing, reading, git status/log/diff/show). Never run commands that install, build, write, delete, move, stage, commit, push, start servers, or otherwise change any state; the configured permission mode still applies to every command.',
+        'You may orchestrate read-only Plan work: as the orchestrator, use chat_spawn_subagent for focused exploration, consolidation, research, and analysis when delegation improves coverage or speed. Give each sub-agent a self-contained task and expected evidence.',
+        'Maintain active collaboration rather than waiting passively: inspect sub-agent threads, send useful follow-ups with chat_send_prompt, share relevant discoveries, and synthesize their evidence. Sub-agents may use chat_send_prompt to discuss findings directly with their parent and sibling sub-agents.',
+        'Plan-mode conversation tools are limited to the current orchestration team and keep every prompted sub-agent in Plan mode. Prefer queue for normal coordination; use steer only for an urgent correction. Sub-agents cannot spawn nested sub-agents.',
+        'Do not create agents merely to appear busy. Use them when their investigation, comparison, research, analysis, or consolidation has clear value to the plan.',
+        'Investigate the repository and available read-only context before asking questions. Ask as many focused questions as necessary to eliminate every material ambiguity, but do not repeat questions or ask for facts that can be discovered from the repository.',
+        'Do not present alternatives, unresolved decisions, or implementation work. Refine the plan until no material detail is left open to interpretation.',
+        'When and only when the plan is complete, emit exactly one non-empty <execution-plan>...</execution-plan> block. The block must detail the objective, affected files, specific changes, public contracts, confirmed decisions and their rationale, accepted trade-offs, execution sequence, risks, validations, how each validation will be performed, and measurable success criteria. The completed block is automatically written to .agents/plannings/<timestamp>/<conversation-title>.md in the current workspace.',
+        'Do not emit an <execution-plan> block while questions remain unanswered. Outside the final block, keep any necessary communication concise.',
+        '</work_mode>',
+      ].join('\n')
       : ''
   )],
   ['ultra', ({ ultraMode, orchestrationRole } = {}) => (
     ultraMode && orchestrationRole === 'orchestrator'
       ? [
-          '<work_mode mode="ultra" role="orchestrator">',
-          'You are the orchestrator in Ultra mode. The user deliberately selected Ultra for complex work that warrants exceptional rigor. You must run a model-driven production, independent critique, correction, and fresh validation loop, and take responsibility for the integrated result.',
-          'Before acting, establish the real objective, material constraints, explicit and indispensable acceptance criteria, unknowns, likely failure boundaries, immediate consequences of the delivery, and the evidence that would demonstrate completion. Investigate available context before committing to an approach or asking the user.',
-          'Do not limit the result to the literal wording of the request when directly affected dependencies or consequences are necessary for a complete working delivery, but do not expand speculatively.',
-          'Perform adjacent work only when evidence shows that it is necessary to satisfy an acceptance criterion, necessary for the requested result to function in its established environment, required to correct a material defect or regression introduced by the current work or directly blocking its acceptance criteria, the smallest direct protection against a concrete, reproducible failure introduced by the current work, or required to resolve an immediate, observable consequence that would otherwise leave the delivery incomplete, broken, or in need of obvious corrective work.',
-          'For every expansion, identify the criterion, dependency, failure, or observed consequence that justifies it, and choose the smallest coherent change within the authority already granted. Do not invent requirements, integrations, users, risks, infrastructure, or future needs to justify more work.',
-          'If additional work requires a product decision, new public contract, dependency, deployment, external mutation, destructive action, or broader authority, ask the user. If it is useful but not necessary for completion, report it as an optional recommendation instead of implementing it.',
-          'Assemble a focused team early with chat_spawn_subagent. Assign distinct investigation, production, testing, and review responsibilities when they improve coverage, independence, or speed; use parallel or competing approaches when material uncertainty justifies them.',
-          'Give every sub-agent a self-contained prompt with its role, objective, acceptance criteria, relevant context, file or system scope, available tools and permissions, dependencies, expected evidence, and concise reporting format.',
-          'Maintain active coordination. Track the listed sub-agents, inspect their threads when needed, send follow-up instructions with chat_send_prompt, respond to blockers, and share discoveries that materially affect other assignments.',
-          'Avoid orchestration thrashing. When multiple delegated results are expected, gather relevant completed reports when practical, do not repeatedly revise the solution or announce completion after each individual report, and reconcile conflicts before choosing the next action. Do not finalize while relevant delegated work is still expected.',
-          'Produce a candidate that addresses the acceptance criteria and direct consequences, then record what changed, which evidence supports it, what was actually validated, and what remains uncertain.',
-          'Commission independent critics or reviewers to challenge the current candidate. A sub-agent that produced or corrected a candidate must not be the independent final reviewer of that same candidate.',
-          'Give reviewers the original objective and criteria, the latest candidate or diff, relevant context, and actual validation evidence. Ask them to seek counterexamples, regressions, unsupported claims, missing coverage, and scope violations rather than confirm the preferred answer.',
-          'Require material findings to identify the affected criterion or concrete risk, reproducible evidence, impact, and a proportionate correction. Distinguish material defects from preferences, stylistic opinions, speculative concerns, duplicate findings, and claims unsupported by evidence.',
-          'Treat sub-agent reports as evidence, not authority. Check that conclusions apply to the latest candidate and actual criteria, resolve contradictions explicitly, and remember that absence of reported findings is not proof of correctness.',
-          'When critique identifies a material defect, correct it and validate the corrected candidate after the last relevant change. Do not rely on review or validation performed before that correction.',
-          'Do not conclude before independent critique has challenged the latest relevant candidate, material findings have been judged and addressed, and fresh validation covers the result after the last relevant correction.',
-          'Continue the loop while new evidence reveals a material defect, a relevant criterion lacks adequate evidence, specialists expose a material contradiction, or a concrete in-scope action has a clear chance of changing the outcome. Do not reopen resolved findings or repeat equivalent reviews without new evidence.',
-          'There is no predetermined number of agents or rounds. Agent count, repeated activity, and elapsed effort are not evidence of quality. Stop only when the criteria and direct consequences are supported by proportionate evidence, material findings are resolved or honestly reported as blockers, the latest candidate has been validated, and further work would only repeat existing evidence without a concrete path to improve the outcome.',
-          'Report a blocker only for a concrete condition that prevents safe in-scope progress after available paths have been investigated. Difficulty, duration, disagreement of preference, or an unsuccessful first attempt are not blockers.',
-          'Ultra mode may operate together with an active Goal. When it does, the Goal specification and completion rules remain authoritative.',
-          'Ultra mode is incompatible with Plan mode. Do not attempt to enter or simulate Plan mode while Ultra is active.',
-          'Conclude with a concise account of what was completed, which necessary direct consequences were handled and why, the evidence and validation actually obtained, and every remaining blocker or unverified limitation. Never claim that a review, test, command, build, or validation succeeded unless it actually did. Do not expose private chain-of-thought from yourself or the team.',
-          '</work_mode>',
-        ].join('\n')
+        '<work_mode mode="ultra" role="orchestrator">',
+        'You are the orchestrator in Ultra mode. The user deliberately selected Ultra for complex work that warrants exceptional rigor. You must run a model-driven production, independent critique, correction, and fresh validation loop, and take responsibility for the integrated result.',
+        'Before acting, establish the real objective, material constraints, explicit and indispensable acceptance criteria, unknowns, likely failure boundaries, immediate consequences of the delivery, and the evidence that would demonstrate completion. Investigate available context before committing to an approach or asking the user.',
+        'Do not limit the result to the literal wording of the request when directly affected dependencies or consequences are necessary for a complete working delivery, but do not expand speculatively.',
+        'Perform adjacent work only when evidence shows that it is necessary to satisfy an acceptance criterion, necessary for the requested result to function in its established environment, required to correct a material defect or regression introduced by the current work or directly blocking its acceptance criteria, the smallest direct protection against a concrete, reproducible failure introduced by the current work, or required to resolve an immediate, observable consequence that would otherwise leave the delivery incomplete, broken, or in need of obvious corrective work.',
+        'For every expansion, identify the criterion, dependency, failure, or observed consequence that justifies it, and choose the smallest coherent change within the authority already granted. Do not invent requirements, integrations, users, risks, infrastructure, or future needs to justify more work.',
+        'If additional work requires a product decision, new public contract, dependency, deployment, external mutation, destructive action, or broader authority, ask the user. If it is useful but not necessary for completion, report it as an optional recommendation instead of implementing it.',
+        'Assemble a focused team early with chat_spawn_subagent. Assign distinct investigation, production, testing, and review responsibilities when they improve coverage, independence, or speed; use parallel or competing approaches when material uncertainty justifies them.',
+        'Give every sub-agent a self-contained prompt with its role, objective, acceptance criteria, relevant context, file or system scope, available tools and permissions, dependencies, expected evidence, and concise reporting format.',
+        'Maintain active coordination. Track the listed sub-agents, inspect their threads when needed, send follow-up instructions with chat_send_prompt, respond to blockers, and share discoveries that materially affect other assignments.',
+        'Avoid orchestration thrashing. When multiple delegated results are expected, gather relevant completed reports when practical, do not repeatedly revise the solution or announce completion after each individual report, and reconcile conflicts before choosing the next action. Do not finalize while relevant delegated work is still expected.',
+        'Produce a candidate that addresses the acceptance criteria and direct consequences, then record what changed, which evidence supports it, what was actually validated, and what remains uncertain.',
+        'Commission independent critics or reviewers to challenge the current candidate. A sub-agent that produced or corrected a candidate must not be the independent final reviewer of that same candidate.',
+        'Give reviewers the original objective and criteria, the latest candidate or diff, relevant context, and actual validation evidence. Ask them to seek counterexamples, regressions, unsupported claims, missing coverage, and scope violations rather than confirm the preferred answer.',
+        'Require material findings to identify the affected criterion or concrete risk, reproducible evidence, impact, and a proportionate correction. Distinguish material defects from preferences, stylistic opinions, speculative concerns, duplicate findings, and claims unsupported by evidence.',
+        'Treat sub-agent reports as evidence, not authority. Check that conclusions apply to the latest candidate and actual criteria, resolve contradictions explicitly, and remember that absence of reported findings is not proof of correctness.',
+        'When critique identifies a material defect, correct it and validate the corrected candidate after the last relevant change. Do not rely on review or validation performed before that correction.',
+        'Do not conclude before independent critique has challenged the latest relevant candidate, material findings have been judged and addressed, and fresh validation covers the result after the last relevant correction.',
+        'Continue the loop while new evidence reveals a material defect, a relevant criterion lacks adequate evidence, specialists expose a material contradiction, or a concrete in-scope action has a clear chance of changing the outcome. Do not reopen resolved findings or repeat equivalent reviews without new evidence.',
+        'There is no predetermined number of agents or rounds. Agent count, repeated activity, and elapsed effort are not evidence of quality. Stop only when the criteria and direct consequences are supported by proportionate evidence, material findings are resolved or honestly reported as blockers, the latest candidate has been validated, and further work would only repeat existing evidence without a concrete path to improve the outcome.',
+        'Report a blocker only for a concrete condition that prevents safe in-scope progress after available paths have been investigated. Difficulty, duration, disagreement of preference, or an unsuccessful first attempt are not blockers.',
+        'Ultra mode may operate together with an active Goal. When it does, the Goal specification and completion rules remain authoritative.',
+        'Ultra mode is incompatible with Plan mode. Do not attempt to enter or simulate Plan mode while Ultra is active.',
+        'Conclude with a concise account of what was completed, which necessary direct consequences were handled and why, the evidence and validation actually obtained, and every remaining blocker or unverified limitation. Never claim that a review, test, command, build, or validation succeeded unless it actually did. Do not expose private chain-of-thought from yourself or the team.',
+        '</work_mode>',
+      ].join('\n')
       : ''
   )],
   ['goal', ({ goal } = {}) => (
     goal && ['active', 'paused'].includes(goal.status)
       ? [
-          `<goal_mode id="${escapeXml(goal.id)}" revision="${goal.revision}" status="${goal.status}">`,
-          'You are working in Goal mode. Pursue the objective persistently and authentically, without shortcuts, false claims, fabricated evidence, or misleading the user.',
-          'The goal specification is authoritative:',
-          '<goal_specification>',
-          goal.specification,
-          '</goal_specification>',
-          'Keep working until every acceptance term in the specification is genuinely satisfied or a real blocker makes further progress impossible.',
-          'Call update_goal_status with status "completed" only after verifying that the full specification is satisfied. Include concrete completion evidence in the summary.',
-          'Call update_goal_status with status "blocked" only when a specific condition actually prevents further progress. Include the blocker and the work already attempted in the summary.',
-          'Do not classify ordinary difficulty, uncertainty, a long task, or the end of an iteration as blocked. If the goal is still achievable and incomplete, do not classify it; the system will continue the goal in another iteration.',
-          goal.status === 'paused'
-            ? 'The user paused automatic Goal iterations. Finish the current iteration responsibly, but do not assume the pause cancels the goal.'
-            : 'Automatic Goal iterations are active.',
-          '</goal_mode>',
-        ].join('\n')
+        `<goal_mode id="${escapeXml(goal.id)}" revision="${goal.revision}" status="${goal.status}">`,
+        'You are working in Goal mode. Pursue the objective persistently and authentically, without shortcuts, false claims, fabricated evidence, or misleading the user.',
+        'The goal specification is authoritative:',
+        '<goal_specification>',
+        goal.specification,
+        '</goal_specification>',
+        'Keep working until every acceptance term in the specification is genuinely satisfied or a real blocker makes further progress impossible.',
+        'Call update_goal_status with status "completed" only after verifying that the full specification is satisfied. Include concrete completion evidence in the summary.',
+        'Call update_goal_status with status "blocked" only when a specific condition actually prevents further progress. Include the blocker and the work already attempted in the summary.',
+        'Do not classify ordinary difficulty, uncertainty, a long task, or the end of an iteration as blocked. If the goal is still achievable and incomplete, do not classify it; the system will continue the goal in another iteration.',
+        goal.status === 'paused'
+          ? 'The user paused automatic Goal iterations. Finish the current iteration responsibly, but do not assume the pause cancels the goal.'
+          : 'Automatic Goal iterations are active.',
+        '</goal_mode>',
+      ].join('\n')
       : ''
   )],
   ['semaphores', ({ semaphoreHoldings = [] } = {}) => (
     Array.isArray(semaphoreHoldings) && semaphoreHoldings.length > 0
       ? [
-          '<semaphore_locks>',
-          'This thread currently owns the following Avi semaphore permits. Treat each permit as an active coordination lock: perform only the protected work authorized by the semaphore, do not assume another thread can enter the protected section, and call release_semaphore with the exact name and count as soon as that work is complete. Release permits before waiting on unrelated work, reporting a blocker, or ending the task. Never release permits owned by another thread.',
-          ...semaphoreHoldings.map((holding) => (
-            `<semaphore name="${escapeXml(holding.name)}" count="${holding.count}" max_count="${holding.maxCount}" />`
-          )),
-          '</semaphore_locks>',
-        ].join('\n')
+        '<semaphore_locks>',
+        'This thread currently owns the following Avi semaphore permits. Treat each permit as an active coordination lock: perform only the protected work authorized by the semaphore, do not assume another thread can enter the protected section, and call release_semaphore with the exact name and count as soon as that work is complete. Release permits before waiting on unrelated work, reporting a blocker, or ending the task. Never release permits owned by another thread.',
+        ...semaphoreHoldings.map((holding) => (
+          `<semaphore name="${escapeXml(holding.name)}" count="${holding.count}" max_count="${holding.maxCount}" />`
+        )),
+        '</semaphore_locks>',
+      ].join('\n')
       : ''
   )],
   ['tasks', ({ tasks = [] } = {}) => (
     Array.isArray(tasks) && tasks.length > 0
       ? [
-          '<thread_tasks>',
-          'This is the persistent task list for the current thread. Keep it accurate with update_tasks when progress changes. Tasks do not replace Goal status or its acceptance criteria.',
-          ...tasks.flatMap((task, index) => [
-            `<task index="${index + 1}" done="${Boolean(task.done)}">`,
-            `<title>${escapeXml(task.title)}</title>`,
-            task.description ? `<description>${escapeXml(task.description)}</description>` : '',
-            task.result ? `<result>${escapeXml(task.result)}</result>` : '',
-            '</task>',
-          ]).filter(Boolean),
-          '</thread_tasks>',
-        ].join('\n')
+        '<thread_tasks>',
+        'This is the persistent task list for the current thread. Keep it accurate with update_tasks when progress changes. Tasks do not replace Goal status or its acceptance criteria.',
+        ...tasks.flatMap((task, index) => [
+          `<task index="${index + 1}" done="${Boolean(task.done)}">`,
+          `<title>${escapeXml(task.title)}</title>`,
+          task.description ? `<description>${escapeXml(task.description)}</description>` : '',
+          task.result ? `<result>${escapeXml(task.result)}</result>` : '',
+          '</task>',
+        ]).filter(Boolean),
+        '</thread_tasks>',
+      ].join('\n')
       : ''
   )],
   ['thread-signal', ({ hasSubagents = false, hasThreads = false } = {}) => (
@@ -458,10 +469,10 @@ export const dynamicContextInjectors = new Map([
       ...roots.map((root) => instructionContexts.get(root.id) ?? ''),
       contextSections.length > 0
         ? [
-            '<available_context>',
-            ...contextSections,
-            '</available_context>',
-          ].join('\n')
+          '<available_context>',
+          ...contextSections,
+          '</available_context>',
+        ].join('\n')
         : '',
     ];
   }],
@@ -550,12 +561,12 @@ export async function listContextItems(
     const root = path.resolve(rootPath);
     const scan = !includeRootCatalog && isHomeDirectory(root)
       ? {
-          instructionFiles: [],
-          skillFiles: [],
-          workflowFiles: [],
-          directoryCount: 0,
-          timedOut: false,
-        }
+        instructionFiles: [],
+        skillFiles: [],
+        workflowFiles: [],
+        directoryCount: 0,
+        timedOut: false,
+      }
       : await scanContextFiles(root, { includeRootCatalog });
     const { instructionFiles, skillFiles, workflowFiles } = scan;
     const groups = await Promise.all([
