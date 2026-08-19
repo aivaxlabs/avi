@@ -689,7 +689,7 @@ export const ChatView = memo(function ChatView({
                       currentModel={message.model || currentModel}
                       modelName={getModelDisplayName(models, message.model || currentModel)}
                       contextUsage={contextUsage}
-                      onChooseModel={() => {}}
+                      onChooseModel={onChooseModel}
                       project={currentProject}
                       projectLocked
                       onChooseProject={onChooseProject}
