@@ -73,6 +73,13 @@ contextBridge.exposeInMainWorld('chatApp', {
     delete: (conversationId) => invoke('conversations:delete', conversationId),
     fork: (payload) => invoke('conversations:fork', payload),
     search: (query) => invoke('conversations:search', query),
+    setTags: (conversationId, tags) => invoke('conversations:set-tags', { conversationId, tags }),
+  },
+  tags: {
+    save: (tags) => invoke('tags:save', tags),
+  },
+  folders: {
+    saveColor: (payload) => invoke('folders:save-color', payload),
   },
   composerState: {
     get: (conversationId) => invoke('composer-state:get', conversationId),
