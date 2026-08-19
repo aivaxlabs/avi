@@ -915,6 +915,9 @@ export class ChatRunner {
   reloadSnapshot() {
     return {
       conversationIds: [...this.runs.keys()],
+      runsStartedAt: Object.fromEntries([...this.runs.entries()]
+        .filter(([, run]) => Number.isFinite(run.startedAt))
+        .map(([id, run]) => [id, run.startedAt])),
       approvals: [...this.pendingApprovals.entries()].map(([approvalId, pending]) => ({
         type: 'permission-request',
         conversationId: pending.conversationId,
@@ -1689,14 +1692,16 @@ export class ChatRunner {
 
     const controller = activeController ?? new AbortController();
     if (!automatic) {
+      const startedAt = Date.now();
       this.runs.set(conversation.id, {
         controller,
         queue: [],
+        startedAt,
         model: selection.model.id,
         kind: 'compression',
         phase: 'inference',
       });
-      this.emit(conversation.id, { type: 'run-state', running: true });
+      this.emit(conversation.id, { type: 'run-state', running: true, startedAt });
     }
 
     let compressionUsage = null;
@@ -2001,6 +2006,7 @@ export class ChatRunner {
     const run = {
       controller,
       queue,
+      startedAt: Date.now(),
       assistantMessageId: assistantMessage.id,
       accumulator,
       fileEdits: [...initialEdits],
@@ -2019,7 +2025,7 @@ export class ChatRunner {
     run.completion = completion.promise;
     this.runs.set(conversationId, run);
     this.emit(conversationId, { type: 'message', message: assistantMessage });
-    this.emit(conversationId, { type: 'run-state', running: true });
+    this.emit(conversationId, { type: 'run-state', running: true, startedAt: run.startedAt });
 
     const requestStartedAt = Date.now();
     let lastPersistedAt = 0;
@@ -2661,7 +2667,7 @@ export class ChatRunner {
           break;
         }
         if (contextCompactionRequested) {
-          this.emit(conversationId, { type: 'run-state', running: true });
+          this.emit(conversationId, { type: 'run-state', running: true, startedAt: run.startedAt });
           try {
             const compressedConversation = await this.compress({
               conversationId,
@@ -2785,7 +2791,7 @@ export class ChatRunner {
         elapsedMs: Date.now() - requestStartedAt,
       });
       if (contextCompactionRequested) {
-        this.emit(conversationId, { type: 'run-state', running: true });
+        this.emit(conversationId, { type: 'run-state', running: true, startedAt: run.startedAt });
         try {
           await this.compress({
             conversationId,

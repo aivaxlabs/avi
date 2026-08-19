@@ -6,6 +6,7 @@ import {
   traceError,
   traceVerbose,
 } from './trace-log.js';
+import { resolveTerminalShell } from './terminal-shell.js';
 
 const IGNORED_WORKSPACE_DIRECTORIES = new Set([
   '.git',
@@ -211,18 +212,36 @@ export const dynamicContextInjectors = new Map([
       ? 'You have sub-agents and/or other threads available on this tree. Inspect them with the thread context or thread directory tools before coordinating work.'
       : ''
   )],
-  ['environment', () => {
+  ['environment', ({ tuning } = {}) => {
     const operatingSystem = {
       win32: 'Windows',
       darwin: 'macOS',
       linux: 'Linux',
     }[process.platform] ?? process.platform;
 
+    // A missing selected shell must not break every turn; the terminal tool
+    // reports the same resolution failure when a command actually runs.
+    let terminalShellLine = '';
+    try {
+      const { label, executable } = resolveTerminalShell(
+        process.env,
+        process.platform,
+        tuning?.terminalShell,
+      );
+      terminalShellLine = `Terminal shell: ${escapeXml(label)} (${escapeXml(executable)}) — commands sent to the terminal tool are evaluated with this shell's syntax.`;
+    } catch (error) {
+      traceVerbose('context.environment-shell-unresolved', {
+        operation: 'resolve-terminal-shell',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     return [
       '<environment_info>',
       `User current OS: ${operatingSystem}`,
+      terminalShellLine,
       '</environment_info>',
-    ].join('\n');
+    ].filter(Boolean).join('\n');
   }],
   ['workspace', async ({ workspacePath } = {}) => {
     const currentDirectory = path.resolve(workspacePath || process.cwd());
