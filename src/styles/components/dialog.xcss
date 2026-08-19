@@ -485,6 +485,15 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+
+      .search-result-age {
+        margin-left: auto;
+        flex: none;
+        color: --text-3;
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
     }
 
     .search-result-preview {

@@ -1,5 +1,6 @@
 import { LoaderCircle, MessageSquareText, Search } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { formatAge } from '../lib/format.js';
 
 export function SearchDialog({ onClose, onSelect }) {
   const [query, setQuery] = useState('');
@@ -101,30 +102,38 @@ export function SearchDialog({ onClose, onSelect }) {
                 <span>{results.length}</span>
               </div>
             )}
-            {results.map((result, index) => (
-              <button
-                key={result.conversationId}
-                id={`chat-search-result-${index}`}
-                data-result-index={index}
-                className={index === selectedIndex ? 'active' : ''}
-                type="button"
-                role="option"
-                aria-selected={index === selectedIndex}
-                onMouseMove={() => setSelectedIndex(index)}
-                onClick={() => selectResult(result)}
-              >
-                <MessageSquareText className="search-result-icon" size={18} aria-hidden="true" />
-                <span className="search-result-copy">
-                  <span className="search-result-heading">
-                    <strong>{result.title}</strong>
-                    <small title={result.folderDisplayPath}>{result.folderName}</small>
+            {results.map((result, index) => {
+              const age = formatAge(result.updatedAt);
+              return (
+                <button
+                  key={result.conversationId}
+                  id={`chat-search-result-${index}`}
+                  data-result-index={index}
+                  className={index === selectedIndex ? 'active' : ''}
+                  type="button"
+                  role="option"
+                  aria-selected={index === selectedIndex}
+                  onMouseMove={() => setSelectedIndex(index)}
+                  onClick={() => selectResult(result)}
+                >
+                  <MessageSquareText className="search-result-icon" size={18} aria-hidden="true" />
+                  <span className="search-result-copy">
+                    <span className="search-result-heading">
+                      <strong>{result.title}</strong>
+                      <small title={result.folderDisplayPath}>{result.folderName}</small>
+                      {age && (
+                        <span className="search-result-age" title={new Date(result.updatedAt).toLocaleString()}>
+                          {age}
+                        </span>
+                      )}
+                    </span>
+                    <span className="search-result-preview">
+                      {result.content || 'No preview available.'}
+                    </span>
                   </span>
-                  <span className="search-result-preview">
-                    {result.content || 'No preview available.'}
-                  </span>
-                </span>
-              </button>
-            ))}
+                </button>
+              );
+            })}
             {!searching && results.length === 0 && (
               <div className="empty-list">
                 <Search size={18} />

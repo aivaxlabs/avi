@@ -5445,6 +5445,15 @@ button svg {
     white-space: nowrap;
 }
 
+.search-dialog .search-results button .search-result-heading .search-result-age {
+    margin-left: auto;
+    flex: none;
+    color: var(--text-3);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
 .search-dialog .search-results button .search-result-preview {
     min-width: 0;
     overflow: hidden;
