@@ -71,10 +71,13 @@ import {
   setArchiveSettings,
   setAivaxAccessToken,
   setAivaxSettings,
+  setChatTags,
+  setComposerState,
+  setConversationTags,
   setDefaultModels,
   setDesktopSettings,
-  setComposerState,
   setFavorite,
+  setFolderColor,
   setModelRouters,
   setProviderCredentials,
   setProviders,
@@ -1096,6 +1099,16 @@ function registerIpc() {
     refreshConversationProject(updateConversation(payload.id, payload))
   ));
   applicationIpc.handle('conversations:messages', (_event, conversationId) => getMessages(conversationId));
+  applicationIpc.handle('conversations:set-tags', (_event, payload = {}) => (
+    refreshConversationProject(setConversationTags(payload.conversationId, payload.tags))
+  ));
+  applicationIpc.handle('tags:save', (_event, tags) => ({
+    tags: setChatTags(tags),
+    conversations: listConversationsWithProjects(),
+  }));
+  applicationIpc.handle('folders:save-color', (_event, payload = {}) => (
+    setFolderColor(payload.path, payload.color)
+  ));
   applicationIpc.handle('composer-state:get', (_event, conversationId) => (
     getComposerState(conversationId)
   ));
