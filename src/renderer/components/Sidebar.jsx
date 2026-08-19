@@ -17,19 +17,24 @@ import {
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Palette,
   Plus,
   Search,
   Server,
   Settings,
   SquareTerminal,
+  Tags,
   TriangleAlert,
+  X,
   Zap,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import aviIconUrl from '../../../assets/icon/avi.png';
 import { classNames } from '../lib/format.js';
+import { presetColors } from '../lib/palette.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
+import { TagsManagerDialog } from './TagsManagerDialog.jsx';
 
 const GROUP_LIMIT = 5;
 const conversationGroupingKey = 'aivax.sidebar.conversation-grouping';
@@ -60,6 +65,11 @@ export function Sidebar({
   onCopyPath,
   onCopyThreadId,
   onSettings,
+  chatTags = [],
+  folderColors = {},
+  onSetConversationTags,
+  onSetFolderColor,
+  onSaveChatTags,
   collapsed,
   orchestrationOpen,
   onToggleCollapsed,
@@ -72,15 +82,21 @@ export function Sidebar({
     return ['model', 'folder'].includes(saved) ? saved : 'chronological';
   });
   const [expandedGroups, setExpandedGroups] = useState({});
+  const [activeTagIds, setActiveTagIds] = useState(() => new Set());
   const [folderMenu, setFolderMenu] = useState(null);
+  const [tagsManagerOpen, setTagsManagerOpen] = useState(false);
+  const [tagsSaving, setTagsSaving] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const filterButtonRef = useRef(null);
   const folderMenuButtonRef = useRef(null);
 
   const conversationGroups = useMemo(() => {
-    const sortedConversations = [...conversations].sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-    );
+    const sortedConversations = [...conversations]
+      .filter((conversation) => activeTagIds.size === 0
+        || (conversation.tags ?? []).some((id) => activeTagIds.has(id)))
+      .sort(
+        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      );
 
     if (conversationGrouping === 'model' || conversationGrouping === 'folder') {
       const modelsById = new Map(models.map((model) => [model.id, model]));
@@ -187,6 +203,7 @@ export function Sidebar({
 
     return groups.filter((group) => group.items.length > 0);
   }, [
+    activeTagIds,
     approvalPending,
     completedUnseen,
     conversationGrouping,
@@ -203,6 +220,13 @@ export function Sidebar({
     const interval = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    setActiveTagIds((current) => {
+      const valid = chatTags.filter((tag) => current.has(tag.id));
+      return valid.length === current.size ? current : new Set(valid.map((tag) => tag.id));
+    });
+  }, [chatTags]);
 
   useEffect(() => {
     if (!filterMenuOpen) return undefined;
@@ -255,6 +279,31 @@ export function Sidebar({
     setFolderMenu(null);
   }
 
+  function toggleTagFilter(tagId) {
+    setActiveTagIds((current) => {
+      const next = new Set(current);
+      if (next.has(tagId)) next.delete(tagId);
+      else next.add(tagId);
+      return next;
+    });
+  }
+
+  function clearTagFilter() {
+    setActiveTagIds(new Set());
+  }
+
+  async function saveChatTags(tags) {
+    setTagsSaving(true);
+    try {
+      await onSaveChatTags(tags);
+      setTagsManagerOpen(false);
+    } catch {
+      // App.jsx surfaces the failure; keep the dialog open so the user can retry.
+    } finally {
+      setTagsSaving(false);
+    }
+  }
+
   return (
     <aside className="sidebar" id="main-sidebar">
       <div className="sidebar-titlebar">
@@ -301,7 +350,7 @@ export function Sidebar({
         </span>
         <button
           ref={filterButtonRef}
-          className={classNames('recent-filter-button', filterMenuOpen && 'active')}
+          className={classNames('recent-filter-button', (filterMenuOpen || activeTagIds.size > 0) && 'active')}
           type="button"
           aria-label="Filter conversations"
           title="Filter conversations"
@@ -337,16 +386,51 @@ export function Sidebar({
           >
             By folder
           </DropdownMenuItem>
+          {chatTags.length > 0 && (
+            <>
+              <div className="dropdown-menu-divider" role="separator" />
+              <div className="dropdown-menu-label">Filter by tags</div>
+              {chatTags.map((tag) => {
+                const checked = activeTagIds.has(tag.id);
+                return (
+                  <DropdownMenuItem
+                    key={tag.id}
+                    active={checked}
+                    icon={<span className="tag-dot" style={{ backgroundColor: tag.color }} aria-hidden="true" />}
+                    role="menuitemcheckbox"
+                    aria-checked={checked}
+                    onClick={() => toggleTagFilter(tag.id)}
+                  >
+                    {tag.name}
+                  </DropdownMenuItem>
+                );
+              })}
+              {activeTagIds.size > 0 && (
+                <DropdownMenuItem icon={<X size={14} />} onClick={clearTagFilter}>
+                  Clear filter
+                </DropdownMenuItem>
+              )}
+            </>
+          )}
         </DropdownMenu>,
         document.body,
       )}
       <div className="conversation-list">
+        {activeTagIds.size > 0 && conversationGroups.length === 0 && (
+          <div className="conversation-filter-empty">
+            <span>No chats with the selected tags.</span>
+            <button type="button" onClick={clearTagFilter}>Clear filter</button>
+          </div>
+        )}
         {conversationGroups.map((group) => {
           const expanded = Boolean(expandedGroups[group.key]);
           const visibleItems = expanded ? group.items : group.items.slice(0, GROUP_LIMIT);
           const groupLabel = conversationGrouping === 'folder' && group.isHome
             ? 'Chats'
             : group.label;
+          const folderColor = conversationGrouping === 'folder' && !group.isHome && !group.isTaskGroup
+            ? folderColors[group.preset.project.path]
+            : undefined;
           return (
             <section key={group.key} className="conversation-group">
               {group.showFoldersLabel && (
@@ -360,7 +444,7 @@ export function Sidebar({
                       folderMenuButtonRef.current = event.currentTarget;
                       setFolderMenu({
                         key: group.key,
-                        top: Math.max(8, Math.min(event.clientY, window.innerHeight - 260)),
+                        top: Math.max(8, Math.min(event.clientY, window.innerHeight - 330)),
                         left: Math.max(8, Math.min(event.clientX, window.innerWidth - 192)),
                       });
                     }
@@ -368,7 +452,11 @@ export function Sidebar({
               >
                 <span className="conversation-group-title" title={groupLabel}>
                   {conversationGrouping === 'folder' && !group.isHome && !group.isTaskGroup && (
-                    <Folder size={13} aria-hidden="true" />
+                    <Folder
+                      size={13}
+                      aria-hidden="true"
+                      style={folderColor ? { color: folderColor } : undefined}
+                    />
                   )}
                   <span>{groupLabel}</span>
                 </span>
@@ -468,6 +556,75 @@ export function Sidebar({
                   >
                     Manage MCP Servers
                   </DropdownMenuItem>
+                  <div className="dropdown-menu-divider" role="separator" />
+                  <DropdownMenuItem
+                    icon={folderColor
+                      ? <span className="tag-dot" style={{ backgroundColor: folderColor }} aria-hidden="true" />
+                      : <Palette size={14} />}
+                    role="menuitem"
+                    aria-haspopup="menu"
+                    aria-expanded={Boolean(folderMenu.colorMenu)}
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const width = 232;
+                      const fitsRight = rect.right + 8 + width <= window.innerWidth;
+                      setFolderMenu((menu) => (menu ? {
+                        ...menu,
+                        colorMenu: menu.colorMenu
+                          ? null
+                          : {
+                              top: Math.max(8, Math.min(rect.top - 6, window.innerHeight - 120)),
+                              left: Math.max(
+                                8,
+                                fitsRight
+                                  ? rect.right + 8
+                                  : Math.min(rect.left - 8 - width, window.innerWidth - width - 8),
+                              ),
+                            },
+                      } : menu));
+                    }}
+                  >
+                    Color
+                  </DropdownMenuItem>
+                </DropdownMenu>,
+                document.body,
+              )}
+              {folderMenu?.key === group.key && folderMenu.colorMenu && createPortal(
+                <DropdownMenu
+                  className="conversation-folder-menu folder-color-menu"
+                  fixed
+                  role="menu"
+                  style={{ top: folderMenu.colorMenu.top, left: folderMenu.colorMenu.left }}
+                >
+                  <div className="folder-color-picker" role="group" aria-label="Folder color">
+                    <span className="folder-color-picker-label">Color</span>
+                    <div className="folder-color-swatches">
+                      <button
+                        className={classNames('color-swatch', 'none', !folderColor && 'active')}
+                        type="button"
+                        role="menuitemradio"
+                        aria-label="No color"
+                        aria-checked={!folderColor}
+                        title="No color"
+                        onClick={() => onSetFolderColor(group.preset.project.path, null)}
+                      >
+                        <X size={10} aria-hidden="true" />
+                      </button>
+                      {presetColors.map((color) => (
+                        <button
+                          key={color.value}
+                          className={classNames('color-swatch', folderColor === color.value && 'active')}
+                          type="button"
+                          role="menuitemradio"
+                          style={{ backgroundColor: color.value }}
+                          aria-label={color.name}
+                          aria-checked={folderColor === color.value}
+                          title={color.name}
+                          onClick={() => onSetFolderColor(group.preset.project.path, color.value)}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 </DropdownMenu>,
                 document.body,
               )}
@@ -484,10 +641,13 @@ export function Sidebar({
                   semaphoreWaiting={Boolean(semaphoreWaiting[conversation.id])}
                   needsAttention={Boolean(conversation.needsAttention)}
                   now={now}
+                  chatTags={chatTags}
                   onSelect={() => onSelect(conversation.id)}
                   onFork={() => onFork(conversation.id)}
                   onArchive={() => onArchive(conversation.id)}
                   onCopyId={() => onCopyThreadId(conversation.id)}
+                  onSetTags={(tags) => onSetConversationTags(conversation.id, tags)}
+                  onManageTags={() => setTagsManagerOpen(true)}
                 />
               ))}
               {group.items.length > GROUP_LIMIT && (
@@ -510,6 +670,15 @@ export function Sidebar({
         <Settings size={17} />
         <span>Settings</span>
       </button>
+      {tagsManagerOpen && createPortal(
+        <TagsManagerDialog
+          tags={chatTags}
+          busy={tagsSaving}
+          onSave={saveChatTags}
+          onClose={() => setTagsManagerOpen(false)}
+        />,
+        document.body,
+      )}
     </aside>
   );
 }
@@ -525,13 +694,20 @@ function ConversationItem({
   semaphoreWaiting,
   needsAttention,
   now,
+  chatTags = [],
   onSelect,
   onFork,
   onArchive,
   onCopyId,
+  onSetTags,
+  onManageTags,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
+  const [tagsMenuOpen, setTagsMenuOpen] = useState(false);
+  const [tagsMenuPosition, setTagsMenuPosition] = useState(null);
+  const [optimisticTags, setOptimisticTags] = useState(null);
+  const optimisticTagsRef = useRef(null);
   const [tooltipPosition, setTooltipPosition] = useState(null);
   const [tooltipNow, setTooltipNow] = useState(() => Date.now());
   const menuButtonRef = useRef(null);
@@ -555,6 +731,14 @@ function ConversationItem({
   const folderLabel = conversation.projectDisplayPath
     || conversation.projectName
     || '~/';
+  const tagIds = new Set(optimisticTags ?? conversation.tags ?? []);
+  const tagChips = chatTags.filter((tag) => tagIds.has(tag.id));
+
+  // The prop catching up with a pending edit means the round-trip finished.
+  useEffect(() => {
+    optimisticTagsRef.current = null;
+    setOptimisticTags(null);
+  }, [conversation.tags]);
   const elapsedLabel = (() => {
     if (!tooltipPosition || !Number.isFinite(runStartedAt)) return '';
     const totalSeconds = Math.max(0, Math.floor((tooltipNow - runStartedAt) / 1000));
@@ -585,20 +769,39 @@ function ConversationItem({
   })();
 
   useEffect(() => {
-    if (!menuOpen) return undefined;
+    if (!menuOpen && !tagsMenuOpen) return undefined;
 
     const close = (event) => {
       if (menuButtonRef.current?.contains(event.target)) return;
       if (event.target.closest?.('.dropdown-menu')) return;
       setMenuOpen(false);
+      setTagsMenuOpen(false);
     };
-
+    const closeOnEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      setMenuOpen(false);
+      setTagsMenuOpen(false);
+    };
+    const closeOnResize = () => {
+      setMenuOpen(false);
+      setTagsMenuOpen(false);
+    };
     window.addEventListener('pointerdown', close);
-    window.addEventListener('resize', () => setMenuOpen(false), { once: true });
-    return () => window.removeEventListener('pointerdown', close);
-  }, [menuOpen]);
+    window.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('resize', closeOnResize, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('resize', closeOnResize);
+    };
+  }, [menuOpen, tagsMenuOpen]);
 
   useEffect(() => () => window.clearTimeout(tooltipTimerRef.current), []);
+
+  // Menus and the tags dialog take over the interaction; the tooltip must go.
+  useEffect(() => {
+    if (menuOpen || tagsMenuOpen) closeTooltip();
+  }, [menuOpen, tagsMenuOpen]);
 
   useEffect(() => {
     if (!tooltipPosition) return undefined;
@@ -608,18 +811,24 @@ function ConversationItem({
     const closeOnEscape = (event) => {
       if (event.key === 'Escape') setTooltipPosition(null);
     };
+    const closeOnOutsidePointer = (event) => {
+      if (!itemRef.current?.contains(event.target)) close();
+    };
     window.addEventListener('scroll', close, { capture: true, passive: true });
     window.addEventListener('resize', close);
     window.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('pointerdown', closeOnOutsidePointer, { capture: true });
     return () => {
       window.clearInterval(interval);
       window.removeEventListener('scroll', close, { capture: true });
       window.removeEventListener('resize', close);
       window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('pointerdown', closeOnOutsidePointer, { capture: true });
     };
   }, [tooltipPosition]);
 
   function openTooltip() {
+    if (menuOpen || tagsMenuOpen) return;
     const rect = itemRef.current.getBoundingClientRect();
     setTooltipPosition({
       top: Math.max(8, Math.min(rect.top - 6, window.innerHeight - 180)),
@@ -647,6 +856,32 @@ function ConversationItem({
     setMenuOpen((value) => !value);
   }
 
+  function openTagsMenu() {
+    const rect = itemRef.current.getBoundingClientRect();
+    setMenuOpen(false);
+    setTagsMenuPosition({
+      top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 240)),
+      left: Math.max(8, Math.min(rect.right - 170, window.innerWidth - 200)),
+    });
+    setTagsMenuOpen(true);
+  }
+
+  function toggleTag(tagId) {
+    // Optimistic local state: rapid clicks race the IPC round-trip, so the
+    // next list must build on pending edits, not on the stale prop. The ref
+    // survives same-tick clicks that share the same render closure.
+    const base = optimisticTagsRef.current ?? conversation.tags ?? [];
+    const next = base.includes(tagId)
+      ? base.filter((id) => id !== tagId)
+      : [...base, tagId];
+    optimisticTagsRef.current = next;
+    setOptimisticTags(next);
+    onSetTags(next).catch(() => {
+      optimisticTagsRef.current = null;
+      setOptimisticTags(null);
+    });
+  }
+
   function runMenuAction(action) {
     setMenuOpen(false);
     action();
@@ -660,7 +895,6 @@ function ConversationItem({
       onMouseLeave={closeTooltip}
       onContextMenu={(event) => {
         event.preventDefault();
-        menuButtonRef.current = event.currentTarget;
         setMenuPosition({
           top: Math.max(8, Math.min(event.clientY, window.innerHeight - 130)),
           left: Math.max(8, Math.min(event.clientX, window.innerWidth - 160)),
@@ -676,6 +910,18 @@ function ConversationItem({
         onBlur={closeTooltip}
       >
         <span className="conversation-title">{conversation.title || conversation.firstPrompt || 'New chat'}</span>
+        {tagChips.length > 0 && (
+          <span className="conversation-tag-dots">
+            {tagChips.map((tag) => (
+              <span
+                key={tag.id}
+                className="tag-dot"
+                style={{ backgroundColor: tag.color }}
+                title={tag.name}
+              />
+            ))}
+          </span>
+        )}
         {status && (
           <StatusIcon className={status.className} size={status.size} aria-label={status.label} />
         )}
@@ -692,8 +938,48 @@ function ConversationItem({
           <DropdownMenuItem icon={<Hash size={14} />} onClick={() => runMenuAction(onCopyId)}>
             Copy thread ID
           </DropdownMenuItem>
+          <div className="dropdown-menu-divider" role="separator" />
+          <DropdownMenuItem icon={<Tags size={14} />} onClick={openTagsMenu}>
+            Tags
+          </DropdownMenuItem>
           <DropdownMenuItem icon={<Archive size={14} />} onClick={() => runMenuAction(onArchive)}>
             Archive chat
+          </DropdownMenuItem>
+        </DropdownMenu>,
+        document.body,
+      )}
+      {tagsMenuOpen && tagsMenuPosition && createPortal(
+        <DropdownMenu
+          className="conversation-tags-menu"
+          fixed
+          role="menu"
+          style={{ top: tagsMenuPosition.top, left: tagsMenuPosition.left }}
+        >
+          {chatTags.length === 0 && <div className="dropdown-menu-empty">No tags yet</div>}
+          {chatTags.map((tag) => {
+            const checked = tagIds.has(tag.id);
+            return (
+              <DropdownMenuItem
+                key={tag.id}
+                active={checked}
+                icon={<span className="tag-dot" style={{ backgroundColor: tag.color }} aria-hidden="true" />}
+                role="menuitemcheckbox"
+                aria-checked={checked}
+                onClick={() => toggleTag(tag.id)}
+              >
+                {tag.name}
+              </DropdownMenuItem>
+            );
+          })}
+          <div className="dropdown-menu-divider" role="separator" />
+          <DropdownMenuItem
+            icon={<Settings size={14} />}
+            onClick={() => {
+              setTagsMenuOpen(false);
+              onManageTags();
+            }}
+          >
+            Manage tags...
           </DropdownMenuItem>
         </DropdownMenu>,
         document.body,

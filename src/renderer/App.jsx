@@ -1299,6 +1299,34 @@ export default function App() {
     }
   }
 
+  async function setConversationTags(conversationId, tags) {
+    try {
+      const conversation = await api.conversations.setTags(conversationId, tags);
+      setConversations((state) => state.map((item) => (
+        item.id === conversation.id ? conversation : item
+      )));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  }
+
+  async function saveChatTags(tags) {
+    try {
+      const result = await api.tags.save(tags);
+      setAppState((current) => (current ? { ...current, chatTags: result.tags } : current));
+      setConversations(result.conversations);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      throw nextError;
+    }
+  }
+
+  async function setFolderColor(path, color) {
+    const folderColors = await api.folders.saveColor({ path, color });
+    setAppState((current) => (current ? { ...current, folderColors } : current));
+  }
+
   async function archiveConversation(id) {
     const next = await api.conversations.archive(id);
     setConversations(next);
@@ -1714,6 +1742,11 @@ export default function App() {
               semaphoreWaits.map((wait) => [wait.conversationId, true]),
             )}
             homePath={appState.defaultProject.path}
+            chatTags={appState.chatTags ?? []}
+            folderColors={appState.folderColors ?? {}}
+            onSetConversationTags={setConversationTags}
+            onSetFolderColor={setFolderColor}
+            onSaveChatTags={saveChatTags}
             onQuickChat={() => api.quickChat.open().catch((nextError) => {
               setError(nextError instanceof Error ? nextError.message : String(nextError));
             })}
