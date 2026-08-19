@@ -6,7 +6,7 @@ The Avi window is divided into the Sidebar, conversation area, composer, and aux
 
 The Sidebar provides **New chat**, **Quick chat**, conversation search, **Orchestration**, chronological/model/folder grouping, and **Settings**.
 
-Folder menus can open the project or terminal, copy the path, and open context management. Thread menus can fork a conversation, copy its thread ID, or archive it. Status indicators identify running work, unseen completions, pending approvals, and questions waiting for input.
+Folder menus can open the project or terminal, copy the path, open context management, and pick a color from a predefined palette that tints the folder icon. Thread menus can fork a conversation, copy its thread ID, attach colored tags, or archive it. Tags are managed from **Tags → Manage tags**, where you can create, rename, recolor, and delete them; Avi ships with the Review, Important, and Blocked tags. The sidebar filter menu also filters conversations by one or more tags (chats matching any selected tag are kept), regardless of the active grouping. Status indicators identify running work, unseen completions, pending approvals, and questions waiting for input.
 
 ## Conversation area
 
