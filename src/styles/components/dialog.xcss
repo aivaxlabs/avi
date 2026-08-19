@@ -161,6 +161,146 @@
   z-index: 90;
 }
 
+.tags-dialog-backdrop {
+  z-index: 90;
+}
+
+.tags-dialog {
+  width: min(440px, 100%);
+  max-height: min(620px, 88vh);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 10px;
+  padding: 16px;
+  color: --text-1;
+  background: --background-2;
+  border: 1px solid --border-color;
+  border-radius: 10px;
+  box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
+}
+
+.tags-dialog-list {
+  min-height: 60px;
+  overflow-y: auto;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.tags-dialog-empty {
+  margin: 0;
+  padding: 14px 4px;
+  color: --text-3;
+  font-size: 13px;
+  text-align: center;
+}
+
+.tags-dialog-tag {
+  display: grid;
+  gap: 4px;
+}
+
+.tags-dialog-row {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  background: --background-4;
+  border: 1px solid --border-color;
+  border-radius: 8px;
+
+  input {
+    width: 100%;
+    padding: 5px 8px;
+    color: --text-1;
+    background: --background-0;
+    border: 1px solid --border-color;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 13px;
+
+    &:focus-visible {
+      outline: 2px solid --text-3;
+      outline-offset: 1px;
+    }
+  }
+
+  .icon-button.danger:hover {
+    color: --danger-color;
+    background: --item-hover;
+  }
+}
+
+.tags-dialog .tag-dot.large.clickable {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: transform 120ms var(--base-transition),
+    box-shadow 120ms var(--base-transition);
+
+  &:hover,
+  &:focus-visible {
+    transform: scale(1.15);
+  }
+
+  &:focus-visible,
+  &.active {
+    outline: 2px solid --text-3;
+    outline-offset: 2px;
+  }
+}
+
+.tags-dialog-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 2px 8px 6px 32px;
+}
+
+.tags-dialog-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px;
+  color: --text-3;
+  background: transparent;
+  border: 1px dashed --border-color;
+  border-radius: 8px;
+  font-size: 13px;
+  transition: color 180ms var(--base-transition),
+    background 180ms var(--base-transition);
+
+  &:hover,
+  &:focus-visible {
+    color: --text-1;
+    background: --item-hover;
+  }
+
+  &:focus-visible {
+    outline: 2px solid --text-3;
+    outline-offset: 1px;
+  }
+}
+
+.tags-dialog .dialog-footer {
+  margin-top: 0;
+
+  > div {
+    display: flex;
+    gap: 7px;
+  }
+
+  button:disabled {
+    opacity: .5;
+    cursor: wait;
+  }
+}
+
 .goal-dialog-backdrop {
   z-index: 85;
 }

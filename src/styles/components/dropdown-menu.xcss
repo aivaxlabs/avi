@@ -72,6 +72,12 @@
     background: --background-4;
   }
 
+  .dropdown-menu-label {
+    padding: 6px 12px 2px;
+    color: var(--text-4);
+    font-size: 11px;
+  }
+
   .dropdown-menu-empty {
     padding: 7px 9px;
     color: --text-3;

@@ -73,7 +73,7 @@
   .nav-actions {
     display: grid;
     gap: 2px;
-    padding: 6px 8px;
+    padding: 4px 8px;
   }
 
   .nav-actions button,
@@ -156,6 +156,25 @@
     }
   }
 
+  .conversation-filter-empty {
+    display: grid;
+    gap: 8px;
+    justify-items: center;
+    padding: 18px 12px;
+    color: var(--text-3);
+    font-size: .85rem;
+    text-align: center;
+
+    button {
+      padding: 4px 10px;
+      color: var(--text-2);
+      background: var(--item-hover);
+      border: none;
+      border-radius: 8px;
+      font-size: .8rem;
+    }
+  }
+
   .conversation-list {
     min-height: 0;
     overflow: auto;
@@ -163,6 +182,7 @@
     align-content: start;
     gap: 2px;
     padding: 6px;
+    border-bottom: 1px solid var(--border-color);
     scrollbar-gutter: stable;
     scrollbar-width: thin;
     scrollbar-color: var(--text-4) transparent;
@@ -307,6 +327,13 @@
     white-space: nowrap;
   }
 
+  .conversation-tag-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex: 0 0 auto;
+  }
+
   .conversation-age {
     grid-column: 2;
     grid-row: 1;
@@ -363,11 +390,11 @@
   .nav-actions button,
   .settings-button {
     border-radius: 12px;
-    padding: 6px 12px;
+    padding: 5px 12px;
 
     svg {
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
       opacity: .7;
     }
 
@@ -379,14 +406,14 @@
   }
 
   .settings-button {
-    margin: auto 4px 4px 4px;
-    width: calc(100% - 8px);
+    margin: 4px;
+    margin-top: auto;
     border-radius: 6px;
   }
 
   .conversation-item,
   .conversation-main {
-    border-radius: 12px;
+    border-radius: 8px;
   }
 
   .conversation-main {
@@ -446,6 +473,76 @@
     white-space: nowrap;
     color: --text-1;
   }
+}
+
+.tag-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 9999px;
+
+  &.large {
+    width: 10px;
+    height: 10px;
+  }
+}
+
+.color-swatch {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: transform 120ms var(--base-transition),
+    box-shadow 120ms var(--base-transition);
+
+  &:hover,
+  &:focus-visible {
+    transform: scale(1.12);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 1px;
+  }
+
+  &.active {
+    box-shadow: 0 0 0 2px var(--background-1), 0 0 0 4px var(--text-3);
+  }
+
+  &.none {
+    color: var(--text-3);
+    border-style: dashed;
+
+    &:hover {
+      color: var(--text-1);
+    }
+  }
+}
+
+.folder-color-picker {
+  display: grid;
+  gap: 6px;
+  padding: 6px 10px 8px;
+}
+
+.folder-color-picker-label {
+  color: var(--text-3);
+  font-size: 11px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.folder-color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 216px;
 }
 
 .sidebar-collapsed .sidebar {

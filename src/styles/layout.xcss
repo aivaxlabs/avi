@@ -68,12 +68,12 @@ body,
   &:hover::before,
   &:focus-visible::before,
   &.dragging::before {
-    background: --text-3;
-    box-shadow: 0 0 0 1px --background-3;
+    background: --primary-color;
+    box-shadow: 0 0 0 2px --primary-color-opaque;
   }
 
   &:focus-visible {
-    outline: 2px solid --text-3;
+    outline: 2px solid --primary-color;
     outline-offset: -3px;
   }
 }
