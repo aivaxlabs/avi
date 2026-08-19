@@ -71,18 +71,14 @@ export default function QuickChatApp() {
   const streamScrollKey = [
     lastMessage?.id ?? '',
     lastMessage?.updatedAt ?? '',
-    lastMessage?.content?.length ?? 0,
+    String(lastMessage?.content ?? '').length,
     questionRequest?.questionId ?? '',
   ].join(':');
 
-  const {
-    scrollRef,
-    messagesColumnRef,
-    handleScroll,
-  } = useStreamingAutoScroll({
+  const { scrollRef } = useStreamingAutoScroll({
+    scrollKey: streamScrollKey,
     isRunning: running,
     resetKey: sessionId,
-    streamKey: streamScrollKey,
   });
 
   const selectedModel = models.find((item) => item.id === model);
@@ -123,18 +119,14 @@ export default function QuickChatApp() {
           <span>Drop files to attach</span>
         </div>
       )}
-      <section
-        className="quick-chat-scroll"
-        ref={scrollRef}
-        onScroll={handleScroll}
-      >
+      <section className="quick-chat-scroll" ref={scrollRef}>
         {messages.length === 0 ? (
           <div className="quick-chat-empty">
             <strong>What can I help with?</strong>
             <span>This conversation disappears when you close the window.</span>
           </div>
         ) : (
-          <div className="quick-chat-messages" ref={messagesColumnRef}>
+          <div className="quick-chat-messages">
             {messages.map((message, index) => (
               <Message
                 key={message.id}

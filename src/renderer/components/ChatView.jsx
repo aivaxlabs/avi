@@ -219,10 +219,9 @@ export const ChatView = memo(function ChatView({
   const lastMessage = visibleMessages.at(-1);
   const isEmptyChat = visibleMessages.length === 0;
   const streamScrollKey = [
-    currentConversation?.id ?? '',
     lastMessage?.id ?? '',
     lastMessage?.updatedAt ?? '',
-    lastMessage?.content?.length ?? 0,
+    String(lastMessage?.content ?? '').length,
     questionRequest?.questionId ?? '',
   ].join(':');
   const Root = compact ? 'section' : 'main';
@@ -242,15 +241,10 @@ export const ChatView = memo(function ChatView({
     }),
   );
 
-  const {
-    scrollRef,
-    messagesColumnRef,
-    handleScroll,
-    scheduleScrollToBottom,
-  } = useStreamingAutoScroll({
+  const { scrollRef } = useStreamingAutoScroll({
+    scrollKey: streamScrollKey,
     isRunning,
     resetKey: currentConversation?.id,
-    streamKey: streamScrollKey,
   });
 
   function handleDragEnter(event) {
@@ -315,21 +309,14 @@ export const ChatView = memo(function ChatView({
     if (!chatAreaRef.current || !composerRef.current) return undefined;
 
     const observer = new ResizeObserver(([entry]) => {
-      const scrollElement = scrollRef.current;
-      const distanceFromBottom = scrollElement
-        ? scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight
-        : Number.POSITIVE_INFINITY;
       chatAreaRef.current?.style.setProperty(
         '--composer-clearance',
         `${Math.ceil(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height)}px`,
       );
-      if (distanceFromBottom <= 48) {
-        scheduleScrollToBottom(0);
-      }
     });
     observer.observe(composerRef.current);
     return () => observer.disconnect();
-  }, [currentConversation?.id, scheduleScrollToBottom]);
+  }, [currentConversation?.id]);
 
   useEffect(() => {
     const canvas = emptyBackgroundRef.current;
@@ -667,17 +654,14 @@ export const ChatView = memo(function ChatView({
         className="chat-scroll"
         onMouseUp={updateSelectionAction}
         onKeyUp={updateSelectionAction}
-        onScroll={(event) => {
-          setSelectionAction(null);
-          handleScroll(event);
-        }}
+        onScroll={() => setSelectionAction(null)}
       >
         {isEmptyChat ? (
           <div className="empty-chat">
             <h1>How can I help you today?</h1>
           </div>
         ) : (
-          <div className="messages-column" ref={messagesColumnRef}>
+          <div className="messages-column">
             {groupedMessages.map(({ message, workedMessages, workedStartedAt }) => (
                 <Message
                   key={message.id}
