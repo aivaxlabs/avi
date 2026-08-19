@@ -1,6 +1,7 @@
 import {
   ArrowRightLeft,
   Bot,
+  Brain,
   Check,
   ChevronDown,
   ChevronRight,
@@ -1505,10 +1506,15 @@ function MutedSegment({ segment }) {
 
   if (segment.type === 'reasoning') {
     return (
-      <div className="reasoning-text">
-        <MemoizedMarkdown remarkPlugins={STANDARD_MARKDOWN_PLUGINS}>
-          {segment.text}
-        </MemoizedMarkdown>
+      <div>
+        <div className="reasoning-line">
+          <Brain size={13} aria-hidden="true" />
+        </div>
+        <div className="reasoning-text">
+          <MemoizedMarkdown remarkPlugins={STANDARD_MARKDOWN_PLUGINS}>
+            {segment.text}
+          </MemoizedMarkdown>
+        </div>
       </div>
     );
   }
@@ -1521,11 +1527,13 @@ function MutedSegment({ segment }) {
     const reason = toolReason(segment);
 
     return (
-      <details
-        className="tool-entry"
-        onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
-      >
-        <summary className="tool-line">
+      <div className={classNames('tool-entry', detailsOpen && 'open')}>
+        <button
+          type="button"
+          className="tool-line"
+          aria-expanded={detailsOpen}
+          onClick={() => setDetailsOpen(!detailsOpen)}
+        >
           {segment.resultText === undefined && (
             <LoaderCircle
               className="tool-line-spinner"
@@ -1533,7 +1541,7 @@ function MutedSegment({ segment }) {
               aria-label="Waiting for tool output"
             />
           )}
-          <ToolIcon className="tool-line-icon" size={13} aria-hidden="true" />
+          <ToolIcon size={13} aria-hidden="true" />
           <span>
             <strong>{name}</strong>
             {reason && (
@@ -1543,7 +1551,7 @@ function MutedSegment({ segment }) {
             )}
           </span>
           <ChevronRight className="tool-line-chevron" size={13} aria-hidden="true" />
-        </summary>
+        </button>
         {formattedDetails && (
           <div className="tool-details">
             <section>
@@ -1562,12 +1570,12 @@ function MutedSegment({ segment }) {
             </section>
           </div>
         )}
-      </details>
+      </div>
     );
   }
 
   if (segment.type === 'error') {
-    return <div className="tool-line error-line">{segment.message}</div>;
+    return <div className="error-line">{segment.message}</div>;
   }
 
   return null;

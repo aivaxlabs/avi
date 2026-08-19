@@ -3,8 +3,10 @@
 }
 
 .reasoning-traces-hidden {
+
   .thinking-group:not(.has-tools),
   .thinking-group .reasoning-text,
+  .thinking-group .reasoning-line,
   .thinking-group .thinking-label {
     display: none;
   }
@@ -117,27 +119,43 @@
   }
 }
 
+.reasoning-line,
 .tool-line {
-  display: inline;
-  flex-wrap: wrap;
-  align-items: center;
+  display: block;
   width: 100%;
-  gap: 5px;
   color: var(--text-3);
   line-height: 1.45;
-  cursor: pointer;
-  list-style: none;
 
   svg {
     position: relative;
     display: inline-block;
-    margin-right: 5px;
+    margin: 0 5px 0 0;
     top: 1px;
   }
+}
 
-  &::-webkit-details-marker {
-    display: none;
-  }
+.reasoning-line {
+  width: 18px;
+  vertical-align: top;
+}
+
+.reasoning-text {
+  max-width: 80%;
+  margin-top: 1px;
+}
+
+.reasoning-line,
+.reasoning-text {
+  display: inline-block;
+}
+
+.tool-line {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 
   &:hover {
     color: var(--text-1);
@@ -151,21 +169,14 @@
 
 
 .tool-line-spinner {
-  flex: 0 0 auto;
   animation: tool-line-spin 800ms linear infinite;
 }
 
-.tool-line-icon {
-  flex: 0 0 auto;
-  color: var(--text-3);
-}
-
 .tool-line-chevron {
-  flex: 0 0 auto;
   transition: transform 180ms var(--base-transition);
 }
 
-.tool-entry[open] {
+.tool-entry.open {
   .tool-line-chevron {
     transform: rotate(90deg);
   }
@@ -176,23 +187,23 @@
     color: var(--text-1);
     font-weight: 400;
   }
+}
 
-  .tool-line-pending-text {
-    color: transparent;
-    font-weight: 500;
-    -webkit-text-fill-color: transparent;
-    background: var(--text-1) -webkit-gradient(linear,
-        100% 0,
-        0 0,
-        from(var(--text-1)),
-        color-stop(0.5, var(--text-4)),
-        to(var(--text-1)));
-    background-repeat: no-repeat;
-    background-size: 50% 200%;
-    background-clip: text;
-    -webkit-background-clip: text;
-    animation: thinking-gradient 2s linear infinite;
-  }
+.tool-line-pending-text {
+  color: transparent;
+  font-weight: 500;
+  -webkit-text-fill-color: transparent;
+  background: var(--text-1) -webkit-gradient(linear,
+      100% 0,
+      0 0,
+      from(var(--text-1)),
+      color-stop(0.5, var(--text-4)),
+      to(var(--text-1)));
+  background-repeat: no-repeat;
+  background-size: 50% 200%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  animation: thinking-gradient 2s linear infinite;
 }
 
 .tool-details {
