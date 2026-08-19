@@ -55,8 +55,24 @@
     padding: 0;
     pointer-events: auto;
 
+    .composer-main {
+      grid-template-columns: auto minmax(0, 1fr) minmax(92px, 230px) auto auto;
+      grid-template-areas: "input input input input input"
+        "plus permission model cancel send";
+    }
+
+    .composer-cancel-button {
+      grid-area: cancel;
+      justify-self: end;
+    }
+
     .model-input-menu {
       top: 42px;
+      bottom: auto;
+    }
+
+    .command-picker {
+      top: calc(100% + 8px);
       bottom: auto;
     }
   }
@@ -491,7 +507,7 @@
     row-gap: 8px;
     align-items: end;
 
-    > .round-button {
+    > .send-button {
       grid-area: send;
       justify-self: end;
     }

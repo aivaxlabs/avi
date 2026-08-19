@@ -9805,8 +9805,24 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     pointer-events: auto;
 }
 
+.composer-wrap.inline-composer-wrap .composer-main {
+    grid-template-columns: auto minmax(0, 1fr) minmax(92px, 230px) auto auto;
+    grid-template-areas: "input input input input input"
+        "plus permission model cancel send";
+}
+
+.composer-wrap.inline-composer-wrap .composer-cancel-button {
+    grid-area: cancel;
+    justify-self: end;
+}
+
 .composer-wrap.inline-composer-wrap .model-input-menu {
     top: 42px;
+    bottom: auto;
+}
+
+.composer-wrap.inline-composer-wrap .command-picker {
+    top: calc(100% + 8px);
     bottom: auto;
 }
 
@@ -10211,7 +10227,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     align-items: end;
 }
 
-.composer-wrap .composer-main > .round-button {
+.composer-wrap .composer-main > .send-button {
     grid-area: send;
     justify-self: end;
 }
