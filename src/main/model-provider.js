@@ -367,7 +367,9 @@ export class ModelProvider {
           retryAttempt: retryDelays.length,
           maxAttempts: displayedMaxAttempts,
         });
-        throw new Error(retryError.message);
+        const error = new Error(retryError.message);
+        error.code = 'provider_retry_exhausted';
+        throw error;
       }
 
       onEvent({
@@ -407,10 +409,11 @@ export class ModelProvider {
 export class ModelProviderRegistry {
   #providerTypes;
 
-  constructor({ getProviders, providerTypes, services }) {
+  constructor({ getProviders, providerTypes, services, routerService = null }) {
     this.getProviders = getProviders;
     this.#providerTypes = providerTypes;
     this.services = services;
+    this.routerService = routerService;
   }
 
   get providerTypes() {
@@ -530,19 +533,22 @@ export class ModelProviderRegistry {
   }
 
   listModels() {
-    return this.getProviders().flatMap((config) => {
-      if (!this.providerTypes.has(config.interface)) return [];
-      try {
-        return this.createProvider(config).listModels();
-      } catch (error) {
-        traceError('provider.list-models-error', {
-          provider_id: config.id,
-          interface: config.interface,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return [];
-      }
-    });
+    return [
+      ...this.getProviders().flatMap((config) => {
+        if (!this.providerTypes.has(config.interface)) return [];
+        try {
+          return this.createProvider(config).listModels();
+        } catch (error) {
+          traceError('provider.list-models-error', {
+            provider_id: config.id,
+            interface: config.interface,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return [];
+        }
+      }),
+      ...(this.routerService?.listModels() ?? []),
+    ];
   }
 
   listGlobalTools(context = {}) {
@@ -566,6 +572,9 @@ export class ModelProviderRegistry {
   }
 
   resolve(modelId) {
+    if (typeof modelId === 'string' && modelId.startsWith('@')) {
+      return this.routerService?.resolve(modelId) ?? null;
+    }
     for (const config of this.getProviders()) {
       if (!this.providerTypes.has(config.interface)) continue;
       try {

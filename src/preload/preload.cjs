@@ -102,6 +102,11 @@ contextBridge.exposeInMainWorld('chatApp', {
     auxiliaryPanel: (payload) => invoke('providers:auxiliary-panel', payload),
     auxiliaryPanelAction: (payload) => invoke('providers:auxiliary-panel-action', payload),
   },
+  routers: {
+    list: () => invoke('routers:list'),
+    save: (router) => invoke('routers:save', router),
+    remove: (routerId) => invoke('routers:remove', routerId),
+  },
   models: {
     list: () => invoke('models:list'),
     favorites: () => invoke('models:favorites'),

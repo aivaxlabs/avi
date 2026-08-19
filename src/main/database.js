@@ -1064,6 +1064,16 @@ export function setProviders(providers) {
   return listProviders();
 }
 
+export function listModelRouters() {
+  const routers = readJson('modelRouters');
+  return Array.isArray(routers) ? routers : [];
+}
+
+export function setModelRouters(routers) {
+  writeJson('modelRouters', routers);
+  return listModelRouters();
+}
+
 export function setLastModel(model) {
   writeJson('lastModel', model);
 }

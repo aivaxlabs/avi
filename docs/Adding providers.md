@@ -48,6 +48,17 @@ Context limits, when provided, must be positive integers. Declare only capabilit
 
 The global model identifier is `<provider-id>:<model-id>`. Changing an ID can invalidate favorites, default-model assignments, and saved thread selections.
 
+## Model routers
+
+Open **Settings → Routers** to expose multiple configured models as one catalog entry. Give the router a name, choose its models in priority order, and select a mode:
+
+- **Fallback** starts with the first available model and moves down the list when a provider exhausts its normal connection retries or is rate-limited.
+- **Round robin** rotates the starting model for each request, then uses the remaining models as fallbacks in order.
+
+A model that exhausts its connection retries, or that answers with HTTP 429 or a quota error such as `INFERENCE_CAP_ERROR`, is skipped immediately and that router does not retry it for 10 minutes. Missing or disabled models remain visible as unavailable in the editor so you can repair the configuration. Other errors, such as invalid requests or unsupported input, are returned immediately instead of trying another model.
+
+Router IDs begin with `@`. Routers cannot contain other routers. Avi adapts a requested reasoning effort to the nearest effort supported by the selected model, preferring the lower effort when two options are equally close. The router catalog entry advertises only capabilities and reasoning efforts shared by every configured model.
+
 ## Model selection and retries
 
 A normal conversation selects the first available value from: draft model, saved conversation model, last-used model, then the first catalog model. Sending is blocked when no model is available.

@@ -61,6 +61,7 @@ import {
   listConversations,
   listFavorites,
   listInferenceUsage,
+  listModelRouters,
   listProviders,
   listSideChats,
   listSubagents,
@@ -74,6 +75,7 @@ import {
   setDesktopSettings,
   setComposerState,
   setFavorite,
+  setModelRouters,
   setProviderCredentials,
   setProviders,
   setRemoteApiKey,
@@ -108,6 +110,7 @@ import {
   reviewGitWorkspace,
 } from './git-review.js';
 import { ModelProviderRegistry } from './model-provider.js';
+import { ModelRouterService } from './model-router.js';
 import { rankAivaxPricingModels } from './model-pricing.js';
 import { McpManager } from './mcp-manager.js';
 import { PluginManager } from './plugin-manager.js';
@@ -154,6 +157,7 @@ const pluginManager = new PluginManager({
   },
 });
 let providerRegistry;
+let routerService;
 let startHidden = process.argv.includes('--hidden');
 let mainWindow;
 let tray;
@@ -257,6 +261,12 @@ providerRegistry = new ModelProviderRegistry({
     shell: { openExternal: (url) => shell.openExternal(url) },
   },
 });
+routerService = new ModelRouterService({
+  getRouters: listModelRouters,
+  setRouters: setModelRouters,
+  resolveModel: (modelId) => providerRegistry.resolve(modelId),
+});
+providerRegistry.routerService = routerService;
 traceVerbose('app.started', { log_level: getPreferences().tuning.logLevel });
 resourceSnapshotInterval = setInterval(() => {
   const memory = process.memoryUsage();
@@ -1621,6 +1631,10 @@ function registerIpc() {
     );
   });
 
+  applicationIpc.handle('routers:list', () => routerService.list());
+  applicationIpc.handle('routers:save', (_event, payload) => routerService.save(payload));
+  applicationIpc.handle('routers:remove', (_event, routerId) => routerService.remove(routerId));
+
   applicationIpc.handle('models:list', () => providerRegistry.listModels());
   applicationIpc.handle('models:favorites', () => listFavorites());
   applicationIpc.handle('models:favorite', (_event, { modelId, favorited }) => setFavorite(modelId, favorited));
@@ -1698,6 +1712,8 @@ function registerIpc() {
     reloadSnapshot = null;
     return {
       conversationIds: current.conversationIds.filter((id) => snapshotIds.has(id)),
+      runsStartedAt: Object.fromEntries(Object.entries(current.runsStartedAt ?? {})
+        .filter(([id]) => snapshotIds.has(id))),
       approvals: current.approvals.filter((request) => snapshotIds.has(request.conversationId)),
       questions: current.questions.filter((request) => snapshotIds.has(request.conversationId)),
       semaphoreWaits: current.semaphoreWaits,
