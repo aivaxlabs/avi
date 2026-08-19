@@ -115,25 +115,8 @@ const MARKDOWN_PLUGINS = Object.freeze([
         }
 
         const parts = [];
-        const pattern = /<fileref\b([^<>]*)\/>/gi;
         let cursor = 0;
-        let match;
-        while ((match = pattern.exec(child.value)) !== null) {
-          const path = attributeValue(match[1], 'path');
-          const normalizedPath = path.replaceAll('\\', '/');
-          const lineFromText = attributeValue(match[1], 'line-from');
-          const lineToText = attributeValue(match[1], 'line-to');
-          const lineFrom = /^\d+$/.test(lineFromText) ? Number(lineFromText) : null;
-          const lineTo = /^\d+$/.test(lineToText) ? Number(lineToText) : lineFrom;
-          if (
-            (!normalizedPath.startsWith('./') && !normalizedPath.startsWith('../'))
-            || (lineFromText && lineFrom === null)
-            || (lineToText && lineTo === null)
-            || (lineToText && lineFrom === null)
-            || (lineFrom !== null && (lineFrom < 1 || lineTo < lineFrom))
-          ) {
-            continue;
-          }
+        for (const match of parseFileReferences(child.value)) {
           if (match.index > cursor) {
             parts.push({
               type: 'text',
@@ -142,17 +125,13 @@ const MARKDOWN_PLUGINS = Object.freeze([
           }
           parts.push({
             type: 'link',
-            url: `#file-reference=${encodeURIComponent(JSON.stringify({
-              path,
-              lineFrom,
-              lineTo,
-            }))}`,
+            url: `#file-reference=${encodeURIComponent(JSON.stringify(match.reference))}`,
             children: [{
               type: 'text',
-              value: match[0],
+              value: match.raw,
             }],
           });
-          cursor = match.index + match[0].length;
+          cursor = match.index + match.raw.length;
         }
         if (parts.length === 0) return child;
         if (cursor < child.value.length) {
@@ -1851,6 +1830,40 @@ function tagValue(text, tagName) {
   const valueStart = start + startTag.length;
   const end = findTag(text, endTag, valueStart);
   return stripTags(end >= 0 ? text.slice(valueStart, end) : text.slice(valueStart)).trim();
+}
+
+// Models frequently emit <fileref> with a missing or malformed closing
+// (">" instead of " />", stray text before the closing ">", missing quotes).
+// The parser is intentionally tolerant about the closing shape and strict
+// about the payload: invalid references are left as plain text.
+const FILE_REFERENCE_TAG_PATTERN = /<fileref\b((?:(?!<\/?>)[\s\S])*?)(?:\/(?:\s|>|$)|>)/gi;
+
+export function parseFileReferences(text) {
+  const matches = [];
+  for (const match of text.matchAll(FILE_REFERENCE_TAG_PATTERN)) {
+    const body = match[1];
+    const path = attributeValue(body, 'path');
+    const normalizedPath = path.replaceAll('\\', '/');
+    const lineFromText = attributeValue(body, 'line-from');
+    const lineToText = attributeValue(body, 'line-to');
+    const lineFrom = /^\d+$/.test(lineFromText) ? Number(lineFromText) : null;
+    const lineTo = /^\d+$/.test(lineToText) ? Number(lineToText) : lineFrom;
+    if (
+      (!normalizedPath.startsWith('./') && !normalizedPath.startsWith('../'))
+      || (lineFromText && lineFrom === null)
+      || (lineToText && lineTo === null)
+      || (lineToText && lineFrom === null)
+      || (lineFrom !== null && (lineFrom < 1 || lineTo < lineFrom))
+    ) {
+      continue;
+    }
+    matches.push({
+      index: match.index,
+      raw: match[0],
+      reference: { path, lineFrom, lineTo },
+    });
+  }
+  return matches;
 }
 
 function attributeValue(text, name) {
