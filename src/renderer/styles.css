@@ -701,13 +701,9 @@ body.panel-resizing * {
     display: flex;
     align-items: center;
     gap: 12px;
-    width: min(760px, 100%);
+    width: 100%;
     min-width: 0;
-    padding: 14px 16px;
     color: var(--text-1);
-    background: var(--background-2);
-    border: 1px solid var(--border-color);
-    border-radius: 14px;
 }
 
 .semaphore-card > svg {
@@ -730,6 +726,8 @@ body.panel-resizing * {
 
 .semaphore-card .semaphore-card-copy code {
     color: var(--text-1);
+    font-size: inherit;
+    font-family: inherit;
     overflow-wrap: anywhere;
 }
 
@@ -740,16 +738,20 @@ body.panel-resizing * {
 }
 
 .semaphore-card .semaphore-card-actions button {
-    padding: 7px 10px;
+    padding: 6px 12px;
     color: var(--background-1);
     background: var(--primary-color);
-    border-radius: 8px;
+    border-radius: 32px;
     font-size: 12px;
     font-weight: 600;
 }
 
 .semaphore-card .semaphore-card-actions button:hover:not(:disabled) {
     filter: brightness(1.08);
+}
+
+.semaphore-card .semaphore-card-actions button:active:not(:disabled) {
+    filter: brightness(.97);
 }
 
 .semaphore-card .semaphore-card-actions button.secondary {

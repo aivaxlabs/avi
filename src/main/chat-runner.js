@@ -3368,6 +3368,15 @@ export class ChatRunner {
           : getGoalForConversation(conversationId)
         : null;
       if (continuingGoal?.status === 'active' && this.continueGoal(continuingGoal)) return;
+      // Threads that go idle without releasing would block FIFO waiters forever;
+      // paused (queuePaused), steering, and goal-continuing runs keep their permits.
+      const releasedHoldings = this.semaphores.releaseAll(conversationId);
+      if (releasedHoldings.length > 0) {
+        traceVerbose('semaphore.auto-release', {
+          thread_id: conversationId,
+          semaphores: releasedHoldings.map(({ name, count }) => ({ name, count })),
+        });
+      }
       if (current?.completedAssistantMessage) {
         this.sendCompletionNotification?.({
           conversation: getConversation(conversationId),

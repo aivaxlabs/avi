@@ -120,6 +120,35 @@ try {
   assert.deepEqual(manager.holdings(conversations[2].id), []);
 
   manager.acquire({
+    conversationId: conversations[3].id,
+    name: 'auto',
+    count: 1,
+    maxCount: 1,
+  });
+  manager.acquire({
+    conversationId: conversations[4].id,
+    name: 'auto',
+    count: 1,
+    maxCount: 1,
+  });
+  const autoSnapshot = manager.globalSnapshot().find((entry) => entry.name === 'auto');
+  assert.deepEqual(autoSnapshot.holders, [{ conversationId: conversations[3].id, count: 1 }]);
+  assert.deepEqual(autoSnapshot.queue, [{ conversationId: conversations[4].id, position: 1 }]);
+  assert.deepEqual(manager.releaseAll(conversations[3].id), [{
+    name: 'auto',
+    count: 1,
+    maxCount: 1,
+  }]);
+  assert.equal(manager.waitSnapshot(conversations[4].id), null);
+  assert.equal(manager.holdings(conversations[4].id)[0].count, 1);
+  assert.deepEqual(manager.releaseAll(conversations[3].id), []);
+  manager.release({
+    conversationId: conversations[4].id,
+    name: 'auto',
+    count: 1,
+  });
+
+  manager.acquire({
     conversationId: conversations[0].id,
     name: 'capacity',
     count: 2,
@@ -303,13 +332,8 @@ try {
   ));
   assert.ok(resumedUserMessage);
   assert.match(resumedUserMessage.content, /granted 1 permit/);
-  assert.equal(runner.semaphores.holdings(waiter.id)[0].count, 1);
   assert.equal(runner.reloadSnapshot().semaphoreWaits.length, 0);
-  runner.releaseSemaphore({
-    conversationId: waiter.id,
-    name: 'runner-lock',
-    count: 1,
-  });
+  assert.deepEqual(runner.semaphores.holdings(waiter.id), []);
 
   const forcedHolder = createConversation({ model: model.id, projectPath: process.cwd() });
   const forcedWaiter = createConversation({ model: model.id, projectPath: process.cwd() });
@@ -409,6 +433,61 @@ try {
     name: 'cancelled-lock',
     count: 1,
   });
+  const idleHolder = createConversation({ model: model.id, projectPath: process.cwd() });
+  const idleWaiter = createConversation({ model: model.id, projectPath: process.cwd() });
+  runner.acquireSemaphore({
+    conversationId: idleHolder.id,
+    name: 'idle-lock',
+    count: 1,
+    maxCount: 1,
+  });
+  runner.acquireSemaphore({
+    conversationId: idleWaiter.id,
+    name: 'idle-lock',
+    count: 1,
+    maxCount: 1,
+  });
+  await waitFor(() => runner.semaphores.waitSnapshot(idleWaiter.id) !== null);
+  const listResult = await listTool.execute({}, { chatRunner: runner, conversationId: idleHolder.id });
+  assert.deepEqual(listResult.holdings, [{ name: 'idle-lock', count: 1, maxCount: 1 }]);
+  const globalEntry = listResult.all.find((entry) => entry.name === 'idle-lock');
+  assert.deepEqual(globalEntry.holders, [{ conversationId: idleHolder.id, count: 1 }]);
+  assert.deepEqual(globalEntry.queue, [{ conversationId: idleWaiter.id, position: 1 }]);
+  const subagent = createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+    conversationType: 'subagent',
+    parentConversationId: idleHolder.id,
+  });
+  runner.acquireSemaphore({
+    conversationId: subagent.id,
+    name: 'sub-lock',
+    count: 1,
+    maxCount: 1,
+  });
+  const contextTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_list_thread_context');
+  const contextResult = await contextTool.execute({}, { chatRunner: runner, conversationId: idleHolder.id });
+  assert.deepEqual(contextResult.threads.map((thread) => thread.semaphoreHoldings), [[{
+    name: 'sub-lock',
+    count: 1,
+    maxCount: 1,
+  }]]);
+  const threadsTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_list_threads');
+  const threadsText = await threadsTool.execute({}, { chatRunner: runner, conversationId: idleHolder.id });
+  assert.match(threadsText, /Semaphore permits: idle-lock \(1\)/);
+  const requestsBeforeIdle = providerRequests.length;
+  await runner.send({
+    conversationId: idleHolder.id,
+    model: model.id,
+    text: 'Finish without releasing.',
+  });
+  await waitFor(() => providerRequests.length >= requestsBeforeIdle + 1
+    && !runner.runs.has(idleHolder.id));
+  assert.deepEqual(runner.semaphores.holdings(idleHolder.id), []);
+  await waitFor(() => providerRequests.length >= requestsBeforeIdle + 2
+    && !runner.runs.has(idleWaiter.id));
+  assert.deepEqual(runner.semaphores.holdings(idleWaiter.id), []);
+
   await runner.shutdown();
 
   closeDatabase();

@@ -68,6 +68,36 @@ export class SemaphoreManager {
     });
   }
 
+  globalSnapshot() {
+    return Object.entries(this.state.semaphores).map(([name, semaphore]) => ({
+      name,
+      maxCount: semaphore.maxCount,
+      holders: Object.entries(semaphore.holders ?? {}).map(([conversationId, count]) => ({
+        conversationId,
+        count,
+      })),
+      queue: [...(semaphore.queue ?? [])].map((conversationId, index) => ({
+        conversationId,
+        position: index + 1,
+      })),
+    }));
+  }
+
+  releaseAll(conversationId) {
+    const holdings = this.holdings(conversationId);
+    if (holdings.length === 0) return [];
+    const affected = new Set();
+    for (const { name } of holdings) {
+      delete this.state.semaphores[name].holders[conversationId];
+      affected.add(name);
+    }
+    const ready = [...affected].flatMap((name) => this.drain(name));
+    for (const name of affected) this.removeIfEmpty(name);
+    this.persist();
+    this.notifyReady(ready);
+    return holdings;
+  }
+
   acquire({ conversationId, name, count, maxCount, resume = {} }) {
     name = normalizeName(name);
     count = normalizePositiveInteger(count, 'count');

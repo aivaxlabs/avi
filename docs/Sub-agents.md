@@ -34,9 +34,10 @@ Instructions can require agents to protect shared work with an Avi-managed named
 - the sleeping thread shows the semaphore name and its current queue position;
 - **Run now** removes that wait and resumes the agent without granting semaphore permits;
 - **Cancel semaphore** removes that wait without resuming the agent;
-- `release_semaphore(name, count)` releases permits owned by the current thread and automatically resumes FIFO waiters as capacity becomes available.
+- `release_semaphore(name, count)` releases permits owned by the current thread and automatically resumes FIFO waiters as capacity becomes available;
+- `list_semaphores` reports the current thread's permits and waits plus a global snapshot of every semaphore with its holders and FIFO queue, so an orchestrator can diagnose blocked queues without joining them; `chat_list_thread_context` and `chat_list_threads` also show the permits owned by each visible thread.
 
-A resumed thread receives an internal user message explaining whether permits were granted or the wait was overridden. While a thread owns permits, every inference receives context requiring it to release the exact permits promptly after the protected work, including before reporting a blocker or finishing.
+A resumed thread receives an internal user message explaining whether permits were granted or the wait was overridden. While a thread owns permits, every inference receives context requiring it to release the exact permits promptly after the protected work, including before reporting a blocker or finishing. If a thread still goes idle without releasing (natural finish with no queued work), Avi automatically releases its owned permits and resumes FIFO waiters; paused runs and semaphore resumes keep their permits until the thread goes idle.
 
 Semaphore owners and wait queues persist in SQLite across Avi restarts. Archiving or deleting a thread removes its waits and owned permits so queued agents cannot remain blocked by a missing thread.
 

@@ -609,6 +609,7 @@ export const CLIENT_TOOLS = Object.freeze([
           status: chatRunner.semaphores.waitSnapshot(conversation.id)
             ? 'sleeping'
             : chatRunner.runs.has(conversation.id) ? 'running' : 'idle',
+          semaphoreHoldings: chatRunner.semaphores.holdings(conversation.id),
           createdAt: conversation.createdAt,
           updatedAt: conversation.updatedAt,
         }));
@@ -622,6 +623,11 @@ export const CLIENT_TOOLS = Object.freeze([
           `  Folder: ${thread.folderPath}`,
           `  Model: ${thread.model}`,
           `  Status: ${thread.status}`,
+          ...(thread.semaphoreHoldings.length > 0
+            ? [`  Semaphore permits: ${thread.semaphoreHoldings
+              .map((holding) => `${holding.name} (${holding.count})`)
+              .join(', ')}`]
+            : []),
           `  Created: ${thread.createdAt}`,
           `  Updated: ${thread.updatedAt}`,
         ].join('\n')).join('\n--------\n'),
@@ -675,6 +681,7 @@ export const CLIENT_TOOLS = Object.freeze([
                 : conversation.isSubagent
                   ? 'failed'
                   : 'idle',
+          semaphoreHoldings: chatRunner.semaphores.holdings(conversation.id),
           initialPrompt: initialPrompt.length > 256 ? `${initialPrompt.slice(0, 256)}...` : initialPrompt,
         };
       });
@@ -690,7 +697,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'list_semaphores',
-    description: 'List semaphore permits held by or awaited by the current thread.',
+    description: 'List semaphore permits held by or awaited by the current thread, plus a global snapshot of every semaphore with holders and FIFO queues.',
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
@@ -702,6 +709,7 @@ export const CLIENT_TOOLS = Object.freeze([
     execute: async (_input, { chatRunner, conversationId }) => ({
       holdings: chatRunner.semaphores.holdings(conversationId),
       waiting: chatRunner.semaphores.waitSnapshot(conversationId),
+      all: chatRunner.semaphores.globalSnapshot(),
     }),
   },
   {
