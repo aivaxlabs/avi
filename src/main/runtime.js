@@ -1966,7 +1966,6 @@ function registerIpc() {
     const startedAt = Date.now();
     traceVerbose('context.page-opened', { operation: 'context:folders' });
     const globalPath = join(homedir(), '.agents');
-    const installationPath = resolveInstallationContextPath();
     const folders = new Map([
       ...pluginContextRoots().map((plugin) => [plugin.path.toLowerCase(), {
         path: plugin.path,
@@ -1979,14 +1978,6 @@ function registerIpc() {
         displayPath: '~/.agents',
       }],
     ]);
-    try {
-      await access(installationPath);
-      folders.set(installationPath.toLowerCase(), {
-        path: installationPath,
-        name: 'Avi',
-        displayPath: 'AVI/context',
-      });
-    } catch { }
     for (const conversation of listConversations()) {
       const projectPath = resolve(conversation.projectPath);
       if (projectPath === resolve(homedir())) continue;

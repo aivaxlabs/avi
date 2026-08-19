@@ -52,7 +52,7 @@ Quick Chat uses reduced instructions and does not receive the full ordinary-thre
 
 ## Context management UI
 
-**Settings → Context** lists Global, Avi, and known project folders. Each scope groups Instructions, Skills, and Workflows with a title, description, and approximate token count. Selecting an item opens the file in its system-associated application; Avi does not include an internal Markdown editor.
+**Settings → Context** lists Global and known project folders. Each scope groups Instructions, Skills, and Workflows with a title, description, and approximate token count. Selecting an item opens the file in its system-associated application; Avi does not include an internal Markdown editor.
 
 ## Troubleshooting discovery
 
