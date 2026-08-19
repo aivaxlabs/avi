@@ -307,6 +307,7 @@ db.exec(`
     checkpoint_message_id TEXT,
     context_tokens INTEGER NOT NULL DEFAULT 0,
     tasks TEXT NOT NULL DEFAULT '[]',
+    tags TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     archived_at TEXT,
@@ -548,6 +549,9 @@ if (!conversationColumns.some((column) => column.name === 'tasks')) {
 if (!conversationColumns.some((column) => column.name === 'archived_at')) {
   db.exec('ALTER TABLE conversations ADD COLUMN archived_at TEXT');
 }
+if (!conversationColumns.some((column) => column.name === 'tags')) {
+  db.exec("ALTER TABLE conversations ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
+}
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_conversations_parent
     ON conversations(parent_conversation_id, conversation_type, created_at);
@@ -638,15 +642,17 @@ const statements = {
       id, title, model, title_status, project_path, git_branch,
       conversation_type, parent_conversation_id, initial_prompt, orchestration_mode,
       auto_forward_to_parent,
-      context_checkpoint, checkpoint_message_id, context_tokens, created_at, updated_at
+      context_checkpoint, checkpoint_message_id, context_tokens, tags, created_at, updated_at
     )
     VALUES (
       @id, @title, @model, @titleStatus, @projectPath, @gitBranch,
       @conversationType, @parentConversationId, @initialPrompt, @orchestrationMode,
       @autoForwardToParent,
-      @contextCheckpoint, @checkpointMessageId, @contextTokens, @createdAt, @updatedAt
+      @contextCheckpoint, @checkpointMessageId, @contextTokens, @tags, @createdAt, @updatedAt
     )
   `),
+  setConversationTags: db.prepare('UPDATE conversations SET tags = ? WHERE id = ?'),
+  listConversationsWithTags: db.prepare("SELECT id, tags FROM conversations WHERE tags != '[]'"),
   updateConversation: db.prepare(`
     UPDATE conversations
     SET title = COALESCE(@title, title),
@@ -958,7 +964,92 @@ export function getPreferences() {
     desktop: normalizeDesktopSettings(readJson('desktopSettings')),
     aivax: { ...getAivaxSettings(), connected: Boolean(getAivaxAccessToken()) },
     archive: getArchiveSettings(),
+    chatTags: getChatTags(),
+    folderColors: getFolderColors(),
   };
+}
+
+const hexColorPattern = /^#[0-9a-f]{6}$/i;
+const defaultChatTags = [
+  { id: 'review', name: 'Review', color: '#e3b341' },
+  { id: 'important', name: 'Important', color: '#e5484d' },
+  { id: 'blocked', name: 'Blocked', color: '#8b8d98' },
+];
+
+function normalizeTagIds(value) {
+  if (!Array.isArray(value)) return [];
+  const ids = new Set();
+  for (const id of value) {
+    if (typeof id === 'string' && id.trim()) ids.add(id);
+  }
+  return [...ids];
+}
+
+function normalizeChatTags(value) {
+  if (!Array.isArray(value)) return defaultChatTags.map((tag) => ({ ...tag }));
+  const tags = [];
+  const ids = new Set();
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    if (!name) continue;
+    const color = typeof entry.color === 'string' && hexColorPattern.test(entry.color.trim())
+      ? entry.color.trim().toLowerCase()
+      : defaultChatTags[0].color;
+    let id = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : crypto.randomUUID();
+    while (ids.has(id)) id = crypto.randomUUID();
+    ids.add(id);
+    tags.push({ id, name, color });
+  }
+  return tags;
+}
+
+export function getChatTags() {
+  const stored = readJson('chatTags');
+  return stored === null
+    ? defaultChatTags.map((tag) => ({ ...tag }))
+    : normalizeChatTags(stored);
+}
+
+export function setChatTags(value) {
+  const tags = normalizeChatTags(value);
+  writeJson('chatTags', tags);
+  const keptIds = new Set(tags.map((tag) => tag.id));
+  for (const row of statements.listConversationsWithTags.all()) {
+    const current = normalizeTagIds(parse(row.tags, []));
+    const next = current.filter((id) => keptIds.has(id));
+    if (next.length !== current.length) {
+      statements.setConversationTags.run(stringify(next), row.id);
+    }
+  }
+  return tags;
+}
+
+function normalizeFolderColors(value) {
+  const colors = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return colors;
+  for (const [folderPath, color] of Object.entries(value)) {
+    if (typeof folderPath !== 'string' || !folderPath.trim()) continue;
+    if (typeof color !== 'string' || !hexColorPattern.test(color)) continue;
+    colors[resolve(folderPath)] = color.toLowerCase();
+  }
+  return colors;
+}
+
+export function getFolderColors() {
+  return normalizeFolderColors(readJson('folderColors'));
+}
+
+export function setFolderColor(folderPath, color) {
+  const colors = normalizeFolderColors(readJson('folderColors'));
+  const path = resolve(String(folderPath ?? ''));
+  if (typeof color === 'string' && hexColorPattern.test(color)) {
+    colors[path] = color.toLowerCase();
+  } else {
+    delete colors[path];
+  }
+  writeJson('folderColors', colors);
+  return colors;
 }
 
 export function setDesktopSettings(value) {
@@ -1267,6 +1358,7 @@ export function createConversation({
     contextCheckpoint: '',
     checkpointMessageId: null,
     contextTokens: 0,
+    tags: '[]',
     createdAt: now,
     updatedAt: now,
   };
@@ -1324,6 +1416,11 @@ export function updateConversation(id, {
     contextTokens,
     updatedAt: timestamp(),
   });
+  return getConversation(id);
+}
+
+export function setConversationTags(id, tags) {
+  statements.setConversationTags.run(stringify(normalizeTagIds(tags)), id);
   return getConversation(id);
 }
 
@@ -2211,6 +2308,7 @@ function mapConversation(row) {
     contextCheckpoint: row.context_checkpoint || '',
     checkpointMessageId: row.checkpoint_message_id || null,
     contextTokens: Number(row.context_tokens) || 0,
+    tags: normalizeTagIds(parse(row.tags, [])),
     goal: getGoalForConversation(row.id),
     firstPrompt: row.first_prompt ?? '',
     needsAttention: ['error', 'aborted', 'streaming'].includes(row.last_message_status)
