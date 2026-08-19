@@ -395,6 +395,59 @@
   }
 }
 
+.conversation-tooltip {
+  position: fixed;
+  z-index: 110;
+  width: max-content;
+  min-width: 230px;
+  max-width: 280px;
+  display: grid;
+  gap: 3px;
+  padding: 8px 12px;
+  background: --background-1;
+  border: 1px solid --border-color;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px #00000022;
+  pointer-events: none;
+  font-size: 12px;
+
+  .conversation-tooltip-title {
+    max-width: 100%;
+    margin-bottom: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: --text-1;
+    font-weight: 600;
+  }
+
+  .conversation-tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+
+    svg {
+      flex: 0 0 auto;
+      color: --text-3;
+    }
+  }
+
+  .conversation-tooltip-label {
+    flex: 0 0 82px;
+    color: --text-4;
+  }
+
+  .conversation-tooltip-value {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: --text-1;
+  }
+}
+
 .sidebar-collapsed .sidebar {
   padding-inline: 0;
   background-color: transparent;

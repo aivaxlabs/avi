@@ -1,7 +1,9 @@
 import {
   Archive,
+  ArrowDown,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
   Boxes,
   Check,
   CheckCircle2,
@@ -329,6 +331,7 @@ export function SettingsPage({
   onClose,
   onSave,
   onRemove,
+  onRoutersChange,
   onSaveDefaultModels,
   onSaveTuning,
 }) {
@@ -337,6 +340,9 @@ export function SettingsPage({
   );
   const [selectedId, setSelectedId] = useState(null);
   const [providerDraft, setProviderDraft] = useState(null);
+  const [routers, setRouters] = useState([]);
+  const [routerDraft, setRouterDraft] = useState(null);
+  const [routersLoading, setRoutersLoading] = useState(false);
   const [modelDraft, setModelDraft] = useState(null);
   const [modelIndex, setModelIndex] = useState(-1);
   const [busy, setBusy] = useState(false);
@@ -398,6 +404,26 @@ export function SettingsPage({
       document.removeEventListener('keydown', closeOnKeyDown);
     };
   }, [providerImportOpen]);
+
+  useEffect(() => {
+    if (view !== 'routers') return undefined;
+    let cancelled = false;
+    setRoutersLoading(true);
+    setError('');
+    window.chatApp.routers.list()
+      .then((items) => {
+        if (!cancelled) setRouters(items);
+      })
+      .catch((nextError) => {
+        if (!cancelled) setError(nextError instanceof Error ? nextError.message : String(nextError));
+      })
+      .finally(() => {
+        if (!cancelled) setRoutersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [view]);
 
   useEffect(() => {
     if (view !== 'context-folders') return undefined;
@@ -570,6 +596,8 @@ export function SettingsPage({
 
   const pageTitle = {
     list: 'Providers',
+    routers: 'Model routers',
+    router: routerDraft?.name || 'New model router',
     type: 'Add provider',
     provider: providerDraft?.name || 'New provider',
     model: modelDraft?.name || (modelIndex < 0 ? 'New model' : 'Edit model'),
@@ -588,6 +616,8 @@ export function SettingsPage({
   }[view];
   const pageDescription = {
     list: 'Manage the connections and models available in chats.',
+    routers: 'Route requests across an ordered set of available models.',
+    router: 'Configure the routing mode and ordered model sequence.',
     type: 'Choose the API interface implemented by this provider.',
     provider: selectedType
       ? `${selectedType.name} · ${selectedType.description}`
@@ -607,7 +637,7 @@ export function SettingsPage({
     personalization: 'Choose Avi’s personality, theme, and color scheme.',
     about: 'Project information, version, and links.',
   }[view];
-  const showInlineBack = !['list', 'context-folders', 'mcp', 'plugins', 'remote', 'aivax', 'archive', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
+  const showInlineBack = !['list', 'routers', 'context-folders', 'mcp', 'plugins', 'remote', 'aivax', 'archive', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
   const importedProvider = providerImportDialog?.mode === 'review'
     ? providerImportDialog.provider
@@ -699,6 +729,21 @@ export function SettingsPage({
             >
               <Server size={16} />
               Providers
+            </button>
+          )}
+          {(!settingsQuery || 'models routers routing fallback round robin ordered'.includes(settingsQuery)) && (
+            <button
+              className={['routers', 'router'].includes(view) ? 'active' : undefined}
+              type="button"
+              aria-current={['routers', 'router'].includes(view) ? 'page' : undefined}
+              onClick={() => {
+                setView('routers');
+                setRouterDraft(null);
+                setError('');
+              }}
+            >
+              <Workflow size={16} />
+              Routers
             </button>
           )}
           {(!settingsQuery || 'models default auxiliary supervision quick chat sub-agent orchestration fallback reasoning'.includes(settingsQuery)) && (
@@ -849,6 +894,12 @@ export function SettingsPage({
                     setError('');
                     return;
                   }
+                  if (view === 'router') {
+                    setView('routers');
+                    setRouterDraft(null);
+                    setError('');
+                    return;
+                  }
                   setView('list');
                   setSelectedId(null);
                   setProviderDraft(null);
@@ -864,7 +915,9 @@ export function SettingsPage({
                     ? 'Back to folders'
                     : view === 'model'
                       ? 'Back to provider'
-                      : 'Back'}
+                      : view === 'router'
+                        ? 'Back to routers'
+                        : 'Back'}
               </button>
             )}
             <div className="settings-page-title-row">
@@ -927,6 +980,26 @@ export function SettingsPage({
                     </DropdownMenu>
                   )}
                 </div>
+              )}
+              {view === 'routers' && (
+                <button
+                  className="primary-mini settings-add-provider"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setRouterDraft({
+                      id: `@${crypto.randomUUID()}`,
+                      name: '',
+                      mode: 'fallback',
+                      models: [],
+                    });
+                    setError('');
+                    setView('router');
+                  }}
+                >
+                  <Plus size={14} />
+                  Add router
+                </button>
               )}
               {view === 'mcp' && mcpNavigation?.onAction && (
                 <button
@@ -1054,6 +1127,217 @@ export function SettingsPage({
                         <Plus size={14} />
                         Add provider
                       </button>
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {view === 'routers' && (
+              <section className="settings-section">
+                {error && (
+                  <div className="settings-provider-notice error" role="alert">{error}</div>
+                )}
+                <div className="settings-list-summary">
+                  <span>{routers.length} {routers.length === 1 ? 'router' : 'routers'}</span>
+                  <span>{routers.reduce((count, router) => count + router.models.length, 0)} routes</span>
+                </div>
+                <div className="settings-entity-list">
+                  {routers.map((router) => (
+                    <article className="settings-entity-row settings-router-row" key={router.id}>
+                      <button
+                        className="settings-entity-main"
+                        type="button"
+                        onClick={() => {
+                          setRouterDraft(structuredClone(router));
+                          setError('');
+                          setView('router');
+                        }}
+                      >
+                        <span className="settings-entity-icon"><Workflow size={16} /></span>
+                        <span className="settings-entity-copy">
+                          <strong>{router.name}</strong>
+                          <small>
+                            {router.mode === 'round-robin' ? 'Round robin' : 'Fallback'}
+                            {' · '}
+                            {router.models.length} {router.models.length === 1 ? 'model' : 'models'}
+                          </small>
+                        </span>
+                        <ArrowRight className="settings-entity-arrow" size={15} />
+                      </button>
+                      <button
+                        className="icon-button danger"
+                        type="button"
+                        disabled={busy}
+                        aria-label={`Delete ${router.name}`}
+                        onClick={() => {
+                          if (!window.confirm(`Delete model router "${router.name}"?`)) return;
+                          runProviderMutation(async () => {
+                            await window.chatApp.routers.remove(router.id);
+                            const nextRouters = await window.chatApp.routers.list();
+                            setRouters(nextRouters);
+                            await onRoutersChange();
+                          });
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </article>
+                  ))}
+                  {!routersLoading && routers.length === 0 && (
+                    <div className="settings-empty settings-provider-empty">
+                      <Workflow size={24} />
+                      <strong>No model routers configured</strong>
+                      <span>Add a router to combine models behind one selectable catalog entry.</span>
+                      <button
+                        className="primary-mini"
+                        type="button"
+                        onClick={() => {
+                          setRouterDraft({
+                            id: `@${crypto.randomUUID()}`,
+                            name: '',
+                            mode: 'fallback',
+                            models: [],
+                          });
+                          setView('router');
+                        }}
+                      >
+                        <Plus size={14} />
+                        Add router
+                      </button>
+                    </div>
+                  )}
+                  {routersLoading && (
+                    <div className="settings-empty" role="status">Loading model routers...</div>
+                  )}
+                </div>
+              </section>
+            )}
+
+            {view === 'router' && routerDraft && (
+              <section className="settings-router-detail settings-section">
+                <div className="settings-section-card settings-form">
+                  <label className="settings-field">
+                    <span>Name</span>
+                    <input
+                      value={routerDraft.name}
+                      required
+                      placeholder="Reliable coding model"
+                      onChange={(event) => setRouterDraft({
+                        ...routerDraft,
+                        name: event.target.value,
+                      })}
+                    />
+                  </label>
+                  <label className="settings-field">
+                    <span>Routing mode</span>
+                    <select
+                      value={routerDraft.mode}
+                      onChange={(event) => setRouterDraft({
+                        ...routerDraft,
+                        mode: event.target.value,
+                      })}
+                    >
+                      <option value="fallback">Fallback</option>
+                      <option value="round-robin">Round robin</option>
+                    </select>
+                    <small>
+                      {routerDraft.mode === 'round-robin'
+                        ? 'Cycles through the configured models in order.'
+                        : 'Tries each configured model in order until one succeeds.'}
+                    </small>
+                  </label>
+                  <label className="settings-field settings-field-wide">
+                    <span>Add model</span>
+                    <select
+                      value=""
+                      onChange={(event) => {
+                        if (!event.target.value) return;
+                        setRouterDraft({
+                          ...routerDraft,
+                          models: [...routerDraft.models, { modelId: event.target.value }],
+                        });
+                      }}
+                    >
+                      <option value="">Select a model</option>
+                      {models.map((model) => (
+                        !model.id.startsWith('@')
+                        && !routerDraft.models.some((entry) => entry.modelId === model.id)
+                          ? (
+                              <option key={model.id} value={model.id}>
+                                {model.providerName ? `${model.providerName} · ` : ''}{model.name}
+                              </option>
+                            )
+                          : null
+                      ))}
+                    </select>
+                    <small>Models are attempted or selected in the order shown below.</small>
+                  </label>
+                </div>
+
+                <div className="settings-router-models" aria-label="Ordered router models">
+                  {routerDraft.models.map((entry, index) => {
+                    const model = models.find((item) => item.id === entry.modelId);
+                    const available = entry.available
+                      ?? entry.availability?.available
+                      ?? Boolean(model);
+                    return (
+                      <div className="settings-router-model" key={entry.modelId}>
+                        <span className="settings-router-model-order">{index + 1}</span>
+                        <span className="settings-router-model-copy">
+                          <strong>{model?.name ?? entry.modelId}</strong>
+                          <small>{model?.providerName ?? (model ? entry.modelId : 'Missing from model catalog')}</small>
+                        </span>
+                        <span className={classNames('settings-status', available ? 'enabled' : 'disabled')}>
+                          {available ? 'Available' : 'Unavailable'}
+                        </span>
+                        <div className="settings-router-model-actions">
+                          <button
+                            className="icon-button"
+                            type="button"
+                            disabled={index === 0}
+                            aria-label={`Move ${model?.name ?? entry.modelId} up`}
+                            onClick={() => {
+                              const nextModels = [...routerDraft.models];
+                              [nextModels[index - 1], nextModels[index]] = [nextModels[index], nextModels[index - 1]];
+                              setRouterDraft({ ...routerDraft, models: nextModels });
+                            }}
+                          >
+                            <ArrowUp size={14} />
+                          </button>
+                          <button
+                            className="icon-button"
+                            type="button"
+                            disabled={index === routerDraft.models.length - 1}
+                            aria-label={`Move ${model?.name ?? entry.modelId} down`}
+                            onClick={() => {
+                              const nextModels = [...routerDraft.models];
+                              [nextModels[index], nextModels[index + 1]] = [nextModels[index + 1], nextModels[index]];
+                              setRouterDraft({ ...routerDraft, models: nextModels });
+                            }}
+                          >
+                            <ArrowDown size={14} />
+                          </button>
+                          <button
+                            className="icon-button danger"
+                            type="button"
+                            aria-label={`Remove ${model?.name ?? entry.modelId}`}
+                            onClick={() => setRouterDraft({
+                              ...routerDraft,
+                              models: routerDraft.models.filter((_, modelIndex) => modelIndex !== index),
+                            })}
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {routerDraft.models.length === 0 && (
+                    <div className="settings-empty">
+                      <Workflow size={22} />
+                      <strong>No models in this router</strong>
+                      <span>Select at least one model to save the router.</span>
                     </div>
                   )}
                 </div>
@@ -2156,7 +2440,7 @@ export function SettingsPage({
           </div>
         </div>
 
-        {(view === 'provider' || view === 'model' || ['general', 'tuning', 'personalization'].includes(view) || view === 'default-models') && (
+        {(view === 'provider' || view === 'model' || view === 'router' || ['general', 'tuning', 'personalization'].includes(view) || view === 'default-models') && (
           <footer className="settings-actions">
             <span className="settings-error" role="alert">{error}</span>
             <div>
@@ -2168,7 +2452,9 @@ export function SettingsPage({
                     ? !providerDraft
                     : view === 'model'
                       ? !modelDraft
-                      : view === 'default-models'
+                      : view === 'router'
+                        ? !routerDraft?.name.trim() || routerDraft.models.length === 0
+                        : view === 'default-models'
                         ? !defaultModelsDraft
                         || (defaultModelsDraft.subagents.enabled && [
                           defaultModelsDraft.subagents.small,
@@ -2195,6 +2481,19 @@ export function SettingsPage({
                     const saved = await onSaveTuning(tuningDraft);
                     setTuningDraft(saved);
                     setTuningSaved(true);
+                    return;
+                  }
+                  if (view === 'router') {
+                    await window.chatApp.routers.save({
+                      id: routerDraft.id,
+                      name: routerDraft.name.trim(),
+                      mode: routerDraft.mode,
+                      models: routerDraft.models.map(({ modelId }) => ({ modelId })),
+                    });
+                    setRouters(await window.chatApp.routers.list());
+                    await onRoutersChange();
+                    setRouterDraft(null);
+                    setView('routers');
                     return;
                   }
                   if (view === 'provider') {
@@ -2235,7 +2534,9 @@ export function SettingsPage({
                     ? 'Save provider'
                     : view === 'model'
                       ? 'Save model'
-                      : view === 'default-models'
+                      : view === 'router'
+                        ? 'Save router'
+                        : view === 'default-models'
                         ? defaultModelsSaved ? 'Saved' : 'Save default models'
                         : tuningSaved ? 'Saved' : 'Save changes'}
               </button>

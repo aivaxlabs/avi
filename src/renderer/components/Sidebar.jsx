@@ -33,12 +33,17 @@ import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 
 const GROUP_LIMIT = 5;
 const conversationGroupingKey = 'aivax.sidebar.conversation-grouping';
+const compactTokenFormatter = new Intl.NumberFormat(undefined, {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+});
 
 export function Sidebar({
   conversations,
   models = [],
   selectedId,
   running,
+  runStartedAt = {},
   completedUnseen,
   approvalPending = {},
   inputPending = {},
@@ -472,6 +477,7 @@ export function Sidebar({
                   conversation={conversation}
                   active={conversation.id === selectedId}
                   running={Boolean(running[conversation.id])}
+                  runStartedAt={runStartedAt[conversation.id] ?? null}
                   completedUnseen={Boolean(completedUnseen[conversation.id])}
                   approvalPending={Boolean(approvalPending[conversation.id])}
                   inputPending={Boolean(inputPending[conversation.id])}
@@ -512,6 +518,7 @@ function ConversationItem({
   conversation,
   active,
   running,
+  runStartedAt,
   completedUnseen,
   approvalPending,
   inputPending,
@@ -525,7 +532,42 @@ function ConversationItem({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
+  const [tooltipPosition, setTooltipPosition] = useState(null);
+  const [tooltipNow, setTooltipNow] = useState(() => Date.now());
   const menuButtonRef = useRef(null);
+  const itemRef = useRef(null);
+  const tooltipTimerRef = useRef(null);
+  const status = approvalPending
+    ? { icon: TriangleAlert, className: 'attention-indicator', label: 'Awaiting approval', size: 13 }
+    : inputPending
+      ? { icon: TriangleAlert, className: 'attention-indicator', label: 'Awaiting input', size: 13 }
+      : semaphoreWaiting
+        ? { icon: Moon, className: 'sleep-indicator', label: 'Waiting for semaphore', size: 13 }
+        : running
+          ? { icon: LoaderCircle, className: 'run-spinner', label: 'Working', size: 12 }
+          : needsAttention
+            ? { icon: TriangleAlert, className: 'attention-indicator', label: 'Needs attention', size: 13 }
+            : completedUnseen
+              ? { icon: CheckCircle2, className: 'completion-indicator', label: 'Completed', size: 13 }
+              : null;
+  const StatusIcon = status?.icon ?? Clock;
+  const statusLabel = status?.label ?? 'Idle';
+  const folderLabel = conversation.projectDisplayPath
+    || conversation.projectName
+    || '~/';
+  const elapsedLabel = (() => {
+    if (!tooltipPosition || !Number.isFinite(runStartedAt)) return '';
+    const totalSeconds = Math.max(0, Math.floor((tooltipNow - runStartedAt) / 1000));
+    const seconds = totalSeconds % 60;
+    const minutes = Math.floor(totalSeconds / 60) % 60;
+    const hours = Math.floor(totalSeconds / 3600) % 24;
+    const days = Math.floor(totalSeconds / 86400);
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${String(minutes).padStart(2, '0')}m`;
+    if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+    return `${totalSeconds}s`;
+  })();
+  const tokensLabel = `~${compactTokenFormatter.format(conversation.contextTokens ?? 0)} input tokens`;
   const ageLabel = (() => {
     const updatedTime = new Date(conversation.updatedAt).getTime();
     if (!Number.isFinite(updatedTime)) return '';
@@ -556,6 +598,46 @@ function ConversationItem({
     return () => window.removeEventListener('pointerdown', close);
   }, [menuOpen]);
 
+  useEffect(() => () => window.clearTimeout(tooltipTimerRef.current), []);
+
+  useEffect(() => {
+    if (!tooltipPosition) return undefined;
+    setTooltipNow(Date.now());
+    const interval = window.setInterval(() => setTooltipNow(Date.now()), 1000);
+    const close = () => setTooltipPosition(null);
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setTooltipPosition(null);
+    };
+    window.addEventListener('scroll', close, { capture: true, passive: true });
+    window.addEventListener('resize', close);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('scroll', close, { capture: true });
+      window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [tooltipPosition]);
+
+  function openTooltip() {
+    const rect = itemRef.current.getBoundingClientRect();
+    setTooltipPosition({
+      top: Math.max(8, Math.min(rect.top - 6, window.innerHeight - 180)),
+      left: Math.min(rect.right + 8, window.innerWidth - 292),
+    });
+  }
+
+  function scheduleTooltip() {
+    window.clearTimeout(tooltipTimerRef.current);
+    tooltipTimerRef.current = window.setTimeout(openTooltip, 350);
+  }
+
+  function closeTooltip() {
+    window.clearTimeout(tooltipTimerRef.current);
+    tooltipTimerRef.current = null;
+    setTooltipPosition(null);
+  }
+
   function toggleMenu() {
     const rect = menuButtonRef.current.getBoundingClientRect();
     setMenuPosition({
@@ -572,7 +654,10 @@ function ConversationItem({
 
   return (
     <div
+      ref={itemRef}
       className={classNames('conversation-item', active && 'active', menuOpen && 'menu-open')}
+      onMouseEnter={scheduleTooltip}
+      onMouseLeave={closeTooltip}
       onContextMenu={(event) => {
         event.preventDefault();
         menuButtonRef.current = event.currentTarget;
@@ -583,21 +668,17 @@ function ConversationItem({
         setMenuOpen(true);
       }}
     >
-      <button className="conversation-main" type="button" onClick={onSelect}>
+      <button
+        className="conversation-main"
+        type="button"
+        onClick={onSelect}
+        onFocus={openTooltip}
+        onBlur={closeTooltip}
+      >
         <span className="conversation-title">{conversation.title || conversation.firstPrompt || 'New chat'}</span>
-        {approvalPending ? (
-          <TriangleAlert className="attention-indicator" size={13} aria-label="Awaiting approval" />
-        ) : inputPending ? (
-          <TriangleAlert className="attention-indicator" size={13} aria-label="Awaiting input" />
-        ) : semaphoreWaiting ? (
-          <Moon className="sleep-indicator" size={13} aria-label="Waiting for semaphore" />
-        ) : running ? (
-          <LoaderCircle className="run-spinner" size={12} aria-label="Working" />
-        ) : needsAttention ? (
-          <TriangleAlert className="attention-indicator" size={13} aria-label="Needs attention" />
-        ) : completedUnseen ? (
-          <CheckCircle2 className="completion-indicator" size={13} aria-label="Completed" />
-        ) : null}
+        {status && (
+          <StatusIcon className={status.className} size={status.size} aria-label={status.label} />
+        )}
       </button>
       {ageLabel && <span className="conversation-age">{ageLabel}</span>}
       <button ref={menuButtonRef} className="icon-button tiny" type="button" onClick={toggleMenu}>
@@ -615,6 +696,40 @@ function ConversationItem({
             Archive chat
           </DropdownMenuItem>
         </DropdownMenu>,
+        document.body,
+      )}
+      {tooltipPosition && createPortal(
+        <div className="conversation-tooltip" style={tooltipPosition} role="tooltip">
+          <div className="conversation-tooltip-title">
+            {conversation.title || conversation.firstPrompt || 'New chat'}
+          </div>
+          <div className="conversation-tooltip-row">
+            <Folder size={13} aria-hidden="true" />
+            <span className="conversation-tooltip-label">Folder</span>
+            <span className="conversation-tooltip-value" title={folderLabel}>{folderLabel}</span>
+          </div>
+          <div className="conversation-tooltip-row">
+            <StatusIcon
+              className={status?.className ?? 'sleep-indicator'}
+              size={13}
+              aria-hidden="true"
+            />
+            <span className="conversation-tooltip-label">Status</span>
+            <span className="conversation-tooltip-value">{statusLabel}</span>
+          </div>
+          {elapsedLabel && (
+            <div className="conversation-tooltip-row">
+              <Clock size={13} aria-hidden="true" />
+              <span className="conversation-tooltip-label">Running for</span>
+              <span className="conversation-tooltip-value">{elapsedLabel}</span>
+            </div>
+          )}
+          <div className="conversation-tooltip-row">
+            <Hash size={13} aria-hidden="true" />
+            <span className="conversation-tooltip-label">Input tokens</span>
+            <span className="conversation-tooltip-value">{tokensLabel}</span>
+          </div>
+        </div>,
         document.body,
       )}
     </div>

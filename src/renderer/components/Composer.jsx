@@ -455,13 +455,19 @@ export function Composer({
         window.chatApp.composerState.save(state).catch(() => {});
       }
     };
-  }, [conversationId, persistState, initialModel]);
+  }, [conversationId, persistState]);
 
   useEffect(() => {
     if (!persistState) return;
     setWorkMode(initialWorkMode);
     setUltraMode(initialUltraMode);
   }, [initialUltraMode, initialWorkMode, persistState]);
+
+  useEffect(() => {
+    if (!persistState) return;
+    setCurrentModel(initialModel);
+    setReasoningEffort(readPersistedReasoningEffort(initialModel) ?? null);
+  }, [initialModel, persistState]);
 
   useEffect(() => {
     if (!persistState || !currentModel || !reasoningEffort) return;

@@ -1108,6 +1108,12 @@
     }
   }
 
+  .settings-router-row {
+    > .settings-entity-main {
+      grid-template-columns: 34px minmax(0, 1fr) 16px;
+    }
+  }
+
   .settings-entity-main {
     min-width: 0;
     display: grid;
@@ -1436,6 +1442,84 @@
   .settings-provider-detail {
     display: grid;
     gap: 32px;
+  }
+
+  .settings-router-detail {
+    gap: 20px;
+  }
+
+  .settings-router-models {
+    display: grid;
+    gap: 6px;
+
+    > .settings-router-model {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr) auto auto;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      background: var(--background-2);
+      border: 1px solid var(--border-color);
+      border-radius: 9px;
+
+      @media (max-width: 700px) {
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+
+        > .settings-status {
+          display: none;
+        }
+      }
+
+      > .settings-router-model-order {
+        width: 24px;
+        height: 24px;
+        display: grid;
+        place-items: center;
+        color: var(--text-3);
+        background: var(--background-3);
+        border-radius: 6px;
+        font-size: .85rem;
+        font-variant-numeric: tabular-nums;
+      }
+
+      > .settings-router-model-copy {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+
+        > strong,
+        > small {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        > strong {
+          font-size: .95rem;
+          font-weight: 500;
+        }
+
+        > small {
+          color: var(--text-3);
+          font-size: .82rem;
+        }
+      }
+
+      > .settings-router-model-actions {
+        display: flex;
+        gap: 2px;
+
+        > .icon-button {
+          width: 28px;
+          height: 28px;
+
+          &:disabled {
+            opacity: .35;
+          }
+        }
+      }
+    }
   }
 
   .settings-form,

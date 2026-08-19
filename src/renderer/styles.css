@@ -2651,6 +2651,10 @@ body.panel-resizing * {
     opacity: .64;
 }
 
+.settings-page .settings-router-row > .settings-entity-main {
+    grid-template-columns: 34px minmax(0, 1fr) 16px;
+}
+
 .settings-page .settings-entity-main {
     min-width: 0;
     display: grid;
@@ -2932,6 +2936,75 @@ body.panel-resizing * {
 .settings-page .settings-provider-detail {
     display: grid;
     gap: 32px;
+}
+
+.settings-page .settings-router-detail {
+    gap: 20px;
+}
+
+.settings-page .settings-router-models {
+    display: grid;
+    gap: 6px;
+}
+
+.settings-page .settings-router-models > .settings-router-model {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+}
+
+.settings-page .settings-router-models > .settings-router-model > .settings-router-model-order {
+    width: 24px;
+    height: 24px;
+    display: grid;
+    place-items: center;
+    color: var(--text-3);
+    background: var(--background-3);
+    border-radius: 6px;
+    font-size: .85rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.settings-page .settings-router-models > .settings-router-model > .settings-router-model-copy {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.settings-page .settings-router-models > .settings-router-model > .settings-router-model-copy > strong, .settings-page .settings-router-models > .settings-router-model > .settings-router-model-copy > small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-page .settings-router-models > .settings-router-model > .settings-router-model-copy > strong {
+    font-size: .95rem;
+    font-weight: 500;
+}
+
+.settings-page .settings-router-models > .settings-router-model > .settings-router-model-copy > small {
+    color: var(--text-3);
+    font-size: .82rem;
+}
+
+.settings-page .settings-router-models > .settings-router-model > .settings-router-model-actions {
+    display: flex;
+    gap: 2px;
+}
+
+.settings-page .settings-router-models > .settings-router-model > .settings-router-model-actions > .icon-button {
+    width: 28px;
+    height: 28px;
+}
+
+.settings-page .settings-router-models > .settings-router-model > .settings-router-model-actions > .icon-button:disabled {
+    opacity: .35;
 }
 
 .settings-page .settings-form, .settings-page .model-editor-grid {
@@ -3958,6 +4031,14 @@ body.panel-resizing * {
 
     .settings-page .provider-type-list {
         grid-template-columns: 1fr;
+    }
+
+    .settings-page .settings-router-models > .settings-router-model {
+        grid-template-columns: 28px minmax(0, 1fr) auto;
+    }
+
+    .settings-page .settings-router-models > .settings-router-model > .settings-status {
+        display: none;
     }
 
     .settings-page .default-model-row {
@@ -11064,6 +11145,59 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 .sidebar .conversation-main {
     padding: 6px 10px;
     padding-left: 29px;
+}
+
+.conversation-tooltip {
+    position: fixed;
+    z-index: 110;
+    width: max-content;
+    min-width: 230px;
+    max-width: 280px;
+    display: grid;
+    gap: 3px;
+    padding: 8px 12px;
+    background: var(--background-1);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 4px 12px #00000022;
+    pointer-events: none;
+    font-size: 12px;
+}
+
+.conversation-tooltip .conversation-tooltip-title {
+    max-width: 100%;
+    margin-bottom: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-1);
+    font-weight: 600;
+}
+
+.conversation-tooltip .conversation-tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.conversation-tooltip .conversation-tooltip-row svg {
+    flex: 0 0 auto;
+    color: var(--text-3);
+}
+
+.conversation-tooltip .conversation-tooltip-label {
+    flex: 0 0 82px;
+    color: var(--text-4);
+}
+
+.conversation-tooltip .conversation-tooltip-value {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-1);
 }
 
 .sidebar-collapsed .sidebar {

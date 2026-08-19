@@ -182,9 +182,12 @@ export function FilesPanel({
   );
   const contextTargetRef = useRef(null);
   const panelRef = useRef(null);
+  // The dangerouslySetInnerHTML wrapper objects must stay referentially stable:
+  // inline literals make React rewrite every line's innerHTML on unrelated
+  // re-renders (e.g. the selection toolbar), which destroys the DOM selection.
   const { highlightedLines, highlightedDiff, previewLanguage } = useMemo(() => {
     if (!['diff', 'text'].includes(preview?.kind)) {
-      return { highlightedLines: [], highlightedDiff: '', previewLanguage: 'text' };
+      return { highlightedLines: [], highlightedDiff: null, previewLanguage: 'text' };
     }
     const lowerName = preview.name.toLowerCase();
     const extension = lowerName.includes('.') ? lowerName.split('.').at(-1) : lowerName;
@@ -193,16 +196,18 @@ export function FilesPanel({
       const diffLanguage = language === 'text' ? 'diff' : `diff-${language}`;
       return {
         highlightedLines: [],
-        highlightedDiff: Prism.highlight(preview.content, Prism.languages.diff, diffLanguage),
+        highlightedDiff: {
+          __html: Prism.highlight(preview.content, Prism.languages.diff, diffLanguage),
+        },
         previewLanguage: diffLanguage,
       };
     }
     const grammar = Prism.languages[language];
     return {
       highlightedLines: preview.content.split('\n').map((line) => (
-        grammar && line ? Prism.highlight(line, grammar, language) : ''
+        grammar && line ? { __html: Prism.highlight(line, grammar, language) } : null
       )),
-      highlightedDiff: '',
+      highlightedDiff: null,
       previewLanguage: language,
     };
   }, [preview]);
@@ -1027,7 +1032,7 @@ export function FilesPanel({
                     >
                       <span aria-hidden="true">{index + 1}</span>
                       {highlightedLines[index] ? (
-                        <code dangerouslySetInnerHTML={{ __html: highlightedLines[index] }} />
+                        <code dangerouslySetInnerHTML={highlightedLines[index]} />
                       ) : (
                         <code>{line || ' '}</code>
                       )}
@@ -1046,7 +1051,7 @@ export function FilesPanel({
                   {preview.content ? (
                     <code
                       className={`diff-highlight language-${previewLanguage}`}
-                      dangerouslySetInnerHTML={{ __html: highlightedDiff }}
+                      dangerouslySetInnerHTML={highlightedDiff}
                     />
                   ) : <span className="files-edit-empty">No diff available</span>}
                 </pre>

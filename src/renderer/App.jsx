@@ -83,6 +83,7 @@ export default function App() {
   const [models, setModels] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [running, setRunning] = useState({});
+  const [runStartedAt, setRunStartedAt] = useState({});
   const [completedUnseen, setCompletedUnseen] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
@@ -304,6 +305,7 @@ export default function App() {
           setRunning(Object.fromEntries(
             completedReload.conversationIds.map((conversationId) => [conversationId, true]),
           ));
+          setRunStartedAt(completedReload.runsStartedAt ?? {});
           setApprovalRequests(completedReload.approvals);
           setQuestionRequests(completedReload.questions);
           setSemaphoreWaits(completedReload.semaphoreWaits ?? restoredReload.semaphoreWaits ?? []);
@@ -491,6 +493,15 @@ export default function App() {
         }));
       } else if (event.type === 'run-state') {
         setRunning((state) => ({ ...state, [event.conversationId]: event.running }));
+        setRunStartedAt((state) => {
+          if (!event.running || !Number.isFinite(event.startedAt)) {
+            if (!(event.conversationId in state)) return state;
+            const next = { ...state };
+            delete next[event.conversationId];
+            return next;
+          }
+          return { ...state, [event.conversationId]: event.startedAt };
+        });
         if (event.stoppedByUser) {
           setConversations((state) => state.map((conversation) => (
             conversation.id === event.conversationId
@@ -1667,6 +1678,7 @@ export default function App() {
           }}
           onSave={async (provider) => applyProviders(await api.providers.save(provider))}
           onRemove={async (providerId) => applyProviders(await api.providers.remove(providerId))}
+          onRoutersChange={async () => setModels(await api.models.list())}
           onSaveDefaultModels={async (settings) => {
             const result = await api.defaultModels.save(settings);
             setAppState((current) => ({
@@ -1694,6 +1706,7 @@ export default function App() {
             models={models}
             selectedId={selectedId}
             running={running}
+            runStartedAt={runStartedAt}
             completedUnseen={completedUnseen}
             approvalPending={approvalPending}
             inputPending={inputPending}
