@@ -26,7 +26,7 @@ The memory toggle remains unavailable without both an account and a collection. 
 - **AIVAX web search** — web search with country, language, and domain filters;
 - **AIVAX Media Descriptions** — converts local images, videos, audio, and PDFs to text when the selected model cannot read that media type directly.
 
-These utilities depend on the external service. Media Descriptions is a fallback in `read_media_file`: models that support the supplied media continue to receive it directly. Processing can consume AIVAX balance.
+These utilities depend on the external service. Media Descriptions is a fallback in `read_media_file`: models that support the supplied media continue to receive it directly. `read_media_file` accepts an optional extraction guidance that is forwarded to Media Descriptions and ignored when the model reads the media directly. Processing can consume AIVAX balance.
 
 ## In-app search
 

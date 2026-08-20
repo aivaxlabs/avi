@@ -246,7 +246,7 @@ try {
   });
   const mediaRequests = [];
   for (const fixture of mediaFixtures) {
-    assert.equal(await readMediaFile.execute({ path: fixture.path }, {
+    assert.equal(await readMediaFile.execute({ path: fixture.path, extractionGuidance: 'Focus on visible text.' }, {
       aivax: { connected: true, mediaDescriptionsEnabled: true },
       capabilities: { images: false, audio: false, pdfFiles: false },
       requestAivax: async (path, options) => {
@@ -254,11 +254,12 @@ try {
         return { data: [{ textContent: `Resolved ${options.body.input[0].type}` }] };
       },
       signal: new AbortController().signal,
-    }), `Resolved ${fixture.type}`);
+    }), JSON.stringify({ textContent: `Resolved ${fixture.type}` }));
     const request = mediaRequests.at(-1);
     assert.equal(request.path, '/api/v1/generations/descriptions');
     assert.equal(request.options.includeResponseEnvelope, true);
     assert.equal(request.options.responseType, 'array');
+    assert.equal(request.options.body.extractionGuidance, 'Focus on visible text.');
     const input = request.options.body.input[0];
     assert.equal(input.type, fixture.type);
     if (fixture.type === 'input_audio') {
@@ -273,10 +274,14 @@ try {
   assert.equal(await readMediaFile.execute({ path: mediaFixtures[1].path }, {
     aivax: { connected: true, mediaDescriptionsEnabled: true },
     capabilities: { images: false, audio: false, pdfFiles: false },
-    requestAivax: async () => ({
-      data: [{ textContent: 'First video segment.' }],
-    }),
-  }), 'First video segment.');
+    requestAivax: async (path, options) => {
+      mediaRequests.push({ path, options });
+      return {
+        data: [{ textContent: 'First video segment.' }],
+      };
+    },
+  }), JSON.stringify({ textContent: 'First video segment.' }));
+  assert.equal(mediaRequests.at(-1).options.body.extractionGuidance, undefined);
 
   const mediaRequestCount = mediaRequests.length;
   await assert.rejects(
@@ -291,16 +296,16 @@ try {
   );
   assert.equal(mediaRequests.length, mediaRequestCount);
 
-  await assert.rejects(
-    readMediaFile.execute({ path: mediaFixtures[0].path }, {
-      aivax: { connected: true, mediaDescriptionsEnabled: true },
-      capabilities: { images: false, audio: false, pdfFiles: false },
-      requestAivax: async () => ({ data: [{ type: 'invalid', textContent: null }] }),
-    }),
-    /invalid media description/,
-  );
+  assert.equal(await readMediaFile.execute({ path: mediaFixtures[0].path }, {
+    aivax: { connected: true, mediaDescriptionsEnabled: true },
+    capabilities: { images: false, audio: false, pdfFiles: false },
+    requestAivax: async () => ({ data: [{ type: 'invalid', textContent: null }] }),
+  }), JSON.stringify({ type: 'invalid', textContent: null }));
 
-  const directResult = await readMediaFile.execute({ path: mediaFixtures[0].path }, {
+  const directResult = await readMediaFile.execute({
+    path: mediaFixtures[0].path,
+    extractionGuidance: 'Focus on visible text.',
+  }, {
     aivax: { connected: true, mediaDescriptionsEnabled: true },
     capabilities: { images: true, audio: false, pdfFiles: false },
     requestAivax: async () => {

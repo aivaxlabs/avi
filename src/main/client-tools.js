@@ -168,7 +168,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'read_media_file',
-    description: 'Read local images, videos, audio, and PDFs. The selected model reads supported media directly; when connected and enabled, AIVAX Media Descriptions converts unsupported media to text. Text files are not supported.',
+    description: 'Read local images, videos, audio, and PDFs. The selected model reads supported media directly; when connected and enabled, AIVAX Media Descriptions converts unsupported media to text and the optional extractionGuidance refines that extraction. extractionGuidance is ignored when the model reads the media directly. Text files are not supported.',
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
@@ -180,11 +180,15 @@ export const CLIENT_TOOLS = Object.freeze([
           minLength: 1,
           description: 'Absolute path to the local media file.',
         },
+        extractionGuidance: {
+          type: 'string',
+          description: 'Use this field to refine the extraction result to focus and guide extracting specific details, such as: extracting UI artifacts, extracting text from screenshots, diagnosing errors, understanding technical diagrams, analyzing information, etc.',
+        },
       },
       required: ['path'],
       additionalProperties: false,
     },
-    execute: async ({ path }, {
+    execute: async ({ path, extractionGuidance }, {
       aivax,
       capabilities = {},
       requestAivax: requestMediaDescription = requestAivax,
@@ -245,7 +249,12 @@ export const CLIENT_TOOLS = Object.freeze([
                   : null;
         if (input) {
           const response = await requestMediaDescription('/api/v1/generations/descriptions', {
-            body: { input: [input] },
+            body: {
+              extractionGuidance: typeof extractionGuidance === 'string' && extractionGuidance.trim()
+                ? extractionGuidance.trim()
+                : undefined,
+              input: [input],
+            },
             includeResponseEnvelope: true,
             responseType: 'array',
             signal,
