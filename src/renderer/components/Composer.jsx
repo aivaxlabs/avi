@@ -203,6 +203,7 @@ export function Composer({
   initialState = null,
   persistState = true,
   inline = false,
+  botMode = false,
   onCancel,
 }) {
   const [text, setText] = useState(() => (
@@ -440,7 +441,7 @@ export function Composer({
           )),
         ]);
         setPermissionMode(state?.permissionMode ?? defaultPermissionMode);
-        setCurrentModel(state?.model || initialModel);
+        setCurrentModel(botMode ? initialModel : state?.model || initialModel);
         setReasoningEffort(state?.reasoningEffort ?? null);
         hydratedConversationIdRef.current = conversationId;
       })
@@ -1082,14 +1083,14 @@ export function Composer({
           </span>
         </ComposerStrip>
       )}
-      {tasks.length > 0 && (
+      {tasks.length > 0 && !botMode && (
         <ComposerStrip as="button" className="tasks-strip" type="button" aria-label="Open thread tasks" onClick={onOpenTasks}>
           <ListChecks size={15} aria-hidden="true" />
           <span aria-live="polite">{tasks.filter((task) => task.done).length}/{tasks.length} tasks completed</span>
           <ChevronRight size={15} aria-hidden="true" />
         </ComposerStrip>
       )}
-      {subagents.length > 0 && (
+      {subagents.length > 0 && !botMode && (
         <ComposerStrip
           as="button"
           className="subagent-strip"
@@ -1495,47 +1496,51 @@ export function Composer({
             </button>
             {plusOpen && (
               <DropdownMenu className="attachment-dropdown-menu" role="menu">
-                <DropdownMenuItem
-                  active={ultraMode}
-                  icon={<Zap size={14} />}
-                  role="menuitemcheckbox"
-                  aria-checked={ultraMode}
-                  onClick={() => {
-                    changeUltraMode(!ultraMode);
-                    setPlusOpen(false);
-                  }}
-                >
-                  Ultra
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  active={Boolean(activeGoal) || workMode === 'goal'}
-                  icon={<Target size={14} />}
-                  role="menuitemcheckbox"
-                  aria-checked={Boolean(activeGoal) || workMode === 'goal'}
-                  onClick={() => {
-                    if (activeGoal) {
-                      setGoalSpecification(activeGoal.specification);
-                      setGoalDialogOpen(true);
-                    } else {
-                      changeWorkMode(workMode === 'goal' ? null : 'goal');
-                    }
-                    setPlusOpen(false);
-                  }}
-                >
-                  Goal
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  active={workMode === 'plan'}
-                  icon={<ListChecks size={14} />}
-                  role="menuitemcheckbox"
-                  aria-checked={workMode === 'plan'}
-                  onClick={() => {
-                    changeWorkMode(workMode === 'plan' ? null : 'plan');
-                    setPlusOpen(false);
-                  }}
-                >
-                  Plan
-                </DropdownMenuItem>
+                {!botMode && (
+                  <>
+                    <DropdownMenuItem
+                      active={ultraMode}
+                      icon={<Zap size={14} />}
+                      role="menuitemcheckbox"
+                      aria-checked={ultraMode}
+                      onClick={() => {
+                        changeUltraMode(!ultraMode);
+                        setPlusOpen(false);
+                      }}
+                    >
+                      Ultra
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      active={Boolean(activeGoal) || workMode === 'goal'}
+                      icon={<Target size={14} />}
+                      role="menuitemcheckbox"
+                      aria-checked={Boolean(activeGoal) || workMode === 'goal'}
+                      onClick={() => {
+                        if (activeGoal) {
+                          setGoalSpecification(activeGoal.specification);
+                          setGoalDialogOpen(true);
+                        } else {
+                          changeWorkMode(workMode === 'goal' ? null : 'goal');
+                        }
+                        setPlusOpen(false);
+                      }}
+                    >
+                      Goal
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      active={workMode === 'plan'}
+                      icon={<ListChecks size={14} />}
+                      role="menuitemcheckbox"
+                      aria-checked={workMode === 'plan'}
+                      onClick={() => {
+                        changeWorkMode(workMode === 'plan' ? null : 'plan');
+                        setPlusOpen(false);
+                      }}
+                    >
+                      Plan
+                    </DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuItem
                   icon={promptExpanding
                     ? <LoaderCircle className="goal-strip-spinner" size={14} />
@@ -1551,6 +1556,7 @@ export function Composer({
               </DropdownMenu>
             )}
           </div>
+          {!botMode && (
           <div className="composer-mode-controls">
             <div className="permission-mode-holder" ref={permissionMenuRef}>
               <button
@@ -1623,7 +1629,19 @@ export function Composer({
               </button>
             )}
           </div>
+          )}
           <div className="model-input-holder" ref={modelMenuRef}>
+            {botMode ? (
+              <span
+                className="model-input-label bot-model-label"
+                title="The model is configured in the bot settings"
+              >
+                {currentModelConfig?.name || modelName || 'Model'}
+                {activeReasoningEffort && (
+                  <span className="model-input-effort"> - {activeReasoningEffort}</span>
+                )}
+              </span>
+            ) : (
             <button
               className="model-input-trigger"
               type="button"
@@ -1640,6 +1658,7 @@ export function Composer({
               </span>
               <ChevronDown size={14} />
             </button>
+            )}
             {modelMenuOpen && (
               <DropdownMenu className="model-input-menu">
                 <div className="model-input-menu-list">

@@ -2087,6 +2087,144 @@
     }
   }
 
+  .maintenance-settings {
+    display: grid;
+    gap: 38px;
+  }
+
+  .maintenance-tabs {
+    display: flex;
+    gap: 4px;
+
+    button {
+      position: relative;
+      padding: 6px 12px;
+      color: var(--text-3);
+      background: transparent;
+      font-size: 13px;
+      font-weight: 570;
+      transition: color 160ms var(--base-transition),
+        background 160ms var(--base-transition);
+
+      &:hover {
+        color: var(--text-1);
+        background: var(--item-hover);
+      }
+
+      &[aria-selected="true"] {
+        color: var(--text-1);
+        background-color: --background-4;
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--text-3);
+        outline-offset: -2px;
+      }
+    }
+  }
+
+  .semaphore-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .semaphore-refresh {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 9px;
+    color: var(--text-2);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+
+    &:hover:not(:disabled) {
+      color: var(--text-1);
+      background: var(--item-hover);
+    }
+
+    .spinning {
+      animation: aivax-settings-spin 900ms linear infinite;
+    }
+  }
+
+  .semaphore-list {
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .semaphore-row {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+
+    &:not(:first-child) {
+      border-top: 1px solid var(--border-color);
+    }
+
+    @media (max-width: 700px) {
+      grid-template-columns: 32px minmax(0, 1fr);
+
+      .archive-actions {
+        grid-column: 1 / -1;
+        justify-content: flex-end;
+      }
+    }
+  }
+
+  .semaphore-copy {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+
+    strong {
+      overflow: hidden;
+      color: var(--text-1);
+      font-weight: 500;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    > small {
+      color: var(--text-3);
+    }
+  }
+
+  .semaphore-parties {
+    display: grid;
+    gap: 2px;
+    margin-top: 2px;
+  }
+
+  .semaphore-party {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    overflow: hidden;
+    color: var(--text-3);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    svg {
+      flex: 0 0 auto;
+      color: var(--text-4);
+    }
+  }
+
+  .semaphore-empty {
+    min-height: 160px;
+  }
+
+  .semaphore-list.is-loading {
+    opacity: 0.6;
+  }
+
   .settings-provider-empty strong {
     color: var(--text-1);
     font-size: 13px;

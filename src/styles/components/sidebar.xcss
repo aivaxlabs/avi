@@ -74,6 +74,7 @@
     display: grid;
     gap: 2px;
     padding: 4px 8px;
+    margin-bottom: .75em;
   }
 
   .nav-actions button,
@@ -120,7 +121,7 @@
 
   .recent-label {
     padding: 10px 16px 0 16px;
-    margin: 1em 0 1em 0;
+    margin-bottom: .75em;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -176,12 +177,14 @@
   }
 
   .conversation-list {
+    flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
     display: grid;
     align-content: start;
     gap: 2px;
     padding: 6px;
+    margin-bottom: 4px;
     border-bottom: 1px solid var(--border-color);
     scrollbar-gutter: stable;
     scrollbar-width: thin;
@@ -308,6 +311,14 @@
     border-radius: 6px;
     cursor: default !important;
     transition: .3s var(--base-transition);
+
+    & .bot-item {
+
+      .conversation-main {
+        gap: 13px;
+        padding-left: 6px;
+      }
+    }
   }
 
   .conversation-main {
@@ -570,6 +581,7 @@
 .sidebar-collapsed .nav-actions span,
 .sidebar-collapsed .recent-label,
 .sidebar-collapsed .conversation-list,
+.sidebar-collapsed .sidebar-bots,
 .sidebar-collapsed .settings-button span {
   display: none;
 }

@@ -13,6 +13,7 @@ import { SettingsPage } from './components/SettingsPage.jsx';
 import { McpOverlay } from './components/McpOverlay.jsx';
 import { OrchestrationPage } from './components/OrchestrationPage.jsx';
 import { AuxiliaryPanel } from './components/AuxiliaryPanel.jsx';
+import { BotSettingsDialog } from './components/BotSettingsDialog.jsx';
 import { PanelResizer } from './components/PanelResizer.jsx';
 import {
   applyTheme,
@@ -102,6 +103,10 @@ export default function App() {
   const [draftProject, setDraftProject] = useState(null);
   const [sideChats, setSideChats] = useState([]);
   const [subagents, setSubagents] = useState([]);
+  const [bots, setBots] = useState([]);
+  const [botQueue, setBotQueue] = useState([]);
+  const [botSettingsTarget, setBotSettingsTarget] = useState(null);
+  const [botQueueTabOpen, setBotQueueTabOpen] = useState(false);
   const [tasksByConversation, setTasksByConversation] = useState({});
   const [providerPanels, setProviderPanels] = useState([]);
   const [openProviderPanelIds, setOpenProviderPanelIds] = useState([]);
@@ -134,7 +139,10 @@ export default function App() {
   inspectedConversationIdRef.current = settingsOpen || orchestrationOpen ? null : selectedId;
   selectedConversationIdRef.current = selectedId;
 
-  const currentConversation = conversations.find((item) => item.id === selectedId) ?? null;
+  const selectedBot = bots.find((bot) => bot.conversationId === selectedId) ?? null;
+  const currentConversation = conversations.find((item) => item.id === selectedId)
+    ?? selectedBot?.conversation
+    ?? null;
   const currentMessages = messagesByConversation[selectedId] ?? [];
   const currentProject = useMemo(() => (currentConversation
     ? {
@@ -175,19 +183,22 @@ export default function App() {
   const currentModel = useMemo(() => {
     const configuredModelIds = new Set(models.map((model) => model.id));
     return [
+      selectedBot?.model,
       draftModel,
       currentConversation?.model,
       appState?.lastModel,
       models[0]?.id,
     ].find((modelId) => modelId && configuredModelIds.has(modelId)) ?? '';
-  }, [appState?.lastModel, currentConversation?.model, draftModel, models]);
+  }, [appState?.lastModel, currentConversation?.model, draftModel, models, selectedBot?.model]);
   const currentModelContextLimit = models
     .find((model) => model.id === currentModel)
     ?.context.input ?? null;
   const contextUsage = useMemo(() => ({
     tokens: currentConversation?.contextTokens ?? 0,
-    limit: currentModelContextLimit,
-  }), [currentConversation?.contextTokens, currentModelContextLimit]);
+    limit: selectedBot?.contextSize > 0
+      ? selectedBot.contextSize
+      : currentModelContextLimit,
+  }), [currentConversation?.contextTokens, currentModelContextLimit, selectedBot?.contextSize]);
   const subagentsWithStatus = useMemo(() => subagents
     .filter((subagent) => subagent.parentConversationId === selectedId)
     .map((subagent) => {
@@ -359,6 +370,23 @@ export default function App() {
     };
   }, []);
 
+  const refreshBots = useCallback(async () => {
+    try {
+      const state = await api.bots.list();
+      setBots(state.bots ?? []);
+      setBotQueue(state.queue ?? []);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshBots();
+    return api.onBotsEvent(() => {
+      void refreshBots();
+    });
+  }, [refreshBots]);
+
   useEffect(() => {
     if (!selectedId || settingsOpen || orchestrationOpen) return;
     setCompletedUnseen((state) => {
@@ -451,7 +479,9 @@ export default function App() {
           )));
         }
       } else if (event.type === 'conversation') {
-        if (event.conversation.isSubagent) {
+        if (event.conversation.isBot) {
+          void refreshBots();
+        } else if (event.conversation.isSubagent) {
           if (event.conversation.parentConversationId === selectedConversationIdRef.current) {
             setSubagents((state) => upsertById(state, event.conversation));
           }
@@ -734,6 +764,7 @@ export default function App() {
         || (current === 'git-review' && gitReviewTabOpen)
         || (current === 'subagents' && subagentsTabOpen)
         || (current === 'tasks' && tasksTabOpen)
+        || (current === 'bot-queue' && botQueueTabOpen)
         || openProviderPanels.some((panel) => panel.id === current)
       ) {
         return current;
@@ -742,9 +773,18 @@ export default function App() {
         ?? (filesTabOpen ? 'files' : null)
         ?? (gitReviewTabOpen ? 'git-review' : null)
         ?? (tasksTabOpen ? 'tasks' : null)
+        ?? (botQueueTabOpen ? 'bot-queue' : null)
         ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null);
     });
-  }, [filesTabOpen, gitReviewTabOpen, openProviderPanels, sideChats, subagentsTabOpen, tasksTabOpen]);
+  }, [
+    botQueueTabOpen,
+    filesTabOpen,
+    gitReviewTabOpen,
+    openProviderPanels,
+    sideChats,
+    subagentsTabOpen,
+    tasksTabOpen,
+  ]);
 
   useEffect(() => {
     const syncWindowWidth = () => setWindowWidth(window.innerWidth);
@@ -774,6 +814,64 @@ export default function App() {
       const messages = await api.conversations.messages(id);
       setMessagesByConversation((state) => ({ ...state, [id]: messages }));
     }
+  }
+
+  async function createBot(preset = {}) {
+    try {
+      const modelId = preset.modelId ?? currentModel ?? models[0]?.id;
+      if (!modelId) throw new Error('Configure at least one model before creating a bot.');
+      const bot = await api.bots.create({ name: 'New bot', model: modelId, ...preset });
+      await refreshBots();
+      setOrchestrationOpen(false);
+      selectConversation(bot.conversationId);
+      setBotSettingsTarget(bot.id);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }
+
+  async function deleteBot(botId) {
+    const bot = bots.find((item) => item.id === botId);
+    if (!bot) return;
+    if (!window.confirm(`Delete bot "${bot.name}"? Its conversation and pending approvals are removed. Work files stay on disk.`)) return;
+    try {
+      await api.bots.delete(botId);
+      if (botSettingsTarget === botId) setBotSettingsTarget(null);
+      if (selectedConversationIdRef.current === bot.conversationId) {
+        selectedConversationIdRef.current = null;
+        setSelectedId(null);
+      }
+      await refreshBots();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }
+
+  async function activateBot(botId) {
+    try {
+      await api.bots.activate(botId);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }
+
+  async function resolveBotApproval(approvalId, decision) {
+    try {
+      await api.bots.resolveApproval({ approvalId, decision });
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }
+
+  function openBotQueueTab() {
+    setBotQueueTabOpen(true);
+    setActiveSubagentId(null);
+    setActiveAuxiliaryTab('bot-queue');
+  }
+
+  function closeBotQueueTab() {
+    setBotQueueTabOpen(false);
+    setActiveAuxiliaryTab((current) => (current === 'bot-queue' ? null : current));
   }
 
   function openFileReference(reference) {
@@ -851,9 +949,18 @@ export default function App() {
 
     const targetConversation = [
       ...conversations,
+      ...bots.map((bot) => bot.conversation).filter(Boolean),
       ...sideChats,
       ...subagents,
     ].find((conversation) => conversation.id === conversationId);
+    const activeBot = bots.find((bot) => bot.conversationId === conversationId) ?? null;
+    if (activeBot) {
+      model = activeBot.model;
+      reasoningEffort = activeBot.reasoningEffort;
+      permissionMode = 'approve_for_me';
+      messageWorkMode = null;
+      messageUltraMode = false;
+    }
     const effectiveUltraMode = targetConversation?.isSubagent
       ? targetConversation.orchestrationMode === 'ultra'
       : !targetConversation?.isSideChat && messageUltraMode;
@@ -897,7 +1004,9 @@ export default function App() {
       draftText: '',
       attachments: [],
     });
-    if (result.conversation.isSubagent) {
+    if (result.conversation.isBot) {
+      void refreshBots();
+    } else if (result.conversation.isSubagent) {
       setSubagents((state) => upsertById(state, result.conversation));
     } else if (result.conversation.isSideChat) {
       setSideChats((state) => upsertById(state, result.conversation));
@@ -949,7 +1058,9 @@ export default function App() {
         || 'approve_for_me',
     });
     if (!result?.conversation) return;
-    if (result.conversation.isSubagent) {
+    if (result.conversation.isBot) {
+      void refreshBots();
+    } else if (result.conversation.isSubagent) {
       setSubagents((state) => upsertById(state, result.conversation));
     } else if (result.conversation.isSideChat) {
       setSideChats((state) => upsertById(state, result.conversation));
@@ -1294,6 +1405,7 @@ export default function App() {
         ?? (filesTabOpen ? 'files' : null)
         ?? (gitReviewTabOpen ? 'git-review' : null)
         ?? (tasksTabOpen ? 'tasks' : null)
+        ?? (botQueueTabOpen ? 'bot-queue' : null)
         ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null);
       setActiveAuxiliaryTab(nextTab);
     }
@@ -1585,7 +1697,7 @@ export default function App() {
   const chatOnOpenFileReference = useStableCallback(openFileReference);
 
   const narrowWindow = windowWidth <= 700;
-  const effectiveSidebarCollapsed = sidebarCollapsed || narrowWindow;
+  const effectiveSidebarCollapsed = narrowWindow || sidebarCollapsed;
   const sidebarWidthMax = Math.max(
     180,
     Math.min(
@@ -1731,6 +1843,7 @@ export default function App() {
         <>
           <Sidebar
             conversations={conversations}
+            bots={bots}
             models={models}
             selectedId={selectedId}
             running={running}
@@ -1765,6 +1878,14 @@ export default function App() {
               setOrchestrationOpen(false);
               selectConversation(id);
             }}
+            onNewBot={createBot}
+            onSelectBot={(id) => {
+              setOrchestrationOpen(false);
+              selectConversation(id);
+            }}
+            onBotSettings={(botId) => setBotSettingsTarget(botId)}
+            onDeleteBot={deleteBot}
+            onActivateBot={activateBot}
             onSearch={() => setSearchOpen(true)}
             onOpenOrchestration={() => {
               setOrchestrationOpen(true);
@@ -1841,6 +1962,7 @@ export default function App() {
             ) : (
               <ChatView
               {...shell}
+              botMode={Boolean(selectedBot)}
               emptyBackgroundEnabled={getTheme(appearance.themeId).emptyChatBackground !== false}
               emptyBackgroundThemeKey={`${appearance.themeId}:${resolvedScheme(appearance.scheme)}`}
               backgroundUrl={chatBackgroundUrl}
@@ -1938,12 +2060,14 @@ export default function App() {
                     || (current === 'git-review' && gitReviewTabOpen)
                     || (current === 'subagents' && subagentsTabOpen)
                     || (current === 'tasks' && tasksTabOpen)
+                    || (current === 'bot-queue' && botQueueTabOpen)
                     || openProviderPanels.some((panel) => panel.id === current)
                       ? current
                       : sideChats[0]?.id
                         ?? (filesTabOpen ? 'files' : null)
                         ?? (gitReviewTabOpen ? 'git-review' : null)
                         ?? (tasksTabOpen ? 'tasks' : null)
+                        ?? (botQueueTabOpen ? 'bot-queue' : null)
                         ?? (subagentsTabOpen
                           ? 'subagents'
                           : openProviderPanels[0]?.id ?? null)
@@ -1957,6 +2081,12 @@ export default function App() {
             {!orchestrationOpen && auxiliaryPanelVisible && (
               <AuxiliaryPanel
                 sideChats={sideChats}
+                bots={bots}
+                botQueue={botQueue}
+                onResolveBotApproval={resolveBotApproval}
+                botQueueTabOpen={botQueueTabOpen}
+                onOpenBotQueueTab={openBotQueueTab}
+                onCloseBotQueueTab={closeBotQueueTab}
                 subagents={subagentsWithStatus}
                 tasks={tasksByConversation[selectedId] ?? []}
                 activeTab={activeAuxiliaryTab}
@@ -1998,6 +2128,7 @@ export default function App() {
                   if (activeAuxiliaryTab === 'files') {
                     setActiveAuxiliaryTab(
                       sideChats[0]?.id
+                        ?? (botQueueTabOpen ? 'bot-queue' : null)
                         ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null),
                     );
                   }
@@ -2009,6 +2140,7 @@ export default function App() {
                       sideChats[0]?.id
                         ?? (filesTabOpen ? 'files' : null)
                         ?? (tasksTabOpen ? 'tasks' : null)
+                        ?? (botQueueTabOpen ? 'bot-queue' : null)
                         ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null),
                     );
                   }
@@ -2164,6 +2296,33 @@ export default function App() {
         <SearchDialog
           onClose={() => setSearchOpen(false)}
           onSelect={selectConversation}
+        />
+      )}
+      {botSettingsTarget && (
+        <BotSettingsDialog
+          bot={bots.find((bot) => bot.id === botSettingsTarget) ?? null}
+          models={models}
+          pluginPersonalities={appState.pluginCatalog?.personalities ?? []}
+          onClose={() => setBotSettingsTarget(null)}
+          onSave={async (changes) => {
+            await api.bots.update({ id: botSettingsTarget, changes });
+            await refreshBots();
+          }}
+          onChooseFolder={() => api.bots.chooseFolder()}
+          onClearThread={async (botId) => {
+            const bot = bots.find((item) => item.id === botId);
+            await api.bots.clearThread(botId);
+            if (bot) {
+              setMessagesByConversation((state) => {
+                if (!(bot.conversationId in state)) return state;
+                const next = { ...state };
+                delete next[bot.conversationId];
+                return next;
+              });
+            }
+            await refreshBots();
+          }}
+          onDeleteBot={deleteBot}
         />
       )}
       {(error || currentConversationError) && (

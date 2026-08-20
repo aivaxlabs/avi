@@ -1,5 +1,6 @@
 import {
   Archive,
+  Bot,
   Check,
   CheckCircle2,
   Clock,
@@ -18,16 +19,19 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Palette,
+  Play,
   Plus,
   Search,
   Server,
   Settings,
   SquareTerminal,
   Tags,
+  Trash2,
   TriangleAlert,
   X,
   Zap,
 } from 'lucide-react';
+import Avatar from 'boring-avatars';
 import { createPortal } from 'react-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import aviIconUrl from '../../../assets/icon/avi.png';
@@ -38,6 +42,7 @@ import { TagsManagerDialog } from './TagsManagerDialog.jsx';
 
 const GROUP_LIMIT = 5;
 const conversationGroupingKey = 'aivax.sidebar.conversation-grouping';
+const botAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
 const compactTokenFormatter = new Intl.NumberFormat(undefined, {
   notation: 'compact',
   maximumFractionDigits: 1,
@@ -45,6 +50,7 @@ const compactTokenFormatter = new Intl.NumberFormat(undefined, {
 
 export function Sidebar({
   conversations,
+  bots = [],
   models = [],
   selectedId,
   running,
@@ -56,6 +62,11 @@ export function Sidebar({
   onNewChat,
   onQuickChat,
   onSelect,
+  onNewBot,
+  onSelectBot,
+  onBotSettings,
+  onDeleteBot,
+  onActivateBot,
   onSearch,
   onOpenOrchestration,
   onFork,
@@ -118,13 +129,13 @@ export function Sidebar({
           preset: conversationGrouping === 'model'
             ? { modelId: conversation.model }
             : {
-                project: {
-                  path: conversation.projectPath,
-                  name: conversation.projectName,
-                  displayPath: conversation.projectDisplayPath,
-                  gitBranch: conversation.gitBranch,
-                },
+              project: {
+                path: conversation.projectPath,
+                name: conversation.projectName,
+                displayPath: conversation.projectDisplayPath,
+                gitBranch: conversation.gitBranch,
               },
+            },
           items: [],
           latestTime: 0,
         };
@@ -343,10 +354,46 @@ export function Sidebar({
           <span>Search chats</span>
         </button>
       </div>
+      <div className="recent-label bots-label">
+        <span className="recent-title">
+          <Bot size={13} aria-hidden="true" />
+          <span>Bots</span>
+        </span>
+        {onNewBot && (
+          <button
+            className="recent-filter-button"
+            type="button"
+            aria-label="New bot"
+            title="New bot"
+            onClick={() => onNewBot()}
+          >
+            <Plus size={13} />
+          </button>
+        )}
+      </div>
+      <div className="sidebar-bots">
+        {bots.length === 0 ? (
+          <p className="sidebar-bots-empty">
+            Autonomous teammates. They find, organize, and delegate work periodically.
+          </p>
+        ) : (
+          bots.map((bot) => (
+            <BotItem
+              key={bot.id}
+              bot={bot}
+              active={bot.conversationId === selectedId}
+              onSelect={() => onSelectBot(bot.conversationId)}
+              onSettings={() => onBotSettings(bot.id)}
+              onActivate={() => onActivateBot(bot.id)}
+              onDelete={() => onDeleteBot(bot.id)}
+            />
+          ))
+        )}
+      </div>
       <div className="recent-label">
         <span className="recent-title">
           <Clock size={13} />
-          Recent
+          Conversations
         </span>
         <button
           ref={filterButtonRef}
@@ -440,14 +487,14 @@ export function Sidebar({
                 className="conversation-group-header"
                 onContextMenu={conversationGrouping === 'folder' && !group.isHome && !group.isTaskGroup
                   ? (event) => {
-                      event.preventDefault();
-                      folderMenuButtonRef.current = event.currentTarget;
-                      setFolderMenu({
-                        key: group.key,
-                        top: Math.max(8, Math.min(event.clientY, window.innerHeight - 330)),
-                        left: Math.max(8, Math.min(event.clientX, window.innerWidth - 192)),
-                      });
-                    }
+                    event.preventDefault();
+                    folderMenuButtonRef.current = event.currentTarget;
+                    setFolderMenu({
+                      key: group.key,
+                      top: Math.max(8, Math.min(event.clientY, window.innerHeight - 330)),
+                      left: Math.max(8, Math.min(event.clientX, window.innerWidth - 192)),
+                    });
+                  }
                   : undefined}
               >
                 <span className="conversation-group-title" title={groupLabel}>
@@ -573,14 +620,14 @@ export function Sidebar({
                         colorMenu: menu.colorMenu
                           ? null
                           : {
-                              top: Math.max(8, Math.min(rect.top - 6, window.innerHeight - 120)),
-                              left: Math.max(
-                                8,
-                                fitsRight
-                                  ? rect.right + 8
-                                  : Math.min(rect.left - 8 - width, window.innerWidth - width - 8),
-                              ),
-                            },
+                            top: Math.max(8, Math.min(rect.top - 6, window.innerHeight - 120)),
+                            left: Math.max(
+                              8,
+                              fitsRight
+                                ? rect.right + 8
+                                : Math.min(rect.left - 8 - width, window.innerWidth - width - 8),
+                            ),
+                          },
                       } : menu));
                     }}
                   >
@@ -680,6 +727,123 @@ export function Sidebar({
         document.body,
       )}
     </aside>
+  );
+}
+
+function BotItem({ bot, active, onSelect, onSettings, onActivate, onDelete }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState(null);
+  const itemRef = useRef(null);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = (event) => {
+      if (itemRef.current?.contains(event.target)) return;
+      if (event.target.closest?.('.dropdown-menu')) return;
+      setMenuOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [menuOpen]);
+
+  function toggleMenu(sourceEvent) {
+    const rect = sourceEvent?.currentTarget?.getBoundingClientRect?.();
+    setMenuPosition(rect ? {
+      top: Math.min(rect.bottom + 4, window.innerHeight - 150),
+      left: Math.min(rect.right - 150, window.innerWidth - 160),
+    } : { top: 100, left: 100 });
+    setMenuOpen((value) => !value);
+  }
+
+  const idleNow = bot.idleUntil && new Date(bot.idleUntil).getTime() > Date.now();
+  const statusLabel = bot.running
+    ? 'Working'
+    : idleNow
+      ? 'Idle'
+      : bot.status === 'sleeping'
+        ? 'Sleeping'
+        : bot.status === 'paused'
+          ? 'Paused'
+          : 'Active';
+
+  return (
+    <div
+      ref={itemRef}
+      className={classNames('conversation-item', 'bot-item', active && 'active', menuOpen && 'menu-open')}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        setMenuPosition({
+          top: Math.max(8, Math.min(event.clientY, window.innerHeight - 150)),
+          left: Math.max(8, Math.min(event.clientX, window.innerWidth - 160)),
+        });
+        setMenuOpen(true);
+      }}
+    >
+      <button className="conversation-main" type="button" onClick={onSelect} title={bot.name}>
+        <span className="bot-avatar" aria-hidden="true">
+          <Avatar
+            size={22}
+            name={bot.iconSeed}
+            variant="beam"
+            colors={botAvatarColors}
+          />
+          {bot.running ? (
+            <LoaderCircle className="run-spinner" size={11} aria-label="Working" />
+          ) : (
+            <span
+              className={classNames('bot-status-dot', bot.status, idleNow && 'idle')}
+              aria-label={statusLabel}
+            />
+          )}
+        </span>
+        <span className="conversation-title">{bot.name}</span>
+        {bot.pendingApprovals > 0 && (
+          <span className="bot-queue-badge" title="Pending user approvals">
+            {bot.pendingApprovals}
+          </span>
+        )}
+      </button>
+      <button
+        className="icon-button tiny"
+        type="button"
+        aria-label={`Actions for ${bot.name}`}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={(event) => toggleMenu(event)}
+      >
+        <MoreHorizontal size={15} />
+      </button>
+      {menuOpen && menuPosition && createPortal(
+        <DropdownMenu fixed style={{ top: menuPosition.top, left: menuPosition.left }}>
+          <DropdownMenuItem icon={<Settings size={14} />} onClick={() => {
+            setMenuOpen(false);
+            onSettings();
+          }}>
+            Bot settings
+          </DropdownMenuItem>
+          <DropdownMenuItem icon={<Play size={14} />} onClick={() => {
+            setMenuOpen(false);
+            onActivate();
+          }}>
+            Activate now
+          </DropdownMenuItem>
+          <DropdownMenuItem icon={<Trash2 size={14} />} onClick={() => {
+            setMenuOpen(false);
+            onDelete();
+          }}>
+            Delete bot...
+          </DropdownMenuItem>
+        </DropdownMenu>,
+        document.body,
+      )}
+    </div>
   );
 }
 
@@ -814,13 +978,11 @@ function ConversationItem({
     const closeOnOutsidePointer = (event) => {
       if (!itemRef.current?.contains(event.target)) close();
     };
-    window.addEventListener('scroll', close, { capture: true, passive: true });
     window.addEventListener('resize', close);
     window.addEventListener('keydown', closeOnEscape);
     window.addEventListener('pointerdown', closeOnOutsidePointer, { capture: true });
     return () => {
       window.clearInterval(interval);
-      window.removeEventListener('scroll', close, { capture: true });
       window.removeEventListener('resize', close);
       window.removeEventListener('keydown', closeOnEscape);
       window.removeEventListener('pointerdown', closeOnOutsidePointer, { capture: true });
@@ -910,6 +1072,13 @@ function ConversationItem({
         onBlur={closeTooltip}
       >
         <span className="conversation-title">{conversation.title || conversation.firstPrompt || 'New chat'}</span>
+        {conversation.createdBy === 'agent' && (
+          <Bot
+            className="agent-thread-icon"
+            size={12}
+            aria-label="Created by an agent"
+          />
+        )}
         {tagChips.length > 0 && (
           <span className="conversation-tag-dots">
             {tagChips.map((tag) => (

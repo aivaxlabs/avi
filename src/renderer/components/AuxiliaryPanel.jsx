@@ -5,6 +5,7 @@ import {
   Bot,
   Check,
   ChevronRight,
+  ClipboardCheck,
   Files,
   Gauge,
   GitPullRequest,
@@ -24,6 +25,7 @@ const subagentsTabId = 'subagents';
 const filesTabId = 'files';
 const gitReviewTabId = 'git-review';
 const tasksTabId = 'tasks';
+const botQueueTabId = 'bot-queue';
 const subagentAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
 
 function AuxiliaryAddMenu({ panels }) {
@@ -93,6 +95,12 @@ function AuxiliaryAddMenu({ panels }) {
 export function AuxiliaryPanel({
   sideChats,
   subagents,
+  bots = [],
+  botQueue = [],
+  onResolveBotApproval,
+  botQueueTabOpen = false,
+  onOpenBotQueueTab,
+  onCloseBotQueueTab,
   tasks = [],
   activeTab,
   activeSubagentId,
@@ -214,6 +222,15 @@ export function AuxiliaryPanel({
       title: 'View orchestrated tasks',
       onOpen: onOpenSubagentsTab,
     },
+    {
+      id: botQueueTabId,
+      label: 'Bot queue',
+      description: 'Review pending bot approvals',
+      icon: ListChecks,
+      disabled: false,
+      title: 'Review pending bot approvals',
+      onOpen: onOpenBotQueueTab,
+    },
     ...providerPanels.map((panel) => ({
       id: panel.id,
       label: panel.title,
@@ -254,6 +271,14 @@ export function AuxiliaryPanel({
           type: 'subagents',
         }]
       : []),
+    ...(botQueueTabOpen
+      ? [{
+          id: botQueueTabId,
+          label: `Bot queue${botQueue.length > 0 ? ` (${botQueue.length})` : ''}`,
+          running: false,
+          type: 'bot-queue',
+        }]
+      : []),
     ...openProviderPanels.map((panel) => ({
       ...panel,
       label: panel.title,
@@ -265,6 +290,7 @@ export function AuxiliaryPanel({
   const showingGitReview = activeTab === gitReviewTabId;
   const showingSubagents = activeTab === subagentsTabId;
   const showingTasks = activeTab === tasksTabId;
+  const showingBotQueue = activeTab === botQueueTabId;
   const activeProviderPanel = openProviderPanels.find((panel) => panel.id === activeTab) ?? null;
   const activeSubagent = showingSubagents
     ? subagents.find((subagent) => subagent.id === activeSubagentId) ?? null
@@ -296,7 +322,7 @@ export function AuxiliaryPanel({
               {tabs.map((tab, index) => (
                 <div
                   key={tab.id}
-                  className={`auxiliary-tab ${tab.type} ${tab.id === activeTab ? 'active' : ''}`}
+                  className={`auxiliary-tab ${tab.id === activeTab ? 'active' : ''}`}
                 >
                   <button
                     id={`auxiliary-tab-${tab.id}`}
@@ -322,6 +348,8 @@ export function AuxiliaryPanel({
                       <ListChecks size={14} aria-hidden="true" />
                     ) : tab.type === 'subagents' ? (
                       <Bot size={14} aria-hidden="true" />
+                    ) : tab.type === 'bot-queue' ? (
+                      <ClipboardCheck size={14} aria-hidden="true" />
                     ) : tab.type === 'files' ? (
                       <Files size={14} aria-hidden="true" />
                     ) : tab.type === 'git-review' ? (
@@ -352,6 +380,8 @@ export function AuxiliaryPanel({
                         ? onCloseTasksTab()
                         : tab.type === 'subagents'
                           ? onCloseSubagentsTab()
+                        : tab.type === 'bot-queue'
+                          ? onCloseBotQueueTab()
                         : tab.type === 'files'
                           ? onCloseFilesTab()
                         : tab.type === 'git-review'
@@ -411,7 +441,53 @@ export function AuxiliaryPanel({
             </button>
           </div>
         )}
-        {showingTasks ? (
+        {showingBotQueue ? (
+          <div className="bot-queue">
+            <header>
+              <strong>{botQueue.length} pending</strong>
+              <span>Approvals requested by bots</span>
+            </header>
+            {botQueue.length === 0 ? (
+              <div className="bot-queue-empty">
+                <Bot size={20} aria-hidden="true" />
+                <strong>Nothing waiting</strong>
+                <span>Bot approval requests appear here.</span>
+              </div>
+            ) : (
+              botQueue.map((item) => (
+                <article className="bot-queue-item" key={item.id}>
+                  <header>
+                    <strong>{item.title}</strong>
+                    <small>
+                      {item.botName}
+                      {item.kind === 'tool' ? ' · tool approval' : ' · work'}
+                      {` · ${new Date(item.createdAt).toLocaleString()}`}
+                    </small>
+                  </header>
+                  {item.context && <p>{item.context}</p>}
+                  <div className="bot-queue-actions">
+                    <button
+                      className="bot-queue-approve"
+                      type="button"
+                      onClick={() => onResolveBotApproval?.(item.id, true)}
+                    >
+                      <Check size={14} aria-hidden="true" />
+                      <span>Approve</span>
+                    </button>
+                    <button
+                      className="bot-queue-deny"
+                      type="button"
+                      onClick={() => onResolveBotApproval?.(item.id, false)}
+                    >
+                      <X size={14} aria-hidden="true" />
+                      <span>Deny</span>
+                    </button>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+        ) : showingTasks ? (
           <div className="task-list">
             <header><strong>{tasks.filter((task) => task.done).length}/{tasks.length} completed</strong><span>Defined and updated by the agent</span></header>
             {tasks.map((task, index) => (
