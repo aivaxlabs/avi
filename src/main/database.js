@@ -316,6 +316,32 @@ db.exec(`
     FOREIGN KEY (parent_conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS bots (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    icon_seed TEXT NOT NULL,
+    personality TEXT,
+    working_folder TEXT,
+    model TEXT NOT NULL,
+    reasoning_effort TEXT,
+    context_size INTEGER,
+    activation_period_minutes INTEGER NOT NULL DEFAULT 10,
+    activation_mode TEXT NOT NULL DEFAULT 'static',
+    max_activations INTEGER NOT NULL DEFAULT 10,
+    activation_window TEXT NOT NULL DEFAULT '{}',
+    instructions TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'active',
+    next_activation_at TEXT,
+    idle_until TEXT,
+    activation_count INTEGER NOT NULL DEFAULT 0,
+    rotation_index INTEGER NOT NULL DEFAULT 0,
+    active_assistant_message_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
@@ -480,6 +506,10 @@ if (db.prepare("PRAGMA table_info('messages')").all().find((column) => column.na
       ON messages(conversation_id, created_at);
     COMMIT;
   `);
+}
+const botColumns = db.prepare("PRAGMA table_info('bots')").all();
+if (!botColumns.some((column) => column.name === 'active_assistant_message_id')) {
+  db.exec('ALTER TABLE bots ADD COLUMN active_assistant_message_id TEXT');
 }
 const conversationColumns = db.prepare("PRAGMA table_info('conversations')").all();
 db.exec(`
@@ -656,6 +686,7 @@ const statements = {
     )
   `),
   setConversationTags: db.prepare('UPDATE conversations SET tags = ? WHERE id = ?'),
+  updateConversationProject: db.prepare('UPDATE conversations SET project_path = ?, updated_at = ? WHERE id = ?'),
   listConversationsWithTags: db.prepare("SELECT id, tags FROM conversations WHERE tags != '[]'"),
   updateConversation: db.prepare(`
     UPDATE conversations
@@ -840,6 +871,65 @@ const statements = {
     UPDATE conversations SET archived_at = NULL WHERE id IN descendants
   `),
   deleteConversation: db.prepare('UPDATE conversations SET deleted_at = ?, updated_at = ? WHERE id = ?'),
+  deleteConversationMessages: db.prepare(`
+    DELETE FROM messages
+    WHERE conversation_id = ?
+  `),
+  insertBot: db.prepare(`
+    INSERT INTO bots (
+      id, conversation_id, name, icon_seed, personality, working_folder, model,
+      reasoning_effort, context_size, activation_period_minutes, activation_mode,
+      max_activations, activation_window, instructions, status, next_activation_at,
+      idle_until, activation_count, rotation_index, active_assistant_message_id,
+      created_at, updated_at
+    )
+    VALUES (
+      @id, @conversationId, @name, @iconSeed, @personality, @workingFolder, @model,
+      @reasoningEffort, @contextSize, @activationPeriodMinutes, @activationMode,
+      @maxActivations, @activationWindow, @instructions, @status, @nextActivationAt,
+      @idleUntil, @activationCount, @rotationIndex, @activeAssistantMessageId,
+      @createdAt, @updatedAt
+    )
+  `),
+  updateBot: db.prepare(`
+    UPDATE bots
+    SET name = COALESCE(@name, name),
+        icon_seed = COALESCE(@iconSeed, icon_seed),
+        personality = CASE WHEN @personalityChanged = 1 THEN @personality ELSE personality END,
+        working_folder = CASE WHEN @workingFolderChanged = 1 THEN @workingFolder ELSE working_folder END,
+        model = COALESCE(@model, model),
+        reasoning_effort = CASE WHEN @reasoningEffortChanged = 1 THEN @reasoningEffort ELSE reasoning_effort END,
+        context_size = CASE WHEN @contextSizeChanged = 1 THEN @contextSize ELSE context_size END,
+        activation_period_minutes = COALESCE(@activationPeriodMinutes, activation_period_minutes),
+        activation_mode = COALESCE(@activationMode, activation_mode),
+        max_activations = COALESCE(@maxActivations, max_activations),
+        activation_window = COALESCE(@activationWindow, activation_window),
+        instructions = COALESCE(@instructions, instructions),
+        status = COALESCE(@status, status),
+        updated_at = @updatedAt
+    WHERE id = @id
+  `),
+  updateBotScheduler: db.prepare(`
+    UPDATE bots
+    SET status = COALESCE(@status, status),
+        next_activation_at = COALESCE(@nextActivationAt, next_activation_at),
+        idle_until = CASE
+          WHEN @idleUntilChanged = 1 THEN @idleUntil
+          ELSE idle_until
+        END,
+        activation_count = COALESCE(@activationCount, activation_count),
+        rotation_index = COALESCE(@rotationIndex, rotation_index),
+        active_assistant_message_id = CASE
+          WHEN @activeAssistantMessageIdChanged = 1 THEN @activeAssistantMessageId
+          ELSE active_assistant_message_id
+        END,
+        updated_at = @updatedAt
+    WHERE id = @id
+  `),
+  getBot: db.prepare('SELECT * FROM bots WHERE id = ?'),
+  getBotByConversation: db.prepare('SELECT * FROM bots WHERE conversation_id = ?'),
+  listBots: db.prepare('SELECT * FROM bots ORDER BY created_at ASC'),
+  deleteBot: db.prepare('DELETE FROM bots WHERE id = ?'),
   hardDeleteConversation: db.prepare('DELETE FROM conversations WHERE id = ?'),
   hardDeleteChildConversations: db.prepare(`
     DELETE FROM conversations
@@ -1430,6 +1520,11 @@ export function setConversationTags(id, tags) {
   return getConversation(id);
 }
 
+export function updateConversationProject(id, projectPath) {
+  statements.updateConversationProject.run(resolve(projectPath), timestamp(), id);
+  return getConversation(id);
+}
+
 export function listConversations() {
   return statements.listConversations.all().map(mapConversation);
 }
@@ -1466,6 +1561,174 @@ export function listSideChats(parentConversationId) {
 
 export function listSubagents(parentConversationId) {
   return statements.listSubagents.all(parentConversationId).map(mapConversation);
+}
+
+export function clearConversationMessages(conversationId) {
+  statements.deleteConversationMessages.run(conversationId);
+  updateConversation(conversationId, {
+    contextCheckpoint: '',
+    checkpointMessageId: null,
+    contextTokens: 0,
+  });
+  return getConversation(conversationId);
+}
+
+const botActivationModes = Object.freeze(['static', 'smart']);
+
+function normalizeActivationWindow(window) {
+  const source = typeof window === 'string' ? parse(window, {}) : (window ?? {});
+  const days = [...new Set((Array.isArray(source.days) ? source.days : [])
+    .map((day) => Number(day))
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))]
+    .sort((left, right) => left - right);
+  const normalizeMinute = (minute) => {
+    const value = Number(minute);
+    return Number.isInteger(value) && value >= 0 && value < 1440 ? value : null;
+  };
+  const startMinute = normalizeMinute(source.startMinute);
+  const endMinute = normalizeMinute(source.endMinute);
+  return {
+    days,
+    ...(startMinute !== null ? { startMinute } : {}),
+    ...(endMinute !== null ? { endMinute } : {}),
+  };
+}
+
+function mapBot(row) {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    name: row.name,
+    iconSeed: row.icon_seed,
+    personality: row.personality || null,
+    workingFolder: row.working_folder || null,
+    model: row.model,
+    reasoningEffort: row.reasoning_effort || null,
+    contextSize: row.context_size === null ? null : (Number(row.context_size) || 0),
+    activationPeriodMinutes: Math.max(1, Number(row.activation_period_minutes) || 10),
+    activationMode: botActivationModes.includes(row.activation_mode) ? row.activation_mode : 'static',
+    maxActivations: Math.max(0, Number(row.max_activations) || 0),
+    activationWindow: normalizeActivationWindow(row.activation_window),
+    instructions: row.instructions || '',
+    status: ['active', 'sleeping', 'paused'].includes(row.status) ? row.status : 'active',
+    nextActivationAt: row.next_activation_at || null,
+    idleUntil: row.idle_until || null,
+    activationCount: Math.max(0, Number(row.activation_count) || 0),
+    rotationIndex: Math.max(0, Number(row.rotation_index) || 0),
+    activeAssistantMessageId: row.active_assistant_message_id || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function createBot({
+  conversationId,
+  name,
+  iconSeed,
+  personality = null,
+  workingFolder = null,
+  model,
+  reasoningEffort = null,
+  contextSize = null,
+  activationPeriodMinutes = 10,
+  activationMode = 'static',
+  maxActivations = 10,
+  activationWindow = {},
+  instructions = '',
+  status = 'active',
+  nextActivationAt = null,
+}) {
+  const now = timestamp();
+  statements.insertBot.run({
+    id: crypto.randomUUID(),
+    conversationId,
+    name,
+    iconSeed,
+    personality,
+    workingFolder,
+    model,
+    reasoningEffort,
+    contextSize,
+    activationPeriodMinutes: Math.max(1, Number(activationPeriodMinutes) || 10),
+    activationMode: botActivationModes.includes(activationMode) ? activationMode : 'static',
+    maxActivations: Math.max(0, Number(maxActivations) || 0),
+    activationWindow: stringify(normalizeActivationWindow(activationWindow)),
+    instructions: String(instructions ?? ''),
+    status: ['active', 'sleeping', 'paused'].includes(status) ? status : 'active',
+    nextActivationAt,
+    idleUntil: null,
+    activationCount: 0,
+    rotationIndex: 0,
+    activeAssistantMessageId: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return getBotByConversation(conversationId);
+}
+
+export function updateBot(id, changes = {}) {
+  const changed = (key) => (Object.prototype.hasOwnProperty.call(changes, key) ? 1 : 0);
+  statements.updateBot.run({
+    id,
+    name: changes.name ?? null,
+    iconSeed: changes.iconSeed ?? null,
+    personality: changes.personality ?? null,
+    personalityChanged: changed('personality'),
+    workingFolder: changes.workingFolder ?? null,
+    workingFolderChanged: changed('workingFolder'),
+    model: changes.model ?? null,
+    reasoningEffort: changes.reasoningEffort ?? null,
+    reasoningEffortChanged: changed('reasoningEffort'),
+    contextSize: changes.contextSize ?? null,
+    contextSizeChanged: changed('contextSize'),
+    activationPeriodMinutes: changes.activationPeriodMinutes ?? null,
+    activationMode: changes.activationMode ?? null,
+    maxActivations: changes.maxActivations ?? null,
+    activationWindow: changes.activationWindow === undefined
+      ? null
+      : stringify(normalizeActivationWindow(changes.activationWindow)),
+    instructions: changes.instructions ?? null,
+    status: changes.status ?? null,
+    updatedAt: timestamp(),
+  });
+  return getBot(id);
+}
+
+export function updateBotScheduler(id, changes = {}) {
+  statements.updateBotScheduler.run({
+    id,
+    status: changes.status ?? null,
+    nextActivationAt: changes.nextActivationAt ?? null,
+    idleUntil: changes.idleUntil === 'clear' ? null : (changes.idleUntil ?? null),
+    idleUntilChanged: Object.prototype.hasOwnProperty.call(changes, 'idleUntil') ? 1 : 0,
+    activationCount: changes.activationCount ?? null,
+    rotationIndex: changes.rotationIndex ?? null,
+    activeAssistantMessageId: changes.activeAssistantMessageId ?? null,
+    activeAssistantMessageIdChanged: Object.prototype.hasOwnProperty.call(
+      changes,
+      'activeAssistantMessageId',
+    ) ? 1 : 0,
+    updatedAt: timestamp(),
+  });
+  return getBot(id);
+}
+
+export function getBot(id) {
+  const row = statements.getBot.get(id);
+  return row ? mapBot(row) : null;
+}
+
+export function getBotByConversation(conversationId) {
+  const row = statements.getBotByConversation.get(conversationId);
+  return row ? mapBot(row) : null;
+}
+
+export function listBots() {
+  return statements.listBots.all().map(mapBot);
+}
+
+export function deleteBot(id) {
+  statements.deleteBot.run(id);
 }
 
 export function getConversation(id) {
@@ -2306,6 +2569,7 @@ function mapConversation(row) {
     conversationType: row.conversation_type,
     isSideChat: row.conversation_type === 'side',
     isSubagent: row.conversation_type === 'subagent',
+    isBot: row.conversation_type === 'bot',
     createdBy: row.created_by === 'agent' ? 'agent' : 'user',
     parentConversationId: row.parent_conversation_id || null,
     initialPrompt: row.initial_prompt || null,
