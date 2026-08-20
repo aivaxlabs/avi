@@ -820,6 +820,7 @@ export const CLIENT_TOOLS = Object.freeze([
       const conversation = createConversation({
         model: selectedModel.id,
         projectPath,
+        createdBy: 'agent',
       });
       let message = null;
       let response = null;

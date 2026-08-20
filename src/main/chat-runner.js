@@ -255,6 +255,7 @@ export class ChatRunner {
     this.pendingQuestions = new Map();
     this.approvedToolPatterns = new Set();
     this.continuationGenerations = new Map();
+    this.pendingCompletionNotifications = new Map();
     this.semaphores = new SemaphoreManager({
       onChanged: (waits) => {
         this.sendEvent({ type: 'semaphore-state', waits });
@@ -2003,6 +2004,7 @@ export class ChatRunner {
           status: 'streaming',
           content: '',
         });
+    this.pendingCompletionNotifications.delete(conversationId);
     const run = {
       controller,
       queue,
@@ -3179,6 +3181,16 @@ export class ChatRunner {
     });
   }
 
+  notifyCompletedThread(conversationId, message = null) {
+    const conversation = getConversation(conversationId);
+    if (conversation?.conversationType !== 'thread' || conversation.createdBy !== 'user') return;
+    if (message) this.pendingCompletionNotifications.set(conversationId, { conversation, message });
+    const notification = this.pendingCompletionNotifications.get(conversationId);
+    if (!notification || this.runs.has(conversationId) || this.hasActiveSubagents(conversationId)) return;
+    this.pendingCompletionNotifications.delete(conversationId);
+    this.sendCompletionNotification?.(notification);
+  }
+
   async generateContinuations(conversationId) {
     if (this.getPreferences().tuning?.continuationRepliesEnabled === false) return;
     const conversation = getConversation(conversationId);
@@ -3383,16 +3395,17 @@ export class ChatRunner {
           semaphores: releasedHoldings.map(({ name, count }) => ({ name, count })),
         });
       }
+      const conversation = getConversation(conversationId);
       if (current?.completedAssistantMessage) {
-        this.sendCompletionNotification?.({
-          conversation: getConversation(conversationId),
-          message: current.completedAssistantMessage,
-        });
+        this.notifyCompletedThread(conversationId, current.completedAssistantMessage);
       }
       this.emit(conversationId, { type: 'run-state', running: false });
       void this.generateContinuations(conversationId);
-      const parentConversationId = getConversation(conversationId)?.parentConversationId;
-      if (parentConversationId) void this.generateContinuations(parentConversationId);
+      const parentConversationId = conversation?.parentConversationId;
+      if (parentConversationId) {
+        this.notifyCompletedThread(parentConversationId);
+        void this.generateContinuations(parentConversationId);
+      }
       return;
     }
 

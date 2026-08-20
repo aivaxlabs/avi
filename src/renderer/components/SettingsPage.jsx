@@ -1782,7 +1782,7 @@ export function SettingsPage({
                     <label className="settings-toggle-row">
                       <span>
                         <strong>Notify when a conversation finishes</strong>
-                        <small>Show the task title and the assistant’s final message as a system notification.</small>
+                        <small>Notify after a user-created main thread finishes with no sub-agents still running.</small>
                       </span>
                       <input
                         className="appearance-desktop-switch"

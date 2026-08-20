@@ -1,3 +1,4 @@
+import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import {
   app,
   BrowserWindow,
@@ -576,9 +577,24 @@ function initializeServices() {
       sendCompletionNotification: ({ conversation, message }) => {
         if (!getPreferences().desktop?.notifyOnCompletion || !Notification.isSupported()) return;
         try {
+          const body = answerTextFromTextualBlocks(message.content)
+            .replace(/```+[^\n`]*/g, '')
+            .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+            .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+            .replace(/\*\*([^*]+)\*\*/g, '$1')
+            .replace(/__([^_]+)__/g, '$1')
+            .replace(/^#{1,6}\s+/gm, '')
+            .replace(/^\s*([-*_]\s*){3,}$/gm, '')
+            .replace(/^>\s?/gm, '')
+            .replace(/^\s*[-*+]\s+/gm, '')
+            .replace(/^\s*\d+[.)]\s+/gm, '')
+            .replace(/\*([^*\n]+)\*/g, '$1')
+            .replace(/`([^`]+)`/g, '$1')
+            .replace(/\s+/g, ' ')
+            .trim();
           new Notification({
             title: conversation?.title || 'Avi',
-            body: message.content,
+            body: body || 'Response completed.',
           }).show();
         } catch (error) {
           traceError('desktop.completion-notification-error', {

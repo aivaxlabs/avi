@@ -41,6 +41,7 @@ try {
   };
   const events = [];
   const auxiliaryCalls = [];
+  const completionNotifications = [];
   let continuationRepliesEnabled = true;
   let holdNextConversationResponse = false;
   let releaseConversationResponse;
@@ -92,6 +93,7 @@ try {
       tuning: { continuationRepliesEnabled },
     }),
     sendEvent: (event) => events.push(event),
+    sendCompletionNotification: (notification) => completionNotifications.push(notification),
   });
 
   async function waitFor(predicate) {
@@ -127,6 +129,10 @@ try {
     'What remains unverified?',
   ]);
   assert.equal(auxiliaryCalls.length, 1);
+  assert.deepEqual(
+    completionNotifications.map(({ conversation: item }) => item.id),
+    [conversation.id],
+  );
   assert.equal(auxiliaryCalls[0].invocationContext.auxiliary, true);
   assert.deepEqual(auxiliaryCalls[0].tools, []);
   const continuationPrompt = auxiliaryCalls[0].messages
@@ -161,6 +167,10 @@ try {
   await waitFor(() => !runner.runs.has(disabledConversation.id));
   assert.equal(auxiliaryCalls.length, 1);
   assert.deepEqual(
+    completionNotifications.map(({ conversation: item }) => item.id),
+    [conversation.id, disabledConversation.id],
+  );
+  assert.deepEqual(
     getMessages(disabledConversation.id)
       .findLast((message) => message.role === 'assistant')
       .continuations,
@@ -181,6 +191,10 @@ try {
   );
   releaseConversationResponse();
   await waitFor(() => !runner.runs.has(conversation.id));
+  assert.deepEqual(
+    completionNotifications.map(({ conversation: item }) => item.id),
+    [conversation.id, disabledConversation.id, conversation.id],
+  );
 
   const parent = createConversation({
     title: 'Parent continuation test',
@@ -221,8 +235,71 @@ try {
   await waitFor(() => getMessages(parent.id).find(
     (message) => message.id === parentAssistant.id,
   ).continuations.length > 0);
+  assert.deepEqual(
+    completionNotifications.map(({ conversation: item }) => item.id),
+    [conversation.id, disabledConversation.id, conversation.id],
+    'sub-agent threads must not send completion notifications',
+  );
 
-  console.log('Continuation generation tests passed.');
+  const agentConversation = createConversation({
+    title: 'Agent-created thread',
+    titleStatus: 'generated',
+    model: model.id,
+    projectPath: process.cwd(),
+    createdBy: 'agent',
+  });
+  await runner.send({
+    conversationId: agentConversation.id,
+    model: model.id,
+    text: 'Complete this agent-created thread.',
+    attachments: [],
+  });
+  await waitFor(() => !runner.runs.has(agentConversation.id));
+  assert.equal(
+    completionNotifications.some(({ conversation: item }) => item.id === agentConversation.id),
+    false,
+    'agent-created threads must not send completion notifications',
+  );
+
+  const activeParent = createConversation({
+    title: 'Parent with active sub-agent',
+    titleStatus: 'generated',
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  const activeChild = forkConversation(activeParent.id, {
+    subagent: true,
+    subagentPrompt: 'Keep working while the parent responds.',
+  }).conversation;
+  holdNextConversationResponse = true;
+  await runner.send({
+    conversationId: activeChild.id,
+    model: model.id,
+    text: 'Keep working while the parent responds.',
+    attachments: [],
+  });
+  await runner.send({
+    conversationId: activeParent.id,
+    model: model.id,
+    text: 'Finish this response before the sub-agent.',
+    attachments: [],
+  });
+  await waitFor(() => !runner.runs.has(activeParent.id));
+  assert.equal(
+    completionNotifications.some(({ conversation: item }) => item.id === activeParent.id),
+    false,
+    'a user-created thread must not notify while a sub-agent is active',
+  );
+
+  releaseConversationResponse();
+  await waitFor(() => !runner.runs.has(activeChild.id));
+  assert.equal(
+    completionNotifications.filter(({ conversation: item }) => item.id === activeParent.id).length,
+    1,
+    'a deferred user-created thread notification must be sent after its sub-agents stop',
+  );
+
+  console.log('Continuation and completion notification tests passed.');
   await runner.shutdown();
   closeDatabase();
 } finally {

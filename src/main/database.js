@@ -298,6 +298,7 @@ db.exec(`
     project_path TEXT,
     git_branch TEXT,
     conversation_type TEXT NOT NULL DEFAULT 'thread',
+    created_by TEXT NOT NULL DEFAULT 'user',
     parent_conversation_id TEXT,
     initial_prompt TEXT,
     orchestration_mode TEXT,
@@ -552,6 +553,9 @@ if (!conversationColumns.some((column) => column.name === 'archived_at')) {
 if (!conversationColumns.some((column) => column.name === 'tags')) {
   db.exec("ALTER TABLE conversations ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
 }
+if (!conversationColumns.some((column) => column.name === 'created_by')) {
+  db.exec("ALTER TABLE conversations ADD COLUMN created_by TEXT NOT NULL DEFAULT 'user'");
+}
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_conversations_parent
     ON conversations(parent_conversation_id, conversation_type, created_at);
@@ -640,13 +644,13 @@ const statements = {
   insertConversation: db.prepare(`
     INSERT INTO conversations (
       id, title, model, title_status, project_path, git_branch,
-      conversation_type, parent_conversation_id, initial_prompt, orchestration_mode,
+      conversation_type, created_by, parent_conversation_id, initial_prompt, orchestration_mode,
       auto_forward_to_parent,
       context_checkpoint, checkpoint_message_id, context_tokens, tags, created_at, updated_at
     )
     VALUES (
       @id, @title, @model, @titleStatus, @projectPath, @gitBranch,
-      @conversationType, @parentConversationId, @initialPrompt, @orchestrationMode,
+      @conversationType, @createdBy, @parentConversationId, @initialPrompt, @orchestrationMode,
       @autoForwardToParent,
       @contextCheckpoint, @checkpointMessageId, @contextTokens, @tags, @createdAt, @updatedAt
     )
@@ -1336,6 +1340,7 @@ export function createConversation({
   projectPath = homedir(),
   gitBranch = null,
   conversationType = 'thread',
+  createdBy = 'user',
   parentConversationId = null,
   initialPrompt = null,
   orchestrationMode = null,
@@ -1351,6 +1356,7 @@ export function createConversation({
     projectPath: resolve(projectPath),
     gitBranch,
     conversationType,
+    createdBy: ['user', 'agent'].includes(createdBy) ? createdBy : 'user',
     parentConversationId,
     initialPrompt,
     orchestrationMode: ['plan', 'ultra'].includes(orchestrationMode) ? orchestrationMode : null,
@@ -2300,6 +2306,7 @@ function mapConversation(row) {
     conversationType: row.conversation_type,
     isSideChat: row.conversation_type === 'side',
     isSubagent: row.conversation_type === 'subagent',
+    createdBy: row.created_by === 'agent' ? 'agent' : 'user',
     parentConversationId: row.parent_conversation_id || null,
     initialPrompt: row.initial_prompt || null,
     orchestrationMode: ['plan', 'ultra'].includes(row.orchestration_mode) ? row.orchestration_mode : null,
