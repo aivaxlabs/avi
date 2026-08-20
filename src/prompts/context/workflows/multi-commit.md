@@ -1,85 +1,54 @@
 ---
 name: multi-commit
-description: Use when the user asks to organize current workspace changes into multiple coherent local commits autonomously, with exact staging, proportionate validation, and Conventional Commit messages in English.
+description: Use when the user asks to organize current workspace changes into multiple coherent local commits autonomously, grouping by intent and writing Conventional Commit messages in English. Stage and commit directly; this is not a review.
 ---
 # Multiple semantic commits
 
-Inspect the current worktree, choose the most coherent commit split, and create the local commits without making the user manage the process.
+Inspect the worktree once, choose the most coherent commit split, and create the local commits. This workflow stages and commits; it does not review, validate, or re-inspect the changes.
 
 ## Autonomy contract
 
-- Invoking this workflow authorizes inspecting all current changes, reorganizing the Git index as needed, staging exact files or hunks, and creating the resulting local commits.
-- Do not ask the user to approve the plan, number of commits, grouping, order, scopes, messages, staging, or each individual commit.
-- Resolve routine uncertainty by inspecting the diff, surrounding code, repository conventions, tests, and dependencies.
-- Ask a focused question only when a material ambiguity remains after inspection and choosing incorrectly could mix unrelated ownership, expose sensitive data, lose work, or produce a meaningfully wrong history.
-- Do not push, create a branch, merge, rebase, amend, or rewrite existing commits unless separately requested.
-- Never discard working-tree content. Preserve all changes, including pre-existing staged changes, while reorganizing them into the appropriate commits.
-- If the worktree has no committable changes, report that and stop without creating an empty commit.
+- Invoking this workflow authorizes staging the current changes and creating the resulting local commits.
+- Do not ask the user to approve the plan, number of commits, grouping, order, messages, staging, or individual commits.
+- Resolve routine uncertainty by inspecting the diff and the surrounding code.
+- Ask a focused question only when a material ambiguity remains after inspection and choosing incorrectly could mix unrelated ownership, expose sensitive data, or lose work.
+- Do not push, branch, merge, rebase, amend, or rewrite existing commits unless separately requested.
+- Never discard working-tree content; fold pre-existing staged changes into the appropriate commit.
+- Never stage `.env`, `.env.*`, `appservice.ini`, credentials, or secrets. Leave them out and mention it in the report.
+- If the worktree has no committable changes, report that and stop.
 
 ## Procedure
 
-### 1. Understand the complete change set
+1. Inspect once, in a single batched call:
 
-Inspect at least:
+   ```text
+   git status --short && git diff --stat && git diff --cached --stat
+   ```
 
-```text
-git status --short
-git diff --stat
-git diff
-git diff --cached --stat
-git diff --cached
-```
+   Read the full `git diff` or untracked file contents only when the stat output is not enough to decide grouping or a message.
 
-Inspect untracked files deliberately. Read relevant surrounding code, tests, manifests, and project instructions when the diff alone does not explain intent.
+2. Group by intent. One commit per user-facing or technical intention; keep tightly coupled implementation, tests, and docs together. Avoid micro-commits; avoid mixing unrelated fixes. Prefer grouping a file with its dominant concern over hunk-level index surgery.
 
-Determine:
+3. Commit each group in a single chained call:
 
-- the distinct user-facing or technical intentions;
-- implementation, tests, documentation, and configuration that belong together;
-- dependency order between groups;
-- mixed files that require hunk-level separation;
-- generated artifacts, secrets, or unrelated changes that must not enter a commit.
+   ```text
+   git add <paths> && git commit -m "<type>(<scope>): <subject>"
+   ```
 
-### 2. Choose the split autonomously
+   English Conventional Commit messages following the repository's existing style. Do not re-inspect the index, run builds, tests, or linters, or pause between commits. If the user asked for validation, run it once at the end, not per commit.
 
-Create the smallest useful set of cohesive commits. Each commit should represent one understandable intention and, when practical, leave the repository in a valid state.
+4. Finish with one batched check:
 
-Do not split tightly coupled implementation and tests. Do not create tiny commits merely because files differ. Do not combine unrelated fixes merely because they are in the same file.
+   ```text
+   git log --oneline -n <created-count> && git status --short
+   ```
 
-Choose English Conventional Commit messages using the repository's existing style. Use a scope only when it improves clarity.
+## Execution budget
 
-### 3. Validate and commit
-
-Reorganize the index non-destructively when necessary, then process groups in dependency order:
-
-1. Run the narrowest useful validation for the group or the integrated worktree.
-2. Stage exactly the intended files or hunks.
-3. Inspect `git diff --cached --stat` and `git diff --cached`.
-4. Correct the index yourself if it contains content from another group.
-5. Create the commit.
-6. Verify the remaining worktree and continue immediately with the next group.
-
-Do not pause for confirmation between these steps or commits.
-
-If a validation fails, determine whether the failure was caused by the current changes. Fix it when that is within the requested work; otherwise preserve the changes, avoid making a knowingly invalid commit when material, and report the concrete blocker.
-
-### 4. Verify the result
-
-Run:
-
-```text
-git log --oneline -n <created-count>
-git status --short
-```
-
-Confirm that every intended change was committed once, no content was lost, no unrelated content entered a commit, and any remaining worktree changes are understood.
+Expect roughly 1 inspection call, N commit calls, and 1 final check for N commits. If the run needs materially more calls, simplify the split instead of adding steps.
 
 ## Completion report
 
-Report concisely:
-
 - each created hash and message;
-- the intent covered by each commit;
-- validation run and its result;
-- any remaining changes or blocker;
+- any left-over changes and why;
 - confirmation that nothing was pushed.

@@ -41,6 +41,8 @@ A resumed thread receives an internal user message explaining whether permits we
 
 Semaphore owners and wait queues persist in SQLite across Avi restarts. Archiving or deleting a thread removes its waits and owned permits so queued agents cannot remain blocked by a missing thread.
 
+**Settings → Maintenance → Semaphores** lists every semaphore with its holders, held permit counts, and FIFO wait queue. **Reset permits** asks for confirmation, releases all held permits at once, and lets waiting threads acquire permits according to the FIFO queue. Use it to unblock a queue when holders are stuck, for example after a crashed or interrupted run.
+
 ## Plan and Ultra teams
 
 In Plan mode, the entire team remains read-only and conversation tools are restricted to the current Plan orchestration team. In Ultra mode, sub-agents receive a specialist contract, while the orchestrator remains responsible for independent critique, correction, fresh validation, and the integrated final result.

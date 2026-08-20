@@ -12,7 +12,7 @@ Available values are 7, 30, or Never for automatic archiving; 30, 60, or Never f
 
 ## Archive operations
 
-Open **Settings → Archive** to:
+Open **Settings → Maintenance → Archive** to:
 
 - search archived conversations by title or first prompt;
 - restore a thread;
@@ -23,6 +23,8 @@ Open **Settings → Archive** to:
 - run **Delete temporary storage**.
 
 Permanent deletion requires confirmation, includes child conversations, and cannot be undone. Archiving or restoring a parent thread includes its persisted side chats and sub-agents.
+
+The **Maintenance** settings page also contains a **Semaphores** tab for inspecting and resetting agent semaphores; see [Sub-agents](Sub-agents.md).
 
 ## Maintenance
 

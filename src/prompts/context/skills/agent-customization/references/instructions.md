@@ -4,13 +4,18 @@ Avi discovers Markdown instruction files in the user-global `.agents` directory 
 
 ## Recommended convention
 
-Use `AGENTS.md` for all new instruction files:
+Use `AGENTS.md` for general instruction files. Use `BOTS.md` only for guidance that must apply exclusively to bot threads:
 
 ```text
 $HOME/.agents/AGENTS.md            # Personal rules across projects
 $PWD/AGENTS.md                     # Project-wide rules
 $PWD/src/feature/AGENTS.md         # Rules for one subtree
+$HOME/.agents/BOTS.md              # Personal rules for bots only
+$PWD/BOTS.md                       # Project rules for bots only
+$PWD/src/feature/BOTS.md           # Bot-only rules for one subtree
 ```
+
+`BOTS.md` uses the same root and nested scope behavior as `AGENTS.md`, but Avi only adds its body or catalog entry to bot-thread prompts. Ordinary threads, side chats, sub-agents, and Quick Chat cannot see it. Settings → Context can still list the file so the user can administer it.
 
 Avi also recognizes the following names case-insensitively for compatibility:
 
@@ -32,7 +37,7 @@ These compatibility names do not gain VS Code or other editor semantics. In part
 - Directory hierarchy communicates intended scope to the agent: a deeper instruction file should refine or override broader guidance for its descendants. The Avi loader catalogs nested files but does not itself evaluate directory applicability or merge their bodies.
 - Ordinary Markdown files are not instructions merely because they contain imperative text.
 
-For predictable behavior, keep project-wide guidance in `$PWD/AGENTS.md` and place specialized guidance in the relevant subdirectory's `AGENTS.md`.
+For predictable behavior, keep project-wide general guidance in `$PWD/AGENTS.md`, bot-only guidance in `$PWD/BOTS.md`, and place specialized guidance in the relevant subdirectory's matching file.
 
 ## Descriptions for nested files
 

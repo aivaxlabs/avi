@@ -12,7 +12,7 @@ Folder menus can open the project or terminal, copy the path, open context manag
 
 The center area displays messages, reasoning, and tool traces when **Chat reasoning traces** is set to **Visible**. File, image, audio, and PDF support depends on the capabilities declared by the selected model.
 
-The built-in `get_chat_attachments` tool returns local paths for images, audio, and videos attached by the user in the current chat. When an attachment exists only in the model inference payload, Avi first materializes it under managed temporary storage. The returned `temporary` and `materialized` fields identify temporary files and copies created by the current call. Temporary copies can be removed from **Settings → Archive → Delete temporary storage**.
+The built-in `get_chat_attachments` tool returns local paths for images, audio, and videos attached by the user in the current chat. When an attachment exists only in the model inference payload, Avi first materializes it under managed temporary storage. The returned `temporary` and `materialized` fields identify temporary files and copies created by the current call. Temporary copies can be removed from **Settings → Maintenance → Archive → Delete temporary storage**.
 
 Message actions may retry or resume a response, fork from a point in history, undo recorded file edits, open `<fileref path="./path" />` references, or implement a completed Plan.
 
@@ -68,6 +68,6 @@ The **Orchestration** page is an observability surface, not an execution mode. I
 
 ## Settings
 
-Settings contains General, Tuning, Personalization, Providers, Default models, Context, MCP servers, AIVAX Features, Archive, Remote control, and About Avi.
+Settings contains General, Tuning, Personalization, Providers, Default models, Context, MCP servers, AIVAX Features, Maintenance, Remote control, and About Avi. Maintenance groups archived-conversation management and temporary-storage cleanup with the Semaphores inspector.
 
 See [Sub-agents](Sub-agents.md), [Side and quick chats](Side%20and%20quick%20chats.md), and [Advanced settings](Advanced%20settings.md).

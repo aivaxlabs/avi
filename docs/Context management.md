@@ -18,15 +18,15 @@ Plan, Goal, Ultra, and sub-agents are runtime features, not context file types. 
 - Global user context: `$HOME/.agents`;
 - Workspace context: `$PWD` and supported nested `.agents` directories.
 
-Use `AGENTS.md` for instructions, `.agents/workflows/*.md` for workflows, `.agents/skills/<name>/SKILL.md` for skills, and `.agents/mcpconfig.json` for global or exact-folder MCP configuration.
+Use `AGENTS.md` for instructions shared by every full chat, `BOTS.md` for instructions exclusive to bot threads, `.agents/workflows/*.md` for workflows, `.agents/skills/<name>/SKILL.md` for skills, and `.agents/mcpconfig.json` for global or exact-folder MCP configuration.
 
 Runtime authority is ordered as: Avi system/runtime instructions, the direct user request, applicable project instructions, then repository conventions. Dynamic prompt roots are assembled installation → global → workspace. For duplicate skill or workflow command names, command lookup gives workspace precedence over global, installation, and registered plugin context.
 
 ## Instructions
 
-Avi recommends `AGENTS.md` and also recognizes compatible AGENTS/MEMORY variants, `CLAUDE.md`, `GEMINI.md`, `*.instructions.md`, and `*.agents.md`.
+Avi recommends `AGENTS.md` for general instructions and also recognizes compatible AGENTS/MEMORY variants, `CLAUDE.md`, `GEMINI.md`, `*.instructions.md`, and `*.agents.md`. `BOTS.md` follows the same root and nested discovery rules, but is only included in bot-thread context. Its body, path, and description are excluded from ordinary threads, side chats, sub-agents, and Quick Chat.
 
-Root instructions are injected by default. `embeddable: false` keeps a root instruction in the catalog without injecting its body. Nested instructions appear by path and description and must be read by the agent when relevant.
+Root instructions are injected by default. `embeddable: false` keeps a root instruction in the catalog without injecting its body. Nested instructions appear by path and description and must be read by the agent when relevant. Context management can list `BOTS.md` for administration even though normal conversation prompts cannot see it.
 
 Avi does not implement `applyTo` matching or automatic semantic merging of nested instructions.
 

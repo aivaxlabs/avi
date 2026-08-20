@@ -135,6 +135,16 @@ function menuItemByText(text, menuSel) {
   hover(q('.conversation-main', item));
   await wait_for(() => q('.conversation-tooltip'), 1500, 'tooltip on hover');
   check('tooltip appears on hover', Boolean(q('.conversation-tooltip')));
+
+  window.__harness.updateConversation();
+  await wait_for(() => q('.conversation-title', item)?.textContent === 'Correção do bug atualizada', 1500,
+    'conversation rerender');
+  check('tooltip survives conversation rerender', Boolean(q('.conversation-tooltip')));
+
+  q('.chat-scroll').dispatchEvent(new Event('scroll'));
+  await sleep(150);
+  check('tooltip survives external chat scroll', Boolean(q('.conversation-tooltip')));
+
   rightClick(item);
   await wait_for(() => q('.dropdown-menu.fixed'), 1500, 'context menu 2');
   await sleep(150);

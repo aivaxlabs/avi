@@ -22,6 +22,8 @@ Names increment as **Side chat 1**, **Side chat 2**, and so on. You cannot creat
 
 Side chats are private: ordinary and sub-agent threads cannot inspect, interrupt, or send prompts to them. Use a side chat to explore an alternative without adding it to the main thread, and copy any important conclusion before closing it.
 
+A side chat only explores and investigates: it does not implement changes or take actions. It may inspect the parent thread and its sub-agents, and it can direct the parent agent or a sub-agent only when explicitly asked to. Side-chat answers are meant to be quick, avoiding long tool chains and deep analyses.
+
 ## Quick Chat
 
 First select **Settings → Default models → Quick chat model**. There is no automatic model fallback.
@@ -29,6 +31,8 @@ First select **Settings → Default models → Quick chat model**. There is no a
 Open **Quick chat** from the Sidebar or tray. The window supports model switching, attachments and drag-and-drop, audio recording, stopping a response, and answering structured questions. Its conversation disappears when the window closes and is never added to Archive or conversation search.
 
 Quick Chat uses `$HOME` as the tool and MCP workspace. Although its instructions emphasize speed and restraint, all available normal tools, provider tools, and MCP tools run in Full access without approval dialogs. Ephemeral storage does not mean the session cannot cause external effects; review the requested work and configured integrations before using Quick Chat.
+
+Quick Chat only explores and investigates: it does not implement changes or take material actions. It can inspect threads across all folders, but it is not focused on any single thread, and it can direct main threads or their sub-agents only when explicitly asked to. Quick Chat answers are meant to be quick, avoiding long tool chains and deep analyses.
 
 Quick Chat can create ordinary threads or sub-agents and can keep Tasks or Goal state in memory. Session-only state does not survive closing the window.
 
