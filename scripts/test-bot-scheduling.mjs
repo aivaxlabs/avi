@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
-  ROTATION_FOCUS,
   decideActivation,
   describeActivationWindow,
   isWithinActivationWindow,
   nextActivationFrom,
   nextWindowOpening,
-  rotationFocusFor,
   smartIdleUntil,
 } from '../src/main/bot-scheduling.js';
 
@@ -73,13 +72,6 @@ assert.equal(
   new Date('2026-08-19T22:00:00').getTime(),
   'overnight window reopens at night',
 );
-
-// rotation
-assert.equal(rotationFocusFor(0).focus.id, 'find-work');
-assert.equal(rotationFocusFor(ROTATION_FOCUS.length).focus.id, 'find-work', 'rotation wraps');
-assert.equal(rotationFocusFor(2).focus.id, 'review-agent-work');
-assert.equal(rotationFocusFor(4).nextIndex, 0);
-assert.equal(rotationFocusFor('bogus').focus.id, 'find-work', 'invalid index falls back');
 
 // activation math
 assert.equal(nextActivationFrom(10, wednesday), wednesday + 10 * minute);
@@ -155,4 +147,18 @@ assert.equal(
 );
 assert.equal(describeActivationWindow({ startMinute: 540 }), 'every day, from 09:00');
 
-console.log('bot scheduling tests passed');
+const [preloadSource, runtimeSource] = await Promise.all([
+  readFile(new URL('../src/preload/preload.cjs', import.meta.url), 'utf8'),
+  readFile(new URL('../src/main/runtime.js', import.meta.url), 'utf8'),
+]);
+const preloadBotChannels = [...preloadSource.matchAll(/invoke\('(bots:[^']+)'/g)]
+  .map((match) => match[1]);
+assert.ok(preloadBotChannels.length > 0, 'preload must expose bot channels');
+for (const channel of preloadBotChannels) {
+  assert.ok(
+    runtimeSource.includes(`applicationIpc.handle('${channel}'`),
+    `runtime must register the ${channel} application handler`,
+  );
+}
+
+console.log('bot scheduling and IPC contract tests passed');

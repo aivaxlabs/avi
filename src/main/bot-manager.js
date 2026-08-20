@@ -21,7 +21,6 @@ import {
   decideActivation,
   describeActivationWindow,
   nextActivationFrom,
-  rotationFocusFor,
   smartIdleUntil,
 } from './bot-scheduling.js';
 import { traceError, traceInfo } from './trace-log.js';
@@ -66,19 +65,19 @@ export async function ensureBotFolders(bot) {
   return { workingFolder, workDataFolder };
 }
 
-function activationText(bot, { focus, activationNumber, queueCount, folders }) {
+function activationText(bot, { activationNumber, queueCount, folders }) {
   const maxLine = bot.maxActivations > 0
     ? ` of at most ${bot.maxActivations} before automatic sleep`
     : '';
   return [
-    `<bot-activation trigger="scheduler" focus="${focus.id}" at="${new Date().toISOString()}">`,
+    `<bot-activation trigger="scheduler" at="${new Date().toISOString()}">`,
     `Activation #${activationNumber}${maxLine}.`,
-    focus.instructions,
+    'Handle everything the user has specified. When nothing is explicitly specified, decide yourself what needs to be done based on the work files and do that work until nothing meaningful remains.',
     '',
     `Working folder: ${folders.workingFolder}`,
     `Work data folder: ${folders.workDataFolder}`,
     `Pending user approvals: ${queueCount} (see waiting-user-approval.json).`,
-    'Read the work files, select one obligation for this activation, and update its status before finishing. Leave every other item for a later activation unless the user explicitly requested multiple obligations now.',
+    'Read the work files first, keep statuses updated while you work, and finish by leaving the work files reflecting reality.',
     '</bot-activation>',
   ].join('\n');
 }
@@ -485,11 +484,9 @@ export class BotManager {
     this.activating.add(bot.id);
     try {
       const folders = await ensureBotFolders(bot);
-      const { focus, nextIndex } = rotationFocusFor(bot.rotationIndex);
       const queueCount = [...this.approvals.values()]
         .filter((entry) => entry.botId === bot.id).length;
       const text = activationText(bot, {
-        focus,
         activationNumber: bot.activationCount + 1,
         queueCount,
         folders,
@@ -507,14 +504,13 @@ export class BotManager {
       const sleeping = bot.maxActivations > 0 && activationCount >= bot.maxActivations;
       updateBotScheduler(bot.id, {
         activationCount,
-        rotationIndex: nextIndex,
         idleUntil: 'clear',
         nextActivationAt: new Date(
           nextActivationFrom(bot.activationPeriodMinutes, Date.now()),
         ).toISOString(),
         ...(sleeping ? { status: 'sleeping' } : {}),
       });
-      traceInfo('bots.activated', { bot_id: bot.id, trigger, focus: focus.id });
+      traceInfo('bots.activated', { bot_id: bot.id, trigger });
       this.broadcast('bots:updated');
       return true;
     } catch (error) {
@@ -541,7 +537,7 @@ export class BotManager {
     const tools = [
       {
         name: 'queue_user_approval',
-        description: 'Queue the selected work item when it needs explicit user approval before execution (implementations, behavior changes, or potentially destructive actions). Provide a short context explaining why it matters and the prompt to resume with once approved. After queuing it, record its status and finish the activation instead of starting another obligation.',
+        description: 'Queue a work item when it needs explicit user approval before execution (implementations, behavior changes, or potentially destructive actions). Provide a short context explaining why it matters and the prompt to resume with once approved. After queuing it, record its status and continue with the remaining work; the queued item resumes once approved.',
         approval: 'never',
         canEditFile: false,
         canPerformDestructiveActions: false,
