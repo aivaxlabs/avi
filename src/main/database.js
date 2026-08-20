@@ -335,7 +335,6 @@ db.exec(`
     next_activation_at TEXT,
     idle_until TEXT,
     activation_count INTEGER NOT NULL DEFAULT 0,
-    rotation_index INTEGER NOT NULL DEFAULT 0,
     active_assistant_message_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -880,14 +879,14 @@ const statements = {
       id, conversation_id, name, icon_seed, personality, working_folder, model,
       reasoning_effort, context_size, activation_period_minutes, activation_mode,
       max_activations, activation_window, instructions, status, next_activation_at,
-      idle_until, activation_count, rotation_index, active_assistant_message_id,
+      idle_until, activation_count, active_assistant_message_id,
       created_at, updated_at
     )
     VALUES (
       @id, @conversationId, @name, @iconSeed, @personality, @workingFolder, @model,
       @reasoningEffort, @contextSize, @activationPeriodMinutes, @activationMode,
       @maxActivations, @activationWindow, @instructions, @status, @nextActivationAt,
-      @idleUntil, @activationCount, @rotationIndex, @activeAssistantMessageId,
+      @idleUntil, @activationCount, @activeAssistantMessageId,
       @createdAt, @updatedAt
     )
   `),
@@ -918,7 +917,6 @@ const statements = {
           ELSE idle_until
         END,
         activation_count = COALESCE(@activationCount, activation_count),
-        rotation_index = COALESCE(@rotationIndex, rotation_index),
         active_assistant_message_id = CASE
           WHEN @activeAssistantMessageIdChanged = 1 THEN @activeAssistantMessageId
           ELSE active_assistant_message_id
@@ -1614,7 +1612,6 @@ function mapBot(row) {
     nextActivationAt: row.next_activation_at || null,
     idleUntil: row.idle_until || null,
     activationCount: Math.max(0, Number(row.activation_count) || 0),
-    rotationIndex: Math.max(0, Number(row.rotation_index) || 0),
     activeAssistantMessageId: row.active_assistant_message_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1658,7 +1655,6 @@ export function createBot({
     nextActivationAt,
     idleUntil: null,
     activationCount: 0,
-    rotationIndex: 0,
     activeAssistantMessageId: null,
     createdAt: now,
     updatedAt: now,
@@ -1702,7 +1698,6 @@ export function updateBotScheduler(id, changes = {}) {
     idleUntil: changes.idleUntil === 'clear' ? null : (changes.idleUntil ?? null),
     idleUntilChanged: Object.prototype.hasOwnProperty.call(changes, 'idleUntil') ? 1 : 0,
     activationCount: changes.activationCount ?? null,
-    rotationIndex: changes.rotationIndex ?? null,
     activeAssistantMessageId: changes.activeAssistantMessageId ?? null,
     activeAssistantMessageIdChanged: Object.prototype.hasOwnProperty.call(
       changes,
@@ -2035,19 +2030,19 @@ export function forkConversation(id, {
   }
   const childNumber = sideChat
     ? Math.max(
-        0,
-        ...listSideChats(source.id).map((sideChat) => (
-          Number(sideChat.title.match(/^Side chat (\d+)$/)?.[1]) || 0
-        )),
-      ) + 1
+      0,
+      ...listSideChats(source.id).map((sideChat) => (
+        Number(sideChat.title.match(/^Side chat (\d+)$/)?.[1]) || 0
+      )),
+    ) + 1
     : null;
   const usedSubagentNames = subagent
     ? new Set(listSubagents(source.id).map((agent) => agent.title))
     : null;
   const subagentNameIndex = subagent
     ? subagentNames.findIndex((name, index) => (
-        index >= source.nextSubagentNameIndex && !usedSubagentNames.has(name)
-      ))
+      index >= source.nextSubagentNameIndex && !usedSubagentNames.has(name)
+    ))
     : -1;
   const subagentName = subagentNameIndex >= 0 ? subagentNames[subagentNameIndex] : null;
   if (subagent && !subagentName) return null;
@@ -2083,8 +2078,8 @@ export function forkConversation(id, {
       throughIndex >= 0
         ? sourceMessages.slice(0, throughIndex + 1)
         : sourceMessages.filter((message) => (
-            !childThread || !['queued', 'steered'].includes(message.status)
-          ))
+          !childThread || !['queued', 'steered'].includes(message.status)
+        ))
     ).filter((message) => !message.hidden);
     const now = Date.now();
     const copiedMessageIds = new Map();
@@ -2115,9 +2110,8 @@ export function forkConversation(id, {
         hidden: true,
         content: [
           '<side-chat-instructions>',
-          'You are in a quick context forked from the main orchestrator to answer questions, explain the current implementation, or clarify what the orchestrator is doing.',
-          'Do not make modifications or take actions directly from this side chat.',
-          'If the user asks for guidance or an adjustment, inform the parent orchestrator about the decisions made with the user by using chat_send_prompt.',
+          'The parent thread history above was forked into this side chat from this point on.',
+          'Follow the side-chat contract in the <thread_context> system message of this conversation.',
           '</side-chat-instructions>',
         ].join('\n'),
         createdAt: new Date(now + messages.length).toISOString(),
@@ -2150,36 +2144,36 @@ function childThreadContext(conversation) {
     const parent = statements.getConversation.get(conversation.parent_conversation_id);
     const deliveryInstructions = conversation.auto_forward_to_parent
       ? [
-          'Your final assistant response is automatically forwarded to the parent orchestrator by the runtime using steering.',
-          'Do not send or repeat the final response with a communication tool.',
-          'Use chat_send_prompt for material progress, blockers, dependencies, course corrections, or coordination before the final response.',
-          'Terminal errors are also forwarded automatically.',
-        ]
+        'Your final assistant response is automatically forwarded to the parent orchestrator by the runtime using steering.',
+        'Do not send or repeat the final response with a communication tool.',
+        'Use chat_send_prompt for material progress, blockers, dependencies, course corrections, or coordination before the final response.',
+        'Terminal errors are also forwarded automatically.',
+      ]
       : [
-          'This thread was not started as an automatically reporting task. Its final response is not forwarded to the parent.',
-          'Use chat_send_prompt only when you intentionally want to contact another thread.',
-        ];
+        'This thread was not started as an automatically reporting task. Its final response is not forwarded to the parent.',
+        'Use chat_send_prompt only when you intentionally want to contact another thread.',
+      ];
     const teamInstructions = conversation.orchestration_mode === 'ultra'
       ? [
-          'You are a specialist on an Ultra team led by the orchestrator in the parent thread.',
-          'Own the focused assignment independently, investigate beyond the obvious path, and return evidence rather than assumptions.',
-          'Use chat_send_prompt to coordinate directly with another listed sub-agent when that materially improves the shared result.',
-          'Challenge weak assumptions constructively, but stay within your assigned scope and do not duplicate work without a verification purpose.',
-          'Do not expose private chain-of-thought. Communicate concise conclusions, decisions, evidence, and remaining uncertainty.',
-        ]
+        'You are a specialist on an Ultra team led by the orchestrator in the parent thread.',
+        'Own the focused assignment independently, investigate beyond the obvious path, and return evidence rather than assumptions.',
+        'Use chat_send_prompt to coordinate directly with another listed sub-agent when that materially improves the shared result.',
+        'Challenge weak assumptions constructively, but stay within your assigned scope and do not duplicate work without a verification purpose.',
+        'Do not expose private chain-of-thought. Communicate concise conclusions, decisions, evidence, and remaining uncertainty.',
+      ]
       : conversation.orchestration_mode === 'plan'
         ? [
-            'You are a Plan-mode specialist working for the orchestrator in the parent thread.',
-            'Explore, research, analyze, or consolidate the focused assignment in the latest user message and return evidence for the execution plan.',
-            'Actively use chat_send_prompt to coordinate directly with the parent or listed sibling sub-agents when sharing findings or resolving dependencies improves the plan.',
-            'You may run terminal commands strictly for read-only investigation (searching, listing, reading, git status/log/diff/show). Never run commands that install, build, write, delete, move, stage, commit, push, start servers, or otherwise change any state.',
-            'Do not edit files, mutate data, create conversations, or perform implementation work.',
-            'Do not expose private chain-of-thought. Communicate concise conclusions, evidence, implications, and remaining uncertainty.',
-          ]
+          'You are a Plan-mode specialist working for the orchestrator in the parent thread.',
+          'Explore, research, analyze, or consolidate the focused assignment in the latest user message and return evidence for the execution plan.',
+          'Actively use chat_send_prompt to coordinate directly with the parent or listed sibling sub-agents when sharing findings or resolving dependencies improves the plan.',
+          'You may run terminal commands strictly for read-only investigation (searching, listing, reading, git status/log/diff/show). Never run commands that install, build, write, delete, move, stage, commit, push, start servers, or otherwise change any state.',
+          'Do not edit files, mutate data, create conversations, or perform implementation work.',
+          'Do not expose private chain-of-thought. Communicate concise conclusions, evidence, implications, and remaining uncertainty.',
+        ]
         : [
-            'You are a sub-agent working for the orchestrator in the parent thread.',
-            'Complete the assignment in the latest user message independently.',
-          ];
+          'You are a sub-agent working for the orchestrator in the parent thread.',
+          'Complete the assignment in the latest user message independently.',
+        ];
     return [{
       role: 'system',
       content: [
@@ -2204,7 +2198,11 @@ function childThreadContext(conversation) {
       'thread_type: side_chat',
       `thread_id: ${conversation.id}`,
       `parent_thread_id: ${conversation.parent_conversation_id}`,
-      'You are running inside a side chat forked from the parent thread.',
+      'You are running inside a side chat forked from the parent thread. The user usually forks a side chat to question or discuss the direction the parent agent is taking.',
+      'You only explore and investigate: answer questions, explain the current implementation, and analyze what the parent thread and its sub-agents are doing. Do not implement anything or take actions.',
+      'You may inspect the parent thread and its sub-agents (for example with chat_list_thread_context and chat_inspect_thread) to ground your answers.',
+      'You may direct the parent agent or its sub-agents using chat_send_prompt, but only when the user explicitly asks you to.',
+      'Keep responses quick: avoid long tool chains and deep open-ended analyses; prefer the forked history and a few focused reads.',
       'You cannot create another side chat from this thread.',
       '</thread_context>',
     ].join('\n'),
@@ -2223,9 +2221,9 @@ export function toModelMessages(
   const hasCheckpoint = Boolean(conversation?.context_checkpoint) && checkpointIndex >= 0;
   const checkpoint = hasCheckpoint
     ? [{
-        role: 'system',
-        content: `<conversation_checkpoint>\n${conversation.context_checkpoint}\n</conversation_checkpoint>`,
-      }]
+      role: 'system',
+      content: `<conversation_checkpoint>\n${conversation.context_checkpoint}\n</conversation_checkpoint>`,
+    }]
     : [];
 
   return [
@@ -2272,9 +2270,9 @@ export function toModelMessagesThroughUser(
     ...childThreadContext(conversation),
     ...(useCheckpoint
       ? [{
-          role: 'system',
-          content: `<conversation_checkpoint>\n${conversation.context_checkpoint}\n</conversation_checkpoint>`,
-        }]
+        role: 'system',
+        content: `<conversation_checkpoint>\n${conversation.context_checkpoint}\n</conversation_checkpoint>`,
+      }]
       : []),
     ...messages
       .slice(useCheckpoint ? checkpointIndex + 1 : 0, lastUserIndex + 1)
@@ -2295,11 +2293,11 @@ export function messageToApiBlock(message, capabilities = {}) {
       : message.attachments.length === 0
         ? message.content
         : [
-            ...(message.content.trim() ? [{ type: 'text', text: message.content }] : []),
-            ...message.attachments.map((attachment) => (
-              attachmentToApiBlock(attachment, capabilities)
-            )),
-          ],
+          ...(message.content.trim() ? [{ type: 'text', text: message.content }] : []),
+          ...message.attachments.map((attachment) => (
+            attachmentToApiBlock(attachment, capabilities)
+          )),
+        ],
   };
 }
 
@@ -2337,23 +2335,23 @@ export function attachmentToApiBlock(attachment, capabilities = {}) {
   if (attachment.kind === 'input_audio') {
     return capabilities.audio
       ? {
-          type: 'input_audio',
-          input_audio: {
-            data: attachment.base64,
-            format: attachment.format ?? 'mp3',
-          },
-        }
+        type: 'input_audio',
+        input_audio: {
+          data: attachment.base64,
+          format: attachment.format ?? 'mp3',
+        },
+      }
       : unsupportedAttachmentToApiBlock(attachment);
   }
   if (attachment.kind === 'file') {
     return attachment.mime === 'application/pdf' && capabilities.pdfFiles
       ? {
-          type: 'file',
-          file: {
-            filename: attachment.name ?? 'attachment',
-            file_data: attachment.dataUrl,
-          },
-        }
+        type: 'file',
+        file: {
+          filename: attachment.name ?? 'attachment',
+          file_data: attachment.dataUrl,
+        },
+      }
       : unsupportedAttachmentToApiBlock(attachment);
   }
   return unsupportedAttachmentToApiBlock(attachment);

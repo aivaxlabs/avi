@@ -64,6 +64,10 @@ contextBridge.exposeInMainWorld('chatApp', {
     temporaryStorage: () => invoke('archive:temporary-storage'),
     clearTemporaryStorage: () => invoke('archive:clear-temporary-storage'),
   },
+  semaphores: {
+    state: () => invoke('semaphores:state'),
+    reset: (name) => invoke('semaphores:reset', name),
+  },
   conversations: {
     list: () => invoke('conversations:list'),
     create: (payload) => invoke('conversations:create', payload),
@@ -95,6 +99,16 @@ contextBridge.exposeInMainWorld('chatApp', {
   },
   subagents: {
     list: (parentConversationId) => invoke('subagents:list', parentConversationId),
+  },
+  bots: {
+    list: () => invoke('bots:list'),
+    create: (payload) => invoke('bots:create', payload),
+    update: (payload) => invoke('bots:update', payload),
+    delete: (botId) => invoke('bots:delete', botId),
+    clearThread: (botId) => invoke('bots:clear-thread', botId),
+    activate: (botId) => invoke('bots:activate', botId),
+    resolveApproval: (payload) => invoke('bots:resolve-approval', payload),
+    chooseFolder: () => invoke('bots:choose-folder'),
   },
   providers: {
     list: () => invoke('providers:list'),
@@ -207,4 +221,5 @@ contextBridge.exposeInMainWorld('chatApp', {
   },
   onChatEvent: (callback) => subscribe('chat:event', callback),
   onMcpEvent: (callback) => subscribe('mcp:event', callback),
+  onBotsEvent: (callback) => subscribe('bots:event', callback),
 });

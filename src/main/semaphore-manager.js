@@ -98,6 +98,22 @@ export class SemaphoreManager {
     return holdings;
   }
 
+  reset(name) {
+    name = normalizeName(name);
+    const semaphore = this.state.semaphores[name];
+    if (!semaphore) throw new Error(`Semaphore "${name}" does not exist.`);
+    const released = Object.entries(semaphore.holders ?? {}).map(([conversationId, count]) => ({
+      conversationId,
+      count,
+    }));
+    semaphore.holders = {};
+    const ready = this.drain(name);
+    this.removeIfEmpty(name);
+    this.persist();
+    this.notifyReady(ready);
+    return { name, maxCount: semaphore.maxCount, released, activated: ready.length };
+  }
+
   acquire({ conversationId, name, count, maxCount, resume = {} }) {
     name = normalizeName(name);
     count = normalizePositiveInteger(count, 'count');

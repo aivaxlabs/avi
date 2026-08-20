@@ -43,6 +43,7 @@ const CONTEXT_SCAN_CONCURRENCY = 32;
 const CONTEXT_DIRECTORY_NAME = '.agents';
 const baseInstructions = readFileSync(new URL('../prompts/base-instructions.md', import.meta.url), 'utf8');
 const quickChatInstructions = readFileSync(new URL('../prompts/quick-chat-instructions.md', import.meta.url), 'utf8');
+const botInstructions = readFileSync(new URL('../prompts/bot-instructions.md', import.meta.url), 'utf8');
 const candidPersonality = readFileSync(new URL('../prompts/personality/candid.md', import.meta.url), 'utf8');
 const cynicalPersonality = readFileSync(new URL('../prompts/personality/cynical.md', import.meta.url), 'utf8');
 const friendlyPersonality = readFileSync(new URL('../prompts/personality/friendly.md', import.meta.url), 'utf8');
@@ -51,7 +52,9 @@ const quirkyPersonality = readFileSync(new URL('../prompts/personality/quirky.md
 
 const INSTALLATION_CONTEXT_DIRECTORY_NAME = 'context';
 const INSTRUCTION_FILE_PATTERN = /^(?:(?:AGENTS|MEMORY)(?:\.[^.]+)*|CLAUDE|GEMINI|.+\.INSTRUCTIONS|.+\.AGENTS)\.md$/i;
+const BOT_INSTRUCTION_FILE_PATTERN = /^BOTS\.md$/i;
 const POST_INSTRUCTION_CONTEXT_ORDER = [
+  'bot',
   'memory',
   'mcp',
   'work-mode',
@@ -72,7 +75,7 @@ export const dynamicContextInjectors = new Map([
       ? [
         '## Memory',
         'You have access to persistent memory through the memory_search, memory_write, and memory_delete tools.',
-        'At the start of each task, run memory_search with terms describing the task before doing other work.',
+        'Before starting any kind of relevant work run memory_search with terms describing the task to gather context from past work.',
         'Use it to store and retrieve information such as:',
         '- discoveries made to implement something;',
         '- paths, conventions and rules provided by the user;',
@@ -88,7 +91,7 @@ export const dynamicContextInjectors = new Map([
       ].join('\n')
       : ''
   )],
-  ['personality', ({ tuning, pluginPersonalities = [] } = {}) => ({
+  ['personality', ({ tuning, pluginPersonalities = [], bot } = {}) => ({
     candid: candidPersonality,
     cynical: cynicalPersonality,
     friendly: friendlyPersonality,
@@ -98,7 +101,26 @@ export const dynamicContextInjectors = new Map([
       personality.id,
       personality.instructions,
     ])),
-  }[tuning?.personality] ?? '')],
+  }[bot?.personality ?? tuning?.personality] ?? '')],
+  ['bot', ({ bot } = {}) => {
+    if (!bot) return '';
+    return [
+      '<bot_context>',
+      botInstructions,
+      '',
+      `Bot name: ${bot.name}`,
+      `Bot id: ${bot.id}`,
+      `Working folder: ${bot.workingFolder}`,
+      `Work data folder: ${bot.workDataFolder}`,
+      `Work files: ${bot.workFiles.join(', ')}`,
+      `Activation mode: ${bot.activationMode} (every ${bot.activationPeriodMinutes} minutes)`,
+      `Pending user approvals: ${bot.pendingApprovals}`,
+      ...(String(bot.instructions ?? '').trim()
+        ? ['', '<bot_owner_instructions>', String(bot.instructions).trim(), '</bot_owner_instructions>']
+        : []),
+      '</bot_context>',
+    ].join('\n');
+  }],
   ['mcp', ({ mcpInstructions = [] } = {}) => (
     mcpInstructions
       .filter((instruction) => instruction?.text)
@@ -243,7 +265,7 @@ export const dynamicContextInjectors = new Map([
       '</environment_info>',
     ].filter(Boolean).join('\n');
   }],
-  ['workspace', async ({ workspacePath } = {}) => {
+  ['workspace', async ({ workspacePath, bot } = {}) => {
     const currentDirectory = path.resolve(workspacePath || process.cwd());
     if (isHomeDirectory(currentDirectory)) {
       return [
@@ -273,7 +295,10 @@ export const dynamicContextInjectors = new Map([
 
       const nextAncestorDirectories = new Set(ancestorDirectories).add(directoryKey);
       const filteredEntries = await Promise.all(entries
-        .filter((entry) => !IGNORED_WORKSPACE_DIRECTORIES.has(entry.name.toLowerCase()))
+        .filter((entry) => (
+          !IGNORED_WORKSPACE_DIRECTORIES.has(entry.name.toLowerCase())
+          && (bot || !BOT_INSTRUCTION_FILE_PATTERN.test(entry.name))
+        ))
         .map(async (entry) => {
           if (!entry.isSymbolicLink()) return { entry, isDirectory: entry.isDirectory() };
           try {
@@ -339,7 +364,7 @@ export const dynamicContextInjectors = new Map([
       '</current_workspace>',
     ].join('\n');
   }],
-  ['instructions', async ({ workspacePath, installationContextPath, pluginContextRoots = [] } = {}) => {
+  ['instructions', async ({ workspacePath, installationContextPath, pluginContextRoots = [], bot } = {}) => {
     const startedAt = Date.now();
     traceVerbose('context.injection-discovery-started', {
       operation: 'resolve-instructions',
@@ -379,12 +404,20 @@ export const dynamicContextInjectors = new Map([
       const scan = await scanContextFiles(root.path, {
         includeRootCatalog: root.includeRootCatalog,
       });
-      const { instructionFiles, skillFiles, workflowFiles } = scan;
+      const {
+        instructionFiles,
+        botInstructionFiles,
+        skillFiles,
+        workflowFiles,
+      } = scan;
+      const applicableInstructionFiles = bot
+        ? [...instructionFiles, ...botInstructionFiles]
+        : instructionFiles;
       const rootInstructionDirectories = new Set([root.path.toLowerCase()]);
-      const rootContextFiles = instructionFiles.filter((filePath) => (
+      const rootContextFiles = applicableInstructionFiles.filter((filePath) => (
         rootInstructionDirectories.has(path.dirname(filePath).toLowerCase())
       ));
-      const nestedContextFiles = instructionFiles.filter((filePath) => (
+      const nestedContextFiles = applicableInstructionFiles.filter((filePath) => (
         !rootInstructionDirectories.has(path.dirname(filePath).toLowerCase())
       ));
       const rootFiles = (await Promise.all(rootContextFiles.map(async (filePath) => {
@@ -472,7 +505,8 @@ export const dynamicContextInjectors = new Map([
         operation: 'resolve-instructions',
         scope: root.id,
         duration_ms: Date.now() - rootStartedAt,
-        instruction_count: instructionFiles.length,
+        instruction_count: applicableInstructionFiles.length,
+        bot_instruction_count: botInstructionFiles.length,
         skill_count: skillFiles.length,
         workflow_count: workflowFiles.length,
         directory_count: scan.directoryCount,
@@ -526,6 +560,8 @@ export async function resolveDynamicContext(invocationContext = {}) {
 
   const personalityInjector = dynamicContextInjectors.get('personality');
   const instructionsInjector = dynamicContextInjectors.get('instructions');
+  const postInjectorNames = POST_INSTRUCTION_CONTEXT_ORDER
+    .filter((name) => name !== 'memory' || !invocationContext.bot);
   const [
     personalityContext,
     instructionContexts,
@@ -533,7 +569,7 @@ export async function resolveDynamicContext(invocationContext = {}) {
   ] = await Promise.all([
     personalityInjector?.(invocationContext),
     instructionsInjector?.(invocationContext),
-    ...POST_INSTRUCTION_CONTEXT_ORDER.map((name) => (
+    ...postInjectorNames.map((name) => (
       dynamicContextInjectors.get(name)?.(invocationContext)
     )),
   ]);
@@ -581,19 +617,25 @@ export async function listContextItems(
     const scan = !includeRootCatalog && isHomeDirectory(root)
       ? {
         instructionFiles: [],
+        botInstructionFiles: [],
         skillFiles: [],
         workflowFiles: [],
         directoryCount: 0,
         timedOut: false,
       }
       : await scanContextFiles(root, { includeRootCatalog });
-    const { instructionFiles, skillFiles, workflowFiles } = scan;
+    const {
+      instructionFiles,
+      botInstructionFiles,
+      skillFiles,
+      workflowFiles,
+    } = scan;
     const groups = await Promise.all([
       {
         id: 'instruction',
         title: 'Instructions',
         folderPath: root,
-        files: instructionFiles,
+        files: [...instructionFiles, ...botInstructionFiles],
       },
       {
         id: 'skill',
@@ -655,7 +697,8 @@ export async function listContextItems(
       scope,
       duration_ms: Date.now() - startedAt,
       item_count: result.itemCount,
-      instruction_count: instructionFiles.length,
+      instruction_count: instructionFiles.length + botInstructionFiles.length,
+      bot_instruction_count: botInstructionFiles.length,
       skill_count: skillFiles.length,
       workflow_count: workflowFiles.length,
       directory_count: scan.directoryCount,
@@ -683,6 +726,7 @@ function escapeXml(value) {
 async function scanContextFiles(rootPath, { includeRootCatalog = false } = {}) {
   const root = path.resolve(rootPath);
   const instructionFiles = [];
+  const botInstructionFiles = [];
   const skillFiles = [];
   const workflowFiles = [];
   const seenDirectories = new Set();
@@ -759,7 +803,8 @@ async function scanContextFiles(rootPath, { includeRootCatalog = false } = {}) {
         }
         if (!isFile) continue;
 
-        if (INSTRUCTION_FILE_PATTERN.test(entry.name)) instructionFiles.push(entryPath);
+        if (BOT_INSTRUCTION_FILE_PATTERN.test(entry.name)) botInstructionFiles.push(entryPath);
+        else if (INSTRUCTION_FILE_PATTERN.test(entry.name)) instructionFiles.push(entryPath);
         if (!effectiveContextRoot) continue;
 
         const relativeParts = path.relative(effectiveContextRoot, entryPath).split(path.sep);
@@ -787,6 +832,7 @@ async function scanContextFiles(rootPath, { includeRootCatalog = false } = {}) {
   ));
   return {
     instructionFiles: sortPaths(instructionFiles),
+    botInstructionFiles: sortPaths(botInstructionFiles),
     skillFiles: sortPaths(skillFiles),
     workflowFiles: sortPaths(workflowFiles),
     directoryCount,

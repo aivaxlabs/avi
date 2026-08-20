@@ -169,11 +169,13 @@ try {
   assert.equal(firstMessages.at(-1).role, 'user');
   assert.equal(firstMessages.at(-1).hidden, true);
   assert.match(firstMessages.at(-1).content, /^<side-chat-instructions>/);
-  assert.match(firstMessages.at(-1).content, /Do not make modifications or take actions/);
-  assert.match(firstMessages.at(-1).content, /inform the parent orchestrator/);
+  assert.match(firstMessages.at(-1).content, /forked into this side chat/);
+  assert.match(firstMessages.at(-1).content, /<thread_context> system message/);
   const sideChatModelMessages = toModelMessages(first.conversation.id);
   assert.equal(sideChatModelMessages[0].role, 'system');
   assert.ok(sideChatModelMessages[0].content.includes('thread_type: side_chat'));
+  assert.ok(sideChatModelMessages[0].content.includes('only explore and investigate'));
+  assert.ok(sideChatModelMessages[0].content.includes('only when the user explicitly asks'));
   assert.ok(sideChatModelMessages[0].content.includes(`thread_id: ${first.conversation.id}`));
   assert.ok(sideChatModelMessages[0].content.includes(`parent_thread_id: ${parent.id}`));
   assert.equal(sideChatModelMessages.at(-1).role, 'user');

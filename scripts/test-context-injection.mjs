@@ -66,6 +66,7 @@ try {
       'AGENTS.foobar.md',
       'AGENTS.outracoisa.md',
       'AGENTS.user.md',
+      'BOTS.md',
       'MEMORY.md',
       'MEMORY.algumacoisa.md',
       'CLAUDE.md',
@@ -84,6 +85,12 @@ try {
       '# Optional instruction body',
     ].join('\n')),
     writeFile(path.join(root, 'frontend', 'agents.md'), '# Frontend instructions'),
+    writeFile(path.join(root, 'frontend', 'BOTS.md'), [
+      '---',
+      'description: Frontend bot-only instructions',
+      '---',
+      '# Frontend bot secret',
+    ].join('\n')),
     writeFile(path.join(root, 'nested', 'MEMORY.child.md'), '# Nested memory'),
     writeFile(path.join(tooDeepInstructionDirectory, 'ignored-depth.instructions.md'), '# Beyond maximum recursion'),
     writeFile(path.join(deepInstructionDirectory, 'deep.instructions.md'), [
@@ -93,6 +100,7 @@ try {
       '# Deep instructions',
     ].join('\n')),
     writeFile(path.join(installationContextDirectory, 'AGENTS.md'), '# Avi installation instructions'),
+    writeFile(path.join(installationContextDirectory, 'BOTS.md'), '# Avi bot-only instructions'),
     writeFile(
       path.join(installationContextDirectory, 'rules', 'avi.instructions.md'),
       '# Avi recursive installation instructions',
@@ -110,6 +118,7 @@ try {
     writeFile(path.join(root, '.vs', 'GEMINI.md'), '# Ignored Visual Studio instructions'),
     writeFile(path.join(testHome, 'AGENTS.md'), '# Ignored home root instructions'),
     writeFile(path.join(globalAgentsDirectory, 'AGENTS.md'), '# Global test instructions'),
+    writeFile(path.join(globalAgentsDirectory, 'BOTS.md'), '# Global bot-only instructions'),
     writeFile(path.join(globalAgentsDirectory, 'rules', 'global.instructions.md'), [
       '---',
       'description: Global recursive instructions',
@@ -187,8 +196,10 @@ try {
     'AGENTS.outracoisa.md',
     'AGENTS.user.md',
     'agents.project.md',
+    'BOTS.md',
     'CLAUDE.md',
     'frontend/agents.md',
+    'frontend/BOTS.md',
     'gemini.md',
     'MEMORY.algumacoisa.md',
     'MEMORY.md',
@@ -214,6 +225,10 @@ try {
   assert.equal(
     instructionItems.find((item) => item.title === 'AGENTS.md').embeddable,
     true,
+  );
+  assert.equal(
+    instructionItems.find((item) => item.title === 'BOTS.md').description,
+    'BOTS.md',
   );
   assert.ok(!instructionItems.some((item) => item.description.includes('Ignored')));
   assert.ok(!instructionItems.some((item) => item.title === 'ignored-depth.instructions.md'));
@@ -255,7 +270,11 @@ try {
   assert.deepEqual(
     installationContext.groups.find((group) => group.id === 'instruction').items
       .map((item) => item.description).sort(),
-    ['Avi installation instructions', 'Avi recursive installation instructions'].sort(),
+    [
+      'Avi bot-only instructions',
+      'Avi installation instructions',
+      'Avi recursive installation instructions',
+    ].sort(),
   );
   assert.deepEqual(
     installationContext.groups.find((group) => group.id === 'skill').items
@@ -326,6 +345,45 @@ try {
     }],
   });
   const injectedUserContext = await resolveDynamicUserContext({ workspacePath: root });
+  assert.ok(!injectedUserContext.includes('BOTS.md'), 'Normal workspace tree leaked BOTS.md');
+  for (const botOnlyMarker of [
+    'BOTS.md',
+    'Frontend bot-only instructions',
+    '# Frontend bot secret',
+    '# Global bot-only instructions',
+    '# Avi bot-only instructions',
+  ]) {
+    assert.ok(!injected.includes(botOnlyMarker), `Normal context leaked: ${botOnlyMarker}`);
+  }
+  const botInjected = await resolveDynamicContext({
+    workspacePath: root,
+    installationContextPath: installationContextDirectory,
+    bot: {
+      id: 'bot-context-test',
+      name: 'Context test bot',
+      workingFolder: root,
+      workDataFolder: path.join(root, '.avi-bots', 'bot-context-test'),
+      workFiles: ['MEMORY.md', 'backlog.md'],
+      activationMode: 'scheduled',
+      activationPeriodMinutes: 10,
+      pendingApprovals: 0,
+      instructions: '',
+    },
+  });
+  for (const botOnlyMarker of [
+    '--- BEGIN BOTS.md ---',
+    '# Global bot-only instructions',
+    '# Avi bot-only instructions',
+    'frontend/BOTS.md',
+    'Frontend bot-only instructions',
+  ]) {
+    assert.ok(botInjected.includes(botOnlyMarker), `Bot context is missing: ${botOnlyMarker}`);
+  }
+  const botUserContext = await resolveDynamicUserContext({
+    workspacePath: root,
+    bot: { id: 'bot-context-test' },
+  });
+  assert.ok(botUserContext.includes('BOTS.md'), 'Bot workspace tree is missing BOTS.md');
   if (
     !injected.startsWith(baseInstructions.trim())
     || injected.split(baseInstructions.trim()).length !== 2

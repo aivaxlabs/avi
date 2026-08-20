@@ -90,6 +90,7 @@ import {
 } from './database.js';
 import { indexAivaxDocuments, loginToAivax, requestAivax } from './aivax-client.js';
 import { ChatRunner } from './chat-runner.js';
+import { BotManager } from './bot-manager.js';
 import { QuickChatRunner } from './quick-chat-runner.js';
 import { validateDefaultModels } from './default-models.js';
 import { CLIENT_TOOLS, stopConversationTerminals } from './client-tools.js';
@@ -166,6 +167,7 @@ let startHidden = process.argv.includes('--hidden');
 let mainWindow;
 let tray;
 let chatRunner;
+let botManager;
 let quickChatRunner;
 let mcpManager;
 let remoteMcpServer;
@@ -193,6 +195,7 @@ app.on('before-quit', (event) => {
   shutdownStarted = true;
   clearInterval(resourceSnapshotInterval);
   clearInterval(threadSearchSyncInterval);
+  botManager?.stop();
   for (const sessionId of quickChatWindows.keys()) quickChatRunner?.close(sessionId);
   Promise.resolve(chatRunner?.shutdown())
     .then(() => mcpManager?.closeAll())
@@ -566,6 +569,17 @@ function initializeServices() {
       getPreferences: runtimePreferences,
       getPluginTools,
       getPluginContext: pluginInvocationContext,
+      getBotRuntimeContext: (conversationId) => botManager?.getBotRuntimeContext(conversationId),
+      describeInvocationBot: (conversationId) => botManager?.describeInvocationBot(conversationId),
+      queueBotToolApproval: (request) => botManager?.queueToolApproval(request),
+      noteBotUserInteraction: (conversationId) => botManager?.noteUserInteraction(conversationId),
+      noteBotRunStarted: (conversationId, assistantMessageId) => (
+        botManager?.noteRunStarted(conversationId, assistantMessageId)
+      ),
+      noteBotRunFinished: (conversationId, assistantMessageId) => (
+        botManager?.noteRunFinished(conversationId, assistantMessageId)
+      ),
+      noteBotRunStopped: (conversationId) => botManager?.noteRunStopped(conversationId),
       sendEvent: (payload) => {
         sendRendererEvent('chat:event', payload);
         if (
@@ -615,6 +629,13 @@ function initializeServices() {
       },
       stopBackgroundTasks: stopConversationTerminals,
     });
+  }
+  if (!botManager) {
+    botManager = new BotManager({ sendEvent: sendRendererEvent });
+    botManager.attachChatRunner(chatRunner);
+    botManager.start().catch((error) => traceError('bots.start-error', {
+      error: error instanceof Error ? error.message : String(error),
+    }));
   }
   if (!quickChatRunner) {
     quickChatRunner = new QuickChatRunner({
@@ -1132,6 +1153,33 @@ function registerIpc() {
     setComposerState(payload.conversationId, payload)
   ));
   applicationIpc.handle('tasks:list', (_event, conversationId) => listTasks(conversationId));
+  applicationIpc.handle('bots:list', () => ({
+    bots: botManager.describeBots(),
+    queue: botManager.listApprovalQueue(),
+  }));
+  applicationIpc.handle('bots:create', (_event, config = {}) => (
+    botManager.createBotFromConfig(config)
+  ));
+  applicationIpc.handle('bots:update', (_event, payload = {}) => (
+    botManager.updateBotConfig(payload.id, payload.changes)
+  ));
+  applicationIpc.handle('bots:delete', (_event, botId) => botManager.deleteBotById(botId));
+  applicationIpc.handle('bots:clear-thread', (_event, botId) => (
+    botManager.clearBotThread(botId)
+  ));
+  applicationIpc.handle('bots:activate', (_event, botId) => (
+    botManager.activateBot(botId, { trigger: 'manual' })
+  ));
+  applicationIpc.handle('bots:resolve-approval', (_event, payload = {}) => (
+    botManager.resolveApproval(payload.approvalId, payload.decision)
+  ));
+  applicationIpc.handle('bots:choose-folder', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      defaultPath: homedir(),
+      properties: ['openDirectory'],
+    });
+    return canceled ? null : filePaths[0];
+  });
   applicationIpc.handle('conversations:archive', (_event, conversationId) => {
     chatRunner.stop(conversationId, { includeSubagents: true });
     const children = [

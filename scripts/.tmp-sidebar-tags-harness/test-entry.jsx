@@ -58,41 +58,52 @@ function TestApp() {
     setConversations((state) => state.map((item) => ({ ...item, tags: [] })));
   }
 
-  window.__harness = { calls: calls.current, saveCalls: saveCalls.current };
+  window.__harness = {
+    calls: calls.current,
+    saveCalls: saveCalls.current,
+    updateConversation: () => setConversations((state) => state.map((item) => (
+      item.id === 'conv-1'
+        ? { ...item, title: 'Correção do bug atualizada', updatedAt: new Date().toISOString() }
+        : item
+    ))),
+  };
 
   return (
-    <Sidebar
-      conversations={conversations}
-      models={[]}
-      selectedId="conv-1"
-      running={{}}
-      runStartedAt={{}}
-      completedUnseen={{}}
-      approvalPending={{}}
-      inputPending={{}}
-      semaphoreWaiting={{}}
-      collapsed={false}
-      orchestrationOpen={false}
-      homePath="/home/test"
-      chatTags={savedTags}
-      folderColors={{}}
-      onNewChat={() => {}}
-      onQuickChat={() => {}}
-      onSelect={() => {}}
-      onSearch={() => {}}
-      onOpenOrchestration={() => {}}
-      onFork={() => {}}
-      onArchive={() => {}}
-      onOpenProject={() => {}}
-      onOpenTerminal={() => {}}
-      onCopyPath={() => {}}
-      onCopyThreadId={() => {}}
-      onSettings={() => {}}
-      onSetConversationTags={setConversationTags}
-      onSetFolderColor={() => {}}
-      onSaveChatTags={onSaveChatTags}
-      onToggleCollapsed={() => {}}
-    />
+    <>
+      <Sidebar
+        conversations={conversations}
+        models={[]}
+        selectedId="conv-1"
+        running={{}}
+        runStartedAt={{}}
+        completedUnseen={{}}
+        approvalPending={{}}
+        inputPending={{}}
+        semaphoreWaiting={{}}
+        collapsed={false}
+        orchestrationOpen={false}
+        homePath="/home/test"
+        chatTags={savedTags}
+        folderColors={{}}
+        onNewChat={() => {}}
+        onQuickChat={() => {}}
+        onSelect={() => {}}
+        onSearch={() => {}}
+        onOpenOrchestration={() => {}}
+        onFork={() => {}}
+        onArchive={() => {}}
+        onOpenProject={() => {}}
+        onOpenTerminal={() => {}}
+        onCopyPath={() => {}}
+        onCopyThreadId={() => {}}
+        onSettings={() => {}}
+        onSetConversationTags={setConversationTags}
+        onSetFolderColor={() => {}}
+        onSaveChatTags={onSaveChatTags}
+        onToggleCollapsed={() => {}}
+      />
+      <div className="chat-scroll" />
+    </>
   );
 }
 

@@ -186,6 +186,47 @@ try {
   assert.equal(manager.cancel(conversations[3].id), false);
   assert.ok(snapshots.length > 0);
 
+  const resetResult = manager.reset('capacity');
+  assert.deepEqual(resetResult, {
+    name: 'capacity',
+    maxCount: 3,
+    released: [
+      { conversationId: conversations[0].id, count: 2 },
+      { conversationId: conversations[2].id, count: 1 },
+    ],
+    activated: 0,
+  });
+  assert.equal(manager.globalSnapshot().find((entry) => entry.name === 'capacity'), undefined);
+  assert.deepEqual(manager.holdings(conversations[0].id), []);
+  assert.throws(() => manager.reset('capacity'), /does not exist/);
+  assert.throws(() => manager.reset('  '), /name is required/);
+
+  manager = new SemaphoreManager({ onReady: (waiter) => ready.push(waiter) });
+  manager.acquire({
+    conversationId: conversations[0].id,
+    name: 'reset-wait',
+    count: 1,
+    maxCount: 1,
+  });
+  manager.acquire({
+    conversationId: conversations[1].id,
+    name: 'reset-wait',
+    count: 1,
+    maxCount: 1,
+  });
+  const readyCount = ready.length;
+  const resetWait = manager.reset('reset-wait');
+  assert.deepEqual(resetWait.released, [{ conversationId: conversations[0].id, count: 1 }]);
+  assert.equal(resetWait.activated, 1);
+  assert.equal(ready.length, readyCount + 1);
+  assert.equal(ready.at(-1).conversationId, conversations[1].id);
+  assert.equal(manager.holdings(conversations[1].id)[0].count, 1);
+  manager.release({
+    conversationId: conversations[1].id,
+    name: 'reset-wait',
+    count: 1,
+  });
+
   const sleepTool = CLIENT_TOOLS.find((tool) => tool.name === 'sleep_semaphore');
   const releaseTool = CLIENT_TOOLS.find((tool) => tool.name === 'release_semaphore');
   const listTool = CLIENT_TOOLS.find((tool) => tool.name === 'list_semaphores');
@@ -234,7 +275,7 @@ try {
   assert.match(chatViewSource, /Queue position/);
   assert.match(chatViewSource, />\s*Run now\s*</);
   assert.match(chatViewSource, />\s*Cancel semaphore\s*</);
-  assert.match(sidebarSource, /aria-label="Waiting for semaphore"/);
+  assert.match(sidebarSource, /label: 'Waiting for semaphore'/);
 
   setSemaphoreState({ semaphores: {}, waiting: {} });
   const { ChatRunner } = await import('../src/main/chat-runner.js');

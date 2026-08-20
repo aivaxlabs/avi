@@ -234,6 +234,13 @@ export class ChatRunner {
     getPreferences = readPreferences,
     getPluginTools = () => [],
     getPluginContext = () => ({}),
+    getBotRuntimeContext = () => null,
+    describeInvocationBot = () => null,
+    queueBotToolApproval = () => null,
+    noteBotUserInteraction = () => false,
+    noteBotRunStarted = () => {},
+    noteBotRunFinished = () => {},
+    noteBotRunStopped = () => {},
     sendEvent,
     sendCompletionNotification,
     savePermissionGuidance,
@@ -244,6 +251,13 @@ export class ChatRunner {
     this.getPreferences = getPreferences;
     this.getPluginTools = getPluginTools;
     this.getPluginContext = getPluginContext;
+    this.getBotRuntimeContext = getBotRuntimeContext;
+    this.describeInvocationBot = describeInvocationBot;
+    this.queueBotToolApproval = queueBotToolApproval;
+    this.noteBotUserInteraction = noteBotUserInteraction;
+    this.noteBotRunStarted = noteBotRunStarted;
+    this.noteBotRunFinished = noteBotRunFinished;
+    this.noteBotRunStopped = noteBotRunStopped;
     this.sendEvent = sendEvent;
     this.sendCompletionNotification = sendCompletionNotification;
     this.savePermissionGuidance = savePermissionGuidance;
@@ -256,6 +270,7 @@ export class ChatRunner {
     this.approvedToolPatterns = new Set();
     this.continuationGenerations = new Map();
     this.pendingCompletionNotifications = new Map();
+    this.shuttingDown = false;
     this.semaphores = new SemaphoreManager({
       onChanged: (waits) => {
         this.sendEvent({ type: 'semaphore-state', waits });
@@ -993,6 +1008,7 @@ export class ChatRunner {
       ultraMode = conversation.orchestrationMode === 'ultra';
       if (workMode === 'plan') workMode = null;
     }
+    if (userInitiated && !fromAgent) this.noteBotUserInteraction(conversation.id);
     const pendingContinuationGeneration = this.continuationGenerations.get(conversation.id);
     pendingContinuationGeneration?.controller.abort('new-message');
     this.continuationGenerations.delete(conversation.id);
@@ -1179,6 +1195,7 @@ export class ChatRunner {
         }
         run.queuePaused = true;
         run.stoppedByUser = stoppedByUser;
+        if (stoppedByUser) this.noteBotRunStopped(id);
         this.pausedQueues.set(id, [...run.queue]);
         run.controller.abort('stop');
       }
@@ -1301,6 +1318,7 @@ export class ChatRunner {
   }
 
   async shutdown() {
+    this.shuttingDown = true;
     const activeRuns = [...this.runs.entries()];
     for (const [conversationId] of activeRuns) {
       this.stop(conversationId, { pauseGoal: false });
@@ -2026,6 +2044,7 @@ export class ChatRunner {
     const completion = Promise.withResolvers();
     run.completion = completion.promise;
     this.runs.set(conversationId, run);
+    this.noteBotRunStarted(conversationId, assistantMessage.id);
     this.emit(conversationId, { type: 'message', message: assistantMessage });
     this.emit(conversationId, { type: 'run-state', running: true, startedAt: run.startedAt });
 
@@ -2109,6 +2128,9 @@ export class ChatRunner {
         });
       const models = this.registry.listModels();
       const currentConversation = getConversation(conversationId);
+      const botRuntime = currentConversation?.isBot
+        ? this.getBotRuntimeContext(conversationId)
+        : null;
       const currentGoal = goalId ? getGoal(goalId) : getGoalForConversation(conversationId);
       const goalContinues = currentGoal && CONTINUING_GOAL_STATUSES.has(currentGoal.status);
       const preferences = this.getPreferences();
@@ -2150,6 +2172,12 @@ export class ChatRunner {
           ))
           .filter((tool) => tool.name !== 'start_goal' || !goalContinues)
           .filter((tool) => tool.name !== 'update_goal_status' || goalContinues)
+          .filter((tool) => !botRuntime || ![
+            'memory_search',
+            'memory_write',
+            'memory_delete',
+            'chat_spawn_subagent',
+          ].includes(tool.name))
           .filter((tool) => (
             tool.name !== 'chat_spawn_subagent'
             || (!currentConversation?.isSubagent && !currentConversation?.isSideChat)
@@ -2201,6 +2229,7 @@ export class ChatRunner {
             return tool;
           });
       const extensionTools = [
+        ...(botRuntime?.tools ?? []),
         ...providerTools.map((tool) => ({ ...tool, providerTool: true })),
         ...mcpRuntime.tools,
       ];
@@ -2279,6 +2308,7 @@ export class ChatRunner {
               workspacePath,
               mcpInstructions: mcpRuntime.instructions,
               ...this.getPluginContext(),
+              ...(botRuntime ? { bot: this.describeInvocationBot(conversationId) } : {}),
               permissionMode,
               workMode,
               ultraMode,
@@ -2408,7 +2438,7 @@ export class ChatRunner {
           throw new Error('sleep_semaphore must be the only tool call in its model round. Call it before any protected work.');
         }
         const results = await mapToolCalls(turn.toolCalls, async (toolCall) => {
-          const tool = availableTools.find((item) => item.name === toolCall.name);
+          let tool = availableTools.find((item) => item.name === toolCall.name);
           const isMcpTool = Boolean(tool?.mcp);
           let args;
           try {
@@ -2474,7 +2504,20 @@ export class ChatRunner {
               && requiresHumanApproval
               && permissionMode !== 'full_access'
               && !this.approvedToolPatterns.has(approvalPattern);
-            if (needsApproval) {
+            if (needsApproval && botRuntime) {
+              const queuedApproval = await this.queueBotToolApproval({
+                conversationId,
+                toolName: toolCall.name,
+                invocationSummary,
+                workspacePath,
+                input,
+              });
+              if (queuedApproval) {
+                output = `Queued for user approval (id: ${queuedApproval.id}). Finish this activation and do not retry the tool until the user approves it.`;
+                tool = { ...tool, execute: () => output };
+                run.endAfterTools = true;
+              }
+            } else if (needsApproval) {
               const approvalId = randomUUID();
               run.phase = 'approval';
               const approved = await new Promise((resolveApproval, rejectApproval) => {
@@ -2668,6 +2711,11 @@ export class ChatRunner {
           if (!run.semaphoreResume) run.queuePaused = true;
           break;
         }
+        if (
+          run.endAfterTools
+          || run.botIdleRequested
+          || (botRuntime && turn.toolCalls.some((toolCall) => toolCall.name === 'queue_user_approval'))
+        ) break;
         if (contextCompactionRequested) {
           this.emit(conversationId, { type: 'run-state', running: true, startedAt: run.startedAt });
           try {
@@ -2872,6 +2920,9 @@ export class ChatRunner {
       }
     } finally {
       try {
+        if (!this.shuttingDown) {
+          this.noteBotRunFinished(conversationId, assistantMessage.id);
+        }
         this.finishRun(conversationId);
       } finally {
         completion.resolve();
