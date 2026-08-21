@@ -113,31 +113,95 @@
 
 .bot-queue {
   min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+}
+
+.bot-log-selector {
+  display: block;
+
+  select {
+    min-width: 200px;
+    padding: 4px 8px !important;
+    color: var(--text-1);
+    background: var(--background-1);
+    border: 1px solid var(--border-color);
+    border-radius: 32px;
+    font: inherit;
+    font-size: --font-md;
+
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: 1px;
+    }
+  }
+}
+
+.bot-log-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-4) transparent;
+
+  button {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    color: var(--text-3);
+    background: transparent;
+    border: 0;
+    border-radius: 7px;
+    font-size: --font-sm;
+    font-weight: 500;
+
+    small {
+      min-width: 16px;
+      padding: 1px 4px;
+      color: var(--text-4);
+      background: var(--background-3);
+      border-radius: 999px;
+      font-size: 9px;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+    }
+
+    &:hover {
+      color: var(--text-1);
+      background: var(--item-hover);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: 1px;
+    }
+
+    &.active {
+      color: var(--text-1);
+      background: var(--item-active);
+
+      small {
+        color: var(--text-2);
+      }
+    }
+  }
+}
+
+.bot-log-entries {
+  min-height: 0;
   overflow: auto;
   display: grid;
   align-content: start;
   gap: 8px;
-  padding: 10px;
   scrollbar-width: thin;
   scrollbar-color: var(--text-4) transparent;
-
-  > header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 0 2px;
-
-    strong {
-      color: var(--text-1);
-      font-size: 13px;
-    }
-
-    span {
-      color: var(--text-4);
-      font-size: 11px;
-    }
-  }
 }
 
 .bot-queue-empty {
@@ -150,15 +214,16 @@
 
   strong {
     color: var(--text-2);
-    font-size: 13px;
+    font-size: --font-md;
   }
 
   span {
-    font-size: 11px;
+    font-size: --font-sm;
   }
 }
 
 .bot-queue-item {
+  position: relative;
   display: grid;
   gap: 6px;
   padding: 10px;
@@ -167,8 +232,10 @@
   border-radius: 8px;
 
   header {
+    min-width: 0;
     display: grid;
     gap: 2px;
+    padding-right: 28px;
 
     strong {
       color: var(--text-1);
@@ -182,13 +249,140 @@
     }
   }
 
-  p {
-    margin: 0;
+  .bot-log-open {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    color: var(--text-3);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+
+    &:hover {
+      color: var(--text-1);
+      background: var(--item-hover);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: 1px;
+    }
+  }
+
+  .bot-log-preview {
+    position: relative;
+    max-height: 108px;
+    overflow: hidden;
     color: var(--text-3);
     font-size: 12px;
     line-height: 1.5;
     overflow-wrap: anywhere;
+    mask-image: linear-gradient(to bottom, #000 76px, transparent 108px);
+
+    > :last-child {
+      margin-bottom: 0;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 8px 0 4px;
+      font-size: 1em;
+      border: 0;
+    }
+
+    p,
+    ul,
+    ol,
+    pre,
+    table,
+    blockquote {
+      margin: 0 0 6px;
+    }
+
+    pre {
+      padding: 8px;
+    }
+
+    th,
+    td {
+      min-width: 80px;
+      padding: 5px 7px;
+    }
   }
+}
+
+.bot-log-dialog {
+  width: min(820px, calc(100vw - 60px));
+  max-width: none;
+  max-height: min(760px, 88vh);
+  margin: auto;
+  padding: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  color: var(--text-1);
+  background: var(--background-1);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgb(0 0 0 / .42);
+
+  &[open] {
+    display: grid;
+  }
+
+  &::backdrop {
+    background: rgb(0 0 0 / 58%);
+    backdrop-filter: blur(10px);
+  }
+
+  > .dialog-header {
+    align-items: center;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-color);
+
+    > div {
+      min-width: 0;
+    }
+
+    h2 {
+      overflow: hidden;
+      margin: 0;
+      color: var(--text-1);
+      font-size: 14px;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    p {
+      margin: 2px 0 0;
+      color: var(--text-4);
+      font-size: 11px;
+    }
+  }
+
+  @media (max-width: 700px) {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+}
+
+.bot-log-dialog-content {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-4) transparent;
 }
 
 .bot-queue-actions {
@@ -226,7 +420,7 @@
 }
 
 .bot-settings-dialog {
-  width: min(760px, calc(100vw - 48px));
+  width: min(1200px, calc(100vw - 48px));
   height: min(640px, calc(100vh - 64px));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
@@ -581,6 +775,90 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.bot-settings-mcp {
+  > .bot-settings-mcp-empty {
+    margin: 0;
+    color: var(--text-3);
+    font-size: 12px;
+  }
+}
+
+.bot-settings-mcp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  > .bot-settings-mcp-path {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-4);
+    font-size: 11px;
+  }
+}
+
+.bot-settings-dialog .bot-settings-mcp-scope {
+  display: block;
+  grid-column: auto;
+  min-height: 0;
+  overflow: visible;
+  background: transparent;
+
+  .mcp-scope-heading {
+    display: grid;
+    gap: 2px;
+    padding: 8px 12px 4px;
+
+    strong {
+      color: var(--text-2);
+      font-size: 12px;
+      font-weight: 550;
+    }
+
+    small {
+      color: var(--text-4);
+      font-size: 11px;
+    }
+  }
+
+  .mcp-server-main {
+    width: 100%;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto 16px;
+    justify-content: normal;
+    padding: 10px 8px 10px 12px;
+    background: transparent;
+    border: 0;
+    text-align: left;
+  }
+
+  .mcp-server-actions {
+    min-width: max-content;
+  }
+
+  .mcp-server-actions > .icon-button {
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    display: inline-grid;
+    place-items: center;
+    gap: 0;
+    padding: 0;
+    color: var(--text-3);
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+
+    > svg {
+      flex: none;
+      margin: 0;
+    }
+  }
 }
 
 .bot-settings-context-size {

@@ -531,6 +531,73 @@ try {
 
   await runner.shutdown();
 
+  const mixedEvents = [];
+  const mixedRequests = [];
+  const mixedProvider = {
+    getContributions: () => ({ tools: [] }),
+    stream: async (request) => {
+      mixedRequests.push(request);
+      if (mixedRequests.length === 1) {
+        return {
+          assistantContent: '',
+          continuation: [],
+          toolCalls: [
+            {
+              callId: 'mixed-sleep',
+              name: 'sleep_semaphore',
+              argumentsText: JSON.stringify({
+                __invocation_goal: 'Acquire the lock first',
+                __requires_human_approval: false,
+                name: 'mixed-lock',
+                count: 1,
+                maxCount: 1,
+              }),
+            },
+            {
+              callId: 'mixed-list',
+              name: 'list_semaphores',
+              argumentsText: JSON.stringify({
+                __invocation_goal: 'Inspect queues',
+                __requires_human_approval: false,
+              }),
+            },
+          ],
+        };
+      }
+      return { assistantContent: 'Recovered after feedback.', continuation: [], toolCalls: [] };
+    },
+  };
+  const mixedRunner = new ChatRunner({
+    registry: {
+      resolve: () => ({ model, provider: mixedProvider }),
+      listModels: () => [model],
+    },
+    mcpManager: null,
+    sendEvent: (event) => mixedEvents.push(event),
+  });
+  const mixedConversation = createConversation({ model: model.id, projectPath: process.cwd() });
+  await mixedRunner.send({
+    conversationId: mixedConversation.id,
+    model: model.id,
+    text: 'Start protected work.',
+  });
+  await waitFor(() => !mixedRunner.runs.has(mixedConversation.id));
+  assert.equal(mixedRequests.length, 2);
+  const mixedRound = mixedRequests[1].toolHistory[0];
+  assert.equal(mixedRound.toolCalls.length, 2);
+  assert.deepEqual(
+    mixedRound.results.map((result) => [result.callId, result.isError]),
+    [['mixed-sleep', true], ['mixed-list', true]],
+  );
+  assert.match(mixedRound.results[0].output, /must be the only tool call/);
+  assert.deepEqual(mixedRunner.semaphores.holdings(mixedConversation.id), []);
+  assert.equal(mixedRunner.reloadSnapshot().semaphoreWaits.length, 0);
+  assert.equal(mixedEvents.some((event) => event.type === 'error'), false);
+  const mixedAssistant = database.getMessages(mixedConversation.id)
+    .findLast((message) => message.role === 'assistant');
+  assert.equal(mixedAssistant.status, 'completed');
+  await mixedRunner.shutdown();
+
   closeDatabase();
   database = null;
   console.log('Semaphore tests passed.');

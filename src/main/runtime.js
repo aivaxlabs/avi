@@ -583,7 +583,7 @@ function initializeServices() {
       sendEvent: (payload) => {
         sendRendererEvent('chat:event', payload);
         if (
-          ['conversation', 'run-state', 'semaphore-state', 'question-request', 'question-cancelled', 'permission-request', 'permission-cancelled']
+          ['conversation', 'run-state', 'semaphore-state', 'question-request', 'question-cancelled', 'permission-request', 'permission-cancelled', 'permission-resolved']
             .includes(payload.type)
           || (payload.type === 'message' && payload.message?.role === 'user')
         ) refreshTrayMenu();
@@ -1153,9 +1153,9 @@ function registerIpc() {
     setComposerState(payload.conversationId, payload)
   ));
   applicationIpc.handle('tasks:list', (_event, conversationId) => listTasks(conversationId));
-  applicationIpc.handle('bots:list', () => ({
+  applicationIpc.handle('bots:list', async () => ({
     bots: botManager.describeBots(),
-    queue: botManager.listApprovalQueue(),
+    logsByBot: await botManager.listDailyLogsByBot(),
   }));
   applicationIpc.handle('bots:create', (_event, config = {}) => (
     botManager.createBotFromConfig(config)
@@ -1839,14 +1839,35 @@ function registerIpc() {
   });
   applicationIpc.handle('mcp:folder', (_event, folderPath) => mcpManager.listFolder(folderPath));
   applicationIpc.handle('mcp:workspace', (_event, folderPath) => mcpManager.listWorkspace(folderPath));
-  applicationIpc.handle('mcp:save', (_event, payload = {}) => mcpManager.saveServer(
-    payload.folderPath,
-    payload.previousName,
-    payload.server,
-  ));
-  applicationIpc.handle('mcp:remove', (_event, payload = {}) => (
-    mcpManager.removeServer(payload.folderPath, payload.name)
-  ));
+  const resolveBotMcpTarget = (botId) => {
+    const bot = botManager.describeBots().find((item) => item.id === botId);
+    if (!bot) throw new Error('Bot not found.');
+    return {
+      folderPath: bot.resolvedWorkingFolder,
+      options: mcpManager.botScopeOptions(bot.resolvedWorkingFolder, bot.id),
+    };
+  };
+  applicationIpc.handle('mcp:bot', (_event, payload = {}) => {
+    const target = resolveBotMcpTarget(payload.botId);
+    return mcpManager.listFolder(target.folderPath, target.options);
+  });
+  applicationIpc.handle('mcp:save', (_event, payload = {}) => {
+    const target = payload.botId
+      ? resolveBotMcpTarget(payload.botId)
+      : { folderPath: payload.folderPath, options: {} };
+    return mcpManager.saveServer(
+      target.folderPath,
+      payload.previousName,
+      payload.server,
+      target.options,
+    );
+  });
+  applicationIpc.handle('mcp:remove', (_event, payload = {}) => {
+    const target = payload.botId
+      ? resolveBotMcpTarget(payload.botId)
+      : { folderPath: payload.folderPath, options: {} };
+    return mcpManager.removeServer(target.folderPath, payload.name, target.options);
+  });
   applicationIpc.handle('mcp:enabled', (_event, payload = {}) => (
     mcpManager.setServerEnabled(payload.serverKey, payload.enabled)
   ));

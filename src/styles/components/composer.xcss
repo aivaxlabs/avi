@@ -18,7 +18,7 @@
     margin: 0;
   }
 
-  .edit-counter-pill {
+  .composer-chip {
     width: fit-content;
     min-height: 32px;
     display: flex;
@@ -31,13 +31,31 @@
     backdrop-filter: blur(8px);
     border: 1px solid var(--border-color);
     border-radius: 999px;
-    pointer-events: none;
+    font-family: inherit;
     font-size: .9rem;
     font-weight: 500;
     font-variant-numeric: tabular-nums;
 
     > svg {
       color: var(--text-3);
+    }
+
+    &.bot-panel-chip {
+      cursor: pointer;
+
+      &:hover {
+        color: var(--text-1);
+        background: var(--item-hover);
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--focus-border);
+        outline-offset: 2px;
+      }
+    }
+
+    &.edit-counter-pill {
+      pointer-events: none;
     }
 
     .edit-counter-additions {
@@ -107,6 +125,18 @@
     }
 
     &.paused > svg {
+      color: var(--text-3);
+    }
+
+    &.completed > svg {
+      color: var(--success-color);
+    }
+
+    &.blocked > svg {
+      color: var(--danger-color);
+    }
+
+    &.cancelled > svg {
       color: var(--text-3);
     }
 
