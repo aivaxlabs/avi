@@ -19,17 +19,18 @@ When a sub-agent completes or fails, Avi automatically steers a `<subagent_repor
 ## Coordination tools
 
 - `chat_send_prompt` — sends a prioritized message by default; `low_priority` queues it behind active work;
+- `chat_approve_tool_call` — allows a direct orchestrator to approve one pending tool call in its sub-agent by approval ID;
 - `chat_interrupt_thread` — interrupts at the next safe boundary without stopping child agents, background processes, or queued prompts;
-- `chat_inspect_thread` — returns the latest four turns and waiting state without exposing reasoning;
-- `chat_list_threads` and `chat_list_folders` — discover available threads and folders.
+- `chat_inspect_thread` — returns the latest four turns, pending approval IDs, and waiting state without exposing reasoning;
+- `chat_list_threads`, `chat_list_thread_context`, and `chat_list_folders` — discover available threads, teams, and folders.
 
-A prioritized message supersedes a pending structured question. Use it for urgent corrections; use low priority for normal coordination.
+Threads waiting for a structured answer or tool permission report `waiting_for_input`. The direct orchestrator can inspect a sub-agent to find a pending approval ID and approve only that call; it cannot grant a persistent `allow_all` permission, and approval is unavailable in Plan mode. A prioritized message supersedes a pending structured question. Use it for urgent corrections; use low priority for normal coordination.
 
 ## Semaphore coordination
 
 Instructions can require agents to protect shared work with an Avi-managed named semaphore. Semaphore names are application-wide: the same name always refers to the same semaphore across every thread, project, folder, and workspace in the running Avi application.
 
-- `sleep_semaphore(name, count, maxCount)` acquires permits immediately when capacity is available. It must be the only tool call in that model round;
+- `sleep_semaphore(name, count, maxCount)` acquires permits immediately when capacity is available. It must be the only tool call in that model round; a mixed round is rejected without executing anything or acquiring permits, and every call in it receives an error result so the agent can resend them separately;
 - when capacity is unavailable, Avi stores the thread in a strict FIFO queue, finishes the current inference, and marks the thread with a moon icon;
 - the sleeping thread shows the semaphore name and its current queue position;
 - **Run now** removes that wait and resumes the agent without granting semaphore permits;
