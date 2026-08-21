@@ -25,6 +25,7 @@ import {
 const GLOBAL_ROOT = resolve(homedir());
 const CLIENT_INFO = Object.freeze({ name: 'Avi', version: packageMetadata.version });
 const MAX_LOG_ENTRIES = 200;
+const PASSIVE_LEASE_MS = 30 * 60 * 1000;
 
 class McpOAuthProvider {
   constructor({
@@ -166,11 +167,12 @@ export class McpManager {
     return this.initializeScope(this.globalRoot, 'global');
   }
 
-  async ensureWorkspace(workspacePath, signal) {
+  async ensureWorkspace(workspacePath, signal, botId = null) {
     const rootPath = resolve(workspacePath || this.globalRoot);
     const pending = [
       this.initializeGlobal(),
       ...(rootPath === this.globalRoot ? [] : [this.initializeScope(rootPath, 'folder')]),
+      ...(botId ? [this.initializeScope(rootPath, 'bot', this.botScopeOptions(rootPath, botId))] : []),
     ];
     const initialization = Promise.all(pending);
 
@@ -197,20 +199,26 @@ export class McpManager {
       }
     }
 
-    return this.runtimeForWorkspace(rootPath);
+    return botId
+      ? this.runtimeForBot(rootPath, botId)
+      : this.runtimeForWorkspace(rootPath);
   }
 
-  isWorkspaceReady(workspacePath) {
+  isWorkspaceReady(workspacePath, botId = null) {
     const rootPath = resolve(workspacePath || this.globalRoot);
     const globalScope = this.scopes.get(this.scopeKey(this.globalRoot));
     const folderScope = rootPath === this.globalRoot ? null : this.scopes.get(this.scopeKey(rootPath));
+    const botScope = botId
+      ? this.scopes.get(this.botScopeOptions(rootPath, botId).scopeKey)
+      : null;
     return Boolean(
       globalScope?.initialized
       && !globalScope.initializing
       && (
         rootPath === this.globalRoot
         || (folderScope?.initialized && !folderScope.initializing)
-      ),
+      )
+      && (!botId || (botScope?.initialized && !botScope.initializing)),
     );
   }
 
@@ -238,12 +246,10 @@ export class McpManager {
     }));
   }
 
-  async listFolder(folderPath) {
+  async listFolder(folderPath, options = {}) {
     const rootPath = resolve(folderPath || this.globalRoot);
-    const scope = await this.loadScope(
-      rootPath,
-      rootPath === this.globalRoot ? 'global' : 'folder',
-    );
+    const kind = options.kind ?? (rootPath === this.globalRoot ? 'global' : 'folder');
+    const scope = await this.loadScope(rootPath, kind, options);
     return {
       path: rootPath,
       configPath: scope.configPath,
@@ -262,7 +268,7 @@ export class McpManager {
       : await this.loadScope(rootPath, 'folder');
     const localPrefixes = new Set(
       [...(folderScope?.records.values() ?? [])]
-        .filter((record) => record.status === 'ready')
+        .filter((record) => record.config.enabled)
         .map((record) => record.prefix),
     );
 
@@ -277,16 +283,14 @@ export class McpManager {
     ));
   }
 
-  async saveServer(folderPath, previousName, value) {
+  async saveServer(folderPath, previousName, value, options = {}) {
     const rootPath = resolve(folderPath || this.globalRoot);
-    const scope = await this.loadScope(
-      rootPath,
-      rootPath === this.globalRoot ? 'global' : 'folder',
-    );
+    const kind = options.kind ?? (rootPath === this.globalRoot ? 'global' : 'folder');
+    const scope = await this.loadScope(rootPath, kind, options);
     const name = String(value?.name ?? '').trim();
     if (!name) throw new Error('Server name is required.');
     if (
-      rootPath === this.globalRoot
+      kind === 'global'
       && (this.managedServerNames.has(name) || this.managedServerNames.has(previousName))
     ) {
       throw new Error(`Managed MCP server "${previousName || name}" is read-only.`);
@@ -326,26 +330,32 @@ export class McpManager {
         setMcpOAuthSessions(this.oauthSessions);
       }
     }
-    const reloaded = await this.loadScope(rootPath, scope.kind, { reload: true });
+    const reloaded = await this.loadScope(rootPath, scope.kind, {
+      ...scope.options,
+      reload: true,
+    });
     const record = reloaded.records.get(name);
     if (reloaded.initialized && record?.config.enabled) {
-      await this.restartRecord(record);
+      if (record.config.lifecycle === 'passive') {
+        await this.closeRecord(record);
+        this.resetRecord(record);
+      } else {
+        await this.restartRecord(record);
+      }
     }
     this.emitState();
-    return this.listFolder(rootPath);
+    return this.listFolder(rootPath, options);
   }
 
-  async removeServer(folderPath, name) {
+  async removeServer(folderPath, name, options = {}) {
     const rootPath = resolve(folderPath || this.globalRoot);
-    const scope = await this.loadScope(
-      rootPath,
-      rootPath === this.globalRoot ? 'global' : 'folder',
-    );
+    const kind = options.kind ?? (rootPath === this.globalRoot ? 'global' : 'folder');
+    const scope = await this.loadScope(rootPath, kind, options);
     const configFile = await this.readConfig(scope.configPath);
-    if (rootPath === this.globalRoot && this.managedServerNames.has(name)) {
+    if (kind === 'global' && this.managedServerNames.has(name)) {
       throw new Error(`Managed MCP server "${name}" is read-only.`);
     }
-    if (!Object.hasOwn(configFile.servers, name)) return this.listFolder(rootPath);
+    if (!Object.hasOwn(configFile.servers, name)) return this.listFolder(rootPath, options);
 
     const record = scope.records.get(name);
     if (record) {
@@ -360,9 +370,12 @@ export class McpManager {
       `${JSON.stringify({ ...configFile, servers }, null, 2)}\n`,
       'utf8',
     );
-    await this.loadScope(rootPath, scope.kind, { reload: true });
+    await this.loadScope(rootPath, scope.kind, {
+      ...scope.options,
+      reload: true,
+    });
     this.emitState();
-    return this.listFolder(rootPath);
+    return this.listFolder(rootPath, options);
   }
 
   async setServerEnabled(serverKey, enabled) {
@@ -372,7 +385,7 @@ export class McpManager {
     return this.saveServer(record.rootPath, record.name, {
       name: record.name,
       config: { ...record.config, enabled },
-    });
+    }, record.scopeState.options);
   }
 
   async restartServer(serverKey) {
@@ -400,7 +413,9 @@ export class McpManager {
       scope.initializing = null;
       for (const record of scope.records.values()) this.resetRecord(record);
     }
-    await Promise.all(scopes.map((scope) => this.initializeScope(scope.rootPath, scope.kind)));
+    await Promise.all(scopes.map((scope) => (
+      this.initializeScope(scope.rootPath, scope.kind, scope.options)
+    )));
     this.emitState();
     return this.listWorkspace(rootPath);
   }
@@ -419,22 +434,37 @@ export class McpManager {
   }
 
   runtimeForWorkspace(workspacePath) {
+    return this.runtimeForScopes(workspacePath);
+  }
+
+  runtimeForBot(workspacePath, botId) {
+    const rootPath = resolve(workspacePath || this.globalRoot);
+    const botScope = this.scopes.get(this.botScopeOptions(rootPath, botId).scopeKey);
+    return this.runtimeForScopes(rootPath, botScope);
+  }
+
+  runtimeForScopes(workspacePath, exclusiveScope = null) {
     const rootPath = resolve(workspacePath || this.globalRoot);
     const globalScope = this.scopes.get(this.scopeKey(this.globalRoot));
     const folderScope = rootPath === this.globalRoot ? null : this.scopes.get(this.scopeKey(rootPath));
     const records = new Map();
 
-    for (const record of globalScope?.records.values() ?? []) {
-      if (record.status === 'ready') records.set(record.prefix, record);
-    }
-    for (const record of folderScope?.records.values() ?? []) {
-      if (record.status === 'ready') records.set(record.prefix, record);
+    for (const scope of [globalScope, folderScope, exclusiveScope]) {
+      for (const record of scope?.records.values() ?? []) {
+        if (record.config.enabled) records.set(record.prefix, record);
+      }
     }
 
     return {
-      tools: [...records.values()].flatMap((record) => record.tools),
+      tools: [...records.values()].flatMap((record) => {
+        if (record.status === 'ready') return record.tools;
+        if (record.config.lifecycle === 'passive' && record.status !== 'starting') {
+          return [this.passiveEnableTool(record)];
+        }
+        return [];
+      }),
       instructions: [...records.values()]
-        .filter((record) => record.instructions)
+        .filter((record) => record.status === 'ready' && record.instructions)
         .map((record) => ({ from: record.name, text: record.instructions })),
     };
   }
@@ -457,13 +487,13 @@ export class McpManager {
     }
   }
 
-  async initializeScope(rootPath, kind) {
+  async initializeScope(rootPath, kind, options = {}) {
     const startedAt = Date.now();
     traceVerbose('mcp.scope-initialization-started', {
       operation: 'initialize-scope',
       scope: kind,
     });
-    const scope = await this.loadScope(rootPath, kind);
+    const scope = await this.loadScope(rootPath, kind, options);
     if (scope.initializing) {
       traceVerbose('mcp.scope-initialization-reused', {
         operation: 'initialize-scope',
@@ -489,8 +519,12 @@ export class McpManager {
           record.resolveReady();
           return;
         }
+        if (record.config.lifecycle === 'passive') {
+          record.resolveReady();
+          return;
+        }
         if (record.status === 'idle' || record.status === 'error') {
-          this.connectRecord(record);
+          record.connecting = this.connectRecord(record);
         }
         await record.ready;
       }),
@@ -519,10 +553,11 @@ export class McpManager {
     return scope.initializing;
   }
 
-  async loadScope(rootPath, kind, { reload = false } = {}) {
+  async loadScope(rootPath, kind, options = {}) {
+    const { reload = false } = options;
     const startedAt = Date.now();
     const normalizedRoot = resolve(rootPath || this.globalRoot);
-    const key = this.scopeKey(normalizedRoot);
+    const key = options.scopeKey ?? this.scopeKey(normalizedRoot);
     const existing = this.scopes.get(key);
     if (existing && !reload) return existing;
     traceVerbose('mcp.scope-discovery-started', {
@@ -534,7 +569,8 @@ export class McpManager {
     const scope = existing ?? {
       rootPath: normalizedRoot,
       kind,
-      configPath: join(normalizedRoot, '.agents', 'mcpconfig.json'),
+      configPath: options.configPath ?? join(normalizedRoot, '.agents', 'mcpconfig.json'),
+      options,
       initialized: false,
       initializing: null,
       records: new Map(),
@@ -590,6 +626,9 @@ export class McpManager {
         client: null,
         transport: null,
         oauthProvider: null,
+        connecting: null,
+        leaseTimer: null,
+        activeUntil: null,
         ready,
         resolveReady,
       };
@@ -752,6 +791,7 @@ export class McpManager {
       record.status = 'ready';
       record.error = '';
       record.authUrl = '';
+      if (record.config.lifecycle === 'passive') this.touchPassiveLease(record);
       this.appendLog(record, 'info', `Connected with ${record.tools.length} tool(s).`);
       traceVerbose('mcp.server-connection-completed', {
         operation: 'connect-server',
@@ -822,8 +862,14 @@ export class McpManager {
         },
         execute: async (input, { signal }) => {
           if (record.status !== 'ready' || !record.client) {
-            throw new Error(`MCP server "${record.name}" is not connected.`);
+            throw new Error(
+              `MCP server "${record.name}" is not connected.`
+              + (record.config.lifecycle === 'passive'
+                ? ` Call ${record.prefix}enable_mcp to activate it.`
+                : ''),
+            );
           }
+          if (record.config.lifecycle === 'passive') this.touchPassiveLease(record);
           try {
             const argumentsValue = { ...input };
             delete argumentsValue.__requires_human_approval;
@@ -905,6 +951,71 @@ export class McpManager {
     });
   }
 
+  passiveEnableTool(record) {
+    const leaseMinutes = Math.round(PASSIVE_LEASE_MS / 60000);
+    return {
+      name: `${record.prefix}enable_mcp`,
+      description: `Activate the passive MCP server "${record.name}" (${record.config.type}). Its real tools stay hidden until this tool is called. After activation the server stays connected for ${leaseMinutes} minutes of inactivity, renewed by every tool call.`,
+      inputSchema: { type: 'object', properties: {} },
+      canEditFile: false,
+      canPerformDestructiveActions: false,
+      mcp: {
+        serverKey: record.key,
+        serverName: record.name,
+        toolName: 'enable_mcp',
+      },
+      execute: async () => {
+        const status = await this.activatePassiveRecord(record);
+        if (status === 'ready') {
+          return `MCP server "${record.name}" is active with ${record.tools.length} tool(s). Its tools are now available and stay live for ${leaseMinutes} minutes; every tool call renews the window.`;
+        }
+        if (status === 'auth-required') {
+          return `MCP server "${record.name}" requires OAuth authentication. The user was asked to authenticate in the browser. Once they finish, call ${record.prefix}enable_mcp again.`;
+        }
+        throw new Error(
+          `MCP server "${record.name}" could not be activated: ${record.error || 'unknown error'}`,
+        );
+      },
+    };
+  }
+
+  async activatePassiveRecord(record) {
+    if (record.status === 'ready') {
+      this.touchPassiveLease(record);
+      return 'ready';
+    }
+    if (record.connecting) {
+      await record.connecting;
+    } else if (record.status === 'idle' || record.status === 'error') {
+      record.connecting = this.connectRecord(record);
+      await record.connecting;
+    }
+    return record.status;
+  }
+
+  touchPassiveLease(record) {
+    record.activeUntil = Date.now() + PASSIVE_LEASE_MS;
+    if (record.leaseTimer) clearTimeout(record.leaseTimer);
+    record.leaseTimer = setTimeout(() => {
+      this.deactivatePassiveRecord(record);
+    }, PASSIVE_LEASE_MS);
+  }
+
+  clearPassiveLease(record) {
+    if (record.leaseTimer) clearTimeout(record.leaseTimer);
+    record.leaseTimer = null;
+    record.activeUntil = null;
+  }
+
+  async deactivatePassiveRecord(record) {
+    if (this.records.get(record.key) !== record) return;
+    this.clearPassiveLease(record);
+    await this.closeRecord(record);
+    this.resetRecord(record);
+    this.appendLog(record, 'info', 'Passive MCP server deactivated after inactivity.');
+    this.emitState();
+  }
+
   async restartRecord(record) {
     await this.closeRecord(record);
     this.resetRecord(record);
@@ -912,7 +1023,7 @@ export class McpManager {
       record.resolveReady();
       return;
     }
-    this.connectRecord(record);
+    record.connecting = this.connectRecord(record);
     await record.ready;
   }
 
@@ -927,9 +1038,12 @@ export class McpManager {
     record.instructions = '';
     record.error = '';
     record.authUrl = '';
+    this.clearPassiveLease(record);
   }
 
   async closeRecord(record, { settle = true } = {}) {
+    this.clearPassiveLease(record);
+    record.connecting = null;
     const client = record.client;
     record.client = null;
     record.transport = null;
@@ -997,7 +1111,8 @@ export class McpManager {
       record.instructions = '';
       record.error = '';
       record.authUrl = '';
-      await this.connectRecord(record);
+      record.connecting = this.connectRecord(record);
+      await record.connecting;
       if (record.status !== 'ready') return;
       this.sendEvent({
         type: 'auth-complete',
@@ -1055,10 +1170,12 @@ export class McpManager {
       rootPath: record.rootPath,
       type: record.config.type,
       enabled: record.config.enabled,
+      lifecycle: record.config.lifecycle ?? 'active',
       managed: record.managed === true,
       status: shadowed ? 'shadowed' : record.status,
       toolCount: record.tools.length,
       error: record.error,
+      activeUntil: record.activeUntil ?? null,
       ...(includeConfig ? { config: record.config } : {}),
       ...(includeDetails
         ? {
@@ -1087,6 +1204,18 @@ export class McpManager {
   scopeKey(rootPath) {
     const resolved = resolve(rootPath);
     return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  }
+
+  botScopeOptions(rootPath, botId) {
+    const normalizedBotId = String(botId ?? '').trim();
+    if (!/^[a-zA-Z0-9_-]+$/.test(normalizedBotId)) throw new Error('Invalid bot id.');
+    const rootKey = this.scopeKey(rootPath);
+    return {
+      kind: 'bot',
+      botId: normalizedBotId,
+      scopeKey: `${rootKey}:bot:${normalizedBotId}`,
+      configPath: join(resolve(rootPath), '.agents', 'bots', normalizedBotId, 'mcpconfig.json'),
+    };
   }
 
   appendLog(record, level, message) {

@@ -165,10 +165,15 @@ export function McpOverlay({
                   <span className="mcp-status-server-icon"><PlugZap size={15} /></span>
                   <span>
                     <strong>{server.name}</strong>
-                    <small>{server.scope === 'global' ? 'Global' : 'Folder'} · {server.toolCount} tools</small>
+                    <small>
+                      {server.scope === 'global' ? 'Global' : 'Folder'} · {server.toolCount} tools
+                      {server.lifecycle === 'passive' ? ' · Passive' : ''}
+                    </small>
                   </span>
                   <span className={classNames('settings-status', server.status)}>
-                    {statusLabels[server.status] ?? server.status}
+                    {server.lifecycle === 'passive' && server.status === 'idle'
+                      ? 'Passive'
+                      : statusLabels[server.status] ?? server.status}
                   </span>
                 </article>
               ))}

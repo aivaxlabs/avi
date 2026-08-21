@@ -1127,6 +1127,9 @@ export class ChatRunner {
     }
 
     if (resumingSemaphore) this.pausedQueues.delete(conversation.id);
+    const botRuntime = conversation.isBot
+      ? this.getBotRuntimeContext(conversation.id)
+      : null;
     const userMessage = this.createUserMessage({
       conversationId: conversation.id,
       model,
@@ -1142,7 +1145,7 @@ export class ChatRunner {
       attachments,
       status: workMode === 'plan'
         || !this.mcpManager
-        || this.mcpManager.isWorkspaceReady(conversation.projectPath)
+        || this.mcpManager.isWorkspaceReady(conversation.projectPath, botRuntime?.bot.id)
         ? 'sent'
         : 'waiting_mcp',
     });
@@ -2090,20 +2093,26 @@ export class ChatRunner {
     let waitingForMcp = false;
     let traceSelection = null;
     try {
-      const workspacePath = getConversation(conversationId)?.projectPath;
+      const conversationAtStart = getConversation(conversationId);
+      const workspacePath = conversationAtStart?.projectPath;
+      const botRuntime = conversationAtStart?.isBot
+        ? this.getBotRuntimeContext(conversationId)
+        : null;
       waitingForMcp = Boolean(
         workMode !== 'plan'
         && this.mcpManager
-        && !this.mcpManager.isWorkspaceReady(workspacePath),
+        && !this.mcpManager.isWorkspaceReady(workspacePath, botRuntime?.bot.id),
       );
       if (waitingForMcp) {
         this.emit(conversationId, { type: 'mcp-waiting', waiting: true });
       }
-      const mcpRuntime = workMode === 'plan'
-        ? { tools: [], instructions: [] }
-        : this.mcpManager
-        ? await this.mcpManager.ensureWorkspace(workspacePath, controller.signal)
-        : { tools: [], instructions: [] };
+      if (workMode !== 'plan' && this.mcpManager) {
+        await this.mcpManager.ensureWorkspace(
+          workspacePath,
+          controller.signal,
+          botRuntime?.bot.id,
+        );
+      }
       if (this.shouldEndAtBoundary(run)) throw new Error('The run was interrupted.');
       for (const waitingUserMessageId of run.userMessageIds) {
         if (getMessage(waitingUserMessageId)?.status !== 'waiting_mcp') continue;
@@ -2128,9 +2137,6 @@ export class ChatRunner {
         });
       const models = this.registry.listModels();
       const currentConversation = getConversation(conversationId);
-      const botRuntime = currentConversation?.isBot
-        ? this.getBotRuntimeContext(conversationId)
-        : null;
       const currentGoal = goalId ? getGoal(goalId) : getGoalForConversation(conversationId);
       const goalContinues = currentGoal && CONTINUING_GOAL_STATUSES.has(currentGoal.status);
       const preferences = this.getPreferences();
@@ -2228,15 +2234,6 @@ export class ChatRunner {
             }
             return tool;
           });
-      const extensionTools = [
-        ...(botRuntime?.tools ?? []),
-        ...providerTools.map((tool) => ({ ...tool, providerTool: true })),
-        ...mcpRuntime.tools,
-      ];
-      const availableTools = decorateToolsForInvocation(
-        composeToolsWithPlugins(coreTools, pluginTools, extensionTools),
-        permissionMode,
-      );
       const toolHistory = initialToolHistory.map((round) => ({
         ...round,
         toolCalls: [...round.toolCalls],
@@ -2280,6 +2277,20 @@ export class ChatRunner {
       while (true) {
         const roundIndex = toolHistory.length;
         const roundSegmentStart = accumulator.segments.length;
+        const mcpRuntime = workMode === 'plan' || !this.mcpManager
+          ? { tools: [], instructions: [] }
+          : botRuntime
+            ? this.mcpManager.runtimeForBot(workspacePath, botRuntime.bot.id)
+            : this.mcpManager.runtimeForWorkspace(workspacePath);
+        const extensionTools = [
+          ...(botRuntime?.tools ?? []),
+          ...providerTools.map((tool) => ({ ...tool, providerTool: true })),
+          ...mcpRuntime.tools,
+        ];
+        const availableTools = decorateToolsForInvocation(
+          composeToolsWithPlugins(coreTools, pluginTools, extensionTools),
+          permissionMode,
+        );
         const latestGoal = goalId ? getGoal(goalId) : getGoalForConversation(conversationId);
         const goalContext = latestGoal && CONTINUING_GOAL_STATUSES.has(latestGoal.status)
           ? latestGoal
@@ -2435,7 +2446,28 @@ export class ChatRunner {
           turn.toolCalls.length > 1
           && turn.toolCalls.some((toolCall) => toolCall.name === 'sleep_semaphore')
         ) {
-          throw new Error('sleep_semaphore must be the only tool call in its model round. Call it before any protected work.');
+          const semaphoreRoundError = 'sleep_semaphore must be the only tool call in its model round. Call it before any protected work. Nothing in this round was executed and no permit was acquired. Resend sleep_semaphore alone, or resend the other calls without it.';
+          const semaphoreRoundResults = turn.toolCalls.map((toolCall) => ({
+            callId: toolCall.callId,
+            output: `Error: ${semaphoreRoundError}`,
+            isError: true,
+          }));
+          for (const result of semaphoreRoundResults) {
+            accumulator.apply({
+              type: 'tool-result',
+              callId: result.callId,
+              output: result.output,
+              isError: true,
+            });
+          }
+          persistAssistant({ force: true });
+          toolHistory.push({
+            assistantContent: turn.assistantContent,
+            continuation: turn.continuation,
+            toolCalls: turn.toolCalls,
+            results: semaphoreRoundResults,
+          });
+          continue;
         }
         const results = await mapToolCalls(turn.toolCalls, async (toolCall) => {
           let tool = availableTools.find((item) => item.name === toolCall.name);
@@ -3085,6 +3117,16 @@ export class ChatRunner {
     return null;
   }
 
+  getPendingApprovals(conversationId) {
+    return [...this.pendingApprovals.entries()]
+      .filter(([, pending]) => pending.conversationId === conversationId)
+      .map(([approvalId, pending]) => ({
+        approvalId,
+        toolName: pending.toolName,
+        invocationSummary: pending.invocationSummary,
+      }));
+  }
+
   answerQuestion({ questionId, cancelled = false, answers = [] }) {
     const pending = this.pendingQuestions.get(questionId);
     if (!pending) return false;
@@ -3158,6 +3200,11 @@ export class ChatRunner {
       this.approvedToolPatterns.add(pending.approvalPattern);
     }
     this.pendingApprovals.delete(approvalId);
+    this.emit(pending.conversationId, {
+      type: 'permission-resolved',
+      approvalId,
+      decision,
+    });
     pending.finish(decision !== 'disallow');
     return true;
   }

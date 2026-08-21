@@ -88,6 +88,13 @@ function stopTerminal(terminal) {
   terminal.child.kill();
 }
 
+function isThreadWaitingForInput(chatRunner, conversationId) {
+  return Boolean(
+    chatRunner.getPendingQuestion?.(conversationId)
+    || chatRunner.getPendingApprovals?.(conversationId)?.length,
+  );
+}
+
 export function stopConversationTerminals(conversationId) {
   for (const terminal of terminals.values()) {
     if (terminal.conversationId === conversationId) stopTerminal(terminal);
@@ -615,9 +622,11 @@ export const CLIENT_TOOLS = Object.freeze([
           title: conversation.title,
           folderPath: conversation.projectPath,
           model: conversation.model,
-          status: chatRunner.semaphores.waitSnapshot(conversation.id)
-            ? 'sleeping'
-            : chatRunner.runs.has(conversation.id) ? 'running' : 'idle',
+          status: isThreadWaitingForInput(chatRunner, conversation.id)
+            ? 'waiting_for_input'
+            : chatRunner.semaphores.waitSnapshot(conversation.id)
+              ? 'sleeping'
+              : chatRunner.runs.has(conversation.id) ? 'running' : 'idle',
           semaphoreHoldings: chatRunner.semaphores.holdings(conversation.id),
           createdAt: conversation.createdAt,
           updatedAt: conversation.updatedAt,
@@ -681,11 +690,13 @@ export const CLIENT_TOOLS = Object.freeze([
           title: conversation.title,
           role: conversation.isSideChat ? 'side_chat' : conversation.isSubagent ? 'subagent' : 'orchestrator',
           parentId: conversation.parentConversationId,
-          status: chatRunner.semaphores.waitSnapshot(conversation.id)
-            ? 'sleeping'
-            : chatRunner.runs.has(conversation.id)
-              ? 'in_progress'
-              : lastAssistant?.status === 'completed'
+          status: isThreadWaitingForInput(chatRunner, conversation.id)
+            ? 'waiting_for_input'
+            : chatRunner.semaphores.waitSnapshot(conversation.id)
+              ? 'sleeping'
+              : chatRunner.runs.has(conversation.id)
+                ? 'in_progress'
+                : lastAssistant?.status === 'completed'
                 ? 'completed'
                 : conversation.isSubagent
                   ? 'failed'
@@ -766,6 +777,7 @@ export const CLIENT_TOOLS = Object.freeze([
       },
       {
         chatRunner,
+        conversationId,
         model,
         models,
         reasoningEffort,
@@ -839,7 +851,10 @@ export const CLIENT_TOOLS = Object.freeze([
           conversationId: conversation.id,
           model: selectedModel.id,
           reasoningEffort: selectedReasoningEffort,
-          permissionMode,
+          // Bot-delegated threads run unattended: permission requests would never be answered.
+          permissionMode: getConversation(conversationId)?.isBot
+            ? 'full_access'
+            : permissionMode,
           text: normalizedPrompt,
           fromAgent: true,
           project: { path: projectPath },
@@ -1061,7 +1076,8 @@ export const CLIENT_TOOLS = Object.freeze([
         conversationId: conversation.id,
         model: conversation.model,
         text: normalizedPrompt,
-        permissionMode,
+        // Bot-delegated threads run unattended: permission requests would never be answered.
+        permissionMode: sourceConversation?.isBot ? 'full_access' : permissionMode,
         steer: !low_priority,
         fromAgent: true,
         workMode: planMode ? 'plan' : workMode,
@@ -1085,6 +1101,62 @@ export const CLIENT_TOOLS = Object.freeze([
         `Thread ID: ${conversation.id}`,
         `Message ID: ${result.message.id}`,
         `Status: ${status}`,
+      ].join('\n');
+    },
+  },
+  {
+    name: 'chat_approve_tool_call',
+    description: 'Approve one pending tool call in a direct sub-agent thread. Use the approval ID reported by chat_inspect_thread; the approval must still belong to the specified thread.',
+    canEditFile: false,
+    canPerformDestructiveActions: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        threadId: {
+          type: 'string',
+          description: 'The target thread ID.',
+        },
+        approvalId: {
+          type: 'string',
+          description: 'The pending approval ID reported by chat_inspect_thread.',
+        },
+      },
+      required: ['threadId', 'approvalId'],
+      additionalProperties: false,
+    },
+    execute: async ({ threadId, approvalId }, { chatRunner, conversationId }) => {
+      const conversation = getConversation(String(threadId));
+      if (!conversation) throw new Error('The thread was not found.');
+      const sourceConversation = getConversation(conversationId);
+      if (
+        !sourceConversation
+        || sourceConversation.isSubagent
+        || sourceConversation.isSideChat
+        || sourceConversation.isBot
+        || !conversation.isSubagent
+        || conversation.isBot
+        || conversation.parentConversationId !== sourceConversation.id
+      ) {
+        throw new Error('Tool calls can only be approved by the direct orchestrator of a sub-agent thread.');
+      }
+      const normalizedApprovalId = String(approvalId ?? '').trim();
+      if (!normalizedApprovalId) throw new Error('approvalId is required.');
+      const approval = chatRunner.getPendingApprovals?.(conversation.id)
+        ?.find((item) => item.approvalId === normalizedApprovalId);
+      if (!approval) {
+        throw new Error('The approval was not found for the specified thread.');
+      }
+      if (!await chatRunner.resolveApproval({
+        approvalId: normalizedApprovalId,
+        decision: 'allow',
+      })) {
+        throw new Error('The approval is no longer pending.');
+      }
+      return [
+        'Tool call approved.',
+        `Thread ID: ${conversation.id}`,
+        `Approval ID: ${normalizedApprovalId}`,
+        `Tool: ${approval.toolName}`,
       ].join('\n');
     },
   },
@@ -1218,8 +1290,8 @@ export const CLIENT_TOOLS = Object.freeze([
         };
       });
 
-      const pendingQuestion = chatRunner.getPendingQuestion?.(conversation.id) ?? null;
-      const status = pendingQuestion
+      const pendingApprovals = chatRunner.getPendingApprovals?.(conversation.id) ?? [];
+      const status = isThreadWaitingForInput(chatRunner, conversation.id)
         ? 'waiting_for_input'
         : chatRunner.semaphores.waitSnapshot(conversation.id)
           ? 'sleeping'
@@ -1244,6 +1316,17 @@ export const CLIENT_TOOLS = Object.freeze([
         `Folder: ${conversation.projectPath}`,
         `Model: ${conversation.model}`,
         `Status: ${status}`,
+        ...(pendingApprovals.length > 0
+          ? [
+              '',
+              'Pending tool approvals:',
+              ...pendingApprovals.map((approval) => [
+                `- Approval ID: ${approval.approvalId}`,
+                `  Tool: ${approval.toolName}`,
+                `  Goal: ${approval.invocationSummary}`,
+              ].join('\n')),
+            ]
+          : []),
         '',
         'Recent turns:',
         ...(renderedTurns.length > 0 ? renderedTurns : ['None.']),
@@ -1576,7 +1659,7 @@ export const CLIENT_TOOLS = Object.freeze([
           ? subagents.map((subagent) => [
             `- ${subagent.title}`,
             `  Thread ID: ${subagent.id}`,
-            `  Status: ${chatRunner?.getPendingQuestion?.(subagent.id)
+            `  Status: ${isThreadWaitingForInput(chatRunner, subagent.id)
               ? 'waiting_for_input'
               : chatRunner?.runs?.has(subagent.id) ? 'running' : 'idle'}`,
           ].join('\n'))

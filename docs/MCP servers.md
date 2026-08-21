@@ -7,7 +7,7 @@ Model Context Protocol (MCP) connects Avi to live tools and context from local p
 - Global: `$HOME/.agents/mcpconfig.json`, available to every workspace;
 - Project: `$PWD/.agents/mcpconfig.json`, available only when that exact folder is the conversation workspace.
 
-Avi does not recursively search for MCP configuration in subdirectories. A ready project server shadows a ready global server with the same normalized tool prefix.
+Avi does not recursively search for MCP configuration in subdirectories. An enabled project server shadows an enabled global server with the same normalized tool prefix.
 
 ## Configuration formats
 
@@ -19,6 +19,7 @@ Avi does not recursively search for MCP configuration in subdirectories. A ready
     "local": {
       "type": "stdio",
       "enabled": true,
+      "lifecycle": "active",
       "command": "bunx",
       "args": ["-y", "@example/mcp-server"],
       "cwd": "",
@@ -40,6 +41,7 @@ An empty `cwd` uses the configuration scope root. A relative `cwd` is resolved f
     "remote": {
       "type": "streamable-http",
       "enabled": true,
+      "lifecycle": "active",
       "url": "https://example.com/mcp",
       "headers": {},
       "auth": {
@@ -55,6 +57,15 @@ An empty `cwd` uses the configuration scope root. A relative `cwd` is resolved f
 
 Supported transports are `stdio`, `streamable-http`, and legacy `sse`. The legacy `http` alias is normalized to `streamable-http`. Remote authentication modes are `auto`, `none`, `bearer`, and `oauth2`.
 
+### Lifecycle
+
+Every server accepts an optional `lifecycle` field:
+
+- `active` (default): the server connects when its scope initializes and its tools stay available for every conversation.
+- `passive`: the server stays disconnected and exposes a single activation tool, `mcp_<normalized-server>_enable_mcp`. Calling it connects the server, removes the activation tool, and makes the real tools available. The server then stays connected for 30 minutes of inactivity, renewed by every tool call. When the lease expires, Avi disconnects the server and it returns to the activation-tool state.
+
+Saving or editing a passive server, or running `/restart-mcp`, returns it to the inactive state. Manually restarting a passive server from Settings connects it immediately and starts the lease.
+
 ## Configure a server in Settings
 
 1. Open **Settings → MCP servers**.
@@ -65,11 +76,11 @@ Supported transports are `stdio`, `streamable-http`, and legacy `sse`. The legac
 6. Save and enable the server.
 7. Use **Inspect** to review tools, schemas, server instructions, and connection logs.
 
-Possible states include Not started, Starting, Connected, Authentication required, Failed, Disabled, and Overridden by folder. In a conversation, `/mcp` shows the available runtime and `/restart-mcp` restarts loaded servers.
+Possible states include Passive, Not started, Starting, Connected, Authentication required, Failed, Disabled, and Overridden by folder. In a conversation, `/mcp` shows the available runtime and `/restart-mcp` restarts loaded servers.
 
 ## Runtime behavior
 
-MCP tools are exposed as `mcp_<normalized-server>_<normalized-tool>`. Avi imports each tool’s description, input schema, read-only and destructive hints, and any instructions returned by the server. Server instructions are injected inside an `<mcp_context from="...">` block.
+MCP tools are exposed as `mcp_<normalized-server>_<normalized-tool>`. Avi imports each tool’s description, input schema, read-only and destructive hints, and any instructions returned by the server. Server instructions are injected inside an `<mcp_context from="...">` block. Passive servers contribute no tools or instructions until activated.
 
 Text, structured JSON, resources, and media results are preserved. Media and blobs are materialized in temporary storage. Avi’s local approval metadata fields are removed before forwarding arguments to the MCP server.
 

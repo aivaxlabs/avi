@@ -1,13 +1,22 @@
 const SERVER_TYPES = new Set(['stdio', 'streamable-http', 'sse']);
 const AUTH_TYPES = new Set(['auto', 'none', 'bearer', 'oauth2']);
-const STDIO_FIELDS = new Set(['type', 'enabled', 'command', 'args', 'cwd', 'env']);
-const REMOTE_FIELDS = new Set(['type', 'enabled', 'url', 'headers', 'auth']);
+const LIFECYCLE_MODES = new Set(['active', 'passive']);
+const STDIO_FIELDS = new Set(['type', 'enabled', 'lifecycle', 'command', 'args', 'cwd', 'env']);
+const REMOTE_FIELDS = new Set(['type', 'enabled', 'lifecycle', 'url', 'headers', 'auth']);
 const AUTH_FIELDS = new Set(['type', 'token', 'clientId', 'clientSecret']);
 
 function isPlainObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
+}
+
+function normalizeLifecycle(value) {
+  const lifecycle = String(value ?? 'active').trim().toLowerCase();
+  if (!LIFECYCLE_MODES.has(lifecycle)) {
+    throw new Error('Choose active or passive as the MCP server lifecycle.');
+  }
+  return lifecycle;
 }
 
 export function normalizeMcpServer(value) {
@@ -34,6 +43,7 @@ export function normalizeMcpServer(value) {
     return {
       type,
       enabled: server.enabled !== false,
+      lifecycle: normalizeLifecycle(server.lifecycle),
       command,
       args: (server.args ?? []).map(String),
       cwd: String(server.cwd ?? '').trim(),
@@ -73,6 +83,7 @@ export function normalizeMcpServer(value) {
   return {
     type,
     enabled: server.enabled !== false,
+    lifecycle: normalizeLifecycle(server.lifecycle),
     url,
     headers: Object.fromEntries(
       Object.entries(server.headers ?? {}).map(([key, entry]) => [key, String(entry)]),

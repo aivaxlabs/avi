@@ -149,6 +149,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     folders: () => invoke('mcp:folders'),
     folder: (folderPath) => invoke('mcp:folder', folderPath),
     workspace: (folderPath) => invoke('mcp:workspace', folderPath),
+    bot: (botId) => invoke('mcp:bot', { botId }),
     save: (payload) => invoke('mcp:save', payload),
     remove: (payload) => invoke('mcp:remove', payload),
     enabled: (payload) => invoke('mcp:enabled', payload),

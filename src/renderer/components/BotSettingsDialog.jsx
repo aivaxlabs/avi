@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   Bot,
   BriefcaseBusiness,
   Clock3,
@@ -6,8 +7,10 @@ import {
   Database,
   Dices,
   FolderOpen,
+  Plus,
   RotateCcw,
   Save,
+  Server,
   Trash2,
   UserRound,
   X,
@@ -16,6 +19,7 @@ import Avatar from 'boring-avatars';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { classNames } from '../lib/format.js';
+import { McpSettings } from './McpSettings.jsx';
 
 const botAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
 const builtInPersonalities = ['candid', 'cynical', 'friendly', 'pragmatic', 'quirky'];
@@ -23,6 +27,7 @@ const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const tabs = [
   { id: 'profile', label: 'Profile', description: 'Identity and behavior', icon: UserRound },
   { id: 'work', label: 'Work', description: 'Purpose and workspace', icon: BriefcaseBusiness },
+  { id: 'mcp', label: 'MCP servers', description: 'External tool servers', icon: Server },
   { id: 'model', label: 'Model', description: 'AI and context', icon: Cpu },
   { id: 'schedule', label: 'Schedule', description: 'Timing and autonomy', icon: Clock3 },
   { id: 'data', label: 'Data', description: 'Storage and conversation', icon: Database },
@@ -56,6 +61,7 @@ export function BotSettingsDialog({
   const [tab, setTab] = useState('profile');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [mcpNavigation, setMcpNavigation] = useState(null);
   const [scheduleWindowEnabled, setScheduleWindowEnabled] = useState(() => Boolean(
     bot?.activationWindow?.days?.length
     || Number.isInteger(bot?.activationWindow?.startMinute)
@@ -98,6 +104,20 @@ export function BotSettingsDialog({
     () => models.find((model) => model.id === draft.model) ?? null,
     [draft.model, models],
   );
+  const modelGroups = useMemo(() => {
+    const groups = [];
+    const byProvider = new Map();
+    for (const model of models) {
+      let group = byProvider.get(model.providerId);
+      if (!group) {
+        group = { id: model.providerId, name: model.providerName, models: [] };
+        byProvider.set(model.providerId, group);
+        groups.push(group);
+      }
+      group.models.push(model);
+    }
+    return groups;
+  }, [models]);
   const personalityOptions = [
     { id: '', label: 'Default' },
     ...builtInPersonalities.map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1) })),
@@ -160,7 +180,7 @@ export function BotSettingsDialog({
   }
 
   function clearThread() {
-    if (!window.confirm('Clear this bot conversation? Messages are removed. Memory and work files are kept.')) return;
+    if (!window.confirm('Clear this bot conversation? Messages are removed. Memory and daily logs are kept.')) return;
     onClearThread?.(bot?.id);
   }
 
@@ -341,6 +361,54 @@ export function BotSettingsDialog({
               </>
             )}
 
+            {tab === 'mcp' && (
+              <section className="bot-settings-section bot-settings-mcp">
+                <header>
+                  <h3>Which external tools can it use?</h3>
+                  <p>Workspace servers are inherited. Bot servers are exclusive to this bot.</p>
+                </header>
+                {bot?.resolvedWorkingFolder ? (
+                  <>
+                    <div className="bot-settings-mcp-toolbar">
+                      {mcpNavigation?.backLabel === 'Back to servers' && (
+                        <button type="button" autoFocus onClick={mcpNavigation.onBack}>
+                          <ArrowLeft size={14} aria-hidden="true" />
+                          {mcpNavigation.backLabel}
+                        </button>
+                      )}
+                      <span className="bot-settings-mcp-path" title={mcpNavigation?.description}>
+                        {mcpNavigation?.description}
+                      </span>
+                      {mcpNavigation?.onAction && (
+                        <button
+                          className="primary-mini"
+                          type="button"
+                          onClick={mcpNavigation.onAction}
+                        >
+                          <Plus size={14} aria-hidden="true" />
+                          {mcpNavigation.actionLabel}
+                        </button>
+                      )}
+                    </div>
+                    <div
+                      className="settings-page bot-settings-mcp-scope"
+                      key={bot.resolvedWorkingFolder}
+                    >
+                      <McpSettings
+                        initialFolder={{ path: bot.resolvedWorkingFolder, name: 'Bot servers' }}
+                        botId={bot.id}
+                        onNavigationChange={setMcpNavigation}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <p className="bot-settings-mcp-empty">
+                    Save this bot first to configure its MCP servers.
+                  </p>
+                )}
+              </section>
+            )}
+
             {tab === 'model' && (
               <>
                 <section className="bot-settings-section">
@@ -355,10 +423,14 @@ export function BotSettingsDialog({
                         value={draft.model}
                         onChange={(event) => update({ model: event.target.value, reasoningEffort: '' })}
                       >
-                        {models.map((model) => (
-                          <option key={model.id} value={model.id}>
-                            {model.name || model.id}
-                          </option>
+                        {modelGroups.map((group) => (
+                          <optgroup key={group.id} label={group.name}>
+                            {group.models.map((model) => (
+                              <option key={model.id} value={model.id}>
+                                {model.name || model.id}
+                              </option>
+                            ))}
+                          </optgroup>
                         ))}
                       </select>
                     </label>
@@ -560,23 +632,23 @@ export function BotSettingsDialog({
                 <section className="bot-settings-section">
                   <header>
                     <h3>Where is its internal data?</h3>
-                    <p>Memory, work queues, and approval state live in this managed folder.</p>
+                    <p>Memory and daily JSON logs live directly in the working folder.</p>
                   </header>
                   <label className="bot-settings-control">
-                    <span>Work data folder</span>
+                    <span>Working folder</span>
                     <input
                       className="bot-settings-path"
                       type="text"
-                      value={bot ? `${bot.workingFolder ?? ''}/.avi-bots/${bot.id}` : ''}
+                      value={bot?.resolvedWorkingFolder ?? ''}
                       readOnly
                     />
-                    <small>This folder is preserved when the conversation is cleared.</small>
+                    <small>These files are preserved when the conversation is cleared.</small>
                   </label>
                 </section>
                 <section className="bot-settings-section bot-settings-danger-zone">
                   <header>
                     <h3>What can be reset?</h3>
-                    <p>Clear conversation history without deleting memory or work files.</p>
+                    <p>Clear conversation history without deleting memory or daily logs.</p>
                   </header>
                   <div className="bot-settings-danger-action">
                     <span>

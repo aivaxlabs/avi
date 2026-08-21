@@ -24,10 +24,17 @@ const statusLabels = {
   shadowed: 'Overridden by folder',
 };
 
-export function McpSettings({ initialFolder = null, onNavigationChange }) {
+function serverStatusLabel(server) {
+  return server.lifecycle === 'passive' && server.status === 'idle'
+    ? 'Passive'
+    : statusLabels[server.status] ?? server.status;
+}
+
+export function McpSettings({ initialFolder = null, botId = null, onNavigationChange }) {
   const [folders, setFolders] = useState([]);
   const [selectedFolder, setSelectedFolder] = useState(initialFolder);
   const [folder, setFolder] = useState(null);
+  const [inheritedServers, setInheritedServers] = useState([]);
   const [draft, setDraft] = useState(null);
   const [inspection, setInspection] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -54,24 +61,30 @@ export function McpSettings({ initialFolder = null, onNavigationChange }) {
   useEffect(() => {
     if (!selectedFolder) return undefined;
     let active = true;
-    window.chatApp.mcp.folder(selectedFolder.path)
-      .then((value) => {
-        if (active) setFolder(value);
-      })
-      .catch((nextError) => {
-        if (active) setError(nextError instanceof Error ? nextError.message : String(nextError));
-      });
+    const load = () => Promise.all([
+      botId
+        ? window.chatApp.mcp.bot(botId)
+        : window.chatApp.mcp.folder(selectedFolder.path),
+      botId
+        ? window.chatApp.mcp.workspace(selectedFolder.path)
+        : Promise.resolve([]),
+    ]).then(([value, inherited]) => {
+      if (!active) return;
+      setFolder(value);
+      setInheritedServers(inherited.filter((server) => server.scope !== 'bot'));
+    });
+    load().catch((nextError) => {
+      if (active) setError(nextError instanceof Error ? nextError.message : String(nextError));
+    });
     const unsubscribe = window.chatApp.onMcpEvent((event) => {
       if (event.type !== 'state') return;
-      window.chatApp.mcp.folder(selectedFolder.path).then((value) => {
-        if (active) setFolder(value);
-      }).catch(() => {});
+      load().catch(() => {});
     });
     return () => {
       active = false;
       unsubscribe();
     };
-  }, [selectedFolder]);
+  }, [botId, selectedFolder]);
 
   useEffect(() => {
     if (draft) {
@@ -86,7 +99,7 @@ export function McpSettings({ initialFolder = null, onNavigationChange }) {
     } else if (inspection) {
       onNavigationChange({
         title: inspection.name,
-        description: `${statusLabels[inspection.status] ?? inspection.status} · ${inspection.toolCount} tools`,
+        description: `${serverStatusLabel(inspection)} · ${inspection.toolCount} tools`,
         backLabel: 'Back to servers',
         onBack: () => setInspection(null),
       });
@@ -154,6 +167,7 @@ export function McpSettings({ initialFolder = null, onNavigationChange }) {
       name: server.name,
       type: config.type,
       enabled: config.enabled,
+      lifecycle: config.lifecycle ?? 'active',
       command: config.command ?? '',
       args: (config.args ?? []).join('\n'),
       cwd: config.cwd ?? '',
@@ -246,6 +260,17 @@ export function McpSettings({ initialFolder = null, onNavigationChange }) {
                 <option value="streamable-http">Streamable HTTP</option>
                 <option value="sse">SSE (legacy)</option>
               </select>
+            </label>
+            <label className="settings-field">
+              <span>Lifecycle</span>
+              <select
+                value={draft.lifecycle}
+                onChange={(event) => setDraft({ ...draft, lifecycle: event.target.value })}
+              >
+                <option value="active">Active</option>
+                <option value="passive">Passive</option>
+              </select>
+              <small>Passive servers expose only an activation tool until the agent enables them.</small>
             </label>
 
             {draft.type === 'stdio' ? (
@@ -364,11 +389,13 @@ export function McpSettings({ initialFolder = null, onNavigationChange }) {
             className="primary-mini"
             type="button"
             disabled={busy}
-            onClick={() => runMutation(async () => {
-              const config = draft.type === 'stdio'
+            onClick={async () => {
+              const value = await runMutation(async () => {
+                const config = draft.type === 'stdio'
                 ? {
                     type: draft.type,
                     enabled: draft.enabled,
+                    lifecycle: draft.lifecycle,
                     command: draft.command,
                     args: draft.args.split(/\r?\n/).filter((value) => value.length > 0),
                     cwd: draft.cwd,
@@ -377,6 +404,7 @@ export function McpSettings({ initialFolder = null, onNavigationChange }) {
                 : {
                     type: draft.type,
                     enabled: draft.enabled,
+                    lifecycle: draft.lifecycle,
                     url: draft.url,
                     headers: parsePairs(draft.headers),
                     auth: {
@@ -386,14 +414,15 @@ export function McpSettings({ initialFolder = null, onNavigationChange }) {
                       clientSecret: draft.clientSecret,
                     },
                   };
-              const value = await window.chatApp.mcp.save({
-                folderPath: selectedFolder.path,
-                previousName: draft.previousName,
-                server: { name: draft.name, config },
+                return window.chatApp.mcp.save({
+                  folderPath: selectedFolder.path,
+                  botId,
+                  previousName: draft.previousName,
+                  server: { name: draft.name, config },
+                });
               });
-              setDraft(null);
-              return value;
-            })}
+              if (value) setDraft(null);
+            }}
           >
             <Save size={14} />
             {busy ? 'Saving...' : 'Save server'}
@@ -444,6 +473,47 @@ export function McpSettings({ initialFolder = null, onNavigationChange }) {
         <div className="settings-empty">Loading MCP servers...</div>
       ) : (
         <div className="settings-entity-list">
+          {botId && (
+            <div className="mcp-scope-heading">
+              <strong>Workspace servers</strong>
+              <small>Inherited by the bot and managed in workspace settings.</small>
+            </div>
+          )}
+          {inheritedServers.map((server) => (
+            <article
+              className={classNames(
+                'settings-entity-row',
+                !server.enabled && 'disabled',
+                server.status === 'error' && 'mcp-server-error',
+              )}
+              key={server.key}
+            >
+              <button
+                className="settings-entity-main mcp-server-main"
+                type="button"
+                onClick={() => inspectServer(server.key)}
+              >
+                <span className="settings-entity-icon"><Server size={16} /></span>
+                <span className="settings-entity-copy">
+                  <strong>{server.name}</strong>
+                  <small>{server.type} · {server.toolCount} tools · {server.scope === 'global' ? 'Global' : 'Workspace'}</small>
+                </span>
+                <span className={classNames('settings-status', server.status)}>
+                  {serverStatusLabel(server)}
+                </span>
+                <ArrowRight className="settings-entity-arrow" size={15} />
+              </button>
+            </article>
+          ))}
+          {botId && inheritedServers.length === 0 && (
+            <div className="settings-empty">No workspace MCP servers inherited.</div>
+          )}
+          {botId && (
+            <div className="mcp-scope-heading">
+              <strong>Bot servers</strong>
+              <small>Exclusive to this bot and available after workspace servers.</small>
+            </div>
+          )}
           {folder.servers.map((server) => (
             <article
               className={classNames(
@@ -453,16 +523,23 @@ export function McpSettings({ initialFolder = null, onNavigationChange }) {
               )}
               key={server.key}
             >
-              <div className="settings-entity-main mcp-server-main">
+              <button
+                className="settings-entity-main mcp-server-main"
+                type="button"
+                onClick={() => inspectServer(server.key)}
+              >
                 <span className="settings-entity-icon"><Server size={16} /></span>
                 <span className="settings-entity-copy">
                   <strong>{server.name}</strong>
-                  <small>{server.type} · {server.toolCount} tools</small>
+                  <small>
+                    {server.type} · {server.toolCount} tools{server.lifecycle === 'passive' ? ' · Passive' : ''}
+                  </small>
                 </span>
                 <span className={classNames('settings-status', server.status)}>
-                  {statusLabels[server.status] ?? server.status}
+                  {serverStatusLabel(server)}
                 </span>
-              </div>
+                <ArrowRight className="settings-entity-arrow" size={15} />
+              </button>
               <div className="mcp-server-actions">
                 {server.status === 'auth-required' && (
                   <button
@@ -501,7 +578,9 @@ export function McpSettings({ initialFolder = null, onNavigationChange }) {
                   disabled={busy || !server.enabled}
                   onClick={() => runMutation(async () => {
                     await window.chatApp.mcp.restart(server.key);
-                    return window.chatApp.mcp.folder(selectedFolder.path);
+                    return botId
+                      ? window.chatApp.mcp.bot(botId)
+                      : window.chatApp.mcp.folder(selectedFolder.path);
                   })}
                 >
                   <RefreshCw size={14} />
@@ -529,6 +608,7 @@ export function McpSettings({ initialFolder = null, onNavigationChange }) {
                     if (!window.confirm(`Remove MCP server "${server.name}"?`)) return;
                     runMutation(() => window.chatApp.mcp.remove({
                       folderPath: selectedFolder.path,
+                      botId,
                       name: server.name,
                     }));
                   }}
@@ -541,7 +621,9 @@ export function McpSettings({ initialFolder = null, onNavigationChange }) {
           ))}
           {folder.servers.length === 0 && (
             <div className="settings-empty">
-              No MCP servers configured in this scope.
+              {botId
+                ? 'No MCP servers configured exclusively for this bot.'
+                : 'No MCP servers configured in this scope.'}
             </div>
           )}
         </div>
