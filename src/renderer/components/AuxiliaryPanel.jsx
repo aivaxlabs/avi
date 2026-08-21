@@ -1,17 +1,21 @@
 import Avatar from 'boring-avatars';
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   ArrowLeft,
   Bot,
   Check,
   ChevronRight,
-  ClipboardCheck,
   Files,
   Gauge,
   GitPullRequest,
+  Maximize2,
   MessageSquarePlus,
   ListChecks,
   Moon,
+  Network,
   Plus,
   X,
 } from 'lucide-react';
@@ -26,7 +30,30 @@ const filesTabId = 'files';
 const gitReviewTabId = 'git-review';
 const tasksTabId = 'tasks';
 const botQueueTabId = 'bot-queue';
+const botLogTabs = [
+  { id: 'backlog', label: 'Backlog' },
+  { id: 'ongoing', label: 'Ongoing' },
+  { id: 'blocked', label: 'Blocked' },
+  { id: 'waiting-user-approval', label: 'Waiting approval' },
+  { id: 'user-review', label: 'User review' },
+  { id: 'done', label: 'Done' },
+  { id: 'discarded', label: 'Discarded' },
+];
 const subagentAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
+const botLogMarkdownComponents = {
+  a: ({ children, href, node: _node, ...props }) => (
+    <a
+      href={href}
+      {...props}
+      onClick={href && /^https?:\/\//i.test(href) ? (event) => {
+        event.preventDefault();
+        window.chatApp.app.openExternal(href);
+      } : undefined}
+    >
+      {children}
+    </a>
+  ),
+};
 
 function AuxiliaryAddMenu({ panels }) {
   const [open, setOpen] = useState(false);
@@ -96,9 +123,11 @@ export function AuxiliaryPanel({
   sideChats,
   subagents,
   bots = [],
-  botQueue = [],
+  botLogsByBot = {},
   onResolveBotApproval,
   botQueueTabOpen = false,
+  selectedBotId,
+  onSelectBot,
   onOpenBotQueueTab,
   onCloseBotQueueTab,
   tasks = [],
@@ -170,6 +199,30 @@ export function AuxiliaryPanel({
   defaultPermissionMode = 'approve_for_me',
   continuationRepliesEnabled = true,
 }) {
+  const [botLogStatus, setBotLogStatus] = useState('backlog');
+  const [expandedBotLog, setExpandedBotLog] = useState(null);
+  const botLogDialogRef = useRef(null);
+  const botLogOpenerRef = useRef(null);
+
+  useEffect(() => {
+    if (!expandedBotLog || !botLogDialogRef.current) return undefined;
+    const dialog = botLogDialogRef.current;
+    dialog.showModal();
+    queueMicrotask(() => dialog.querySelector('button')?.focus());
+    return () => {
+      if (dialog.open) dialog.close();
+    };
+  }, [expandedBotLog]);
+
+  const closeBotLogDialog = () => botLogDialogRef.current?.close();
+  const clearExpandedBotLog = () => {
+    setExpandedBotLog(null);
+    queueMicrotask(() => botLogOpenerRef.current?.focus());
+  };
+
+  const selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? bots[0] ?? null;
+  const selectedBotLogs = selectedBot ? botLogsByBot[selectedBot.id] ?? [] : [];
+  const selectedBotLogEntries = selectedBotLogs.filter((entry) => entry.status === botLogStatus);
   const availablePanels = [
     {
       id: 'side-chat',
@@ -217,18 +270,18 @@ export function AuxiliaryPanel({
       id: subagentsTabId,
       label: 'Sub-agents',
       description: 'View orchestrated tasks',
-      icon: Bot,
+      icon: Network,
       disabled: false,
       title: 'View orchestrated tasks',
       onOpen: onOpenSubagentsTab,
     },
     {
       id: botQueueTabId,
-      label: 'Bot queue',
-      description: 'Review pending bot approvals',
-      icon: ListChecks,
+      label: 'Bots',
+      description: 'View bot work logs',
+      icon: Bot,
       disabled: false,
-      title: 'Review pending bot approvals',
+      title: 'View bot work logs',
       onOpen: onOpenBotQueueTab,
     },
     ...providerPanels.map((panel) => ({
@@ -251,11 +304,11 @@ export function AuxiliaryPanel({
     })),
     ...(filesTabOpen
       ? [{
-          id: filesTabId,
-          label: 'Files',
-          running: false,
-          type: 'files',
-        }]
+        id: filesTabId,
+        label: 'Files',
+        running: false,
+        type: 'files',
+      }]
       : []),
     ...(gitReviewTabOpen
       ? [{ id: gitReviewTabId, label: 'Git Review', running: false, type: 'git-review' }]
@@ -265,19 +318,19 @@ export function AuxiliaryPanel({
       : []),
     ...(subagentsTabOpen
       ? [{
-          id: subagentsTabId,
-          label: 'Sub-agents',
-          running: subagents.some((subagent) => subagent.status === 'working'),
-          type: 'subagents',
-        }]
+        id: subagentsTabId,
+        label: 'Sub-agents',
+        running: subagents.some((subagent) => subagent.status === 'working'),
+        type: 'subagents',
+      }]
       : []),
     ...(botQueueTabOpen
       ? [{
-          id: botQueueTabId,
-          label: `Bot queue${botQueue.length > 0 ? ` (${botQueue.length})` : ''}`,
-          running: false,
-          type: 'bot-queue',
-        }]
+        id: botQueueTabId,
+        label: 'Bots',
+        running: false,
+        type: 'bot-queue',
+      }]
       : []),
     ...openProviderPanels.map((panel) => ({
       ...panel,
@@ -303,18 +356,19 @@ export function AuxiliaryPanel({
     : fallbackModel;
   const currentProject = activeThread
     ? {
-        path: activeThread.projectPath,
-        name: activeThread.projectName,
-        displayPath: activeThread.projectDisplayPath,
-        gitBranch: activeThread.gitBranch,
-      }
+      path: activeThread.projectPath,
+      name: activeThread.projectName,
+      displayPath: activeThread.projectDisplayPath,
+      gitBranch: activeThread.gitBranch,
+    }
     : null;
   const contextLimit = models.find((model) => model.id === currentModel)?.context.input ?? null;
 
   const hasActiveTab = tabs.some((tab) => tab.id === activeTab);
 
   return (
-    <aside className="auxiliary-panel" id="auxiliary-panel" aria-label="Auxiliary panel">
+    <>
+      <aside className="auxiliary-panel" id="auxiliary-panel" aria-label="Auxiliary panel">
       <header className="auxiliary-panel-header">
         {tabs.length > 0 ? (
           <div className="auxiliary-tabs-row">
@@ -347,9 +401,9 @@ export function AuxiliaryPanel({
                     {tab.type === 'tasks' ? (
                       <ListChecks size={14} aria-hidden="true" />
                     ) : tab.type === 'subagents' ? (
-                      <Bot size={14} aria-hidden="true" />
+                      <Network size={14} aria-hidden="true" />
                     ) : tab.type === 'bot-queue' ? (
-                      <ClipboardCheck size={14} aria-hidden="true" />
+                      <Bot size={14} aria-hidden="true" />
                     ) : tab.type === 'files' ? (
                       <Files size={14} aria-hidden="true" />
                     ) : tab.type === 'git-review' ? (
@@ -380,15 +434,15 @@ export function AuxiliaryPanel({
                         ? onCloseTasksTab()
                         : tab.type === 'subagents'
                           ? onCloseSubagentsTab()
-                        : tab.type === 'bot-queue'
-                          ? onCloseBotQueueTab()
-                        : tab.type === 'files'
-                          ? onCloseFilesTab()
-                        : tab.type === 'git-review'
-                          ? onCloseGitReviewTab()
-                        : tab.type === 'provider'
-                          ? onCloseProviderPanel(tab.id)
-                          : onCloseSideChat(tab.id)
+                          : tab.type === 'bot-queue'
+                            ? onCloseBotQueueTab()
+                            : tab.type === 'files'
+                              ? onCloseFilesTab()
+                              : tab.type === 'git-review'
+                                ? onCloseGitReviewTab()
+                                : tab.type === 'provider'
+                                  ? onCloseProviderPanel(tab.id)
+                                  : onCloseSideChat(tab.id)
                     )}
                   >
                     <X size={13} />
@@ -427,9 +481,8 @@ export function AuxiliaryPanel({
       </header>
       <div
         id={hasActiveTab ? `auxiliary-content-${activeTab}` : undefined}
-        className={`auxiliary-content${activeSubagent ? ' with-toolbar' : ''}${
-          hasActiveTab ? '' : ' is-empty'
-        }`}
+        className={`auxiliary-content${activeSubagent ? ' with-toolbar' : ''}${hasActiveTab ? '' : ' is-empty'
+          }`}
         role={hasActiveTab ? 'tabpanel' : undefined}
         aria-labelledby={hasActiveTab ? `auxiliary-tab-${activeTab}` : undefined}
       >
@@ -443,48 +496,125 @@ export function AuxiliaryPanel({
         )}
         {showingBotQueue ? (
           <div className="bot-queue">
-            <header>
-              <strong>{botQueue.length} pending</strong>
-              <span>Approvals requested by bots</span>
-            </header>
-            {botQueue.length === 0 ? (
+            {bots.length === 0 ? (
               <div className="bot-queue-empty">
                 <Bot size={20} aria-hidden="true" />
-                <strong>Nothing waiting</strong>
-                <span>Bot approval requests appear here.</span>
+                <strong>No bots</strong>
+                <span>Create a bot to view its work logs.</span>
               </div>
             ) : (
-              botQueue.map((item) => (
-                <article className="bot-queue-item" key={item.id}>
-                  <header>
-                    <strong>{item.title}</strong>
-                    <small>
-                      {item.botName}
-                      {item.kind === 'tool' ? ' · tool approval' : ' · work'}
-                      {` · ${new Date(item.createdAt).toLocaleString()}`}
-                    </small>
-                  </header>
-                  {item.context && <p>{item.context}</p>}
-                  <div className="bot-queue-actions">
-                    <button
-                      className="bot-queue-approve"
-                      type="button"
-                      onClick={() => onResolveBotApproval?.(item.id, true)}
-                    >
-                      <Check size={14} aria-hidden="true" />
-                      <span>Approve</span>
-                    </button>
-                    <button
-                      className="bot-queue-deny"
-                      type="button"
-                      onClick={() => onResolveBotApproval?.(item.id, false)}
-                    >
-                      <X size={14} aria-hidden="true" />
-                      <span>Deny</span>
-                    </button>
-                  </div>
-                </article>
-              ))
+              <>
+                <label className="bot-log-selector">
+                  <select
+                    value={selectedBot?.id ?? ''}
+                    onChange={(event) => onSelectBot(event.target.value)}
+                  >
+                    {bots.map((bot) => (
+                      <option key={bot.id} value={bot.id}>{bot.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="bot-log-tabs" role="tablist" aria-label="Bot work stages">
+                  {botLogTabs.map((tab, index) => {
+                    const count = selectedBotLogs.filter((entry) => entry.status === tab.id).length;
+                    return (
+                      <button
+                        id={`bot-log-tab-${tab.id}`}
+                        className={tab.id === botLogStatus ? 'active' : ''}
+                        type="button"
+                        role="tab"
+                        aria-selected={tab.id === botLogStatus}
+                        aria-controls="bot-log-entries"
+                        tabIndex={tab.id === botLogStatus ? 0 : -1}
+                        key={tab.id}
+                        onClick={() => setBotLogStatus(tab.id)}
+                        onKeyDown={(event) => {
+                          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                          event.preventDefault();
+                          const nextIndex = event.key === 'Home'
+                            ? 0
+                            : event.key === 'End'
+                              ? botLogTabs.length - 1
+                              : (index + (event.key === 'ArrowRight' ? 1 : -1) + botLogTabs.length)
+                              % botLogTabs.length;
+                          const next = botLogTabs[nextIndex];
+                          setBotLogStatus(next.id);
+                          queueMicrotask(() => document.getElementById(`bot-log-tab-${next.id}`)?.focus());
+                        }}
+                      >
+                        <span>{tab.label}</span>
+                        {count > 0 && <small>{count}</small>}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div
+                  id="bot-log-entries"
+                  className="bot-log-entries"
+                  role="tabpanel"
+                  aria-labelledby={`bot-log-tab-${botLogStatus}`}
+                >
+                  {selectedBotLogEntries.length === 0 ? (
+                    <div className="bot-queue-empty">
+                      <Bot size={20} aria-hidden="true" />
+                      <strong>No entries</strong>
+                      <span>{selectedBot.name} has nothing in this stage.</span>
+                    </div>
+                  ) : (
+                    selectedBotLogEntries.map((item) => (
+                      <article className="bot-queue-item" key={item.id}>
+                        <header>
+                          <strong>{item.title}</strong>
+                          <small>
+                            {item.kind === 'tool' ? 'Tool approval · ' : ''}
+                            {new Date(item.updatedAt).toLocaleString()}
+                          </small>
+                        </header>
+                        <button
+                          className="bot-log-open"
+                          type="button"
+                          aria-label={`Open full entry: ${item.title}`}
+                          title="Open full entry"
+                          onClick={(event) => {
+                            botLogOpenerRef.current = event.currentTarget;
+                            setExpandedBotLog(item);
+                          }}
+                        >
+                          <Maximize2 size={14} aria-hidden="true" />
+                        </button>
+                        <div className="markdown-body bot-log-preview">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={botLogMarkdownComponents}
+                          >
+                            {item.content}
+                          </ReactMarkdown>
+                        </div>
+                        {item.status === 'waiting-user-approval' && (
+                          <div className="bot-queue-actions">
+                            <button
+                              className="bot-queue-approve"
+                              type="button"
+                              onClick={() => onResolveBotApproval?.(item.id, true)}
+                            >
+                              <Check size={14} aria-hidden="true" />
+                              <span>Approve</span>
+                            </button>
+                            <button
+                              className="bot-queue-deny"
+                              type="button"
+                              onClick={() => onResolveBotApproval?.(item.id, false)}
+                            >
+                              <X size={14} aria-hidden="true" />
+                              <span>Deny</span>
+                            </button>
+                          </div>
+                        )}
+                      </article>
+                    ))
+                  )}
+                </div>
+              </>
             )}
           </div>
         ) : showingTasks ? (
@@ -546,7 +676,7 @@ export function AuxiliaryPanel({
           </div>
         ) : showingSubagents && !activeSubagent && subagents.length === 0 ? (
           <div className="subagent-empty">
-            <Bot size={20} aria-hidden="true" />
+            <Network size={20} aria-hidden="true" />
             <strong>No sub-agents yet</strong>
             <span>Sub-agents appear here when the orchestrator starts them.</span>
           </div>
@@ -652,8 +782,8 @@ export function AuxiliaryPanel({
               { text, attachments: [] },
             )}
             onChooseModel={(modelId) => onChooseModel(modelId, activeThread.id)}
-            onChooseProject={() => {}}
-            onUseHome={() => {}}
+            onChooseProject={() => { }}
+            onUseHome={() => { }}
             onToggleFavorite={onToggleFavorite}
             workMode={activeThread.orchestrationMode === 'plan' ? 'plan' : workMode}
             onWorkModeChange={onWorkModeChange}
@@ -675,12 +805,48 @@ export function AuxiliaryPanel({
             messageDeliveryMode={messageDeliveryMode}
             defaultPermissionMode={defaultPermissionMode}
             continuationRepliesEnabled={continuationRepliesEnabled}
-            draftKey={`aivax.composer.${
-              activeThread.isSubagent ? 'subagent' : 'side'
-            }.${activeThread.id}`}
+            draftKey={`aivax.composer.${activeThread.isSubagent ? 'subagent' : 'side'
+              }.${activeThread.id}`}
           />
         ) : null}
       </div>
-    </aside>
+      </aside>
+      {expandedBotLog && createPortal(
+        <dialog
+          ref={botLogDialogRef}
+          className="bot-log-dialog"
+          aria-labelledby="bot-log-dialog-title"
+          onClose={clearExpandedBotLog}
+        >
+          <header className="dialog-header">
+            <div>
+              <h2 id="bot-log-dialog-title">{expandedBotLog.title}</h2>
+              <p>
+                  {expandedBotLog.kind === 'tool' ? 'Tool approval · ' : ''}
+                  {new Date(expandedBotLog.updatedAt).toLocaleString()}
+              </p>
+            </div>
+            <button
+              className="icon-button tiny"
+              type="button"
+              aria-label="Close full entry"
+              title="Close"
+              onClick={closeBotLogDialog}
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          </header>
+          <div className="markdown-body bot-log-dialog-content">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={botLogMarkdownComponents}
+            >
+              {expandedBotLog.content}
+            </ReactMarkdown>
+          </div>
+        </dialog>,
+        document.body,
+      )}
+    </>
   );
 }

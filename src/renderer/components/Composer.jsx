@@ -15,6 +15,7 @@ import {
   HardDrive,
   ListChecks,
   LoaderCircle,
+  Network,
   LockKeyhole,
   Mic,
   MoreHorizontal,
@@ -154,6 +155,15 @@ function shouldSteerMessage(messageDeliveryMode, isRunning, modifierPressed) {
   );
 }
 
+function ComposerChip({ as: Component = 'div', children, className = '', icon: Icon, ...props }) {
+  return (
+    <Component className={`composer-chip${className ? ` ${className}` : ''}`} {...props}>
+      <Icon size={14} aria-hidden="true" />
+      {children}
+    </Component>
+  );
+}
+
 export function Composer({
   containerRef,
   conversationId,
@@ -204,6 +214,7 @@ export function Composer({
   persistState = true,
   inline = false,
   botMode = false,
+  onShowBotInPanel,
   onCancel,
 }) {
   const [text, setText] = useState(() => (
@@ -379,6 +390,8 @@ export function Composer({
   ]);
   const activeCommandOption = commandOptions[commandIndex] ?? commandOptions[0] ?? null;
   const activeGoal = goal && ['active', 'paused'].includes(goal.status) ? goal : null;
+  const finishedGoal = goal && ['completed', 'blocked', 'cancelled'].includes(goal.status) ? goal : null;
+  const visibleGoal = activeGoal ?? finishedGoal;
   const effectiveWorkMode = activeGoal ? 'goal' : workMode;
   const canSend = !goalPreparation && !promptExpanding && !commandMode && (
     effectiveWorkMode === 'goal' && !activeGoal
@@ -393,10 +406,10 @@ export function Composer({
   const contextPercent = contextUsage?.limit
     ? Math.min(100, Math.max(0, Math.round((contextUsage.tokens / contextUsage.limit) * 100)))
     : null;
-  const goalElapsedMs = activeGoal
-    ? activeGoal.activeElapsedMs + (
-        activeGoal.status === 'active' && activeGoal.resumedAt
-          ? Math.max(0, goalNow - new Date(activeGoal.resumedAt).getTime())
+  const goalElapsedMs = visibleGoal
+    ? visibleGoal.activeElapsedMs + (
+        visibleGoal.status === 'active' && visibleGoal.resumedAt
+          ? Math.max(0, goalNow - new Date(visibleGoal.resumedAt).getTime())
           : 0
       )
     : 0;
@@ -406,6 +419,21 @@ export function Composer({
     Math.floor((goalElapsedSeconds % 3600) / 60),
     goalElapsedSeconds % 60,
   ].map((part) => String(part).padStart(2, '0')).join(':');
+  const goalStatusLabel = activeGoal
+    ? activeGoal.status === 'paused' ? 'Paused' : 'Working'
+    : finishedGoal?.status === 'completed'
+      ? 'Completed'
+      : finishedGoal?.status === 'blocked'
+        ? 'Blocked'
+        : 'Stopped';
+  const finishedTokens = finishedGoal?.tokensTransacted ?? 0;
+  const finishedTokenLabel = finishedTokens > 0
+    ? finishedTokens >= 1_000_000
+      ? `${(finishedTokens / 1_000_000).toFixed(finishedTokens >= 10_000_000 ? 0 : 1)}M`
+      : finishedTokens >= 1_000
+        ? `${Math.round(finishedTokens / 1_000)}K`
+        : String(finishedTokens)
+    : null;
   const filteredRecentProjects = useMemo(() => {
     const query = projectQuery.trim().toLowerCase();
     if (!query) return recentProjects;
@@ -981,18 +1009,29 @@ export function Composer({
       ref={containerRef}
       className={`composer-wrap${inline ? ' inline-composer-wrap' : ''}`}
     >
+      {botMode && onShowBotInPanel && (
+        <ComposerChip
+          as="button"
+          className="bot-panel-chip"
+          icon={Bot}
+          type="button"
+          onClick={onShowBotInPanel}
+        >
+          <span>Show in bots panel</span>
+        </ComposerChip>
+      )}
       {editStats?.files > 0 && (
-        <div
+        <ComposerChip
           className="edit-counter-pill"
+          icon={FileDiff}
           role="status"
           aria-live="polite"
           aria-label={`${editStats.files} ${editStats.files === 1 ? 'file' : 'files'} touched, ${editStats.additions} lines added, ${editStats.deletions} lines removed`}
         >
-          <FileDiff size={14} aria-hidden="true" />
           <span>{editStats.files} {editStats.files === 1 ? 'file' : 'files'}</span>
           <span className="edit-counter-additions">+{editStats.additions}</span>
           <span className="edit-counter-deletions">-{editStats.deletions}</span>
-        </div>
+        </ComposerChip>
       )}
       {recording && (
         <div className="recording-bar">
@@ -1023,21 +1062,36 @@ export function Composer({
           </span>
         </ComposerStrip>
       )}
-      {activeGoal && (
+      {visibleGoal && (
         <ComposerStrip
-          className={`goal-strip${activeGoal.status === 'paused' ? ' paused' : ''}`}
-          aria-label={`Goal ${activeGoal.status}`}
+          className={`goal-strip${activeGoal?.status === 'paused' ? ' paused' : ''}${finishedGoal ? ` ${finishedGoal.status}` : ''}`}
+          aria-label={`Goal ${visibleGoal.status}`}
         >
-          <Target size={15} aria-hidden="true" />
+          {finishedGoal ? (
+            finishedGoal.status === 'completed'
+              ? <Check size={15} aria-hidden="true" />
+              : finishedGoal.status === 'blocked'
+                ? <ShieldQuestion size={15} aria-hidden="true" />
+                : <X size={15} aria-hidden="true" />
+          ) : (
+            <Target size={15} aria-hidden="true" />
+          )}
           <span className="goal-strip-copy">
-            <strong title={activeGoal.specification}>{activeGoal.specification}</strong>
+            <strong title={visibleGoal.specification}>{visibleGoal.specification}</strong>
             <small>
               <Clock3 size={12} aria-hidden="true" />
               <span>{goalElapsedLabel}</span>
               <span aria-hidden="true">·</span>
-              <span>{activeGoal.status === 'paused' ? 'Paused' : 'Working'}</span>
+              <span>{goalStatusLabel}</span>
+              {finishedTokenLabel && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>{finishedTokenLabel}</span>
+                </>
+              )}
             </small>
           </span>
+          {activeGoal && (
           <span className="goal-strip-actions">
             <button
               type="button"
@@ -1081,6 +1135,7 @@ export function Composer({
               <Square size={13} aria-hidden="true" />
             </button>
           </span>
+          )}
         </ComposerStrip>
       )}
       {tasks.length > 0 && !botMode && (
@@ -1098,7 +1153,7 @@ export function Composer({
           aria-label="Open sub-agents panel"
           onClick={onOpenSubagents}
         >
-          <Bot size={15} aria-hidden="true" />
+          <Network size={15} aria-hidden="true" />
           <span aria-live="polite">
             {workingSubagents} sub-agent{workingSubagents === 1 ? '' : 's'} working,{' '}
             {finishedSubagents} finished

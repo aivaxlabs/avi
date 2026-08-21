@@ -104,9 +104,10 @@ export default function App() {
   const [sideChats, setSideChats] = useState([]);
   const [subagents, setSubagents] = useState([]);
   const [bots, setBots] = useState([]);
-  const [botQueue, setBotQueue] = useState([]);
+  const [botLogsByBot, setBotLogsByBot] = useState({});
   const [botSettingsTarget, setBotSettingsTarget] = useState(null);
   const [botQueueTabOpen, setBotQueueTabOpen] = useState(false);
+  const [selectedBotLogId, setSelectedBotLogId] = useState('');
   const [tasksByConversation, setTasksByConversation] = useState({});
   const [providerPanels, setProviderPanels] = useState([]);
   const [openProviderPanelIds, setOpenProviderPanelIds] = useState([]);
@@ -374,7 +375,7 @@ export default function App() {
     try {
       const state = await api.bots.list();
       setBots(state.bots ?? []);
-      setBotQueue(state.queue ?? []);
+      setBotLogsByBot(state.logsByBot ?? {});
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
@@ -568,7 +569,7 @@ export default function App() {
             ? state
             : [...state, event]
         ));
-      } else if (event.type === 'permission-cancelled') {
+      } else if (['permission-cancelled', 'permission-resolved'].includes(event.type)) {
         setApprovalRequests((state) => state.filter(
           (request) => request.approvalId !== event.approvalId,
         ));
@@ -863,10 +864,12 @@ export default function App() {
     }
   }
 
-  function openBotQueueTab() {
+  function openBotQueueTab(botId = null) {
+    if (botId) setSelectedBotLogId(botId);
     setBotQueueTabOpen(true);
     setActiveSubagentId(null);
     setActiveAuxiliaryTab('bot-queue');
+    setAuxiliaryPanelVisible(true);
   }
 
   function closeBotQueueTab() {
@@ -1963,6 +1966,7 @@ export default function App() {
               <ChatView
               {...shell}
               botMode={Boolean(selectedBot)}
+              onShowBotInPanel={selectedBot ? () => openBotQueueTab(selectedBot.id) : undefined}
               emptyBackgroundEnabled={getTheme(appearance.themeId).emptyChatBackground !== false}
               emptyBackgroundThemeKey={`${appearance.themeId}:${resolvedScheme(appearance.scheme)}`}
               backgroundUrl={chatBackgroundUrl}
@@ -2082,9 +2086,11 @@ export default function App() {
               <AuxiliaryPanel
                 sideChats={sideChats}
                 bots={bots}
-                botQueue={botQueue}
+                botLogsByBot={botLogsByBot}
                 onResolveBotApproval={resolveBotApproval}
                 botQueueTabOpen={botQueueTabOpen}
+                selectedBotId={selectedBotLogId}
+                onSelectBot={setSelectedBotLogId}
                 onOpenBotQueueTab={openBotQueueTab}
                 onCloseBotQueueTab={closeBotQueueTab}
                 subagents={subagentsWithStatus}

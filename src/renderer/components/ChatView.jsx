@@ -147,6 +147,7 @@ export const ChatView = memo(function ChatView({
   onAnswerQuestion,
   onChooseModel,
   botMode = false,
+  onShowBotInPanel,
   onChooseProject,
   onUseHome,
   onToggleFavorite,
@@ -1071,6 +1072,7 @@ export const ChatView = memo(function ChatView({
         autoFocus={!currentConversation || Boolean(currentConversation.isSideChat)}
         defaultPermissionMode={defaultPermissionMode}
         botMode={botMode}
+        onShowBotInPanel={onShowBotInPanel}
       />
       {selectionAction && createPortal(
         <div
