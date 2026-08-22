@@ -770,7 +770,7 @@ export const CLIENT_TOOLS = Object.freeze([
         },
         model_level: {
           type: 'string',
-          description: 'Configured model level for this task when sub-agent model levels are enabled.',
+          description: 'Select the smallest model level that can reliably complete the task. Use small for focused, routine, mechanical, lookup, or clearly specified work; medium for multi-step work that requires investigation or judgment; and large only for exceptionally complex, ambiguous, architecture-heavy, or high-risk reasoning that smaller levels are unlikely to handle. Do not choose large merely because it is available, because the task is long, or for extra confidence. When uncertain between two levels, choose the lower one.',
         },
         reasoning_effort: {
           type: 'string',
@@ -925,7 +925,7 @@ export const CLIENT_TOOLS = Object.freeze([
         },
         model_level: {
           type: 'string',
-          description: 'Configured model level for this task when sub-agent model levels are enabled.',
+          description: 'Select the smallest model level that can reliably complete the task. Use small for focused, routine, mechanical, lookup, or clearly specified work; medium for multi-step work that requires investigation or judgment; and large only for exceptionally complex, ambiguous, architecture-heavy, or high-risk reasoning that smaller levels are unlikely to handle. Do not choose large merely because it is available, because the task is long, or for extra confidence. When uncertain between two levels, choose the lower one.',
         },
         reasoning_effort: {
           type: 'string',

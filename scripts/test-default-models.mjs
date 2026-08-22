@@ -116,6 +116,10 @@ for (const name of ['chat_create_thread', 'chat_spawn_subagent']) {
   const tool = CLIENT_TOOLS.find((item) => item.name === name);
   const levelSchema = applySubagentModelSchema(tool, models, settings);
   assert.deepEqual(levelSchema.properties.model_level.enum, ['small', 'medium', 'large']);
+  assert.match(
+    levelSchema.properties.model_level.description,
+    /Select the smallest model level[\s\S]*large only[\s\S]*choose the lower one/,
+  );
   assert.ok(levelSchema.required.includes('model_level'));
   assert.equal(levelSchema.properties.model_name, undefined);
   assert.equal(levelSchema.properties.reasoning_effort, undefined);
