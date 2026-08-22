@@ -42,7 +42,7 @@ Bare `project/context`, `project/skills`, and `project/workflows` directories ar
 
 ## Discovery limits
 
-The workspace summary includes up to five files per directory, fifteen subdirectories per level, and sixty directories overall. Context discovery has a maximum depth of six and a five-second timeout. It ignores common dependency, build, cache, and source-control directories such as `.git`, `node_modules`, `dist`, and `build`.
+Context discovery has a maximum depth of six and a five-second timeout. It ignores common dependency, build, cache, and source-control directories such as `.git`, `node_modules`, `dist`, and `build`.
 
 Nested instructions are cataloged for on-demand reading; they are not automatically injected or semantically merged. Use them only for areas with materially different rules.
 

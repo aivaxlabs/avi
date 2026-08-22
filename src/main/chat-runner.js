@@ -26,6 +26,7 @@ import {
   listSubagents,
   listTasks,
   messageToApiBlock,
+  messageToApiBlocks,
   setLastModel,
   toModelMessages,
   toModelMessagesThroughUser,
@@ -504,7 +505,7 @@ export class ChatRunner {
           .filter((message) => ['user', 'assistant'].includes(message.role))
           .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
           .slice(-AUXILIARY_PROMPT_CONTEXT_TURN_COUNT)
-          .map((message) => messageToApiBlock(message, selection.model.capabilities))
+          .flatMap((message) => messageToApiBlocks(message, selection.model.capabilities))
       : [];
 
     try {
@@ -1483,9 +1484,14 @@ export class ChatRunner {
         ));
       const roundsByIndex = new Map();
       let pendingAssistantContent = '';
+      let pendingReasoningContent = '';
       for (const segment of resumeSegments) {
         if (segment.type === 'content') {
           pendingAssistantContent += segment.text ?? '';
+          continue;
+        }
+        if (segment.type === 'reasoning') {
+          pendingReasoningContent += segment.text ?? '';
           continue;
         }
         if (segment.type !== 'tool-call') continue;
@@ -1494,12 +1500,17 @@ export class ChatRunner {
         if (!Number.isInteger(roundIndex)) continue;
         const round = roundsByIndex.get(roundIndex) ?? {
           assistantContent: '',
+          reasoningContent: '',
           toolCalls: [],
           results: [],
         };
         if (pendingAssistantContent) {
           round.assistantContent += pendingAssistantContent;
           pendingAssistantContent = '';
+        }
+        if (pendingReasoningContent) {
+          round.reasoningContent += pendingReasoningContent;
+          pendingReasoningContent = '';
         }
         round.toolCalls.push({
           key: segment.key,
@@ -1518,9 +1529,10 @@ export class ChatRunner {
       const initialToolHistory = [...roundsByIndex.entries()]
         .sort(([left], [right]) => left - right)
         .map(([, round]) => round);
-      if (pendingAssistantContent) {
+      if (pendingAssistantContent || pendingReasoningContent) {
         initialToolHistory.push({
           assistantContent: pendingAssistantContent,
+          reasoningContent: pendingReasoningContent,
           toolCalls: [],
           results: [],
         });
@@ -1643,6 +1655,15 @@ export class ChatRunner {
       ...inFlightContext,
       { role: 'user', content: COMPACTION_PROMPT },
     ];
+    traceVerbose('chat.context-compaction-started', traceContext(conversation.id, selection, {
+      operation: automatic ? 'automatic' : 'manual',
+      context_tokens: conversation.contextTokens,
+      context_limit: selection.model.context?.input,
+      message_count: messages.length,
+      tool_history_count: limitedToolHistory.length,
+      item_count: streamingSegments.length,
+      input_tokens: Math.ceil(JSON.stringify(compressionMessages).length / 4),
+    }));
     const compressionSegment = {
       type: 'context-compression',
       inputTokens: Math.ceil(JSON.stringify(compressionMessages).length / 4),
@@ -1737,6 +1758,14 @@ export class ChatRunner {
           ...attemptInFlightContext,
           { role: 'user', content: COMPACTION_PROMPT },
         ];
+        traceVerbose('chat.context-compaction-attempt', traceContext(conversation.id, selection, {
+          operation: automatic ? 'automatic' : 'manual',
+          attempt: attempt + 1,
+          message_count: attemptMessages.length,
+          tool_history_count: attemptToolHistory.length,
+          item_count: streamingSegments.length,
+          input_tokens: Math.ceil(JSON.stringify(attemptMessages).length / 4),
+        }));
         try {
           let attemptUsage = null;
           turn = await selection.provider.stream({
@@ -1744,7 +1773,12 @@ export class ChatRunner {
             messages: attemptMessages,
             tools: [],
             toolHistory: [],
-            invocationContext: { workspacePath: conversation.projectPath },
+            invocationContext: {
+              conversationId: conversation.id,
+              workspacePath: conversation.projectPath,
+              traceOperation: automatic ? 'automatic-compaction' : 'manual-compaction',
+              traceRound: attempt + 1,
+            },
             signal: controller.signal,
             onEvent: (event) => {
               if (event.type === 'usage') attemptUsage = event.usage;
@@ -1759,6 +1793,13 @@ export class ChatRunner {
             || !isContextLengthError(error)
             || attempt === fallbackToolHistories.length - 1
           ) throw error;
+          traceVerbose('chat.context-compaction-fallback', traceContext(conversation.id, selection, {
+            operation: automatic ? 'automatic' : 'manual',
+            attempt: attempt + 1,
+            message_count: attemptMessages.length,
+            tool_history_count: attemptToolHistory.length,
+            code: error?.code,
+          }));
         }
       }
       if (run) {
@@ -1801,10 +1842,16 @@ export class ChatRunner {
       this.emit(conversation.id, { type: 'message', message: completedMessage });
       this.emit(conversation.id, { type: 'conversation', conversation: updatedConversation });
       traceVerbose('chat.context-compacted', traceContext(conversation.id, selection, {
+        operation: automatic ? 'automatic' : 'manual',
         context_tokens: updatedConversation.contextTokens,
         context_limit: selection.model.context?.input,
         compaction_ratio: updatedConversation.contextTokens / completedSegment.inputTokens,
         input_tokens: completedSegment.inputTokens,
+        cached_input_tokens: compressionUsage?.cachedInputTokens,
+        cache_ratio: compressionUsage?.inputTokens > 0
+          && compressionUsage.cachedInputTokens !== undefined
+          ? compressionUsage.cachedInputTokens / compressionUsage.inputTokens
+          : null,
         output_tokens: updatedConversation.contextTokens,
       }));
       return updatedConversation;
@@ -1838,6 +1885,11 @@ export class ChatRunner {
         type: 'message',
         message: stoppedByUser ? { ...failedMessage, stoppedByUser: true } : failedMessage,
       });
+      traceVerbose('chat.context-compaction-finished', traceContext(conversation.id, selection, {
+        operation: automatic ? 'automatic' : 'manual',
+        status: stopped ? 'aborted' : 'error',
+        code: error?.code,
+      }));
       if (stopped) return getConversation(conversation.id);
       throw error;
     } finally {
@@ -2279,11 +2331,13 @@ export class ChatRunner {
             model: selection.model,
             messages,
             tools: availableTools,
-            toolHistory: limitToolHistoryResults(toolHistory, tuning.toolOutputLimit),
+            toolHistory,
             reasoningEffort,
             invocationContext: {
               conversationId,
               workspacePath,
+              traceOperation: 'chat',
+              traceRound: roundIndex,
               mcpInstructions: mcpRuntime.instructions,
               ...this.getPluginContext(),
               ...(botRuntime ? { bot: this.describeInvocationBot(conversationId) } : {}),
@@ -2399,6 +2453,14 @@ export class ChatRunner {
           applyCompactionCheckpoint(compressedConversation);
           continue;
         }
+        accumulator.apply({
+          type: 'provider-continuation',
+          round: roundIndex,
+          model: selection.model.id,
+          interface: selection.model.interface,
+          items: turn.continuation,
+        });
+        persistAssistant({ force: true });
         run.phase = 'boundary';
         if (controller.signal.aborted) throw new Error('The run was interrupted.');
         if (turn.toolCalls.length === 0) {
@@ -2430,6 +2492,11 @@ export class ChatRunner {
           persistAssistant({ force: true });
           toolHistory.push({
             assistantContent: turn.assistantContent,
+            reasoningContent: accumulator.segments
+              .slice(roundSegmentStart)
+              .filter((segment) => segment.type === 'reasoning')
+              .map((segment) => segment.text ?? '')
+              .join(''),
             continuation: turn.continuation,
             toolCalls: turn.toolCalls,
             results: semaphoreRoundResults,
@@ -2696,6 +2763,7 @@ export class ChatRunner {
             callId: toolCall.callId,
             output,
             isError,
+            mediaContent,
           });
           persistAssistant({ force: true });
           return result;
@@ -2703,6 +2771,11 @@ export class ChatRunner {
 
         toolHistory.push({
           assistantContent: turn.assistantContent,
+          reasoningContent: accumulator.segments
+            .slice(roundSegmentStart)
+            .filter((segment) => segment.type === 'reasoning')
+            .map((segment) => segment.text ?? '')
+            .join(''),
           continuation: turn.continuation,
           toolCalls: turn.toolCalls,
           results,
@@ -3300,7 +3373,7 @@ export class ChatRunner {
           && ['completed', 'sent', 'aborted'].includes(message.status)
         ))
         .slice(-AUXILIARY_CONTINUATION_CONTEXT_TURN_COUNT)
-        .map((message) => messageToApiBlock(message, selection.model.capabilities));
+        .flatMap((message) => messageToApiBlocks(message, selection.model.capabilities));
       let auxiliaryUsage = null;
       const turn = await selection.provider.stream({
         model: selection.model,
@@ -3525,7 +3598,9 @@ export class ChatRunner {
       duration_ms: details.elapsedMs ?? details.usage?.durationMs,
       time_to_first_response_ms: details.usage?.latencyMs,
       input_tokens: details.usage?.inputTokens,
+      cached_input_tokens: details.usage?.cachedInputTokens,
       output_tokens: details.usage?.outputTokens,
+      reasoning_tokens: details.usage?.reasoningTokens,
       total_tokens: details.usage?.totalTokens,
       tokens_per_second: details.usage?.tokensPerSecond,
       status: details.status,

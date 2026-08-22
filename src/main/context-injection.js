@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { opendir, readFile, readdir, realpath, stat } from 'node:fs/promises';
+import { opendir, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import {
@@ -25,17 +25,6 @@ const IGNORED_WORKSPACE_DIRECTORIES = new Set([
   'target',
   'vendor',
   'venv',
-]);
-const MAX_WORKSPACE_DIRECTORIES_PER_LEVEL = 15;
-const MAX_WORKSPACE_FILES_PER_DIRECTORY = 5;
-const MAX_WORKSPACE_DIRECTORIES = 60;
-const TEXTUAL_WORKSPACE_FILE_EXTENSIONS = new Set([
-  '.c', '.cc', '.conf', '.cpp', '.cs', '.csproj', '.css', '.csv', '.fs', '.fsproj',
-  '.go', '.graphql', '.h', '.hpp', '.htm', '.html', '.ini', '.java', '.js', '.json',
-  '.jsx', '.kt', '.kts', '.less', '.log', '.lua', '.md', '.mjs', '.php', '.props',
-  '.ps1', '.py', '.rb', '.rs', '.sass', '.scss', '.sh', '.sln', '.sql', '.svg', '.swift',
-  '.targets', '.toml', '.ts', '.tsx', '.txt', '.vb', '.vbproj', '.xml', '.xcss', '.yaml',
-  '.yml',
 ]);
 const MAX_CONTEXT_RECURSION_DEPTH = 6;
 const CONTEXT_SCAN_TIMEOUT_MS = 5_000;
@@ -64,9 +53,6 @@ const POST_INSTRUCTION_CONTEXT_ORDER = [
   'semaphores',
   'thread-signal',
   'environment',
-];
-const USER_CONTEXT_ORDER = [
-  'workspace',
 ];
 
 export const dynamicContextInjectors = new Map([
@@ -265,105 +251,6 @@ export const dynamicContextInjectors = new Map([
       '</environment_info>',
     ].filter(Boolean).join('\n');
   }],
-  ['workspace', async ({ workspacePath, bot } = {}) => {
-    const currentDirectory = path.resolve(workspacePath || process.cwd());
-    if (isHomeDirectory(currentDirectory)) {
-      return [
-        '<current_workspace>',
-        `Current directory: ${escapeXml(currentDirectory)}`,
-        'The home directory is not scanned as a workspace. Global context is loaded only from $HOME/.agents.',
-        '</current_workspace>',
-      ].join('\n');
-    }
-    const structure = [];
-    let directoryCount = 0;
-
-    async function appendDirectory(directoryPath, depth, ancestorDirectories) {
-      let entries;
-      let directoryKey;
-      try {
-        directoryKey = normalizePathKey(await realpath(directoryPath));
-        if (ancestorDirectories.has(directoryKey)) {
-          structure.push(`${'\t'.repeat(depth)}...`);
-          return;
-        }
-        entries = await readdir(directoryPath, { withFileTypes: true });
-      } catch {
-        structure.push(`${'\t'.repeat(depth)}...`);
-        return;
-      }
-
-      const nextAncestorDirectories = new Set(ancestorDirectories).add(directoryKey);
-      const filteredEntries = await Promise.all(entries
-        .filter((entry) => (
-          !IGNORED_WORKSPACE_DIRECTORIES.has(entry.name.toLowerCase())
-          && (bot || !BOT_INSTRUCTION_FILE_PATTERN.test(entry.name))
-        ))
-        .map(async (entry) => {
-          if (!entry.isSymbolicLink()) return { entry, isDirectory: entry.isDirectory() };
-          try {
-            return { entry, isDirectory: (await stat(path.join(directoryPath, entry.name))).isDirectory() };
-          } catch {
-            return { entry, isDirectory: false };
-          }
-        }));
-      const files = filteredEntries
-        .filter(({ isDirectory }) => !isDirectory)
-        .sort((left, right) => {
-          const leftExtension = path.extname(left.entry.name).toLowerCase();
-          const rightExtension = path.extname(right.entry.name).toLowerCase();
-          const leftIsTextual = !leftExtension || TEXTUAL_WORKSPACE_FILE_EXTENSIONS.has(leftExtension);
-          const rightIsTextual = !rightExtension || TEXTUAL_WORKSPACE_FILE_EXTENSIONS.has(rightExtension);
-          return Number(!leftIsTextual) - Number(!rightIsTextual)
-            || left.entry.name.localeCompare(right.entry.name, undefined, { numeric: true });
-        });
-      const directories = filteredEntries
-        .filter(({ isDirectory }) => isDirectory)
-        .sort((left, right) => left.entry.name.localeCompare(
-          right.entry.name,
-          undefined,
-          { numeric: true },
-        ));
-      const visibleFiles = files.slice(0, MAX_WORKSPACE_FILES_PER_DIRECTORY);
-      const visibleDirectories = directories.slice(0, MAX_WORKSPACE_DIRECTORIES_PER_LEVEL);
-      let truncated = files.length > visibleFiles.length
-        || directories.length > visibleDirectories.length;
-
-      for (const { entry } of visibleFiles) {
-        structure.push(`${'\t'.repeat(depth)}${escapeXml(entry.name)}`);
-      }
-
-      for (const { entry } of visibleDirectories) {
-        if (directoryCount >= MAX_WORKSPACE_DIRECTORIES) {
-          truncated = true;
-          continue;
-        }
-
-        directoryCount += 1;
-        structure.push(`${'\t'.repeat(depth)}${escapeXml(entry.name)}/`);
-        await appendDirectory(
-          path.join(directoryPath, entry.name),
-          depth + 1,
-          nextAncestorDirectories,
-        );
-      }
-
-      if (truncated) {
-        structure.push(`${'\t'.repeat(depth)}...`);
-      }
-    }
-
-    await appendDirectory(currentDirectory, 0, new Set());
-
-    return [
-      '<current_workspace>',
-      `Current directory: ${escapeXml(currentDirectory)}`,
-      'When mentioning an existing workspace file, use <fileref path="./path" />, <fileref path="./path" line-from="12" />, or <fileref path="./path" line-from="12" line-to="52" /> so the user can open it from the chat. Paths may contain spaces. Keep file references outside backticks and Markdown code blocks.',
-      'Directory structure:',
-      ...structure,
-      '</current_workspace>',
-    ].join('\n');
-  }],
   ['instructions', async ({ workspacePath, installationContextPath, pluginContextRoots = [], bot } = {}) => {
     const startedAt = Date.now();
     traceVerbose('context.injection-discovery-started', {
@@ -530,18 +417,6 @@ export const dynamicContextInjectors = new Map([
     ];
   }],
 ]);
-
-export async function resolveDynamicUserContext(invocationContext = {}) {
-  if (invocationContext.quickChat || invocationContext.auxiliary) return '';
-
-  const contexts = await Promise.all(USER_CONTEXT_ORDER.map((name) => (
-    dynamicContextInjectors.get(name)?.(invocationContext)
-  )));
-  return contexts
-    .map((context) => String(context ?? '').trim())
-    .filter(Boolean)
-    .join('\n\n');
-}
 
 export async function resolveDynamicContext(invocationContext = {}) {
   // Keep volatile thread listings, prompts, statuses, timestamps, and queue state out of injected context so provider prompt caches remain reusable. Stable availability signals are safe; active semaphore holdings remain explicit because they control required release behavior.

@@ -11,7 +11,6 @@ import path from 'node:path';
 import {
   listContextItems,
   resolveDynamicContext,
-  resolveDynamicUserContext,
   resolveInstallationContextPath,
 } from '../src/main/context-injection.js';
 import {
@@ -297,7 +296,6 @@ try {
     installationContextPath: path.join(installationRoot, 'missing-context'),
   })).includes('<installation_instructions>'));
   assert.equal(await resolveDynamicContext({ auxiliary: true }), '');
-  assert.equal(await resolveDynamicUserContext({ auxiliary: true }), '');
   assert.equal(
     resolveInstallationContextPath(path.join(installationRoot, 'bin', 'bun.exe'), 'win32'),
     installationContextDirectory,
@@ -330,12 +328,9 @@ try {
     workspacePath: testHome,
     installationContextPath: installationContextDirectory,
   });
-  const homeUserContext = await resolveDynamicUserContext({ workspacePath: testHome });
   assert.ok(homeInjected.includes('# Global test instructions'));
   assert.ok(!homeInjected.includes('# Ignored home root instructions'));
   assert.ok(!homeInjected.includes('<workspace_instructions>'));
-  assert.ok(!homeInjected.includes('<current_workspace>'));
-  assert.ok(homeUserContext.includes('The home directory is not scanned as a workspace.'));
   const injected = await resolveDynamicContext({
     workspacePath: root,
     installationContextPath: installationContextDirectory,
@@ -344,8 +339,6 @@ try {
       text: 'MCP ordering test instructions',
     }],
   });
-  const injectedUserContext = await resolveDynamicUserContext({ workspacePath: root });
-  assert.ok(!injectedUserContext.includes('BOTS.md'), 'Normal workspace tree leaked BOTS.md');
   for (const botOnlyMarker of [
     'BOTS.md',
     'Frontend bot-only instructions',
@@ -392,11 +385,6 @@ try {
       `Bot context is missing status policy: ${statusPolicyMarker}`,
     );
   }
-  const botUserContext = await resolveDynamicUserContext({
-    workspacePath: root,
-    bot: { id: 'bot-context-test' },
-  });
-  assert.ok(botUserContext.includes('BOTS.md'), 'Bot workspace tree is missing BOTS.md');
   if (
     !injected.startsWith(baseInstructions.trim())
     || injected.split(baseInstructions.trim()).length !== 2
@@ -435,10 +423,6 @@ try {
     || injected.includes('Ignored Git instructions')
     || injected.includes('Ignored Visual Studio instructions')
     || injected.includes('Command execution shell:')
-    || injected.includes('<current_workspace>')
-    || !injectedUserContext.includes('<fileref path="./path" line-from="12" line-to="52" />')
-    || !injectedUserContext.includes('Paths may contain spaces')
-    || !injectedUserContext.includes('Keep file references outside backticks')
   ) {
     throw new Error('Context variants did not follow the expected root and nested rules.');
   }
@@ -661,70 +645,6 @@ try {
     /You have sub-agents and\/or other threads available on this tree\./,
   );
 
-  const workspaceTreeRoot = await mkdtemp(path.join(tmpdir(), 'context-workspace-tree-'));
-  try {
-    await Promise.all([
-      mkdir(path.join(workspaceTreeRoot, 'a-empty')),
-      mkdir(path.join(workspaceTreeRoot, 'b-visible')),
-      mkdir(path.join(workspaceTreeRoot, 'c-visible')),
-      mkdir(path.join(workspaceTreeRoot, 'd-truncated')),
-      mkdir(path.join(workspaceTreeRoot, 'node_modules')),
-    ]);
-    await Promise.all([
-      writeFile(path.join(workspaceTreeRoot, 'b-visible', '0.bin'), ''),
-      writeFile(path.join(workspaceTreeRoot, 'b-visible', '1.txt'), ''),
-      writeFile(path.join(workspaceTreeRoot, 'b-visible', '2.txt'), ''),
-      writeFile(path.join(workspaceTreeRoot, 'b-visible', '3.txt'), ''),
-      writeFile(path.join(workspaceTreeRoot, 'b-visible', '4.txt'), ''),
-      writeFile(path.join(workspaceTreeRoot, 'b-visible', '5.txt'), ''),
-      writeFile(path.join(workspaceTreeRoot, 'b-visible', '6.txt'), ''),
-      writeFile(path.join(workspaceTreeRoot, 'node_modules', 'ignored.txt'), ''),
-    ]);
-
-    let chainDirectory = workspaceTreeRoot;
-    for (let index = 0; index <= 101; index += 1) {
-      chainDirectory = path.join(chainDirectory, `chain-${String(index).padStart(3, '0')}`);
-      await mkdir(chainDirectory);
-    }
-    await writeFile(path.join(chainDirectory, 'beyond-limit.txt'), '');
-
-    const workspaceTreeContext = await resolveDynamicUserContext({
-      workspacePath: workspaceTreeRoot,
-      installationContextPath: path.join(installationRoot, 'missing-context'),
-    });
-    const workspaceTree = workspaceTreeContext.match(/<current_workspace>[\s\S]*?<\/current_workspace>/)?.[0] ?? '';
-    assert.ok(workspaceTree.includes('a-empty/'));
-    assert.ok(workspaceTree.includes('b-visible/'));
-    assert.ok(workspaceTree.includes('\t1.txt\n\t2.txt\n\t3.txt\n\t4.txt\n\t5.txt'));
-    assert.ok(!workspaceTree.includes('0.bin'));
-    assert.ok(!workspaceTree.includes('6.txt'));
-    assert.ok(!workspaceTree.includes('node_modules/'));
-    assert.ok(!workspaceTree.includes('ignored.txt'));
-    const directoryLimitContext = await resolveDynamicUserContext({
-      workspacePath: path.join(workspaceTreeRoot, 'chain-000'),
-      installationContextPath: path.join(installationRoot, 'missing-context'),
-    });
-    const directoryLimitTree = directoryLimitContext.match(/<current_workspace>[\s\S]*?<\/current_workspace>/)?.[0] ?? '';
-    assert.ok(directoryLimitTree.includes('chain-060/'));
-    assert.ok(!directoryLimitTree.includes('chain-061/'));
-    assert.ok(!directoryLimitTree.includes('beyond-limit.txt'));
-
-    const breadthRoot = path.join(workspaceTreeRoot, 'breadth-limit');
-    await mkdir(breadthRoot);
-    await Promise.all(Array.from(
-      { length: 16 },
-      (_, index) => mkdir(path.join(breadthRoot, `directory-${String(index).padStart(2, '0')}`)),
-    ));
-    const breadthLimitContext = await resolveDynamicUserContext({
-      workspacePath: breadthRoot,
-      installationContextPath: path.join(installationRoot, 'missing-context'),
-    });
-    const breadthLimitTree = breadthLimitContext.match(/<current_workspace>[\s\S]*?<\/current_workspace>/)?.[0] ?? '';
-    assert.ok(breadthLimitTree.includes('directory-14/'));
-    assert.ok(!breadthLimitTree.includes('directory-15/'));
-  } finally {
-    await rm(workspaceTreeRoot, { recursive: true, force: true });
-  }
   const symlinkWorkspace = await mkdtemp(path.join(tmpdir(), 'context-symlink-workspace-'));
   const symlinkTarget = await mkdtemp(path.join(tmpdir(), 'context-symlink-target-'));
   try {
@@ -762,11 +682,7 @@ try {
       workspacePath: symlinkWorkspace,
       installationContextPath: path.join(installationRoot, 'missing-context'),
     });
-    const symlinkUserContext = await resolveDynamicUserContext({
-      workspacePath: symlinkWorkspace,
-    });
     assert.ok(symlinkContext.includes('linked-context/AGENTS.linked.md'));
-    assert.ok(symlinkUserContext.includes('linked-context/'));
   } finally {
     await Promise.all([
       rm(symlinkWorkspace, { recursive: true, force: true }),
@@ -806,13 +722,11 @@ try {
     ],
   };
   const threadSystemContext = await resolveDynamicContext(threadInvocationContext);
-  const threadUserContext = await resolveDynamicUserContext(threadInvocationContext);
   assert.match(
     threadSystemContext,
     /You have sub-agents and\/or other threads available on this tree\./,
   );
   assert.doesNotMatch(threadSystemContext, /<current_thread>|<thread_directory>|subagent-id/);
-  assert.doesNotMatch(threadUserContext, /<thread_directory>|orchestrator-id|subagent-id/);
 
   console.log('Context variant discovery passed.');
 } finally {

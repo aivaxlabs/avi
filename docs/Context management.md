@@ -46,9 +46,9 @@ See [Plugins](Plugins.md) for the complete contract, security model, contributio
 
 ## Dynamic runtime context
 
-Depending on the turn, Avi may inject personality, AIVAX memory guidance, MCP server instructions, Plan/Goal/Ultra contracts, Tasks, the orchestration team, current-thread identity, environment information, and the active workspace summary.
+Depending on the turn, Avi may inject personality, AIVAX memory guidance, MCP server instructions, Plan/Goal/Ultra contracts, Tasks, the orchestration team, current-thread identity, and environment information.
 
-Quick Chat uses reduced instructions and does not receive the full ordinary-thread workspace and orchestration context.
+Quick Chat uses reduced instructions and does not receive the full ordinary-thread orchestration context.
 
 ## Context management UI
 
