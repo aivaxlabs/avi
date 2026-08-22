@@ -40,6 +40,16 @@ export function isHumanUserMessage(message) {
     && !parseStructuredUserMessage(message);
 }
 
+export function startIndexForRecentHumanMessages(messages, humanMessageCount) {
+  let remaining = humanMessageCount;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (!isHumanUserMessage(messages[index])) continue;
+    remaining -= 1;
+    if (remaining === 0) return index;
+  }
+  return 0;
+}
+
 export function groupAssistantTurns(messages) {
   const grouped = [];
   let turn = [];

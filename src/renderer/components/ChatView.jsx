@@ -13,10 +13,17 @@ import remarkGfm from 'remark-gfm';
 import { Composer } from './Composer.jsx';
 import { areComposerPropsEqual } from '../lib/composer-props.js';
 import { consolidateFileEdits } from '../lib/file-edits.js';
-import { groupAssistantTurns, isHumanUserMessage } from '../lib/message-groups.js';
+import {
+  groupAssistantTurns,
+  isHumanUserMessage,
+  startIndexForRecentHumanMessages,
+} from '../lib/message-groups.js';
 import { areMessageRowPropsEqual } from '../lib/message-row-props.js';
 import { useStreamingAutoScroll } from '../lib/use-streaming-auto-scroll.js';
 import { Message } from './Message.jsx';
+
+const HISTORY_BATCH_SIZE = 4;
+const HISTORY_LOAD_THRESHOLD = 80;
 
 const MessageRow = memo(function MessageRow({
   message,
@@ -165,6 +172,7 @@ function getModelDisplayName(models, modelId) {
 export const ChatView = memo(function ChatView({
   currentConversation,
   currentMessages,
+  messagesLoaded = true,
   currentModel,
   currentProject,
   contextUsage,
@@ -242,6 +250,11 @@ export const ChatView = memo(function ChatView({
   const [questionCustomActive, setQuestionCustomActive] = useState([]);
   const [questionResolving, setQuestionResolving] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState(null);
+  const [historyWindow, setHistoryWindow] = useState({
+    conversationId: null,
+    humanMessageCount: HISTORY_BATCH_SIZE,
+  });
+  const previousChatScrollTopRef = useRef(0);
   const modelName = getModelDisplayName(models, currentModel);
   const semaphoreCardTitleId = `semaphore-card-title-${currentConversation?.id ?? 'draft'}`;
   const pendingMessages = currentMessages
@@ -260,7 +273,16 @@ export const ChatView = memo(function ChatView({
   const visibleMessages = currentMessages
     .filter((message) => !message.hidden)
     .filter((message) => !['queued', 'steered'].includes(message.status));
-  const groupedMessages = groupAssistantTurns(visibleMessages);
+  const renderedHumanMessageCount = historyWindow.conversationId === currentConversation?.id
+    ? historyWindow.humanMessageCount
+    : HISTORY_BATCH_SIZE;
+  const historyStartIndex = startIndexForRecentHumanMessages(
+    visibleMessages,
+    renderedHumanMessageCount,
+  );
+  const renderedMessages = visibleMessages.slice(historyStartIndex);
+  const groupedMessages = groupAssistantTurns(renderedMessages);
+  const hasOlderMessages = historyStartIndex > 0;
   const editStats = useMemo(() => {
     const lastUserMessageIndex = currentMessages.findLastIndex((message) => (
       !message.hidden && isHumanUserMessage(message)
@@ -275,6 +297,7 @@ export const ChatView = memo(function ChatView({
   }, [currentMessages]);
   const lastAssistantMessage = visibleMessages.findLast((message) => message.role === 'assistant');
   const lastMessage = visibleMessages.at(-1);
+  const lastRenderedMessage = groupedMessages.at(-1)?.message;
   const isEmptyChat = visibleMessages.length === 0;
   const streamScrollKey = [
     lastMessage?.id ?? '',
@@ -299,11 +322,36 @@ export const ChatView = memo(function ChatView({
     }),
   );
 
-  const { scrollRef } = useStreamingAutoScroll({
+  const { scrollRef, prepareForPrepend } = useStreamingAutoScroll({
     scrollKey: streamScrollKey,
     isRunning,
     resetKey: currentConversation?.id,
+    focusKey: lastRenderedMessage?.id ?? null,
+    focusReady: messagesLoaded,
+    prependKey: groupedMessages[0]?.message.id ?? null,
   });
+  const loadOlderMessages = useCallback(() => {
+    if (!hasOlderMessages || !prepareForPrepend()) return;
+    setHistoryWindow((current) => ({
+      conversationId: currentConversation?.id ?? null,
+      humanMessageCount: (
+        current.conversationId === currentConversation?.id
+          ? current.humanMessageCount
+          : HISTORY_BATCH_SIZE
+      ) + HISTORY_BATCH_SIZE,
+    }));
+  }, [currentConversation?.id, hasOlderMessages, prepareForPrepend]);
+  const handleChatScroll = useCallback((event) => {
+    const { scrollTop } = event.currentTarget;
+    const scrollingUp = scrollTop < previousChatScrollTopRef.current - 1;
+    previousChatScrollTopRef.current = scrollTop;
+    setSelectionAction(null);
+    if (scrollingUp && scrollTop <= HISTORY_LOAD_THRESHOLD) loadOlderMessages();
+  }, [loadOlderMessages]);
+  const handleChatWheel = useCallback((event) => {
+    if (event.deltaY >= 0 || event.currentTarget.scrollTop > HISTORY_LOAD_THRESHOLD) return;
+    loadOlderMessages();
+  }, [loadOlderMessages]);
   const handleEditMessage = useCallback((messageId) => {
     setEditingMessageId(messageId);
   }, []);
@@ -360,6 +408,17 @@ export const ChatView = memo(function ChatView({
   }
 
   useEffect(() => {
+    previousChatScrollTopRef.current = 0;
+  }, [currentConversation?.id]);
+
+  useEffect(() => {
+    const scrollElement = scrollRef.current;
+    if (!scrollElement) return undefined;
+    scrollElement.addEventListener('wheel', handleChatWheel, { passive: true });
+    return () => scrollElement.removeEventListener('wheel', handleChatWheel);
+  }, [handleChatWheel, scrollRef]);
+
+  useEffect(() => {
     setQuestionIndex(0);
     setQuestionAnswers(questionRequest?.questions.map((question) => (
       question.type === 'multiple_choice' ? [] : ''
@@ -374,7 +433,7 @@ export const ChatView = memo(function ChatView({
     const frame = requestAnimationFrame(() => {
       questionCardRef.current
         ?.querySelector('[data-question-control]')
-        ?.focus();
+        ?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [questionIndex, questionRequest?.questionId]);
@@ -726,9 +785,12 @@ export const ChatView = memo(function ChatView({
       <div
         ref={scrollRef}
         className="chat-scroll"
+        role="region"
+        aria-label="Conversation messages"
+        tabIndex={0}
         onMouseUp={updateSelectionAction}
         onKeyUp={updateSelectionAction}
-        onScroll={() => setSelectionAction(null)}
+        onScroll={handleChatScroll}
       >
         {isEmptyChat ? (
           <div className="empty-chat">

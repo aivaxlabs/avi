@@ -3,6 +3,7 @@ import {
   groupAssistantTurns,
   isHumanUserMessage,
   parseStructuredUserMessage,
+  startIndexForRecentHumanMessages,
 } from '../src/renderer/lib/message-groups.js';
 import { areComposerPropsEqual } from '../src/renderer/lib/composer-props.js';
 import { areMessageRowPropsEqual } from '../src/renderer/lib/message-row-props.js';
@@ -39,6 +40,30 @@ assert.equal(isHumanUserMessage(report), false);
 assert.equal(isHumanUserMessage(crossThread), false);
 assert.equal(isHumanUserMessage(agentPrompt), false);
 assert.equal(isHumanUserMessage(assistantOne), false);
+
+const windowMessages = [
+  message('11', 'user', 'User one'),
+  message('12', 'assistant', 'Assistant one'),
+  message('13', 'user', 'User two'),
+  report,
+  message('14', 'assistant', 'Assistant two'),
+  { ...message('15', 'user', 'Agent update'), fromAgent: true },
+  message('16', 'user', 'User three'),
+  message('17', 'assistant', 'Assistant three'),
+  message('18', 'user', 'User four'),
+  message('19', 'assistant', 'Assistant four'),
+  message('20', 'user', 'User five'),
+  message('21', 'assistant', 'Assistant five'),
+  message('22', 'user', 'User six'),
+  message('23', 'assistant', 'Assistant six'),
+];
+assert.equal(startIndexForRecentHumanMessages(windowMessages, 4), 6);
+assert.equal(startIndexForRecentHumanMessages(windowMessages, 8), 0);
+assert.deepEqual(
+  windowMessages.slice(startIndexForRecentHumanMessages(windowMessages, 4)),
+  windowMessages.slice(6),
+  'renders the fourth most recent human message and everything after it',
+);
 
 assert.deepEqual(groupAssistantTurns([
   human,

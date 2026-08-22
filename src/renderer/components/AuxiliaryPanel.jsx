@@ -732,6 +732,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
             compact
             currentConversation={activeThread}
             currentMessages={visibleMessagesByConversation[activeThread.id] ?? emptyList}
+            messagesLoaded={Object.hasOwn(visibleMessagesByConversation, activeThread.id)}
             currentModel={currentModel}
             currentProject={currentProject}
             contextUsage={{

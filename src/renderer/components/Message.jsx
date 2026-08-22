@@ -210,7 +210,11 @@ export function Message({
     : null;
   if (compression) {
     return (
-      <article className="message-row context-compression-row" aria-live="polite">
+      <article
+        className="message-row context-compression-row"
+        data-message-id={message.id}
+        aria-live="polite"
+      >
         <ContextCompressionIndicator compression={compression} status={message.status} />
       </article>
     );
@@ -319,7 +323,7 @@ function UserMessage({ message, editing, onEdit, editor }) {
 
   if (report) {
     return (
-      <article className="message-row subagent-report-row">
+      <article className="message-row subagent-report-row" data-message-id={message.id}>
         <SubagentReportCard report={report} />
       </article>
     );
@@ -334,7 +338,7 @@ function UserMessage({ message, editing, onEdit, editor }) {
   if (crossMessageEnvelope && sourceThreadId) {
     const crossMessageBody = crossMessageEnvelope[2].trim();
     return (
-      <article className="message-row subagent-report-row">
+      <article className="message-row subagent-report-row" data-message-id={message.id}>
         <section
           className="subagent-report-card cross-thread-message-card"
           aria-label={`Message from thread ${sourceThreadId}`}
@@ -369,14 +373,14 @@ function UserMessage({ message, editing, onEdit, editor }) {
 
   if (editing) {
     return (
-      <article className="message-row user-row editing">
+      <article className="message-row user-row editing" data-message-id={message.id}>
         {editor}
       </article>
     );
   }
 
   return (
-    <article className="message-row user-row">
+    <article className="message-row user-row" data-message-id={message.id}>
       <div className="user-message-content">
         {message.fromAgent && (
           <small className="agent-message-marker">Sent from another agent</small>
@@ -576,7 +580,7 @@ function AssistantMessage({
   }, [imageContextMenu]);
 
   return (
-    <article className="message-row assistant-row">
+    <article className="message-row assistant-row" data-message-id={message.id}>
       <div className="assistant-message">
         {timeline.length > 0 || workedMessages.length > 0 ? (
           <div className="assistant-timeline">

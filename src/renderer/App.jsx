@@ -2073,6 +2073,7 @@ export default function App() {
   const shell = useMemo(() => ({
     currentConversation,
     currentMessages,
+    messagesLoaded: !selectedId || Object.hasOwn(messagesByConversation, selectedId),
     currentModel,
     contextUsage,
     isRunning: Boolean(selectedId && running[selectedId]),
@@ -2084,6 +2085,7 @@ export default function App() {
     currentMessages,
     currentModel,
     contextUsage,
+    messagesByConversation,
     recentModels,
     recentProjects,
     running,
