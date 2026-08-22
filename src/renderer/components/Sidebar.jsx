@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import Avatar from 'boring-avatars';
 import { createPortal } from 'react-dom';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import aviIconUrl from '../../../assets/icon/avi.png';
 import { classNames } from '../lib/format.js';
 import { presetColors } from '../lib/palette.js';
@@ -41,6 +41,8 @@ import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { TagsManagerDialog } from './TagsManagerDialog.jsx';
 
 const GROUP_LIMIT = 5;
+const emptyList = Object.freeze([]);
+const emptyObject = Object.freeze({});
 const conversationGroupingKey = 'aivax.sidebar.conversation-grouping';
 const botAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
 const compactTokenFormatter = new Intl.NumberFormat(undefined, {
@@ -48,17 +50,17 @@ const compactTokenFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 1,
 });
 
-export function Sidebar({
+export const Sidebar = memo(function Sidebar({
   conversations,
-  bots = [],
-  models = [],
+  bots = emptyList,
+  models = emptyList,
   selectedId,
   running,
-  runStartedAt = {},
+  runStartedAt = emptyObject,
   completedUnseen,
-  approvalPending = {},
-  inputPending = {},
-  semaphoreWaiting = {},
+  approvalPending = emptyObject,
+  inputPending = emptyObject,
+  semaphoreWaiting = emptyObject,
   onNewChat,
   onQuickChat,
   onSelect,
@@ -76,8 +78,8 @@ export function Sidebar({
   onCopyPath,
   onCopyThreadId,
   onSettings,
-  chatTags = [],
-  folderColors = {},
+  chatTags = emptyList,
+  folderColors = emptyObject,
   onSetConversationTags,
   onSetFolderColor,
   onSaveChatTags,
@@ -100,6 +102,9 @@ export function Sidebar({
   const [now, setNow] = useState(() => Date.now());
   const filterButtonRef = useRef(null);
   const folderMenuButtonRef = useRef(null);
+  const chronologicalDayStart = conversationGrouping === 'chronological'
+    ? new Date(now).setHours(0, 0, 0, 0)
+    : null;
 
   const conversationGroups = useMemo(() => {
     const sortedConversations = [...conversations]
@@ -188,7 +193,7 @@ export function Sidebar({
       return groupedConversations;
     }
 
-    const todayStart = new Date(now).setHours(0, 0, 0, 0);
+    const todayStart = chronologicalDayStart;
     const day = 24 * 60 * 60 * 1000;
     const groups = [
       { key: 'time:today', label: 'Today', items: [] },
@@ -216,21 +221,34 @@ export function Sidebar({
   }, [
     activeTagIds,
     approvalPending,
+    chronologicalDayStart,
     completedUnseen,
     conversationGrouping,
     conversations,
     homePath,
     inputPending,
     models,
-    now,
     running,
     semaphoreWaiting,
   ]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNow(Date.now()), 60_000);
-    return () => window.clearInterval(interval);
-  }, []);
+    const currentTime = Date.now();
+    const nextBoundary = conversations.reduce((earliest, conversation) => {
+      const updatedTime = new Date(conversation.updatedAt).getTime();
+      if (!Number.isFinite(updatedTime)) return earliest;
+      const elapsedHours = Math.max(0, Math.floor((currentTime - updatedTime) / 3_600_000));
+      return Math.min(earliest, updatedTime + ((elapsedHours + 1) * 3_600_000));
+    }, conversationGrouping === 'chronological'
+      ? new Date(currentTime).setHours(24, 0, 0, 0)
+      : Number.POSITIVE_INFINITY);
+    if (!Number.isFinite(nextBoundary)) return undefined;
+    const timeout = window.setTimeout(
+      () => setNow(Date.now()),
+      Math.max(1_000, nextBoundary - currentTime),
+    );
+    return () => window.clearTimeout(timeout);
+  }, [conversationGrouping, conversations, now]);
 
   useEffect(() => {
     setActiveTagIds((current) => {
@@ -382,10 +400,10 @@ export function Sidebar({
               key={bot.id}
               bot={bot}
               active={bot.conversationId === selectedId}
-              onSelect={() => onSelectBot(bot.conversationId)}
-              onSettings={() => onBotSettings(bot.id)}
-              onActivate={() => onActivateBot(bot.id)}
-              onDelete={() => onDeleteBot(bot.id)}
+              onSelect={onSelectBot}
+              onSettings={onBotSettings}
+              onActivate={onActivateBot}
+              onDelete={onDeleteBot}
             />
           ))
         )}
@@ -675,28 +693,34 @@ export function Sidebar({
                 </DropdownMenu>,
                 document.body,
               )}
-              {visibleItems.map((conversation) => (
-                <ConversationItem
-                  key={conversation.id}
-                  conversation={conversation}
-                  active={conversation.id === selectedId}
-                  running={Boolean(running[conversation.id])}
-                  runStartedAt={runStartedAt[conversation.id] ?? null}
-                  completedUnseen={Boolean(completedUnseen[conversation.id])}
-                  approvalPending={Boolean(approvalPending[conversation.id])}
-                  inputPending={Boolean(inputPending[conversation.id])}
-                  semaphoreWaiting={Boolean(semaphoreWaiting[conversation.id])}
-                  needsAttention={Boolean(conversation.needsAttention)}
-                  now={now}
-                  chatTags={chatTags}
-                  onSelect={() => onSelect(conversation.id)}
-                  onFork={() => onFork(conversation.id)}
-                  onArchive={() => onArchive(conversation.id)}
-                  onCopyId={() => onCopyThreadId(conversation.id)}
-                  onSetTags={(tags) => onSetConversationTags(conversation.id, tags)}
-                  onManageTags={() => setTagsManagerOpen(true)}
-                />
-              ))}
+              {visibleItems.map((conversation) => {
+                const updatedTime = new Date(conversation.updatedAt).getTime();
+                const ageHours = Number.isFinite(updatedTime)
+                  ? Math.floor((now - updatedTime) / 3_600_000)
+                  : null;
+                return (
+                  <ConversationItem
+                    key={conversation.id}
+                    conversation={conversation}
+                    active={conversation.id === selectedId}
+                    running={Boolean(running[conversation.id])}
+                    runStartedAt={runStartedAt[conversation.id] ?? null}
+                    completedUnseen={Boolean(completedUnseen[conversation.id])}
+                    approvalPending={Boolean(approvalPending[conversation.id])}
+                    inputPending={Boolean(inputPending[conversation.id])}
+                    semaphoreWaiting={Boolean(semaphoreWaiting[conversation.id])}
+                    needsAttention={Boolean(conversation.needsAttention)}
+                    ageHours={ageHours}
+                    chatTags={chatTags}
+                    onSelect={onSelect}
+                    onFork={onFork}
+                    onArchive={onArchive}
+                    onCopyId={onCopyThreadId}
+                    onSetTags={onSetConversationTags}
+                    onManageTags={setTagsManagerOpen}
+                  />
+                );
+              })}
               {group.items.length > GROUP_LIMIT && (
                 <button
                   className="conversation-show-toggle"
@@ -728,9 +752,9 @@ export function Sidebar({
       )}
     </aside>
   );
-}
+});
 
-function BotItem({ bot, active, onSelect, onSettings, onActivate, onDelete }) {
+const BotItem = memo(function BotItem({ bot, active, onSelect, onSettings, onActivate, onDelete }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
   const itemRef = useRef(null);
@@ -789,7 +813,12 @@ function BotItem({ bot, active, onSelect, onSettings, onActivate, onDelete }) {
         setMenuOpen(true);
       }}
     >
-      <button className="conversation-main" type="button" onClick={onSelect} title={bot.name}>
+      <button
+        className="conversation-main"
+        type="button"
+        onClick={() => onSelect(bot.conversationId)}
+        title={bot.name}
+      >
         <span className="bot-avatar" aria-hidden="true">
           <Avatar
             size={22}
@@ -828,7 +857,7 @@ function BotItem({ bot, active, onSelect, onSettings, onActivate, onDelete }) {
         <DropdownMenu fixed style={{ top: menuPosition.top, left: menuPosition.left }}>
           <DropdownMenuItem icon={<Settings size={14} />} onClick={() => {
             setMenuOpen(false);
-            onSettings();
+            onSettings(bot.id);
           }}>
             Bot settings
           </DropdownMenuItem>
@@ -838,14 +867,14 @@ function BotItem({ bot, active, onSelect, onSettings, onActivate, onDelete }) {
             title={bot.enabled === false ? 'Enable this bot in Schedule first' : undefined}
             onClick={() => {
               setMenuOpen(false);
-              onActivate();
+              onActivate(bot.id);
             }}
           >
             Activate now
           </DropdownMenuItem>
           <DropdownMenuItem icon={<Trash2 size={14} />} onClick={() => {
             setMenuOpen(false);
-            onDelete();
+            onDelete(bot.id);
           }}>
             Delete bot...
           </DropdownMenuItem>
@@ -854,9 +883,9 @@ function BotItem({ bot, active, onSelect, onSettings, onActivate, onDelete }) {
       )}
     </div>
   );
-}
+});
 
-function ConversationItem({
+const ConversationItem = memo(function ConversationItem({
   conversation,
   active,
   running,
@@ -866,8 +895,8 @@ function ConversationItem({
   inputPending,
   semaphoreWaiting,
   needsAttention,
-  now,
-  chatTags = [],
+  ageHours,
+  chatTags = emptyList,
   onSelect,
   onFork,
   onArchive,
@@ -926,13 +955,9 @@ function ConversationItem({
   })();
   const tokensLabel = `~${compactTokenFormatter.format(conversation.contextTokens ?? 0)} input tokens`;
   const ageLabel = (() => {
-    const updatedTime = new Date(conversation.updatedAt).getTime();
-    if (!Number.isFinite(updatedTime)) return '';
-    const minutes = Math.floor((now - updatedTime) / 60_000);
-    if (minutes < 60) return '';
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h`;
-    const days = Math.floor(hours / 24);
+    if (!Number.isFinite(ageHours) || ageHours < 1) return '';
+    if (ageHours < 24) return `${ageHours}h`;
+    const days = Math.floor(ageHours / 24);
     if (days < 7) return `${days}d`;
     const weeks = Math.floor(days / 7);
     if (days < 30) return `${weeks}w`;
@@ -1047,7 +1072,7 @@ function ConversationItem({
       : [...base, tagId];
     optimisticTagsRef.current = next;
     setOptimisticTags(next);
-    onSetTags(next).catch(() => {
+    onSetTags(conversation.id, next).catch(() => {
       optimisticTagsRef.current = null;
       setOptimisticTags(null);
     });
@@ -1076,7 +1101,7 @@ function ConversationItem({
       <button
         className="conversation-main"
         type="button"
-        onClick={onSelect}
+        onClick={() => onSelect(conversation.id)}
         onFocus={openTooltip}
         onBlur={closeTooltip}
       >
@@ -1110,17 +1135,26 @@ function ConversationItem({
       </button>
       {menuOpen && menuPosition && createPortal(
         <DropdownMenu fixed style={{ top: menuPosition.top, left: menuPosition.left }}>
-          <DropdownMenuItem icon={<CopyPlus size={14} />} onClick={() => runMenuAction(onFork)}>
+          <DropdownMenuItem
+            icon={<CopyPlus size={14} />}
+            onClick={() => runMenuAction(() => onFork(conversation.id))}
+          >
             Fork chat
           </DropdownMenuItem>
-          <DropdownMenuItem icon={<Hash size={14} />} onClick={() => runMenuAction(onCopyId)}>
+          <DropdownMenuItem
+            icon={<Hash size={14} />}
+            onClick={() => runMenuAction(() => onCopyId(conversation.id))}
+          >
             Copy thread ID
           </DropdownMenuItem>
           <div className="dropdown-menu-divider" role="separator" />
           <DropdownMenuItem icon={<Tags size={14} />} onClick={openTagsMenu}>
             Tags
           </DropdownMenuItem>
-          <DropdownMenuItem icon={<Archive size={14} />} onClick={() => runMenuAction(onArchive)}>
+          <DropdownMenuItem
+            icon={<Archive size={14} />}
+            onClick={() => runMenuAction(() => onArchive(conversation.id))}
+          >
             Archive chat
           </DropdownMenuItem>
         </DropdownMenu>,
@@ -1154,7 +1188,7 @@ function ConversationItem({
             icon={<Settings size={14} />}
             onClick={() => {
               setTagsMenuOpen(false);
-              onManageTags();
+              onManageTags(true);
             }}
           >
             Manage tags...
@@ -1198,4 +1232,4 @@ function ConversationItem({
       )}
     </div>
   );
-}
+});

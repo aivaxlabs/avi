@@ -4,6 +4,8 @@ import {
   isHumanUserMessage,
   parseStructuredUserMessage,
 } from '../src/renderer/lib/message-groups.js';
+import { areComposerPropsEqual } from '../src/renderer/lib/composer-props.js';
+import { areMessageRowPropsEqual } from '../src/renderer/lib/message-row-props.js';
 
 const message = (id, role, content, createdAt = `2026-01-01T00:00:0${id}.000Z`) => ({
   id,
@@ -116,5 +118,56 @@ assert.deepEqual(groupAssistantTurns([assistantOne, systemMessage, finalAssistan
     workedStartedAt: finalAssistant.createdAt,
   },
 ]);
+
+const stableCallback = () => {};
+const historicalRowProps = {
+  message: assistantOne,
+  workedMessages: [report],
+  onRetry: stableCallback,
+  runActive: false,
+};
+assert.equal(areMessageRowPropsEqual(historicalRowProps, {
+  ...historicalRowProps,
+  workedMessages: [report],
+}), true);
+assert.equal(areMessageRowPropsEqual(historicalRowProps, {
+  ...historicalRowProps,
+  message: { ...assistantOne, content: 'Updated response' },
+}), false);
+assert.equal(areMessageRowPropsEqual(historicalRowProps, {
+  ...historicalRowProps,
+  workedMessages: [{ ...report }],
+}), false);
+assert.equal(areMessageRowPropsEqual(historicalRowProps, {
+  ...historicalRowProps,
+  onRetry: () => {},
+}), false);
+
+const composerProps = {
+  subagents: [
+    { id: 'agent-1', status: 'working' },
+    { id: 'agent-2', status: 'finished' },
+  ],
+  queuedMessages: [],
+  editStats: { files: 1, additions: 2, deletions: 0 },
+  onSend: stableCallback,
+};
+assert.equal(areComposerPropsEqual(composerProps, {
+  ...composerProps,
+  subagents: composerProps.subagents.map((subagent) => ({ ...subagent })),
+  queuedMessages: [],
+  editStats: { files: 1, additions: 2, deletions: 0 },
+}), true);
+assert.equal(areComposerPropsEqual(composerProps, {
+  ...composerProps,
+  subagents: [
+    { id: 'agent-1', status: 'finished' },
+    { id: 'agent-2', status: 'finished' },
+  ],
+}), false);
+assert.equal(areComposerPropsEqual(composerProps, {
+  ...composerProps,
+  onSend: () => {},
+}), false);
 
 console.log('Message grouping tests passed.');

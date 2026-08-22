@@ -6,15 +6,71 @@ import {
   Moon,
   UploadCloud,
 } from 'lucide-react';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Composer } from './Composer.jsx';
+import { areComposerPropsEqual } from '../lib/composer-props.js';
 import { consolidateFileEdits } from '../lib/file-edits.js';
 import { groupAssistantTurns, isHumanUserMessage } from '../lib/message-groups.js';
+import { areMessageRowPropsEqual } from '../lib/message-row-props.js';
 import { useStreamingAutoScroll } from '../lib/use-streaming-auto-scroll.js';
 import { Message } from './Message.jsx';
+
+const MessageRow = memo(function MessageRow({
+  message,
+  editing,
+  editor,
+  workedMessages,
+  workedStartedAt,
+  modelName,
+  resumeModel,
+  conversationId,
+  onEdit,
+  onFork,
+  onRetry,
+  onResume,
+  runActive,
+  questionPending,
+  onSendContinuation,
+  onUndoEdits,
+  onOpenFileEdit,
+  onImplementPlan,
+  onOpenFileReference,
+  onFileReferenceAction,
+  showContinuations,
+  canRetry,
+  canResume,
+}) {
+  return (
+    <Message
+      message={message}
+      editing={editing}
+      onEdit={onEdit ? () => onEdit(message.id) : undefined}
+      editor={editor}
+      workedMessages={workedMessages}
+      workedStartedAt={workedStartedAt}
+      modelName={modelName}
+      onFork={() => onFork(conversationId, message.id)}
+      onRetry={() => onRetry(message.id)}
+      onResume={() => onResume(message.id, resumeModel)}
+      runActive={runActive}
+      questionPending={questionPending}
+      onSendContinuation={onSendContinuation}
+      onUndoEdits={onUndoEdits}
+      onOpenFileEdit={onOpenFileEdit}
+      onImplementPlan={onImplementPlan}
+      onOpenFileReference={onOpenFileReference}
+      onFileReferenceAction={onFileReferenceAction}
+      showContinuations={showContinuations}
+      canRetry={canRetry}
+      canResume={canResume}
+    />
+  );
+}, areMessageRowPropsEqual);
+
+const MemoizedComposer = memo(Composer, areComposerPropsEqual);
 
 const emptyChatBackgroundShader = `
 struct Uniforms {
@@ -248,6 +304,22 @@ export const ChatView = memo(function ChatView({
     isRunning,
     resetKey: currentConversation?.id,
   });
+  const handleEditMessage = useCallback((messageId) => {
+    setEditingMessageId(messageId);
+  }, []);
+  const handleCancelEditing = useCallback(() => {
+    setEditingMessageId(null);
+  }, []);
+  const handleReplaceUserMessage = useCallback(async (messageId, payload) => {
+    await onReplaceUserMessage(messageId, payload);
+    setEditingMessageId(null);
+  }, [onReplaceUserMessage]);
+  const handleWorkModeChange = useCallback((nextWorkMode) => (
+    onWorkModeChange(nextWorkMode, currentConversation?.id)
+  ), [currentConversation?.id, onWorkModeChange]);
+  const handleUltraModeChange = useCallback((enabled) => (
+    onUltraModeChange(enabled, currentConversation?.id)
+  ), [currentConversation?.id, onUltraModeChange]);
 
   function handleDragEnter(event) {
     if (!hasFileTransfer(event.dataTransfer)) return;
@@ -665,108 +737,102 @@ export const ChatView = memo(function ChatView({
         ) : (
           <div className="messages-column">
             {groupedMessages.map(({ message, workedMessages, workedStartedAt }) => (
-                <Message
-                  key={message.id}
-                  message={message}
-                  editing={message.id === editingMessageId}
-                  onEdit={onReplaceUserMessage
-                    ? () => setEditingMessageId(message.id)
-                    : undefined}
-                  editor={message.id === editingMessageId ? (
-                    <Composer
-                      key={`edit-${message.id}`}
-                      conversationId={currentConversation?.id}
-                      isRunning={isRunning}
-                      onSend={async (payload) => {
-                        await onReplaceUserMessage(message.id, payload);
-                        setEditingMessageId(null);
-                      }}
-                      onExpandPrompt={onExpandPrompt}
-                      onStop={onStop}
-                      onCompress={onCompress}
-                      models={models}
-                      favorites={favorites}
-                      recentModels={recentModels}
-                      recentProjects={recentProjects}
-                      currentModel={message.model || currentModel}
-                      modelName={getModelDisplayName(models, message.model || currentModel)}
-                      contextUsage={contextUsage}
-                      onChooseModel={onChooseModel}
-                      project={currentProject}
-                      projectLocked
-                      onChooseProject={onChooseProject}
-                      onUseHome={onUseHome}
-                      onToggleFavorite={onToggleFavorite}
-                      workMode={message.workMode}
-                      onWorkModeChange={() => true}
-                      ultraMode={message.ultraMode}
-                      onUltraModeChange={() => true}
-                      messageDeliveryMode={messageDeliveryMode}
-                      defaultPermissionMode={message.permissionMode || defaultPermissionMode}
-                      initialState={{
-                        text: message.content,
-                        attachments: message.attachments,
-                        model: message.model || currentModel,
-                        reasoningEffort: message.reasoningEffort,
-                        permissionMode: message.permissionMode || defaultPermissionMode,
-                        workMode: message.workMode,
-                        ultraMode: message.ultraMode,
-                      }}
-                      persistState={false}
-                      inline
-                      botMode={botMode}
-                      autoFocus
-                      onCancel={() => setEditingMessageId(null)}
-                    />
-                  ) : null}
-                  workedMessages={workedMessages}
-                  workedStartedAt={workedStartedAt}
-                  modelName={getModelDisplayName(
-                    models,
-                    message.model || currentConversation?.model,
-                  )}
-                  onFork={() => onFork(currentConversation?.id, message.id)}
-                  onRetry={() => onRetry(message.id)}
-                  onResume={() => onResume(
-                    message.id,
-                    message.model || currentConversation?.model || currentModel,
-                  )}
-                  runActive={isRunning && message.id === lastAssistantMessage?.id}
-                  questionPending={Boolean(
-                    questionRequest && message.id === lastAssistantMessage?.id,
-                  )}
-                  onSendContinuation={onSendContinuation}
-                  onUndoEdits={onUndoEdits}
-                  onOpenFileEdit={onOpenFileEdit}
-                  onImplementPlan={(options) => onImplementPlan?.(options)}
-                  onOpenFileReference={onOpenFileReference}
-                  onFileReferenceAction={onFileReferenceAction}
-                  showContinuations={
-                    continuationRepliesEnabled
-                    && message.id === lastAssistantMessage?.id
-                    && message.status === 'completed'
-                    && !isRunning
-                    && !subagents?.some((subagent) => (
-                      ['waiting', 'working'].includes(subagent.status)
-                    ))
-                  }
-                  canRetry={
-                    message.id === lastAssistantMessage?.id
-                    && message.status === 'completed'
-                    && !isRunning
-                    && !subagents?.some((subagent) => (
-                      ['waiting', 'working'].includes(subagent.status)
-                    ))
-                  }
-                  canResume={
-                    message.id === lastAssistantMessage?.id
-                    && ['error', 'aborted', 'streaming'].includes(message.status)
-                    && !isRunning
-                    && !subagents?.some((subagent) => (
-                      ['waiting', 'working'].includes(subagent.status)
-                    ))
-                  }
-                />
+              <MessageRow
+                key={message.id}
+                message={message}
+                editing={message.id === editingMessageId}
+                onEdit={onReplaceUserMessage ? handleEditMessage : undefined}
+                editor={message.id === editingMessageId ? (
+                  <Composer
+                    key={`edit-${message.id}`}
+                    conversationId={currentConversation?.id}
+                    isRunning={isRunning}
+                    onSend={(payload) => handleReplaceUserMessage(message.id, payload)}
+                    onExpandPrompt={onExpandPrompt}
+                    onStop={onStop}
+                    onCompress={onCompress}
+                    models={models}
+                    favorites={favorites}
+                    recentModels={recentModels}
+                    recentProjects={recentProjects}
+                    currentModel={message.model || currentModel}
+                    modelName={getModelDisplayName(models, message.model || currentModel)}
+                    contextUsage={contextUsage}
+                    onChooseModel={onChooseModel}
+                    project={currentProject}
+                    projectLocked
+                    onChooseProject={onChooseProject}
+                    onUseHome={onUseHome}
+                    onToggleFavorite={onToggleFavorite}
+                    workMode={message.workMode}
+                    onWorkModeChange={() => true}
+                    ultraMode={message.ultraMode}
+                    onUltraModeChange={() => true}
+                    messageDeliveryMode={messageDeliveryMode}
+                    defaultPermissionMode={message.permissionMode || defaultPermissionMode}
+                    initialState={{
+                      text: message.content,
+                      attachments: message.attachments,
+                      model: message.model || currentModel,
+                      reasoningEffort: message.reasoningEffort,
+                      permissionMode: message.permissionMode || defaultPermissionMode,
+                      workMode: message.workMode,
+                      ultraMode: message.ultraMode,
+                    }}
+                    persistState={false}
+                    inline
+                    botMode={botMode}
+                    autoFocus
+                    onCancel={handleCancelEditing}
+                  />
+                ) : null}
+                workedMessages={workedMessages}
+                workedStartedAt={workedStartedAt}
+                modelName={getModelDisplayName(
+                  models,
+                  message.model || currentConversation?.model,
+                )}
+                resumeModel={message.model || currentConversation?.model || currentModel}
+                conversationId={currentConversation?.id}
+                onFork={onFork}
+                onRetry={onRetry}
+                onResume={onResume}
+                runActive={isRunning && message.id === lastAssistantMessage?.id}
+                questionPending={Boolean(
+                  questionRequest && message.id === lastAssistantMessage?.id,
+                )}
+                onSendContinuation={onSendContinuation}
+                onUndoEdits={onUndoEdits}
+                onOpenFileEdit={onOpenFileEdit}
+                onImplementPlan={onImplementPlan}
+                onOpenFileReference={onOpenFileReference}
+                onFileReferenceAction={onFileReferenceAction}
+                showContinuations={
+                  continuationRepliesEnabled
+                  && message.id === lastAssistantMessage?.id
+                  && message.status === 'completed'
+                  && !isRunning
+                  && !subagents?.some((subagent) => (
+                    ['waiting', 'working'].includes(subagent.status)
+                  ))
+                }
+                canRetry={
+                  message.id === lastAssistantMessage?.id
+                  && message.status === 'completed'
+                  && !isRunning
+                  && !subagents?.some((subagent) => (
+                    ['waiting', 'working'].includes(subagent.status)
+                  ))
+                }
+                canResume={
+                  message.id === lastAssistantMessage?.id
+                  && ['error', 'aborted', 'streaming'].includes(message.status)
+                  && !isRunning
+                  && !subagents?.some((subagent) => (
+                    ['waiting', 'working'].includes(subagent.status)
+                  ))
+                }
+              />
             ))}
             {semaphoreWait && (
               <article
@@ -1021,7 +1087,7 @@ export const ChatView = memo(function ChatView({
           </div>
         )}
       </div>
-      <Composer
+      <MemoizedComposer
         containerRef={composerRef}
         conversationId={currentConversation?.id ?? null}
         isRunning={isRunning}
@@ -1055,13 +1121,9 @@ export const ChatView = memo(function ChatView({
         onUseHome={onUseHome}
         onToggleFavorite={onToggleFavorite}
         workMode={workMode}
-        onWorkModeChange={(nextWorkMode) => (
-          onWorkModeChange(nextWorkMode, currentConversation?.id)
-        )}
+        onWorkModeChange={handleWorkModeChange}
         ultraMode={ultraMode}
-        onUltraModeChange={(enabled) => (
-          onUltraModeChange(enabled, currentConversation?.id)
-        )}
+        onUltraModeChange={handleUltraModeChange}
         goal={currentConversation?.goal}
         goalPreparation={goalPreparation}
         onGoalAction={onGoalAction}

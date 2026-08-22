@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -35,6 +36,8 @@ window.localStorage.removeItem('aivax.composer.work-mode');
 window.localStorage.removeItem('aivax.composer.ultra-mode');
 const minimumAuxiliaryPanelWidth = 280;
 const minimumMainContentWidth = 320;
+const emptyList = Object.freeze([]);
+const emptyObject = Object.freeze({});
 const initialSidebarWidth = Number.isFinite(savedSidebarWidth) && savedSidebarWidth > 0
   ? Math.max(180, Math.min(420, savedSidebarWidth))
   : 222;
@@ -58,8 +61,47 @@ const initialAuxiliaryPanelWidth = Number.isFinite(savedAuxiliaryPanelWidth)
 
 function useStableCallback(callback) {
   const callbackRef = useRef(callback);
-  callbackRef.current = callback;
+  useLayoutEffect(() => {
+    callbackRef.current = callback;
+  });
   return useCallback((...args) => callbackRef.current(...args), []);
+}
+
+function useVisibleConversationRecord(conversationIds, record, fallbackValue) {
+  const previousRef = useRef(emptyObject);
+  const visibleRecord = useMemo(() => {
+    const previous = previousRef.current;
+    const next = Object.fromEntries(conversationIds.map((conversationId) => [
+      conversationId,
+      record[conversationId] ?? fallbackValue,
+    ]));
+    return Object.keys(previous).length === conversationIds.length
+      && conversationIds.every((conversationId) => (
+        previous[conversationId] === next[conversationId]
+      ))
+      ? previous
+      : next;
+  }, [conversationIds, fallbackValue, record]);
+  useEffect(() => {
+    previousRef.current = visibleRecord;
+  }, [visibleRecord]);
+  return visibleRecord;
+}
+
+function useVisibleConversationItems(conversationIds, items) {
+  const previousRef = useRef(emptyList);
+  const visibleItems = useMemo(() => {
+    const conversationIdSet = new Set(conversationIds);
+    const next = items.filter((item) => conversationIdSet.has(item.conversationId));
+    return previousRef.current.length === next.length
+      && previousRef.current.every((item, index) => item === next[index])
+      ? previousRef.current
+      : next;
+  }, [conversationIds, items]);
+  useEffect(() => {
+    previousRef.current = visibleItems;
+  }, [visibleItems]);
+  return visibleItems;
 }
 
 function applyPendingOrder(messages, order) {
@@ -144,7 +186,7 @@ export default function App() {
   const currentConversation = conversations.find((item) => item.id === selectedId)
     ?? selectedBot?.conversation
     ?? null;
-  const currentMessages = messagesByConversation[selectedId] ?? [];
+  const currentMessages = messagesByConversation[selectedId] ?? emptyList;
   const currentProject = useMemo(() => (currentConversation
     ? {
         path: currentConversation.projectPath,
@@ -200,26 +242,54 @@ export default function App() {
       ? selectedBot.contextSize
       : currentModelContextLimit,
   }), [currentConversation?.contextTokens, currentModelContextLimit, selectedBot?.contextSize]);
-  const subagentsWithStatus = useMemo(() => subagents
-    .filter((subagent) => subagent.parentConversationId === selectedId)
-    .map((subagent) => {
-      const messages = messagesByConversation[subagent.id] ?? [];
-      const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
-      const lastAssistant = messages
-        .slice(lastUserIndex + 1)
-        .findLast((message) => message.role === 'assistant');
-      let status = 'waiting';
-      if (semaphoreWaits.some((wait) => wait.conversationId === subagent.id)) {
-        status = 'sleeping';
-      } else if (running[subagent.id]) {
-        status = 'working';
-      } else if (lastAssistant?.status === 'completed') {
-        status = 'finished';
-      } else if (['error', 'aborted', 'streaming'].includes(lastAssistant?.status)) {
-        status = 'failed';
-      }
-      return { ...subagent, status };
-    }), [messagesByConversation, running, selectedId, semaphoreWaits, subagents]);
+  const visibleSubagents = useMemo(() => subagents.filter(
+    (subagent) => subagent.parentConversationId === selectedId,
+  ), [selectedId, subagents]);
+  const auxiliaryConversationIds = useMemo(() => [
+    ...sideChats.map((sideChat) => sideChat.id),
+    ...visibleSubagents.map((subagent) => subagent.id),
+  ], [sideChats, visibleSubagents]);
+  const auxiliaryMessagesByConversation = useVisibleConversationRecord(
+    auxiliaryConversationIds,
+    messagesByConversation,
+    emptyList,
+  );
+  const auxiliaryRunning = useVisibleConversationRecord(
+    auxiliaryConversationIds,
+    running,
+    false,
+  );
+  const auxiliaryQuestionRequests = useVisibleConversationItems(
+    auxiliaryConversationIds,
+    questionRequests,
+  );
+  const auxiliarySemaphoreWaits = useVisibleConversationItems(
+    auxiliaryConversationIds,
+    semaphoreWaits,
+  );
+  const subagentsWithStatus = useMemo(() => visibleSubagents.map((subagent) => {
+    const messages = auxiliaryMessagesByConversation[subagent.id] ?? emptyList;
+    const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
+    const lastAssistant = messages
+      .slice(lastUserIndex + 1)
+      .findLast((message) => message.role === 'assistant');
+    let status = 'waiting';
+    if (auxiliarySemaphoreWaits.some((wait) => wait.conversationId === subagent.id)) {
+      status = 'sleeping';
+    } else if (auxiliaryRunning[subagent.id]) {
+      status = 'working';
+    } else if (lastAssistant?.status === 'completed') {
+      status = 'finished';
+    } else if (['error', 'aborted', 'streaming'].includes(lastAssistant?.status)) {
+      status = 'failed';
+    }
+    return { ...subagent, status };
+  }), [
+    auxiliaryMessagesByConversation,
+    auxiliaryRunning,
+    auxiliarySemaphoreWaits,
+    visibleSubagents,
+  ]);
   const openProviderPanels = useMemo(() => providerPanels.filter(
     (panel) => openProviderPanelIds.includes(panel.id),
   ), [openProviderPanelIds, providerPanels]);
@@ -457,27 +527,29 @@ export default function App() {
           [event.conversationId]: upsertMessage(state[event.conversationId] ?? [], event.message),
         }));
         if (event.message.role === 'assistant') {
-          setRunning((state) => ({
-            ...state,
-            [event.conversationId]: event.message.status === 'streaming',
-          }));
+          const isRunning = event.message.status === 'streaming';
+          setRunning((state) => (
+            state[event.conversationId] === isRunning
+              ? state
+              : { ...state, [event.conversationId]: isRunning }
+          ));
         }
         if (
           ['assistant', 'user'].includes(event.message.role)
           && !['queued', 'steered'].includes(event.message.status)
         ) {
-          setConversations((state) => state.map((conversation) => (
-            conversation.id === event.conversationId
-              ? {
-                  ...conversation,
-                  needsAttention: !event.message.stoppedByUser && (
-                    ['error', 'aborted'].includes(event.message.status)
-                    || event.message.status === 'streaming'
-                    || event.message.role === 'user'
-                  ),
-                }
-              : conversation
-          )));
+          const needsAttention = !event.message.stoppedByUser && (
+            ['error', 'aborted'].includes(event.message.status)
+            || event.message.status === 'streaming'
+            || event.message.role === 'user'
+          );
+          setConversations((state) => {
+            const conversation = state.find((item) => item.id === event.conversationId);
+            if (!conversation || conversation.needsAttention === needsAttention) return state;
+            return state.map((item) => (
+              item.id === event.conversationId ? { ...item, needsAttention } : item
+            ));
+          });
         }
       } else if (event.type === 'conversation') {
         if (event.conversation.isBot) {
@@ -493,7 +565,25 @@ export default function App() {
               : state
           ));
         } else {
-          setConversations((state) => upsertById(state, event.conversation).sort(sortByUpdatedAt));
+          setConversations((state) => {
+            const current = state.find((conversation) => conversation.id === event.conversation.id);
+            if (
+              current
+              && Object.keys(current).length === Object.keys(event.conversation).length
+              && Object.entries(current).every(([key, value]) => {
+                const nextValue = event.conversation[key];
+                return value === nextValue || (
+                  Array.isArray(value)
+                  && Array.isArray(nextValue)
+                  && value.length === nextValue.length
+                  && value.every((item, index) => item === nextValue[index])
+                );
+              })
+            ) {
+              return state;
+            }
+            return upsertById(state, event.conversation).sort(sortByUpdatedAt);
+          });
         }
       } else if (event.type === 'subagent-created') {
         if (
@@ -523,7 +613,11 @@ export default function App() {
           ),
         }));
       } else if (event.type === 'run-state') {
-        setRunning((state) => ({ ...state, [event.conversationId]: event.running }));
+        setRunning((state) => (
+          state[event.conversationId] === event.running
+            ? state
+            : { ...state, [event.conversationId]: event.running }
+        ));
         setRunStartedAt((state) => {
           if (!event.running || !Number.isFinite(event.startedAt)) {
             if (!(event.conversationId in state)) return state;
@@ -534,11 +628,13 @@ export default function App() {
           return { ...state, [event.conversationId]: event.startedAt };
         });
         if (event.stoppedByUser) {
-          setConversations((state) => state.map((conversation) => (
-            conversation.id === event.conversationId
-              ? { ...conversation, needsAttention: false }
-              : conversation
-          )));
+          setConversations((state) => {
+            const conversation = state.find((item) => item.id === event.conversationId);
+            if (!conversation?.needsAttention) return state;
+            return state.map((item) => (
+              item.id === event.conversationId ? { ...item, needsAttention: false } : item
+            ));
+          });
           setCompletedUnseen((state) => {
             if (!state[event.conversationId]) return state;
             const next = { ...state };
@@ -1698,6 +1794,240 @@ export default function App() {
     setPendingComposerAttachment(null)
   ));
   const chatOnOpenFileReference = useStableCallback(openFileReference);
+  const chatOnExpandPrompt = useStableCallback(async (payload) => {
+    try {
+      return await api.chat.expandPrompt(payload);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return null;
+    }
+  });
+  const chatOnShowBotInPanel = useStableCallback(() => openBotQueueTab(selectedBot?.id));
+  const chatOnFileReferenceAction = useStableCallback(handleFileReferenceAction);
+  const sidebarSemaphoreWaiting = useMemo(() => Object.fromEntries(
+    semaphoreWaits.map((wait) => [wait.conversationId, true]),
+  ), [semaphoreWaits]);
+  const sidebarOnSetConversationTags = useStableCallback(setConversationTags);
+  const sidebarOnSetFolderColor = useStableCallback(setFolderColor);
+  const sidebarOnSaveChatTags = useStableCallback(saveChatTags);
+  const sidebarOnQuickChat = useStableCallback(() => api.quickChat.open().catch((nextError) => {
+    setError(nextError instanceof Error ? nextError.message : String(nextError));
+  }));
+  const sidebarOnNewChat = useStableCallback((preset = {}) => {
+    setOrchestrationOpen(false);
+    selectedConversationIdRef.current = null;
+    setSelectedId(null);
+    setDraftProject(preset.project ?? currentProject ?? appState.defaultProject);
+    setDraftModel(preset.modelId ?? currentModel ?? appState.lastModel ?? models[0]?.id ?? '');
+    setWorkMode(null);
+    setUltraMode(false);
+  });
+  const sidebarOnSelect = useStableCallback((id) => {
+    setOrchestrationOpen(false);
+    selectConversation(id);
+  });
+  const sidebarOnNewBot = useStableCallback(createBot);
+  const sidebarOnBotSettings = useStableCallback(setBotSettingsTarget);
+  const sidebarOnDeleteBot = useStableCallback(deleteBot);
+  const sidebarOnActivateBot = useStableCallback(activateBot);
+  const sidebarOnFork = useStableCallback(forkConversation);
+  const sidebarOnArchive = useStableCallback(archiveConversation);
+  const sidebarOnSearch = useStableCallback(() => setSearchOpen(true));
+  const sidebarOnOpenOrchestration = useStableCallback(() => {
+    setOrchestrationOpen(true);
+    setAuxiliaryPanelVisible(false);
+  });
+  const sidebarOnOpenProject = useStableCallback(async (project) => {
+    try {
+      await api.context.open(project.path);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  });
+  const sidebarOnOpenTerminal = useStableCallback(async (project) => {
+    try {
+      await api.shell.openTerminal(project.path);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  });
+  const sidebarOnCopyPath = useStableCallback(async (project) => {
+    try {
+      await navigator.clipboard.writeText(project.path);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  });
+  const sidebarOnCopyThreadId = useStableCallback(async (id) => {
+    try {
+      await navigator.clipboard.writeText(id);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  });
+  const sidebarOnSettings = useStableCallback((contextFolder = null, initialView = null) => {
+    setSettingsContextFolder(contextFolder);
+    setSettingsInitialView(initialView ?? (contextFolder ? 'context-folder' : null));
+    setSettingsOpen(true);
+  });
+  const sidebarOnToggleCollapsed = useStableCallback(() => (
+    setSidebarCollapsed((value) => !value)
+  ));
+  const auxiliaryOnResolveBotApproval = useStableCallback(resolveBotApproval);
+  const auxiliaryOnOpenBotQueueTab = useStableCallback(openBotQueueTab);
+  const auxiliaryOnCloseBotQueueTab = useStableCallback(closeBotQueueTab);
+  const auxiliaryOnSelectTab = useStableCallback(async (tabId) => {
+    setActiveAuxiliaryTab(tabId);
+    if (['subagents', 'files', 'git-review'].includes(tabId)) {
+      setActiveSubagentId(null);
+    } else if (
+      !providerPanels.some((panel) => panel.id === tabId)
+      && !messagesByConversation[tabId]
+    ) {
+      const messages = await api.conversations.messages(tabId);
+      setMessagesByConversation((state) => ({ ...state, [tabId]: messages }));
+    }
+  });
+  const auxiliaryOnCloseSideChat = useStableCallback(closeSideChat);
+  const auxiliaryOnCloseFilesTab = useStableCallback(() => {
+    setFilesTabOpen(false);
+    if (activeAuxiliaryTab === 'files') {
+      setActiveAuxiliaryTab(
+        sideChats[0]?.id
+          ?? (botQueueTabOpen ? 'bot-queue' : null)
+          ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null),
+      );
+    }
+  });
+  const auxiliaryOnCloseGitReviewTab = useStableCallback(() => {
+    setGitReviewTabOpen(false);
+    if (activeAuxiliaryTab === 'git-review') {
+      setActiveAuxiliaryTab(
+        sideChats[0]?.id
+          ?? (filesTabOpen ? 'files' : null)
+          ?? (tasksTabOpen ? 'tasks' : null)
+          ?? (botQueueTabOpen ? 'bot-queue' : null)
+          ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null),
+      );
+    }
+  });
+  const auxiliaryOnCloseTasksTab = useStableCallback(() => {
+    setTasksTabOpen(false);
+    setActiveAuxiliaryTab(null);
+  });
+  const auxiliaryOnCloseSubagentsTab = useStableCallback(() => {
+    setActiveSubagentId(null);
+    setSubagentsTabOpen(false);
+    if (activeAuxiliaryTab === 'subagents') {
+      setActiveAuxiliaryTab(
+        sideChats[0]?.id
+          ?? (filesTabOpen ? 'files' : null)
+          ?? (gitReviewTabOpen ? 'git-review' : null)
+          ?? openProviderPanels[0]?.id
+          ?? null,
+      );
+    }
+  });
+  const auxiliaryOnOpenGitReviewTab = useStableCallback(() => {
+    setGitReviewTabOpen(true);
+    setActiveSubagentId(null);
+    setActiveAuxiliaryTab('git-review');
+    setAuxiliaryPanelVisible(true);
+  });
+  const auxiliaryOnOpenFilesTab = useStableCallback(() => {
+    setFilesTabOpen(true);
+    setActiveSubagentId(null);
+    setActiveAuxiliaryTab('files');
+  });
+  const auxiliaryOnOpenTasksTab = useStableCallback(() => {
+    setTasksTabOpen(true);
+    setActiveSubagentId(null);
+    setActiveAuxiliaryTab('tasks');
+  });
+  const auxiliaryOnOpenSubagentsTab = useStableCallback(() => {
+    setSubagentsTabOpen(true);
+    setActiveSubagentId(null);
+    setActiveAuxiliaryTab('subagents');
+  });
+  const auxiliaryOnOpenProviderPanel = useStableCallback((panelId) => {
+    if (!providerPanels.some((panel) => panel.id === panelId)) return;
+    setOpenProviderPanelIds((current) => (
+      current.includes(panelId) ? current : [...current, panelId]
+    ));
+    setActiveAuxiliaryTab(panelId);
+  });
+  const auxiliaryOnCloseProviderPanel = useStableCallback((panelId) => {
+    const index = openProviderPanelIds.indexOf(panelId);
+    if (index < 0) return;
+    const remaining = openProviderPanelIds.filter((id) => id !== panelId);
+    setOpenProviderPanelIds(remaining);
+    if (activeAuxiliaryTab === panelId) {
+      setActiveAuxiliaryTab(
+        remaining[Math.min(index, remaining.length - 1)]
+          ?? (filesTabOpen ? 'files' : null)
+          ?? (gitReviewTabOpen ? 'git-review' : null)
+          ?? (subagentsTabOpen ? 'subagents' : sideChats[0]?.id ?? null),
+      );
+    }
+  });
+  const auxiliaryOnClosePanel = useStableCallback(() => setAuxiliaryPanelVisible(false));
+  const auxiliaryOnRunAgent = useStableCallback((payload) => sendMessage({
+    ...payload,
+    conversationId: selectedId,
+    model: currentModel,
+    project: currentProject,
+    workMode: null,
+    ultraMode: false,
+  }));
+  const auxiliaryOnPendingSideChatAttachmentConsumed = useStableCallback((attachmentId) => {
+    setPendingSideChatAttachment((current) => (
+      current?.attachment.id === attachmentId ? null : current
+    ));
+  });
+  const auxiliaryOnFileNavigationConsumed = useStableCallback(() => setFileNavigation(null));
+  const auxiliaryOnSelectSubagent = useStableCallback(async (id) => {
+    setActiveSubagentId(id);
+    if (id && !messagesByConversation[id]) {
+      const messages = await api.conversations.messages(id);
+      setMessagesByConversation((state) => ({ ...state, [id]: messages }));
+    }
+  });
+  const auxiliaryOnSend = useStableCallback((thread, model, payload) => sendMessage({
+    ...payload,
+    conversationId: thread.id,
+    model,
+    project: {
+      path: thread.projectPath,
+      name: thread.projectName,
+      displayPath: thread.projectDisplayPath,
+      gitBranch: thread.gitBranch,
+    },
+  }));
+  const auxiliaryOnImplementPlan = useStableCallback((thread, model, options) => implementPlan({
+    ...options,
+    conversationId: thread.id,
+    model,
+    project: {
+      path: thread.projectPath,
+      name: thread.projectName,
+      displayPath: thread.projectDisplayPath,
+      gitBranch: thread.gitBranch,
+    },
+  }));
+  const auxiliaryOnRetry = useStableCallback((conversationId, messageId, model) => (
+    retryAssistantMessage(messageId, { conversationId, model })
+  ));
+  const auxiliaryOnResume = useStableCallback((conversationId, messageId, model) => (
+    retryAssistantMessage(messageId, { conversationId, model, resumeFromFailure: true })
+  ));
+  const auxiliaryOnCancelQueued = useStableCallback((conversationId, messageId) => (
+    cancelQueuedMessage(messageId, conversationId)
+  ));
+  const auxiliaryOnReorderQueued = useStableCallback(reorderQueuedMessages);
+  const auxiliaryOnSteerQueued = useStableCallback(steerQueuedMessage);
+  const auxiliaryOnGoalAction = useStableCallback((thread, action, specification) => (
+    changeGoal(thread.id, action, specification)
+  ));
 
   const narrowWindow = windowWidth <= 700;
   const effectiveSidebarCollapsed = narrowWindow || sidebarCollapsed;
@@ -1730,6 +2060,16 @@ export default function App() {
   ]
     .filter(Boolean)
     .join(' ');
+  const recentModels = useMemo(() => {
+    const modelsById = new Map(models.map((model) => [model.id, model]));
+    const ids = [];
+    for (const modelId of [currentModel, ...conversations.map((conversation) => conversation.model)]) {
+      if (!modelId || ids.includes(modelId) || !modelsById.has(modelId)) continue;
+      ids.push(modelId);
+      if (ids.length === 8) break;
+    }
+    return ids.map((modelId) => modelsById.get(modelId));
+  }, [conversations, currentModel, models]);
   const shell = useMemo(() => ({
     currentConversation,
     currentMessages,
@@ -1738,23 +2078,13 @@ export default function App() {
     isRunning: Boolean(selectedId && running[selectedId]),
     semaphoreWait: semaphoreWaits.find((wait) => wait.conversationId === selectedId) ?? null,
     recentProjects,
-    recentModels: (() => {
-      const modelsById = new Map(models.map((model) => [model.id, model]));
-      const ids = [];
-      for (const modelId of [currentModel, ...conversations.map((conversation) => conversation.model)]) {
-        if (!modelId || ids.includes(modelId) || !modelsById.has(modelId)) continue;
-        ids.push(modelId);
-        if (ids.length === 8) break;
-      }
-      return ids.map((modelId) => modelsById.get(modelId));
-    })(),
+    recentModels,
   }), [
-    conversations,
     currentConversation,
     currentMessages,
     currentModel,
     contextUsage,
-    models,
+    recentModels,
     recentProjects,
     running,
     selectedId,
@@ -1854,84 +2184,33 @@ export default function App() {
             completedUnseen={completedUnseen}
             approvalPending={approvalPending}
             inputPending={inputPending}
-            semaphoreWaiting={Object.fromEntries(
-              semaphoreWaits.map((wait) => [wait.conversationId, true]),
-            )}
+            semaphoreWaiting={sidebarSemaphoreWaiting}
             homePath={appState.defaultProject.path}
-            chatTags={appState.chatTags ?? []}
-            folderColors={appState.folderColors ?? {}}
-            onSetConversationTags={setConversationTags}
-            onSetFolderColor={setFolderColor}
-            onSaveChatTags={saveChatTags}
-            onQuickChat={() => api.quickChat.open().catch((nextError) => {
-              setError(nextError instanceof Error ? nextError.message : String(nextError));
-            })}
-            onNewChat={(preset = {}) => {
-              setOrchestrationOpen(false);
-              selectedConversationIdRef.current = null;
-              setSelectedId(null);
-              setDraftProject(preset.project ?? currentProject ?? appState.defaultProject);
-              setDraftModel(
-                preset.modelId ?? currentModel ?? appState.lastModel ?? models[0]?.id ?? '',
-              );
-              setWorkMode(null);
-              setUltraMode(false);
-            }}
-            onSelect={(id) => {
-              setOrchestrationOpen(false);
-              selectConversation(id);
-            }}
-            onNewBot={createBot}
-            onSelectBot={(id) => {
-              setOrchestrationOpen(false);
-              selectConversation(id);
-            }}
-            onBotSettings={(botId) => setBotSettingsTarget(botId)}
-            onDeleteBot={deleteBot}
-            onActivateBot={activateBot}
-            onSearch={() => setSearchOpen(true)}
-            onOpenOrchestration={() => {
-              setOrchestrationOpen(true);
-              setAuxiliaryPanelVisible(false);
-            }}
-            onFork={forkConversation}
-            onArchive={archiveConversation}
-            onOpenProject={async (project) => {
-              try {
-                await api.context.open(project.path);
-              } catch (nextError) {
-                setError(nextError instanceof Error ? nextError.message : String(nextError));
-              }
-            }}
-            onOpenTerminal={async (project) => {
-              try {
-                await api.shell.openTerminal(project.path);
-              } catch (nextError) {
-                setError(nextError instanceof Error ? nextError.message : String(nextError));
-              }
-            }}
-            onCopyPath={async (project) => {
-              try {
-                await navigator.clipboard.writeText(project.path);
-              } catch (nextError) {
-                setError(nextError instanceof Error ? nextError.message : String(nextError));
-              }
-            }}
-            onCopyThreadId={async (id) => {
-              try {
-                await navigator.clipboard.writeText(id);
-              } catch (nextError) {
-                setError(nextError instanceof Error ? nextError.message : String(nextError));
-              }
-            }}
-            onSettings={(contextFolder = null, initialView = null) => {
-              setSettingsContextFolder(contextFolder);
-              setSettingsInitialView(initialView ?? (contextFolder ? 'context-folder' : null));
-              setSettingsOpen(true);
-            }}
+            chatTags={appState.chatTags ?? emptyList}
+            folderColors={appState.folderColors ?? emptyObject}
+            onSetConversationTags={sidebarOnSetConversationTags}
+            onSetFolderColor={sidebarOnSetFolderColor}
+            onSaveChatTags={sidebarOnSaveChatTags}
+            onQuickChat={sidebarOnQuickChat}
+            onNewChat={sidebarOnNewChat}
+            onSelect={sidebarOnSelect}
+            onNewBot={sidebarOnNewBot}
+            onSelectBot={sidebarOnSelect}
+            onBotSettings={sidebarOnBotSettings}
+            onDeleteBot={sidebarOnDeleteBot}
+            onActivateBot={sidebarOnActivateBot}
+            onSearch={sidebarOnSearch}
+            onOpenOrchestration={sidebarOnOpenOrchestration}
+            onFork={sidebarOnFork}
+            onArchive={sidebarOnArchive}
+            onOpenProject={sidebarOnOpenProject}
+            onOpenTerminal={sidebarOnOpenTerminal}
+            onCopyPath={sidebarOnCopyPath}
+            onCopyThreadId={sidebarOnCopyThreadId}
+            onSettings={sidebarOnSettings}
             collapsed={effectiveSidebarCollapsed}
             orchestrationOpen={orchestrationOpen}
-            onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+            onToggleCollapsed={sidebarOnToggleCollapsed}
           />
           {!effectiveSidebarCollapsed && (
             <PanelResizer
@@ -1966,7 +2245,7 @@ export default function App() {
               <ChatView
               {...shell}
               botMode={Boolean(selectedBot)}
-              onShowBotInPanel={selectedBot ? () => openBotQueueTab(selectedBot.id) : undefined}
+              onShowBotInPanel={selectedBot ? chatOnShowBotInPanel : undefined}
               emptyBackgroundEnabled={getTheme(appearance.themeId).emptyChatBackground !== false}
               emptyBackgroundThemeKey={`${appearance.themeId}:${resolvedScheme(appearance.scheme)}`}
               backgroundUrl={chatBackgroundUrl}
@@ -1977,14 +2256,7 @@ export default function App() {
               favorites={favorites}
               onSend={chatOnSend}
               onReplaceUserMessage={chatOnReplaceUserMessage}
-              onExpandPrompt={async (payload) => {
-                try {
-                  return await api.chat.expandPrompt(payload);
-                } catch (nextError) {
-                  setError(nextError instanceof Error ? nextError.message : String(nextError));
-                  return null;
-                }
-              }}
+              onExpandPrompt={chatOnExpandPrompt}
               onImplementPlan={chatOnImplementPlan}
               questionRequest={questionRequests.find(
                 (request) => request.conversationId === selectedId,
@@ -1999,7 +2271,7 @@ export default function App() {
               onMentionSelection={setPendingComposerAttachment}
               onAskSelection={currentConversation ? chatOnCreateSideChat : undefined}
               subagents={subagentsWithStatus}
-              tasks={tasksByConversation[selectedId] ?? []}
+              tasks={tasksByConversation[selectedId] ?? emptyList}
               onOpenTasks={chatOnOpenTasks}
               onOpenSubagents={chatOnOpenSubagents}
               onFork={chatOnFork}
@@ -2028,7 +2300,7 @@ export default function App() {
               pendingAttachment={pendingComposerAttachment}
               onPendingAttachmentConsumed={chatOnPendingAttachmentConsumed}
               onOpenFileReference={chatOnOpenFileReference}
-              onFileReferenceAction={handleFileReferenceAction}
+              onFileReferenceAction={chatOnFileReferenceAction}
               messageDeliveryMode={appState.tuning.messageDeliveryMode}
               defaultPermissionMode={appState.tuning.defaultPermissionMode}
               continuationRepliesEnabled={appState.tuning.continuationRepliesEnabled}
@@ -2087,19 +2359,19 @@ export default function App() {
                 sideChats={sideChats}
                 bots={bots}
                 botLogsByBot={botLogsByBot}
-                onResolveBotApproval={resolveBotApproval}
+                onResolveBotApproval={auxiliaryOnResolveBotApproval}
                 botQueueTabOpen={botQueueTabOpen}
                 selectedBotId={selectedBotLogId}
                 onSelectBot={setSelectedBotLogId}
-                onOpenBotQueueTab={openBotQueueTab}
-                onCloseBotQueueTab={closeBotQueueTab}
+                onOpenBotQueueTab={auxiliaryOnOpenBotQueueTab}
+                onCloseBotQueueTab={auxiliaryOnCloseBotQueueTab}
                 subagents={subagentsWithStatus}
-                tasks={tasksByConversation[selectedId] ?? []}
+                tasks={tasksByConversation[selectedId] ?? emptyList}
                 activeTab={activeAuxiliaryTab}
                 activeSubagentId={activeSubagentId}
-                messagesByConversation={messagesByConversation}
-                running={running}
-                semaphoreWaits={semaphoreWaits}
+                visibleMessagesByConversation={auxiliaryMessagesByConversation}
+                visibleRunning={auxiliaryRunning}
+                semaphoreWaits={auxiliarySemaphoreWaits}
                 models={models}
                 favorites={favorites}
                 recentModels={shell.recentModels}
@@ -2114,182 +2386,51 @@ export default function App() {
                 subagentsTabOpen={subagentsTabOpen}
                 tasksTabOpen={tasksTabOpen}
                 canCreateSideChat={Boolean(currentConversation)}
-                onSelectTab={async (tabId) => {
-                  setActiveAuxiliaryTab(tabId);
-                  if (tabId === 'subagents') {
-                    setActiveSubagentId(null);
-                  } else if (tabId === 'files' || tabId === 'git-review') {
-                    setActiveSubagentId(null);
-                  } else if (
-                    !providerPanels.some((panel) => panel.id === tabId)
-                    && !messagesByConversation[tabId]
-                  ) {
-                    const messages = await api.conversations.messages(tabId);
-                    setMessagesByConversation((state) => ({ ...state, [tabId]: messages }));
-                  }
-                }}
-                onCloseSideChat={closeSideChat}
-                onCloseFilesTab={() => {
-                  setFilesTabOpen(false);
-                  if (activeAuxiliaryTab === 'files') {
-                    setActiveAuxiliaryTab(
-                      sideChats[0]?.id
-                        ?? (botQueueTabOpen ? 'bot-queue' : null)
-                        ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null),
-                    );
-                  }
-                }}
-                onCloseGitReviewTab={() => {
-                  setGitReviewTabOpen(false);
-                  if (activeAuxiliaryTab === 'git-review') {
-                    setActiveAuxiliaryTab(
-                      sideChats[0]?.id
-                        ?? (filesTabOpen ? 'files' : null)
-                        ?? (tasksTabOpen ? 'tasks' : null)
-                        ?? (botQueueTabOpen ? 'bot-queue' : null)
-                        ?? (subagentsTabOpen ? 'subagents' : openProviderPanels[0]?.id ?? null),
-                    );
-                  }
-                }}
-                onCloseTasksTab={() => {
-                  setTasksTabOpen(false);
-                  setActiveAuxiliaryTab(null);
-                }}
-                onCloseSubagentsTab={() => {
-                  setActiveSubagentId(null);
-                  setSubagentsTabOpen(false);
-                  if (activeAuxiliaryTab === 'subagents') {
-                    setActiveAuxiliaryTab(
-                      sideChats[0]?.id
-                        ?? (filesTabOpen ? 'files' : null)
-                        ?? (gitReviewTabOpen ? 'git-review' : null)
-                        ?? openProviderPanels[0]?.id
-                        ?? null,
-                    );
-                  }
-                }}
-                onOpenGitReviewTab={() => {
-                  setGitReviewTabOpen(true);
-                  setActiveSubagentId(null);
-                  setActiveAuxiliaryTab('git-review');
-                  setAuxiliaryPanelVisible(true);
-                }}
-                onOpenFilesTab={() => {
-                  setFilesTabOpen(true);
-                  setActiveSubagentId(null);
-                  setActiveAuxiliaryTab('files');
-                }}
-                onOpenTasksTab={() => {
-                  setTasksTabOpen(true);
-                  setActiveSubagentId(null);
-                  setActiveAuxiliaryTab('tasks');
-                }}
-                onOpenSubagentsTab={() => {
-                  setSubagentsTabOpen(true);
-                  setActiveSubagentId(null);
-                  setActiveAuxiliaryTab('subagents');
-                }}
-                onOpenProviderPanel={(panelId) => {
-                  if (!providerPanels.some((panel) => panel.id === panelId)) return;
-                  setOpenProviderPanelIds((current) => (
-                    current.includes(panelId) ? current : [...current, panelId]
-                  ));
-                  setActiveAuxiliaryTab(panelId);
-                }}
-                onCloseProviderPanel={(panelId) => {
-                  const index = openProviderPanelIds.indexOf(panelId);
-                  if (index < 0) return;
-                  const remaining = openProviderPanelIds.filter((id) => id !== panelId);
-                  setOpenProviderPanelIds(remaining);
-                  if (activeAuxiliaryTab === panelId) {
-                    setActiveAuxiliaryTab(
-                      remaining[Math.min(index, remaining.length - 1)]
-                        ?? (filesTabOpen ? 'files' : null)
-                        ?? (gitReviewTabOpen ? 'git-review' : null)
-                        ?? (subagentsTabOpen ? 'subagents' : sideChats[0]?.id ?? null),
-                    );
-                  }
-                }}
-                onClosePanel={() => setAuxiliaryPanelVisible(false)}
-                onCreateSideChat={createSideChat}
+                onSelectTab={auxiliaryOnSelectTab}
+                onCloseSideChat={auxiliaryOnCloseSideChat}
+                onCloseFilesTab={auxiliaryOnCloseFilesTab}
+                onCloseGitReviewTab={auxiliaryOnCloseGitReviewTab}
+                onCloseTasksTab={auxiliaryOnCloseTasksTab}
+                onCloseSubagentsTab={auxiliaryOnCloseSubagentsTab}
+                onOpenGitReviewTab={auxiliaryOnOpenGitReviewTab}
+                onOpenFilesTab={auxiliaryOnOpenFilesTab}
+                onOpenTasksTab={auxiliaryOnOpenTasksTab}
+                onOpenSubagentsTab={auxiliaryOnOpenSubagentsTab}
+                onOpenProviderPanel={auxiliaryOnOpenProviderPanel}
+                onCloseProviderPanel={auxiliaryOnCloseProviderPanel}
+                onClosePanel={auxiliaryOnClosePanel}
+                onCreateSideChat={chatOnCreateSideChat}
                 onAddToChat={setPendingComposerAttachment}
-                onAskInSideChat={createSideChat}
-                onRunAgent={(payload) => sendMessage({
-                  ...payload,
-                  conversationId: selectedId,
-                  model: currentModel,
-                  project: currentProject,
-                  workMode: null,
-                  ultraMode: false,
-                })}
+                onAskInSideChat={chatOnCreateSideChat}
+                onRunAgent={auxiliaryOnRunAgent}
                 pendingSideChatAttachment={pendingSideChatAttachment}
-                onPendingSideChatAttachmentConsumed={(attachmentId) => {
-                  setPendingSideChatAttachment((current) => (
-                    current?.attachment.id === attachmentId ? null : current
-                  ));
-                }}
+                onPendingSideChatAttachmentConsumed={auxiliaryOnPendingSideChatAttachmentConsumed}
                 fileNavigation={fileNavigation}
-                onFileNavigationConsumed={() => setFileNavigation(null)}
-                onOpenFileReference={openFileReference}
-                onFileReferenceAction={handleFileReferenceAction}
-                onSelectSubagent={async (id) => {
-                  setActiveSubagentId(id);
-                  if (id && !messagesByConversation[id]) {
-                    const messages = await api.conversations.messages(id);
-                    setMessagesByConversation((state) => ({ ...state, [id]: messages }));
-                  }
-                }}
-                onSend={(thread, model, payload) => sendMessage({
-                  ...payload,
-                  conversationId: thread.id,
-                  model,
-                  project: {
-                    path: thread.projectPath,
-                    name: thread.projectName,
-                    displayPath: thread.projectDisplayPath,
-                    gitBranch: thread.gitBranch,
-                  },
-                })}
-                onImplementPlan={(thread, model, options) => implementPlan({
-                  ...options,
-                  conversationId: thread.id,
-                  model,
-                  project: {
-                    path: thread.projectPath,
-                    name: thread.projectName,
-                    displayPath: thread.projectDisplayPath,
-                    gitBranch: thread.gitBranch,
-                  },
-                })}
-                questionRequests={questionRequests}
-                onAnswerQuestion={resolveQuestionRequest}
+                onFileNavigationConsumed={auxiliaryOnFileNavigationConsumed}
+                onOpenFileReference={chatOnOpenFileReference}
+                onFileReferenceAction={chatOnFileReferenceAction}
+                onSelectSubagent={auxiliaryOnSelectSubagent}
+                onSend={auxiliaryOnSend}
+                onImplementPlan={auxiliaryOnImplementPlan}
+                questionRequests={auxiliaryQuestionRequests}
+                onAnswerQuestion={chatOnAnswerQuestion}
                 onRunSemaphoreNow={chatOnRunSemaphoreNow}
                 onCancelSemaphore={chatOnCancelSemaphore}
                 semaphoreResolving={semaphoreResolving}
-                onStop={stopConversation}
-                onCompress={compressConversation}
-                onFork={forkConversation}
-                onRetry={(conversationId, messageId, model) => retryAssistantMessage(
-                  messageId,
-                  { conversationId, model },
-                )}
-                onResume={(conversationId, messageId, model) => retryAssistantMessage(
-                  messageId,
-                  { conversationId, model, resumeFromFailure: true },
-                )}
-                onCancelQueued={(conversationId, messageId) => (
-                  cancelQueuedMessage(messageId, conversationId)
-                )}
-                onReorderQueued={reorderQueuedMessages}
-                onSteerQueued={steerQueuedMessage}
-                onChooseModel={chooseModel}
-                onToggleFavorite={toggleFavorite}
+                onStop={chatOnStop}
+                onCompress={chatOnCompress}
+                onFork={chatOnFork}
+                onRetry={auxiliaryOnRetry}
+                onResume={auxiliaryOnResume}
+                onCancelQueued={auxiliaryOnCancelQueued}
+                onReorderQueued={auxiliaryOnReorderQueued}
+                onSteerQueued={auxiliaryOnSteerQueued}
+                onChooseModel={chatOnChooseModel}
+                onToggleFavorite={chatOnToggleFavorite}
                 workMode={null}
-                onWorkModeChange={changeWorkMode}
-                onUltraModeChange={changeUltraMode}
-                onGoalAction={(thread, action, specification) => (
-                  changeGoal(thread.id, action, specification)
-                )}
+                onWorkModeChange={chatOnWorkModeChange}
+                onUltraModeChange={chatOnUltraModeChange}
+                onGoalAction={auxiliaryOnGoalAction}
                 messageDeliveryMode={appState.tuning.messageDeliveryMode}
                 defaultPermissionMode={appState.tuning.defaultPermissionMode}
                 continuationRepliesEnabled={appState.tuning.continuationRepliesEnabled}
