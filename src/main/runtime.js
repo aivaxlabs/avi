@@ -1128,6 +1128,23 @@ function registerIpc() {
   applicationIpc.handle('archive:temporary-storage', () => getTemporaryStorage());
   applicationIpc.handle('archive:clear-temporary-storage', () => clearTemporaryStorage());
 
+  const semaphoreState = () => chatRunner.semaphores.globalSnapshot().map((semaphore) => ({
+    ...semaphore,
+    holders: semaphore.holders.map((holder) => ({
+      ...holder,
+      conversation: getConversation(holder.conversationId),
+    })),
+    queue: semaphore.queue.map((entry) => ({
+      ...entry,
+      conversation: getConversation(entry.conversationId),
+    })),
+  }));
+  applicationIpc.handle('semaphores:state', semaphoreState);
+  applicationIpc.handle('semaphores:reset', (_event, name) => ({
+    ...chatRunner.semaphores.reset(name),
+    semaphores: semaphoreState(),
+  }));
+
   applicationIpc.handle('conversations:list', () => listConversationsWithProjects());
   applicationIpc.handle('conversations:create', (_event, payload = {}) => (
     refreshConversationProject(createConversation(payload))

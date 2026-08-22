@@ -7,6 +7,12 @@ import { normalizeAttachmentsForModel } from './files.js';
 import { StreamAccumulator } from './streaming.js';
 import { composeToolsWithPlugins } from './tool-composition.js';
 import { mapToolCalls } from './tool-concurrency.js';
+import {
+  limitToolHistoryResults,
+  minifyToolOutputJson,
+  toolOutputLimitForTool,
+  truncateToolOutput,
+} from './tool-output.js';
 import { traceError, traceVerbose } from './trace-log.js';
 
 const ASK_QUESTION_AFK_TIMEOUT_MS = 60_000;
@@ -230,7 +236,7 @@ export class QuickChatRunner {
           model: selection.model,
           messages,
           tools: availableTools,
-          toolHistory,
+          toolHistory: limitToolHistoryResults(toolHistory, preferences.tuning.toolOutputLimit),
           reasoningEffort: session.reasoningEffort,
           invocationContext: {
             conversationId: session.id,
@@ -329,6 +335,14 @@ export class QuickChatRunner {
               error: error instanceof Error ? error.message : String(error),
             });
           }
+          const outputLimit = toolOutputLimitForTool(
+            toolCall.name,
+            preferences.tuning.toolOutputLimit,
+          );
+          output = truncateToolOutput(
+            minifyToolOutputJson(output, outputLimit),
+            outputLimit,
+          );
           accumulator.apply({
             type: 'tool-result',
             callId: toolCall.callId,

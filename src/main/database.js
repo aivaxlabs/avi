@@ -30,7 +30,7 @@ mkdirSync(storageDir, { recursive: true });
 
 const db = new DatabaseSync(join(storageDir, 'aivax.sqlite'));
 const secureStoragePath = join(storageDir, 'secure-storage.json');
-db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
 const secureStorage = {
   aivaxAccessToken: null,
   mcpOAuthSessions: {},
@@ -331,6 +331,7 @@ db.exec(`
     max_activations INTEGER NOT NULL DEFAULT 10,
     activation_window TEXT NOT NULL DEFAULT '{}',
     instructions TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'active',
     next_activation_at TEXT,
     idle_until TEXT,
@@ -509,6 +510,9 @@ if (db.prepare("PRAGMA table_info('messages')").all().find((column) => column.na
 const botColumns = db.prepare("PRAGMA table_info('bots')").all();
 if (!botColumns.some((column) => column.name === 'active_assistant_message_id')) {
   db.exec('ALTER TABLE bots ADD COLUMN active_assistant_message_id TEXT');
+}
+if (!botColumns.some((column) => column.name === 'enabled')) {
+  db.exec('ALTER TABLE bots ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1');
 }
 const conversationColumns = db.prepare("PRAGMA table_info('conversations')").all();
 db.exec(`
@@ -878,14 +882,14 @@ const statements = {
     INSERT INTO bots (
       id, conversation_id, name, icon_seed, personality, working_folder, model,
       reasoning_effort, context_size, activation_period_minutes, activation_mode,
-      max_activations, activation_window, instructions, status, next_activation_at,
+      max_activations, activation_window, instructions, enabled, status, next_activation_at,
       idle_until, activation_count, active_assistant_message_id,
       created_at, updated_at
     )
     VALUES (
       @id, @conversationId, @name, @iconSeed, @personality, @workingFolder, @model,
       @reasoningEffort, @contextSize, @activationPeriodMinutes, @activationMode,
-      @maxActivations, @activationWindow, @instructions, @status, @nextActivationAt,
+      @maxActivations, @activationWindow, @instructions, @enabled, @status, @nextActivationAt,
       @idleUntil, @activationCount, @activeAssistantMessageId,
       @createdAt, @updatedAt
     )
@@ -904,6 +908,7 @@ const statements = {
         max_activations = COALESCE(@maxActivations, max_activations),
         activation_window = COALESCE(@activationWindow, activation_window),
         instructions = COALESCE(@instructions, instructions),
+        enabled = COALESCE(@enabled, enabled),
         status = COALESCE(@status, status),
         updated_at = @updatedAt
     WHERE id = @id
@@ -1608,6 +1613,7 @@ function mapBot(row) {
     maxActivations: Math.max(0, Number(row.max_activations) || 0),
     activationWindow: normalizeActivationWindow(row.activation_window),
     instructions: row.instructions || '',
+    enabled: row.enabled !== 0,
     status: ['active', 'sleeping', 'paused'].includes(row.status) ? row.status : 'active',
     nextActivationAt: row.next_activation_at || null,
     idleUntil: row.idle_until || null,
@@ -1632,6 +1638,7 @@ export function createBot({
   maxActivations = 10,
   activationWindow = {},
   instructions = '',
+  enabled = true,
   status = 'active',
   nextActivationAt = null,
 }) {
@@ -1651,6 +1658,7 @@ export function createBot({
     maxActivations: Math.max(0, Number(maxActivations) || 0),
     activationWindow: stringify(normalizeActivationWindow(activationWindow)),
     instructions: String(instructions ?? ''),
+    enabled: enabled ? 1 : 0,
     status: ['active', 'sleeping', 'paused'].includes(status) ? status : 'active',
     nextActivationAt,
     idleUntil: null,
@@ -1684,6 +1692,7 @@ export function updateBot(id, changes = {}) {
       ? null
       : stringify(normalizeActivationWindow(changes.activationWindow)),
     instructions: changes.instructions ?? null,
+    enabled: changes.enabled === undefined ? null : (changes.enabled ? 1 : 0),
     status: changes.status ?? null,
     updatedAt: timestamp(),
   });

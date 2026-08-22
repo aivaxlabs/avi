@@ -663,7 +663,7 @@ export const CLIENT_TOOLS = Object.freeze([
       properties: {},
       additionalProperties: false,
     },
-    execute: async (_input, { chatRunner, conversationId }) => {
+    execute: async (_input, { chatRunner, conversationId, botRuntime }) => {
       const currentConversation = getConversation(conversationId);
       if (!currentConversation) throw new Error('The current thread was not found.');
       const teamRootId = currentConversation.isSubagent || currentConversation.isSideChat
@@ -671,11 +671,27 @@ export const CLIENT_TOOLS = Object.freeze([
         : currentConversation.id;
       const orchestrator = teamRootId ? getConversation(teamRootId) : null;
       const subagents = teamRootId ? listSubagents(teamRootId) : [];
-      const visibleConversations = currentConversation.isSubagent
+      let visibleConversations = currentConversation.isSubagent
         ? [orchestrator, ...subagents.filter(({ id }) => id !== currentConversation.id)]
         : currentConversation.isSideChat
           ? [orchestrator, ...subagents]
           : subagents;
+      if (currentConversation.isBot && botRuntime?.workingFolder) {
+        const workingFolder = resolve(botRuntime.workingFolder);
+        const workingFolderKey = process.platform === 'win32'
+          ? workingFolder.toLowerCase()
+          : workingFolder;
+        visibleConversations = [...new Map([
+          ...visibleConversations,
+          ...listAllConversations().filter((conversation) => {
+            if (conversation.id === currentConversation.id || conversation.isSideChat) return false;
+            const conversationPath = resolve(conversation.projectPath);
+            return (process.platform === 'win32'
+              ? conversationPath.toLowerCase()
+              : conversationPath) === workingFolderKey;
+          }),
+        ].filter(Boolean).map((conversation) => [conversation.id, conversation])).values()];
+      }
       const threads = visibleConversations.filter(Boolean).map((conversation) => {
         const messages = getMessages(conversation.id);
         const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
@@ -1209,19 +1225,21 @@ export const CLIENT_TOOLS = Object.freeze([
       if (conversation.isSideChat && !getConversation(conversationId)?.isSideChat) {
         throw new Error('Side chats are private to side-chat threads.');
       }
+      const messages = getMessages(conversation.id);
       const turns = [];
+      const mediaMarkers = (attachments) => attachments.flatMap((attachment) => {
+        if (attachment.kind === 'image_url') return ['<<image_media>>'];
+        if (attachment.kind === 'input_audio') return ['<<audio_media>>'];
+        if (attachment.kind === 'video_url') return ['<<video_media>>'];
+        if (['file', 'file_reference', 'text_inline'].includes(attachment.kind)) {
+          return ['<<file_media>>'];
+        }
+        return [];
+      });
 
-      for (const message of getMessages(conversation.id)) {
+      for (const message of messages) {
         if (message.role === 'user') {
-          turns.push({
-            user: {
-              id: message.id,
-              status: message.status,
-              message: message.content,
-              createdAt: message.createdAt,
-            },
-            assistantMessages: [],
-          });
+          turns.push({ user: message, assistantMessages: [] });
         } else if (message.role === 'assistant' && turns.length > 0) {
           turns.at(-1).assistantMessages.push(message);
         }
@@ -1235,17 +1253,10 @@ export const CLIENT_TOOLS = Object.freeze([
               type: 'content',
               text: answerTextFromTextualBlocks(message.content),
             }];
-          return segments.flatMap((segment) => {
+          const events = segments.flatMap((segment) => {
             if (segment.type === 'content' && segment.text) {
               const text = answerTextFromTextualBlocks(segment.text);
-              if (!text) return [];
-              return [{
-                type: 'message',
-                messageId: message.id,
-                status: message.status,
-                text,
-                createdAt: message.createdAt,
-              }];
+              return text ? [{ type: 'message', text }] : [];
             }
             if (segment.type !== 'tool-call') return [];
 
@@ -1253,34 +1264,34 @@ export const CLIENT_TOOLS = Object.freeze([
             try {
               args = JSON.parse(segment.argumentsText);
             } catch { }
-            const events = [{
+            const toolEvents = [{
               type: 'tool_call',
-              messageId: message.id,
               callId: segment.callId,
               name: segment.name,
-              arguments: args,
-              status: segment.status,
+              arguments: typeof args === 'string' ? args : JSON.stringify(args),
             }];
             if (segment.resultText !== undefined) {
               const output = String(segment.resultText);
-              events.push({
+              toolEvents.push({
                 type: 'tool_result',
-                messageId: message.id,
                 callId: segment.callId,
                 output: output.slice(0, MAX_INSPECTED_TOOL_RESULT_CHARS),
                 truncated: output.length > MAX_INSPECTED_TOOL_RESULT_CHARS,
                 isError: segment.status === 'error',
               });
             }
-            return events;
+            return toolEvents;
           });
+          const markers = mediaMarkers(message.attachments);
+          if (markers.length > 0) events.push({ type: 'message', text: markers.join('\n') });
+          return events;
         });
         const messageIndexes = assistantEvents
           .map((event, index) => event.type === 'message' ? index : -1)
           .filter((index) => index >= 0);
-        const includedMessageIndexes = new Set([
-          ...messageIndexes.slice(-(MAX_ASSISTANT_MESSAGES_BEFORE_FINAL + 1)),
-        ]);
+        const includedMessageIndexes = new Set(
+          messageIndexes.slice(-(MAX_ASSISTANT_MESSAGES_BEFORE_FINAL + 1)),
+        );
 
         return {
           user: turn.user,
@@ -1296,42 +1307,52 @@ export const CLIENT_TOOLS = Object.freeze([
         : chatRunner.semaphores.waitSnapshot(conversation.id)
           ? 'sleeping'
           : chatRunner.runs.has(conversation.id) ? 'running' : 'idle';
-      const renderedTurns = inspectedTurns.flatMap((turn) => [
-        `User (${turn.user.status}):\n${turn.user.message}`,
-        ...turn.assistant.map((event) => {
-          if (event.type === 'message') return `Assistant (${event.status}):\n${event.text}`;
-          if (event.type === 'tool_call') {
-            return `Tool call: ${event.name}\nArguments: ${typeof event.arguments === 'string'
-              ? event.arguments
-              : JSON.stringify(event.arguments)
-              }`;
-          }
-          return `Tool result${event.isError ? ' (error)' : ''}:\n${event.output}${event.truncated ? '\n[tool output truncated]' : ''
-            }`;
-        }),
-      ]);
+      const renderedTurns = inspectedTurns.flatMap((turn) => {
+        const userContent = [turn.user.content, ...mediaMarkers(turn.user.attachments)]
+          .filter(Boolean)
+          .join('\n');
+        return [
+          `<|user_start|>${userContent}<|user_end|>`,
+          ...turn.assistant.map((event) => {
+            if (event.type === 'message') {
+              return `<|assistant_start|>${event.text}<|assistant_end|>`;
+            }
+            if (event.type === 'tool_call') {
+              return [
+                '<|tool_call_start|>',
+                `id: ${event.callId}`,
+                `name: ${event.name}`,
+                event.arguments,
+                '<|tool_call_end|>',
+              ].join('\n');
+            }
+            return [
+              '<|tool_result_start|>',
+              `id: ${event.callId}`,
+              ...(event.isError ? ['error: true'] : []),
+              event.output,
+              ...(event.truncated ? ['[tool output truncated]'] : []),
+              '<|tool_result_end|>',
+            ].join('\n');
+          }),
+        ];
+      });
       const result = [
-        `Thread: ${conversation.title}`,
-        `ID: ${conversation.id}`,
-        `Folder: ${conversation.projectPath}`,
-        `Model: ${conversation.model}`,
-        `Status: ${status}`,
-        ...(pendingApprovals.length > 0
-          ? [
-              '',
-              'Pending tool approvals:',
-              ...pendingApprovals.map((approval) => [
-                `- Approval ID: ${approval.approvalId}`,
-                `  Tool: ${approval.toolName}`,
-                `  Goal: ${approval.invocationSummary}`,
-              ].join('\n')),
-            ]
-          : []),
-        '',
-        'Recent turns:',
-        ...(renderedTurns.length > 0 ? renderedTurns : ['None.']),
-      ].join('\n\n');
-      const lastMessage = getMessages(conversation.id)
+        `thread_id: ${conversation.id}`,
+        `thread_type: ${conversation.conversationType}`,
+        `status: ${status}`,
+        `model: ${conversation.model}`,
+        `title: ${conversation.title}`,
+        ...(pendingApprovals.flatMap((approval) => [
+          '<|pending_approval_start|>',
+          `id: ${approval.approvalId}`,
+          `name: ${approval.toolName}`,
+          `goal: ${approval.invocationSummary}`,
+          '<|pending_approval_end|>',
+        ])),
+        ...renderedTurns,
+      ].join('\n');
+      const lastMessage = messages
         .filter((message) => !message.hidden && !['queued', 'steered'].includes(message.status))
         .at(-1);
       if (
@@ -2085,11 +2106,7 @@ export const CLIENT_TOOLS = Object.freeze([
 
       const content = await readFile(filePath, 'utf8');
       const lines = content.replaceAll('\r\n', '\n').split('\n');
-      const actualEndLine = Math.min(endLine, lines.length);
-      return [
-        `${filePath} (lines ${startLine}-${actualEndLine} of ${lines.length}):`,
-        lines.slice(startLine - 1, endLine).join('\n'),
-      ].join('\n');
+      return lines.slice(startLine - 1, endLine).join('\n');
     },
   },
 ]);

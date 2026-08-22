@@ -106,7 +106,7 @@ export class BotManager {
     if (this.timer) return;
     await this.loadPersistedApprovals();
     for (const bot of listBots()) {
-      if (bot.activeAssistantMessageId) await this.resumeInterruptedRun(bot);
+      if (bot.enabled && bot.activeAssistantMessageId) await this.resumeInterruptedRun(bot);
     }
     this.timer = setInterval(() => {
       this.tick().catch((error) => traceError('bots.tick-error', {
@@ -215,6 +215,15 @@ export class BotManager {
         running: Boolean(this.chatRunner?.runs?.has(bot.conversationId)),
         pendingApprovals: [...this.approvals.values()]
           .filter((entry) => entry.botId === bot.id).length,
+        scheduleState: this.chatRunner?.runs?.has(bot.conversationId)
+          ? 'working'
+          : bot.enabled === false
+            ? 'disabled'
+            : ['idle', 'outside-window', 'max-activations', 'paused'].includes(
+                decideActivation({ bot, now: Date.now() }).reason,
+              )
+              ? 'sleep'
+              : 'active',
         activationWindowDescription: describeActivationWindow(bot.activationWindow),
       };
     });
@@ -256,6 +265,7 @@ export class BotManager {
       maxActivations: config?.maxActivations ?? 10,
       activationWindow: config?.activationWindow ?? {},
       instructions: config?.instructions ?? '',
+      enabled: config?.enabled ?? true,
       nextActivationAt: new Date(
         nextActivationFrom(config?.activationPeriodMinutes ?? 10, Date.now()),
       ).toISOString(),
@@ -440,13 +450,14 @@ export class BotManager {
       ? [
           `<bot-approval-resolved id="${entry.id}" decision="approved">`,
           `Title: ${entry.title}`,
+          'Move the related regular work entry from blocked to ongoing before proceeding.',
           entry.prompt,
           '</bot-approval-resolved>',
         ].join('\n')
       : [
           `<bot-approval-resolved id="${entry.id}" decision="denied">`,
           `Title: ${entry.title}`,
-          'The user did not approve this. Either ask the user for the reason in your response text or move its work log to discarded with a short note using bot_daily_update_log.',
+          'The user did not approve this. Do not discard the related work automatically: move it to discarded only if the denial ends the work, backlog if it is deliberately deferred, blocked if another decision or prerequisite is required, or ongoing if an alternative can proceed now. State any needed clarification in your response.',
           '</bot-approval-resolved>',
         ].join('\n');
     let delivered = false;
@@ -473,6 +484,7 @@ export class BotManager {
 
   async tick() {
     for (const bot of listBots()) {
+      if (!bot.enabled) continue;
       if (
         bot.activeAssistantMessageId
         && !this.chatRunner?.runs?.has(bot.conversationId)
@@ -490,11 +502,31 @@ export class BotManager {
       });
       if (decision.action === 'activate') {
         await this.activateBot(bot.id, { trigger: 'scheduler' });
+      } else if (decision.action === 'wake') {
+        updateBotScheduler(bot.id, {
+          status: 'active',
+          idleUntil: 'clear',
+          activationCount: 0,
+        });
+        await this.activateBot(bot.id, { trigger: 'scheduler' });
       } else if (decision.reason === 'max-activations') {
-        updateBotScheduler(bot.id, { status: 'sleeping' });
+        const idleUntil = new Date(
+          smartIdleUntil(currentBot.activationPeriodMinutes, Date.now()),
+        ).toISOString();
+        updateBotScheduler(bot.id, {
+          status: 'active',
+          idleUntil,
+          activationCount: 0,
+          nextActivationAt: idleUntil,
+        });
         this.broadcast('bots:updated');
-      } else if (decision.reason === 'outside-window' && decision.nextActivationAt) {
+      } else if (
+        decision.reason === 'outside-window'
+        && decision.nextActivationAt
+        && currentBot.nextActivationAt !== decision.nextActivationAt
+      ) {
         updateBotScheduler(bot.id, { nextActivationAt: decision.nextActivationAt });
+        this.broadcast('bots:updated');
       }
     }
   }
@@ -502,6 +534,7 @@ export class BotManager {
   async activateBot(botId, { trigger = 'scheduler' } = {}) {
     const bot = getBot(botId);
     if (!bot) throw new Error('Bot not found.');
+    if (!bot.enabled) return null;
     if (this.activating.has(bot.id)) return null;
     if (this.chatRunner?.runs?.has(bot.conversationId)) {
       updateBotScheduler(bot.id, {
@@ -532,13 +565,17 @@ export class BotManager {
       });
       const activationCount = bot.activationCount + 1;
       const sleeping = bot.maxActivations > 0 && activationCount >= bot.maxActivations;
+      const activatedAt = Date.now();
+      const nextActivationAt = new Date(
+        sleeping
+          ? smartIdleUntil(bot.activationPeriodMinutes, activatedAt)
+          : nextActivationFrom(bot.activationPeriodMinutes, activatedAt),
+      ).toISOString();
       updateBotScheduler(bot.id, {
-        activationCount,
-        idleUntil: 'clear',
-        nextActivationAt: new Date(
-          nextActivationFrom(bot.activationPeriodMinutes, Date.now()),
-        ).toISOString(),
-        ...(sleeping ? { status: 'sleeping' } : {}),
+        activationCount: sleeping ? 0 : activationCount,
+        idleUntil: sleeping ? nextActivationAt : 'clear',
+        nextActivationAt,
+        status: 'active',
       });
       traceInfo('bots.activated', { bot_id: bot.id, trigger });
       this.broadcast('bots:updated');
@@ -576,7 +613,11 @@ export class BotManager {
           properties: {
             title: { type: 'string', description: 'Concise title for the work item.' },
             content: { type: 'string', description: 'Relevant details, outcome, next step, decisions, or thread ids.' },
-            status: { type: 'string', enum: BOT_WRITABLE_LOG_STATUSES },
+            status: {
+              type: 'string',
+              enum: BOT_WRITABLE_LOG_STATUSES,
+              description: 'Current work state: backlog is not started; ongoing is actively advancing; blocked waits on a concrete prerequisite; user-review is complete but requires a specific user action; done is complete with no user action; discarded is intentionally abandoned.',
+            },
           },
           required: ['title', 'content', 'status'],
           additionalProperties: false,
@@ -601,7 +642,11 @@ export class BotManager {
             operation: { type: 'string', enum: ['edit', 'move', 'remove'] },
             title: { type: 'string', description: 'Replacement title for edit or move.' },
             content: { type: 'string', description: 'Replacement content for edit or move.' },
-            status: { type: 'string', enum: BOT_WRITABLE_LOG_STATUSES, description: 'Destination status for move.' },
+            status: {
+              type: 'string',
+              enum: BOT_WRITABLE_LOG_STATUSES,
+              description: 'Destination state: backlog is not started; ongoing is actively advancing; blocked waits on a concrete prerequisite; user-review is complete but requires a specific user action; done is complete with no user action; discarded is intentionally abandoned.',
+            },
           },
           required: ['id', 'operation'],
           additionalProperties: false,
@@ -634,7 +679,7 @@ export class BotManager {
       },
       {
         name: 'queue_user_approval',
-        description: 'Queue a work item when it needs explicit user approval before execution (implementations, behavior changes, or potentially destructive actions). Provide a short context explaining why it matters and the prompt to resume with once approved. The runtime creates the protected daily log entry automatically; continue with other work after queuing it.',
+        description: 'Queue a work item when it needs explicit user approval before execution (implementations, behavior changes, or potentially destructive actions). First move its regular work entry to blocked. Provide a short context explaining why it matters and the prompt to resume with once approved. The runtime creates the protected approval entry automatically; add its returned id to the regular entry, then continue with other work.',
         approval: 'never',
         canEditFile: false,
         canPerformDestructiveActions: false,

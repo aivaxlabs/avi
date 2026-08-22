@@ -6,6 +6,8 @@ export function isWithinActivationWindow(window, date) {
   const days = Array.isArray(source.days) ? source.days.map(Number) : [];
   if (days.length > 0 && !days.includes(date.getDay())) return false;
   const { startMinute, endMinute } = source;
+  if (endMinute === 0 && !Number.isInteger(startMinute)) return false;
+  if (Number.isInteger(startMinute) && startMinute === endMinute) return false;
   if (!Number.isInteger(startMinute) && !Number.isInteger(endMinute)) return true;
   const minute = date.getHours() * 60 + date.getMinutes();
   if (Number.isInteger(startMinute) && Number.isInteger(endMinute) && startMinute > endMinute) {
@@ -21,10 +23,12 @@ export function nextWindowOpening(window, from) {
   const days = Array.isArray(source.days) ? source.days.map(Number) : [];
   const candidate = new Date(from);
   candidate.setSeconds(0, 0);
+  const { startMinute, endMinute } = source;
+  if (endMinute === 0 && !Number.isInteger(startMinute)) return candidate.getTime();
+  if (Number.isInteger(startMinute) && startMinute === endMinute) return candidate.getTime();
   for (let attempt = 0; attempt < 8; attempt += 1) {
     if (days.length === 0 || days.includes(candidate.getDay())) {
       const minute = candidate.getHours() * 60 + candidate.getMinutes();
-      const { startMinute, endMinute } = source;
       const wraps = Number.isInteger(startMinute)
         && Number.isInteger(endMinute)
         && startMinute > endMinute;
@@ -50,7 +54,7 @@ export function nextWindowOpening(window, from) {
       candidate.setHours(Math.floor(source.startMinute / 60), source.startMinute % 60, 0, 0);
     }
   }
-  return from.getTime();
+  return candidate.getTime();
 }
 
 export function nextActivationFrom(periodMinutes, fromTime) {
@@ -83,6 +87,7 @@ export function describeActivationWindow(window) {
 
 export function decideActivation({ bot, now = Date.now(), isRunning = false }) {
   if (!bot) return { action: 'skip', reason: 'missing-bot' };
+  if (bot.enabled === false) return { action: 'skip', reason: 'disabled' };
   if (bot.status === 'paused') return { action: 'skip', reason: 'paused' };
   if (isRunning) return { action: 'skip', reason: 'running' };
   if (bot.idleUntil && new Date(bot.idleUntil).getTime() > now) {
@@ -95,13 +100,19 @@ export function decideActivation({ bot, now = Date.now(), isRunning = false }) {
       nextActivationAt: new Date(nextWindowOpening(bot.activationWindow, now)).toISOString(),
     };
   }
+  if (bot.status === 'sleeping' && !bot.idleUntil) {
+    return { action: 'wake', reason: 'sleep-complete' };
+  }
   if (
     Number.isInteger(bot.maxActivations)
     && bot.maxActivations > 0
     && bot.activationCount >= bot.maxActivations
   ) {
-    return { action: 'sleep', reason: 'max-activations' };
+    return bot.idleUntil
+      ? { action: 'wake', reason: 'sleep-complete' }
+      : { action: 'sleep', reason: 'max-activations' };
   }
+  if (bot.status === 'sleeping') return { action: 'wake', reason: 'sleep-complete' };
   if (bot.nextActivationAt && new Date(bot.nextActivationAt).getTime() > now) {
     return { action: 'skip', reason: 'not-due' };
   }

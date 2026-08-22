@@ -3,7 +3,6 @@ import {
   mkdirSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   answerTextFromTextualBlocks,
@@ -43,6 +42,12 @@ import { StreamAccumulator } from './streaming.js';
 import { composeToolsWithPlugins } from './tool-composition.js';
 import { mapToolCalls } from './tool-concurrency.js';
 import {
+  limitToolHistoryResults,
+  minifyToolOutputJson,
+  toolOutputLimitForTool,
+  truncateToolOutput,
+} from './tool-output.js';
+import {
   traceError,
   traceVerbose,
 } from './trace-log.js';
@@ -59,9 +64,6 @@ const AUXILIARY_GOAL_CONTEXT_TURN_COUNT = 4;
 const AUXILIARY_PROMPT_CONTEXT_TURN_COUNT = 8;
 const AUXILIARY_CONTINUATION_CONTEXT_TURN_COUNT = 8;
 const MAX_CONTINUATION_COUNT = 4;
-const RECENT_ASSISTANT_TURN_COUNT = 4;
-const OLDER_TOOL_OUTPUT_LIMIT_RATIO = 0.8;
-const INSPECT_THREAD_TOOL_OUTPUT_LIMIT_RATIO = 0.2;
 const PLAN_TOOL_NAMES = new Set([
   'ask_question',
   'chat_inspect_thread',
@@ -147,61 +149,6 @@ function compatibleSteeredItems(items) {
   }
   return compatible;
 }
-function truncateToolOutput(output, limit, reuseExistingResult = false) {
-  if (limit === null) return output;
-
-  const existingTruncation = reuseExistingResult
-    ? /\n\n\[\.\.\. (\d+) chars truncated, (\d+) lines total, full result available at (.+)\]$/.exec(output)
-    : null;
-  const source = existingTruncation ? output.slice(0, existingTruncation.index) : output;
-  if (source.length <= limit) return output;
-
-  const fullLength = source.length + Number(existingTruncation?.[1] ?? 0);
-  const totalLines = Number(
-    existingTruncation?.[2] ?? source.replaceAll('\r\n', '\n').split('\n').length,
-  );
-  let resultPath = existingTruncation?.[3];
-
-  if (!resultPath) {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const resultDirectory = join(tmpdir(), '.avi', 'toolcalls', timestamp);
-    mkdirSync(resultDirectory, { recursive: true });
-    resultPath = join(resultDirectory, `${randomUUID()}.txt`);
-    writeFileSync(resultPath, source, 'utf8');
-  }
-
-  return `${source.slice(0, limit)}\n\n[... ${fullLength - limit} chars truncated, ${totalLines} lines total, full result available at ${resultPath}]`;
-}
-
-function limitToolHistoryResults(toolHistory, toolOutputLimit) {
-  if (toolOutputLimit === null) return toolHistory;
-
-  const fullLimitStartIndex = Math.max(
-    0,
-    toolHistory.length - (RECENT_ASSISTANT_TURN_COUNT - 1),
-  );
-  const olderLimit = Math.floor(toolOutputLimit * OLDER_TOOL_OUTPUT_LIMIT_RATIO);
-
-  return toolHistory.map((round, roundIndex) => ({
-    ...round,
-    results: round.results.map((result) => {
-      const toolName = round.toolCalls.find((toolCall) => (
-        toolCall.callId === result.callId
-      ))?.name;
-      return {
-        ...result,
-        output: truncateToolOutput(
-          result.output,
-          toolName === 'chat_inspect_thread'
-            ? Math.floor(toolOutputLimit * INSPECT_THREAD_TOOL_OUTPUT_LIMIT_RATIO)
-            : roundIndex < fullLimitStartIndex ? olderLimit : toolOutputLimit,
-          true,
-        ),
-      };
-    }),
-  }));
-}
-
 function isContextLengthError(error) {
   const errorText = `${error?.code ?? ''} ${
     error instanceof Error ? error.message : String(error)
@@ -547,13 +494,12 @@ export class ChatRunner {
 
     const selection = this.registry.resolve(configuredModel.modelId);
     if (!selection) throw new Error('The configured auxiliary model is unavailable.');
-    if (conversationId && !getConversation(conversationId)) {
-      throw new Error('Conversation not found.');
-    }
+    const conversation = conversationId ? getConversation(conversationId) : null;
+    if (conversationId && !conversation) throw new Error('Conversation not found.');
 
     const placeholders = [...new Set(sourcePrompt.match(/%[^%\r\n]+%/g) ?? [])];
-    const conversationSnapshot = conversationId
-      ? getMessages(conversationId)
+    const conversationSnapshot = conversation
+      ? getMessages(conversation.id)
           .filter((message) => !message.hidden)
           .filter((message) => ['user', 'assistant'].includes(message.role))
           .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
@@ -1198,12 +1144,31 @@ export class ChatRunner {
         }
         run.queuePaused = true;
         run.stoppedByUser = stoppedByUser;
-        if (stoppedByUser) this.noteBotRunStopped(id);
+        if (stoppedByUser) {
+          try {
+            this.noteBotRunStopped(id);
+          } catch (error) {
+            traceError('bots.run-stopped-error', {
+              thread_id: id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
         this.pausedQueues.set(id, [...run.queue]);
         run.controller.abort('stop');
       }
       this.stopBackgroundTasks?.(id);
     }
+  }
+
+  requestSteer(conversationId) {
+    const run = this.runs.get(conversationId);
+    if (!run) return false;
+    run.steerRequested = true;
+    if (['approval', 'question', 'boundary'].includes(run.phase)) {
+      run.controller.abort('steer');
+    }
+    return true;
   }
 
   async replaceUserMessage({
@@ -1722,6 +1687,7 @@ export class ChatRunner {
         model: selection.model.id,
         kind: 'compression',
         phase: 'inference',
+        steerRequested: false,
       });
       this.emit(conversation.id, { type: 'run-state', running: true, startedAt });
     }
@@ -2042,6 +2008,7 @@ export class ChatRunner {
       goalId,
       kind: 'chat',
       phase: 'mcp',
+      steerRequested: false,
       userMessageIds,
     };
     const completion = Promise.withResolvers();
@@ -2626,6 +2593,7 @@ export class ChatRunner {
               conversationId,
               model,
               models,
+              botRuntime,
               reasoningEffort,
               permissionMode,
               workMode,
@@ -2709,13 +2677,13 @@ export class ChatRunner {
             traceVerbose('tool.completed', toolDetails);
           }
 
+          const outputLimit = toolOutputLimitForTool(
+            toolCall.name,
+            tuning.toolOutputLimit,
+          );
           output = truncateToolOutput(
-            output,
-            toolCall.name === 'chat_inspect_thread' && tuning.toolOutputLimit !== null
-              ? Math.floor(
-                  tuning.toolOutputLimit * INSPECT_THREAD_TOOL_OUTPUT_LIMIT_RATIO,
-                )
-              : tuning.toolOutputLimit,
+            minifyToolOutputJson(output, outputLimit),
+            outputLimit,
           );
           const result = {
             callId: toolCall.callId,
@@ -2953,7 +2921,15 @@ export class ChatRunner {
     } finally {
       try {
         if (!this.shuttingDown) {
-          this.noteBotRunFinished(conversationId, assistantMessage.id);
+          try {
+            this.noteBotRunFinished(conversationId, assistantMessage.id);
+          } catch (error) {
+            traceError('bots.run-finished-error', {
+              thread_id: conversationId,
+              message_id: assistantMessage.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         }
         this.finishRun(conversationId);
       } finally {
@@ -3210,7 +3186,7 @@ export class ChatRunner {
   }
 
   shouldEndAtBoundary(run) {
-    return run.controller.signal.aborted;
+    return run.steerRequested || run.controller.signal.aborted;
   }
 
   isUltraGoal(conversationId, goalId) {
