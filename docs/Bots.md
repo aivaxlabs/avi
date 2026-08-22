@@ -33,11 +33,12 @@ Settings are organized by the decisions they control:
 
 **Schedule — when it runs and pauses**
 
+- **Enable bot** — controls whether the bot may be activated. Disabled bots remain available in the sidebar but do not run automatically or through **Activate now**.
 - **Frequency** — the interval between activations, set in minutes, hours, or days.
 - **Pause behavior**:
   - **Always on schedule** — runs at every interval while allowed.
   - **Pause when idle** — can sleep for four periods when there is no relevant work, too much waits for review, or too much waits for your approval.
-- **Stop after repeated activations** — after N activations the bot sleeps until you talk to it again. This limit can be disabled. Any message you send resets the counter and wakes the bot.
+- **Pause after repeated activations** — after N activations the bot pauses for four activation periods, then resumes automatically. This limit can be disabled. Any message you send ends the pause early and resets the counter.
 - **Schedule window** — optionally restricts activation by days and time range. Overnight ranges (e.g. 22:00–06:00) are supported.
 
 **Data — storage and conversation maintenance**
@@ -68,6 +69,18 @@ The bot never edits these JSON files directly. It manages them with three bot-on
 
 The approval file is protected: `queue_user_approval` and tool approval handling create its entries, and the runtime removes them after you decide. The daily update tool cannot move, edit, or remove these entries.
 
+### How bots choose a status
+
+A regular work item has one status based on the next action that remains:
+
+- New, inactive work starts in `backlog`; work being advanced by the bot or a delegated thread stays `ongoing`.
+- A running delegated thread and returned output the bot still needs to inspect are `ongoing`, not `blocked`.
+- `blocked` means a concrete prerequisite prevents the next step. The entry records what is missing, what clears it, and what happens next.
+- When approval is requested, the underlying regular entry moves to `blocked`. The separate protected `waiting-user-approval` entry represents only your pending decision. Approval moves the regular entry back to `ongoing`.
+- A denial does not automatically discard the work. It becomes `discarded` only when the denial ends it, `backlog` when deliberately deferred, `blocked` when another decision is needed, or `ongoing` when an alternative can proceed.
+- Completed work moves to `user-review` only when you must take a specific action, such as accepting it, validating it visually, answering a question, or choosing an option. If no action remains, it moves directly to `done`.
+- Accepted review moves from `user-review` to `done`; requested changes move it back to `ongoing`.
+
 In the default dedicated folder (`~/.aivax/bots/<bot id>`), Avi adds a `.gitignore` so nothing is committed by accident. In a folder you configure, these files are part of your project — add them to your own `.gitignore` if you do not want to commit them.
 
 At the beginning of every activation, the bot reads the logs and handles everything you have specified, preferring ongoing work. When nothing is specified, it decides what needs attention — continuing ongoing work, starting backlog items, reviewing delegated output, and checking your review queue. It writes only relevant changes so later activations start from an accurate state instead of a stream of trivial activity.
@@ -87,7 +100,7 @@ Threads the bot creates or messages always run in **Full access**: unattended th
 Open **Bots** from the auxiliary panel. Select a bot, then switch between the seven stage tabs. Each tab shows its entry count. **Waiting approval** also provides:
 
 - **Approve** — sends the approved prompt back to the bot so it proceeds, usually by delegating to a worker thread.
-- **Deny** — tells the bot you declined; it asks you for the reason or discards the related work.
+- **Deny** — tells the bot you declined; it keeps, defers, blocks, or discards the related work according to whether another path remains.
 
 ## Bot chats
 
@@ -98,4 +111,4 @@ If Avi closes or restarts while a bot is working, its current activation resumes
 ## Sidebar
 
 - The bot's context menu offers **Bot settings**, **Activate now**, and **Delete bot...** (removes the conversation and pending approvals; memory and daily log files stay on disk).
-- The status dot reflects the bot state: working, active, idle (smart sleep), or sleeping (activation limit reached).
+- The sidebar indicator reflects the bot state: a spinner while working, a green dot while active and waiting for its next activation, or a gray moon while sleeping because of smart idle, a repeated-activation pause, a manual pause, or the schedule window. Disabled bots use a gray dot and appear dimmed.
