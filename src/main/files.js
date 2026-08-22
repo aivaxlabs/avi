@@ -36,6 +36,7 @@ const statusPriority = {
 const workspaceStates = new Map();
 const execFileAsync = promisify(execFile);
 const previewSizeLimit = 1024 * 1024;
+const previewLineLimit = 2000;
 const filenameResultLimit = 80;
 const contentResultLimit = 120;
 const inlineTextAttachmentSizeLimit = 64 * 1024;
@@ -515,6 +516,19 @@ export async function readWorkspaceFile(
   }
   if (buffer.subarray(0, 8192).includes(0)) {
     return { ...result, kind: 'binary' };
+  }
+  let lineCount = 1;
+  for (const byte of buffer) {
+    if (byte !== 10) continue;
+    lineCount += 1;
+    if (lineCount > previewLineLimit) {
+      return {
+        ...result,
+        kind: 'large',
+        reason: 'lines',
+        lineLimit: previewLineLimit,
+      };
+    }
   }
   return {
     ...result,

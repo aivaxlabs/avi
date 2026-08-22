@@ -120,6 +120,18 @@ try {
   assert.equal(preview.kind, 'text');
   assert.equal(preview.content, 'changed\n');
 
+  const previewLimitPath = join(testRoot, 'preview-limit.txt');
+  await writeFile(previewLimitPath, Array(2000).fill('line').join('\n'));
+  assert.equal((await readWorkspaceFile(testRoot, 'preview-limit.txt')).kind, 'text');
+
+  const longPreviewPath = join(testRoot, 'long-preview.txt');
+  await writeFile(longPreviewPath, Array(2001).fill('line').join('\n'));
+  const longPreview = await readWorkspaceFile(testRoot, 'long-preview.txt');
+  assert.equal(longPreview.kind, 'large');
+  assert.equal(longPreview.reason, 'lines');
+  assert.equal(longPreview.lineLimit, 2000);
+  assert.equal('content' in longPreview, false);
+
   git('add', 'modified.txt');
   const diff = await readWorkspaceFileDiff(
     testRoot,
