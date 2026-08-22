@@ -8,12 +8,17 @@
 |---|---|---|
 | Auxiliary model | Supporting tasks such as title and Goal preparation, plus optional continuation replies | The flow uses its direct fallback behavior |
 | Supervision model | Reviewing Goal completion | The Goal or orchestrator model is used |
+| Compactation model | Context compactation checkpoints | The chat model performs the compactation |
 | Quick chat model | Required initial model for Quick Chat | Quick Chat cannot open |
 | Small, Medium, Large model | Sub-agent model levels | The orchestrator or last-used model may be used at runtime |
 
 Each assignment can also pin a reasoning effort supported by the selected model.
 
 The initial state is `None` for every role with **Use model levels** disabled.
+
+## Context compactation
+
+When a **Compactation model** is configured, manual and automatic context compactation run with it following the standard compactation attempt order (progressively reduced tool history). Compactation is best-effort: if the configured model fails during inference, Avi retries the same attempt order with the conversation's chat model. If the chat model also fails, the compactation error is reported as before.
 
 ## Sub-agent model levels
 

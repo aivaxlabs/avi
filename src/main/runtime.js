@@ -217,31 +217,6 @@ app.on('activate', () => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' && !getPreferences().desktop?.closeToTray) app.quit();
 });
-app.on('web-contents-created', (_event, contents) => {
-  contents.on('render-process-gone', (_event, details) => {
-    traceError('renderer.process-gone', {
-      status: details.reason,
-      code: details.exitCode,
-    });
-  });
-  contents.on('unresponsive', () => traceError('renderer.unresponsive'));
-  contents.on('did-fail-load', (_event, code, description) => {
-    traceError('renderer.load-failed', { code, error: description });
-  });
-  if (process.env.CHAT_APP_OPEN_DEVTOOLS === '1') {
-    contents.on('before-input-event', (_inputEvent, input) => {
-      if (input.type === 'keyDown' && input.key === 'F12') contents.toggleDevTools();
-    });
-  }
-});
-app.on('child-process-gone', (_event, details) => {
-  traceError('app.child-process-gone', {
-    operation: details.type,
-    status: details.reason,
-    code: details.exitCode,
-  });
-});
-
 await app.whenReady();
 if (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin) startHidden = true;
 await initializeSecureStorage();

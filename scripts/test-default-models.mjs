@@ -20,6 +20,7 @@ const settings = {
   auxiliary: null,
   supervision: null,
   quickChat: null,
+  compactation: null,
   subagents: {
     enabled: true,
     small: { modelId: 'test:small', reasoningEffort: 'low' },
@@ -32,6 +33,7 @@ assert.deepEqual(normalizeDefaultModels(null), {
   auxiliary: null,
   supervision: null,
   quickChat: null,
+  compactation: null,
   subagents: {
     enabled: false,
     small: null,
@@ -50,6 +52,10 @@ assert.throws(
   /Choose the small, medium, and large models/,
 );
 assert.deepEqual(validateDefaultModels(settings, models), []);
+assert.deepEqual(normalizeDefaultModels({
+  ...settings,
+  compactation: { modelId: ' test:orchestrator ', reasoningEffort: ' high ' },
+}).compactation, { modelId: 'test:orchestrator', reasoningEffort: 'high' });
 
 const incompleteWarnings = validateDefaultModels({
   ...settings,
@@ -75,6 +81,14 @@ assert.equal(quickChatWarnings.length, 1);
 assert.equal(quickChatWarnings[0].role, 'quickChat');
 assert.equal(quickChatWarnings[0].label, 'Quick chat model');
 assert.doesNotMatch(quickChatWarnings[0].message, /will be used/);
+const compactationWarnings = validateDefaultModels({
+  ...settings,
+  compactation: { modelId: 'test:missing', reasoningEffort: null },
+}, models);
+assert.equal(compactationWarnings.length, 1);
+assert.equal(compactationWarnings[0].role, 'compactation');
+assert.equal(compactationWarnings[0].label, 'Compactation model');
+assert.match(compactationWarnings[0].message, /The chat model will be used to compress the context/);
 
 assert.deepEqual(resolveSubagentModel('small', settings, models, {
   modelId: 'test:orchestrator',

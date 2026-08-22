@@ -1613,13 +1613,25 @@ export class ChatRunner {
       throw new Error('Wait for the current response to finish before compressing the context.');
     }
 
-    const selection = this.registry.resolve(model || conversation.model);
-    if (!selection) {
+    const chatSelection = this.registry.resolve(model || conversation.model);
+    if (!chatSelection) {
       throw new Error('The selected model is no longer configured. Choose another model in Settings.');
     }
+    const configuredCompactation = this.getPreferences().defaultModels?.compactation;
+    const compactationSelection = configuredCompactation?.modelId
+      ? this.registry.resolve(configuredCompactation.modelId)
+      : null;
+    const compactionSelections = compactationSelection
+      && compactationSelection.model.id !== chatSelection.model.id
+      ? [
+        { selection: compactationSelection, reasoningEffort: configuredCompactation.reasoningEffort ?? null },
+        { selection: chatSelection, reasoningEffort: null },
+      ]
+      : [{ selection: chatSelection, reasoningEffort: null }];
+    let selection = compactionSelections[0].selection;
 
     const messages = contextMessages ?? toModelMessages(conversation.id, {
-      capabilities: selection.model.capabilities,
+      capabilities: chatSelection.model.capabilities,
     });
     if (
       messages.length === 0
@@ -1657,8 +1669,9 @@ export class ChatRunner {
     ];
     traceVerbose('chat.context-compaction-started', traceContext(conversation.id, selection, {
       operation: automatic ? 'automatic' : 'manual',
+      compactation_model: configuredCompactation?.modelId ?? null,
       context_tokens: conversation.contextTokens,
-      context_limit: selection.model.context?.input,
+      context_limit: chatSelection.model.context?.input,
       message_count: messages.length,
       tool_history_count: limitedToolHistory.length,
       item_count: streamingSegments.length,
@@ -1725,81 +1738,99 @@ export class ChatRunner {
       ];
       let successfulCompressionMessages = compressionMessages;
       let turn;
-      for (let attempt = 0; attempt < fallbackToolHistories.length; attempt += 1) {
-        const attemptToolHistory = fallbackToolHistories[attempt];
-        const attemptInFlightContext = attemptToolHistory.length > 0 || streamingSegments.length > 0
-          ? [{
-              role: 'assistant',
-              content: [
-                '<in_flight_context>',
-                JSON.stringify({
-                  toolHistory: attemptToolHistory,
-                  streamingSegments,
-                }),
-                '</in_flight_context>',
-              ].join('\n'),
-            }]
-          : [];
-        const attemptMessages = [
-          ...(attempt === fallbackToolHistories.length - 1
-            ? messages.filter((message, messageIndex) => {
-                if (message.role !== 'assistant') return true;
-                const nextUserOffset = messages
-                  .slice(messageIndex + 1)
-                  .findIndex((laterMessage) => laterMessage.role === 'user');
-                const turnEnd = nextUserOffset < 0
-                  ? messages.length
-                  : messageIndex + 1 + nextUserOffset;
-                return !messages
-                  .slice(messageIndex + 1, turnEnd)
-                  .some((laterMessage) => laterMessage.role === 'assistant');
-              })
-            : messages),
-          ...attemptInFlightContext,
-          { role: 'user', content: COMPACTION_PROMPT },
-        ];
-        traceVerbose('chat.context-compaction-attempt', traceContext(conversation.id, selection, {
-          operation: automatic ? 'automatic' : 'manual',
-          attempt: attempt + 1,
-          message_count: attemptMessages.length,
-          tool_history_count: attemptToolHistory.length,
-          item_count: streamingSegments.length,
-          input_tokens: Math.ceil(JSON.stringify(attemptMessages).length / 4),
-        }));
-        try {
-          let attemptUsage = null;
-          turn = await selection.provider.stream({
-            model: selection.model,
-            messages: attemptMessages,
-            tools: [],
-            toolHistory: [],
-            invocationContext: {
-              conversationId: conversation.id,
-              workspacePath: conversation.projectPath,
-              traceOperation: automatic ? 'automatic-compaction' : 'manual-compaction',
-              traceRound: attempt + 1,
-            },
-            signal: controller.signal,
-            onEvent: (event) => {
-              if (event.type === 'usage') attemptUsage = event.usage;
-            },
-          });
-          compressionUsage = attemptUsage;
-          successfulCompressionMessages = attemptMessages;
-          break;
-        } catch (error) {
-          if (
-            controller.signal.aborted
-            || !isContextLengthError(error)
-            || attempt === fallbackToolHistories.length - 1
-          ) throw error;
-          traceVerbose('chat.context-compaction-fallback', traceContext(conversation.id, selection, {
+      for (
+        let selectionIndex = 0;
+        selectionIndex < compactionSelections.length && !turn;
+        selectionIndex += 1
+      ) {
+        selection = compactionSelections[selectionIndex].selection;
+        const attemptReasoningEffort = compactionSelections[selectionIndex].reasoningEffort;
+        if (selectionIndex > 0) {
+          if (run) run.model = selection.model.id;
+          traceVerbose('chat.context-compaction-model-fallback', traceContext(conversation.id, selection, {
+            operation: automatic ? 'automatic' : 'manual',
+            compactation_model: compactionSelections[0].selection.model.id,
+            fallback_model: selection.model.id,
+          }));
+        }
+        for (let attempt = 0; attempt < fallbackToolHistories.length; attempt += 1) {
+          const attemptToolHistory = fallbackToolHistories[attempt];
+          const attemptInFlightContext = attemptToolHistory.length > 0 || streamingSegments.length > 0
+            ? [{
+                role: 'assistant',
+                content: [
+                  '<in_flight_context>',
+                  JSON.stringify({
+                    toolHistory: attemptToolHistory,
+                    streamingSegments,
+                  }),
+                  '</in_flight_context>',
+                ].join('\n'),
+              }]
+            : [];
+          const attemptMessages = [
+            ...(attempt === fallbackToolHistories.length - 1
+              ? messages.filter((message, messageIndex) => {
+                  if (message.role !== 'assistant') return true;
+                  const nextUserOffset = messages
+                    .slice(messageIndex + 1)
+                    .findIndex((laterMessage) => laterMessage.role === 'user');
+                  const turnEnd = nextUserOffset < 0
+                    ? messages.length
+                    : messageIndex + 1 + nextUserOffset;
+                  return !messages
+                    .slice(messageIndex + 1, turnEnd)
+                    .some((laterMessage) => laterMessage.role === 'assistant');
+                })
+              : messages),
+            ...attemptInFlightContext,
+            { role: 'user', content: COMPACTION_PROMPT },
+          ];
+          traceVerbose('chat.context-compaction-attempt', traceContext(conversation.id, selection, {
             operation: automatic ? 'automatic' : 'manual',
             attempt: attempt + 1,
             message_count: attemptMessages.length,
             tool_history_count: attemptToolHistory.length,
-            code: error?.code,
+            item_count: streamingSegments.length,
+            input_tokens: Math.ceil(JSON.stringify(attemptMessages).length / 4),
           }));
+          try {
+            let attemptUsage = null;
+            turn = await selection.provider.stream({
+              model: selection.model,
+              messages: attemptMessages,
+              tools: [],
+              toolHistory: [],
+              reasoningEffort: attemptReasoningEffort,
+              invocationContext: {
+                conversationId: conversation.id,
+                workspacePath: conversation.projectPath,
+                traceOperation: automatic ? 'automatic-compaction' : 'manual-compaction',
+                traceRound: attempt + 1,
+              },
+              signal: controller.signal,
+              onEvent: (event) => {
+                if (event.type === 'usage') attemptUsage = event.usage;
+              },
+            });
+            compressionUsage = attemptUsage;
+            successfulCompressionMessages = attemptMessages;
+            break;
+          } catch (error) {
+            if (controller.signal.aborted) throw error;
+            const contextLengthFailure = isContextLengthError(error);
+            const modelFallbackAvailable = selectionIndex < compactionSelections.length - 1;
+            const attemptsExhausted = attempt === fallbackToolHistories.length - 1;
+            if (!modelFallbackAvailable && (!contextLengthFailure || attemptsExhausted)) throw error;
+            if (!contextLengthFailure || attemptsExhausted) break;
+            traceVerbose('chat.context-compaction-fallback', traceContext(conversation.id, selection, {
+              operation: automatic ? 'automatic' : 'manual',
+              attempt: attempt + 1,
+              message_count: attemptMessages.length,
+              tool_history_count: attemptToolHistory.length,
+              code: error?.code,
+            }));
+          }
         }
       }
       if (run) {

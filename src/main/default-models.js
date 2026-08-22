@@ -4,6 +4,7 @@ export const emptyDefaultModels = Object.freeze({
   auxiliary: null,
   supervision: null,
   quickChat: null,
+  compactation: null,
   subagents: Object.freeze({
     enabled: false,
     small: null,
@@ -16,6 +17,7 @@ const roleLabels = Object.freeze({
   auxiliary: 'Auxiliary model',
   supervision: 'Supervision model',
   quickChat: 'Quick chat model',
+  compactation: 'Compactation model',
   small: 'Small sub-agent model',
   medium: 'Medium sub-agent model',
   large: 'Large sub-agent model',
@@ -30,6 +32,7 @@ export function normalizeDefaultModels(value, strict = false) {
     auxiliary: normalizeSelection(source.auxiliary),
     supervision: normalizeSelection(source.supervision),
     quickChat: normalizeSelection(source.quickChat),
+    compactation: normalizeSelection(source.compactation),
     subagents: {
       enabled: subagents.enabled === true,
       small: normalizeSelection(subagents.small),
@@ -55,6 +58,7 @@ export function validateDefaultModels(settings, models) {
     ['auxiliary', normalized.auxiliary],
     ['supervision', normalized.supervision],
     ['quickChat', normalized.quickChat],
+    ['compactation', normalized.compactation],
     ...(normalized.subagents.enabled ? [
       ['small', normalized.subagents.small],
       ['medium', normalized.subagents.medium],
@@ -64,7 +68,7 @@ export function validateDefaultModels(settings, models) {
 
   return configured.flatMap(([role, selection]) => {
     const availability = inspectSelection(selection, modelsById);
-    if (availability.available || (!selection && ['auxiliary', 'supervision', 'quickChat'].includes(role))) {
+    if (availability.available || (!selection && ['auxiliary', 'supervision', 'quickChat', 'compactation'].includes(role))) {
       return [];
     }
     const modelId = selection?.modelId ?? 'not selected';
@@ -74,9 +78,11 @@ export function validateDefaultModels(settings, models) {
       label: roleLabels[role],
       modelId: selection?.modelId ?? null,
       reason: availability.reason,
-      message: ['small', 'medium', 'large'].includes(role)
-        ? `${unavailableMessage} The orchestrator model, or the last model used by the system, will be used at runtime.`
-        : unavailableMessage,
+      message: role === 'compactation'
+        ? `${unavailableMessage} The chat model will be used to compress the context.`
+        : ['small', 'medium', 'large'].includes(role)
+          ? `${unavailableMessage} The orchestrator model, or the last model used by the system, will be used at runtime.`
+          : unavailableMessage,
     }];
   });
 }

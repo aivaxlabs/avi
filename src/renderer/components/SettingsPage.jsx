@@ -746,7 +746,7 @@ export function SettingsPage({
               Routers
             </button>
           )}
-          {(!settingsQuery || 'models default auxiliary supervision quick chat sub-agent orchestration fallback reasoning'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'models default auxiliary supervision quick chat sub-agent orchestration fallback reasoning compactation compression'.includes(settingsQuery)) && (
             <button
               className={view === 'default-models' ? 'active' : undefined}
               type="button"
@@ -1531,7 +1531,7 @@ export function SettingsPage({
                 <section className="settings-section">
                   <div className="settings-section-heading">
                     <h3>General tasks</h3>
-                    <p>Optional models used for supporting tasks, Quick Chat, and agent supervision.</p>
+                    <p>Optional models used for supporting tasks, Quick Chat, agent supervision, and context compactation.</p>
                   </div>
                   <div className="settings-section-card settings-form">
                     <DefaultModelField
@@ -1552,6 +1552,16 @@ export function SettingsPage({
                       onChange={(value) => {
                         setDefaultModelsSaved(false);
                         setDefaultModelsDraft((current) => ({ ...current, supervision: value }));
+                      }}
+                    />
+                    <DefaultModelField
+                      label="Compactation model"
+                      description="Best-effort model used to compress the conversation context. When inference fails, the chat model performs the compactation. Choose None to always use the chat model."
+                      models={models}
+                      value={defaultModelsDraft.compactation}
+                      onChange={(value) => {
+                        setDefaultModelsSaved(false);
+                        setDefaultModelsDraft((current) => ({ ...current, compactation: value }));
                       }}
                     />
                     <DefaultModelField
@@ -1908,7 +1918,7 @@ export function SettingsPage({
                 <section className="settings-section">
                   <div className="settings-section-heading">
                     <h3>Diagnostics</h3>
-                    <p>Choose how much operational detail is written to ~/.aivax/trace.log.</p>
+                    <p>Choose how much operational detail is written to ~/.aivax/trace.log. Fatal errors are always recorded.</p>
                   </div>
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
@@ -1925,7 +1935,7 @@ export function SettingsPage({
                       >
                         <option value="verbose">Verbose · Detailed timings and errors</option>
                         <option value="minimal">Minimal · Errors only</option>
-                        <option value="disabled">Disabled · No logging</option>
+                        <option value="disabled">Disabled · Fatal errors only</option>
                       </select>
                       <small>
                         Logs never include prompts, messages, tool inputs, attachments, API keys, or user file paths.
