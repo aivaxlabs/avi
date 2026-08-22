@@ -84,6 +84,7 @@ export function BotSettingsDialog({
     activationPeriod: initialPeriodMinutes / PERIOD_UNIT_MINUTES[initialPeriodUnit],
     activationPeriodUnit: initialPeriodUnit,
     activationMode: bot?.activationMode ?? 'static',
+    enabled: bot?.enabled !== false,
     maxActivationsEnabled: (bot?.maxActivations ?? 10) > 0,
     maxActivations: bot?.maxActivations > 0 ? bot.maxActivations : 10,
     windowDays: bot?.activationWindow?.days ?? [],
@@ -154,6 +155,7 @@ export function BotSettingsDialog({
           Math.round((Number(draft.activationPeriod) || 1) * PERIOD_UNIT_MINUTES[draft.activationPeriodUnit]) || 10,
         ),
         activationMode: draft.activationMode,
+        enabled: draft.enabled,
         maxActivations: draft.maxActivationsEnabled
           ? Math.max(1, Number(draft.maxActivations) || 10)
           : 0,
@@ -472,6 +474,20 @@ export function BotSettingsDialog({
             {tab === 'schedule' && (
               <>
                 <section className="bot-settings-section">
+                  <label className="bot-settings-toggle">
+                    <span>
+                      <strong>Enable bot</strong>
+                      <small>Allow scheduled and manual activations.</small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={draft.enabled}
+                      onChange={(event) => update({ enabled: event.target.checked })}
+                    />
+                  </label>
+                </section>
+
+                <section className="bot-settings-section">
                   <header>
                     <h3>How often should it check for work?</h3>
                     <p>Avi activates the bot at this interval while it is awake.</p>
@@ -542,8 +558,8 @@ export function BotSettingsDialog({
                   </fieldset>
                   <label className="bot-settings-toggle">
                     <span>
-                      <strong>Stop after repeated activations</strong>
-                      <small>Sleeps until you send the bot a message.</small>
+                      <strong>Pause after repeated activations</strong>
+                      <small>Pauses for four activation periods, then resumes automatically.</small>
                     </span>
                     <input
                       type="checkbox"

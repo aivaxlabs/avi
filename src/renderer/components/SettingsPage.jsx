@@ -1,5 +1,4 @@
 import {
-  Archive,
   ArrowDown,
   ArrowLeft,
   ArrowRight,
@@ -34,6 +33,7 @@ import {
   Sparkles,
   Trash2,
   Workflow,
+  Wrench,
   X,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -42,7 +42,7 @@ import aviIconUrl from '../../../assets/icon/avi.png';
 import { classNames } from '../lib/format.js';
 import { AivaxFeaturesSettings } from './AivaxFeaturesSettings.jsx';
 import { AppearanceSettings } from './AppearanceSettings.jsx';
-import { ArchiveSettings } from './ArchiveSettings.jsx';
+import { MaintenanceSettings } from './MaintenanceSettings.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { McpSettings } from './McpSettings.jsx';
 import { PluginsSettings } from './PluginsSettings.jsx';
@@ -607,7 +607,7 @@ export function SettingsPage({
     plugins: 'Plugins',
     remote: 'Remote control',
     aivax: 'AIVAX Features',
-    archive: 'Archive',
+    maintenance: 'Maintenance',
     'default-models': 'Default models',
     general: 'General',
     tuning: 'Tuning',
@@ -630,14 +630,14 @@ export function SettingsPage({
     plugins: 'View trusted JavaScript plugins installed in Avi.',
     remote: 'Expose Avi orchestration through a local authenticated MCP server.',
     aivax: 'Add persistent memory, richer web tools, and semantic thread search through AIVAX.',
-    archive: 'Manage conversation retention, archived threads, and storage cleanup.',
+    maintenance: 'Manage archived conversations, storage cleanup, and semaphore permits.',
     'default-models': 'Choose models for supporting tasks, supervision, and sub-agent orchestration.',
     general: 'Configure chat behavior and desktop integration.',
     tuning: 'Adjust context, tool execution, parallel work, and diagnostics.',
     personalization: 'Choose Avi’s personality, theme, and color scheme.',
     about: 'Project information, version, and links.',
   }[view];
-  const showInlineBack = !['list', 'routers', 'context-folders', 'mcp', 'plugins', 'remote', 'aivax', 'archive', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
+  const showInlineBack = !['list', 'routers', 'context-folders', 'mcp', 'plugins', 'remote', 'aivax', 'maintenance', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
   const importedProvider = providerImportDialog?.mode === 'review'
     ? providerImportDialog.provider
@@ -835,18 +835,18 @@ export function SettingsPage({
               Remote control
             </button>
           )}
-          {(!settingsQuery || 'archive archived conversations retention cleanup maintenance restore storage'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'maintenance archive archived conversations retention cleanup restore storage semaphores permits'.includes(settingsQuery)) && (
             <button
-              className={view === 'archive' ? 'active' : undefined}
+              className={view === 'maintenance' ? 'active' : undefined}
               type="button"
-              aria-current={view === 'archive' ? 'page' : undefined}
+              aria-current={view === 'maintenance' ? 'page' : undefined}
               onClick={() => {
-                setView('archive');
+                setView('maintenance');
                 setError('');
               }}
             >
-              <Archive size={16} />
-              Archive
+              <Wrench size={16} />
+              Maintenance
             </button>
           )}
 
@@ -1461,7 +1461,7 @@ export function SettingsPage({
             {view === 'remote' && <RemoteSettings />}
             {view === 'plugins' && <PluginsSettings />}
             {view === 'aivax' && <AivaxFeaturesSettings />}
-            {view === 'archive' && <ArchiveSettings />}
+            {view === 'maintenance' && <MaintenanceSettings />}
             {view === 'mcp' && (
               <McpSettings
                 initialFolder={initialContextFolder}

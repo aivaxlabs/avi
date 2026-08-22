@@ -22,6 +22,14 @@
   }
 }
 
+.bot-item.disabled {
+  opacity: 0.45;
+
+  .bot-avatar {
+    filter: grayscale(1);
+  }
+}
+
 .sidebar-bots-empty {
   margin: 0;
   padding: 2px 4px 6px;
@@ -41,17 +49,6 @@
     border-radius: 50%;
   }
 
-  > .run-spinner {
-    position: absolute;
-    right: -2px;
-    bottom: 0;
-    margin: 0;
-    width: 13px;
-    height: 13px;
-    padding: 1px;
-    background: var(--background-2);
-  }
-
   &.large {
     width: 40px;
     height: 40px;
@@ -59,12 +56,9 @@
 }
 
 .bot-status-dot {
-  position: absolute;
-  right: -4px;
-  bottom: -2px;
+  flex: 0 0 auto;
   width: 9px;
   height: 9px;
-  background: var(--text-4);
   border: 2px solid var(--background-2);
   border-radius: 999px;
 
@@ -72,14 +66,14 @@
     background: var(--success-color, var(--text-2));
   }
 
-  &.sleeping,
-  &.paused {
-    background: var(--text-3);
-  }
-
-  &.idle {
+  &.disabled {
     background: var(--text-4);
   }
+}
+
+.bot-status-sleep {
+  flex: 0 0 auto;
+  color: var(--text-4);
 }
 
 .bot-queue-badge {

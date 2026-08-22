@@ -762,21 +762,24 @@ function BotItem({ bot, active, onSelect, onSettings, onActivate, onDelete }) {
     setMenuOpen((value) => !value);
   }
 
-  const idleNow = bot.idleUntil && new Date(bot.idleUntil).getTime() > Date.now();
-  const statusLabel = bot.running
+  const statusLabel = bot.running || bot.scheduleState === 'working'
     ? 'Working'
-    : idleNow
-      ? 'Idle'
-      : bot.status === 'sleeping'
-        ? 'Sleeping'
-        : bot.status === 'paused'
-          ? 'Paused'
-          : 'Active';
+    : bot.scheduleState === 'disabled'
+      ? 'Disabled'
+      : bot.scheduleState === 'sleep'
+        ? 'Sleep'
+        : 'Active';
 
   return (
     <div
       ref={itemRef}
-      className={classNames('conversation-item', 'bot-item', active && 'active', menuOpen && 'menu-open')}
+      className={classNames(
+        'conversation-item',
+        'bot-item',
+        bot.enabled === false && 'disabled',
+        active && 'active',
+        menuOpen && 'menu-open',
+      )}
       onContextMenu={(event) => {
         event.preventDefault();
         setMenuPosition({
@@ -794,20 +797,21 @@ function BotItem({ bot, active, onSelect, onSettings, onActivate, onDelete }) {
             variant="beam"
             colors={botAvatarColors}
           />
-          {bot.running ? (
-            <LoaderCircle className="run-spinner" size={11} aria-label="Working" />
-          ) : (
-            <span
-              className={classNames('bot-status-dot', bot.status, idleNow && 'idle')}
-              aria-label={statusLabel}
-            />
-          )}
         </span>
         <span className="conversation-title">{bot.name}</span>
         {bot.pendingApprovals > 0 && (
           <span className="bot-queue-badge" title="Pending user approvals">
             {bot.pendingApprovals}
           </span>
+        )}
+        {bot.running || bot.scheduleState === 'working' ? (
+          <LoaderCircle className="run-spinner" size={13} aria-label="Working" />
+        ) : bot.scheduleState === 'disabled' ? (
+          <span className="bot-status-dot disabled" aria-label={statusLabel} />
+        ) : bot.scheduleState === 'sleep' ? (
+          <Moon className="bot-status-sleep" size={13} aria-label="Sleep" />
+        ) : (
+          <span className="bot-status-dot active" aria-label={statusLabel} />
         )}
       </button>
       <button
@@ -828,10 +832,15 @@ function BotItem({ bot, active, onSelect, onSettings, onActivate, onDelete }) {
           }}>
             Bot settings
           </DropdownMenuItem>
-          <DropdownMenuItem icon={<Play size={14} />} onClick={() => {
-            setMenuOpen(false);
-            onActivate();
-          }}>
+          <DropdownMenuItem
+            icon={<Play size={14} />}
+            disabled={bot.enabled === false}
+            title={bot.enabled === false ? 'Enable this bot in Schedule first' : undefined}
+            onClick={() => {
+              setMenuOpen(false);
+              onActivate();
+            }}
+          >
             Activate now
           </DropdownMenuItem>
           <DropdownMenuItem icon={<Trash2 size={14} />} onClick={() => {
