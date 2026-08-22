@@ -141,7 +141,7 @@ fn fragmentMain(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let primaryWeight = primaryGlow * 0.09;
   let secondaryWeight = secondaryGlow * 0.014;
   let tertiaryWeight = tertiaryGlow * 0.01;
-  let dotWeight = dot * gridField * 0.04;
+  let dotWeight = dot * gridField * 0.06;
   let alpha = min(
     primaryWeight + secondaryWeight + tertiaryWeight + dotWeight,
     0.15,
@@ -708,7 +708,7 @@ export const ChatView = memo(function ChatView({
           aria-hidden="true"
         />
       )}
-      {!compact && !backgroundUrl && emptyBackgroundEnabled && (
+      {!compact && emptyBackgroundEnabled && (
         <canvas
           ref={emptyBackgroundRef}
           className="empty-chat-background"

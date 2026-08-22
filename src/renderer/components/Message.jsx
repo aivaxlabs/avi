@@ -384,11 +384,11 @@ function UserMessage({ message, editing, onEdit, editor }) {
         {hasBubble && (
           <div className="user-bubble">
             {message.content && <div className="plain-text">{message.content}</div>}
-            {message.status === 'waiting_mcp' && (
+            {/* {message.status === 'waiting_mcp' && (
               <span className="user-message-status" role="status">
                 Waiting for MCP servers...
               </span>
-            )}
+            )} */}
           </div>
         )}
         {visibleAttachments.length > 0 && (

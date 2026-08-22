@@ -56,8 +56,12 @@
   color: var(--text-1);
   background: var(--background-2);
   border: 1px solid var(--border-color);
-  border-radius: 16px 16px 3px 16px;
-  padding: 8px 16px;
+  border-radius: 16px 16px 6px 16px;
+  padding: 10px 14px;
+
+  & :empty {
+    display: none;
+  }
 }
 
 .user-attachment-list {
@@ -72,6 +76,7 @@
   overflow: hidden;
   padding: 0;
   background: var(--background-2);
+  outline: 1px solid --border-color;
   border-radius: 10px;
   cursor: pointer;
   transition: border-color 160ms var(--base-transition),
@@ -1333,21 +1338,26 @@
 .continuations {
   margin-top: 10px;
   display: grid;
-  justify-items: start;
+  justify-items: end;
   gap: 5px;
   transition: .3s var(--base-transition);
 
   button {
+    display: block;
     padding: 4px 12px;
-    color: var(--text-2);
+    width: fit-content;
+    max-width: 80%;
+    color: var(--text-3);
+    opacity: .7;
     background: transparent;
-    border: 1px solid var(--border-color);
-    border-radius: 16px;
-    font-size: 12px;
-    text-align: left;
+    border-radius: 12px;
+    font-size: --font-sm;
+    text-align: right;
     transition: .3s var(--base-transition);
 
     &:hover {
+      opacity: 1;
+      color: var(--text-1);
       background: var(--background-2);
     }
   }
