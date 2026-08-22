@@ -1,5 +1,5 @@
 import Avatar from 'boring-avatars';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -25,6 +25,8 @@ import { FilesPanel } from './FilesPanel.jsx';
 import { GitReviewPanel } from './GitReviewPanel.jsx';
 import { ProviderPanel } from './ProviderPanel.jsx';
 
+const emptyList = Object.freeze([]);
+const emptyObject = Object.freeze({});
 const subagentsTabId = 'subagents';
 const filesTabId = 'files';
 const gitReviewTabId = 'git-review';
@@ -119,23 +121,23 @@ function AuxiliaryAddMenu({ panels }) {
   );
 }
 
-export function AuxiliaryPanel({
+export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   sideChats,
   subagents,
-  bots = [],
-  botLogsByBot = {},
+  bots = emptyList,
+  botLogsByBot = emptyObject,
   onResolveBotApproval,
   botQueueTabOpen = false,
   selectedBotId,
   onSelectBot,
   onOpenBotQueueTab,
   onCloseBotQueueTab,
-  tasks = [],
+  tasks = emptyList,
   activeTab,
   activeSubagentId,
-  messagesByConversation,
-  running,
-  semaphoreWaits = [],
+  visibleMessagesByConversation,
+  visibleRunning,
+  semaphoreWaits = emptyList,
   models,
   favorites,
   recentModels,
@@ -143,8 +145,8 @@ export function AuxiliaryPanel({
   fallbackModel,
   conversationId,
   project,
-  providerPanels = [],
-  openProviderPanels = [],
+  providerPanels = emptyList,
+  openProviderPanels = emptyList,
   filesTabOpen,
   gitReviewTabOpen,
   subagentsTabOpen,
@@ -176,7 +178,7 @@ export function AuxiliaryPanel({
   onSelectSubagent,
   onSend,
   onImplementPlan,
-  questionRequests = [],
+  questionRequests = emptyList,
   onAnswerQuestion,
   onRunSemaphoreNow,
   onCancelSemaphore,
@@ -221,7 +223,9 @@ export function AuxiliaryPanel({
   };
 
   const selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? bots[0] ?? null;
-  const selectedBotLogs = selectedBot ? botLogsByBot[selectedBot.id] ?? [] : [];
+  const selectedBotLogs = selectedBot
+    ? botLogsByBot[selectedBot.id] ?? emptyList
+    : emptyList;
   const selectedBotLogEntries = selectedBotLogs.filter((entry) => entry.status === botLogStatus);
   const availablePanels = [
     {
@@ -298,7 +302,7 @@ export function AuxiliaryPanel({
     ...sideChats.map((sideChat) => ({
       id: sideChat.id,
       label: sideChat.title,
-      running: Boolean(running[sideChat.id]),
+      running: Boolean(visibleRunning[sideChat.id]),
       sleeping: semaphoreWaits.some((wait) => wait.conversationId === sideChat.id),
       type: 'side-chat',
     })),
@@ -683,7 +687,7 @@ export function AuxiliaryPanel({
         ) : showingSubagents && !activeSubagent ? (
           <div className="subagent-list">
             {subagents.map((subagent) => {
-              const assignment = (messagesByConversation[subagent.id] ?? [])
+              const assignment = (visibleMessagesByConversation[subagent.id] ?? emptyList)
                 .findLast((message) => message.role === 'user')
                 ?.content;
               return (
@@ -727,7 +731,7 @@ export function AuxiliaryPanel({
             key={activeThread.id}
             compact
             currentConversation={activeThread}
-            currentMessages={messagesByConversation[activeThread.id] ?? []}
+            currentMessages={visibleMessagesByConversation[activeThread.id] ?? emptyList}
             currentModel={currentModel}
             currentProject={currentProject}
             contextUsage={{
@@ -738,7 +742,7 @@ export function AuxiliaryPanel({
             recentProjects={recentProjects}
             models={models}
             favorites={favorites}
-            isRunning={Boolean(running[activeThread.id])}
+            isRunning={Boolean(visibleRunning[activeThread.id])}
             semaphoreWait={semaphoreWaits.find(
               (wait) => wait.conversationId === activeThread.id,
             ) ?? null}
@@ -849,4 +853,4 @@ export function AuxiliaryPanel({
       )}
     </>
   );
-}
+});

@@ -279,7 +279,11 @@ export function GitReviewPanel({
         setDiffHeights((current) => {
           const next = new Map(current);
           for (const [key, height] of measuredHeights) next.set(key, height);
-          return next;
+          if (next.size !== current.size) return next;
+          for (const [key, height] of next) {
+            if (!current.has(key) || !Object.is(current.get(key), height)) return next;
+          }
+          return current;
         });
       }
       setVisibleDiffs((current) => {
@@ -288,7 +292,11 @@ export function GitReviewPanel({
           const key = entry.target.dataset.gitReviewDiffKey;
           if (entry.isIntersecting) next.add(key); else next.delete(key);
         }
-        return next;
+        if (next.size !== current.size) return next;
+        for (const key of next) {
+          if (!current.has(key)) return next;
+        }
+        return current;
       });
     }, { root: contentRef.current, rootMargin: '600px 0px' });
     for (const element of contentRef.current?.querySelectorAll('[data-git-review-diff-key]') ?? []) {

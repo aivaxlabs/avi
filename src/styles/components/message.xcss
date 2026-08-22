@@ -11,6 +11,12 @@
 .message-row {
   min-width: 0;
   display: flex;
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 160px;
+
+  &:focus-within {
+    content-visibility: visible;
+  }
 }
 
 .user-row {

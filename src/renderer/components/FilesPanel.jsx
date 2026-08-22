@@ -357,7 +357,7 @@ export function FilesPanel({
     ])
       .then(([nextPreview, ...directoryEntries]) => {
         if (!active) return;
-        setPreview(nextPreview);
+        setPreview({ ...nextPreview, allowExternalReference: outsideWorkspace });
         setDirectories((current) => ({
           ...current,
           ...Object.fromEntries(directoryPaths.map((path, index) => (
@@ -1066,7 +1066,27 @@ export function FilesPanel({
                   <strong>
                     {preview.kind === 'large' ? 'File is too large to preview' : 'Preview unavailable'}
                   </strong>
-                  <span>{formatBytes(preview.size)} · Open it with the default application.</span>
+                  <span>
+                    {preview.reason === 'lines'
+                      ? `Previews are limited to ${preview.lineLimit.toLocaleString()} lines.`
+                      : `${formatBytes(preview.size)} · Open it with the default application.`}
+                  </span>
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={async () => {
+                      await window.chatApp.files.open({
+                        folderPath: project.path,
+                        filePath: selectedPath,
+                        allowExternalReference: preview.allowExternalReference === true,
+                      }).catch((nextError) => (
+                        setError(nextError instanceof Error ? nextError.message : String(nextError))
+                      ));
+                    }}
+                  >
+                    <ExternalLink size={14} aria-hidden="true" />
+                    Open externally
+                  </button>
                 </div>
               ) : null}
             </div>

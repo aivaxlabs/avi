@@ -392,6 +392,12 @@ body.panel-resizing * {
 .message-row {
     min-width: 0;
     display: flex;
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 160px;
+}
+
+.message-row:focus-within {
+    content-visibility: visible;
 }
 
 .user-row {
@@ -4314,52 +4320,6 @@ body.panel-resizing * {
         flex-wrap: wrap;
     }
 }
-/* components\button.xcss */
-button {
-    border: 0;
-    border-radius: 9999px;
-    padding: 4px 10px;
-}
-
-button svg {
-    display: inline-block;
-    margin: 0 4px;
-}
-
-.icon-button, .round-button, .recent-filter-button, .user-message-action, .favorite-button, .sidebar-toggle, .attachment-chip button {
-    border-radius: 9999px;
-    padding: 0;
-}
-
-.icon-button, .round-button {
-    display: inline-grid;
-    place-items: center;
-    color: var(--text-2);
-    background: var(--background-2);
-    border: 1px solid var(--border-color);
-    border-radius: 999px;
-}
-
-.icon-button {
-    width: 34px;
-    height: 34px;
-}
-
-.icon-button.tiny {
-    width: 26px;
-    height: 26px;
-    background: transparent;
-    border: 0;
-}
-
-.icon-button:hover, .round-button:hover, .model-pill:hover, .message-actions button:hover, .continuations button:hover {
-    background: var(--item-hover);
-}
-
-.primary-mini {
-    color: var(--text-5) !important;
-    background: var(--background-5) !important;
-}
 /* components\markdown.xcss */
 .markdown-body {
     min-width: 0;
@@ -4564,6 +4524,52 @@ button svg {
     .markdown-body .file-reference-link {
         transition: none;
     }
+}
+/* components\button.xcss */
+button {
+    border: 0;
+    border-radius: 9999px;
+    padding: 4px 10px;
+}
+
+button svg {
+    display: inline-block;
+    margin: 0 4px;
+}
+
+.icon-button, .round-button, .recent-filter-button, .user-message-action, .favorite-button, .sidebar-toggle, .attachment-chip button {
+    border-radius: 9999px;
+    padding: 0;
+}
+
+.icon-button, .round-button {
+    display: inline-grid;
+    place-items: center;
+    color: var(--text-2);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+}
+
+.icon-button {
+    width: 34px;
+    height: 34px;
+}
+
+.icon-button.tiny {
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    border: 0;
+}
+
+.icon-button:hover, .round-button:hover, .model-pill:hover, .message-actions button:hover, .continuations button:hover {
+    background: var(--item-hover);
+}
+
+.primary-mini {
+    color: var(--text-5) !important;
+    background: var(--background-5) !important;
 }
 /* components\bots.xcss */
 .bots-label {
