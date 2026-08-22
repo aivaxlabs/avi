@@ -1,5 +1,31 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const fatalErrorText = (value) => {
+  if (value && typeof value === 'object') {
+    if (typeof value.stack === 'string') return value.stack;
+    if (typeof value.message === 'string') return value.message;
+  }
+  return String(value);
+};
+const reportRendererFatal = (type, operation, error) => {
+  try {
+    ipcRenderer.send('avi:renderer-fatal', {
+      type,
+      operation,
+      error: fatalErrorText(error),
+    });
+  } catch {
+    // Fatal reporting must not cause another renderer failure.
+  }
+};
+
+process.on('uncaughtException', (error) => {
+  reportRendererFatal('preload-uncaught-exception', 'preload', error);
+});
+process.on('unhandledRejection', (reason) => {
+  reportRendererFatal('preload-unhandled-rejection', 'preload', reason);
+});
+
 const invoke = async (channel, payload) => {
   const response = await ipcRenderer.invoke('avi:invoke', { channel, payload });
   if (response?.ok) return response.value;
@@ -17,6 +43,23 @@ const subscribe = (channel, callback) => {
 };
 
 contextBridge.exposeInMainWorld('chatApp', {
+  diagnostics: {
+    reportWindowError: (error) => reportRendererFatal(
+      'window-error',
+      'window.error',
+      error,
+    ),
+    reportWindowRejection: (error) => reportRendererFatal(
+      'window-unhandled-rejection',
+      'window.unhandledrejection',
+      error,
+    ),
+    reportReactFatal: (error) => reportRendererFatal(
+      'react-uncaught-error',
+      'react.render',
+      error,
+    ),
+  },
   app: {
     state: () => invoke('app:state'),
     openExternal: (url) => invoke('app:open-external', url),

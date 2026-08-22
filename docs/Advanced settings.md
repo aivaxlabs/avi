@@ -43,9 +43,9 @@ Desktop toggles save immediately. Chat, Tuning, and Personality changes require 
 
 - **Verbose** — detailed timings and errors;
 - **Minimal** — default; errors only;
-- **Disabled** — no operational trace logging.
+- **Disabled** — fatal errors only; operational trace logging is disabled.
 
-The log is `~/.aivax/trace.log`. The Settings description states that logs do not include prompts, messages, tool inputs, attachments, API keys, or user file paths.
+Uncaught main-process and renderer errors, unhandled rejections, renderer/preload failures, and abnormal renderer or child-process termination are recorded as `FATAL` at every level. The log is `~/.aivax/trace.log`. Logs do not include prompts, messages, tool inputs, attachments, API keys, or user file paths.
 
 ## Tool approvals
 

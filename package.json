@@ -41,6 +41,7 @@
     "test:archive": "electron --no-sandbox scripts/test-archive-database.mjs",
     "test:temporary-storage": "bun scripts/test-temporary-storage.mjs",
     "test:search": "electron --no-sandbox scripts/test-search-core.mjs",
+    "test:fatal-errors": "bun scripts/test-trace-fatal.mjs && electron --no-sandbox scripts/test-fatal-errors.mjs",
     "package": "bun run build && bun scripts/package.mjs"
   },
   "dependencies": {

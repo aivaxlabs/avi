@@ -12,7 +12,7 @@ Diagnose unexpected Avi behavior from runtime evidence. This workflow is **read-
 Start with the smallest relevant time window around the failure:
 
 - `~/.aivax/trace.log` — Avi's persistent diagnostic trace. In Avi, `~` is the current user's home directory.
-- Settings → Tuning → Diagnostics — controls the trace level. `Verbose` records timings and operational events; `Minimal` records errors only; `Disabled` records nothing.
+- Settings → Tuning → Diagnostics — controls the operational trace level. `Verbose` records timings and operational events; `Minimal` records errors only; `Disabled` records only `FATAL` events. Uncaught errors, unhandled rejections, preload failures, and abnormal renderer or child-process termination are always recorded as `FATAL`.
 - Settings → MCP servers → select the correct global or project scope → select the server → Error log — connection lifecycle messages and, for `stdio`, server stderr.
 - The affected conversation or UI state — exact visible error, tool name, approximate timestamp, duration, workspace, and whether retrying changes the result.
 - Relevant source, configuration, process, or service logs only after Avi's logs identify the failing boundary or leave a specific gap.

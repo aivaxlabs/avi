@@ -13,7 +13,13 @@ const WindowApp = new URLSearchParams(window.location.search).get('window') === 
 
 document.documentElement.classList.toggle('quick-chat-window', WindowApp === QuickChatApp);
 
-createRoot(document.getElementById('root')).render(
+createRoot(document.getElementById('root'), {
+  onUncaughtError: (error, errorInfo) => {
+    window.chatApp.diagnostics.reportReactFatal(
+      `${error instanceof Error ? (error.stack || error.message) : String(error)}${errorInfo.componentStack ?? ''}`,
+    );
+  },
+}).render(
   <React.StrictMode>
     <WindowApp />
   </React.StrictMode>,

@@ -8,6 +8,18 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      window.addEventListener('error', (event) => {
+        window.chatApp?.diagnostics?.reportWindowError(
+          event.error?.stack ?? event.error?.message ?? event.message,
+        );
+      });
+      window.addEventListener('unhandledrejection', (event) => {
+        window.chatApp?.diagnostics?.reportWindowRejection(
+          event.reason?.stack ?? event.reason?.message ?? String(event.reason),
+        );
+      });
+    </script>
     <script type="module" src="/src/renderer/main.jsx"></script>
   </body>
 </html>

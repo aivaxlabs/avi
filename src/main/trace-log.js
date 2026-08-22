@@ -115,6 +115,10 @@ export function setTraceLevel(level) {
   return traceLevel;
 }
 
+export function traceFatal(event, details = {}) {
+  writeTrace('FATAL', event, details);
+}
+
 export function traceError(event, details = {}) {
   if (traceLevel === 'disabled') return;
   writeTrace('ERROR', event, details);
