@@ -31,10 +31,42 @@ class FakeFrameScheduler {
 
 class FakeScrollElement {
   constructor({ scrollHeight, clientHeight }) {
-    this.scrollHeight = scrollHeight;
+    this.baseScrollHeight = scrollHeight;
     this.clientHeight = clientHeight;
-    this.scrollTop = 0;
+    this.paddingBottom = 0;
+    this.inlinePaddingBottom = '';
+    this.currentScrollTop = 0;
     this.listeners = new Map();
+    this.style = {};
+    Object.defineProperty(this.style, 'paddingBottom', {
+      get: () => this.inlinePaddingBottom,
+      set: (value) => {
+        this.inlinePaddingBottom = value;
+        this.paddingBottom = Number.parseFloat(value) || 0;
+        this.scrollTop = this.currentScrollTop;
+      },
+    });
+  }
+
+  get scrollHeight() {
+    return this.baseScrollHeight + this.paddingBottom;
+  }
+
+  set scrollHeight(value) {
+    this.baseScrollHeight = value - this.paddingBottom;
+  }
+
+  get scrollTop() {
+    return this.currentScrollTop;
+  }
+
+  set scrollTop(value) {
+    const maximum = Math.max(0, this.scrollHeight - this.clientHeight);
+    this.currentScrollTop = Math.min(maximum, Math.max(0, value));
+  }
+
+  getBoundingClientRect() {
+    return { top: 0, height: this.clientHeight };
   }
 
   addEventListener(type, handler) {
@@ -56,7 +88,13 @@ function createScenario({ contentHeight, clientHeight = 600, scrollTop = 0 }) {
   const scheduler = new FakeFrameScheduler();
   globalThis.requestAnimationFrame = (callback) => scheduler.request(callback);
   globalThis.cancelAnimationFrame = (id) => scheduler.cancel(id);
-  globalThis.window = { matchMedia: () => ({ matches: false }) };
+  globalThis.window = {
+    getComputedStyle: (element) => ({
+      paddingBottom: `${element.paddingBottom}px`,
+      paddingTop: '22px',
+    }),
+    matchMedia: () => ({ matches: false }),
+  };
 
   const element = new FakeScrollElement({
     scrollHeight: contentHeight,
@@ -131,6 +169,8 @@ const atBottom = (element) => element.scrollHeight - element.scrollTop - element
   scenario.scheduler.flush();
   assert.equal(scenario.follow.following, true, 'downward wheel does not disable follow');
 
+  scenario.element.scrollTop = 100;
+  scenario.emit('scroll');
   scenario.element.scrollTop -= 50;
   scenario.emit('scroll');
   assert.equal(scenario.follow.following, false, 'upward manual move disables follow');
@@ -147,6 +187,91 @@ const atBottom = (element) => element.scrollHeight - element.scrollTop - element
   scenario2.emit('touchstart', { touches: [{ clientY: 160 }] });
   scenario2.emit('touchmove', { touches: [{ clientY: 100 }] });
   assert.equal(scenario2.follow.following, true);
+}
+
+// Prepending older messages preserves the first visible row's viewport position.
+{
+  const scenario = createScenario({ contentHeight: 2400, scrollTop: 900 });
+  let targetTop = 1000;
+  const restoreAnchor = scenario.follow.preserveAnchor({
+    getBoundingClientRect: () => ({
+      top: targetTop - scenario.element.scrollTop,
+      bottom: targetTop - scenario.element.scrollTop + 100,
+      height: 100,
+    }),
+  });
+
+  targetTop += 800;
+  scenario.grow(800);
+  restoreAnchor();
+
+  assert.equal(scenario.element.scrollTop, 1700);
+  assert.equal(targetTop - scenario.element.scrollTop, 100);
+  assert.equal(scenario.follow.following, false);
+
+  scenario.element.scrollTop = scenario.element.scrollHeight - scenario.element.clientHeight;
+  scenario.emit('scroll');
+  assert.equal(scenario.follow.following, true, 'returning to the bottom resumes follow');
+
+  scenario.grow(400);
+  scenario.follow.chase();
+  scenario.scheduler.flush();
+  assert.ok(atBottom(scenario.element) <= 1, 'follows subsequent growth after returning to the bottom');
+}
+
+// Opening a thread aligns the start of its last message with the chat's top padding.
+{
+  const scenario = createScenario({ contentHeight: 1200 });
+  const targetTop = 1050;
+  scenario.follow.alignStart({
+    getBoundingClientRect: () => ({
+      top: targetTop - scenario.element.scrollTop,
+      height: 100,
+    }),
+  });
+
+  assert.equal(scenario.element.scrollTop, 1028);
+  assert.equal(scenario.element.paddingBottom, 428);
+  assert.equal(
+    targetTop - scenario.element.scrollTop,
+    22,
+    'aligns the last message with the top edge inside the chat padding',
+  );
+}
+
+// A tall active response also opens at its start and remains there during existing streaming.
+{
+  const scenario = createScenario({ contentHeight: 2400 });
+  const targetTop = 1000;
+  scenario.follow.alignStart({
+    getBoundingClientRect: () => ({
+      top: targetTop - scenario.element.scrollTop,
+      height: 1200,
+    }),
+  });
+  scenario.follow.setFollowing(false);
+
+  assert.equal(scenario.element.scrollTop, 978);
+  assert.equal(targetTop - scenario.element.scrollTop, 22);
+
+  scenario.grow(100);
+  scenario.follow.chase();
+  scenario.scheduler.flush();
+  assert.equal(
+    scenario.element.scrollTop,
+    978,
+    'does not leave the message start when an already-running thread updates',
+  );
+}
+
+// A message near the start aligns as far as the available content permits.
+{
+  const scenario = createScenario({ contentHeight: 800 });
+  scenario.follow.alignStart({
+    getBoundingClientRect: () => ({ top: 10, height: 100 }),
+  });
+  assert.equal(scenario.element.scrollTop, 0);
+  assert.equal(scenario.element.paddingBottom, 0);
 }
 
 // resetKey-style re-enable then jump.
