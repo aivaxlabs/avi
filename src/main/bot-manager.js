@@ -53,24 +53,52 @@ export function resolveBotWorkingFolder(bot) {
   return bot?.workingFolder || defaultWorkingFolder(bot?.id ?? 'unknown');
 }
 
+export function resolveBotDataFolder(bot) {
+  return join(resolveBotWorkingFolder(bot), '.avi-bots', bot?.id ?? 'unknown');
+}
+
 async function writeIfMissing(filePath, contents) {
   try {
-    await readFile(filePath, 'utf8');
+    await writeFile(filePath, contents, { encoding: 'utf8', flag: 'wx' });
   } catch (error) {
-    if (error?.code !== 'ENOENT') throw error;
-    await writeFile(filePath, contents, 'utf8');
+    if (error?.code !== 'EEXIST') throw error;
   }
 }
 
 export async function ensureBotFolders(bot) {
   const workingFolder = resolveBotWorkingFolder(bot);
-  await mkdir(workingFolder, { recursive: true });
-  // A "*" gitignore is only safe in the default folder we own; in a folder the
-  // user configured it would ignore their whole repository.
-  if (!bot?.workingFolder) await writeIfMissing(join(workingFolder, '.gitignore'), '*\n');
-  await Promise.all(Object.entries(WORK_FILES)
-    .map(([fileName, contents]) => writeIfMissing(join(workingFolder, fileName), contents)));
-  return { workingFolder };
+  const dataFolder = resolveBotDataFolder(bot);
+  await mkdir(dataFolder, { recursive: true });
+  await writeIfMissing(join(dataFolder, '.gitignore'), '*\n');
+  await Promise.all(Object.entries(WORK_FILES).map(async ([fileName, defaultContents]) => {
+    const filePath = join(dataFolder, fileName);
+    try {
+      await readFile(filePath, 'utf8');
+      return;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    let contents = defaultContents;
+    try {
+      contents = await readFile(join(workingFolder, fileName), 'utf8');
+      if (fileName === 'waiting-user-approval.json') {
+        try {
+          const entries = JSON.parse(contents);
+          if (Array.isArray(entries)) {
+            contents = `${JSON.stringify(
+              entries.filter((entry) => entry?.botId === bot?.id),
+              null,
+              2,
+            )}\n`;
+          }
+        } catch {}
+      }
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    await writeIfMissing(filePath, contents);
+  }));
+  return { workingFolder, dataFolder };
 }
 
 function activationText(bot, { activationNumber, queueCount, folders }) {
@@ -83,6 +111,7 @@ function activationText(bot, { activationNumber, queueCount, folders }) {
     'Handle everything the user has specified. When nothing is explicitly specified, decide yourself what needs to be done based on the bot daily logs and do that work until nothing meaningful remains.',
     '',
     `Working folder: ${folders.workingFolder}`,
+    `Bot data folder: ${folders.dataFolder}`,
     `Pending user approvals: ${queueCount}.`,
     'Read the daily logs with bot_daily_read before choosing work. Use bot_daily_write_log and bot_daily_update_log for relevant progress only; never edit the JSON log files directly.',
     '</bot-activation>',
@@ -167,8 +196,8 @@ export class BotManager {
   async loadPersistedApprovals() {
     this.approvals.clear();
     for (const bot of listBots()) {
-      const { workingFolder } = await ensureBotFolders(bot);
-      const entries = await readBotDailyLogs(workingFolder, {
+      const { dataFolder } = await ensureBotFolders(bot);
+      const entries = await readBotDailyLogs(dataFolder, {
         status: 'waiting-user-approval',
       });
       for (const entry of entries) {
@@ -190,10 +219,9 @@ export class BotManager {
     const bot = getBot(botId);
     if (!bot) throw new Error('Bot not found.');
     await mutateBotDailyLogs(bot.id, async () => {
-      const workingFolder = resolveBotWorkingFolder(bot);
-      await mkdir(workingFolder, { recursive: true });
+      const { dataFolder } = await ensureBotFolders(bot);
       await writeBotDailyLogs(
-        workingFolder,
+        dataFolder,
         'waiting-user-approval',
         [...this.approvals.values()].filter((entry) => entry.botId === botId),
       );
@@ -211,6 +239,7 @@ export class BotManager {
       return {
         ...bot,
         resolvedWorkingFolder: workingFolder,
+        resolvedDataFolder: resolveBotDataFolder(bot),
         conversation: getConversation(bot.conversationId),
         running: Boolean(this.chatRunner?.runs?.has(bot.conversationId)),
         pendingApprovals: [...this.approvals.values()]
@@ -232,8 +261,8 @@ export class BotManager {
   async listDailyLogsByBot() {
     return Object.fromEntries(await Promise.all(listBots().map((bot) => (
       mutateBotDailyLogs(bot.id, async () => {
-        await ensureBotFolders(bot);
-        return [bot.id, await readBotDailyLogs(resolveBotWorkingFolder(bot))];
+        const { dataFolder } = await ensureBotFolders(bot);
+        return [bot.id, await readBotDailyLogs(dataFolder)];
       })
     ))));
   }
@@ -601,6 +630,7 @@ export class BotManager {
     const bot = getBotByConversation(conversationId);
     if (!bot) return null;
     const workingFolder = resolveBotWorkingFolder(bot);
+    const dataFolder = resolveBotDataFolder(bot);
     const tools = [
       {
         name: 'bot_daily_write_log',
@@ -624,7 +654,7 @@ export class BotManager {
         },
         execute: (input) => mutateBotDailyLogs(bot.id, async () => {
           await ensureBotFolders(bot);
-          const entry = await writeBotDailyLog(workingFolder, input);
+          const entry = await writeBotDailyLog(dataFolder, input);
           this.broadcast('bots:logs');
           return entry;
         }),
@@ -653,7 +683,7 @@ export class BotManager {
         },
         execute: (input) => mutateBotDailyLogs(bot.id, async () => {
           await ensureBotFolders(bot);
-          const entry = await updateBotDailyLog(workingFolder, input);
+          const entry = await updateBotDailyLog(dataFolder, input);
           this.broadcast('bots:logs');
           return entry;
         }),
@@ -674,7 +704,7 @@ export class BotManager {
         },
         execute: (input) => mutateBotDailyLogs(bot.id, async () => {
           await ensureBotFolders(bot);
-          return readBotDailyLogs(workingFolder, input);
+          return readBotDailyLogs(dataFolder, input);
         }),
       },
       {
@@ -731,19 +761,21 @@ export class BotManager {
           }]
         : []),
     ];
-    return { bot, workingFolder, tools };
+    return { bot, workingFolder, dataFolder, tools };
   }
 
   describeInvocationBot(conversationId) {
     const bot = getBotByConversation(conversationId);
     if (!bot) return null;
     const workingFolder = resolveBotWorkingFolder(bot);
+    const dataFolder = resolveBotDataFolder(bot);
     const queueCount = [...this.approvals.values()]
       .filter((entry) => entry.botId === bot.id).length;
     return {
       id: bot.id,
       name: bot.name,
       workingFolder,
+      dataFolder,
       workFiles: Object.keys(WORK_FILES),
       activationMode: bot.activationMode,
       activationPeriodMinutes: bot.activationPeriodMinutes,

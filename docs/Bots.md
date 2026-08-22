@@ -43,12 +43,12 @@ Settings are organized by the decisions they control:
 
 **Data — storage and conversation maintenance**
 
-- Shows where the bot's memory and daily logs live: directly in its working folder.
+- Shows the isolated `<working folder>/.avi-bots/<bot id>/` folder where the bot's memory and daily logs live.
 - **Clear conversation** — removes conversation messages without touching memory or daily logs.
 
 ## Daily logs
 
-Each bot keeps its persistent state directly in its working folder:
+Each bot keeps its persistent state in `<working folder>/.avi-bots/<bot id>/`:
 
 - `MEMORY.md` — durable memory across activations.
 - `backlog.json` — relevant work not yet started.
@@ -81,7 +81,7 @@ A regular work item has one status based on the next action that remains:
 - Completed work moves to `user-review` only when you must take a specific action, such as accepting it, validating it visually, answering a question, or choosing an option. If no action remains, it moves directly to `done`.
 - Accepted review moves from `user-review` to `done`; requested changes move it back to `ongoing`.
 
-In the default dedicated folder (`~/.aivax/bots/<bot id>`), Avi adds a `.gitignore` so nothing is committed by accident. In a folder you configure, these files are part of your project — add them to your own `.gitignore` if you do not want to commit them.
+Avi always creates a `.gitignore` inside `<working folder>/.avi-bots/<bot id>/` so the bot's internal files are not committed by accident. When upgrading from a version that stored these files directly in the working folder, Avi copies each missing file into the isolated bot folder without overwriting either location.
 
 At the beginning of every activation, the bot reads the logs and handles everything you have specified, preferring ongoing work. When nothing is specified, it decides what needs attention — continuing ongoing work, starting backlog items, reviewing delegated output, and checking your review queue. It writes only relevant changes so later activations start from an accurate state instead of a stream of trivial activity.
 

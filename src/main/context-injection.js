@@ -111,7 +111,8 @@ export const dynamicContextInjectors = new Map([
       `Bot name: ${bot.name}`,
       `Bot id: ${bot.id}`,
       `Working folder: ${bot.workingFolder}`,
-      `Memory and daily log files: ${bot.workFiles.join(', ')} (in the working folder; manage JSON logs only through bot_daily_* tools)`,
+      `Bot data folder: ${bot.dataFolder}`,
+      `Memory and daily log files: ${bot.workFiles.join(', ')} (in the bot data folder; manage JSON logs only through bot_daily_* tools)`,
       `Activation mode: ${bot.activationMode} (every ${bot.activationPeriodMinutes} minutes)`,
       `Pending user approvals: ${bot.pendingApprovals}`,
       ...(String(bot.instructions ?? '').trim()
