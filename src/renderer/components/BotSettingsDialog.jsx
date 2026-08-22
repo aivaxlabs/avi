@@ -648,14 +648,14 @@ export function BotSettingsDialog({
                 <section className="bot-settings-section">
                   <header>
                     <h3>Where is its internal data?</h3>
-                    <p>Memory and daily JSON logs live directly in the working folder.</p>
+                    <p>Memory and daily JSON logs live in the bot's isolated data folder.</p>
                   </header>
                   <label className="bot-settings-control">
-                    <span>Working folder</span>
+                    <span>Bot data folder</span>
                     <input
                       className="bot-settings-path"
                       type="text"
-                      value={bot?.resolvedWorkingFolder ?? ''}
+                      value={bot?.resolvedDataFolder ?? ''}
                       readOnly
                     />
                     <small>These files are preserved when the conversation is cleared.</small>
