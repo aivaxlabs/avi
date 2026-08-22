@@ -362,6 +362,7 @@ try {
       id: 'bot-context-test',
       name: 'Context test bot',
       workingFolder: root,
+      dataFolder: path.join(root, '.avi-bots', 'bot-context-test'),
       workFiles: ['MEMORY.md', 'backlog.json'],
       activationMode: 'scheduled',
       activationPeriodMinutes: 10,
@@ -371,6 +372,7 @@ try {
   });
   for (const botOnlyMarker of [
     '--- BEGIN BOTS.md ---',
+    `Bot data folder: ${path.join(root, '.avi-bots', 'bot-context-test')}`,
     '# Global bot-only instructions',
     '# Avi bot-only instructions',
     'frontend/BOTS.md',
