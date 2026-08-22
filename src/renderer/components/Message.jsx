@@ -528,11 +528,10 @@ function AssistantMessage({
     message.usage?.latencyMs,
     message.usage?.durationMs,
   ].some((value) => Number.isFinite(value));
-  const cachedInputTotal = message.usage?.inputTokens + message.usage?.cachedInputTokens;
   const cachedInputPercentage = Number.isFinite(message.usage?.inputTokens)
     && Number.isFinite(message.usage?.cachedInputTokens)
-    && cachedInputTotal > 0
-    ? message.usage.cachedInputTokens / cachedInputTotal
+    && message.usage.inputTokens > 0
+    ? message.usage.cachedInputTokens / message.usage.inputTokens
     : null;
   const canResumeFromFailure = canResume && !activelyStreaming;
   const edits = useMemo(
