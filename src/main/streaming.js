@@ -143,7 +143,23 @@ export class StreamAccumulator {
       if (toolCall) {
         toolCall.status = event.isError ? 'error' : 'completed';
         toolCall.resultText = event.output;
+        if (event.mediaContent?.length) toolCall.mediaContent = event.mediaContent;
       }
+      return;
+    }
+    if (event.type === 'provider-continuation') {
+      if (!event.items?.length) return;
+      this.segments.push({
+        id: `provider-continuation-${this.nextSequence}`,
+        sequence: this.nextSequence,
+        type: 'provider-continuation',
+        round: event.round,
+        model: event.model,
+        interface: event.interface,
+        items: event.items,
+        status: 'completed',
+      });
+      this.nextSequence += 1;
       return;
     }
     if (event.type === 'context-compression') {

@@ -17,6 +17,7 @@ const maxTraceSize = 64 * 1024 * 1024;
 const allowedDetails = new Set([
   'abort_duration_ms',
   'attempt',
+  'cache_ratio',
   'cached_input_tokens',
   'code',
   'compaction_ratio',
@@ -78,6 +79,7 @@ const allowedDetails = new Set([
   'tokens_per_second',
   'tool',
   'tool_count',
+  'tool_history_count',
   'tool_type',
   'total_tokens',
   'workflow_count',

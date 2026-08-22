@@ -319,6 +319,35 @@ export class ModelProvider {
                   onEvent({ type: 'retry-clear' });
                   retryVisible = false;
                 }
+                if (event.type === 'usage') {
+                  const inputTokens = event.usage?.inputTokens;
+                  const cachedInputTokens = event.usage?.cachedInputTokens;
+                  traceVerbose('provider.inference-usage', {
+                    thread_id: invocationContext.conversationId,
+                    provider_id: this.config.id,
+                    interface: this.config.interface,
+                    model: model.modelId,
+                    operation: invocationContext.traceOperation
+                      ?? (invocationContext.quickChat
+                        ? 'quick-chat'
+                        : invocationContext.auxiliary
+                          ? 'auxiliary'
+                          : 'chat'),
+                    round: invocationContext.traceRound,
+                    attempt,
+                    message_count: messages?.length ?? 0,
+                    tool_count: tools?.length ?? 0,
+                    tool_history_count: toolHistory?.length ?? 0,
+                    input_tokens: inputTokens,
+                    cached_input_tokens: cachedInputTokens,
+                    cache_ratio: inputTokens > 0 && cachedInputTokens !== undefined
+                      ? cachedInputTokens / inputTokens
+                      : null,
+                    output_tokens: event.usage?.outputTokens,
+                    reasoning_tokens: event.usage?.reasoningTokens,
+                    total_tokens: event.usage?.totalTokens,
+                  });
+                }
                 onEvent(normalizedEvent);
                 if (event.type === 'error') {
                   const error = new Error(event.message);

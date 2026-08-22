@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import { createConversation, messageToApiBlock } from './database.js';
+import { createConversation, messageToApiBlocks } from './database.js';
 import { CLIENT_TOOLS, decorateToolsForInvocation } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
 import { normalizeAttachmentsForModel } from './files.js';
@@ -8,7 +8,6 @@ import { StreamAccumulator } from './streaming.js';
 import { composeToolsWithPlugins } from './tool-composition.js';
 import { mapToolCalls } from './tool-concurrency.js';
 import {
-  limitToolHistoryResults,
   minifyToolOutputJson,
   toolOutputLimitForTool,
   truncateToolOutput,
@@ -227,20 +226,23 @@ export class QuickChatRunner {
       );
       const messages = session.messages
         .filter((message) => message.id !== assistantMessage.id)
-        .map((message) => messageToApiBlock(message, selection.model.capabilities));
+        .flatMap((message) => messageToApiBlocks(message, selection.model.capabilities));
       const toolHistory = [];
 
       while (true) {
         const roundIndex = toolHistory.length;
+        const roundSegmentStart = accumulator.segments.length;
         const turn = await selection.provider.stream({
           model: selection.model,
           messages,
           tools: availableTools,
-          toolHistory: limitToolHistoryResults(toolHistory, preferences.tuning.toolOutputLimit),
+          toolHistory,
           reasoningEffort: session.reasoningEffort,
           invocationContext: {
             conversationId: session.id,
             workspacePath,
+            traceOperation: 'quick-chat',
+            traceRound: roundIndex,
             mcpInstructions: mcpRuntime.instructions,
             ...this.getPluginContext(),
             permissionMode: 'full_access',
@@ -273,6 +275,14 @@ export class QuickChatRunner {
           },
         });
 
+        accumulator.apply({
+          type: 'provider-continuation',
+          round: roundIndex,
+          model: selection.model.id,
+          interface: selection.model.interface,
+          items: turn.continuation,
+        });
+        this.updateAssistant(session, assistantMessage, accumulator, 'streaming');
         if (turn.toolCalls.length === 0) break;
         const results = await mapToolCalls(turn.toolCalls, async (toolCall) => {
           const tool = availableTools.find((item) => item.name === toolCall.name);
@@ -348,12 +358,18 @@ export class QuickChatRunner {
             callId: toolCall.callId,
             output,
             isError,
+            mediaContent,
           });
           this.updateAssistant(session, assistantMessage, accumulator, 'streaming');
           return { callId: toolCall.callId, output, isError, mediaContent };
         });
         toolHistory.push({
           assistantContent: turn.assistantContent,
+          reasoningContent: accumulator.segments
+            .slice(roundSegmentStart)
+            .filter((segment) => segment.type === 'reasoning')
+            .map((segment) => segment.text ?? '')
+            .join(''),
           continuation: turn.continuation,
           toolCalls: turn.toolCalls,
           results,

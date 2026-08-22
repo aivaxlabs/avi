@@ -20,6 +20,57 @@ function toResponsesContent(content) {
   });
 }
 
+function toResponsesInput(message, model) {
+  const providerContinuation = message[Symbol.for('avi.providerContinuation')];
+  if (
+    providerContinuation?.model === model.id
+    && providerContinuation.interface === model.interface
+    && Array.isArray(providerContinuation.items)
+  ) return providerContinuation.items;
+
+  if (message.role === 'tool') {
+    return [{
+      type: 'function_call_output',
+      call_id: message.tool_call_id,
+      output: message.content,
+    }];
+  }
+  if (message.role === 'assistant' && message.tool_calls?.length) {
+    const assistantText = [
+      message.reasoning_content ? `<think>${message.reasoning_content}</think>` : '',
+      message.content ?? '',
+    ].filter(Boolean).join('');
+    return [
+      ...(assistantText
+        ? [{
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: assistantText }],
+          }]
+        : []),
+      ...message.tool_calls.map((toolCall) => ({
+        type: 'function_call',
+        call_id: toolCall.id,
+        name: toolCall.function.name,
+        arguments: toolCall.function.arguments,
+      })),
+    ];
+  }
+
+  const {
+    reasoning_content: reasoningContent,
+    ...inputMessage
+  } = message;
+  return [{
+    ...inputMessage,
+    content: Array.isArray(message.content)
+      ? toResponsesContent(message.content)
+      : reasoningContent
+        ? `<think>${reasoningContent}</think>${message.content ?? ''}`
+        : message.content,
+  }];
+}
+
 const reasoningFormatField = {
   id: 'reasoningFormat',
   label: 'Reasoning format',
@@ -68,23 +119,18 @@ export const responsesApi = {
       model: model.modelId,
       ...(prepared.dynamicContext ? { instructions: prepared.dynamicContext } : {}),
       input: [
-        ...(prepared.dynamicUserContext
-          ? [{ role: 'user', content: prepared.dynamicUserContext }]
-          : []),
-        ...messages.map((message) => ({
-          ...message,
-          content: Array.isArray(message.content)
-            ? toResponsesContent(message.content)
-            : message.content,
-        })),
+        ...messages.flatMap((message) => toResponsesInput(message, model)),
         ...toolHistory.flatMap((round) => [
           ...(round.continuation ?? []),
-          ...(round.assistantContent
+          ...((round.reasoningContent || round.assistantContent)
             && !round.continuation?.some((item) => item.type === 'message')
             ? [{
                 type: 'message',
                 role: 'assistant',
-                content: [{ type: 'output_text', text: round.assistantContent }],
+                content: [{
+                  type: 'output_text',
+                  text: `${round.reasoningContent ? `<think>${round.reasoningContent}</think>` : ''}${round.assistantContent ?? ''}`,
+                }],
               }]
             : []),
           ...round.toolCalls
@@ -252,14 +298,12 @@ export const chatCompletionsApi = {
         ...(prepared.dynamicContext
           ? [{ role: 'system', content: prepared.dynamicContext }]
           : []),
-        ...(prepared.dynamicUserContext
-          ? [{ role: 'user', content: prepared.dynamicUserContext }]
-          : []),
         ...messages,
         ...toolHistory.flatMap((round) => [
           {
             role: 'assistant',
             content: round.assistantContent || null,
+            ...(round.reasoningContent ? { reasoning_content: round.reasoningContent } : {}),
             ...(round.toolCalls.length > 0
               ? {
                   tool_calls: round.toolCalls.map((toolCall) => ({

@@ -27,6 +27,8 @@ try {
   const { ChatRunner } = await import('../src/main/chat-runner.js');
   const { ModelProvider } = await import('../src/main/model-provider.js');
   const { StreamAccumulator } = await import('../src/main/streaming.js');
+  const { setTraceLevel } = await import('../src/main/trace-log.js');
+  setTraceLevel('verbose');
   const { minifyToolOutputJson } = await import('../src/main/tool-output.js');
   const {
     chatCompletionsApi,
@@ -106,6 +108,54 @@ try {
     ],
   );
 
+  const sensitiveTraceMarker = 'prompt-content-must-not-be-logged';
+  const usageProvider = new ModelProvider(
+    {
+      id: 'trace-test',
+      interface: 'responses',
+      enabled: true,
+      models: [],
+    },
+    {
+      createBody: async () => ({ metadata: sensitiveTraceMarker }),
+      request: async () => new Response([
+        `data: ${JSON.stringify({
+          type: 'usage',
+          usage: {
+            inputTokens: 1_000,
+            cachedInputTokens: 400,
+            outputTokens: 25,
+            reasoningTokens: 10,
+            totalTokens: 1_025,
+          },
+        })}`,
+        'data: [DONE]',
+        '',
+      ].join('\n\n'), { status: 200 }),
+      eventsFrom: (payload) => [{ type: payload.type, usage: payload.usage }],
+    },
+    {},
+  );
+  await usageProvider.stream({
+    model,
+    messages: [{ role: 'user', content: sensitiveTraceMarker }],
+    tools: [{ name: 'trace_tool' }],
+    toolHistory: [{ toolCalls: [], results: [] }],
+    invocationContext: {
+      conversationId: 'trace-thread',
+      traceOperation: 'chat',
+      traceRound: 3,
+    },
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  const inferenceTrace = readFileSync(join(resolvedProfile, '.aivax', 'trace.log'), 'utf8');
+  assert.match(
+    inferenceTrace,
+    /provider\.inference-usage: .*thread_id="trace-thread".*operation="chat".*round=3.*attempt=1.*message_count=1.*tool_count=1.*tool_history_count=1.*input_tokens=1000.*cached_input_tokens=400.*cache_ratio=0\.4.*output_tokens=25/,
+  );
+  assert.doesNotMatch(inferenceTrace, new RegExp(sensitiveTraceMarker));
+
   const contextInvocation = {
     workspacePath: testProfile,
     hasThreads: true,
@@ -126,20 +176,217 @@ try {
   );
   assert.ok(!responsesContextBody.instructions.includes('<thread_directory>'));
   assert.deepEqual(
-    responsesContextBody.input.slice(0, 2).map(({ role }) => role),
-    ['user', 'user'],
+    responsesContextBody.input.map(({ role }) => role),
+    ['user'],
   );
-  assert.ok(responsesContextBody.input[0].content.includes('<current_workspace>'));
-  assert.equal(responsesContextBody.input[1].content, 'Actual prompt');
+  assert.equal(responsesContextBody.input[0].content, 'Actual prompt');
 
   const chatContextBody = await chatCompletionsApi.createBody(contextBodyInput);
   assert.deepEqual(
-    chatContextBody.messages.slice(0, 3).map(({ role }) => role),
-    ['system', 'user', 'user'],
+    chatContextBody.messages.map(({ role }) => role),
+    ['system', 'user'],
   );
   assert.ok(!chatContextBody.messages[0].content.includes('<thread_directory>'));
-  assert.ok(chatContextBody.messages[1].content.includes('<current_workspace>'));
-  assert.equal(chatContextBody.messages[2].content, 'Actual prompt');
+  assert.equal(chatContextBody.messages[1].content, 'Actual prompt');
+
+  const persistedHistoryConversation = database.createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  database.insertMessage({
+    conversationId: persistedHistoryConversation.id,
+    role: 'user',
+    status: 'sent',
+    content: 'Inspect and summarize.',
+  });
+  database.insertMessage({
+    conversationId: persistedHistoryConversation.id,
+    role: 'assistant',
+    status: 'completed',
+    content: '<think>First reason.Second reason.</think>Partial one.Partial two.Final answer.',
+    segments: [{
+      type: 'reasoning',
+      text: 'First reason.',
+    }, {
+      type: 'content',
+      text: 'Partial one.',
+    }, {
+      type: 'tool-call',
+      key: 'round:0:first',
+      callId: 'persisted-first',
+      name: 'first_tool',
+      argumentsText: '{"first":true}',
+      resultText: 'first-result',
+      mediaContent: [{ type: 'text', text: 'first-media' }],
+      status: 'completed',
+    }, {
+      type: 'provider-continuation',
+      round: 0,
+      model: model.id,
+      interface: model.interface,
+      items: [{
+        type: 'reasoning',
+        id: 'native-reasoning',
+        encrypted_content: 'opaque-cache-stable-reasoning',
+      }, {
+        type: 'message',
+        id: 'native-message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'Partial one.' }],
+      }, {
+        type: 'function_call',
+        id: 'native-first-call',
+        call_id: 'persisted-first',
+        name: 'first_tool',
+        arguments: '{"first":true}',
+      }],
+    }, {
+      type: 'reasoning',
+      text: 'Second reason.',
+    }, {
+      type: 'content',
+      text: 'Partial two.',
+    }, {
+      type: 'tool-call',
+      key: 'round:1:second',
+      callId: 'persisted-second',
+      name: 'second_tool',
+      argumentsText: '{"second":true}',
+      resultText: 'second-result',
+      status: 'error',
+    }, {
+      type: 'content',
+      text: 'Final answer.',
+    }],
+  });
+  database.insertMessage({
+    conversationId: persistedHistoryConversation.id,
+    role: 'user',
+    status: 'sent',
+    content: 'Continue without changing the past.',
+  });
+  const persistedMessages = database.toModelMessages(persistedHistoryConversation.id);
+  assert.deepEqual(
+    persistedMessages.map((message) => message.role),
+    ['user', 'assistant', 'tool', 'user', 'assistant', 'tool', 'assistant', 'user'],
+  );
+  assert.deepEqual(
+    persistedMessages.filter((message) => message.role === 'assistant').map((message) => ({
+      content: message.content,
+      reasoning: message.reasoning_content,
+      calls: message.tool_calls?.map((toolCall) => ({
+        id: toolCall.id,
+        name: toolCall.function.name,
+        arguments: toolCall.function.arguments,
+      })) ?? [],
+    })),
+    [{
+      content: 'Partial one.',
+      reasoning: 'First reason.',
+      calls: [{ id: 'persisted-first', name: 'first_tool', arguments: '{"first":true}' }],
+    }, {
+      content: 'Partial two.',
+      reasoning: 'Second reason.',
+      calls: [{ id: 'persisted-second', name: 'second_tool', arguments: '{"second":true}' }],
+    }, {
+      content: 'Final answer.',
+      reasoning: undefined,
+      calls: [],
+    }],
+  );
+  assert.deepEqual(
+    persistedMessages.filter((message) => message.role === 'tool').map((message) => ({
+      callId: message.tool_call_id,
+      content: message.content,
+    })),
+    [
+      { callId: 'persisted-first', content: 'first-result' },
+      { callId: 'persisted-second', content: 'second-result' },
+    ],
+  );
+  assert.doesNotMatch(JSON.stringify(persistedMessages), /opaque-cache-stable-reasoning/);
+  const persistedResponsesBody = await responsesApi.createBody({
+    ...contextBodyInput,
+    model,
+    messages: persistedMessages,
+    invocationContext: {},
+  });
+  assert.deepEqual(
+    persistedResponsesBody.input.slice(1, 4),
+    [{
+      type: 'reasoning',
+      id: 'native-reasoning',
+      encrypted_content: 'opaque-cache-stable-reasoning',
+    }, {
+      type: 'message',
+      id: 'native-message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'Partial one.' }],
+    }, {
+      type: 'function_call',
+      id: 'native-first-call',
+      call_id: 'persisted-first',
+      name: 'first_tool',
+      arguments: '{"first":true}',
+    }],
+  );
+  assert.deepEqual(
+    persistedResponsesBody.input.filter((item) => item.type === 'function_call').map((item) => ({
+      callId: item.call_id,
+      name: item.name,
+      arguments: item.arguments,
+    })),
+    [
+      { callId: 'persisted-first', name: 'first_tool', arguments: '{"first":true}' },
+      { callId: 'persisted-second', name: 'second_tool', arguments: '{"second":true}' },
+    ],
+  );
+  assert.deepEqual(
+    persistedResponsesBody.input.filter((item) => item.type === 'function_call_output').map((item) => ({
+      callId: item.call_id,
+      output: item.output,
+    })),
+    [
+      { callId: 'persisted-first', output: 'first-result' },
+      { callId: 'persisted-second', output: 'second-result' },
+    ],
+  );
+  const persistedChatBody = await chatCompletionsApi.createBody({
+    ...contextBodyInput,
+    messages: persistedMessages,
+    invocationContext: {},
+  });
+  assert.deepEqual(
+    persistedChatBody.messages.filter((message) => message.role === 'assistant').map((message) => (
+      message.reasoning_content ?? null
+    )),
+    ['First reason.', 'Second reason.', null],
+  );
+  const continuationOnlyMessage = database.insertMessage({
+    conversationId: persistedHistoryConversation.id,
+    role: 'assistant',
+    status: 'completed',
+    content: '',
+    segments: [{
+      type: 'provider-continuation',
+      round: 0,
+      model: model.id,
+      interface: model.interface,
+      items: [{ type: 'reasoning', id: 'continuation-only', encrypted_content: 'opaque-only' }],
+    }],
+  });
+  const [continuationOnlyBlock] = database.messageToApiBlocks(continuationOnlyMessage);
+  assert.equal(continuationOnlyBlock.content, null);
+  const continuationOnlyBody = await responsesApi.createBody({
+    ...contextBodyInput,
+    model,
+    messages: [continuationOnlyBlock],
+    invocationContext: {},
+  });
+  assert.deepEqual(
+    continuationOnlyBody.input,
+    [{ type: 'reasoning', id: 'continuation-only', encrypted_content: 'opaque-only' }],
+  );
 
   const completedToolItem = {
     type: 'function_call',
@@ -837,11 +1084,13 @@ try {
     [100, 100, 100],
   );
   const secondOlderResult = parseToolOutput(adaptiveRequests[5][1].results[0].output);
-  assert.equal(secondOlderResult.preview.length, 80);
-  assert.equal(secondOlderResult.startPreview, 'b'.repeat(20));
-  assert.equal(secondOlderResult.endPreview, 'b'.repeat(60));
-  assert.ok(secondOlderResult.resultPath);
-  assert.equal(readFileSync(secondOlderResult.resultPath, 'utf8'), 'b'.repeat(100));
+  assert.equal(secondOlderResult.preview.length, 100);
+  assert.equal(
+    adaptiveRequests[5][1].results[0].output,
+    adaptiveRequests[2][1].results[0].output,
+  );
+  assert.equal(secondOlderResult.resultPath, null);
+  assert.equal(secondOlderResult.preview, 'b'.repeat(100));
   assert.deepEqual(
     adaptiveRequests[5].slice(2).map((round) => (
       parseToolOutput(round.results[0].output).preview.length
@@ -1627,6 +1876,16 @@ try {
       .findLast((message) => message.role === 'system')
       ?.status,
     'error',
+  );
+
+  const compactionTrace = readFileSync(join(resolvedProfile, '.aivax', 'trace.log'), 'utf8');
+  assert.match(compactionTrace, /chat\.context-compaction-started: .*operation="manual"/);
+  assert.match(compactionTrace, /chat\.context-compaction-attempt: .*attempt=1/);
+  assert.match(compactionTrace, /chat\.context-compaction-fallback: .*attempt=1/);
+  assert.match(compactionTrace, /chat\.context-compacted: .*operation="manual"/);
+  assert.match(
+    compactionTrace,
+    /chat\.context-compaction-finished: .*operation="manual" status="error"/,
   );
 
   database.closeDatabase();

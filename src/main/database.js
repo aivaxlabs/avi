@@ -2243,7 +2243,7 @@ export function toModelMessages(
       .filter((message) => message.id !== excludeMessageId)
       .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
       .filter((message) => message.role === 'user' || message.role === 'assistant')
-      .map((message) => messageToApiBlock(message, capabilities)),
+      .flatMap((message) => messageToApiBlocks(message, capabilities)),
   ];
 }
 
@@ -2290,8 +2290,91 @@ export function toModelMessagesThroughUser(
         || message.id === lastUserMessageId
       ))
       .filter((message) => message.role === 'user' || message.role === 'assistant')
-      .map((message) => messageToApiBlock(message, capabilities)),
+      .flatMap((message) => messageToApiBlocks(message, capabilities)),
   ];
+}
+
+export function messageToApiBlocks(message, capabilities = {}) {
+  if (message.role !== 'assistant') return [messageToApiBlock(message, capabilities)];
+
+  const segments = Array.isArray(message.segments) ? message.segments : [];
+  const hasCanonicalSegments = segments.some((segment) => (
+    ['content', 'reasoning', 'tool-call', 'provider-continuation'].includes(segment.type)
+  ));
+  if (!hasCanonicalSegments) return [messageToApiBlock(message, capabilities)];
+
+  const blocks = [];
+  let content = '';
+  let reasoning = '';
+  let round = null;
+  let toolCalls = [];
+  let providerContinuation = null;
+  const flush = () => {
+    if (!content && !reasoning && toolCalls.length === 0 && !providerContinuation) return;
+    const assistantBlock = {
+      role: 'assistant',
+      content: content || null,
+      ...(reasoning ? { reasoning_content: reasoning } : {}),
+      ...(toolCalls.length > 0
+        ? {
+            tool_calls: toolCalls.map((segment) => ({
+              id: segment.callId,
+              type: 'function',
+              function: {
+                name: segment.name,
+                arguments: segment.argumentsText ?? '',
+              },
+            })),
+          }
+        : {}),
+    };
+    if (providerContinuation) {
+      Object.defineProperty(assistantBlock, Symbol.for('avi.providerContinuation'), {
+        value: providerContinuation,
+      });
+    }
+    blocks.push(assistantBlock);
+    for (const segment of toolCalls) {
+      if (segment.resultText === undefined) continue;
+      blocks.push({
+        role: 'tool',
+        tool_call_id: segment.callId,
+        content: segment.resultText,
+      });
+      if (segment.mediaContent?.length) {
+        blocks.push({ role: 'user', content: segment.mediaContent });
+      }
+    }
+    content = '';
+    reasoning = '';
+    round = null;
+    toolCalls = [];
+    providerContinuation = null;
+  };
+
+  for (const segment of segments) {
+    if (segment.type === 'content' || segment.type === 'reasoning') {
+      if (toolCalls.length > 0) flush();
+      if (segment.type === 'content') content += segment.text ?? '';
+      else reasoning += segment.text ?? '';
+      continue;
+    }
+    if (segment.type === 'tool-call') {
+      const segmentRound = Number(segment.key?.match(/^round:(\d+):/)?.[1]);
+      if (round !== null && Number.isInteger(segmentRound) && segmentRound !== round) flush();
+      if (round === null && Number.isInteger(segmentRound)) round = segmentRound;
+      if (segment.callId && segment.name) toolCalls.push(segment);
+      continue;
+    }
+    if (segment.type === 'provider-continuation') {
+      const segmentRound = Number(segment.round);
+      if (round !== null && Number.isInteger(segmentRound) && segmentRound !== round) flush();
+      if (round === null && Number.isInteger(segmentRound)) round = segmentRound;
+      providerContinuation = segment;
+    }
+  }
+  flush();
+  return blocks.length > 0 ? blocks : [messageToApiBlock(message, capabilities)];
 }
 
 export function messageToApiBlock(message, capabilities = {}) {
