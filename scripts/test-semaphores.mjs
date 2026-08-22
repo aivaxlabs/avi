@@ -268,6 +268,8 @@ try {
   assert.match(runnerSource, /if \(run\.suspendAfterTools\)/);
   assert.match(runnerSource, /fromAgent: true/);
   assert.match(runnerSource, /release_semaphore\(name:/);
+  assert.match(runtimeSource, /applicationIpc\.handle\('semaphores:state', semaphoreState\)/);
+  assert.match(runtimeSource, /applicationIpc\.handle\('semaphores:reset'/);
   assert.match(runtimeSource, /userInitiated: true/);
   assert.match(appSource, /api\.chat\.runSemaphoreNow\(conversationId\)/);
   assert.match(appSource, /api\.chat\.cancelSemaphore\(conversationId\)/);

@@ -94,7 +94,7 @@ try {
     Array.from({ length: 6 }, (_, index) => `result-${index}`),
   );
 
-  function buildRunner(provider, stoppedBackgroundTasks = [], events = []) {
+  function buildRunner(provider, stoppedBackgroundTasks = [], events = [], options = {}) {
     return new ChatRunner({
       registry: {
         resolve: () => ({ model, provider }),
@@ -103,6 +103,7 @@ try {
       mcpManager: null,
       sendEvent: (event) => events.push(event),
       stopBackgroundTasks: (conversationId) => stoppedBackgroundTasks.push(conversationId),
+      ...options,
     });
   }
 
@@ -133,6 +134,48 @@ try {
       });
     },
   };
+  const cooperativeRunner = buildRunner(inferenceProvider);
+  assert.equal(cooperativeRunner.requestSteer('idle-thread'), false);
+  const inferenceController = new AbortController();
+  const inferenceRun = {
+    controller: inferenceController,
+    phase: 'inference',
+    steerRequested: false,
+  };
+  cooperativeRunner.runs.set('active-thread', inferenceRun);
+  assert.equal(cooperativeRunner.requestSteer('active-thread'), true);
+  assert.equal(inferenceRun.steerRequested, true);
+  assert.equal(inferenceController.signal.aborted, false);
+  const boundaryController = new AbortController();
+  const boundaryRun = {
+    controller: boundaryController,
+    phase: 'boundary',
+    steerRequested: false,
+  };
+  cooperativeRunner.runs.set('boundary-thread', boundaryRun);
+  assert.equal(cooperativeRunner.requestSteer('boundary-thread'), true);
+  assert.equal(boundaryRun.steerRequested, true);
+  assert.equal(boundaryController.signal.reason, 'steer');
+  assert.equal(cooperativeRunner.shouldEndAtBoundary(inferenceRun), true);
+  cooperativeRunner.runs.clear();
+
+  const stoppedBackgroundTasks = [];
+  const stoppedBookkeepingRunner = buildRunner(
+    inferenceProvider,
+    stoppedBackgroundTasks,
+    [],
+    { noteBotRunStopped: () => { throw new Error('database is locked'); } },
+  );
+  const stoppedController = new AbortController();
+  stoppedBookkeepingRunner.runs.set('stopped-thread', {
+    controller: stoppedController,
+    phase: 'inference',
+    queue: [],
+  });
+  stoppedBookkeepingRunner.stop('stopped-thread', { stoppedByUser: true });
+  assert.equal(stoppedController.signal.reason, 'stop');
+  assert.deepEqual(stoppedBackgroundTasks, ['stopped-thread']);
+
   const inferenceRunner = buildRunner(inferenceProvider);
   const inferenceConversation = createConversation({
     model: model.id,
@@ -195,6 +238,30 @@ try {
       .filter((message) => message.role === 'assistant')
       .map((message) => message.status),
     ['completed', 'completed'],
+  );
+
+  const bookkeepingRunner = buildRunner(
+    {
+      getContributions: () => ({ tools: [] }),
+      stream: async () => ({ assistantContent: 'Completed despite bookkeeping failure', toolCalls: [] }),
+    },
+    [],
+    [],
+    { noteBotRunFinished: () => { throw new Error('database is locked'); } },
+  );
+  const bookkeepingConversation = createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  await bookkeepingRunner.send({
+    conversationId: bookkeepingConversation.id,
+    model: model.id,
+    text: 'Finish this run.',
+  });
+  await waitFor(() => !bookkeepingRunner.runs.has(bookkeepingConversation.id));
+  assert.equal(
+    getMessages(bookkeepingConversation.id).findLast((message) => message.role === 'assistant')?.status,
+    'completed',
   );
 
   let finishQueuedOrderingInference;

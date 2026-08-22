@@ -55,6 +55,16 @@ assert.equal(
   true,
   'day plus time range both applied',
 );
+assert.equal(
+  isWithinActivationWindow({ endMinute: 0 }, base),
+  false,
+  'an until-midnight-only window is empty',
+);
+assert.equal(
+  isWithinActivationWindow({ startMinute: 9 * 60, endMinute: 9 * 60 }, base),
+  false,
+  'equal time bounds form an empty window',
+);
 
 // nextWindowOpening
 assert.equal(
@@ -71,6 +81,16 @@ assert.equal(
   nextWindowOpening({ startMinute: 22 * 60, endMinute: 6 * 60 }, new Date('2026-08-19T07:00:00')),
   new Date('2026-08-19T22:00:00').getTime(),
   'overnight window reopens at night',
+);
+assert.equal(
+  nextWindowOpening({ endMinute: 0 }, wednesday),
+  wednesday,
+  'empty windows return a numeric epoch without searching for an opening',
+);
+assert.equal(
+  nextWindowOpening({ startMinute: 9 * 60, endMinute: 9 * 60 }, wednesday),
+  wednesday,
+  'equal bounds return a numeric epoch without searching for an opening',
 );
 
 // activation math
@@ -95,6 +115,11 @@ assert.equal(
   'skip',
   'paused bots never activate',
 );
+assert.deepEqual(
+  decideActivation({ bot: { ...defaultBot, enabled: false }, now: wednesday }),
+  { action: 'skip', reason: 'disabled' },
+  'disabled bots never activate',
+);
 assert.equal(
   decideActivation({ bot: defaultBot, now: wednesday, isRunning: true }).action,
   'skip',
@@ -113,7 +138,29 @@ assert.equal(
 assert.equal(
   decideActivation({ bot: { ...defaultBot, maxActivations: 10, activationCount: 10 }, now: wednesday }).action,
   'sleep',
-  'max activations puts the bot to sleep',
+  'max activations starts a sleep period',
+);
+assert.equal(
+  decideActivation({
+    bot: {
+      ...defaultBot,
+      status: 'sleeping',
+      maxActivations: 10,
+      activationCount: 10,
+      idleUntil: new Date(wednesday - minute).toISOString(),
+    },
+    now: wednesday,
+  }).action,
+  'wake',
+  'activation-limit sleep ends automatically',
+);
+assert.equal(
+  decideActivation({
+    bot: { ...defaultBot, status: 'sleeping', maxActivations: 10, activationCount: 10 },
+    now: wednesday,
+  }).action,
+  'wake',
+  'legacy sleeping bots without a limit marker wake automatically',
 );
 assert.equal(
   decideActivation({ bot: { ...defaultBot, maxActivations: 0, activationCount: 999 }, now: wednesday }).action,
@@ -138,6 +185,18 @@ assert.equal(
   'outside-window',
   'after hours is outside the window',
 );
+for (const activationWindow of [{ endMinute: 0 }, { startMinute: 9 * 60, endMinute: 9 * 60 }]) {
+  const decision = decideActivation({
+    bot: { ...defaultBot, activationWindow },
+    now: wednesday,
+  });
+  assert.equal(decision.reason, 'outside-window', 'empty windows never activate');
+  assert.equal(
+    new Date(decision.nextActivationAt).getTime(),
+    wednesday,
+    'empty windows preserve the numeric now epoch',
+  );
+}
 
 // describeActivationWindow
 assert.equal(describeActivationWindow({}), 'every day, any time');

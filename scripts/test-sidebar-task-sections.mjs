@@ -27,6 +27,12 @@ const markup = renderToStaticMarkup(React.createElement(Sidebar, {
     conversation('3', 'Completed task', 'Alpha'),
     conversation('4', 'Ordinary chat', 'Beta'),
   ],
+  bots: [
+    { id: 'working-bot', conversationId: 'bot-1', name: 'Working bot', running: true, scheduleState: 'working' },
+    { id: 'active-bot', conversationId: 'bot-2', name: 'Active bot', running: false, scheduleState: 'active' },
+    { id: 'sleeping-bot', conversationId: 'bot-3', name: 'Sleeping bot', running: false, scheduleState: 'sleep' },
+    { id: 'disabled-bot', conversationId: 'bot-4', name: 'Disabled bot', enabled: false, running: false, scheduleState: 'disabled' },
+  ],
   selectedId: null,
   running: { 1: true },
   completedUnseen: { 2: true, 3: true },
@@ -35,6 +41,10 @@ const markup = renderToStaticMarkup(React.createElement(Sidebar, {
   onNewChat: () => {},
   onQuickChat: () => {},
   onSelect: () => {},
+  onSelectBot: () => {},
+  onBotSettings: () => {},
+  onDeleteBot: () => {},
+  onActivateBot: () => {},
   onSearch: () => {},
   onOpenOrchestration: () => {},
   onFork: () => {},
@@ -71,4 +81,10 @@ for (const title of ['Active task', 'Needs attention', 'Completed task', 'Ordina
   assert.match(foldersMarkup, new RegExp(title));
 }
 
-console.log('Sidebar task section tests passed.');
+assert.match(markup, /class="lucide lucide-loader-circle run-spinner"[^>]*aria-label="Working"/);
+assert.match(markup, /class="bot-status-dot active" aria-label="Active"/);
+assert.match(markup, /class="lucide lucide-moon bot-status-sleep"[^>]*aria-label="Sleep"/);
+assert.match(markup, /class="conversation-item bot-item disabled"/);
+assert.match(markup, /class="bot-status-dot disabled" aria-label="Disabled"/);
+
+console.log('Sidebar task section and bot status tests passed.');

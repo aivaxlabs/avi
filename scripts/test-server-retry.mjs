@@ -27,10 +27,27 @@ try {
   const { ChatRunner } = await import('../src/main/chat-runner.js');
   const { ModelProvider } = await import('../src/main/model-provider.js');
   const { StreamAccumulator } = await import('../src/main/streaming.js');
+  const { minifyToolOutputJson } = await import('../src/main/tool-output.js');
   const {
     chatCompletionsApi,
     responsesApi,
   } = await import('../src/providers/openai-compatible.js');
+  assert.equal(
+    minifyToolOutputJson('{\n  "weather": "sunny",\n  "temperature": 28\n}', 8_192),
+    '{"weather":"sunny","temperature":28}',
+  );
+  assert.equal(minifyToolOutputJson('plain text', 8_192), 'plain text');
+  const oversizedJson = `{\n  "value": "${'x'.repeat(32_768)}"\n}`;
+  assert.equal(minifyToolOutputJson(oversizedJson, 8_192), oversizedJson);
+  assert.equal(
+    minifyToolOutputJson(oversizedJson, 65_536),
+    JSON.stringify(JSON.parse(oversizedJson)),
+  );
+  assert.equal(
+    minifyToolOutputJson(oversizedJson, null),
+    JSON.stringify(JSON.parse(oversizedJson)),
+  );
+
   const model = {
     id: 'test:model',
     name: 'Test',
@@ -730,7 +747,7 @@ try {
               __requires_human_approval: false,
             }
           : {
-              value: String(round),
+              value: 'abcde'[round],
               __invocation_goal: 'Verify adaptive tool result truncation',
               __requires_human_approval: false,
             }),
@@ -771,16 +788,20 @@ try {
   });
   await waitFor(() => !adaptiveRunner.runs.has(adaptiveConversation.id));
   const parseToolOutput = (output) => {
-    const match = /^([\s\S]*)\n\n\[\.\.\. (\d+) chars truncated, (\d+) lines total, full result available at (.+)\]$/.exec(output);
+    const match = /^([\s\S]*)\n\n\[\.\.\. (\d+) chars truncated, (\d+) lines total, full result available at (.+)\]\n\n([\s\S]*)$/.exec(output);
     return match
       ? {
-          preview: match[1],
+          preview: `${match[1]}${match[5]}`,
+          startPreview: match[1],
+          endPreview: match[5],
           truncatedChars: Number(match[2]),
           totalLines: Number(match[3]),
           resultPath: match[4],
         }
       : {
           preview: output,
+          startPreview: output,
+          endPreview: '',
           truncatedChars: 0,
           totalLines: output.replaceAll('\r\n', '\n').split('\n').length,
           resultPath: null,
@@ -795,6 +816,8 @@ try {
     inspectedContent.length,
     inspectedResult.preview.length + inspectedResult.truncatedChars,
   );
+  assert.equal(inspectedResult.startPreview, inspectedContent.slice(0, 5));
+  assert.equal(inspectedResult.endPreview, inspectedContent.slice(-15));
   assert.equal(
     inspectedResult.totalLines,
     inspectedContent.replaceAll('\r\n', '\n').split('\n').length,
@@ -815,8 +838,10 @@ try {
   );
   const secondOlderResult = parseToolOutput(adaptiveRequests[5][1].results[0].output);
   assert.equal(secondOlderResult.preview.length, 80);
+  assert.equal(secondOlderResult.startPreview, 'b'.repeat(20));
+  assert.equal(secondOlderResult.endPreview, 'b'.repeat(60));
   assert.ok(secondOlderResult.resultPath);
-  assert.equal(readFileSync(secondOlderResult.resultPath, 'utf8'), '1'.repeat(100));
+  assert.equal(readFileSync(secondOlderResult.resultPath, 'utf8'), 'b'.repeat(100));
   assert.deepEqual(
     adaptiveRequests[5].slice(2).map((round) => (
       parseToolOutput(round.results[0].output).preview.length
@@ -836,7 +861,7 @@ try {
       }],
       results: [{
         callId: `compaction-${round}`,
-        output: String(round).repeat(adaptiveToolOutputLimit),
+        output: 'abcde'[round].repeat(adaptiveToolOutputLimit),
         isError: false,
       }],
     })),

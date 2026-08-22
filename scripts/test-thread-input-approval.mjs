@@ -163,7 +163,7 @@ try {
     questionContext.threads.find((thread) => thread.id === questionTarget.id)?.status,
     'waiting_for_input',
   );
-  assert.match(inspectedQuestion, /Status: waiting_for_input/);
+  assert.match(inspectedQuestion, /status: waiting_for_input/);
   assert.equal(runner.answerQuestion({ questionId: 'question-one', cancelled: true }), true);
   runner.runs.delete(questionTarget.id);
   assert.deepEqual(questionResult, { cancelled: true, answers: [] });
@@ -216,11 +216,11 @@ try {
     approvalContext.threads.find((thread) => thread.id === target.id)?.status,
     'waiting_for_input',
   );
-  assert.match(inspectedApproval, /Status: waiting_for_input/);
-  assert.match(inspectedApproval, new RegExp(`Approval ID: ${approvedRequest.approvalId}`));
-  assert.match(inspectedApproval, new RegExp(`Approval ID: ${disallowedRequest.approvalId}`));
-  assert.match(inspectedApproval, /Tool: write_file/);
-  assert.match(inspectedApproval, /Goal: Write the approved fixture\./);
+  assert.match(inspectedApproval, /status: waiting_for_input/);
+  assert.match(inspectedApproval, new RegExp(`id: ${approvedRequest.approvalId}`));
+  assert.match(inspectedApproval, new RegExp(`id: ${disallowedRequest.approvalId}`));
+  assert.match(inspectedApproval, /name: write_file/);
+  assert.match(inspectedApproval, /goal: Write the approved fixture\./);
 
   for (const sourceConversation of [target, sibling, sideChat, independent, bot]) {
     await assert.rejects(

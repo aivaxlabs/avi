@@ -233,6 +233,34 @@ try {
     ),
     /Side chats are private/,
   );
+  const interruptCalls = [];
+  assert.equal(
+    await interruptThreadTool.execute(
+      { threadId: parent.id },
+      {
+        chatRunner: {
+          runs: new Map([[parent.id, {}]]),
+          requestSteer: (conversationId) => interruptCalls.push(conversationId),
+        },
+        conversationId: parent.id,
+      },
+    ),
+    `Thread ${parent.id} interrupted.`,
+  );
+  assert.equal(
+    await interruptThreadTool.execute(
+      { threadId: parent.id },
+      {
+        chatRunner: {
+          runs: new Map(),
+          requestSteer: (conversationId) => interruptCalls.push(conversationId),
+        },
+        conversationId: parent.id,
+      },
+    ),
+    `Thread ${parent.id} was not running.`,
+  );
+  assert.deepEqual(interruptCalls, [parent.id, parent.id]);
 
   const inspectionContext = {
     chatRunner: {
@@ -262,7 +290,11 @@ try {
     { threadId: interruptedThread.id },
     inspectionContext,
   );
-  assert.match(inspectedInterruptedThread, /Assistant \(aborted\):\nInterrupted response/);
+  assert.match(inspectedInterruptedThread, /status: idle/);
+  assert.match(
+    inspectedInterruptedThread,
+    /<\|assistant_start\|>Interrupted response<\|assistant_end\|>/,
+  );
   assert.equal(getConversation(interruptedThread.id), null);
 
   const completedThread = createConversation({
@@ -283,6 +315,63 @@ try {
   });
   await inspectThreadTool.execute({ threadId: completedThread.id }, inspectionContext);
   assert.equal(getConversation(completedThread.id)?.id, completedThread.id);
+
+  const structuredThread = createConversation({
+    model: 'test:model',
+    projectPath: process.cwd(),
+  });
+  insertMessage({
+    conversationId: structuredThread.id,
+    role: 'user',
+    status: 'sent',
+    content: 'Inspect this media.',
+    attachments: [
+      { kind: 'image_url' },
+      { kind: 'input_audio' },
+      { kind: 'file' },
+    ],
+  });
+  insertMessage({
+    conversationId: structuredThread.id,
+    role: 'assistant',
+    status: 'completed',
+    content: 'Done.',
+    attachments: [{ kind: 'video_url' }],
+    segments: [
+      { type: 'content', text: 'Checking now.' },
+      {
+        type: 'tool-call',
+        callId: 'call-123',
+        name: 'web_search',
+        argumentsText: JSON.stringify({ query: 'clima em rio preto' }),
+        resultText: 'x'.repeat(2_049),
+        status: 'completed',
+      },
+      { type: 'content', text: 'Done.' },
+    ],
+  });
+  const inspectedStructuredThread = await inspectThreadTool.execute(
+    { threadId: structuredThread.id },
+    inspectionContext,
+  );
+  assert.match(inspectedStructuredThread, new RegExp(`^thread_id: ${structuredThread.id}\\n`));
+  assert.match(inspectedStructuredThread, /thread_type: thread\nstatus: idle\nmodel: test:model\n/);
+  assert.match(
+    inspectedStructuredThread,
+    /<\|user_start\|>Inspect this media\.\n<<image_media>>\n<<audio_media>>\n<<file_media>><\|user_end\|>/,
+  );
+  assert.match(
+    inspectedStructuredThread,
+    /<\|tool_call_start\|>\nid: call-123\nname: web_search\n{"query":"clima em rio preto"}\n<\|tool_call_end\|>/,
+  );
+  assert.match(
+    inspectedStructuredThread,
+    /<\|tool_result_start\|>\nid: call-123\n[x]+\n\[tool output truncated\]\n<\|tool_result_end\|>/,
+  );
+  assert.match(
+    inspectedStructuredThread,
+    /<\|assistant_start\|><<video_media>><\|assistant_end\|>/,
+  );
 
   const activeErroredThread = createConversation({
     model: 'test:model',
@@ -647,8 +736,11 @@ try {
     { threadId: questionConversation.id },
     { chatRunner: questionRunner, conversationId: spawnedThreadId },
   );
-  assert.match(inspectedQuestion, /Status: waiting_for_input/);
-  assert.match(inspectedQuestion, /Tool call: ask_question/);
+  assert.match(inspectedQuestion, /status: waiting_for_input/);
+  assert.match(
+    inspectedQuestion,
+    /<\|tool_call_start\|>\nid: pending-question\nname: ask_question\n/,
+  );
   assert.match(inspectedQuestion, new RegExp(pendingQuestions[0].question.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   const questionSendCalls = [];
   questionRunner.send = async (payload) => {
@@ -668,7 +760,7 @@ try {
     { threadId: questionConversation.id },
     { chatRunner: questionRunner, conversationId: spawnedThreadId },
   );
-  assert.match(stillWaiting, /Status: waiting_for_input/);
+  assert.match(stillWaiting, /status: waiting_for_input/);
 
   const questionOverride = await sendPromptTool.execute(
     { threadId: questionConversation.id, prompt: 'Use the smallest safe scope.' },

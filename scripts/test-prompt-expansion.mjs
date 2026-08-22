@@ -22,6 +22,7 @@ try {
     getConversation,
     getMessages,
     insertMessage,
+    listInferenceUsage,
   } = database;
 
   const auxiliaryModel = {
@@ -46,6 +47,10 @@ try {
             provider: {
               stream: async (request) => {
                 calls.push(request);
+                request.onEvent({
+                  type: 'usage',
+                  usage: { inputTokens: calls.length, outputTokens: calls.length + 1 },
+                });
                 return {
                   assistantContent: responses[calls.length - 1],
                   toolCalls: [],
@@ -133,6 +138,24 @@ try {
   assert.doesNotMatch(calls[1].messages[0].content, /Preserve the user[’']s intent, language, tone/);
   assert.deepEqual(getMessages(conversation.id), messagesBefore);
   assert.deepEqual(getConversation(conversation.id), conversationBefore);
+  assert.deepEqual(
+    listInferenceUsage('2000-01-01T00:00:00.000Z', '2100-01-01T00:00:00.000Z')
+      .map(({ type, model, projectPath, usage }) => ({ type, model, projectPath, usage })),
+    [
+      {
+        type: 'auxiliary',
+        model: auxiliaryModel.id,
+        projectPath: resolve(process.cwd()),
+        usage: { inputTokens: 1, outputTokens: 2 },
+      },
+      {
+        type: 'auxiliary',
+        model: auxiliaryModel.id,
+        projectPath: resolve(process.cwd()),
+        usage: { inputTokens: 2, outputTokens: 3 },
+      },
+    ],
+  );
 
   await assert.rejects(
     runner.expandPrompt({ conversationId: conversation.id, prompt: '   ' }),

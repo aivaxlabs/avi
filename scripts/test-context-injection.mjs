@@ -378,6 +378,18 @@ try {
   ]) {
     assert.ok(botInjected.includes(botOnlyMarker), `Bot context is missing: ${botOnlyMarker}`);
   }
+  for (const statusPolicyMarker of [
+    'Ordinary delegation is not a blocker',
+    'Move that entry to `blocked` and record why approval is required',
+    'After denial, do not discard automatically',
+    'Do not use it merely because the user may read the final report',
+    'no user action remains',
+  ]) {
+    assert.ok(
+      botInjected.includes(statusPolicyMarker),
+      `Bot context is missing status policy: ${statusPolicyMarker}`,
+    );
+  }
   const botUserContext = await resolveDynamicUserContext({
     workspacePath: root,
     bot: { id: 'bot-context-test' },

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { QuickChatRunner } from '../src/main/quick-chat-runner.js';
 
 const model = {
@@ -94,6 +95,95 @@ while (runner.state(tasksSession.id).running) {
 assert.equal(tasksOutput, 'Task list updated: 1 task(s).');
 assert.equal(typeof tasksOutput, 'string');
 runner.close(tasksSession.id);
+
+let jsonRound = 0;
+let jsonOutput = null;
+provider.getContributions = () => ({
+  tools: [{
+    name: 'formatted_json',
+    description: 'Return formatted JSON text.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    execute: async () => '{\n  "weather": "sunny",\n  "temperature": 28\n}',
+  }],
+});
+provider.stream = async ({ toolHistory, onEvent }) => {
+  jsonRound += 1;
+  if (jsonRound === 1) {
+    const toolCall = {
+      key: 'formatted-json-tool',
+      callId: 'formatted-json-call',
+      name: 'formatted_json',
+      argumentsText: JSON.stringify({
+        __invocation_goal: 'Verify JSON tool output minification.',
+        __requires_human_approval: false,
+      }),
+    };
+    onEvent({ type: 'tool-call', ...toolCall });
+    return { assistantContent: '', continuation: [], toolCalls: [toolCall] };
+  }
+  jsonOutput = toolHistory[0].results[0].output;
+  return { assistantContent: 'JSON minified.', continuation: [], toolCalls: [] };
+};
+const jsonSession = runner.createSession();
+await runner.send({
+  sessionId: jsonSession.id,
+  text: 'Return formatted JSON.',
+  attachments: [],
+  model: model.id,
+});
+while (runner.state(jsonSession.id).running) {
+  await new Promise((resolve) => setTimeout(resolve, 1));
+}
+assert.equal(jsonOutput, '{"weather":"sunny","temperature":28}');
+runner.close(jsonSession.id);
+
+const longOutput = `${'a'.repeat(1024)}${'b'.repeat(1024)}${'c'.repeat(1024)}`;
+let truncationRound = 0;
+let truncatedOutput = null;
+provider.getContributions = () => ({
+  tools: [{
+    name: 'long_output',
+    description: 'Return output longer than the configured limit.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    execute: async () => longOutput,
+  }],
+});
+provider.stream = async ({ toolHistory, onEvent }) => {
+  truncationRound += 1;
+  if (truncationRound === 1) {
+    const toolCall = {
+      key: 'long-output-tool',
+      callId: 'long-output-call',
+      name: 'long_output',
+      argumentsText: JSON.stringify({
+        __invocation_goal: 'Verify Quick Chat output truncation.',
+        __requires_human_approval: false,
+      }),
+    };
+    onEvent({ type: 'tool-call', ...toolCall });
+    return { assistantContent: '', continuation: [], toolCalls: [toolCall] };
+  }
+  truncatedOutput = toolHistory[0].results[0].output;
+  return { assistantContent: 'Output truncated.', continuation: [], toolCalls: [] };
+};
+const truncationSession = runner.createSession();
+await runner.send({
+  sessionId: truncationSession.id,
+  text: 'Return a long output.',
+  attachments: [],
+  model: model.id,
+});
+while (runner.state(truncationSession.id).running) {
+  await new Promise((resolve) => setTimeout(resolve, 1));
+}
+const truncationMatch = /^([\s\S]*)\n\n\[\.\.\. (\d+) chars truncated, (\d+) lines total, full result available at (.+)\]\n\n([\s\S]*)$/.exec(truncatedOutput);
+assert.ok(truncationMatch);
+assert.equal(truncationMatch[1], 'a'.repeat(512));
+assert.equal(Number(truncationMatch[2]), 1024);
+assert.equal(Number(truncationMatch[3]), 1);
+assert.equal(truncationMatch[5], `${'b'.repeat(512)}${'c'.repeat(1024)}`);
+assert.equal(readFileSync(truncationMatch[4], 'utf8'), longOutput);
+runner.close(truncationSession.id);
 
 const generatedAttachment = {
   id: 'generated-image-1',
