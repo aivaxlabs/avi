@@ -2,16 +2,15 @@
 
 Providers contribute models, tools, and auxiliary panels to Avi. Only enabled providers and enabled models enter the runtime catalog.
 
-## OpenAI Subscription
+## OpenAI Codex
 
-1. Open **Settings → Providers → Add provider**.
-2. Select **OpenAI Subscription**, choose a name, and save it.
-3. Open the provider and select **Sign in with ChatGPT**.
-4. Enter the displayed **Security code** on the authorization page and complete sign-in.
+1. Sign in to the Codex CLI with `codex login`.
+2. Open **Settings → Providers → Add provider**.
+3. Select **OpenAI Codex**, choose a name, and save it.
 
 The managed catalog currently includes GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; and GPT-5.3 Codex Spark. Fast variants appear when supported. The GPT Image setting controls whether the image generation and editing tool is available to every configured model, including models from other providers. Image editing accepts local file references only.
 
-OAuth credentials are encrypted locally. **Disconnect** removes the provider session, and removing the provider also signs it out.
+Avi reads the Codex CLI OAuth credential file (`~/.codex/auth.json`, or `$CODEX_HOME/auth.json`) when it needs to make a request. It does not copy, store, refresh, or sign out that session. If Codex renews the session, Avi uses the updated credential on its next request.
 
 ## OpenAI-compatible providers
 

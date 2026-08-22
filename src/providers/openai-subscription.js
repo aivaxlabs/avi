@@ -6,6 +6,7 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import {
   basename,
@@ -14,15 +15,9 @@ import {
   join,
 } from 'node:path';
 import { defineProvider } from '../main/provider-api.js';
-import {
-  traceError,
-  traceVerbose,
-} from '../main/trace-log.js';
 import { responsesApi } from './openai-compatible.js';
 
-const AUTH_BASE_URL = 'https://auth.openai.com';
 const CHATGPT_BACKEND_URL = 'https://chatgpt.com/backend-api';
-const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const RESPONSES_URL = `${CHATGPT_BACKEND_URL}/codex/responses`;
 const IMAGE_MODEL = 'gpt-image-2';
 const IMAGE_MIME_TYPES = {
@@ -33,9 +28,6 @@ const IMAGE_MIME_TYPES = {
   '.png': 'image/png',
   '.webp': 'image/webp',
 };
-const refreshPromises = new Map();
-const signedOutProviders = new Set();
-
 const THROUGH_MAX_REASONING = ['low', 'medium', 'high', 'xhigh', 'max'];
 const THROUGH_XHIGH_REASONING = ['low', 'medium', 'high', 'xhigh'];
 
@@ -115,9 +107,9 @@ const modelDefinitions = [
 export const openAiSubscriptionProviderType = defineProvider({
   descriptor: {
     id: 'openai-subscription',
-    name: 'OpenAI Subscription',
-    defaultName: 'OpenAI Subscription',
-    description: 'ChatGPT subscription via OAuth',
+    name: 'OpenAI Codex',
+    defaultName: 'OpenAI Codex',
+    description: 'Uses the existing Codex CLI OAuth session',
     endpoint: '/v1/responses',
     icon: 'sparkles',
     connection: 'managed',
@@ -141,60 +133,22 @@ export const openAiSubscriptionProviderType = defineProvider({
   getContributions: getOpenAiSubscriptionContributions,
   request: requestOpenAiSubscription,
   getState: getOpenAiSubscriptionState,
-  async invokeAction({
-    provider,
-    action,
-    input,
-    services,
-  }) {
-    if (action === 'disconnect') {
-      await signOutOpenAiSubscription(provider.id, services);
-    } else if (action === 'connect') {
-      const device = await startOpenAiSubscriptionLogin();
-      services.clipboard.writeText(device.userCode);
-      await services.shell.openExternal(device.verificationUrl);
-      return {
-        state: {
-          connection: {
-            status: 'waiting',
-            statusLabel: 'Waiting for authorization',
-            title: 'ChatGPT account',
-            description: 'Complete the authorization in your browser.',
-            verification: {
-              label: 'Security code',
-              value: device.userCode,
-              description: 'Paste this 9-character code into the OpenAI authorization page.',
-              copyLabel: 'Copy code',
-            },
-          },
-        },
-        followUp: {
-          action: 'complete-connect',
-          input: { device },
-        },
-      };
-    } else if (action === 'complete-connect') {
-      await completeOpenAiSubscriptionLogin(provider.id, input?.device, services);
-    } else {
-      throw new Error(`Unsupported provider action: ${action}`);
-    }
-    return getOpenAiSubscriptionState({ provider, services });
+  invokeAction: () => {
+    throw new Error('Codex CLI credentials are read-only in Avi.');
   },
-  remove: ({ provider, services }) => signOutOpenAiSubscription(provider.id, services),
 });
 
-function getOpenAiSubscriptionState({ provider, services }) {
-  const signedIn = isOpenAiSubscriptionSignedIn(provider.id, services);
+function getOpenAiSubscriptionState() {
+  const credential = readCodexCliCredential();
+  const signedIn = Boolean(credential?.accessToken && credential?.accountId);
   return {
     connection: {
       status: signedIn ? 'connected' : 'disconnected',
       statusLabel: signedIn ? 'Connected' : 'Not connected',
-      title: 'ChatGPT account',
-      description:
-        'OAuth credentials are encrypted locally with a key protected by the operating system.',
-      action: signedIn
-        ? { id: 'disconnect', label: 'Disconnect' }
-        : { id: 'connect', label: 'Sign in with ChatGPT' },
+      title: 'Codex CLI account',
+      description: signedIn
+        ? `Using the existing Codex CLI session from ${codexAuthPath()}.`
+        : `Run \`codex login\` to create ${codexAuthPath()}; Avi never opens its own ChatGPT sign-in flow.`,
     },
   };
 }
@@ -257,113 +211,6 @@ function getOpenAiSubscriptionContributions({ provider, services }) {
   };
 }
 
-function isOpenAiSubscriptionSignedIn(providerId, services) {
-  return Boolean(services.credentials.get(providerId)?.refreshToken);
-}
-
-async function startOpenAiSubscriptionLogin() {
-  const response = await fetch(`${AUTH_BASE_URL}/api/accounts/deviceauth/usercode`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_id: CLIENT_ID }),
-  });
-  if (!response.ok) {
-    throw new Error(`Unable to start ChatGPT sign-in (${response.status}).`);
-  }
-
-  const device = await response.json();
-  const userCode = device.user_code ?? device.usercode;
-  if (!device.device_auth_id || !userCode) {
-    throw new Error('The authentication server did not return a device code.');
-  }
-
-  return {
-    deviceAuthId: device.device_auth_id,
-    userCode,
-    interval: Math.max(Number(device.interval) || 5, 1),
-    verificationUrl: `${AUTH_BASE_URL}/codex/device`,
-  };
-}
-
-async function completeOpenAiSubscriptionLogin(providerId, device, services) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 15 * 60 * 1_000) {
-    const pollResponse = await fetch(`${AUTH_BASE_URL}/api/accounts/deviceauth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        device_auth_id: device.deviceAuthId,
-        user_code: device.userCode,
-      }),
-    });
-
-    if (pollResponse.ok) {
-      const code = await pollResponse.json();
-      const tokenResponse = await fetch(`${AUTH_BASE_URL}/oauth/token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'authorization_code',
-          code: code.authorization_code,
-          redirect_uri: `${AUTH_BASE_URL}/deviceauth/callback`,
-          client_id: CLIENT_ID,
-          code_verifier: code.code_verifier,
-        }),
-      });
-      if (!tokenResponse.ok) {
-        const oauthError = await readOAuthError(tokenResponse);
-        traceError('provider.auth-login-error', {
-          provider_id: providerId,
-          status: tokenResponse.status,
-          code: oauthError.code,
-          error: `OAuth code exchange failed (${oauthError.code || tokenResponse.status}).`,
-        });
-        throw new Error(
-          `OAuth code exchange failed (${oauthError.code || tokenResponse.status}).`,
-        );
-      }
-
-      const tokens = await tokenResponse.json();
-      const accountId = decodeJwtPayload(tokens.id_token)?.['https://api.openai.com/auth']
-        ?.chatgpt_account_id;
-      if (typeof accountId !== 'string' || !accountId) {
-        throw new Error('The authenticated account has no identifiable Codex access.');
-      }
-
-      signedOutProviders.delete(providerId);
-      await services.credentials.set(providerId, {
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-        idToken: tokens.id_token,
-        accountId,
-      });
-      traceVerbose('provider.auth-login-completed', { provider_id: providerId });
-      return { signedIn: true };
-    }
-
-    if (![403, 404].includes(pollResponse.status)) {
-      throw new Error(`Device sign-in failed (${pollResponse.status}).`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, device.interval * 1_000));
-  }
-
-  throw new Error('Sign-in expired after 15 minutes.');
-}
-
-async function signOutOpenAiSubscription(providerId, services) {
-  if (!services.credentials.get(providerId)) return { signedIn: false };
-  signedOutProviders.add(providerId);
-  try {
-    await services.credentials.delete(providerId);
-  } catch (error) {
-    signedOutProviders.delete(providerId);
-    throw error;
-  }
-  refreshPromises.delete(providerId);
-  traceVerbose('provider.auth-signed-out', { provider_id: providerId });
-  return { signedIn: false };
-}
-
 async function requestOpenAiSubscription({
   provider,
   body,
@@ -384,7 +231,7 @@ async function requestOpenAiSubscription({
     prompt_cache_key: sessionId,
   };
   const send = async (forceRefresh = false) => {
-    const tokens = await getTokens(provider.id, services, forceRefresh);
+    const tokens = getTokens();
     return fetch(RESPONSES_URL, {
       method: 'POST',
       headers: {
@@ -406,97 +253,40 @@ async function requestOpenAiSubscription({
   return response.status === 401 ? send(true) : response;
 }
 
-async function getTokens(providerId, services, forceRefresh = false) {
-  const tokens = services.credentials.get(providerId);
-  if (!tokens) {
-    throw new Error('Sign in with ChatGPT in Settings before using this provider.');
-  }
-
-  const expiresAt = Number(decodeJwtPayload(tokens.accessToken)?.exp) * 1_000;
-  if (!forceRefresh && Number.isFinite(expiresAt) && expiresAt > Date.now() + 5 * 60 * 1_000) {
-    return tokens;
-  }
-
-  if (!refreshPromises.has(providerId)) {
-    refreshPromises.set(providerId, fetch(`${AUTH_BASE_URL}/oauth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: CLIENT_ID,
-        grant_type: 'refresh_token',
-        refresh_token: tokens.refreshToken,
-      }),
-    }).then(async (response) => {
-      if (!response.ok) {
-        const oauthError = await readOAuthError(response);
-        traceError('provider.auth-refresh-error', {
-          provider_id: providerId,
-          status: response.status,
-          code: oauthError.code,
-          error: `Token refresh failed (${oauthError.code || response.status}).`,
-        });
-        const reconnectRequired = response.status === 401 || [
-          'refresh_token_expired',
-          'refresh_token_invalidated',
-          'refresh_token_reused',
-          'token_expired',
-        ].includes(oauthError.code);
-        throw new Error(reconnectRequired
-          ? `The ChatGPT session expired (${oauthError.code || response.status}). Sign in again.`
-          : `Unable to refresh the ChatGPT session (${oauthError.code || response.status}).`);
-      }
-      const refreshed = await response.json();
-      if (typeof refreshed.access_token !== 'string' || !refreshed.access_token) {
-        traceError('provider.auth-refresh-error', {
-          provider_id: providerId,
-          status: response.status,
-          code: 'missing_access_token',
-          error: 'The token refresh response did not include an access token.',
-        });
-        throw new Error('The ChatGPT token refresh returned no access token.');
-      }
-      const refreshedAccountId = decodeJwtPayload(refreshed.id_token)
-        ?.['https://api.openai.com/auth']?.chatgpt_account_id;
-      const nextTokens = {
-        accessToken: refreshed.access_token,
-        refreshToken: refreshed.refresh_token ?? tokens.refreshToken,
-        idToken: refreshed.id_token ?? tokens.idToken,
-        accountId: typeof refreshedAccountId === 'string' && refreshedAccountId
-          ? refreshedAccountId
-          : tokens.accountId,
-      };
-      if (signedOutProviders.has(providerId)) {
-        throw new Error('The ChatGPT session was disconnected.');
-      }
-      await services.credentials.set(providerId, nextTokens);
-      traceVerbose('provider.auth-refresh-completed', { provider_id: providerId });
-      return nextTokens;
-    }).finally(() => refreshPromises.delete(providerId)));
-  }
-
-  return refreshPromises.get(providerId);
+function codexAuthPath() {
+  const codexHome = process.env.CODEX_HOME?.trim() || join(homedir(), '.codex');
+  return join(codexHome, 'auth.json');
 }
 
-async function readOAuthError(response) {
-  const text = (await response.text()).slice(0, 2_000);
+function readCodexCliCredential() {
   try {
-    const payload = JSON.parse(text);
-    const error = payload?.error;
-    return {
-      code: String(
-        (error && typeof error === 'object' ? error.code : error)
-        ?? payload?.code
-        ?? '',
-      ).slice(0, 120),
-    };
+    const payload = JSON.parse(readFileSync(codexAuthPath(), 'utf8'));
+    const tokens = payload?.tokens;
+    const accessToken = typeof tokens?.access_token === 'string'
+      ? tokens.access_token.trim()
+      : '';
+    const accountId = decodeJwtPayload(tokens?.id_token)?.['https://api.openai.com/auth']
+      ?.chatgpt_account_id;
+    if (!accessToken || typeof accountId !== 'string' || !accountId) return null;
+    return { accessToken, accountId };
   } catch {
-    return { code: '' };
+    return null;
   }
+}
+
+function getTokens() {
+  const credential = readCodexCliCredential();
+  if (!credential?.accessToken || !credential.accountId) {
+    throw new Error(
+      `Codex CLI credentials were not found in ${codexAuthPath()}. Run \`codex login\` first.`,
+    );
+  }
+  return credential;
 }
 
 async function requestAccountJson(providerId, path, services, init = {}) {
   const send = async (forceRefresh = false) => {
-    const tokens = await getTokens(providerId, services, forceRefresh);
+    const tokens = getTokens();
     return fetch(`${CHATGPT_BACKEND_URL}${path}`, {
       ...init,
       headers: {
@@ -517,11 +307,11 @@ async function requestAccountJson(providerId, path, services, init = {}) {
 }
 
 async function readUsage(providerId, services) {
-  if (!isOpenAiSubscriptionSignedIn(providerId, services)) {
+  if (!readCodexCliCredential()) {
     return {
       state: {
-        title: 'ChatGPT sign-in required',
-        description: 'Connect this provider in Settings to view subscription usage.',
+        title: 'Codex CLI sign-in required',
+        description: `Run \`codex login\` to create ${codexAuthPath()}.`,
       },
       sections: [],
     };
@@ -719,7 +509,7 @@ async function generateOrEditImage(providerId, input, context, services) {
   }
 
   const send = async (forceRefresh = false) => {
-    const tokens = await getTokens(providerId, services, forceRefresh);
+    const tokens = getTokens();
     return fetch(`${CHATGPT_BACKEND_URL}${endpoint}`, {
       method: 'POST',
       headers: {

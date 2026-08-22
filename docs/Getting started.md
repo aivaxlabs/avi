@@ -16,7 +16,7 @@ A new draft uses your home directory (`$HOME`) until you choose another folder. 
 
 Avi includes three provider types:
 
-- **OpenAI Subscription** — OAuth authentication with a ChatGPT subscription and a managed model catalog;
+- **OpenAI Codex** — uses the existing Codex CLI OAuth session and a managed model catalog;
 - **OpenAI Compatible · Responses API**;
 - **OpenAI Compatible · Chat completions API**.
 

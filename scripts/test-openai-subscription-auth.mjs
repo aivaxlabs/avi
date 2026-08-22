@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
+  mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -81,6 +82,7 @@ if (!storagePhase) {
         ...process.env,
         USERPROFILE: resolvedProfile,
         CHAT_APP_CREDENTIAL_SERVICE: credentialService,
+        CODEX_HOME: join(resolvedProfile, '.codex'),
       },
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -143,38 +145,44 @@ try {
   const { openAiSubscriptionProviderType } = await import(
     `../src/providers/openai-subscription.js?test=${randomUUID()}`
   );
-  const expiredAccessToken = jwt(Math.floor(Date.now() / 1_000) - 60, 'expired');
-  const refreshedAccessToken = jwt(Math.floor(Date.now() / 1_000) + 3_600, 'refreshed');
-  let storedTokens = {
-    accessToken: expiredAccessToken,
-    refreshToken: 'refresh-token',
-    idToken: jwt(Math.floor(Date.now() / 1_000) + 3_600, 'id'),
-    accountId: 'account-id',
-  };
-  let persisted = false;
-  const services = {
-    credentials: {
-      get: () => storedTokens,
-      set: async (_providerId, value) => {
-        await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
-        storedTokens = value;
-        persisted = true;
+  const codexHome = process.env.CODEX_HOME;
+  const codexAuthPath = join(codexHome, 'auth.json');
+  const idToken = [
+    Buffer.from('{"alg":"none","typ":"JWT"}').toString('base64url'),
+    Buffer.from(JSON.stringify({
+      'https://api.openai.com/auth': { chatgpt_account_id: 'account-id' },
+    })).toString('base64url'),
+    'signature',
+  ].join('.');
+  const writeCodexAuth = (accessToken) => {
+    mkdirSync(codexHome, { recursive: true });
+    writeFileSync(codexAuthPath, JSON.stringify({
+      tokens: {
+        access_token: accessToken,
+        id_token: idToken,
+        refresh_token: 'never-read-by-avi',
       },
-    },
+    }), { mode: 0o600 });
   };
+  const firstAccessToken = jwt(Math.floor(Date.now() / 1_000) + 3_600, 'first');
+  const refreshedAccessToken = jwt(Math.floor(Date.now() / 1_000) + 3_600, 'refreshed');
+  writeCodexAuth(firstAccessToken);
 
-  globalThis.fetch = async (url) => {
-    if (String(url).endsWith('/oauth/token')) {
-      return new Response(JSON.stringify({
-        access_token: refreshedAccessToken,
-        refresh_token: 'rotated-refresh-token',
-        id_token: storedTokens.idToken,
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+  const state = openAiSubscriptionProviderType.getState({});
+  assert.equal(state.connection.status, 'connected');
+  assert.equal(state.connection.action, undefined);
+  assert.match(state.connection.description, /Codex CLI session/);
+
+  let requestCount = 0;
+  globalThis.fetch = async (url, init) => {
+    assert.equal(String(url), 'https://chatgpt.com/backend-api/codex/responses');
+    requestCount += 1;
+    if (requestCount === 1) {
+      assert.equal(init.headers.Authorization, `Bearer ${firstAccessToken}`);
+      writeCodexAuth(refreshedAccessToken);
+      return new Response('', { status: 401 });
     }
-    assert.equal(persisted, true);
+    assert.equal(init.headers.Authorization, `Bearer ${refreshedAccessToken}`);
     return new Response('data: [DONE]\n\n', { status: 200 });
   };
 
@@ -183,41 +191,24 @@ try {
     body: {},
     signal: new AbortController().signal,
     invocationContext: { conversationId: 'test-conversation' },
-    services,
+    services: {},
   });
   assert.equal(response.status, 200);
-  assert.equal(storedTokens.refreshToken, 'rotated-refresh-token');
+  assert.equal(requestCount, 2);
 
-  storedTokens = {
-    ...storedTokens,
-    accessToken: expiredAccessToken,
-  };
-  globalThis.fetch = async () => new Response(JSON.stringify({
-    error: {
-      code: 'refresh_token_expired',
-      message: 'Sensitive backend detail',
-    },
-  }), {
-    status: 401,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  rmSync(codexAuthPath);
   await assert.rejects(
     openAiSubscriptionProviderType.request({
       provider: { id: 'subscription' },
       body: {},
       signal: new AbortController().signal,
       invocationContext: { conversationId: 'test-conversation' },
-      services,
+      services: {},
     }),
-    /refresh_token_expired/,
+    /Codex CLI credentials were not found/,
   );
 
-  const traceLog = readFileSync(join(resolvedProfile, '.aivax', 'trace.log'), 'utf8');
-  assert.match(traceLog, /-- INFO -- provider\.auth-refresh-completed:/);
-  assert.match(traceLog, /-- ERROR -- provider\.auth-refresh-error:/);
-  assert.doesNotMatch(traceLog, /refresh-token|Sensitive backend detail/);
-
-  console.log('OpenAI subscription auth tests passed.');
+  console.log('Codex CLI auth tests passed.');
 } finally {
   globalThis.fetch = nativeFetch;
 }
