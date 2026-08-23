@@ -501,6 +501,29 @@ export function createPluginDomainApi({ runtime, record, storage }) {
         return clonePluginValue(runtime.services.providerRegistry.listModels());
       },
     }),
+    usages: Object.freeze({
+      register(descriptor) {
+        runtime.require(record, 'providers.usages.register');
+        const id = requirePluginId(descriptor?.id, 'Usage provider ID');
+        if (typeof descriptor.title !== 'string' || !descriptor.title.trim()) {
+          throw new AviError('VALIDATION_FAILED', 'Usage provider title is required.');
+        }
+        if (typeof descriptor.load !== 'function') {
+          throw new AviError('VALIDATION_FAILED', 'Usage provider load must be a function.');
+        }
+        const publicId = `plugin:${record.id}:${id}`;
+        const key = publicId.toLowerCase();
+        if (runtime.usageProviders.has(key)) {
+          throw new AviError('CONFLICT', `Usage provider "${id}" is already registered.`);
+        }
+        runtime.usageProviders.set(key, {
+          pluginId: record.id,
+          descriptor: { id: publicId, title: descriptor.title.trim() },
+          handlers: { load: descriptor.load },
+        });
+        return runtime.track(record, createPluginDisposable(() => runtime.usageProviders.delete(key)));
+      },
+    }),
   });
 
   const context = Object.freeze({

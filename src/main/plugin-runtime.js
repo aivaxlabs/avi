@@ -10,7 +10,7 @@ export const PLUGIN_CAPABILITIES = Object.freeze([
   'bots.readLogs', 'bots.approvals.resolve', 'tools.register', 'tools.intercept',
   'events.subscribe', 'events.readContent', 'events.readReasoning',
   'panels.register', 'panels.manage', 'providers.read', 'providers.manage',
-  'providers.types.register', 'providers.credentials.write', 'context.read',
+  'providers.types.register', 'providers.usages.register', 'providers.credentials.write', 'context.read',
   'context.readContents', 'context.register', 'storage',
 ]);
 const CAPABILITY_SET = new Set(PLUGIN_CAPABILITIES);
@@ -162,6 +162,7 @@ export class PluginRuntime {
     this.tools = new Map();
     this.panels = new Map();
     this.providerTypes = new Map();
+    this.usageProviders = new Map();
     this.contextResources = new Map();
     this.interceptors = new Map();
     this.listeners = new Map();
@@ -256,6 +257,18 @@ export class PluginRuntime {
 
   listProviderTypes() {
     return [...this.providerTypes.values()].map((entry) => entry.definition);
+  }
+
+  listUsageProviders() {
+    return [...this.usageProviders.values()].map((entry) => ({
+      ...entry.descriptor,
+      source: 'plugin',
+      pluginId: entry.pluginId,
+    }));
+  }
+
+  getUsageProvider(id) {
+    return this.usageProviders.get(String(id).toLowerCase()) ?? null;
   }
 
   listContextResources() {

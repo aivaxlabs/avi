@@ -6,6 +6,7 @@ const EMPTY_PROVIDER_CONTRIBUTIONS = Object.freeze({
   models: Object.freeze([]),
   tools: Object.freeze([]),
   auxiliaryPanels: Object.freeze([]),
+  usageProviders: Object.freeze([]),
 });
 const SERVER_CONNECT_TIMEOUT_MS = 30_000;
 const NORMAL_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 10_000];
@@ -57,6 +58,9 @@ export class ModelProvider {
         : [],
       auxiliaryPanels: Array.isArray(contributions?.auxiliaryPanels)
         ? contributions.auxiliaryPanels
+        : [],
+      usageProviders: Array.isArray(contributions?.usageProviders)
+        ? contributions.usageProviders
         : [],
     };
   }
@@ -663,6 +667,59 @@ export class ModelProviderRegistry {
         services: this.services,
       });
     }
+  }
+
+  listUsageProviders() {
+    return this.getProviders().flatMap((config) => {
+      if (!this.providerTypes.has(config.interface)) return [];
+      try {
+        const provider = this.createProvider(config);
+        return provider.getContributions().usageProviders.map((usageProvider) => ({
+          id: `${provider.config.id}:${usageProvider.id}`,
+          title: usageProvider.title,
+          source: 'provider',
+          providerId: provider.config.id,
+        }));
+      } catch (error) {
+        traceError('provider.usage-providers-error', {
+          provider_id: config.id,
+          interface: config.interface,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return [];
+      }
+    });
+  }
+
+  resolveUsageProvider(usageProviderId) {
+    if (typeof usageProviderId !== 'string' || !usageProviderId) return null;
+    const config = this.getProviders().find((provider) => (
+      usageProviderId.startsWith(`${provider.id}:`)
+    ));
+    if (!config || !this.providerTypes.has(config.interface)) return null;
+    try {
+      const provider = this.createProvider(config);
+      const prefix = `${provider.config.id}:`;
+      const usageProvider = provider.getContributions().usageProviders.find(
+        (item) => item.id === usageProviderId.slice(prefix.length),
+      );
+      return usageProvider ? { usageProvider, provider } : null;
+    } catch (error) {
+      traceError('provider.resolve-usage-provider-error', {
+        provider_id: config.id,
+        interface: config.interface,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  async readUsageProvider(usageProviderId) {
+    const selection = this.resolveUsageProvider(usageProviderId);
+    if (!selection || typeof selection.usageProvider.load !== 'function') {
+      throw new Error('The usage provider is unavailable.');
+    }
+    return selection.usageProvider.load();
   }
 
   listAuxiliaryPanels(context = {}) {

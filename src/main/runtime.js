@@ -89,6 +89,7 @@ import {
   updateConversation,
 } from './database.js';
 import { indexAivaxDocuments, loginToAivax, requestAivax } from './aivax-client.js';
+import { listAivaxUsageProviders } from './aivax-usage-provider.js';
 import { ChatRunner } from './chat-runner.js';
 import { BotManager } from './bot-manager.js';
 import { QuickChatRunner } from './quick-chat-runner.js';
@@ -115,6 +116,7 @@ import {
   reviewGitWorkspace,
 } from './git-review.js';
 import { ModelProviderRegistry } from './model-provider.js';
+import { ProviderUsageService } from './provider-usage-service.js';
 import { ModelRouterService } from './model-router.js';
 import { rankAivaxPricingModels } from './model-pricing.js';
 import { McpManager } from './mcp-manager.js';
@@ -163,6 +165,7 @@ const pluginManager = new PluginManager({
   },
 });
 let providerRegistry;
+let providerUsageService;
 let routerService;
 let startHidden = process.argv.includes('--hidden');
 let mainWindow;
@@ -251,6 +254,17 @@ routerService = new ModelRouterService({
   resolveModel: (modelId) => providerRegistry.resolve(modelId),
 });
 providerRegistry.routerService = routerService;
+providerUsageService = new ProviderUsageService({
+  providerRegistry,
+  pluginRuntime: pluginManager.runtime,
+  getApplicationUsageProviders: () => listAivaxUsageProviders({
+    accessToken: getAivaxAccessToken(),
+    settings: getAivaxSettings(),
+    requestBalance: () => requestAivax('/api/v1/information/balance', {
+      responseType: 'object',
+    }),
+  }),
+});
 traceVerbose('app.started', { log_level: getPreferences().tuning.logLevel });
 resourceSnapshotInterval = setInterval(() => {
   const memory = process.memoryUsage();
@@ -1709,6 +1723,13 @@ function registerIpc() {
   applicationIpc.handle('providers:state', (_event, providerId) => providerRegistry.getState(providerId));
   applicationIpc.handle('providers:action', (_event, payload = {}) => (
     providerRegistry.invokeAction(payload.providerId, payload.action, payload.input)
+  ));
+  applicationIpc.handle('providers:usages', () => providerUsageService.list());
+  applicationIpc.handle('providers:usage', (_event, usageProviderId) => (
+    providerUsageService.read(usageProviderId)
+  ));
+  applicationIpc.handle('providers:usage-reset', (_event, payload = {}) => (
+    providerUsageService.reset(payload.usageProviderId, payload.resetId)
   ));
   applicationIpc.handle('providers:auxiliary-panels', (_event, payload = {}) => {
     const conversation = payload.conversationId

@@ -247,12 +247,10 @@ function getOpenAiSubscriptionContributions({ provider, services }) {
       canPerformDestructiveActions: false,
       execute: (input, context) => generateOrEditImage(provider.id, input, context, services),
     }],
-    auxiliaryPanels: [{
+    usageProviders: [{
       id: 'usage',
-      title: `${provider.name} — OpenAI usage`,
-      icon: 'gauge',
+      title: `${provider.name} usage`,
       load: () => readUsage(provider.id, services),
-      invokeAction: (action, input) => invokeUsageAction(provider.id, action, input, services),
     }],
   };
 }
@@ -519,11 +517,9 @@ async function requestAccountJson(providerId, path, services, init = {}) {
 async function readUsage(providerId, services) {
   if (!isOpenAiSubscriptionSignedIn(providerId, services)) {
     return {
-      state: {
-        title: 'ChatGPT sign-in required',
-        description: 'Connect this provider in Settings to view subscription usage.',
-      },
-      sections: [],
+      accountDetails: 'Sign in required in Settings',
+      limits: [],
+      counters: [],
     };
   }
 
@@ -532,30 +528,15 @@ async function readUsage(providerId, services) {
     requestAccountJson(providerId, '/wham/rate-limit-reset-credits', services),
   ]);
   const rateLimit = usagePayload?.rate_limit ?? {};
-  const normalizeWindow = (window) => (
-    window && Number.isFinite(Number(window.used_percent))
-      ? {
-          usedPercent: Math.max(0, Math.min(Number(window.used_percent), 100)),
-          windowSeconds: Number(window.limit_window_seconds) || 0,
-          resetAt: Number(window.reset_at) || null,
-        }
-      : null
-  );
   const resetCredits = Array.isArray(resetPayload?.credits)
     ? resetPayload.credits.filter((credit) => (
         credit?.status === 'available' && typeof credit.id === 'string'
-      )).map((credit) => ({
-        id: credit.id,
-        title: credit.title || 'Banked rate-limit reset',
-        description: credit.description || null,
-        expiresAt: credit.expires_at || null,
-      }))
+      ))
     : [];
-
   const windows = [
-    ['Session usage limit', normalizeWindow(rateLimit.primary_window)],
-    ['Weekly usage limit', normalizeWindow(rateLimit.secondary_window)],
-  ].filter(([, window]) => window);
+    ['Session usage limit', rateLimit.primary_window],
+    ['Weekly usage limit', rateLimit.secondary_window],
+  ].filter(([, window]) => window && Number.isFinite(Number(window.used_percent)));
   const availableResetCount = Math.max(
     0,
     Number(usagePayload?.rate_limit_reset_credits?.available_count) || 0,
@@ -563,88 +544,47 @@ async function readUsage(providerId, services) {
   );
 
   return {
-    sections: [
-      {
-        id: 'limits',
-        title: 'General usage limits',
-        caption: typeof usagePayload?.plan_type === 'string'
-          ? `${usagePayload.plan_type} plan`
-          : null,
-        items: windows.map(([title, window]) => {
-          const remaining = Math.max(0, 100 - Math.round(window.usedPercent));
+    accountDetails: typeof usagePayload?.plan_type === 'string'
+      ? `${usagePayload.plan_type} plan`
+      : 'ChatGPT subscription',
+    limits: windows.map(([label, window], index) => ({
+      label,
+      amountConsumed: Math.max(0, Math.min(Number(window.used_percent) / 100, 1)),
+      resetsAt: Number(window.reset_at) ? new Date(Number(window.reset_at) * 1_000) : null,
+      resetList: index === 0 ? resetCredits.map((credit) => ({
+        resetTitle: credit.title || 'Banked rate-limit reset',
+        resetDescription: credit.description || null,
+        resetType: 'Banked reset',
+        resetExpiresAt: credit.expires_at || null,
+        async onReset() {
+          const result = await requestAccountJson(
+            providerId,
+            '/wham/rate-limit-reset-credits/consume',
+            services,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                redeem_request_id: randomUUID(),
+                credit_id: credit.id,
+              }),
+            },
+          );
+          if (!['reset', 'nothing_to_reset', 'no_credit', 'already_redeemed'].includes(result?.code)) {
+            throw new Error('The backend returned an unknown reset outcome.');
+          }
           return {
-            id: title,
-            type: 'progress',
-            title,
-            description: window.resetAt
-              ? `Resets ${new Intl.DateTimeFormat(undefined, {
-                  dateStyle: 'medium',
-                  timeStyle: 'short',
-                }).format(new Date(window.resetAt * 1_000))}`
-              : 'Reset unavailable',
-            value: remaining,
-            valueLabel: `${remaining}% left`,
+            usage: await readUsage(providerId, services),
+            message: result.code === 'reset' ? null : 'No eligible usage window was reset.',
           };
-        }),
-        empty: 'No usage windows were returned.',
-      },
-      {
-        id: 'resets',
-        title: 'Usage limit resets',
-        caption: `${availableResetCount} available`,
-        items: resetCredits.map((credit) => ({
-          id: credit.id,
-          type: 'action',
-          title: credit.title,
-          description: [
-            credit.description,
-            credit.expiresAt
-              ? `Expires ${new Intl.DateTimeFormat(undefined, {
-                  dateStyle: 'medium',
-                  timeStyle: 'short',
-                }).format(new Date(credit.expiresAt))}`
-              : null,
-          ].filter(Boolean).join(' · '),
-          action: {
-            id: 'consume-reset',
-            label: 'Use reset',
-            input: { creditId: credit.id },
-            confirm: 'Use this banked reset now? This action cannot be undone.',
-          },
-        })),
-        empty: 'No banked resets are currently available.',
-      },
-    ],
-  };
-}
-
-async function invokeUsageAction(providerId, action, input, services) {
-  if (action !== 'consume-reset') {
-    throw new Error(`Unsupported OpenAI usage action: ${action}`);
-  }
-  if (typeof input?.creditId !== 'string' || !input.creditId) {
-    throw new Error('Choose an available banked reset.');
-  }
-
-  const result = await requestAccountJson(
-    providerId,
-    '/wham/rate-limit-reset-credits/consume',
-    services,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        redeem_request_id: randomUUID(),
-        credit_id: input.creditId,
-      }),
-    },
-  );
-  if (!['reset', 'nothing_to_reset', 'no_credit', 'already_redeemed'].includes(result?.code)) {
-    throw new Error('The backend returned an unknown reset outcome.');
-  }
-  return {
-    panel: await readUsage(providerId, services),
-    message: result.code === 'reset' ? null : 'No eligible usage window was reset.',
+        },
+      })) : [],
+    })),
+    counters: [{
+      label: 'Banked resets',
+      description: 'Rate-limit resets currently available for this account.',
+      valueString: availableResetCount.toLocaleString(),
+    }],
   };
 }
 

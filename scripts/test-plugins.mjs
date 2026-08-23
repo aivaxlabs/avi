@@ -38,7 +38,19 @@ try {
         auxiliaryPanels: [{ id: 'demo-panel', title: 'Demo', load: async () => ({ sections: [] }) }],
         themes: [{ id: 'demo-theme', name: 'Demo', tagline: 'Demo theme', css: ':root {}' }],
         personalities: [{ id: 'demo-personality', name: 'Demo', description: 'Demo personality', instructions: 'Be helpful.' }],
-        providers: [{ descriptor: { id: 'demo-provider', name: 'Demo' }, createBody() {}, request() {}, eventsFrom() {} }]
+        providers: [{
+          descriptor: { id: 'demo-provider', name: 'Demo' },
+          createBody() {}, request() {}, eventsFrom() {},
+          getContributions() {
+            return {
+              usageProviders: [{
+                id: 'usage',
+                title: 'Demo usage',
+                load: async () => ({ accountDetails: 'Demo plan', limits: [], counters: [] })
+              }]
+            };
+          }
+        }]
       }
     });
   `);
@@ -384,9 +396,19 @@ try {
   assert.equal(availableModels.length, 1);
   assert.equal(availableModels[0].id, 'configured-active:m1');
 
-  // Verify listGlobalTools and listAuxiliaryPanels do not throw
+  // Verify provider contributions are exposed without touching unavailable interfaces
   assert.deepEqual(testRegistry.listGlobalTools(), []);
   assert.deepEqual(testRegistry.listAuxiliaryPanels(), []);
+  assert.deepEqual(testRegistry.listUsageProviders(), [{
+    id: 'configured-active:usage',
+    title: 'Demo usage',
+    source: 'provider',
+    providerId: 'configured-active',
+  }]);
+  assert.deepEqual(
+    await testRegistry.readUsageProvider('configured-active:usage'),
+    { accountDetails: 'Demo plan', limits: [], counters: [] },
+  );
 
   // Verify resolve returns null for models from missing provider interfaces without throwing
   assert.equal(testRegistry.resolve('configured-unloaded:m2'), null);
