@@ -50,6 +50,7 @@ import { createMp3Attachment } from '../lib/audio.js';
 import { fileToAttachment, formatBytes, textToAttachment } from '../lib/files.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { ModelPicker } from './ModelPicker.jsx';
+import { ProviderUsages } from './ProviderUsages.jsx';
 
 const composerDraftKey = 'aivax.composer.draft';
 const composerReasoningEffortsKey = 'aivax.composer.reasoning-efforts';
@@ -146,6 +147,11 @@ const composerCommands = [
     id: 'restart-mcp',
     name: 'restart-mcp',
     description: 'Restart all loaded MCP servers',
+  },
+  {
+    id: 'usage',
+    name: 'usage',
+    description: 'Show provider account limits and counters',
   },
 ];
 
@@ -249,6 +255,8 @@ export function Composer({
   const [queuedMenu, setQueuedMenu] = useState(null);
   const [editingQueuedMessageId, setEditingQueuedMessageId] = useState(null);
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
+  const [providerUsageProviders, setProviderUsageProviders] = useState([]);
+  const [providerUsagesOpen, setProviderUsagesOpen] = useState(false);
   const [goalSpecification, setGoalSpecification] = useState('');
   const [goalAction, setGoalAction] = useState(null);
   const [goalNow, setGoalNow] = useState(Date.now());
@@ -322,6 +330,7 @@ export function Composer({
         ? composerCommands
           .filter((command) => command.id !== 'compress' || projectLocked)
           .filter((command) => command.id !== 'side' || onCreateSideChat)
+          .filter((command) => command.id !== 'usage' || providerUsageProviders.length > 0)
           .map((command) => ({
             ...command,
             label: `/${command.name}`,
@@ -387,6 +396,7 @@ export function Composer({
     models,
     onCreateSideChat,
     projectLocked,
+    providerUsageProviders.length,
   ]);
   const activeCommandOption = commandOptions[commandIndex] ?? commandOptions[0] ?? null;
   const activeGoal = goal && ['active', 'paused'].includes(goal.status) ? goal : null;
@@ -554,6 +564,18 @@ export function Composer({
   useEffect(() => {
     setCommandIndex(0);
   }, [commandMode, commandQuery, currentModel]);
+
+  useEffect(() => {
+    let active = true;
+    window.chatApp.providers.usages()
+      .then((items) => {
+        if (active) setProviderUsageProviders(Array.isArray(items) ? items : []);
+      })
+      .catch(() => {
+        if (active) setProviderUsageProviders([]);
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -850,6 +872,11 @@ export function Composer({
         } else {
           changeWorkMode('goal');
         }
+        return;
+      }
+      if (option.id === 'usage') {
+        exitCommandMode();
+        setProviderUsagesOpen(true);
         return;
       }
       if (option.id === 'mcp' || option.id === 'restart-mcp') {
@@ -2007,23 +2034,30 @@ export function Composer({
             </div>
           )}
         </div>
-        <div
-          className="context-usage"
-          title={contextPercent === null
-            ? 'Context limit is not configured for this model.'
-            : `${contextUsage.tokens.toLocaleString()} of ${contextUsage.limit.toLocaleString()} input tokens used`}
-          role="progressbar"
-          aria-label="Context usage"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={contextPercent ?? undefined}
-        >
-          <span
-            className="context-usage-ring"
-            style={{ '--context-progress': `${(contextPercent ?? 0) * 3.6}deg` }}
-            aria-hidden="true"
+        <div className="composer-usage-indicators">
+          <ProviderUsages
+            providers={providerUsageProviders}
+            open={providerUsagesOpen}
+            onOpenChange={setProviderUsagesOpen}
           />
-          <span>{contextPercent === null ? '—' : contextPercent}%</span>
+          <div
+            className="context-usage"
+            title={contextPercent === null
+              ? 'Context limit is not configured for this model.'
+              : `${contextUsage.tokens.toLocaleString()} of ${contextUsage.limit.toLocaleString()} input tokens used`}
+            role="progressbar"
+            aria-label="Context usage"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={contextPercent ?? undefined}
+          >
+            <span
+              className="context-usage-ring"
+              style={{ '--context-progress': `${(contextPercent ?? 0) * 3.6}deg` }}
+              aria-hidden="true"
+            />
+            <span>{contextPercent === null ? '—' : contextPercent}%</span>
+          </div>
         </div>
       </div>
       {goalDialogOpen && createPortal(
