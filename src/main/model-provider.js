@@ -558,7 +558,8 @@ export class ModelProviderRegistry {
       field.id,
       config[field.id] ?? field.default ?? '',
     ]));
-    return new ModelProvider({ ...config, ...fields }, implementation, this.services);
+    const credentials = this.services.credentials?.get(config.id) ?? {};
+    return new ModelProvider({ ...config, ...fields, ...credentials }, implementation, this.services);
   }
 
   listModels() {
