@@ -41,7 +41,6 @@ const MIN_SLEEP_SECONDS = 5;
 const MAX_SLEEP_SECONDS = 30 * 60;
 const MAX_INSPECTED_TURNS = 4;
 const MAX_ASSISTANT_MESSAGES_BEFORE_FINAL = 6;
-const MAX_INSPECTED_TOOL_RESULT_CHARS = 512 * 4;
 const ANSI_ESCAPE_SEQUENCE = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 const terminals = new Map();
 
@@ -1259,28 +1258,7 @@ export const CLIENT_TOOLS = Object.freeze([
               return text ? [{ type: 'message', text }] : [];
             }
             if (segment.type !== 'tool-call') return [];
-
-            let args = segment.argumentsText;
-            try {
-              args = JSON.parse(segment.argumentsText);
-            } catch { }
-            const toolEvents = [{
-              type: 'tool_call',
-              callId: segment.callId,
-              name: segment.name,
-              arguments: typeof args === 'string' ? args : JSON.stringify(args),
-            }];
-            if (segment.resultText !== undefined) {
-              const output = String(segment.resultText);
-              toolEvents.push({
-                type: 'tool_result',
-                callId: segment.callId,
-                output: output.slice(0, MAX_INSPECTED_TOOL_RESULT_CHARS),
-                truncated: output.length > MAX_INSPECTED_TOOL_RESULT_CHARS,
-                isError: segment.status === 'error',
-              });
-            }
-            return toolEvents;
+            return [{ type: 'tool_call', name: segment.name }];
           });
           const markers = mediaMarkers(message.attachments);
           if (markers.length > 0) events.push({ type: 'message', text: markers.join('\n') });
@@ -1317,23 +1295,7 @@ export const CLIENT_TOOLS = Object.freeze([
             if (event.type === 'message') {
               return `<|assistant_start|>${event.text}<|assistant_end|>`;
             }
-            if (event.type === 'tool_call') {
-              return [
-                '<|tool_call_start|>',
-                `id: ${event.callId}`,
-                `name: ${event.name}`,
-                event.arguments,
-                '<|tool_call_end|>',
-              ].join('\n');
-            }
-            return [
-              '<|tool_result_start|>',
-              `id: ${event.callId}`,
-              ...(event.isError ? ['error: true'] : []),
-              event.output,
-              ...(event.truncated ? ['[tool output truncated]'] : []),
-              '<|tool_result_end|>',
-            ].join('\n');
+            return `<|tool_call=${event.name}|>`;
           }),
         ];
       });

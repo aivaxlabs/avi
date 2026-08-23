@@ -360,14 +360,8 @@ try {
     inspectedStructuredThread,
     /<\|user_start\|>Inspect this media\.\n<<image_media>>\n<<audio_media>>\n<<file_media>><\|user_end\|>/,
   );
-  assert.match(
-    inspectedStructuredThread,
-    /<\|tool_call_start\|>\nid: call-123\nname: web_search\n{"query":"clima em rio preto"}\n<\|tool_call_end\|>/,
-  );
-  assert.match(
-    inspectedStructuredThread,
-    /<\|tool_result_start\|>\nid: call-123\n[x]+\n\[tool output truncated\]\n<\|tool_result_end\|>/,
-  );
+  assert.match(inspectedStructuredThread, /<\|tool_call=web_search\|>/);
+  assert.doesNotMatch(inspectedStructuredThread, /call-123|clima em rio preto|tool_result|x{100}/);
   assert.match(
     inspectedStructuredThread,
     /<\|assistant_start\|><<video_media>><\|assistant_end\|>/,
@@ -737,11 +731,11 @@ try {
     { chatRunner: questionRunner, conversationId: spawnedThreadId },
   );
   assert.match(inspectedQuestion, /status: waiting_for_input/);
-  assert.match(
+  assert.match(inspectedQuestion, /<\|tool_call=ask_question\|>/);
+  assert.doesNotMatch(
     inspectedQuestion,
-    /<\|tool_call_start\|>\nid: pending-question\nname: ask_question\n/,
+    new RegExp(pendingQuestions[0].question.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
   );
-  assert.match(inspectedQuestion, new RegExp(pendingQuestions[0].question.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   const questionSendCalls = [];
   questionRunner.send = async (payload) => {
     questionSendCalls.push(payload);
