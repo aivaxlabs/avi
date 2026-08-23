@@ -119,6 +119,7 @@ import { ModelRouterService } from './model-router.js';
 import { rankAivaxPricingModels } from './model-pricing.js';
 import { McpManager } from './mcp-manager.js';
 import { PluginManager } from './plugin-manager.js';
+import { createPluginDomainApi, registerPluginTool } from './plugin-domain-api.js';
 import { RemoteMcpServer } from './remote-mcp-server.js';
 import {
   listInstalledTerminalShells,
@@ -197,7 +198,8 @@ app.on('before-quit', (event) => {
   clearInterval(threadSearchSyncInterval);
   botManager?.stop();
   for (const sessionId of quickChatWindows.keys()) quickChatRunner?.close(sessionId);
-  Promise.resolve(chatRunner?.shutdown())
+  Promise.resolve(pluginManager.deactivateAll('shutdown'))
+    .then(() => chatRunner?.shutdown())
     .then(() => mcpManager?.closeAll())
     .then(() => remoteMcpServer?.close())
     .then(() => flushSecureStorage())
@@ -269,6 +271,24 @@ ipcMain.handle('avi:invoke', invokeApplicationRequest);
 await applyLoginSettings();
 createTray();
 createWindow();
+await pluginManager.activateAll();
+mcpManager.setManagedServers(pluginManager.getContributions('mcps').map((server) => ({
+  name: `plugin-${server.pluginId}-${server.id}`,
+  config: server.config,
+})));
+mcpManager.initializeGlobal().catch((error) => sendRendererEvent('mcp:event', {
+  type: 'configuration-error',
+  message: error instanceof Error ? error.message : String(error),
+}));
+botManager.start().catch((error) => traceError('bots.start-error', {
+  error: error instanceof Error ? error.message : String(error),
+}));
+for (const failure of pluginManager.getFailures().filter((item) => String(item.error).startsWith('Plugin activation failed:'))) {
+  traceError('plugin.activation-error', {
+    plugin: failure.pluginId ?? failure.fileName,
+    error: failure.error,
+  });
+}
 void synchronizeThreadSearchIndex();
 threadSearchSyncInterval = setInterval(() => void synchronizeThreadSearchIndex(), THREAD_SEARCH_SYNC_INTERVAL_MS);
 threadSearchSyncInterval.unref();
@@ -527,15 +547,7 @@ function initializeServices() {
     mcpManager = new McpManager({
       sendEvent: (payload) => sendRendererEvent('mcp:event', payload),
       openExternal: (url) => shell.openExternal(url),
-      managedServers: pluginManager.getContributions('mcps').map((server) => ({
-        name: `plugin-${server.pluginId}-${server.id}`,
-        config: server.config,
-      })),
     });
-    mcpManager.initializeGlobal().catch((error) => sendRendererEvent('mcp:event', {
-      type: 'configuration-error',
-      message: error instanceof Error ? error.message : String(error),
-    }));
   }
   if (!chatRunner) {
     chatRunner = new ChatRunner({
@@ -555,7 +567,11 @@ function initializeServices() {
         botManager?.noteRunFinished(conversationId, assistantMessageId)
       ),
       noteBotRunStopped: (conversationId) => botManager?.noteRunStopped(conversationId),
+      beforeToolExecute: (invocation) => pluginManager.runtime.beforeTool(invocation),
+      afterToolExecute: (invocation) => pluginManager.runtime.afterTool(invocation),
+      sendPluginEvent: (type, payload) => pluginManager.runtime.emit(type, payload),
       sendEvent: (payload) => {
+        pluginManager.runtime.emitChatEvent(payload);
         sendRendererEvent('chat:event', payload);
         if (
           ['conversation', 'run-state', 'semaphore-state', 'question-request', 'question-cancelled', 'permission-request', 'permission-cancelled', 'permission-resolved']
@@ -606,11 +622,18 @@ function initializeServices() {
     });
   }
   if (!botManager) {
-    botManager = new BotManager({ sendEvent: sendRendererEvent });
+    botManager = new BotManager({
+      sendEvent: (channel, payload) => {
+        if (channel === 'bots:event') {
+          pluginManager.runtime.emit(`bot.${String(payload.type ?? 'updated').replace(/^bots:/, '').replaceAll(':', '.')}`, {
+            botId: payload.botId,
+            data: payload,
+          });
+        }
+        sendRendererEvent(channel, payload);
+      },
+    });
     botManager.attachChatRunner(chatRunner);
-    botManager.start().catch((error) => traceError('bots.start-error', {
-      error: error instanceof Error ? error.message : String(error),
-    }));
   }
   if (!quickChatRunner) {
     quickChatRunner = new QuickChatRunner({
@@ -624,6 +647,46 @@ function initializeServices() {
       stopBackgroundTasks: stopConversationTerminals,
     });
   }
+  pluginManager.setRuntimeServices({
+    appInfo: () => ({ name: app.getName(), version: app.getVersion(), platform: process.platform }),
+    chatRunner,
+    botManager,
+    providerRegistry,
+    reservedToolNames: new Set([
+      ...pluginManager.reservedToolNames,
+      ...pluginManager.getContributions('tools').map((tool) => tool.name.toLowerCase()),
+    ]),
+    reservedProviderIds: new Set(pluginManager.getProviderTypes().map((type) => type.descriptor.id.toLowerCase())),
+    reservedPanelIds: new Set(pluginManager.getContributions('auxiliaryPanels').map((panel) => (
+      `plugin:${panel.pluginId}:${panel.id}`.toLowerCase()
+    ))),
+    cleanupConversation,
+    createDomainApi: createPluginDomainApi,
+    registerTool: registerPluginTool,
+    listContextRoots: () => [
+      { id: 'global', name: 'Global', path: join(homedir(), '.agents') },
+      { id: 'installation', name: 'Installation', path: resolveInstallationContextPath() },
+      ...pluginContextRoots(),
+      ...pluginManager.runtime.listContextResources().map((item) => ({ id: item.id, name: item.title, path: item.root })),
+    ],
+    listContextItems: async ({ path } = {}) => path ? listContextItems(path) : [],
+    readContextItem: async (targetPath) => {
+      const target = resolve(String(targetPath ?? ''));
+      const roots = [
+        join(homedir(), '.agents'),
+        resolveInstallationContextPath(),
+        ...pluginContextRoots().map((root) => root.path),
+        ...pluginManager.runtime.listContextResources().map((item) => item.root),
+      ].map((root) => resolve(root));
+      if (!roots.some((root) => {
+        const relation = relative(root, target);
+        return relation === '' || (!relation.startsWith('..') && !isAbsolute(relation));
+      })) {
+        throw new Error('Context item path is outside the available context roots.');
+      }
+      return { path: target, content: await readFile(target, 'utf8') };
+    },
+  });
   if (!remoteMcpServer) {
     remoteMcpServer = new RemoteMcpServer({ chatRunner, providerRegistry, getPreferences, getApiKey: getRemoteApiKey });
     const settings = getRemoteSettings();
@@ -639,11 +702,14 @@ function initializeServices() {
   }
 }
 
-function getPluginTools() {
-  return pluginManager.getContributions('tools').map((tool) => ({
-    ...tool,
-    ...pluginManager.getHandlers('tools', tool.name),
-  }));
+function getPluginTools(conversationId = null) {
+  return [
+    ...pluginManager.getContributions('tools').map((tool) => ({
+      ...tool,
+      ...pluginManager.getHandlers('tools', tool.name),
+    })),
+    ...pluginManager.runtime.listTools(conversationId),
+  ];
 }
 
 function pluginContextRoots() {
@@ -658,9 +724,15 @@ function pluginContextRoots() {
   ])).values()];
 }
 
-function pluginInvocationContext() {
+function pluginInvocationContext({ conversationId = null, workspacePath = null, botId = null } = {}) {
+  const runtimeRoots = pluginManager.runtime.listContextResources()
+    .filter((item) => item.scope.type === 'global'
+      || (item.scope.type === 'thread' && item.scope.threadId === conversationId)
+      || (item.scope.type === 'bot' && item.scope.botId === botId)
+      || (item.scope.type === 'workspace' && resolve(item.scope.path) === resolve(workspacePath ?? '.')))
+    .map((item) => ({ id: item.id, name: item.title, path: item.root }));
   return {
-    pluginContextRoots: pluginContextRoots(),
+    pluginContextRoots: [...pluginContextRoots(), ...runtimeRoots],
     pluginPersonalities: pluginManager.getContributions('personalities'),
   };
 }
@@ -681,8 +753,23 @@ function runtimePreferences() {
 }
 
 function resolvePluginPanel(panelId) {
+  const runtimePanel = pluginManager.runtime.getPanel(panelId);
+  if (runtimePanel) return runtimePanel.handlers;
   const match = /^plugin:([^:]+):(.+)$/.exec(String(panelId ?? ''));
   return match ? pluginManager.getHandlers('auxiliaryPanels', match[2]) : null;
+}
+
+function cleanupConversation(conversationId) {
+  chatRunner.stop(conversationId, { includeSubagents: true });
+  const children = [
+    ...listSubagents(conversationId),
+    ...listSideChats(conversationId),
+  ];
+  for (const child of children) chatRunner.stop(child.id);
+  chatRunner.removeConversationSemaphores([
+    conversationId,
+    ...children.map((child) => child.id),
+  ]);
 }
 
 function createTray() {
@@ -1173,31 +1260,13 @@ function registerIpc() {
     return canceled ? null : filePaths[0];
   });
   applicationIpc.handle('conversations:archive', (_event, conversationId) => {
-    chatRunner.stop(conversationId, { includeSubagents: true });
-    const children = [
-      ...listSubagents(conversationId),
-      ...listSideChats(conversationId),
-    ];
-    for (const child of children) chatRunner.stop(child.id);
-    chatRunner.removeConversationSemaphores([
-      conversationId,
-      ...children.map((child) => child.id),
-    ]);
+    cleanupConversation(conversationId);
     archiveConversation(conversationId);
     chatRunner.semaphores.cleanMissingConversations();
     return listConversationsWithProjects();
   });
   applicationIpc.handle('conversations:delete', (_event, conversationId) => {
-    chatRunner.stop(conversationId, { includeSubagents: true });
-    const children = [
-      ...listSubagents(conversationId),
-      ...listSideChats(conversationId),
-    ];
-    for (const child of children) chatRunner.stop(child.id);
-    chatRunner.removeConversationSemaphores([
-      conversationId,
-      ...children.map((child) => child.id),
-    ]);
+    cleanupConversation(conversationId);
     deleteConversation(conversationId);
     chatRunner.semaphores.cleanMissingConversations();
     return listConversationsWithProjects();
@@ -1652,6 +1721,13 @@ function registerIpc() {
       }),
       ...pluginManager.getContributions('auxiliaryPanels').map((panel) => ({
         id: `plugin:${panel.pluginId}:${panel.id}`,
+        title: panel.title,
+        icon: panel.icon ?? null,
+        providerId: `plugin:${panel.pluginId}`,
+        providerName: panel.pluginId,
+      })),
+      ...pluginManager.runtime.listPanels().map((panel) => ({
+        id: panel.id,
         title: panel.title,
         icon: panel.icon ?? null,
         providerId: `plugin:${panel.pluginId}`,

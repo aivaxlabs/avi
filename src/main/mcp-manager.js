@@ -163,6 +163,16 @@ export class McpManager {
     this.oauthRedirectUrl = null;
   }
 
+  setManagedServers(managedServers) {
+    this.managedServers = managedServers;
+    this.managedServerNames = new Set(managedServers.map((server) => server.name));
+    const globalScope = this.scopes.get(this.scopeKey(this.globalRoot));
+    if (globalScope) {
+      globalScope.initialized = false;
+      globalScope.initializing = null;
+    }
+  }
+
   initializeGlobal() {
     return this.initializeScope(this.globalRoot, 'global');
   }

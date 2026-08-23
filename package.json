@@ -20,7 +20,7 @@
     "build": "bun scripts/build-renderer.mjs",
     "syntax": "bun scripts/check-syntax.mjs",
     "test:context": "bun scripts/test-context-injection.mjs",
-    "test:plugins": "bun scripts/test-plugins.mjs",
+    "test:plugins": "bun scripts/test-plugins.mjs && bun scripts/test-plugin-runtime-v2.mjs",
     "test:aivax": "electron --no-sandbox scripts/test-aivax-client.mjs",
     "test:plan": "bun scripts/test-plan-mode.mjs",
     "test:goal": "bun scripts/test-goal-mode.mjs",

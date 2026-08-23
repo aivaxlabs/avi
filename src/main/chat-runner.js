@@ -189,6 +189,9 @@ export class ChatRunner {
     noteBotRunStarted = () => {},
     noteBotRunFinished = () => {},
     noteBotRunStopped = () => {},
+    beforeToolExecute = async ({ input }) => ({ input, requireApproval: false }),
+    afterToolExecute = async ({ output }) => output,
+    sendPluginEvent = () => {},
     sendEvent,
     sendCompletionNotification,
     savePermissionGuidance,
@@ -206,6 +209,9 @@ export class ChatRunner {
     this.noteBotRunStarted = noteBotRunStarted;
     this.noteBotRunFinished = noteBotRunFinished;
     this.noteBotRunStopped = noteBotRunStopped;
+    this.beforeToolExecute = beforeToolExecute;
+    this.afterToolExecute = afterToolExecute;
+    this.sendPluginEvent = sendPluginEvent;
     this.sendEvent = sendEvent;
     this.sendCompletionNotification = sendCompletionNotification;
     this.savePermissionGuidance = savePermissionGuidance;
@@ -2193,7 +2199,7 @@ export class ChatRunner {
       const tuning = preferences.tuning;
       const aivax = preferences.aivax;
       const contextLimit = selection.model.context.input;
-      const pluginTools = workMode === 'plan' ? [] : this.getPluginTools();
+      const pluginTools = workMode === 'plan' ? [] : this.getPluginTools(conversationId);
       const providerContributionContext = {
         model: selection.model,
         conversation: currentConversation,
@@ -2313,6 +2319,17 @@ export class ChatRunner {
           capabilities: selection.model.capabilities,
         });
       };
+      this.sendPluginEvent('inference.request.started', {
+        threadId: conversationId,
+        runId: assistantMessage.id,
+        providerId: selection.model.providerId,
+        data: {
+          model: selection.model.id,
+          reasoningEffort,
+          workMode,
+          ultraMode,
+        },
+      });
       this.logChatTiming(conversationId, selection, {
         phase: 'request-ready',
         assistantMessageId: assistantMessage.id,
@@ -2356,6 +2373,12 @@ export class ChatRunner {
             && conversation.projectPath === currentConversation?.projectPath
           ));
         run.phase = 'inference';
+        this.sendPluginEvent('inference.turn.started', {
+          threadId: conversationId,
+          runId: assistantMessage.id,
+          providerId: selection.model.providerId,
+          data: { round: roundIndex, model: selection.model.id, toolCount: availableTools.length },
+        });
         let turn;
         try {
           turn = await selection.provider.stream({
@@ -2370,7 +2393,11 @@ export class ChatRunner {
               traceOperation: 'chat',
               traceRound: roundIndex,
               mcpInstructions: mcpRuntime.instructions,
-              ...this.getPluginContext(),
+              ...this.getPluginContext({
+                conversationId,
+                workspacePath,
+                botId: botRuntime?.bot.id ?? null,
+              }),
               ...(botRuntime ? { bot: this.describeInvocationBot(conversationId) } : {}),
               permissionMode,
               workMode,
@@ -2390,6 +2417,14 @@ export class ChatRunner {
             },
             signal: controller.signal,
             onEvent: (event) => {
+              if (['content', 'reasoning', 'tool-call', 'usage', 'error', 'retry'].includes(event.type)) {
+                this.sendPluginEvent('inference.delta', {
+                  threadId: conversationId,
+                  runId: assistantMessage.id,
+                  providerId: selection.model.providerId,
+                  data: { round: roundIndex, event },
+                });
+              }
               if (['content', 'reasoning', 'tool-call'].includes(event.type)) {
                 run.phase = 'inference';
                 if (firstResponseAt === null) firstResponseAt = Date.now();
@@ -2456,8 +2491,20 @@ export class ChatRunner {
               });
             },
           });
+          this.sendPluginEvent('inference.turn.completed', {
+            threadId: conversationId,
+            runId: assistantMessage.id,
+            providerId: selection.model.providerId,
+            data: { round: roundIndex, toolCallCount: turn.toolCalls.length },
+          });
           retriedAfterContextCompaction = false;
         } catch (error) {
+          this.sendPluginEvent('inference.turn.failed', {
+            threadId: conversationId,
+            runId: assistantMessage.id,
+            providerId: selection.model.providerId,
+            data: { round: roundIndex, message: error instanceof Error ? error.message : String(error) },
+          });
           const errorText = `${error?.code ?? ''} ${
             error instanceof Error ? error.message : String(error)
           }`.toLowerCase();
@@ -2548,7 +2595,7 @@ export class ChatRunner {
             ? args.__invocation_goal.trim()
             : '';
           const requiresHumanApproval = args?.__requires_human_approval;
-          const input = args && typeof args === 'object' && !Array.isArray(args)
+          let input = args && typeof args === 'object' && !Array.isArray(args)
             ? { ...args }
             : null;
           if (input) {
@@ -2597,10 +2644,27 @@ export class ChatRunner {
               throw new Error(`Tool ${toolCall.name} is not available in Plan mode.`);
             }
 
+            const intercepted = await this.beforeToolExecute({
+              tool: {
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.inputSchema,
+                pluginId: tool.pluginId ?? null,
+                isMcp: isMcpTool,
+              },
+              input,
+              threadId: conversationId,
+              botId: botRuntime?.bot.id ?? null,
+              model,
+              workspacePath,
+              invocationGoal,
+              requiresHumanApproval,
+            });
+            input = intercepted.input;
             const needsApproval = tool.approval !== 'never'
-              && requiresHumanApproval
+              && (tool.forceApproval || requiresHumanApproval || intercepted.requireApproval)
               && permissionMode !== 'full_access'
-              && !this.approvedToolPatterns.has(approvalPattern);
+              && (intercepted.inputChanged || !this.approvedToolPatterns.has(approvalPattern));
             if (needsApproval && botRuntime) {
               const queuedApproval = await this.queueBotToolApproval({
                 conversationId,
@@ -2755,6 +2819,22 @@ export class ChatRunner {
                     )
                   : value);
             }
+            output = await this.afterToolExecute({
+              tool: {
+                name: tool.name,
+                description: tool.description,
+                pluginId: tool.pluginId ?? null,
+                isMcp: isMcpTool,
+              },
+              input,
+              output,
+              isError: false,
+              threadId: conversationId,
+              botId: botRuntime?.bot.id ?? null,
+              model,
+              workspacePath,
+            });
+            if (typeof output !== 'string') output = JSON.stringify(output);
           } catch (error) {
             isError = true;
             toolError = error instanceof Error ? error.message : String(error);
@@ -2762,6 +2842,30 @@ export class ChatRunner {
             output = toolCall.name === 'ask_question'
               ? `Error: ${errorMessage}\nNo user answer was collected. Correct the arguments and call ask_question again. Do not infer an answer.`
               : `Error: ${errorMessage}`;
+            try {
+              output = await this.afterToolExecute({
+                tool: {
+                  name: tool.name,
+                  description: tool.description,
+                  pluginId: tool.pluginId ?? null,
+                  isMcp: isMcpTool,
+                },
+                input,
+                output,
+                isError: true,
+                threadId: conversationId,
+                botId: botRuntime?.bot.id ?? null,
+                model,
+                workspacePath,
+              });
+              if (typeof output !== 'string') output = JSON.stringify(output);
+            } catch (interceptorError) {
+              traceError('plugin.tool-error-interceptor-failed', {
+                conversation_id: conversationId,
+                tool_name: tool.name,
+                error: interceptorError instanceof Error ? interceptorError.message : String(interceptorError),
+              });
+            }
           }
           const toolDetails = traceContext(conversationId, selection, {
             round: roundIndex,
@@ -2937,6 +3041,12 @@ export class ChatRunner {
       if (!run.suspendAfterTools) {
         await this.forwardSubagentResult(completedMessage, run.permissionMode);
       }
+      this.sendPluginEvent('inference.request.completed', {
+        threadId: conversationId,
+        runId: assistantMessage.id,
+        providerId: selection.model.providerId,
+        data: { model: selection.model.id, usage: accumulator.usage },
+      });
       this.logChatTiming(conversationId, selection, {
         phase: 'message-completed',
         assistantMessageId: assistantMessage.id,
@@ -3009,6 +3119,12 @@ export class ChatRunner {
           });
         }
       }
+      this.sendPluginEvent('inference.request.failed', {
+        threadId: conversationId,
+        runId: assistantMessage.id,
+        providerId: traceSelection?.model.providerId,
+        data: { model, aborted, message },
+      });
       if (!aborted) {
         run.queuePaused = true;
         this.logChatTiming(conversationId, traceSelection, {

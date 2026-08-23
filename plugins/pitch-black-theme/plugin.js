@@ -1,5 +1,5 @@
 export default {
-  apiVersion: 1,
+  apiVersion: 2,
   id: 'pitch-black-theme',
   name: 'Pitch Black Theme',
   version: '1.0.0',

@@ -17,6 +17,7 @@ import extractZip from 'extract-zip';
 import semver from 'semver';
 import { normalizeMcpServer } from './mcp-config.js';
 import { pluginApi, PLUGIN_API_VERSION } from './plugin-api.js';
+import { PluginRuntime } from './plugin-runtime.js';
 
 const CONTRIBUTION_TYPES = Object.freeze([
   'context',
@@ -34,6 +35,9 @@ const DEFINITION_FIELDS = new Set([
   'name',
   'version',
   'description',
+  'capabilities',
+  'activate',
+  'deactivate',
   'contributions',
 ]);
 const CONTRIBUTION_FIELDS = Object.freeze({
@@ -96,6 +100,7 @@ export class PluginManager {
     this.inventory = [];
     this.failures = [];
     this.restartRequired = false;
+    this.runtime = new PluginRuntime({ pluginsDir: this.pluginsDir });
   }
 
   async initialize() {
@@ -242,10 +247,43 @@ export class PluginManager {
   }
 
   getProviderTypes() {
-    return [...this.plugins.values()].flatMap((plugin) => plugin.contributions.providers.map((item) => ({
-      ...item.public,
-      ...item.handlers,
-    })));
+    return [
+      ...[...this.plugins.values()].flatMap((plugin) => plugin.contributions.providers.map((item) => ({
+        ...item.public,
+        ...item.handlers,
+      }))),
+      ...this.runtime.listProviderTypes(),
+    ];
+  }
+
+  setRuntimeServices(services) {
+    this.runtime.setServices(services);
+  }
+
+  async activateAll() {
+    for (const plugin of this.plugins.values()) {
+      try {
+        await this.runtime.activate(plugin);
+        const record = this.inventory.find((item) => item.id.toLowerCase() === plugin.id.toLowerCase());
+        if (record) record.status = 'active';
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.failures.push({
+          fileName: basename(plugin.sourcePath),
+          sourcePath: plugin.sourcePath,
+          pluginId: plugin.id,
+          error: `Plugin activation failed: ${message}`,
+        });
+        this.plugins.delete(plugin.id.toLowerCase());
+        const record = this.inventory.find((item) => item.id.toLowerCase() === plugin.id.toLowerCase());
+        if (record) Object.assign(record, { status: 'error', error: message, runtimeLoaded: false });
+      }
+    }
+    return this.getStatus();
+  }
+
+  deactivateAll(reason = 'shutdown') {
+    return this.runtime.deactivateAll(reason);
   }
 
   getHandlers(type, id) {
@@ -294,7 +332,10 @@ export class PluginManager {
     if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
       throw new Error('The managed plugin package must be a regular directory.');
     }
+    await this.runtime.deactivate(plugin.id, 'removed');
     await rm(directory, { recursive: true });
+    await rm(join(this.pluginsDir, '.avi', plugin.id), { recursive: true, force: true });
+    await rm(join(this.pluginsDir, '.avi-storage', plugin.id), { recursive: true, force: true });
     this.inventory = this.inventory.filter((entry) => entry !== plugin);
     if (plugin.runtimeLoaded) this.restartRequired = true;
     return { id: plugin.id, restartRequired: this.restartRequired };
@@ -470,7 +511,7 @@ export class PluginManager {
       runtimeLoaded: true,
       directory: dirname(plugin.sourcePath),
       fileName: ENTRYPOINT,
-      capabilities: CONTRIBUTION_TYPES.filter((type) => plugin.contributions[type].length > 0),
+      capabilities: [...plugin.capabilities],
       contributions: Object.fromEntries(CONTRIBUTION_TYPES.map((type) => [
         type,
         plugin.contributions[type].length,
@@ -626,6 +667,13 @@ export class PluginManager {
     const description = definition.description == null
       ? ''
       : this.#requireText(definition.description, 'Plugin description');
+    const capabilities = this.runtime.validateCapabilities(definition.capabilities ?? []);
+    if (definition.activate != null && typeof definition.activate !== 'function') {
+      throw new Error('Plugin activate must be a function.');
+    }
+    if (definition.deactivate != null && typeof definition.deactivate !== 'function') {
+      throw new Error('Plugin deactivate must be a function.');
+    }
     const contributions = definition.contributions ?? {};
     if (!contributions || typeof contributions !== 'object' || Array.isArray(contributions)) {
       throw new Error('Plugin contributions must be an object.');
@@ -639,6 +687,9 @@ export class PluginManager {
       description,
       version,
       sourcePath,
+      capabilities,
+      activate: definition.activate,
+      deactivate: definition.deactivate,
       contributions: Object.fromEntries(CONTRIBUTION_TYPES.map((type) => [
         type,
         this.#validateContributions(type, contributions[type] ?? []),
