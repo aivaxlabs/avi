@@ -1,5 +1,44 @@
 # Avi Changelog
 
+## [0.4.0] — 2026-08-23
+
+### Added
+- **Bots** — create scheduled or manually activated bot conversations with dedicated queues, settings, tool approvals, daily JSON logs, isolated memory/data folders, enable/disable controls, and bot-scoped passive MCP servers.
+- **Plugin API v2** — trusted plugins can integrate lifecycle hooks, domain APIs, storage, tools, events, interceptors, MCP servers, provider panels, and bot capabilities.
+- **Provider usage tracking** — inspect AIVAX and OpenAI subscription usage from the composer with `/usage`, including reset periods and provider-contributed usage sources.
+- **Rich chat visualizations** — assistant messages can render restricted bar, line, and pie charts, workspace file excerpts, and copyable text blocks through a documented built-in skill.
+- **Configurable context compactation model** with automatic fallback to the conversation model.
+- **Chat history windowing** — long conversations load older messages incrementally as the user scrolls.
+- **Fatal error instrumentation** across main, preload, renderer, and process boundaries, with trace logging and troubleshooting guidance.
+- **Thread completion notifications** for user-created background conversations.
+- **Media extraction guidance** is forwarded through `read_media_file`.
+
+### Changed
+- **Bot runtime and scheduling** now use daily logs, clearer status handling, isolated context, and safer startup/resume behavior.
+- **Provider streaming** preserves reasoning content and continuation state while improving retry behavior.
+- **Renderer performance** improved through memoized chat/list components and bounded message rendering.
+- **Workspace scanning** moved to the chat runner to avoid repeated context-injection work.
+- **File previews** are limited to 2,000 lines.
+- **Inspected thread tool calls** now use compact tokens that omit tool arguments and results.
+- Refined empty-chat, message, MCP, auxiliary panel, file panel, project picker, and maintenance settings presentation.
+
+### Fixed
+- **Streaming scroll anchoring** remains stable when older messages are prepended or focus changes.
+- **Stored provider credentials** are propagated when models are registered.
+- **Bot settings** display the correct isolated data-folder path.
+
+### Docs
+- Added the complete Plugin API v2 reference for lifecycle, providers, panels, tools, storage, events, interceptors, threads, context, bots, errors, and shared types.
+- Expanded bot, MCP, context management, default model, setup, sub-agent, provider usage, and troubleshooting guidance.
+
+### Chores
+- Version bumped to 0.4.0.
+
+### Tests
+- Expanded coverage for bots, plugin runtime v2, provider usage, context injection, retries, scrolling, message grouping, file previews, fatal errors, and rich chat content.
+
+---
+
 ## [0.3.1] — 2026-08-19
 
 ### Added
