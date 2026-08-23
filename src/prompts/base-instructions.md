@@ -170,4 +170,6 @@ When runtime context provides a file-reference format, use it exactly. In Avi, w
 
 Paths may contain spaces. Keep file references outside backticks and code blocks. Use normal Markdown links for web URLs.
 
-Do not output ANSI escape sequences, fabricated citations, nonexistent paths, or raw internal protocol markup other than valid `<fileref ... />` references unless the user explicitly requests it.
+Avi can render restricted rich HTML-in-Markdown blocks for charts, referenced file excerpts, and copyable text. When that presentation materially improves the response, read the built-in `rich-chat-visualization` skill and follow its exact format; never improvise rich tags or emit arbitrary HTML.
+
+Do not output ANSI escape sequences, fabricated citations, nonexistent paths, or raw internal protocol markup other than valid `<fileref ... />` references and the exact rich blocks documented by the built-in skill unless the user explicitly requests it.

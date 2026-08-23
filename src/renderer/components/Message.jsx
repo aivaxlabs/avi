@@ -49,6 +49,7 @@ import 'prismjs/components/prism-typescript';
 import {
   isValidElement,
   memo,
+  useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -63,6 +64,8 @@ import { consolidateFileEdits, createUndoPrompt } from '../lib/file-edits.js';
 import { parseStructuredUserMessage } from '../lib/message-groups.js';
 import { classNames } from '../lib/format.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
+import { CopyablePanel, RichContent } from './RichContent.jsx';
+import { splitRichMarkdownBlocks } from '../lib/rich-content.js';
 import {
   answerTextFromTextualBlocks,
   executionPlansFromTextualBlocks,
@@ -1003,52 +1006,49 @@ const MarkdownSegment = memo(function MarkdownSegment({
     ));
     return () => controller.abort();
   }, [fileReferenceMenu]);
+  const openFileReferenceContextMenu = useCallback((event, reference) => {
+    event.preventDefault();
+    fileReferenceTargetRef.current = event.currentTarget;
+    const width = 180;
+    const height = 112;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const clientX = event.clientX || rect.left + 8;
+    const clientY = event.clientY || rect.bottom;
+    setFileReferenceMenu({
+      reference,
+      left: Math.max(8, Math.min(clientX, window.innerWidth - width - 8)),
+      top: Math.max(8, Math.min(clientY, window.innerHeight - height - 8)),
+    });
+  }, []);
   const components = useMemo(
-    () => createMarkdownComponents(finalized, onOpenFileReference, (event, reference) => {
-      event.preventDefault();
-      fileReferenceTargetRef.current = event.currentTarget;
-      const width = 180;
-      const height = 112;
-      const rect = event.currentTarget.getBoundingClientRect();
-      const clientX = event.clientX || rect.left + 8;
-      const clientY = event.clientY || rect.bottom;
-      setFileReferenceMenu({
-        reference,
-        left: Math.max(8, Math.min(clientX, window.innerWidth - width - 8)),
-        top: Math.max(8, Math.min(clientY, window.innerHeight - height - 8)),
-      });
-    }),
-    [finalized, onOpenFileReference],
+    () => createMarkdownComponents(
+      finalized,
+      onOpenFileReference,
+      openFileReferenceContextMenu,
+    ),
+    [finalized, onOpenFileReference, openFileReferenceContextMenu],
   );
-  const parts = useMemo(() => {
+  const parts = useMemo(() => splitRichMarkdownBlocks(renderedText).flatMap((richPart) => {
+    if (richPart.type !== 'markdown') return richPart;
     const parsed = [];
-    const plans = executionPlansFromTextualBlocks(renderedText);
+    const plans = executionPlansFromTextualBlocks(richPart.text);
     const pattern = /<execution-plan>\s*[\s\S]*?\S\s*<\/execution-plan>/gi;
     let cursor = 0;
     let planIndex = 0;
     let match;
-    while ((match = pattern.exec(renderedText)) !== null) {
+    while ((match = pattern.exec(richPart.text)) !== null) {
       if (match.index > cursor) {
-        parsed.push({
-          type: 'markdown',
-          text: renderedText.slice(cursor, match.index),
-        });
+        parsed.push({ type: 'markdown', text: richPart.text.slice(cursor, match.index) });
       }
-      parsed.push({
-        type: 'execution-plan',
-        text: plans[planIndex],
-      });
+      parsed.push({ type: 'execution-plan', text: plans[planIndex] });
       planIndex += 1;
       cursor = match.index + match[0].length;
     }
-    if (cursor < renderedText.length) {
-      parsed.push({
-        type: 'markdown',
-        text: renderedText.slice(cursor),
-      });
+    if (cursor < richPart.text.length) {
+      parsed.push({ type: 'markdown', text: richPart.text.slice(cursor) });
     }
     return parsed;
-  }, [renderedText]);
+  }), [renderedText]);
   const planCount = parts.filter((part) => part.type === 'execution-plan').length;
   const startPlanAction = async (action, plan) => {
     setPlanMenuOpen(false);
@@ -1065,22 +1065,12 @@ const MarkdownSegment = memo(function MarkdownSegment({
     <>
       {parts.map((part, index) => (
         part.type === 'execution-plan' ? (
-          <section
+          <CopyablePanel
             key={`execution-plan:${index}`}
             className="execution-plan"
-            aria-label="Execution plan"
+            label="Execution plan"
+            value={part.text}
           >
-            <div className="execution-plan-label">
-              <span>Execution plan</span>
-              <button
-                type="button"
-                aria-label="Copy execution plan"
-                title="Copy execution plan"
-                onClick={() => copyText(part.text)}
-              >
-                <Copy size={13} />
-              </button>
-            </div>
             <div className="markdown-body execution-plan-content">
               <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>
                 {part.text}
@@ -1152,14 +1142,23 @@ const MarkdownSegment = memo(function MarkdownSegment({
                 )}
               </div>
             )}
-          </section>
-        ) : part.text.trim() ? (
-          <div key={`markdown:${index}`} className="markdown-body">
-            <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>
-              {part.text}
-            </MemoizedMarkdown>
-          </div>
-        ) : null
+          </CopyablePanel>
+        ) : part.type === 'markdown' ? (
+          part.text.trim() ? (
+            <div key={`markdown:${index}`} className="markdown-body">
+              <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>
+                {part.text}
+              </MemoizedMarkdown>
+            </div>
+          ) : null
+        ) : (
+          <RichContent
+            key={`${part.type}:${index}`}
+            part={part}
+            onOpenFileReference={onOpenFileReference}
+            onFileReferenceContextMenu={openFileReferenceContextMenu}
+          />
+        )
       ))}
       {fileReferenceMenu && createPortal(
         <DropdownMenu

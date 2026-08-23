@@ -802,45 +802,6 @@
   gap: 8px;
 }
 
-.execution-plan {
-  min-width: 0;
-  margin: 4px 0;
-  overflow: visible;
-  background: var(--background-2);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-}
-
-.execution-plan-label {
-  min-height: 33px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 8px 6px 12px;
-  color: var(--text-3);
-  font-size: 1rem;
-
-  button {
-    width: 24px;
-    height: 20px;
-    display: grid;
-    place-items: center;
-    color: var(--text-3);
-    border-radius: 5px;
-    opacity: .58;
-    transition: background 140ms var(--base-transition),
-      color 140ms var(--base-transition),
-      opacity 140ms var(--base-transition);
-
-    &:hover,
-    &:focus-visible {
-      color: var(--text-1);
-      background: var(--background-4);
-      opacity: 1;
-    }
-  }
-}
-
 .execution-plan-content {
   max-height: min(560px, 60vh);
   padding: 14px 16px 4px;
@@ -1354,5 +1315,302 @@
       color: var(--text-1);
       background: var(--background-2);
     }
+  }
+}
+
+.copyable-panel,
+.rich-chart {
+  min-width: 0;
+  margin: 4px 0;
+  overflow: hidden;
+  background: var(--background-2);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+}
+
+.copyable-panel.execution-plan {
+  overflow: visible;
+}
+
+.copyable-panel-header,
+.rich-chart > figcaption {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 10px 7px 12px;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.copyable-panel-header {
+  button {
+    min-height: 24px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 7px;
+    color: var(--text-3);
+    background: transparent;
+    border-radius: 6px;
+    font-size: 11px;
+    transition: background 140ms var(--base-transition), color 140ms var(--base-transition);
+
+    &:hover,
+    &:focus-visible {
+      color: var(--text-1);
+      background: var(--background-4);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: 1px;
+    }
+  }
+}
+
+.copyable-panel-text {
+  max-height: min(360px, 50vh);
+  margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  color: var(--text-2);
+  font: 12px/1.55 var(--font-code);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.file-mention-target {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  overflow: hidden;
+  color: var(--text-3);
+  background: var(--background-3);
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0;
+  text-align: left;
+
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    color: var(--text-1);
+    background: var(--background-4);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: -3px;
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: 11px var(--font-code);
+  }
+}
+
+.file-mention-code {
+  max-height: min(420px, 55vh);
+  margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  background: var(--background-1);
+
+  code {
+    font: 12px/1.55 var(--font-code);
+  }
+}
+
+.rich-chart {
+  --chart-0: var(--primary-color);
+  --chart-1: var(--success-color);
+  --chart-2: var(--warn-color);
+  --chart-3: var(--danger-color);
+  --chart-4: color-mix(in srgb, var(--primary-color) 68%, var(--success-color));
+  --chart-5: color-mix(in srgb, var(--warn-color) 64%, var(--danger-color));
+  --chart-6: color-mix(in srgb, var(--primary-color) 58%, var(--warn-color));
+  --chart-7: color-mix(in srgb, var(--success-color) 58%, var(--danger-color));
+
+  > figcaption {
+    color: var(--text-2);
+    font-size: 13px;
+  }
+}
+
+.rich-chart-bars {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.rich-chart-bar-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(70px, 140px) minmax(100px, 1fr) minmax(42px, auto);
+  align-items: center;
+  gap: 10px;
+  color: var(--text-3);
+  font-size: 11px;
+
+  > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  > div {
+    height: 10px;
+    overflow: hidden;
+    background: var(--background-4);
+    border-radius: 999px;
+  }
+
+  i {
+    min-width: 2px;
+    height: 100%;
+    display: block;
+    background: var(--primary-color);
+    border-radius: inherit;
+  }
+
+  strong {
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    text-align: right;
+  }
+}
+
+.rich-line-chart {
+  padding: 14px 16px 12px;
+
+  svg {
+    width: 100%;
+    min-width: 280px;
+    display: block;
+    overflow: visible;
+
+    line {
+      stroke: var(--border-color);
+      stroke-width: 2;
+    }
+
+    polyline {
+      fill: none;
+      stroke: var(--primary-color);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 4;
+    }
+
+    circle {
+      fill: var(--background-2);
+      stroke: var(--primary-color);
+      stroke-width: 3;
+    }
+  }
+}
+
+.rich-line-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 10px;
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.rich-pie-layout {
+  display: grid;
+  grid-template-columns: minmax(140px, 210px) minmax(160px, 1fr);
+  align-items: center;
+  gap: 24px;
+  padding: 18px;
+
+  ul {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  li {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 10px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-3);
+    font-size: 11px;
+
+    > i {
+      width: 9px;
+      height: 9px;
+      background: var(--primary-color);
+      border-radius: 3px;
+    }
+
+    > span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    > strong {
+      color: var(--text-2);
+      font-variant-numeric: tabular-nums;
+    }
+  }
+}
+
+.rich-pie {
+  width: min(100%, 190px);
+  aspect-ratio: 1;
+  justify-self: center;
+  border: 8px solid var(--background-3);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--border-color);
+}
+
+.rich-pie-layout li:nth-child(8n + 1) > i { background: var(--chart-0); }
+.rich-pie-layout li:nth-child(8n + 2) > i { background: var(--chart-1); }
+.rich-pie-layout li:nth-child(8n + 3) > i { background: var(--chart-2); }
+.rich-pie-layout li:nth-child(8n + 4) > i { background: var(--chart-3); }
+.rich-pie-layout li:nth-child(8n + 5) > i { background: var(--chart-4); }
+.rich-pie-layout li:nth-child(8n + 6) > i { background: var(--chart-5); }
+.rich-pie-layout li:nth-child(8n + 7) > i { background: var(--chart-6); }
+.rich-pie-layout li:nth-child(8n + 8) > i { background: var(--chart-7); }
+
+@media (max-width: 620px) {
+  .rich-chart-bar-row {
+    grid-template-columns: minmax(64px, 100px) minmax(70px, 1fr) auto;
+  }
+
+  .rich-pie-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copyable-panel-header button {
+    transition: none;
   }
 }
