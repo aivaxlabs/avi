@@ -182,6 +182,14 @@
     color: var(--text-1);
   }
 
+  .composer-usage-indicators {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .provider-usages-trigger,
   .context-usage {
     flex: 0 0 auto;
     display: inline-flex;
@@ -191,6 +199,22 @@
     color: var(--text-3);
     font-size: 11px;
     font-variant-numeric: tabular-nums;
+  }
+
+  .provider-usages-trigger {
+    padding-inline: 5px;
+    background: transparent;
+    border-radius: 7px;
+
+    &:hover {
+      color: var(--text-1);
+      background: var(--item-hover);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: 1px;
+    }
   }
 
   .context-usage-ring {
