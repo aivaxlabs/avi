@@ -40,6 +40,7 @@ The definition supports `apiVersion`, `id`, `name`, `version`, optional `descrip
 - `avi.events`
 - `avi.panels`
 - `avi.providers`
+- `avi.providers.usages`
 - `avi.context`
 - `avi.storage`
 - `avi.lifecycle`
@@ -72,6 +73,7 @@ panels.manage
 providers.read
 providers.manage
 providers.types.register
+providers.usages.register
 providers.credentials.write
 context.read
 context.readContents

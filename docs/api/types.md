@@ -263,6 +263,38 @@ interface ProviderTypeDescriptor {
 
 `connection: 'custom'` marks endpoint-driven types that require an HTTP/HTTPS `baseUrl` and accept credentials.
 
+### ProviderUsageSnapshot
+
+`avi.providers.usages.register().load()` supplies the callback-bearing source shape documented in [Providers](./providers.md). Avi normalizes it to this detached snapshot before exposing it to the renderer:
+
+```ts
+interface ProviderUsageSnapshot {
+  id: string;
+  title: string;
+  accountDetails: string;
+  limits: Array<{
+    label: string;
+    description: string | null;
+    amountConsumed: number;
+    resetsAt: string | null;
+    resetList: Array<{
+      id: string;
+      title: string | null;
+      description: string | null;
+      type: string | null;
+      expiresAt: string | null;
+    }>;
+  }>;
+  counters: Array<{
+    label: string;
+    description: string | null;
+    valueString: string;
+  }>;
+}
+```
+
+`amountConsumed` is between `0` and `1`. Reset `id` values are opaque and short-lived; callback functions never cross the preload boundary.
+
 ## Context
 
 ```ts

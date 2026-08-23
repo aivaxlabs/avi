@@ -52,13 +52,15 @@ Before sending a message, review:
 
 Start with **Approve for me**. Full access does not override higher-level runtime restrictions such as Plan mode.
 
-Type `/` for Avi actions and workflows, or `$` for skills. Built-in commands include `/plan`, `/goal`, `/ultra`, `/model`, `/effort`, `/compress`, `/side`, `/mcp`, and `/restart-mcp`.
+Type `/` for Avi actions and workflows, or `$` for skills. Built-in commands include `/plan`, `/goal`, `/ultra`, `/model`, `/effort`, `/compress`, `/side`, `/usage`, `/mcp`, and `/restart-mcp`.
 
 ## Local data and external services
 
 Avi stores conversations and most preferences in `~/.aivax/aivax.sqlite`. Credentials are protected with operating-system secure storage. Appearance and some layout state use renderer `localStorage`.
 
 Configured model providers, AIVAX features, and MCP servers may receive conversation content, context, attachments, or tool data as required by each request. Review an integration before enabling it.
+
+When an AIVAX account is connected and at least one AIVAX feature is enabled, the provider usage button beside context usage shows the current balance, consumption during the last 24 hours, storage usage as a progress bar, and remaining included storage.
 
 ## Next steps
 
