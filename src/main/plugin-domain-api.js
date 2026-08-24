@@ -15,6 +15,7 @@ import {
   getProviderCredentials,
   listAllConversations,
   listArchivedConversations,
+  listTasks,
   listBots,
   listProviders,
   restoreConversation,
@@ -35,6 +36,26 @@ function providerSnapshot(provider) {
   if (!provider) return null;
   const { apiKey: _apiKey, ...snapshot } = provider;
   return { ...snapshot, hasCredentials: Boolean(provider.apiKey || getProviderCredentials(provider.id)) };
+}
+
+function taskSnapshots(threadId) {
+  return listTasks(threadId).map((task) => ({
+    title: task.title,
+    description: task.description ?? '',
+    done: Boolean(task.done),
+    status: task.status ?? (task.done ? 'completed' : 'pending'),
+    result: task.result ?? null,
+  }));
+}
+
+function threadSnapshot(runtime, thread) {
+  if (!thread) return null;
+  return {
+    ...thread,
+    workStatus: runtime.services.chatRunner.isConversationBlocked(thread.id) ? 'blocked' : null,
+    tasks: taskSnapshots(thread.id),
+    semaphoreHoldings: runtime.services.chatRunner.semaphores.holdings(thread.id),
+  };
 }
 
 function page(items, { limit = 100, cursor = null } = {}) {
@@ -108,7 +129,10 @@ function createRunHandle({ runtime, record, threadId, completion, runId }) {
     async wait() {
       runtime.require(record, 'threads.run');
       if (completion) await completion;
-      return clonePluginValue({ thread: getConversation(threadId), messages: getMessages(threadId) });
+      return clonePluginValue({
+        thread: threadSnapshot(runtime, getConversation(threadId)),
+        messages: getMessages(threadId),
+      });
     },
     async stop() {
       runtime.require(record, 'threads.run');
@@ -130,11 +154,12 @@ function createThreadHandle({ runtime, record, threadId, storage }) {
     if (!thread) throw new AviError('NOT_FOUND', 'Thread not found.');
     return thread;
   };
+  const snapshot = () => threadSnapshot(runtime, read());
   return Object.freeze({
     id: threadId,
     async getSnapshot() {
       runtime.require(record, 'threads.read');
-      return clonePluginValue(read());
+      return clonePluginValue(snapshot());
     },
     async update(patch = {}) {
       runtime.require(record, 'threads.update');
@@ -143,8 +168,49 @@ function createThreadHandle({ runtime, record, threadId, storage }) {
       const unknown = Object.keys(patch).find((key) => !allowed.has(key));
       if (unknown) throw new AviError('VALIDATION_FAILED', `Thread update field "${unknown}" is not supported.`);
       if (patch.projectPath !== undefined) updateConversationProject(threadId, patch.projectPath);
-      return clonePluginValue(updateConversation(threadId, patch));
+      return clonePluginValue(threadSnapshot(runtime, updateConversation(threadId, patch)));
     },
+    tasks: Object.freeze({
+      async list() {
+        runtime.require(record, 'threads.read');
+        read();
+        return clonePluginValue(taskSnapshots(threadId));
+      },
+      async replace(tasks) {
+        runtime.require(record, 'threads.update');
+        read();
+        return clonePluginValue(runtime.services.chatRunner.replaceTasks(threadId, tasks));
+      },
+    }),
+    semaphores: Object.freeze({
+      async list() {
+        runtime.require(record, 'threads.read');
+        read();
+        return clonePluginValue(runtime.services.chatRunner.semaphores.holdings(threadId));
+      },
+      async release(name, count) {
+        runtime.require(record, 'threads.update');
+        read();
+        return clonePluginValue(runtime.services.chatRunner.releaseSemaphore({
+          conversationId: threadId,
+          name,
+          count,
+        }));
+      },
+      async setStatus(name, status, summary = null) {
+        runtime.require(record, 'threads.update');
+        read();
+        if (!['active', 'blocked'].includes(status)) {
+          throw new AviError('VALIDATION_FAILED', 'Semaphore status must be active or blocked.');
+        }
+        return clonePluginValue(runtime.services.chatRunner.setSemaphoreBlocked({
+          conversationId: threadId,
+          name,
+          blocked: status === 'blocked',
+          summary,
+        }));
+      },
+    }),
     messages: Object.freeze({
       async list(options = {}) {
         runtime.require(record, 'threads.readMessages');
@@ -207,10 +273,11 @@ function createThreadHandle({ runtime, record, threadId, storage }) {
     async compress(options = {}) {
       runtime.require(record, 'threads.run');
       const thread = read();
-      return clonePluginValue(await runtime.services.chatRunner.compress({
+      await runtime.services.chatRunner.compress({
         conversationId: threadId,
         model: options.model ?? thread.model,
-      }));
+      });
+      return clonePluginValue(snapshot());
     },
     async fork(options = {}) {
       runtime.require(record, 'threads.create');
@@ -340,7 +407,7 @@ export function createPluginDomainApi({ runtime, record, storage }) {
         : listAllConversations();
       if (Array.isArray(options.types)) items = items.filter((thread) => options.types.includes(thread.conversationType));
       if (options.projectPath) items = items.filter((thread) => thread.projectPath === resolve(options.projectPath));
-      return page(items, options);
+      return page(items.map((thread) => threadSnapshot(runtime, thread)), options);
     },
     async get(id, options = {}) {
       runtime.require(record, 'threads.read');
@@ -362,6 +429,13 @@ export function createPluginDomainApi({ runtime, record, storage }) {
       });
       runtime.emit('thread.created', { pluginId: record.id, threadId: conversation.id, data: conversation });
       return createThreadHandle({ runtime, record, threadId: conversation.id, storage });
+    },
+  });
+
+  const semaphores = Object.freeze({
+    async list() {
+      runtime.require(record, 'threads.read');
+      return clonePluginValue(runtime.services.chatRunner.semaphores.globalSnapshot());
     },
   });
 
@@ -570,5 +644,5 @@ export function createPluginDomainApi({ runtime, record, storage }) {
     },
   });
 
-  return { threads, bots, panels, providers, context };
+  return { threads, semaphores, bots, panels, providers, context };
 }

@@ -20,6 +20,8 @@ const CHAT_EVENT_NAMES = Object.freeze({
   conversation: 'thread.updated',
   'run-state': 'run.state.changed',
   'queue-order': 'thread.queue.changed',
+  tasks: 'thread.tasks.changed',
+  'block-state': 'thread.work-status.changed',
   'permission-request': 'tool.approval.requested',
   'permission-resolved': 'tool.approval.resolved',
   'permission-cancelled': 'tool.approval.cancelled',
@@ -301,6 +303,21 @@ export class PluginRuntime {
       if (!record?.capabilities.has('events.readContent')) {
         if (delivered.data?.input) delete delivered.data.input;
         if (delivered.data?.questions) delete delivered.data.questions;
+        if (Array.isArray(delivered.data?.tasks)) {
+          delivered.data.tasks = delivered.data.tasks.map((task) => ({
+            done: Boolean(task?.done),
+            status: task?.status ?? (task?.done ? 'completed' : 'pending'),
+          }));
+        }
+        if (Array.isArray(delivered.data?.semaphores)) {
+          delivered.data.semaphores = delivered.data.semaphores.map((semaphore) => ({
+            ...semaphore,
+            holders: semaphore.holders.map((holder) => ({
+              ...holder,
+              ...(holder.blocked ? { blocked: true } : {}),
+            })),
+          }));
+        }
         if (delivered.data?.invocationSummary) delete delivered.data.invocationSummary;
         if (delivered.data?.workspacePath) delete delivered.data.workspacePath;
         if (typeof delivered.data?.message === 'string') delete delivered.data.message;
@@ -491,6 +508,7 @@ export class PluginRuntime {
         },
       }),
       threads: domain.threads ?? Object.freeze({}),
+      semaphores: domain.semaphores ?? Object.freeze({}),
       bots: domain.bots ?? Object.freeze({}),
       panels: domain.panels ?? Object.freeze({}),
       providers: domain.providers ?? Object.freeze({}),

@@ -6,6 +6,7 @@ import { AviError, PluginRuntime, createPluginDisposable } from '../src/main/plu
 
 const root = await mkdtemp(join(tmpdir(), 'avi-plugin-runtime-v2-'));
 const events = [];
+const conceptualEvents = [];
 const lifecycle = [];
 
 try {
@@ -52,6 +53,9 @@ try {
       assert.equal((await avi.app.getInfo()).name, 'Avi');
       avi.lifecycle.onDeactivate((reason) => lifecycle.push(`handler:${reason}`));
       avi.events.on('message.updated', (event) => events.push(event));
+      avi.events.on('thread.tasks.changed', (event) => conceptualEvents.push(event));
+      avi.events.on('thread.work-status.changed', (event) => conceptualEvents.push(event));
+      avi.events.on('semaphore.state.changed', (event) => conceptualEvents.push(event));
       avi.tools.register({ name: 'dynamic_tool' });
       avi.interceptors.tools.register({
         id: 'replace-input',
@@ -94,6 +98,44 @@ try {
   assert.equal(events[0].threadId, 'thread-1');
   assert.equal(events[0].data.message.content, undefined);
   assert.equal(events[0].data.message.segments, undefined);
+
+  runtime.emitChatEvent({
+    type: 'tasks',
+    conversationId: 'thread-1',
+    tasks: [{
+      title: 'Secret task',
+      description: 'Private details',
+      done: false,
+      status: 'inconclusive',
+      result: 'Private blocker',
+    }],
+  });
+  runtime.emitChatEvent({
+    type: 'block-state',
+    conversationId: 'thread-1',
+    blocked: true,
+  });
+  runtime.emitChatEvent({
+    type: 'semaphore-state',
+    waits: [],
+    semaphores: [{
+      name: 'deploy',
+      maxCount: 1,
+      waitingCount: 1,
+      holders: [{ conversationId: 'thread-1', count: 1, blocked: 'Private blocker' }],
+      queue: [{ conversationId: 'thread-2', position: 1 }],
+    }],
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(conceptualEvents.map((event) => event.type), [
+    'thread.tasks.changed',
+    'thread.work-status.changed',
+    'semaphore.state.changed',
+  ]);
+  assert.deepEqual(conceptualEvents[0].data.tasks, [{ done: false, status: 'inconclusive' }]);
+  assert.equal(conceptualEvents[1].data.blocked, true);
+  assert.equal(conceptualEvents[2].data.semaphores[0].waitingCount, 1);
+  assert.equal(conceptualEvents[2].data.semaphores[0].holders[0].blocked, true);
 
   const before = await runtime.beforeTool({
     tool: {
