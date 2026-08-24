@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
+  AlertTriangle,
   ArrowLeft,
   Bot,
   Check,
@@ -17,6 +18,7 @@ import {
   Moon,
   Network,
   Plus,
+  Shield,
   X,
 } from 'lucide-react';
 import { ChatView } from './ChatView.jsx';
@@ -32,17 +34,13 @@ const filesTabId = 'files';
 const gitReviewTabId = 'git-review';
 const tasksTabId = 'tasks';
 const botQueueTabId = 'bot-queue';
-const botLogTabs = [
-  { id: 'backlog', label: 'Backlog' },
-  { id: 'ongoing', label: 'Ongoing' },
-  { id: 'blocked', label: 'Blocked' },
-  { id: 'waiting-user-approval', label: 'Waiting approval' },
-  { id: 'user-review', label: 'User review' },
-  { id: 'done', label: 'Done' },
-  { id: 'discarded', label: 'Discarded' },
+const botPanelTabs = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'all-work', label: 'All work' },
+  { id: 'activity', label: 'Activity' },
 ];
 const subagentAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
-const botLogMarkdownComponents = {
+const botWorkMarkdownComponents = {
   a: ({ children, href, node: _node, ...props }) => (
     <a
       href={href}
@@ -56,6 +54,94 @@ const botLogMarkdownComponents = {
     </a>
   ),
 };
+const botPriorityOrder = Object.freeze({ critical: 0, high: 1, normal: 2, low: 3 });
+
+function BotWorkCard({ item, onOpen, onResolveApproval }) {
+  return (
+    <article className={`bot-work-card state-${item.state}${item.attention || item.approval ? ' needs-attention' : ''}`}>
+      <header>
+        <div className="bot-work-card-heading">
+          <strong>{item.title}</strong>
+          <span className={`bot-work-state ${item.state}`}>{item.state}</span>
+          {item.priority !== 'normal' && (
+            <span className={`bot-work-priority ${item.priority}`}>{item.priority}</span>
+          )}
+        </div>
+        <small>{new Date(item.updatedAt).toLocaleString()}</small>
+      </header>
+      {onOpen && (
+        <button
+          className="bot-work-open"
+          type="button"
+          aria-label={`Open work item: ${item.title}`}
+          title="Open work item"
+          onClick={onOpen}
+        >
+          <Maximize2 size={14} aria-hidden="true" />
+        </button>
+      )}
+      <div className="bot-work-objective">
+        <span>Objective</span>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>
+          {item.objective}
+        </ReactMarkdown>
+      </div>
+      {item.summary && <p className="bot-work-summary">{item.summary}</p>}
+      <dl className="bot-work-fields">
+        {item.lastProgress && <><dt>Latest progress</dt><dd>{item.lastProgress}</dd></>}
+        {item.nextStep && <><dt>Next step</dt><dd>{item.nextStep}</dd></>}
+      </dl>
+      {item.attention && (
+        <div className="bot-work-notice attention">
+          <Shield size={14} aria-hidden="true" />
+          <span><strong>{item.attention.type}</strong>{item.attention.summary}</span>
+        </div>
+      )}
+      {item.blocker && (
+        <div className="bot-work-notice blocker">
+          <AlertTriangle size={14} aria-hidden="true" />
+          <span><strong>Blocked by {item.blocker.waitingOn}</strong>{item.blocker.reason}</span>
+        </div>
+      )}
+      {item.workers?.length > 0 && (
+        <div className="bot-work-chips" aria-label="Workers">
+          {item.workers.map((worker) => (
+            <span className={`bot-worker-chip ${worker.status}`} key={worker.id}>
+              <span aria-hidden="true" />{worker.title || worker.id} · {worker.status}
+            </span>
+          ))}
+        </div>
+      )}
+      {item.evidence?.length > 0 && (
+        <div className="bot-work-chips" aria-label="Evidence">
+          {item.evidence.map((evidence) => <code key={evidence}>{evidence}</code>)}
+        </div>
+      )}
+      {item.approval && (
+        <div className="bot-approval-details">
+          {item.approval.kind === 'tool' && (
+            <>
+              <dl>
+                <dt>Tool</dt><dd><code>{item.approval.toolName}</code></dd>
+                <dt>Workspace</dt><dd><code>{item.approval.workspacePath || 'Not specified'}</code></dd>
+              </dl>
+              <pre>{JSON.stringify(item.approval.input ?? null, null, 2)}</pre>
+            </>
+          )}
+          <p>{item.approval.prompt}</p>
+          <div className="bot-queue-actions">
+            <button className="bot-queue-approve" type="button" onClick={() => onResolveApproval?.(item.approval.id, true)}>
+              <Check size={14} aria-hidden="true" /><span>Approve</span>
+            </button>
+            <button className="bot-queue-deny" type="button" onClick={() => onResolveApproval?.(item.approval.id, false)}>
+              <X size={14} aria-hidden="true" /><span>Deny</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
 
 function AuxiliaryAddMenu({ panels }) {
   const [open, setOpen] = useState(false);
@@ -125,7 +211,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   sideChats,
   subagents,
   bots = emptyList,
-  botLogsByBot = emptyObject,
+  botWorkStateByBot = emptyObject,
   onResolveBotApproval,
   botQueueTabOpen = false,
   selectedBotId,
@@ -201,32 +287,47 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   defaultPermissionMode = 'approve_for_me',
   continuationRepliesEnabled = true,
 }) {
-  const [botLogStatus, setBotLogStatus] = useState('backlog');
-  const [expandedBotLog, setExpandedBotLog] = useState(null);
-  const botLogDialogRef = useRef(null);
-  const botLogOpenerRef = useRef(null);
+  const [botPanelTab, setBotPanelTab] = useState('overview');
+  const [botWorkFilter, setBotWorkFilter] = useState('all');
+  const [expandedBotItem, setExpandedBotItem] = useState(null);
+  const botWorkDialogRef = useRef(null);
+  const botWorkOpenerRef = useRef(null);
 
   useEffect(() => {
-    if (!expandedBotLog || !botLogDialogRef.current) return undefined;
-    const dialog = botLogDialogRef.current;
+    if (!expandedBotItem || !botWorkDialogRef.current) return undefined;
+    const dialog = botWorkDialogRef.current;
     dialog.showModal();
     queueMicrotask(() => dialog.querySelector('button')?.focus());
     return () => {
       if (dialog.open) dialog.close();
     };
-  }, [expandedBotLog]);
-
-  const closeBotLogDialog = () => botLogDialogRef.current?.close();
-  const clearExpandedBotLog = () => {
-    setExpandedBotLog(null);
-    queueMicrotask(() => botLogOpenerRef.current?.focus());
-  };
+  }, [expandedBotItem]);
 
   const selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? bots[0] ?? null;
-  const selectedBotLogs = selectedBot
-    ? botLogsByBot[selectedBot.id] ?? emptyList
-    : emptyList;
-  const selectedBotLogEntries = selectedBotLogs.filter((entry) => entry.status === botLogStatus);
+  const selectedBotState = selectedBot
+    ? botWorkStateByBot[selectedBot.id] ?? { items: emptyList, activity: emptyList, untrackedWorkers: emptyList, error: null }
+    : { items: emptyList, activity: emptyList, untrackedWorkers: emptyList, error: null };
+  const currentBotWork = selectedBotState.items.filter((item) => (
+    item.state === 'active' || item.workers?.some((worker) => worker.running)
+  ));
+  const botWorkNeedingAttention = selectedBotState.items.filter((item) => (
+    item.attention || item.approval || (item.state === 'waiting' && item.blocker)
+  ));
+  const recentlyCompletedBotWork = selectedBotState.items
+    .filter((item) => item.state === 'completed')
+    .sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt))
+    .slice(0, 5);
+  const upcomingBotWork = selectedBotState.items
+    .filter((item) => item.state === 'planned')
+    .sort((left, right) => (
+      botPriorityOrder[left.priority] - botPriorityOrder[right.priority]
+      || new Date(right.updatedAt) - new Date(left.updatedAt)
+    ));
+  const filteredBotWork = selectedBotState.items
+    .filter((item) => botWorkFilter === 'all' || item.state === botWorkFilter)
+    .sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt));
+  const recentBotActivity = selectedBotState.activity
+    .toSorted((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
   const availablePanels = [
     {
       id: 'side-chat',
@@ -504,118 +605,127 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
               <div className="bot-queue-empty">
                 <Bot size={20} aria-hidden="true" />
                 <strong>No bots</strong>
-                <span>Create a bot to view its work logs.</span>
+                <span>Create a bot to see its current work and recent outcomes.</span>
               </div>
             ) : (
               <>
-                <label className="bot-log-selector">
-                  <select
-                    value={selectedBot?.id ?? ''}
-                    onChange={(event) => onSelectBot(event.target.value)}
-                  >
-                    {bots.map((bot) => (
-                      <option key={bot.id} value={bot.id}>{bot.name}</option>
-                    ))}
+                <label className="bot-work-selector">
+                  <span className="sr-only">Bot</span>
+                  <select value={selectedBot?.id ?? ''} onChange={(event) => onSelectBot(event.target.value)}>
+                    {bots.map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
                   </select>
                 </label>
-                <div className="bot-log-tabs" role="tablist" aria-label="Bot work stages">
-                  {botLogTabs.map((tab, index) => {
-                    const count = selectedBotLogs.filter((entry) => entry.status === tab.id).length;
-                    return (
-                      <button
-                        id={`bot-log-tab-${tab.id}`}
-                        className={tab.id === botLogStatus ? 'active' : ''}
-                        type="button"
-                        role="tab"
-                        aria-selected={tab.id === botLogStatus}
-                        aria-controls="bot-log-entries"
-                        tabIndex={tab.id === botLogStatus ? 0 : -1}
-                        key={tab.id}
-                        onClick={() => setBotLogStatus(tab.id)}
-                        onKeyDown={(event) => {
-                          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-                          event.preventDefault();
-                          const nextIndex = event.key === 'Home'
-                            ? 0
-                            : event.key === 'End'
-                              ? botLogTabs.length - 1
-                              : (index + (event.key === 'ArrowRight' ? 1 : -1) + botLogTabs.length)
-                              % botLogTabs.length;
-                          const next = botLogTabs[nextIndex];
-                          setBotLogStatus(next.id);
-                          queueMicrotask(() => document.getElementById(`bot-log-tab-${next.id}`)?.focus());
-                        }}
-                      >
-                        <span>{tab.label}</span>
-                        {count > 0 && <small>{count}</small>}
-                      </button>
-                    );
-                  })}
+                <div className="bot-work-tabs" role="tablist" aria-label="Bot work views">
+                  {botPanelTabs.map((tab, index) => (
+                    <button
+                      id={`bot-work-tab-${tab.id}`}
+                      className={tab.id === botPanelTab ? 'active' : ''}
+                      type="button"
+                      role="tab"
+                      aria-selected={tab.id === botPanelTab}
+                      aria-controls="bot-work-view"
+                      tabIndex={tab.id === botPanelTab ? 0 : -1}
+                      key={tab.id}
+                      onClick={() => setBotPanelTab(tab.id)}
+                      onKeyDown={(event) => {
+                        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                        event.preventDefault();
+                        const nextIndex = event.key === 'Home'
+                          ? 0
+                          : event.key === 'End'
+                            ? botPanelTabs.length - 1
+                            : (index + (event.key === 'ArrowRight' ? 1 : -1) + botPanelTabs.length)
+                            % botPanelTabs.length;
+                        const next = botPanelTabs[nextIndex];
+                        setBotPanelTab(next.id);
+                        queueMicrotask(() => document.getElementById(`bot-work-tab-${next.id}`)?.focus());
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
-                <div
-                  id="bot-log-entries"
-                  className="bot-log-entries"
-                  role="tabpanel"
-                  aria-labelledby={`bot-log-tab-${botLogStatus}`}
-                >
-                  {selectedBotLogEntries.length === 0 ? (
-                    <div className="bot-queue-empty">
-                      <Bot size={20} aria-hidden="true" />
-                      <strong>No entries</strong>
-                      <span>{selectedBot.name} has nothing in this stage.</span>
-                    </div>
-                  ) : (
-                    selectedBotLogEntries.map((item) => (
-                      <article className="bot-queue-item" key={item.id}>
-                        <header>
-                          <strong>{item.title}</strong>
-                          <small>
-                            {item.kind === 'tool' ? 'Tool approval · ' : ''}
-                            {new Date(item.updatedAt).toLocaleString()}
-                          </small>
-                        </header>
-                        <button
-                          className="bot-log-open"
-                          type="button"
-                          aria-label={`Open full entry: ${item.title}`}
-                          title="Open full entry"
-                          onClick={(event) => {
-                            botLogOpenerRef.current = event.currentTarget;
-                            setExpandedBotLog(item);
-                          }}
-                        >
-                          <Maximize2 size={14} aria-hidden="true" />
-                        </button>
-                        <div className="markdown-body bot-log-preview">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={botLogMarkdownComponents}
-                          >
-                            {item.content}
-                          </ReactMarkdown>
-                        </div>
-                        {item.status === 'waiting-user-approval' && (
-                          <div className="bot-queue-actions">
-                            <button
-                              className="bot-queue-approve"
-                              type="button"
-                              onClick={() => onResolveBotApproval?.(item.id, true)}
-                            >
-                              <Check size={14} aria-hidden="true" />
-                              <span>Approve</span>
-                            </button>
-                            <button
-                              className="bot-queue-deny"
-                              type="button"
-                              onClick={() => onResolveBotApproval?.(item.id, false)}
-                            >
-                              <X size={14} aria-hidden="true" />
-                              <span>Deny</span>
-                            </button>
+                <div id="bot-work-view" className="bot-work-view" role="tabpanel" aria-labelledby={`bot-work-tab-${botPanelTab}`}>
+                  {selectedBotState.error && (
+                    <div className="bot-work-warning"><AlertTriangle size={15} aria-hidden="true" /><span>{selectedBotState.error}</span></div>
+                  )}
+                  {botPanelTab === 'overview' && (
+                    <div className="bot-work-overview">
+                      {selectedBotState.untrackedWorkers.length > 0 && (
+                        <section className="bot-work-section">
+                          <header><div><AlertTriangle size={14} aria-hidden="true" /><strong>Untracked workers</strong></div><small>{selectedBotState.untrackedWorkers.length}</small></header>
+                          <div className="bot-work-warning">
+                            <span>{selectedBotState.untrackedWorkers.map((worker) => worker.title || worker.id).join(', ')} must be attached to a work item or explained.</span>
                           </div>
+                        </section>
+                      )}
+                      {[
+                        ['Current work', currentBotWork],
+                        ['Needs your attention', botWorkNeedingAttention],
+                        ['Recently completed', recentlyCompletedBotWork],
+                        ['Up next', upcomingBotWork],
+                      ].map(([title, items]) => (
+                        <section className="bot-work-section" key={title}>
+                          <header><strong>{title}</strong><small>{items.length}</small></header>
+                          {items.length === 0 ? <p className="bot-work-section-empty">Nothing here right now.</p> : items.map((item) => (
+                            <BotWorkCard
+                              item={item}
+                              key={`${title}-${item.id}`}
+                              onResolveApproval={onResolveBotApproval}
+                              onOpen={(event) => {
+                                botWorkOpenerRef.current = event.currentTarget;
+                                setExpandedBotItem(item);
+                              }}
+                            />
+                          ))}
+                        </section>
+                      ))}
+                      <section className="bot-work-section">
+                        <header><strong>Recent activity</strong><small>{Math.min(recentBotActivity.length, 8)}</small></header>
+                        {recentBotActivity.length === 0 ? <p className="bot-work-section-empty">No material activity yet.</p> : (
+                          <ol className="bot-activity-list">
+                            {recentBotActivity.slice(0, 8).map((entry) => (
+                              <li key={entry.id}><span className={`bot-activity-dot ${entry.type}`} /><div><strong>{entry.summary}</strong>{entry.details && <p>{entry.details}</p>}<small>{entry.type} · {new Date(entry.createdAt).toLocaleString()}</small></div></li>
+                            ))}
+                          </ol>
                         )}
-                      </article>
-                    ))
+                      </section>
+                    </div>
+                  )}
+                  {botPanelTab === 'all-work' && (
+                    <div className="bot-all-work">
+                      <label className="bot-work-filter">
+                        <span>State</span>
+                        <select value={botWorkFilter} onChange={(event) => setBotWorkFilter(event.target.value)}>
+                          <option value="all">All</option>
+                          <option value="planned">Planned</option>
+                          <option value="active">Active</option>
+                          <option value="waiting">Waiting</option>
+                          <option value="completed">Completed</option>
+                          <option value="cancelled">Cancelled</option>
+                        </select>
+                      </label>
+                      {filteredBotWork.length === 0 ? <div className="bot-queue-empty"><Bot size={20} aria-hidden="true" /><strong>No work items</strong><span>No items match this state.</span></div> : filteredBotWork.map((item) => (
+                        <BotWorkCard
+                          item={item}
+                          key={item.id}
+                          onResolveApproval={onResolveBotApproval}
+                          onOpen={(event) => {
+                            botWorkOpenerRef.current = event.currentTarget;
+                            setExpandedBotItem(item);
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {botPanelTab === 'activity' && (
+                    recentBotActivity.length === 0 ? <div className="bot-queue-empty"><Bot size={20} aria-hidden="true" /><strong>No activity</strong><span>Material progress will appear here.</span></div> : (
+                      <ol className="bot-activity-list standalone">
+                        {recentBotActivity.map((entry) => (
+                          <li key={entry.id}><span className={`bot-activity-dot ${entry.type}`} /><div><strong>{entry.summary}</strong>{entry.details && <p>{entry.details}</p>}<small>{entry.type} · {new Date(entry.createdAt).toLocaleString()}</small></div></li>
+                        ))}
+                      </ol>
+                    )
                   )}
                 </div>
               </>
@@ -816,38 +926,33 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
         ) : null}
       </div>
       </aside>
-      {expandedBotLog && createPortal(
+      {expandedBotItem && createPortal(
         <dialog
-          ref={botLogDialogRef}
-          className="bot-log-dialog"
-          aria-labelledby="bot-log-dialog-title"
-          onClose={clearExpandedBotLog}
+          ref={botWorkDialogRef}
+          className="bot-work-dialog"
+          aria-labelledby="bot-work-dialog-title"
+          onClose={() => {
+            setExpandedBotItem(null);
+            queueMicrotask(() => botWorkOpenerRef.current?.focus());
+          }}
         >
           <header className="dialog-header">
             <div>
-              <h2 id="bot-log-dialog-title">{expandedBotLog.title}</h2>
-              <p>
-                  {expandedBotLog.kind === 'tool' ? 'Tool approval · ' : ''}
-                  {new Date(expandedBotLog.updatedAt).toLocaleString()}
-              </p>
+              <h2 id="bot-work-dialog-title">{expandedBotItem.title}</h2>
+              <p>{expandedBotItem.state} · updated {new Date(expandedBotItem.updatedAt).toLocaleString()}</p>
             </div>
-            <button
-              className="icon-button tiny"
-              type="button"
-              aria-label="Close full entry"
-              title="Close"
-              onClick={closeBotLogDialog}
-            >
+            <button className="icon-button tiny" type="button" aria-label="Close work item" title="Close" onClick={() => botWorkDialogRef.current?.close()}>
               <X size={16} aria-hidden="true" />
             </button>
           </header>
-          <div className="markdown-body bot-log-dialog-content">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={botLogMarkdownComponents}
-            >
-              {expandedBotLog.content}
-            </ReactMarkdown>
+          <div className="bot-work-dialog-content">
+            <BotWorkCard item={expandedBotItem} onResolveApproval={onResolveBotApproval} />
+            <dl className="bot-work-detail-fields">
+              <dt>Created</dt><dd>{new Date(expandedBotItem.createdAt).toLocaleString()}</dd>
+              {expandedBotItem.completedAt && <><dt>Completed</dt><dd>{new Date(expandedBotItem.completedAt).toLocaleString()}</dd></>}
+              <dt>Work item ID</dt><dd><code>{expandedBotItem.id}</code></dd>
+              {expandedBotItem.workerThreadIds?.length > 0 && <><dt>Worker thread IDs</dt><dd>{expandedBotItem.workerThreadIds.map((id) => <code key={id}>{id}</code>)}</dd></>}
+            </dl>
           </div>
         </dialog>,
         document.body,

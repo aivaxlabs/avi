@@ -17,7 +17,7 @@
   }
 
   &.conversation-filter-menu {
-    width: 180px;
+    width: 220px;
   }
 
   .dropdown-menu-item {

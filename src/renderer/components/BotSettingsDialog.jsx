@@ -182,7 +182,7 @@ export function BotSettingsDialog({
   }
 
   function clearThread() {
-    if (!window.confirm('Clear this bot conversation? Messages are removed. Memory and daily logs are kept.')) return;
+    if (!window.confirm('Clear this bot conversation? Messages are removed. Memory, work state, and approvals are kept.')) return;
     onClearThread?.(bot?.id);
   }
 
@@ -664,7 +664,7 @@ export function BotSettingsDialog({
                 <section className="bot-settings-section bot-settings-danger-zone">
                   <header>
                     <h3>What can be reset?</h3>
-                    <p>Clear conversation history without deleting memory or daily logs.</p>
+                    <p>Clear conversation history without deleting memory, work state, or approvals.</p>
                   </header>
                   <div className="bot-settings-danger-action">
                     <span>

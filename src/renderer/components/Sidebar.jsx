@@ -95,6 +95,7 @@ export const Sidebar = memo(function Sidebar({
     return ['model', 'folder'].includes(saved) ? saved : 'chronological';
   });
   const [expandedGroups, setExpandedGroups] = useState({});
+  const [showAgentCreatedThreads, setShowAgentCreatedThreads] = useState(false);
   const [activeTagIds, setActiveTagIds] = useState(() => new Set());
   const [folderMenu, setFolderMenu] = useState(null);
   const [tagsManagerOpen, setTagsManagerOpen] = useState(false);
@@ -108,8 +109,11 @@ export const Sidebar = memo(function Sidebar({
 
   const conversationGroups = useMemo(() => {
     const sortedConversations = [...conversations]
-      .filter((conversation) => activeTagIds.size === 0
-        || (conversation.tags ?? []).some((id) => activeTagIds.has(id)))
+      .filter((conversation) => (
+        (showAgentCreatedThreads || conversation.createdBy !== 'agent')
+        && (activeTagIds.size === 0
+          || (conversation.tags ?? []).some((id) => activeTagIds.has(id)))
+      ))
       .sort(
         (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
       );
@@ -230,6 +234,7 @@ export const Sidebar = memo(function Sidebar({
     models,
     running,
     semaphoreWaiting,
+    showAgentCreatedThreads,
   ]);
 
   useEffect(() => {
@@ -295,7 +300,7 @@ export const Sidebar = memo(function Sidebar({
     const rect = filterButtonRef.current.getBoundingClientRect();
     setFilterMenuPosition({
       top: rect.bottom + 4,
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - 196)),
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 236)),
     });
     setFilterMenuOpen((value) => !value);
   }
@@ -415,7 +420,10 @@ export const Sidebar = memo(function Sidebar({
         </span>
         <button
           ref={filterButtonRef}
-          className={classNames('recent-filter-button', (filterMenuOpen || activeTagIds.size > 0) && 'active')}
+          className={classNames(
+            'recent-filter-button',
+            (filterMenuOpen || showAgentCreatedThreads || activeTagIds.size > 0) && 'active',
+          )}
           type="button"
           aria-label="Filter conversations"
           title="Filter conversations"
@@ -451,9 +459,18 @@ export const Sidebar = memo(function Sidebar({
           >
             By folder
           </DropdownMenuItem>
+          <div className="dropdown-menu-divider" role="separator" />
+          <DropdownMenuItem
+            active={showAgentCreatedThreads}
+            icon={showAgentCreatedThreads ? <Check size={14} /> : <Bot size={14} />}
+            role="menuitemcheckbox"
+            aria-checked={showAgentCreatedThreads}
+            onClick={() => setShowAgentCreatedThreads((value) => !value)}
+          >
+            Show agent-created threads
+          </DropdownMenuItem>
           {chatTags.length > 0 && (
             <>
-              <div className="dropdown-menu-divider" role="separator" />
               <div className="dropdown-menu-label">Filter by tags</div>
               {chatTags.map((tag) => {
                 const checked = activeTagIds.has(tag.id);
@@ -828,9 +845,9 @@ const BotItem = memo(function BotItem({ bot, active, onSelect, onSettings, onAct
           />
         </span>
         <span className="conversation-title">{bot.name}</span>
-        {bot.pendingApprovals > 0 && (
-          <span className="bot-queue-badge" title="Pending user approvals">
-            {bot.pendingApprovals}
+        {bot.attentionCount > 0 && (
+          <span className="bot-queue-badge" title="Needs your attention">
+            {bot.attentionCount}
           </span>
         )}
         {bot.running || bot.scheduleState === 'working' ? (
