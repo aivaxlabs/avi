@@ -55,6 +55,7 @@ const CONTRIBUTION_FIELDS = Object.freeze({
     'getContributions',
     'getState',
     'invokeAction',
+    'refresh',
     'remove',
   ]),
 });
@@ -65,7 +66,7 @@ const HANDLER_KEYS = Object.freeze({
   auxiliaryPanels: new Set(['load', 'invokeAction']),
   themes: new Set(),
   personalities: new Set(),
-  providers: new Set(['createBody', 'request', 'eventsFrom', 'getContributions', 'getState', 'invokeAction', 'remove']),
+  providers: new Set(['createBody', 'request', 'eventsFrom', 'getContributions', 'getState', 'invokeAction', 'refresh', 'remove']),
 });
 const EMPTY_CONTRIBUTIONS = Object.freeze(Object.fromEntries(
   CONTRIBUTION_TYPES.map((type) => [type, Object.freeze([])]),

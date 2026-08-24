@@ -41,6 +41,7 @@ try {
         providers: [{
           descriptor: { id: 'demo-provider', name: 'Demo' },
           createBody() {}, request() {}, eventsFrom() {},
+          refresh({ provider }) { globalThis.__demoProviderRefresh = provider.id; },
           getContributions() {
             return {
               usageProviders: [{
@@ -409,6 +410,11 @@ try {
     await testRegistry.readUsageProvider('configured-active:usage'),
     { accountDetails: 'Demo plan', limits: [], counters: [] },
   );
+
+  await testRegistry.refresh('configured-active');
+  assert.equal(globalThis.__demoProviderRefresh, 'configured-active');
+  delete globalThis.__demoProviderRefresh;
+  await testRegistry.refresh('configured-unloaded');
 
   // Verify resolve returns null for models from missing provider interfaces without throwing
   assert.equal(testRegistry.resolve('configured-unloaded:m2'), null);

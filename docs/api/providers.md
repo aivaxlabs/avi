@@ -37,10 +37,13 @@ avi.providers.types.register({
   getContributions(context) {
     return { models: [], tools: [], auxiliaryPanels: [], usageProviders: [] };
   },
+  async refresh(context) {},
 });
 ```
 
 `descriptor.id`, `createBody`, `request`, and `eventsFrom` are required. Dynamic provider types participate in ModelProviderRegistry immediately and are removed on dispose.
+
+`refresh({ provider, services })` is optional. Avi awaits it after tentatively persisting a provider configuration and before returning from save. Use it to perform asynchronous model discovery or connection setup, then expose the resulting synchronous catalog from `getContributions()`. If refresh fails, Avi restores the previous provider list and reports the error.
 
 ## ProviderHandle
 

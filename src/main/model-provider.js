@@ -657,6 +657,18 @@ export class ModelProviderRegistry {
     });
   }
 
+  async refresh(providerId) {
+    const config = this.getProviders().find((provider) => provider.id === providerId);
+    if (!config || !this.providerTypes.has(config.interface)) return;
+    const provider = this.createProvider(config);
+    if (typeof provider.implementation.refresh === 'function') {
+      await provider.implementation.refresh({
+        provider: provider.config,
+        services: this.services,
+      });
+    }
+  }
+
   async remove(providerId) {
     const config = this.getProviders().find((provider) => provider.id === providerId);
     if (!config || !this.providerTypes.has(config.interface)) return;

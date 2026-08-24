@@ -7,7 +7,7 @@ const ID_PATTERN = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/i;
 export const PLUGIN_CAPABILITIES = Object.freeze([
   'threads.read', 'threads.readMessages', 'threads.create', 'threads.update',
   'threads.run', 'threads.delete', 'bots.read', 'bots.manage', 'bots.run',
-  'bots.readLogs', 'bots.approvals.resolve', 'tools.register', 'tools.intercept',
+  'bots.readState', 'bots.approvals.resolve', 'tools.register', 'tools.intercept',
   'events.subscribe', 'events.readContent', 'events.readReasoning',
   'panels.register', 'panels.manage', 'providers.read', 'providers.manage',
   'providers.types.register', 'providers.usages.register', 'providers.credentials.write', 'context.read',
