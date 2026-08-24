@@ -67,6 +67,11 @@ const personalityDescriptions = Object.freeze({
   pragmatic: 'Concise, factual, and focused on technical clarity and momentum.',
   quirky: 'Playful and imaginative, using memorable explanations without losing precision.',
 });
+const verbosityOptions = Object.freeze([
+  { value: 'low', label: 'Low', description: 'Terse UX with minimal prose and only the context needed to act.' },
+  { value: 'medium', label: 'Medium', description: 'Balanced detail for clear, actionable answers without unnecessary expansion.' },
+  { value: 'high', label: 'High', description: 'Thorough responses for audits, teaching, and hand-offs without repetition or filler.' },
+]);
 
 
 function MultiSelect({ label, onChange, options, values }) {
@@ -387,6 +392,9 @@ export function SettingsPage({
   const activePersonality = personalities.find(
     (personality) => personality.id === (tuningDraft.personality ?? 'none'),
   ) ?? personalities[0];
+  const activeVerbosity = verbosityOptions.find(
+    (option) => option.value === (tuningDraft.verbosity ?? 'medium'),
+  ) ?? verbosityOptions[1];
 
   useEffect(() => {
     if (!providerImportOpen) return undefined;
@@ -634,7 +642,7 @@ export function SettingsPage({
     'default-models': 'Choose models for supporting tasks, supervision, and sub-agent orchestration.',
     general: 'Configure chat behavior and desktop integration.',
     tuning: 'Adjust context, tool execution, parallel work, and diagnostics.',
-    personalization: 'Choose Avi’s personality, theme, and color scheme.',
+    personalization: 'Choose Avi’s personality, response detail, theme, and color scheme.',
     about: 'Project information, version, and links.',
   }[view];
   const showInlineBack = !['list', 'routers', 'context-folders', 'mcp', 'plugins', 'remote', 'aivax', 'maintenance', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
@@ -695,7 +703,7 @@ export function SettingsPage({
               Tuning
             </button>
           )}
-          {(!settingsQuery || 'personalization personality theme themes color scheme light dark monokai absolute code goblin axion preview'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'personalization personality verbosity response detail low medium high terse balanced verbose audit teaching hand-off theme themes color scheme light dark monokai absolute code goblin axion preview'.includes(settingsQuery)) && (
             <button
               className={view === 'personalization' ? 'active' : undefined}
               type="button"
@@ -1976,6 +1984,32 @@ export function SettingsPage({
                     </label>
                   </div>
                 </section>
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>Verbosity</h3>
+                    <p>Choose how much detail Avi includes in responses.</p>
+                  </div>
+                  <div className="settings-section-card settings-form">
+                    <label className="settings-field settings-field-wide">
+                      <span>Verbosity</span>
+                      <select
+                        value={tuningDraft.verbosity ?? 'medium'}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            verbosity: event.target.value,
+                          }));
+                        }}
+                      >
+                        {verbosityOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                      <small>{activeVerbosity.description}</small>
+                    </label>
+                  </div>
+                </section>
                 <AppearanceSettings
                   appearance={appearance}
                   backgroundUrl={backgroundUrl}
@@ -2148,6 +2182,38 @@ export function SettingsPage({
                           {providerState?.connection?.description && (
                             <small>{providerState.connection.description}</small>
                           )}
+                          {(selectedType?.fields ?? []).map((field) => (
+                            <label className="settings-field settings-field-wide" key={field.id}>
+                              <span>{field.label}</span>
+                              {field.type === 'select' ? (
+                                <select
+                                  value={providerDraft[field.id] ?? field.default ?? ''}
+                                  onChange={(event) => setProviderDraft({
+                                    ...providerDraft,
+                                    [field.id]: event.target.value,
+                                  })}
+                                >
+                                  {field.options.map((option) => (
+                                    <option value={option.value} key={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  type={field.type === 'password' ? 'password' : 'text'}
+                                  value={providerDraft[field.id] ?? field.default ?? ''}
+                                  placeholder={field.placeholder ?? ''}
+                                  autoComplete={field.type === 'password' ? 'off' : undefined}
+                                  onChange={(event) => setProviderDraft({
+                                    ...providerDraft,
+                                    [field.id]: event.target.value,
+                                  })}
+                                />
+                              )}
+                              {field.description && <small>{field.description}</small>}
+                            </label>
+                          ))}
                         </div>
                       ) : (
                         <>
@@ -2177,9 +2243,9 @@ export function SettingsPage({
                             />
                           </label>
                           {(selectedType?.fields ?? []).map((field) => (
-                            field.type === 'select' && (
-                              <label className="settings-field settings-field-wide" key={field.id}>
-                                <span>{field.label}</span>
+                            <label className="settings-field settings-field-wide" key={field.id}>
+                              <span>{field.label}</span>
+                              {field.type === 'select' ? (
                                 <select
                                   value={providerDraft[field.id] ?? field.default ?? ''}
                                   onChange={(event) => setProviderDraft({
@@ -2193,9 +2259,20 @@ export function SettingsPage({
                                     </option>
                                   ))}
                                 </select>
-                                {field.description && <small>{field.description}</small>}
-                              </label>
-                            )
+                              ) : (
+                                <input
+                                  type={field.type === 'password' ? 'password' : 'text'}
+                                  value={providerDraft[field.id] ?? field.default ?? ''}
+                                  placeholder={field.placeholder ?? ''}
+                                  autoComplete={field.type === 'password' ? 'off' : undefined}
+                                  onChange={(event) => setProviderDraft({
+                                    ...providerDraft,
+                                    [field.id]: event.target.value,
+                                  })}
+                                />
+                              )}
+                              {field.description && <small>{field.description}</small>}
+                            </label>
                           ))}
                         </>
                       )}

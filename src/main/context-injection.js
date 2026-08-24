@@ -38,6 +38,9 @@ const cynicalPersonality = readFileSync(new URL('../prompts/personality/cynical.
 const friendlyPersonality = readFileSync(new URL('../prompts/personality/friendly.md', import.meta.url), 'utf8');
 const pragmaticPersonality = readFileSync(new URL('../prompts/personality/pragmatic.md', import.meta.url), 'utf8');
 const quirkyPersonality = readFileSync(new URL('../prompts/personality/quirky.md', import.meta.url), 'utf8');
+const lowVerbosity = readFileSync(new URL('../prompts/verbosity/low.md', import.meta.url), 'utf8');
+const mediumVerbosity = readFileSync(new URL('../prompts/verbosity/medium.md', import.meta.url), 'utf8');
+const highVerbosity = readFileSync(new URL('../prompts/verbosity/high.md', import.meta.url), 'utf8');
 
 const INSTALLATION_CONTEXT_DIRECTORY_NAME = 'context';
 const INSTRUCTION_FILE_PATTERN = /^(?:(?:AGENTS|MEMORY)(?:\.[^.]+)*|CLAUDE|GEMINI|.+\.INSTRUCTIONS|.+\.AGENTS)\.md$/i;
@@ -88,6 +91,11 @@ export const dynamicContextInjectors = new Map([
       personality.instructions,
     ])),
   }[bot?.personality ?? tuning?.personality] ?? '')],
+  ['verbosity', ({ tuning } = {}) => ({
+    low: lowVerbosity,
+    medium: mediumVerbosity,
+    high: highVerbosity,
+  }[tuning?.verbosity] ?? mediumVerbosity)],
   ['bot', ({ bot } = {}) => {
     if (!bot) return '';
     return [
@@ -98,7 +106,7 @@ export const dynamicContextInjectors = new Map([
       `Bot id: ${bot.id}`,
       `Working folder: ${bot.workingFolder}`,
       `Bot data folder: ${bot.dataFolder}`,
-      `Memory and daily log files: ${bot.workFiles.join(', ')} (in the bot data folder; manage JSON logs only through bot_daily_* tools)`,
+      `Memory and work-state files: ${bot.workFiles.join(', ')} (in the bot data folder; manage JSON state only through bot_work_* tools)`,
       `Activation mode: ${bot.activationMode} (every ${bot.activationPeriodMinutes} minutes)`,
       `Pending user approvals: ${bot.pendingApprovals}`,
       ...(String(bot.instructions ?? '').trim()
@@ -424,6 +432,7 @@ export async function resolveDynamicContext(invocationContext = {}) {
   if (invocationContext.quickChat) {
     return [
       quickChatInstructions,
+      dynamicContextInjectors.get('verbosity')?.(invocationContext),
       dynamicContextInjectors.get('memory')?.(invocationContext),
       dynamicContextInjectors.get('mcp')?.(invocationContext),
       dynamicContextInjectors.get('environment')?.(invocationContext),
@@ -434,15 +443,18 @@ export async function resolveDynamicContext(invocationContext = {}) {
   }
 
   const personalityInjector = dynamicContextInjectors.get('personality');
+  const verbosityInjector = dynamicContextInjectors.get('verbosity');
   const instructionsInjector = dynamicContextInjectors.get('instructions');
   const postInjectorNames = POST_INSTRUCTION_CONTEXT_ORDER
     .filter((name) => name !== 'memory' || !invocationContext.bot);
   const [
     personalityContext,
+    verbosityContext,
     instructionContexts,
     ...environmentContexts
   ] = await Promise.all([
     personalityInjector?.(invocationContext),
+    verbosityInjector?.(invocationContext),
     instructionsInjector?.(invocationContext),
     ...postInjectorNames.map((name) => (
       dynamicContextInjectors.get(name)?.(invocationContext)
@@ -451,6 +463,7 @@ export async function resolveDynamicContext(invocationContext = {}) {
   const contexts = [
     baseInstructions,
     personalityContext,
+    verbosityContext,
     ...instructionContexts,
     ...environmentContexts,
   ];

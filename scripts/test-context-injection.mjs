@@ -23,6 +23,9 @@ import cynicalPersonality from '../src/prompts/personality/cynical.md' with { ty
 import friendlyPersonality from '../src/prompts/personality/friendly.md' with { type: 'text' };
 import pragmaticPersonality from '../src/prompts/personality/pragmatic.md' with { type: 'text' };
 import quirkyPersonality from '../src/prompts/personality/quirky.md' with { type: 'text' };
+import highVerbosity from '../src/prompts/verbosity/high.md' with { type: 'text' };
+import lowVerbosity from '../src/prompts/verbosity/low.md' with { type: 'text' };
+import mediumVerbosity from '../src/prompts/verbosity/medium.md' with { type: 'text' };
 
 const root = await mkdtemp(path.join(tmpdir(), 'context-variants-'));
 const testHome = await mkdtemp(path.join(tmpdir(), 'context-home-'));
@@ -356,7 +359,7 @@ try {
       name: 'Context test bot',
       workingFolder: root,
       dataFolder: path.join(root, '.avi-bots', 'bot-context-test'),
-      workFiles: ['MEMORY.md', 'backlog.json'],
+      workFiles: ['MEMORY.md', 'work-items.json', 'activity.json'],
       activationMode: 'scheduled',
       activationPeriodMinutes: 10,
       pendingApprovals: 0,
@@ -374,11 +377,17 @@ try {
     assert.ok(botInjected.includes(botOnlyMarker), `Bot context is missing: ${botOnlyMarker}`);
   }
   for (const statusPolicyMarker of [
-    'Ordinary delegation is not a blocker',
-    'Move that entry to `blocked` and record why approval is required',
-    'After denial, do not discard automatically',
-    'Do not use it merely because the user may read the final report',
-    'no user action remains',
+    'understand within seconds',
+    '`planned`, `active`, `waiting`, `completed`, or `cancelled`',
+    'A good update answers “where are we now?”',
+    'Continue with other independent items',
+    'Execute work directly by default',
+    'Never delegate simple exploration, listing, searching, data collection, status checks, read-only audits, research, triage, short diagnostics',
+    'A difficult task is not automatically a delegated task',
+    'Do not ask the user to approve work they already explicitly requested',
+    'ordinary completion steps inside the authorized scope as already approved',
+    'Never use approval merely to reconfirm an editorial direction, correction, implementation, or validation',
+    'The Bots panel is the durable overview',
   ]) {
     assert.ok(
       botInjected.includes(statusPolicyMarker),
@@ -430,7 +439,7 @@ try {
   const orderedContext = await resolveDynamicContext({
     workspacePath: root,
     installationContextPath: installationContextDirectory,
-    tuning: { personality: 'friendly' },
+    tuning: { personality: 'friendly', verbosity: 'high' },
     mcpInstructions: [{
       from: 'ordering-test',
       text: 'MCP ordering test instructions',
@@ -439,6 +448,7 @@ try {
   const orderedMarkers = [
     baseInstructions.trim(),
     friendlyPersonality.trim(),
+    highVerbosity.trim(),
     '# Avi installation instructions',
     '# Global test instructions',
     '# AGENTS.md',
@@ -453,6 +463,32 @@ try {
       `${orderedMarkers[index - 1]} must precede ${orderedMarkers[index]}`,
     );
   }
+
+  for (const tuning of [undefined, { verbosity: 'invalid' }]) {
+    const defaultVerbosityContext = await resolveDynamicContext({ workspacePath: root, tuning });
+    assert.ok(defaultVerbosityContext.includes(mediumVerbosity.trim()));
+    assert.ok(!defaultVerbosityContext.includes(lowVerbosity.trim()));
+    assert.ok(!defaultVerbosityContext.includes(highVerbosity.trim()));
+  }
+
+  for (const [verbosity, prompt] of Object.entries({
+    low: lowVerbosity,
+    medium: mediumVerbosity,
+    high: highVerbosity,
+  })) {
+    const verbosityContext = await resolveDynamicContext({
+      workspacePath: root,
+      tuning: { verbosity },
+    });
+    assert.ok(verbosityContext.includes(prompt.trim()));
+  }
+
+  const quickChatVerbosityContext = await resolveDynamicContext({
+    quickChat: true,
+    tuning: { verbosity: 'high' },
+  });
+  assert.ok(quickChatVerbosityContext.includes(highVerbosity.trim()));
+  assert.ok(!quickChatVerbosityContext.includes(mediumVerbosity.trim()));
 
   const friendlyContext = await resolveDynamicContext({
     workspacePath: root,

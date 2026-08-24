@@ -42,6 +42,7 @@ let providerCredentialsKey = null;
 
 const defaultTuningSettings = Object.freeze({
   personality: null,
+  verbosity: 'medium',
   chatReasoningTraces: 'visible',
   continuationRepliesEnabled: true,
   automaticCompactionThreshold: 0.9,
@@ -2593,6 +2594,9 @@ function normalizeTuningSettings(value, strict = false) {
       && /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/i.test(tuning.personality)
       ? tuning.personality
       : defaultTuningSettings.personality,
+    verbosity: ['low', 'medium', 'high'].includes(tuning.verbosity)
+      ? tuning.verbosity
+      : defaultTuningSettings.verbosity,
     chatReasoningTraces: ['visible', 'hidden'].includes(tuning.chatReasoningTraces)
       ? tuning.chatReasoningTraces
       : defaultTuningSettings.chatReasoningTraces,

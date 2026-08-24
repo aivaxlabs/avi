@@ -35,6 +35,7 @@ try {
   } = database;
   assert.deepEqual(getPreferences().tuning, {
     personality: null,
+    verbosity: 'medium',
     chatReasoningTraces: 'visible',
     continuationRepliesEnabled: true,
     automaticCompactionThreshold: 0.9,
@@ -48,6 +49,7 @@ try {
   });
   assert.deepEqual(setTuningSettings({
     personality: 'friendly',
+    verbosity: 'high',
     chatReasoningTraces: 'hidden',
     continuationRepliesEnabled: false,
     automaticCompactionThreshold: 0.8,
@@ -60,6 +62,7 @@ try {
     logLevel: 'verbose',
   }), {
     personality: 'friendly',
+    verbosity: 'high',
     chatReasoningTraces: 'hidden',
     continuationRepliesEnabled: false,
     automaticCompactionThreshold: 0.8,
@@ -72,6 +75,7 @@ try {
     logLevel: 'verbose',
   });
   assert.equal(getPreferences().tuning.personality, 'friendly');
+  assert.equal(getPreferences().tuning.verbosity, 'high');
   assert.equal(getPreferences().tuning.chatReasoningTraces, 'hidden');
   assert.equal(getPreferences().tuning.continuationRepliesEnabled, false);
   assert.equal(getPreferences().tuning.terminalTimeoutSeconds, 45);
@@ -88,6 +92,19 @@ try {
       personality,
     }).personality, personality);
   }
+  for (const verbosity of ['low', 'medium', 'high']) {
+    assert.equal(setTuningSettings({
+      ...getPreferences().tuning,
+      verbosity,
+    }).verbosity, verbosity);
+  }
+  assert.throws(
+    () => setTuningSettings({
+      ...getPreferences().tuning,
+      verbosity: 'invalid',
+    }),
+    /outside their allowed range/,
+  );
   assert.throws(
     () => setTuningSettings({
       ...getPreferences().tuning,
@@ -360,8 +377,10 @@ try {
     inspectedStructuredThread,
     /<\|user_start\|>Inspect this media\.\n<<image_media>>\n<<audio_media>>\n<<file_media>><\|user_end\|>/,
   );
-  assert.match(inspectedStructuredThread, /<\|tool_call=web_search\|>/);
-  assert.doesNotMatch(inspectedStructuredThread, /call-123|clima em rio preto|tool_result|x{100}/);
+  assert.doesNotMatch(
+    inspectedStructuredThread,
+    /tool_call|web_search|call-123|clima em rio preto|tool_result|x{100}/,
+  );
   assert.match(
     inspectedStructuredThread,
     /<\|assistant_start\|><<video_media>><\|assistant_end\|>/,
@@ -731,7 +750,7 @@ try {
     { chatRunner: questionRunner, conversationId: spawnedThreadId },
   );
   assert.match(inspectedQuestion, /status: waiting_for_input/);
-  assert.match(inspectedQuestion, /<\|tool_call=ask_question\|>/);
+  assert.doesNotMatch(inspectedQuestion, /tool_call|ask_question/);
   assert.doesNotMatch(
     inspectedQuestion,
     new RegExp(pendingQuestions[0].question.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
