@@ -3,13 +3,17 @@ import { spawnSync } from 'node:child_process';
 import {
   mkdir,
   mkdtemp,
+  open,
   readFile,
   rm,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { attachmentContentSizeLimit } from '../src/shared/attachments.js';
+import { fileToAttachment } from '../src/renderer/lib/files.js';
 import {
+  filePathToAttachment,
   inspectWorkspaceFiles,
   listWorkspaceDirectory,
   normalizeAttachmentsForModel,
@@ -335,6 +339,48 @@ try {
   assert.deepEqual(await readFile(clipboardAttachments[0].path), imageData);
   assert.deepEqual(await readFile(clipboardAttachments[1].path), pdfData);
   await rm(dirname(clipboardAttachments[0].path), { recursive: true, force: true });
+
+  const largeFilePath = join(testRoot, 'large.bin');
+  const largeFile = await open(largeFilePath, 'w');
+  await largeFile.truncate(attachmentContentSizeLimit + 1);
+  await largeFile.close();
+  const largeFileAttachment = filePathToAttachment(largeFilePath);
+  assert.equal(largeFileAttachment.kind, 'file_reference');
+  assert.equal(largeFileAttachment.size, attachmentContentSizeLimit + 1);
+  assert.equal(largeFileAttachment.path, resolve(largeFilePath));
+  assert.equal('dataUrl' in largeFileAttachment, false);
+
+  let exactLimitRead = false;
+  const exactLimitAttachment = await fileToAttachment({
+    name: 'exact-limit.txt',
+    type: 'text/plain',
+    size: attachmentContentSizeLimit,
+    path: join(testRoot, 'exact-limit.txt'),
+    text: async () => {
+      exactLimitRead = true;
+      return 'content';
+    },
+  });
+  assert.equal(exactLimitRead, true);
+  assert.equal(exactLimitAttachment.kind, 'text_inline');
+  assert.equal(exactLimitAttachment.text, 'content');
+
+  const largeRendererAttachment = await fileToAttachment({
+    name: 'large.txt',
+    type: 'text/plain',
+    size: attachmentContentSizeLimit + 1,
+    path: largeFilePath,
+    text: async () => {
+      throw new Error('Large file content must not be read.');
+    },
+  }, 'clipboard');
+  assert.equal(largeRendererAttachment.kind, 'file_reference');
+  assert.equal(largeRendererAttachment.path, largeFilePath);
+  assert.equal('text' in largeRendererAttachment, false);
+  const [normalizedLargeRendererAttachment] = await normalizeAttachmentsForModel([
+    largeRendererAttachment,
+  ]);
+  assert.equal(normalizedLargeRendererAttachment, largeRendererAttachment);
 
   console.log('Files panel tests passed.');
 } finally {

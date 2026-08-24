@@ -1,3 +1,5 @@
+import { attachmentContentSizeLimit } from '../../shared/attachments.js';
+
 const imageExtensions = new Set(['avif', 'bmp', 'gif', 'jpeg', 'jpg', 'png', 'webp']);
 const audioExtensions = new Set(['flac', 'm4a', 'mp3', 'oga', 'ogg', 'wav', 'webm']);
 const videoExtensions = new Set(['avi', 'm4v', 'mov', 'mp4', 'mpeg', 'mpg', 'webm']);
@@ -22,15 +24,17 @@ const textExtensions = new Set([
 
 export async function fileToAttachment(file, source = null) {
   const kind = kindFromFile(file);
+  const path = typeof file.path === 'string' && file.path.trim() ? file.path : null;
   const attachment = {
     id: crypto.randomUUID(),
     name: file.name,
     mime: file.type || 'application/octet-stream',
     size: file.size,
-    kind,
+    kind: file.size > attachmentContentSizeLimit && path ? 'file_reference' : kind,
     ...(source ? { source } : {}),
-    ...(typeof file.path === 'string' && file.path.trim() ? { path: file.path } : {}),
+    ...(path ? { path } : {}),
   };
+  if (attachment.kind === 'file_reference') return attachment;
   if (kind === 'text_inline') {
     return {
       ...attachment,

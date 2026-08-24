@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import {
   lstat,
   mkdir,
@@ -21,6 +21,7 @@ import {
 import { tmpdir } from 'node:os';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
+import { attachmentContentSizeLimit } from '../shared/attachments.js';
 
 const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.avif']);
 const videoExtensions = new Set(['.mp4', '.webm', '.mov', '.m4v', '.avi', '.mkv']);
@@ -98,6 +99,10 @@ export function filePathToAttachment(filePath) {
   const ext = extname(path).toLowerCase();
   const name = basename(path);
   const mime = mimeTypes[ext] ?? 'application/octet-stream';
+  const size = statSync(path).size;
+  if (size > attachmentContentSizeLimit) {
+    return makeAttachment({ name, mime, size, kind: 'file_reference', path });
+  }
   const buffer = readFileSync(path);
   const base64 = buffer.toString('base64');
   const dataUrl = `data:${mime};base64,${base64}`;
@@ -121,7 +126,11 @@ export async function normalizeAttachmentsForModel(attachments, capabilities = {
   const clipboardDirectory = resolve(temporaryAttachmentDirectory, String(Date.now()));
   return Promise.all(attachments.map(async (originalAttachment) => {
     let attachment = originalAttachment;
-    if (attachment.source === 'clipboard' && !attachment.temporary) {
+    if (
+      attachment.source === 'clipboard'
+      && attachment.kind !== 'file_reference'
+      && !attachment.temporary
+    ) {
       const buffer = attachmentToBuffer(attachment);
       if (!buffer) {
         throw new Error(`Could not create a local copy of "${attachment.name ?? 'attachment'}".`);
