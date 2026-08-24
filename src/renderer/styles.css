@@ -4857,7 +4857,8 @@ button svg {
     flex: 0 0 auto;
     min-height: 0;
     max-height: 220px;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
     display: grid;
     align-content: start;
     gap: 2px;
@@ -4865,6 +4866,33 @@ button svg {
     scrollbar-gutter: stable;
     scrollbar-width: thin;
     scrollbar-color: var(--text-4) transparent;
+}
+
+.sidebar-bots::-webkit-scrollbar {
+    width: 10px;
+}
+
+.sidebar-bots::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.sidebar-bots::-webkit-scrollbar-thumb {
+    min-height: 44px;
+    background: var(--text-4);
+    background-clip: padding-box;
+    border: 3px solid transparent;
+    border-radius: 999px;
+}
+
+.sidebar-bots:hover::-webkit-scrollbar-thumb {
+    background: var(--text-3);
+    background-clip: padding-box;
+}
+
+.sidebar-bots::-webkit-scrollbar-button {
+    width: 0;
+    height: 0;
+    display: none;
 }
 
 .sidebar-bots .conversation-main {
