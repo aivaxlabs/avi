@@ -27,6 +27,7 @@ const markup = renderToStaticMarkup(React.createElement(Sidebar, {
     conversation('3', 'Completed task', 'Alpha'),
     conversation('4', 'Ordinary chat', 'Beta'),
     { ...conversation('5', 'Agent-created thread', 'Beta'), createdBy: 'agent' },
+    { ...conversation('6', 'Blocked task', 'Gamma'), workStatus: 'blocked' },
   ],
   bots: [
     { id: 'working-bot', conversationId: 'bot-1', name: 'Working bot', running: true, scheduleState: 'working' },
@@ -71,6 +72,8 @@ assert.ok(foldersIndex > reviewIndex, 'Folders should be rendered after both tas
 const workingMarkup = markup.slice(workingIndex, reviewIndex);
 assert.match(workingMarkup, /Active task/);
 assert.match(workingMarkup, /Needs attention/);
+assert.match(workingMarkup, /Blocked task/);
+assert.match(workingMarkup, /aria-label="Blocked"/);
 assert.doesNotMatch(workingMarkup, /Completed task/);
 
 const reviewMarkup = markup.slice(reviewIndex, foldersIndex);
@@ -78,7 +81,7 @@ assert.match(reviewMarkup, /Completed task/);
 assert.doesNotMatch(reviewMarkup, /Needs attention/);
 
 const foldersMarkup = markup.slice(foldersIndex);
-for (const title of ['Active task', 'Needs attention', 'Completed task', 'Ordinary chat']) {
+for (const title of ['Active task', 'Needs attention', 'Completed task', 'Ordinary chat', 'Blocked task']) {
   assert.match(foldersMarkup, new RegExp(title));
 }
 assert.doesNotMatch(markup, /Agent-created thread/);

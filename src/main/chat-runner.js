@@ -26,6 +26,7 @@ import {
   listSubagents,
   listTasks,
   messageToApiBlock,
+  replaceTasks,
   messageToApiBlocks,
   setLastModel,
   toModelMessages,
@@ -80,6 +81,7 @@ const PLAN_TOOL_NAMES = new Set([
   'sleep',
   'sleep_semaphore',
   'release_semaphore',
+  'update_semaphore_status',
   'read_url',
 ]);
 const COMPACTION_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a self-contained handoff checkpoint for another LLM that will resume this exact task. The checkpoint becomes the sole conversation history; no earlier messages, in-flight assistant content, tool calls, or tool results will remain available. Preserve all critical information from the supplied context while using substantially fewer tokens. Do not continue the task itself.
@@ -229,27 +231,30 @@ export class ChatRunner {
     this.shuttingDown = false;
     this.semaphores = new SemaphoreManager({
       onChanged: (waits) => {
-        this.sendEvent({ type: 'semaphore-state', waits });
+        this.sendEvent({
+          type: 'semaphore-state',
+          waits,
+          semaphores: this.semaphores?.globalSnapshot() ?? [],
+        });
       },
       onReady: (waiter) => {
         void this.resumeSemaphore(waiter).catch((error) => {
+          const message = `Semaphore "${waiter.name}" was granted, but the thread could not resume: ${error instanceof Error ? error.message : String(error)}`;
           try {
-            this.semaphores.release({
+            this.setSemaphoreBlocked({
               conversationId: waiter.conversationId,
               name: waiter.name,
-              count: waiter.count,
+              blocked: true,
+              summary: message,
             });
-          } catch (releaseError) {
-            traceError('semaphore.resume-release-error', {
+          } catch (blockError) {
+            traceError('semaphore.resume-block-error', {
               thread_id: waiter.conversationId,
               semaphore: waiter.name,
-              error: releaseError instanceof Error ? releaseError.message : String(releaseError),
+              error: blockError instanceof Error ? blockError.message : String(blockError),
             });
           }
-          this.emit(waiter.conversationId, {
-            type: 'error',
-            message: `Semaphore "${waiter.name}" was granted, but the thread could not resume: ${error instanceof Error ? error.message : String(error)}`,
-          });
+          this.emit(waiter.conversationId, { type: 'error', message });
         });
       },
     });
@@ -3185,8 +3190,80 @@ export class ChatRunner {
     });
   }
 
+  replaceTasks(conversationId, tasks) {
+    if (!Array.isArray(tasks) || tasks.length > 100) {
+      throw new Error('tasks must be an array with at most 100 items.');
+    }
+    if (tasks.some((task) => (
+      !task
+      || typeof task !== 'object'
+      || Array.isArray(task)
+      || typeof task.title !== 'string'
+      || typeof task.description !== 'string'
+      || typeof task.done !== 'boolean'
+      || (task.status !== undefined && !['pending', 'completed', 'inconclusive'].includes(task.status))
+      || (task.result !== null && typeof task.result !== 'string')
+    ))) {
+      throw new Error('Each task must contain a string title and description, boolean done, optional valid status, and string or null result.');
+    }
+    const normalized = tasks.map((task) => {
+      const status = task.status ?? (task.done ? 'completed' : 'pending');
+      return {
+        title: task.title.trim(),
+        description: task.description.trim(),
+        done: status === 'completed',
+        status,
+        result: task.result?.trim() || null,
+      };
+    });
+    if (normalized.some((task) => (
+      !task.title
+      || task.title.length > 200
+      || task.description.length > 2000
+      || (task.result?.length ?? 0) > 4000
+    ))) {
+      throw new Error('One or more tasks exceed the allowed field limits.');
+    }
+    if (normalized.some((task) => task.status === 'inconclusive' && !task.result)) {
+      throw new Error('Inconclusive tasks require a result explaining the concrete blocker.');
+    }
+    const persisted = replaceTasks(conversationId, normalized);
+    this.emit(conversationId, { type: 'tasks', tasks: persisted });
+    this.emit(conversationId, {
+      type: 'block-state',
+      blocked: this.isConversationBlocked(conversationId),
+    });
+    return persisted;
+  }
+
   releaseSemaphore({ conversationId, name, count }) {
-    return this.semaphores.release({ conversationId, name, count });
+    const result = this.semaphores.release({ conversationId, name, count });
+    this.emit(conversationId, {
+      type: 'block-state',
+      blocked: this.isConversationBlocked(conversationId),
+    });
+    return result;
+  }
+
+  setSemaphoreBlocked({ conversationId, name, blocked, summary }) {
+    const result = this.semaphores.setBlocked({
+      conversationId,
+      name,
+      blocked,
+      summary,
+    });
+    this.emit(conversationId, {
+      type: 'block-state',
+      blocked: this.isConversationBlocked(conversationId),
+    });
+    return result;
+  }
+
+  isConversationBlocked(conversationId) {
+    const goal = getGoalForConversation(conversationId);
+    return goal?.status === 'blocked'
+      || listTasks(conversationId).some((task) => task.status === 'inconclusive')
+      || this.semaphores.holdings(conversationId).some((holding) => holding.blocked);
   }
 
   async resumeSemaphore(waiter, { forced = false } = {}) {
@@ -3473,6 +3550,37 @@ export class ChatRunner {
     return true;
   }
 
+  continueConceptualLock(conversationId, current, text) {
+    const conversation = getConversation(conversationId);
+    if (!conversation || this.runs.has(conversationId)) return false;
+    const userMessage = this.createUserMessage({
+      conversationId,
+      model: current?.model ?? conversation.model,
+      reasoningEffort: current?.reasoningEffort ?? null,
+      permissionMode: current?.permissionMode ?? 'approve_for_me',
+      workMode: current?.workMode ?? null,
+      ultraMode: current?.ultraMode ?? false,
+      goalId: current?.goalId ?? null,
+      hidden: true,
+      text,
+      attachments: [],
+      status: 'sent',
+    });
+    this.emit(conversationId, { type: 'message', message: userMessage });
+    this.start({
+      conversationId,
+      model: current?.model ?? conversation.model,
+      userMessageId: userMessage.id,
+      queue: [],
+      reasoningEffort: current?.reasoningEffort ?? null,
+      permissionMode: current?.permissionMode ?? 'approve_for_me',
+      workMode: current?.workMode ?? null,
+      ultraMode: current?.ultraMode ?? false,
+      goalId: current?.goalId ?? null,
+    });
+    return true;
+  }
+
   hasActiveSubagents(conversationId) {
     return listSubagents(conversationId).some((subagent) => {
       if (this.runs.has(subagent.id)) return true;
@@ -3688,15 +3796,43 @@ export class ChatRunner {
           ? getGoal(current.goalId)
           : getGoalForConversation(conversationId)
         : null;
-      if (continuingGoal?.status === 'active' && this.continueGoal(continuingGoal)) return;
-      // Threads that go idle without releasing would block FIFO waiters forever;
-      // paused (queuePaused), steering, and goal-continuing runs keep their permits.
-      const releasedHoldings = this.semaphores.releaseAll(conversationId);
-      if (releasedHoldings.length > 0) {
-        traceVerbose('semaphore.auto-release', {
-          thread_id: conversationId,
-          semaphores: releasedHoldings.map(({ name, count }) => ({ name, count })),
-        });
+      if (this.isConversationBlocked(conversationId)) {
+        this.emit(conversationId, { type: 'block-state', blocked: true });
+      } else if (continuingGoal?.status === 'active' && this.continueGoal(continuingGoal)) {
+        return;
+      } else {
+        const latestUserMessage = getMessages(conversationId)
+          .findLast((message) => message.role === 'user');
+        const conceptualHookAlreadySent = latestUserMessage?.hidden && (
+          latestUserMessage.content.includes('<task_continuation>')
+          || latestUserMessage.content.includes('<semaphore_release_required>')
+        );
+        const pendingTasks = listTasks(conversationId).filter((task) => (
+          (task.status ?? (task.done ? 'completed' : 'pending')) === 'pending'
+        ));
+        if (
+          !conceptualHookAlreadySent
+          && current?.workMode !== 'plan'
+          && pendingTasks.length > 0
+          && this.continueConceptualLock(conversationId, current, [
+          '<task_continuation>',
+          `You finished the turn with ${pendingTasks.length} internal task(s) still pending. Continue the work and complete them. Keep update_tasks accurate as progress changes. If a concrete blocker makes a task impossible to complete without the user, mark that task status as "inconclusive" and explain the blocker in its result. Do not repeat completed work.`,
+          '</task_continuation>',
+        ].join('\n'))
+        ) return;
+
+        const holdings = this.semaphores.holdings(conversationId);
+        if (!conceptualHookAlreadySent && holdings.length > 0) {
+          const waitingCount = this.semaphores.globalSnapshot()
+            .filter((semaphore) => holdings.some((holding) => holding.name === semaphore.name))
+            .reduce((total, semaphore) => total + semaphore.queue.length, 0);
+          if (this.continueConceptualLock(conversationId, current, [
+            '<semaphore_release_required>',
+            `You finished the turn while still holding ${holdings.length} semaphore lock(s), with ${waitingCount} thread(s) waiting across them. Release every permit whose protected work is complete. If a concrete blocker requires user intervention while a permit must remain held, call update_semaphore_status with status "blocked" and explain the blocker.`,
+            `Owned semaphore permits: ${JSON.stringify(holdings.map(({ name, count }) => ({ name, count })))}`,
+            '</semaphore_release_required>',
+          ].join('\n'))) return;
+        }
       }
       const conversation = getConversation(conversationId);
       if (current?.completedAssistantMessage) {
@@ -3775,9 +3911,13 @@ export class ChatRunner {
   }
 
   emitConversation(conversationId) {
+    const conversation = getConversation(conversationId);
     this.emit(conversationId, {
       type: 'conversation',
-      conversation: getConversation(conversationId),
+      conversation: conversation && {
+        ...conversation,
+        workStatus: this.isConversationBlocked(conversationId) ? 'blocked' : null,
+      },
     });
   }
 }

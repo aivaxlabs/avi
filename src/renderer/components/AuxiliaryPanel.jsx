@@ -734,14 +734,17 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
         ) : showingTasks ? (
           <div className="task-list">
             <header><strong>{tasks.filter((task) => task.done).length}/{tasks.length} completed</strong><span>Defined and updated by the agent</span></header>
-            {tasks.map((task, index) => (
-              <article className={`task-list-item${task.done ? ' done' : ''}`} key={`${index}-${task.title}`}>
-                <span className="task-check" aria-label={task.done ? 'Completed' : 'Pending'}>
-                  {task.done ? <Check size={13} aria-hidden="true" /> : index + 1}
-                </span>
-                <span><strong>{task.title}</strong>{task.description && <p>{task.description}</p>}{task.result && <small>{task.result}</small>}</span>
-              </article>
-            ))}
+            {tasks.map((task, index) => {
+              const inconclusive = task.status === 'inconclusive';
+              return (
+                <article className={`task-list-item${task.done ? ' done' : ''}${inconclusive ? ' blocked' : ''}`} key={`${index}-${task.title}`}>
+                  <span className="task-check" aria-label={task.done ? 'Completed' : inconclusive ? 'Inconclusive' : 'Pending'}>
+                    {task.done ? <Check size={13} aria-hidden="true" /> : inconclusive ? <AlertTriangle size={13} aria-hidden="true" /> : index + 1}
+                  </span>
+                  <span><strong>{task.title}</strong>{task.description && <p>{task.description}</p>}{task.result && <small>{task.result}</small>}</span>
+                </article>
+              );
+            })}
           </div>
         ) : showingFiles ? (
           <FilesPanel

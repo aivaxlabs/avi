@@ -1218,10 +1218,16 @@ function registerIpc() {
     })),
   }));
   applicationIpc.handle('semaphores:state', semaphoreState);
-  applicationIpc.handle('semaphores:reset', (_event, name) => ({
-    ...chatRunner.semaphores.reset(name),
-    semaphores: semaphoreState(),
-  }));
+  applicationIpc.handle('semaphores:reset', (_event, name) => {
+    const result = chatRunner.semaphores.reset(name);
+    for (const holder of result.released) {
+      chatRunner.emit(holder.conversationId, {
+        type: 'block-state',
+        blocked: chatRunner.isConversationBlocked(holder.conversationId),
+      });
+    }
+    return { ...result, semaphores: semaphoreState() };
+  });
 
   applicationIpc.handle('conversations:list', () => listConversationsWithProjects());
   applicationIpc.handle('conversations:create', (_event, payload = {}) => (
@@ -2408,7 +2414,11 @@ function listConversationsWithProjects() {
     const project = projects.get(conversation.projectPath)
       ?? inspectProjectFolder(conversation.projectPath);
     projects.set(conversation.projectPath, project);
-    return { ...conversation, gitBranch: project.gitBranch };
+    return {
+      ...conversation,
+      gitBranch: project.gitBranch,
+      workStatus: chatRunner?.isConversationBlocked(conversation.id) ? 'blocked' : null,
+    };
   });
 }
 

@@ -199,7 +199,7 @@ export const dynamicContextInjectors = new Map([
     Array.isArray(semaphoreHoldings) && semaphoreHoldings.length > 0
       ? [
         '<semaphore_locks>',
-        'This thread currently owns the following Avi semaphore permits. Treat each permit as an active coordination lock: perform only the protected work authorized by the semaphore, do not assume another thread can enter the protected section, and call release_semaphore with the exact name and count as soon as that work is complete. Release permits before waiting on unrelated work, reporting a blocker, or ending the task. Never release permits owned by another thread.',
+        'This thread currently owns the following Avi semaphore permits. Treat each permit as an active coordination lock: perform only the protected work authorized by the semaphore, do not assume another thread can enter the protected section, and call release_semaphore with the exact name and count as soon as that work is complete. Release permits before waiting on unrelated work or ending the task. If a concrete blocker requires user intervention while the permit must remain held, call update_semaphore_status with status "blocked" and explain the blocker. Never release permits owned by another thread.',
         ...semaphoreHoldings.map((holding) => (
           `<semaphore name="${escapeXml(holding.name)}" count="${holding.count}" max_count="${holding.maxCount}" />`
         )),
@@ -211,9 +211,9 @@ export const dynamicContextInjectors = new Map([
     Array.isArray(tasks) && tasks.length > 0
       ? [
         '<thread_tasks>',
-        'This is the persistent task list for the current thread. Keep it accurate with update_tasks when progress changes. Tasks do not replace Goal status or its acceptance criteria.',
+        'This is the persistent task list for the current thread. Keep it accurate with update_tasks when progress changes. Mark a task inconclusive only when a concrete blocker prevents completion. Tasks do not replace Goal status or its acceptance criteria.',
         ...tasks.flatMap((task, index) => [
-          `<task index="${index + 1}" done="${Boolean(task.done)}">`,
+          `<task index="${index + 1}" status="${escapeXml(task.status ?? (task.done ? 'completed' : 'pending'))}" done="${Boolean(task.done)}">`,
           `<title>${escapeXml(task.title)}</title>`,
           task.description ? `<description>${escapeXml(task.description)}</description>` : '',
           task.result ? `<result>${escapeXml(task.result)}</result>` : '',

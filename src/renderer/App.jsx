@@ -551,6 +551,12 @@ export default function App() {
             ));
           });
         }
+      } else if (event.type === 'block-state') {
+        setConversations((state) => state.map((conversation) => (
+          conversation.id === event.conversationId
+            ? { ...conversation, workStatus: event.blocked ? 'blocked' : null }
+            : conversation
+        )));
       } else if (event.type === 'conversation') {
         if (event.conversation.isBot) {
           void refreshBots();

@@ -172,6 +172,7 @@ export const Sidebar = memo(function Sidebar({
           || approvalPending[conversation.id]
           || inputPending[conversation.id]
           || semaphoreWaiting[conversation.id]
+          || conversation.workStatus === 'blocked'
           || conversation.needsAttention
         ));
         const workingTaskIds = new Set(workingTasks.map((conversation) => conversation.id));
@@ -940,7 +941,9 @@ const ConversationItem = memo(function ConversationItem({
         ? { icon: Moon, className: 'sleep-indicator', label: 'Waiting for semaphore', size: 13 }
         : running
           ? { icon: LoaderCircle, className: 'run-spinner', label: 'Working', size: 12 }
-          : needsAttention
+          : conversation.workStatus === 'blocked'
+            ? { icon: TriangleAlert, className: 'attention-indicator', label: 'Blocked', size: 13 }
+            : needsAttention
             ? { icon: TriangleAlert, className: 'attention-indicator', label: 'Needs attention', size: 13 }
             : completedUnseen
               ? { icon: CheckCircle2, className: 'completion-indicator', label: 'Completed', size: 13 }

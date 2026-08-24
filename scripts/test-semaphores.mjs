@@ -16,10 +16,13 @@ try {
   database = await import('../src/main/database.js');
   const { SemaphoreManager } = await import('../src/main/semaphore-manager.js');
   const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
+  const { createPluginDomainApi } = await import('../src/main/plugin-domain-api.js');
+  const { PluginRuntime } = await import('../src/main/plugin-runtime.js');
   const { resolveDynamicContext } = await import('../src/main/context-injection.js');
   const {
     closeDatabase,
     createConversation,
+    replaceTasks,
     setSemaphoreState,
   } = database;
 
@@ -283,6 +286,7 @@ try {
   const { ChatRunner } = await import('../src/main/chat-runner.js');
   const runnerEvents = [];
   const providerRequests = [];
+  let ignoredTaskConversationId = null;
   const model = {
     id: 'test:model',
     modelId: 'test-model',
@@ -311,6 +315,53 @@ try {
               count: 1,
               maxCount: 1,
             }),
+          }],
+        };
+      }
+      const latestUserMessage = request.messages.findLast((message) => message.role === 'user');
+      if (latestUserMessage?.content.includes('<task_continuation>')) {
+        if (request.invocationContext.conversationId === ignoredTaskConversationId) {
+          return { assistantContent: 'Ignored the task reminder.', continuation: [], toolCalls: [] };
+        }
+        replaceTasks(request.invocationContext.conversationId, [{
+          title: 'Finish the runner task',
+          description: 'Exercise the invisible internal-task hook.',
+          done: true,
+          status: 'completed',
+          result: 'Completed after the hook.',
+        }]);
+        return { assistantContent: 'Pending task completed.', continuation: [], toolCalls: [] };
+      }
+      if (
+        latestUserMessage?.content.includes('<semaphore_release_required>')
+        && request.toolHistory.length === 0
+      ) {
+        const holding = request.invocationContext.semaphoreHoldings[0];
+        return {
+          assistantContent: '',
+          continuation: [],
+          toolCalls: [{
+            callId: `finish-${providerRequests.length}`,
+            name: holding.name === 'idle-lock'
+              && request.invocationContext.conversationId === idleHolder.id
+              ? 'update_semaphore_status'
+              : 'release_semaphore',
+            argumentsText: JSON.stringify(
+              holding.name === 'idle-lock'
+              && request.invocationContext.conversationId === idleHolder.id
+                ? {
+                  __invocation_goal: 'Report the user blocker',
+                  __requires_human_approval: false,
+                  name: holding.name,
+                  status: 'blocked',
+                  summary: 'User input is required before releasing the protected work.',
+                }
+                : {
+                  __invocation_goal: 'Release completed protected work',
+                  __requires_human_approval: false,
+                  name: holding.name,
+                  count: holding.count,
+                }),
           }],
         };
       }
@@ -364,7 +415,7 @@ try {
     name: 'runner-lock',
     count: 1,
   });
-  await waitFor(() => providerRequests.length === 2 && !runner.runs.has(waiter.id));
+  await waitFor(() => providerRequests.length >= 4 && !runner.runs.has(waiter.id));
   assert.deepEqual(providerRequests[1].invocationContext.semaphoreHoldings, [{
     name: 'runner-lock',
     count: 1,
@@ -494,6 +545,7 @@ try {
   const listResult = await listTool.execute({}, { chatRunner: runner, conversationId: idleHolder.id });
   assert.deepEqual(listResult.holdings, [{ name: 'idle-lock', count: 1, maxCount: 1 }]);
   const globalEntry = listResult.all.find((entry) => entry.name === 'idle-lock');
+  assert.equal(globalEntry.waitingCount, 1);
   assert.deepEqual(globalEntry.holders, [{ conversationId: idleHolder.id, count: 1 }]);
   assert.deepEqual(globalEntry.queue, [{ conversationId: idleWaiter.id, position: 1 }]);
   const subagent = createConversation({
@@ -524,12 +576,163 @@ try {
     model: model.id,
     text: 'Finish without releasing.',
   });
-  await waitFor(() => providerRequests.length >= requestsBeforeIdle + 1
+  await waitFor(() => providerRequests.length >= requestsBeforeIdle + 3
     && !runner.runs.has(idleHolder.id));
-  assert.deepEqual(runner.semaphores.holdings(idleHolder.id), []);
-  await waitFor(() => providerRequests.length >= requestsBeforeIdle + 2
-    && !runner.runs.has(idleWaiter.id));
-  assert.deepEqual(runner.semaphores.holdings(idleWaiter.id), []);
+  assert.deepEqual(runner.semaphores.holdings(idleHolder.id), [{
+    name: 'idle-lock',
+    count: 1,
+    maxCount: 1,
+    blocked: 'User input is required before releasing the protected work.',
+  }]);
+  assert.equal(runner.semaphores.waitSnapshot(idleWaiter.id).position, 1);
+  assert.equal(runner.isConversationBlocked(idleHolder.id), true);
+  const releaseHook = database.getMessages(idleHolder.id).findLast((message) => (
+    message.hidden && message.content.includes('<semaphore_release_required>')
+  ));
+  assert.match(releaseHook.content, /with 1 thread\(s\) waiting/);
+  runner.releaseSemaphore({
+    conversationId: idleHolder.id,
+    name: 'idle-lock',
+    count: 1,
+  });
+  await waitFor(() => !runner.runs.has(idleWaiter.id)
+    && runner.semaphores.holdings(idleWaiter.id).length === 0);
+
+  const taskConversation = createConversation({ model: model.id, projectPath: process.cwd() });
+  replaceTasks(taskConversation.id, [{
+    title: 'Finish the runner task',
+    description: 'Exercise the invisible internal-task hook.',
+    done: false,
+    status: 'pending',
+    result: null,
+  }]);
+  const requestsBeforeTask = providerRequests.length;
+  await runner.send({
+    conversationId: taskConversation.id,
+    model: model.id,
+    text: 'Start the internal task.',
+  });
+  await waitFor(() => providerRequests.length >= requestsBeforeTask + 2
+    && !runner.runs.has(taskConversation.id));
+  const taskHook = database.getMessages(taskConversation.id).find((message) => (
+    message.hidden && message.content.includes('<task_continuation>')
+  ));
+  assert.ok(taskHook);
+  assert.equal(database.listTasks(taskConversation.id)[0].status, 'completed');
+
+  const ignoredTaskConversation = createConversation({ model: model.id, projectPath: process.cwd() });
+  ignoredTaskConversationId = ignoredTaskConversation.id;
+  replaceTasks(ignoredTaskConversation.id, [{
+    title: 'Ignored task',
+    description: 'Verify repeated hooks are suppressed.',
+    done: false,
+    status: 'pending',
+    result: null,
+  }]);
+  const requestsBeforeIgnoredTask = providerRequests.length;
+  await runner.send({
+    conversationId: ignoredTaskConversation.id,
+    model: model.id,
+    text: 'Ignore the reminder once.',
+  });
+  await waitFor(() => providerRequests.length >= requestsBeforeIgnoredTask + 2
+    && !runner.runs.has(ignoredTaskConversation.id));
+  assert.equal(providerRequests.length, requestsBeforeIgnoredTask + 2);
+  assert.equal(database.getMessages(ignoredTaskConversation.id).filter((message) => (
+    message.hidden && message.content.includes('<task_continuation>')
+  )).length, 1);
+  assert.equal(database.listTasks(ignoredTaskConversation.id)[0].status, 'pending');
+
+  const failedResumeHolder = createConversation({ model: model.id, projectPath: process.cwd() });
+  const failedResumeWaiter = createConversation({ model: model.id, projectPath: process.cwd() });
+  runner.acquireSemaphore({
+    conversationId: failedResumeHolder.id,
+    name: 'failed-resume-lock',
+    count: 1,
+    maxCount: 1,
+  });
+  runner.acquireSemaphore({
+    conversationId: failedResumeWaiter.id,
+    name: 'failed-resume-lock',
+    count: 1,
+    maxCount: 1,
+  });
+  const resumeSemaphore = runner.resumeSemaphore.bind(runner);
+  runner.resumeSemaphore = async () => { throw new Error('Simulated resume failure.'); };
+  runner.releaseSemaphore({
+    conversationId: failedResumeHolder.id,
+    name: 'failed-resume-lock',
+    count: 1,
+  });
+  await waitFor(() => runner.semaphores.holdings(failedResumeWaiter.id)[0]?.blocked);
+  assert.match(
+    runner.semaphores.holdings(failedResumeWaiter.id)[0].blocked,
+    /Simulated resume failure/,
+  );
+  runner.resumeSemaphore = resumeSemaphore;
+  runner.releaseSemaphore({
+    conversationId: failedResumeWaiter.id,
+    name: 'failed-resume-lock',
+    count: 1,
+  });
+
+  const apiConversation = createConversation({ model: model.id, projectPath: process.cwd() });
+  runner.acquireSemaphore({
+    conversationId: apiConversation.id,
+    name: 'plugin-api-lock',
+    count: 1,
+    maxCount: 1,
+  });
+  const pluginRuntime = new PluginRuntime({
+    pluginsDir: testProfile,
+    services: {
+      appInfo: () => ({ name: 'Avi', version: 'test' }),
+      chatRunner: runner,
+      createDomainApi: createPluginDomainApi,
+      cleanupConversation: () => {},
+    },
+  });
+  const pluginApi = await pluginRuntime.activate({
+    id: 'conceptual-lock-api-test',
+    capabilities: ['threads.read', 'threads.update'],
+    activate() {},
+  });
+  const apiThread = await pluginApi.threads.get(apiConversation.id);
+  const apiTasks = await apiThread.tasks.replace([{
+    title: 'Blocked API task',
+    description: 'Exercise Plugin API task status.',
+    done: false,
+    status: 'inconclusive',
+    result: 'Waiting for the user.',
+  }]);
+  assert.equal(apiTasks[0].status, 'inconclusive');
+  await apiThread.semaphores.setStatus(
+    'plugin-api-lock',
+    'blocked',
+    'Plugin API blocker.',
+  );
+  const apiSnapshot = await apiThread.getSnapshot();
+  assert.equal(apiSnapshot.workStatus, 'blocked');
+  assert.equal(apiSnapshot.tasks[0].status, 'inconclusive');
+  assert.equal(apiSnapshot.semaphoreHoldings[0].blocked, 'Plugin API blocker.');
+  assert.deepEqual(await apiThread.tasks.list(), apiTasks);
+  assert.equal((await apiThread.semaphores.list())[0].name, 'plugin-api-lock');
+  const apiSemaphores = await pluginApi.semaphores.list();
+  assert.equal(apiSemaphores.find((item) => item.name === 'plugin-api-lock').waitingCount, 0);
+  await apiThread.semaphores.release('plugin-api-lock', 1);
+  assert.deepEqual(await apiThread.semaphores.list(), []);
+  const readOnlyApi = await pluginRuntime.activate({
+    id: 'conceptual-lock-read-only-test',
+    capabilities: ['threads.read'],
+    activate() {},
+  });
+  const readOnlyThread = await readOnlyApi.threads.get(apiConversation.id);
+  await assert.rejects(() => readOnlyThread.tasks.replace([]), /requires capability "threads.update"/);
+  await assert.rejects(
+    () => readOnlyThread.semaphores.setStatus('plugin-api-lock', 'active'),
+    /requires capability "threads.update"/,
+  );
+  await pluginRuntime.deactivateAll('test');
 
   await runner.shutdown();
 

@@ -15,6 +15,7 @@ process.env.USERPROFILE = resolvedProfile;
 let database;
 try {
   database = await import('../src/main/database.js');
+  const { ChatRunner } = await import('../src/main/chat-runner.js');
   const {
     createConversation,
     deleteConversation,
@@ -440,10 +441,16 @@ try {
     title: 'Track tool progress',
     description: 'Verify the tool contract.',
     done: true,
+    status: 'completed',
     result: 'Persisted and emitted.',
   }];
+  const taskRunner = {
+    emit: (conversationId, event) => taskEvents.push({ conversationId, event }),
+    isConversationBlocked: () => false,
+    replaceTasks: ChatRunner.prototype.replaceTasks,
+  };
   assert.equal(await updateTasksTool.execute({ tasks: toolTasks }, {
-    chatRunner: { emit: (conversationId, event) => taskEvents.push({ conversationId, event }) },
+    chatRunner: taskRunner,
     conversationId: parent.id,
     workMode: null,
   }), 'Task list updated: 1 task(s).');
@@ -451,21 +458,48 @@ try {
   await assert.rejects(() => updateTasksTool.execute({
     tasks: [{ title: 'Invalid', description: '', done: 'false', result: null }],
   }, {
-    chatRunner: { emit: () => assert.fail('Invalid tasks must not emit changes.') },
+    chatRunner: {
+      emit: () => assert.fail('Invalid tasks must not emit changes.'),
+      isConversationBlocked: () => false,
+      replaceTasks: ChatRunner.prototype.replaceTasks,
+    },
     conversationId: parent.id,
     workMode: null,
   }), /Each task must contain/);
   assert.deepEqual(listTasks(parent.id), toolTasks);
-  assert.deepEqual(taskEvents, [{
+  assert.deepEqual(taskEvents, [
+    {
+      conversationId: parent.id,
+      event: { type: 'tasks', tasks: toolTasks },
+    },
+    {
+      conversationId: parent.id,
+      event: { type: 'block-state', blocked: false },
+    },
+  ]);
+  const inconclusiveTasks = [{
+    title: 'Wait for user input',
+    description: 'Cannot proceed without credentials.',
+    done: false,
+    status: 'inconclusive',
+    result: 'The user must provide credentials.',
+  }];
+  await updateTasksTool.execute({ tasks: inconclusiveTasks }, {
+    chatRunner: {
+      emit: () => {},
+      isConversationBlocked: () => true,
+      replaceTasks: ChatRunner.prototype.replaceTasks,
+    },
     conversationId: parent.id,
-    event: { type: 'tasks', tasks: toolTasks },
-  }]);
+    workMode: null,
+  });
+  assert.deepEqual(listTasks(parent.id), inconclusiveTasks);
   await assert.rejects(() => updateTasksTool.execute({ tasks: [] }, {
     chatRunner: { emit: () => assert.fail('Plan mode must not emit task changes.') },
     conversationId: parent.id,
     workMode: 'plan',
   }), /unavailable in Plan mode/);
-  assert.deepEqual(listTasks(parent.id), toolTasks);
+  assert.deepEqual(listTasks(parent.id), inconclusiveTasks);
   replaceTasks(parent.id, []);
 
   const spawnTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_spawn_subagent');
@@ -674,7 +708,6 @@ try {
     createdAt: new Date(failedPromptAt + 1).toISOString(),
   });
 
-  const { ChatRunner } = await import('../src/main/chat-runner.js');
   const subagentContexts = [];
   const threadContexts = [];
   const runtimeModel = {

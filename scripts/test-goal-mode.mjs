@@ -25,6 +25,7 @@ try {
     getGoalForConversation,
     getMessages,
     insertMessage,
+    replaceTasks,
   } = database;
   const model = {
     id: 'test:model',
@@ -592,6 +593,46 @@ try {
   await waitFor(() => !selfStartedRunner.runs.has(selfStartedConversation.id));
   assert.equal(selfStartedCalls.length, 4);
   assert.equal(getGoalForConversation(selfStartedConversation.id).status, 'completed');
+
+  const taskCalls = [];
+  const taskProvider = {
+    getContributions: () => ({ tools: [] }),
+    stream: async (request) => {
+      taskCalls.push(request);
+      if (taskCalls.length === 1) {
+        return { assistantContent: 'Initial work complete.', toolCalls: [] };
+      }
+      assert.match(JSON.stringify(request.messages), /<task_continuation>/);
+      replaceTasks(request.invocationContext.conversationId, [{
+        title: 'Complete remaining work',
+        description: 'Exercise the internal task hook.',
+        done: true,
+        status: 'completed',
+        result: 'Completed after the hidden continuation.',
+      }]);
+      return { assistantContent: 'Remaining task complete.', toolCalls: [] };
+    },
+  };
+  const { runner: taskRunner } = buildRunner(taskProvider);
+  const taskConversation = createConversation({ model: model.id, projectPath: process.cwd() });
+  replaceTasks(taskConversation.id, [{
+    title: 'Complete remaining work',
+    description: 'Exercise the internal task hook.',
+    done: false,
+    status: 'pending',
+    result: null,
+  }]);
+  await taskRunner.send({
+    conversationId: taskConversation.id,
+    model: model.id,
+    text: 'Start the task.',
+  });
+  await waitFor(() => !taskRunner.runs.has(taskConversation.id));
+  assert.equal(taskCalls.length, 2);
+  const taskHook = getMessages(taskConversation.id).find((message) => (
+    message.hidden && message.content.includes('<task_continuation>')
+  ));
+  assert.ok(taskHook);
 
   closeDatabase();
   database = null;

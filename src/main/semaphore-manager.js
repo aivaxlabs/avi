@@ -64,7 +64,13 @@ export class SemaphoreManager {
   holdings(conversationId) {
     return Object.entries(this.state.semaphores).flatMap(([name, semaphore]) => {
       const count = semaphore.holders?.[conversationId] ?? 0;
-      return count > 0 ? [{ name, count, maxCount: semaphore.maxCount }] : [];
+      const blocked = semaphore.blocked?.[conversationId];
+      return count > 0 ? [{
+        name,
+        count,
+        maxCount: semaphore.maxCount,
+        ...(blocked ? { blocked } : {}),
+      }] : [];
     });
   }
 
@@ -72,10 +78,15 @@ export class SemaphoreManager {
     return Object.entries(this.state.semaphores).map(([name, semaphore]) => ({
       name,
       maxCount: semaphore.maxCount,
-      holders: Object.entries(semaphore.holders ?? {}).map(([conversationId, count]) => ({
-        conversationId,
-        count,
-      })),
+      waitingCount: semaphore.queue?.length ?? 0,
+      holders: Object.entries(semaphore.holders ?? {}).map(([conversationId, count]) => {
+        const blocked = semaphore.blocked?.[conversationId];
+        return {
+          conversationId,
+          count,
+          ...(blocked ? { blocked } : {}),
+        };
+      }),
       queue: [...(semaphore.queue ?? [])].map((conversationId, index) => ({
         conversationId,
         position: index + 1,
@@ -89,6 +100,7 @@ export class SemaphoreManager {
     const affected = new Set();
     for (const { name } of holdings) {
       delete this.state.semaphores[name].holders[conversationId];
+      delete this.state.semaphores[name].blocked?.[conversationId];
       affected.add(name);
     }
     const ready = [...affected].flatMap((name) => this.drain(name));
@@ -107,6 +119,7 @@ export class SemaphoreManager {
       count,
     }));
     semaphore.holders = {};
+    semaphore.blocked = {};
     const ready = this.drain(name);
     this.removeIfEmpty(name);
     this.persist();
@@ -166,13 +179,36 @@ export class SemaphoreManager {
       throw new Error(`This thread holds ${held} permit(s) from semaphore "${name}".`);
     }
 
-    if (held === count) delete semaphore.holders[conversationId];
-    else semaphore.holders[conversationId] = held - count;
+    if (held === count) {
+      delete semaphore.holders[conversationId];
+      delete semaphore.blocked?.[conversationId];
+    } else {
+      semaphore.holders[conversationId] = held - count;
+    }
     const ready = this.drain(name);
     this.removeIfEmpty(name);
     this.persist();
     this.notifyReady(ready);
     return { name, released: count, remaining: held - count, activated: ready.length };
+  }
+
+  setBlocked({ conversationId, name, blocked, summary }) {
+    name = normalizeName(name);
+    const semaphore = this.state.semaphores[name];
+    if ((semaphore?.holders?.[conversationId] ?? 0) < 1) {
+      throw new Error(`This thread does not hold permits from semaphore "${name}".`);
+    }
+    semaphore.blocked ??= {};
+    if (blocked) {
+      const normalizedSummary = String(summary ?? '').trim();
+      if (!normalizedSummary) throw new Error('summary is required when blocking a semaphore.');
+      if (normalizedSummary.length > 4000) throw new Error('summary must not exceed 4000 characters.');
+      semaphore.blocked[conversationId] = normalizedSummary;
+    } else {
+      delete semaphore.blocked[conversationId];
+    }
+    this.persist();
+    return this.holdings(conversationId).find((holding) => holding.name === name);
   }
 
   runNow(conversationId) {
@@ -203,6 +239,7 @@ export class SemaphoreManager {
       for (const [name, semaphore] of Object.entries(this.state.semaphores)) {
         if ((semaphore.holders?.[conversationId] ?? 0) > 0) {
           delete semaphore.holders[conversationId];
+          delete semaphore.blocked?.[conversationId];
           affected.add(name);
         }
       }

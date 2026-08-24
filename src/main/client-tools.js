@@ -23,7 +23,6 @@ import {
   getMessages,
   listAllConversations,
   listSubagents,
-  replaceTasks,
   updateConversation,
 } from './database.js';
 import { resolveSubagentModel } from './default-models.js';
@@ -325,6 +324,11 @@ export const CLIENT_TOOLS = Object.freeze([
               title: { type: 'string', minLength: 1, maxLength: 200 },
               description: { type: 'string', maxLength: 2000 },
               done: { type: 'boolean' },
+              status: {
+                type: 'string',
+                enum: ['pending', 'completed', 'inconclusive'],
+                description: 'Use inconclusive only when a concrete blocker prevents completion.',
+              },
               result: { type: ['string', 'null'], maxLength: 4000 },
             },
             required: ['title', 'description', 'done', 'result'],
@@ -337,36 +341,7 @@ export const CLIENT_TOOLS = Object.freeze([
     },
     execute: async ({ tasks }, { chatRunner, conversationId, workMode }) => {
       if (workMode === 'plan') throw new Error('update_tasks is unavailable in Plan mode.');
-      if (!Array.isArray(tasks) || tasks.length > 100) {
-        throw new Error('tasks must be an array with at most 100 items.');
-      }
-      if (tasks.some((task) => (
-        !task
-        || typeof task !== 'object'
-        || Array.isArray(task)
-        || typeof task.title !== 'string'
-        || typeof task.description !== 'string'
-        || typeof task.done !== 'boolean'
-        || (task.result !== null && typeof task.result !== 'string')
-      ))) {
-        throw new Error('Each task must contain a string title and description, boolean done, and string or null result.');
-      }
-      const normalized = tasks.map((task) => ({
-        title: task.title.trim(),
-        description: task.description.trim(),
-        done: task.done,
-        result: task.result?.trim() || null,
-      }));
-      if (normalized.some((task) => (
-        !task.title
-        || task.title.length > 200
-        || task.description.length > 2000
-        || (task.result?.length ?? 0) > 4000
-      ))) {
-        throw new Error('One or more tasks exceed the allowed field limits.');
-      }
-      const persisted = replaceTasks(conversationId, normalized);
-      chatRunner.emit(conversationId, { type: 'tasks', tasks: persisted });
+      const persisted = chatRunner.replaceTasks(conversationId, tasks);
       return persisted.length === 0
         ? 'Task list cleared.'
         : `Task list updated: ${persisted.length} task(s).`;
@@ -1888,6 +1863,46 @@ export const CLIENT_TOOLS = Object.freeze([
         `Permits still owned by this thread: ${result.remaining}.`,
         `Queued threads activated: ${result.activated}.`,
       ].join('\n');
+    },
+  },
+  {
+    name: 'update_semaphore_status',
+    description: 'Mark an owned semaphore as blocked when a concrete condition requires user intervention, or active after the blocker is resolved. Blocked semaphores stop automatic completion hooks until the status is cleared.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 200,
+          description: 'Owned semaphore whose status should change.',
+        },
+        status: {
+          type: 'string',
+          enum: ['active', 'blocked'],
+        },
+        summary: {
+          type: ['string', 'null'],
+          maxLength: 4000,
+          description: 'Concrete blocker requiring user intervention. Required when status is blocked.',
+        },
+      },
+      required: ['name', 'status', 'summary'],
+      additionalProperties: false,
+    },
+    execute: async ({ name, status, summary }, { chatRunner, conversationId }) => {
+      const holding = chatRunner.setSemaphoreBlocked({
+        conversationId,
+        name,
+        blocked: status === 'blocked',
+        summary,
+      });
+      return status === 'blocked'
+        ? `Semaphore "${holding.name}" marked blocked. Retained permits: ${holding.count}.`
+        : `Semaphore "${holding.name}" is active again. Retained permits: ${holding.count}.`;
     },
   },
   {

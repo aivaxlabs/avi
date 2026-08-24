@@ -2646,6 +2646,10 @@ function normalizeTuningSettings(value, strict = false) {
 function mapConversation(row) {
   const projectPath = resolve(row.project_path || homedir());
   const relativeProjectPath = relative(homedir(), projectPath);
+  const goal = getGoalForConversation(row.id);
+  const tasks = parse(row.tasks, []);
+  const blocked = goal?.status === 'blocked'
+    || tasks.some((task) => task.status === 'inconclusive');
 
   return {
     id: row.id,
@@ -2674,7 +2678,8 @@ function mapConversation(row) {
     checkpointMessageId: row.checkpoint_message_id || null,
     contextTokens: Number(row.context_tokens) || 0,
     tags: normalizeTagIds(parse(row.tags, [])),
-    goal: getGoalForConversation(row.id),
+    goal,
+    workStatus: blocked ? 'blocked' : null,
     firstPrompt: row.first_prompt ?? '',
     needsAttention: ['error', 'aborted', 'streaming'].includes(row.last_message_status)
       || (
