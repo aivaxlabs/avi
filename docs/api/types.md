@@ -42,12 +42,82 @@ interface ThreadSnapshot {
   contextTokens: number;
   tags: string[];
   goal: GoalSnapshot | null;
+  tasks: ThreadTaskSnapshot[];
+  semaphoreHoldings: SemaphoreHoldingSnapshot[];
+  workStatus: 'blocked' | null;
   firstPrompt: string;
   needsAttention: boolean;
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;
   isArchived: boolean;
+}
+```
+
+`workStatus` is `blocked` when the Goal is blocked, an internal task is inconclusive, or an owned semaphore is blocked. It is otherwise `null`.
+
+### ThreadTaskSnapshot
+
+Returned in `ThreadSnapshot.tasks` and by `thread.tasks.list()` / `thread.tasks.replace()`.
+
+```ts
+interface ThreadTaskSnapshot {
+  title: string;
+  description: string;
+  done: boolean;
+  status: 'pending' | 'completed' | 'inconclusive';
+  result: string | null;
+}
+```
+
+`done` is retained for compatibility and is always equivalent to `status === 'completed'`. An `inconclusive` task requires a non-empty `result` explaining the concrete blocker.
+
+### SemaphoreHoldingSnapshot
+
+Returned in `ThreadSnapshot.semaphoreHoldings` and by `thread.semaphores.list()`.
+
+```ts
+interface SemaphoreHoldingSnapshot {
+  name: string;
+  count: number;
+  maxCount: number;
+  blocked?: string;
+}
+```
+
+`blocked` contains the blocker summary only when the holder is blocked.
+
+### SemaphoreReleaseSnapshot
+
+Returned by `thread.semaphores.release()`.
+
+```ts
+interface SemaphoreReleaseSnapshot {
+  name: string;
+  released: number;
+  remaining: number;
+  activated: number;
+}
+```
+
+### SemaphoreSnapshot
+
+Returned by `avi.semaphores.list()`.
+
+```ts
+interface SemaphoreSnapshot {
+  name: string;
+  maxCount: number;
+  waitingCount: number;
+  holders: Array<{
+    conversationId: string;
+    count: number;
+    blocked?: string;
+  }>;
+  queue: Array<{
+    conversationId: string;
+    position: number;
+  }>;
 }
 ```
 

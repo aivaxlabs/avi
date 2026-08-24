@@ -34,6 +34,7 @@ The definition supports `apiVersion`, `id`, `name`, `version`, optional `descrip
 
 - `avi.app`
 - `avi.threads`
+- `avi.semaphores`
 - `avi.bots`
 - `avi.tools`
 - `avi.interceptors`

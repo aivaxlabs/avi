@@ -37,6 +37,8 @@ Payloads are detached JSON-like snapshots. Listener errors are logged and do not
 thread.created
 thread.updated
 thread.queue.changed
+thread.tasks.changed
+thread.work-status.changed
 message.updated
 message.deleted
 run.started
@@ -65,11 +67,49 @@ bot.work-state
 
 Unknown internal chat event types are exposed under `chat.<normalized-type>` so observers can log them without changing execution.
 
+### Conceptual work events
+
+`thread.tasks.changed` uses this payload:
+
+```ts
+{
+  type: 'tasks';
+  conversationId: string;
+  tasks: ThreadTaskSnapshot[];
+}
+```
+
+`thread.work-status.changed` uses this payload:
+
+```ts
+{
+  type: 'block-state';
+  conversationId: string;
+  blocked: boolean;
+}
+```
+
+`semaphore.state.changed` includes both the current waits and global semaphore snapshots:
+
+```ts
+{
+  type: 'semaphore-state';
+  waits: Array<{
+    conversationId: string;
+    name: string;
+    count: number;
+    maxCount: number;
+    position: number;
+  }>;
+  semaphores: SemaphoreSnapshot[];
+}
+```
+
 ## Content access
 
 `events.subscribe` exposes lifecycle metadata. Message content, attachments, edits, and segments require `events.readContent`. Reasoning segments and reasoning deltas require `events.readReasoning`.
 
-Without those capabilities, sensitive fields or inference deltas are replaced with redacted metadata.
+Without those capabilities, sensitive fields or inference deltas are replaced with redacted metadata. Task events retain only `{ done, status }`, and semaphore holder blocker summaries become `blocked: true`.
 
 ## Scoped subscriptions
 
