@@ -13,9 +13,6 @@ let database;
 try {
   database = await import('../src/main/database.js');
   const {
-    BOT_DAILY_LOG_STATUSES,
-  } = await import('../src/main/bot-daily-logs.js');
-  const {
     BotManager,
     ensureBotFolders,
     resolveBotDataFolder,
@@ -50,28 +47,9 @@ try {
     model: 'test/model',
   });
 
-  const timestamp = '2026-08-22T12:00:00.000Z';
-  const approvalEntries = [firstBot, secondBot].map((bot) => ({
-    id: `approval-${bot.id}`,
-    botId: bot.id,
-    kind: 'work',
-    title: `Approval for ${bot.name}`,
-    content: 'Legacy approval',
-    context: 'Legacy approval',
-    prompt: 'Continue after approval.',
-    status: 'waiting-user-approval',
-    date: '2026-08-22',
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  }));
   await Promise.all([
-    writeFile(join(workingFolder, 'MEMORY.md'), '# Legacy memory\n', 'utf8'),
-    writeFile(join(workingFolder, 'backlog.json'), '[]\n', 'utf8'),
-    writeFile(
-      join(workingFolder, 'waiting-user-approval.json'),
-      `${JSON.stringify(approvalEntries, null, 2)}\n`,
-      'utf8',
-    ),
+    writeFile(join(workingFolder, 'MEMORY.md'), '# Existing memory\n', 'utf8'),
+    writeFile(join(workingFolder, 'backlog.json'), '[{"legacy":true}]\n', 'utf8'),
   ]);
 
   const firstFolders = await ensureBotFolders(firstBot);
@@ -84,50 +62,41 @@ try {
   assert.deepEqual(firstFolders, { workingFolder, dataFolder: firstDataFolder });
   assert.deepEqual(secondFolders, { workingFolder, dataFolder: secondDataFolder });
   assert.notEqual(firstDataFolder, secondDataFolder);
-  assert.equal(await readFile(join(firstDataFolder, '.gitignore'), 'utf8'), '*\n');
-  assert.equal(await readFile(join(secondDataFolder, '.gitignore'), 'utf8'), '*\n');
-  assert.equal(await readFile(join(firstDataFolder, 'MEMORY.md'), 'utf8'), '# Legacy memory\n');
-  assert.equal(await readFile(join(workingFolder, 'MEMORY.md'), 'utf8'), '# Legacy memory\n');
 
-  for (const status of BOT_DAILY_LOG_STATUSES) {
-    assert.ok(existsSync(join(firstDataFolder, `${status}.json`)));
-    assert.ok(existsSync(join(secondDataFolder, `${status}.json`)));
+  for (const dataFolder of [firstDataFolder, secondDataFolder]) {
+    assert.equal(await readFile(join(dataFolder, '.gitignore'), 'utf8'), '*\n');
+    assert.equal(await readFile(join(dataFolder, 'MEMORY.md'), 'utf8'), '# Existing memory\n');
+    assert.deepEqual(JSON.parse(await readFile(join(dataFolder, 'work-items.json'), 'utf8')), []);
+    assert.deepEqual(JSON.parse(await readFile(join(dataFolder, 'activity.json'), 'utf8')), []);
+    assert.equal(existsSync(join(dataFolder, 'backlog.json')), false);
   }
-  assert.deepEqual(
-    JSON.parse(await readFile(join(firstDataFolder, 'waiting-user-approval.json'), 'utf8')),
-    [approvalEntries[0]],
-  );
-  assert.deepEqual(
-    JSON.parse(await readFile(join(secondDataFolder, 'waiting-user-approval.json'), 'utf8')),
-    [approvalEntries[1]],
-  );
 
   await writeFile(join(firstDataFolder, 'MEMORY.md'), '# Isolated memory\n', 'utf8');
-  await writeFile(join(workingFolder, 'MEMORY.md'), '# Changed legacy memory\n', 'utf8');
+  await writeFile(join(workingFolder, 'MEMORY.md'), '# Changed existing memory\n', 'utf8');
   await ensureBotFolders(firstBot);
   assert.equal(
     await readFile(join(firstDataFolder, 'MEMORY.md'), 'utf8'),
     '# Isolated memory\n',
-    'existing bot data must not be overwritten by legacy files',
+    'existing bot data must not be overwritten by workspace files',
   );
 
   const manager = new BotManager();
   const firstRuntime = manager.getBotRuntimeContext(firstConversation.id);
   assert.equal(firstRuntime.workingFolder, workingFolder);
   assert.equal(firstRuntime.dataFolder, firstDataFolder);
-  const writeLog = firstRuntime.tools.find((tool) => tool.name === 'bot_daily_write_log');
-  await writeLog.execute({
+  const createWork = firstRuntime.tools.find((tool) => tool.name === 'bot_work_create');
+  assert.ok(createWork);
+  await createWork.execute({
     title: 'Stored in the isolated folder',
-    content: 'The workspace root must remain unchanged.',
-    status: 'done',
+    objective: 'Prove work state remains isolated per bot.',
   });
-  assert.equal(existsSync(join(workingFolder, 'done.json')), false);
+  assert.equal(existsSync(join(workingFolder, 'work-items.json')), false);
   assert.equal(
-    JSON.parse(await readFile(join(firstDataFolder, 'done.json'), 'utf8'))[0].title,
+    JSON.parse(await readFile(join(firstDataFolder, 'work-items.json'), 'utf8'))[0].title,
     'Stored in the isolated folder',
   );
   assert.equal(
-    JSON.parse(await readFile(join(secondDataFolder, 'done.json'), 'utf8')).length,
+    JSON.parse(await readFile(join(secondDataFolder, 'work-items.json'), 'utf8')).length,
     0,
   );
 
@@ -147,6 +116,7 @@ try {
   assert.equal(await manager.activateBot(firstBot.id, { trigger: 'manual' }), true);
   assert.equal(activationRequest.project.path, workingFolder);
   assert.ok(activationRequest.text.includes(`Bot data folder: ${firstDataFolder}`));
+  assert.ok(activationRequest.text.includes('bot_work_read'));
 
   console.log('Bot folder tests passed.');
 } finally {

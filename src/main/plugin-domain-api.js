@@ -302,16 +302,16 @@ function createBotHandle({ runtime, record, botId, storage }) {
       runtime.require(record, 'bots.manage');
       return runtime.services.botManager.deleteBotById(botId);
     },
-    logs: Object.freeze({
-      async list() {
-        runtime.require(record, 'bots.readLogs');
-        const logs = await runtime.services.botManager.listDailyLogsByBot();
-        return clonePluginValue(logs[botId] ?? {});
+    workState: Object.freeze({
+      async get() {
+        runtime.require(record, 'bots.readState');
+        const states = await runtime.services.botManager.listWorkStateByBot();
+        return clonePluginValue(states[botId] ?? { items: [], activity: [], untrackedWorkers: [] });
       },
     }),
     approvals: Object.freeze({
       list() {
-        runtime.require(record, 'bots.readLogs');
+        runtime.require(record, 'bots.readState');
         return clonePluginValue([...runtime.services.botManager.approvals.values()]
           .filter((entry) => entry.botId === botId));
       },

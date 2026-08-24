@@ -571,6 +571,7 @@ function initializeServices() {
       getPluginTools,
       getPluginContext: pluginInvocationContext,
       getBotRuntimeContext: (conversationId) => botManager?.getBotRuntimeContext(conversationId),
+      getBotManager: () => botManager,
       describeInvocationBot: (conversationId) => botManager?.describeInvocationBot(conversationId),
       queueBotToolApproval: (request) => botManager?.queueToolApproval(request),
       noteBotUserInteraction: (conversationId) => botManager?.noteUserInteraction(conversationId),
@@ -657,6 +658,7 @@ function initializeServices() {
       getPreferences: runtimePreferences,
       getPluginTools,
       getPluginContext: pluginInvocationContext,
+      getBotManager: () => botManager,
       sendEvent: sendQuickChatEvent,
       stopBackgroundTasks: stopConversationTerminals,
     });
@@ -1246,10 +1248,18 @@ function registerIpc() {
     setComposerState(payload.conversationId, payload)
   ));
   applicationIpc.handle('tasks:list', (_event, conversationId) => listTasks(conversationId));
-  applicationIpc.handle('bots:list', async () => ({
-    bots: botManager.describeBots(),
-    logsByBot: await botManager.listDailyLogsByBot(),
-  }));
+  applicationIpc.handle('bots:list', async () => {
+    const workStateByBot = await botManager.listWorkStateByBot();
+    return {
+      bots: botManager.describeBots().map((bot) => ({
+        ...bot,
+        attentionCount: (workStateByBot[bot.id]?.items ?? []).filter((item) => (
+          item.attention || item.approval || (item.state === 'waiting' && item.blocker)
+        )).length,
+      })),
+      workStateByBot,
+    };
+  });
   applicationIpc.handle('bots:create', (_event, config = {}) => (
     botManager.createBotFromConfig(config)
   ));
@@ -1703,13 +1713,19 @@ function registerIpc() {
     }
     return new TextDecoder().decode(bytes);
   });
-  applicationIpc.handle('providers:save', (_event, payload) => {
+  applicationIpc.handle('providers:save', async (_event, payload) => {
     const provider = providerRegistry.normalizeConfig(payload);
     const providers = listProviders();
     const index = providers.findIndex((item) => item.id === provider.id);
     const saved = setProviders(index < 0
       ? [...providers, provider]
       : providers.map((item) => item.id === provider.id ? provider : item));
+    try {
+      await providerRegistry.refresh(provider.id);
+    } catch (error) {
+      setProviders(providers);
+      throw error;
+    }
     logDefaultModelWarnings('provider-saved');
     return saved;
   });

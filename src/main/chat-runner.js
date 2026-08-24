@@ -183,6 +183,7 @@ export class ChatRunner {
     getPluginTools = () => [],
     getPluginContext = () => ({}),
     getBotRuntimeContext = () => null,
+    getBotManager = () => null,
     describeInvocationBot = () => null,
     queueBotToolApproval = () => null,
     noteBotUserInteraction = () => false,
@@ -203,6 +204,7 @@ export class ChatRunner {
     this.getPluginTools = getPluginTools;
     this.getPluginContext = getPluginContext;
     this.getBotRuntimeContext = getBotRuntimeContext;
+    this.getBotManager = getBotManager;
     this.describeInvocationBot = describeInvocationBot;
     this.queueBotToolApproval = queueBotToolApproval;
     this.noteBotUserInteraction = noteBotUserInteraction;
@@ -2239,6 +2241,11 @@ export class ChatRunner {
             'memory_write',
             'memory_delete',
             'chat_spawn_subagent',
+            'bots_list',
+            'bots_create',
+            'bots_update',
+            'bots_delete',
+            'bots_activate',
           ].includes(tool.name))
           .filter((tool) => (
             tool.name !== 'chat_spawn_subagent'
@@ -2265,6 +2272,11 @@ export class ChatRunner {
             if (['chat_create_thread', 'chat_spawn_subagent'].includes(tool.name)) {
               return {
                 ...tool,
+                ...(botRuntime && tool.name === 'chat_create_thread'
+                  ? {
+                      description: 'Create a worker thread only for a genuinely long-running or context-heavy deliverable. Bots must execute exploration, research, listings, data collection, status checks, audits, and short diagnostics directly instead of creating a thread.',
+                    }
+                  : {}),
                 inputSchema: applySubagentModelSchema(
                   tool,
                   models,
@@ -2357,6 +2369,7 @@ export class ChatRunner {
         const availableTools = decorateToolsForInvocation(
           composeToolsWithPlugins(coreTools, pluginTools, extensionTools),
           permissionMode,
+          { honorExplicitAuthorization: Boolean(botRuntime) },
         );
         const latestGoal = goalId ? getGoal(goalId) : getGoalForConversation(conversationId);
         const goalContext = latestGoal && CONTINUING_GOAL_STATUSES.has(latestGoal.status)
@@ -2674,9 +2687,8 @@ export class ChatRunner {
                 input,
               });
               if (queuedApproval) {
-                output = `Queued for user approval (id: ${queuedApproval.id}). Finish this activation and do not retry the tool until the user approves it.`;
+                output = `Queued for user approval (id: ${queuedApproval.id}). Do not retry this tool until the user decides. Continue with other independent work items.`;
                 tool = { ...tool, execute: () => output };
-                run.endAfterTools = true;
               }
             } else if (needsApproval) {
               const approvalId = randomUUID();
@@ -2752,6 +2764,7 @@ export class ChatRunner {
               signal: controller.signal,
               workspacePath,
                   chatRunner: this,
+              botManager: this.getBotManager(),
               conversationId,
               model,
               models,
@@ -2919,11 +2932,7 @@ export class ChatRunner {
           if (!run.semaphoreResume) run.queuePaused = true;
           break;
         }
-        if (
-          run.endAfterTools
-          || run.botIdleRequested
-          || (botRuntime && turn.toolCalls.some((toolCall) => toolCall.name === 'queue_user_approval'))
-        ) break;
+        if (run.endAfterTools || run.botIdleRequested) break;
         if (contextCompactionRequested) {
           this.emit(conversationId, { type: 'run-state', running: true, startedAt: run.startedAt });
           try {

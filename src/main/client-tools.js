@@ -38,10 +38,39 @@ const MIN_TERMINAL_TIMEOUT_SECONDS = 1;
 const MAX_TERMINAL_TIMEOUT_SECONDS = 300;
 const DEFAULT_TERMINAL_TIMEOUT_SECONDS = 30;
 const MIN_SLEEP_SECONDS = 5;
-const MAX_SLEEP_SECONDS = 30 * 60;
+const MAX_SLEEP_SECONDS = 60 * 60;
 const MAX_INSPECTED_TURNS = 4;
 const MAX_ASSISTANT_MESSAGES_BEFORE_FINAL = 6;
 const ANSI_ESCAPE_SEQUENCE = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
+const BOT_CONFIG_PROPERTIES = Object.freeze({
+  name: { type: 'string', minLength: 1, description: 'Bot display name and thread title.' },
+  iconSeed: { type: 'string', minLength: 1, description: 'Optional stable seed for the bot avatar.' },
+  personality: { type: ['string', 'null'], description: 'Optional personality ID, or null to inherit the global personality.' },
+  workingFolder: { type: ['string', 'null'], description: 'Absolute working folder, or null to use the bot\'s dedicated default folder.' },
+  model: { type: 'string', minLength: 1, description: 'Configured model ID used for every activation.' },
+  reasoningEffort: { type: ['string', 'null'], description: 'Reasoning effort supported by the selected model, or null for its default.' },
+  contextSize: { type: ['integer', 'null'], minimum: 1, description: 'Optional model context-window override.' },
+  activationPeriodMinutes: { type: 'integer', minimum: 1, description: 'Minutes between automatic activation checks.' },
+  activationMode: { type: 'string', enum: ['static', 'smart'], description: 'Static activates every period; smart can idle when no useful work remains.' },
+  maxActivations: { type: 'integer', minimum: 0, description: 'Consecutive activation limit before a cooldown; 0 disables the limit.' },
+  activationWindow: {
+    type: 'object',
+    description: 'Optional local-time schedule window. Empty days means every day.',
+    properties: {
+      days: {
+        type: 'array',
+        items: { type: 'integer', minimum: 0, maximum: 6 },
+        uniqueItems: true,
+        description: 'Allowed weekdays, where 0 is Sunday and 6 is Saturday.',
+      },
+      startMinute: { type: ['integer', 'null'], minimum: 0, maximum: 1439 },
+      endMinute: { type: ['integer', 'null'], minimum: 0, maximum: 1439 },
+    },
+    additionalProperties: false,
+  },
+  instructions: { type: 'string', description: 'Responsibilities, priorities, and boundaries injected into every activation.' },
+  enabled: { type: 'boolean', description: 'Whether automatic scheduling may activate the bot.' },
+});
 const terminals = new Map();
 
 function appendTerminalOutput(terminal, chunk) {
@@ -538,6 +567,149 @@ export const CLIENT_TOOLS = Object.freeze([
     },
   },
   {
+    name: 'bots_list',
+    description: 'List configured bots and their directly associated work threads, including runtime and schedule state.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    },
+    execute: async (_input, { botManager, chatRunner }) => {
+      if (!botManager) throw new Error('Bot management is not available.');
+      return {
+        bots: botManager.describeBots().map((bot) => ({
+          id: bot.id,
+          name: bot.name,
+          conversationId: bot.conversationId,
+          workingFolder: bot.resolvedWorkingFolder,
+          dataFolder: bot.resolvedDataFolder,
+          model: bot.model,
+          reasoningEffort: bot.reasoningEffort,
+          contextSize: bot.contextSize,
+          personality: bot.personality,
+          instructions: bot.instructions,
+          enabled: bot.enabled,
+          running: bot.running,
+          scheduleState: bot.scheduleState,
+          activationMode: bot.activationMode,
+          activationPeriodMinutes: bot.activationPeriodMinutes,
+          maxActivations: bot.maxActivations,
+          activationWindow: bot.activationWindow,
+          activationWindowDescription: bot.activationWindowDescription,
+          nextActivationAt: bot.nextActivationAt,
+          pendingApprovals: bot.pendingApprovals,
+          thread: bot.conversation,
+          workThreads: listAllConversations()
+            .filter((thread) => thread.parentConversationId === bot.conversationId)
+            .map((thread) => ({
+              ...thread,
+              running: Boolean(chatRunner?.runs?.has(thread.id)),
+            })),
+        })),
+      };
+    },
+  },
+  {
+    name: 'bots_create',
+    description: 'Create a persistent autonomous bot and its main thread. Use /create-bot guidance when requirements are incomplete.',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: BOT_CONFIG_PROPERTIES,
+      required: ['name', 'model'],
+      additionalProperties: false,
+    },
+    execute: async (input, { botManager, models }) => {
+      if (!botManager) throw new Error('Bot management is not available.');
+      if (!models.some((model) => model.id === input.model)) {
+        throw new Error(`Model "${input.model}" is not configured.`);
+      }
+      if (input.workingFolder && !isAbsolute(input.workingFolder)) {
+        throw new Error('workingFolder must be absolute.');
+      }
+      const bot = await botManager.createBotFromConfig(input);
+      return { bot };
+    },
+  },
+  {
+    name: 'bots_update',
+    description: 'Update selected configuration fields of an existing bot.',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 1, description: 'Bot ID returned by bots_list or bots_create.' },
+        changes: {
+          type: 'object',
+          properties: BOT_CONFIG_PROPERTIES,
+          minProperties: 1,
+          additionalProperties: false,
+        },
+      },
+      required: ['id', 'changes'],
+      additionalProperties: false,
+    },
+    execute: async ({ id, changes }, { botManager, models }) => {
+      if (!botManager) throw new Error('Bot management is not available.');
+      if (changes.model && !models.some((model) => model.id === changes.model)) {
+        throw new Error(`Model "${changes.model}" is not configured.`);
+      }
+      if (changes.workingFolder && !isAbsolute(changes.workingFolder)) {
+        throw new Error('workingFolder must be absolute.');
+      }
+      const bot = await botManager.updateBotConfig(id, changes);
+      return { bot };
+    },
+  },
+  {
+    name: 'bots_delete',
+    description: 'Delete a bot, its main conversation, and pending approvals. Bot data files and work threads remain available.',
+    forceApproval: true,
+    canEditFile: false,
+    canPerformDestructiveActions: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 1, description: 'Bot ID returned by bots_list or bots_create.' },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    execute: async ({ id }, { botManager }) => {
+      if (!botManager) throw new Error('Bot management is not available.');
+      await botManager.deleteBotById(id);
+      return { deleted: true, id };
+    },
+  },
+  {
+    name: 'bots_activate',
+    description: 'Activate a bot immediately, ignoring automatic enabled, period, idle, activation-window, and activation-limit rules. It does not start a duplicate run when the bot is already running.',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 1, description: 'Bot ID returned by bots_list or bots_create.' },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    execute: async ({ id }, { botManager }) => {
+      if (!botManager) throw new Error('Bot management is not available.');
+      const activated = await botManager.activateBot(id, { trigger: 'agent', force: true });
+      return {
+        id,
+        activated: activated === true,
+        status: activated === true ? 'started' : 'already_running_or_start_failed',
+      };
+    },
+  },
+  {
     name: 'chat_list_folders',
     description: 'List folders associated with chat threads.',
     canEditFile: false,
@@ -853,10 +1025,12 @@ export const CLIENT_TOOLS = Object.freeze([
         );
       }
       const normalizedPrompt = String(prompt ?? '').trim();
+      const sourceConversation = getConversation(conversationId);
       const conversation = createConversation({
         model: selectedModel.id,
         projectPath,
         createdBy: 'agent',
+        parentConversationId: sourceConversation?.isBot ? sourceConversation.id : null,
       });
       let message = null;
       let response = null;
@@ -867,9 +1041,7 @@ export const CLIENT_TOOLS = Object.freeze([
           model: selectedModel.id,
           reasoningEffort: selectedReasoningEffort,
           // Bot-delegated threads run unattended: permission requests would never be answered.
-          permissionMode: getConversation(conversationId)?.isBot
-            ? 'full_access'
-            : permissionMode,
+          permissionMode: sourceConversation?.isBot ? 'full_access' : permissionMode,
           text: normalizedPrompt,
           fromAgent: true,
           project: { path: projectPath },
@@ -1205,7 +1377,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'chat_inspect_thread',
-    description: 'Inspect the latest four turns and whether the thread is waiting for user input, without exposing assistant reasoning.',
+    description: 'Inspect the latest four turns and whether the thread is waiting for user input, without exposing assistant reasoning, tool calls, or tool results.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -1253,29 +1425,17 @@ export const CLIENT_TOOLS = Object.freeze([
               text: answerTextFromTextualBlocks(message.content),
             }];
           const events = segments.flatMap((segment) => {
-            if (segment.type === 'content' && segment.text) {
-              const text = answerTextFromTextualBlocks(segment.text);
-              return text ? [{ type: 'message', text }] : [];
-            }
-            if (segment.type !== 'tool-call') return [];
-            return [{ type: 'tool_call', name: segment.name }];
+            if (segment.type !== 'content' || !segment.text) return [];
+            const text = answerTextFromTextualBlocks(segment.text);
+            return text ? [{ type: 'message', text }] : [];
           });
           const markers = mediaMarkers(message.attachments);
           if (markers.length > 0) events.push({ type: 'message', text: markers.join('\n') });
           return events;
         });
-        const messageIndexes = assistantEvents
-          .map((event, index) => event.type === 'message' ? index : -1)
-          .filter((index) => index >= 0);
-        const includedMessageIndexes = new Set(
-          messageIndexes.slice(-(MAX_ASSISTANT_MESSAGES_BEFORE_FINAL + 1)),
-        );
-
         return {
           user: turn.user,
-          assistant: assistantEvents.filter((event, index) => (
-            event.type !== 'message' || includedMessageIndexes.has(index)
-          )),
+          assistant: assistantEvents.slice(-(MAX_ASSISTANT_MESSAGES_BEFORE_FINAL + 1)),
         };
       });
 
@@ -1291,12 +1451,9 @@ export const CLIENT_TOOLS = Object.freeze([
           .join('\n');
         return [
           `<|user_start|>${userContent}<|user_end|>`,
-          ...turn.assistant.map((event) => {
-            if (event.type === 'message') {
-              return `<|assistant_start|>${event.text}<|assistant_end|>`;
-            }
-            return `<|tool_call=${event.name}|>`;
-          }),
+          ...turn.assistant.map((event) => (
+            `<|assistant_start|>${event.text}<|assistant_end|>`
+          )),
         ];
       });
       const result = [
@@ -1586,7 +1743,7 @@ export const CLIENT_TOOLS = Object.freeze([
           type: 'number',
           minimum: MIN_SLEEP_SECONDS,
           maximum: MAX_SLEEP_SECONDS,
-          description: 'How long to wait, in seconds. Choose a value from 5 seconds to 30 minutes.',
+          description: 'How long to wait, in seconds. Choose a value from 5 seconds to 1 hour.',
         },
       },
       required: ['seconds'],
@@ -1598,7 +1755,7 @@ export const CLIENT_TOOLS = Object.freeze([
         || seconds < MIN_SLEEP_SECONDS
         || seconds > MAX_SLEEP_SECONDS
       ) {
-        throw new Error('seconds must be a number from 5 to 1800.');
+        throw new Error('seconds must be a number from 5 to 3600.');
       }
 
       const startedAt = Date.now();
@@ -2073,7 +2230,11 @@ export const CLIENT_TOOLS = Object.freeze([
   },
 ]);
 
-export function decorateToolsForInvocation(tools, permissionMode = 'approve_for_me') {
+export function decorateToolsForInvocation(
+  tools,
+  permissionMode = 'approve_for_me',
+  { honorExplicitAuthorization = false } = {},
+) {
   const toolNames = new Set();
   for (const tool of tools) {
     const name = String(tool?.name ?? '');
@@ -2097,7 +2258,9 @@ export function decorateToolsForInvocation(tools, permissionMode = 'approve_for_
             ? 'Set this to false because this tool does not require a separate approval.'
             : {
               ask_for_approval: 'Set this to true for every tool invocation because the user selected Ask for approval, unless explicit user guidance always allows this invocation.',
-              approve_for_me: 'Set this to true only when this specific invocation needs explicit human approval, or false when it can proceed safely.',
+              approve_for_me: honorExplicitAuthorization
+                ? 'Set this to false when the invocation is within the user’s current request, the bot owner’s recurring instructions, or a prior approval for this exact action. This includes ordinary local edits, implementation, builds, tests, regeneration, and validation needed to complete the authorized outcome. Set it to true only for a materially new, unapproved action with meaningful external, irreversible, financial, credential, privacy, production, or destructive impact. Never ask the user to approve the same decision twice.'
+                : 'Set this to true only when this specific invocation needs explicit human approval, or false when it can proceed safely.',
               full_access: 'Set this to false because the user selected Full access.',
             }[permissionMode] ?? 'Set this to true only when this specific invocation needs explicit human approval.',
         },

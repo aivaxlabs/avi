@@ -24,6 +24,7 @@ export class QuickChatRunner {
     getPreferences,
     getPluginTools = () => [],
     getPluginContext = () => ({}),
+    getBotManager = () => null,
     sendEvent,
     stopBackgroundTasks,
   }) {
@@ -33,6 +34,7 @@ export class QuickChatRunner {
     this.getPreferences = getPreferences;
     this.getPluginTools = getPluginTools;
     this.getPluginContext = getPluginContext;
+    this.getBotManager = getBotManager;
     this.sendEvent = sendEvent;
     this.stopBackgroundTasks = stopBackgroundTasks;
     this.sessions = new Map();
@@ -475,6 +477,7 @@ export class QuickChatRunner {
       signal,
       workspacePath,
       chatRunner: this.chatRunner,
+      botManager: this.getBotManager(),
       conversationId: session.id,
       model: selection.model.id,
       models,

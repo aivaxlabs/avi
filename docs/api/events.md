@@ -60,7 +60,7 @@ semaphore.state.changed
 plugin.activated
 plugin.deactivated
 bot.updated
-bot.logs
+bot.work-state
 ```
 
 Unknown internal chat event types are exposed under `chat.<normalized-type>` so observers can log them without changing execution.

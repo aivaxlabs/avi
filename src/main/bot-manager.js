@@ -11,6 +11,7 @@ import {
   getBot,
   getBotByConversation,
   getConversation,
+  listAllConversations,
   listBots,
   updateBot,
   updateBotScheduler,
@@ -24,25 +25,26 @@ import {
   smartIdleUntil,
 } from './bot-scheduling.js';
 import {
-  BOT_DAILY_LOG_STATUSES,
-  BOT_WRITABLE_LOG_STATUSES,
-  botDailyLogDate,
-  botDailyLogFileName,
-  mutateBotDailyLogs,
-  readBotDailyLogs,
-  updateBotDailyLog,
-  writeBotDailyLog,
-  writeBotDailyLogs,
-} from './bot-daily-logs.js';
+  BOT_ACTIVITY_TYPES,
+  BOT_ATTENTION_TYPES,
+  BOT_WORK_ITEM_STATES,
+  BOT_WORK_PRIORITIES,
+  BOT_WORK_STATE_FILES,
+  appendBotActivity,
+  consumeBotWorkApproval,
+  createBotWorkApproval,
+  createBotWorkItem,
+  ensureBotWorkStateFiles,
+  readBotWorkState,
+  updateBotWorkItem,
+} from './bot-work-state.js';
 import { traceError, traceInfo } from './trace-log.js';
 
 const TICK_INTERVAL_MS = 30_000;
 const WORK_FILES = Object.freeze({
   'MEMORY.md': '# Memory\n\nDurable knowledge for this bot across activations.\n',
-  ...Object.fromEntries(BOT_DAILY_LOG_STATUSES.map((status) => [
-    botDailyLogFileName(status),
-    '[]\n',
-  ])),
+  [BOT_WORK_STATE_FILES.workItems]: '[]\n',
+  [BOT_WORK_STATE_FILES.activity]: '[]\n',
 });
 
 function defaultWorkingFolder(botId) {
@@ -70,34 +72,20 @@ export async function ensureBotFolders(bot) {
   const dataFolder = resolveBotDataFolder(bot);
   await mkdir(dataFolder, { recursive: true });
   await writeIfMissing(join(dataFolder, '.gitignore'), '*\n');
-  await Promise.all(Object.entries(WORK_FILES).map(async ([fileName, defaultContents]) => {
-    const filePath = join(dataFolder, fileName);
+  const memoryPath = join(dataFolder, 'MEMORY.md');
+  try {
+    await readFile(memoryPath, 'utf8');
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+    let contents = WORK_FILES['MEMORY.md'];
     try {
-      await readFile(filePath, 'utf8');
-      return;
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
+      contents = await readFile(join(workingFolder, 'MEMORY.md'), 'utf8');
+    } catch (readError) {
+      if (readError?.code !== 'ENOENT') throw readError;
     }
-    let contents = defaultContents;
-    try {
-      contents = await readFile(join(workingFolder, fileName), 'utf8');
-      if (fileName === 'waiting-user-approval.json') {
-        try {
-          const entries = JSON.parse(contents);
-          if (Array.isArray(entries)) {
-            contents = `${JSON.stringify(
-              entries.filter((entry) => entry?.botId === bot?.id),
-              null,
-              2,
-            )}\n`;
-          }
-        } catch {}
-      }
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
-    }
-    await writeIfMissing(filePath, contents);
-  }));
+    await writeIfMissing(memoryPath, contents);
+  }
+  await ensureBotWorkStateFiles(dataFolder);
   return { workingFolder, dataFolder };
 }
 
@@ -108,12 +96,12 @@ function activationText(bot, { activationNumber, queueCount, folders }) {
   return [
     `<bot-activation trigger="scheduler" at="${new Date().toISOString()}">`,
     `Activation #${activationNumber}${maxLine}.`,
-    'Handle everything the user has specified. When nothing is explicitly specified, decide yourself what needs to be done based on the bot daily logs and do that work until nothing meaningful remains.',
+    'Handle everything the user has specified. When nothing is explicit, advance the most valuable actionable work until nothing meaningful remains.',
     '',
     `Working folder: ${folders.workingFolder}`,
     `Bot data folder: ${folders.dataFolder}`,
     `Pending user approvals: ${queueCount}.`,
-    'Read the daily logs with bot_daily_read before choosing work. Use bot_daily_write_log and bot_daily_update_log for relevant progress only; never edit the JSON log files directly.',
+    'Start with bot_work_read. Keep every item understandable in the Bots overview: objective, current situation, latest material progress, next step, attention, workers, and evidence. Use bot_activity_append only for material events.',
     '</bot-activation>',
   ].join('\n');
 }
@@ -196,36 +184,42 @@ export class BotManager {
   async loadPersistedApprovals() {
     this.approvals.clear();
     for (const bot of listBots()) {
-      const { dataFolder } = await ensureBotFolders(bot);
-      const entries = await readBotDailyLogs(dataFolder, {
-        status: 'waiting-user-approval',
-      });
-      for (const entry of entries) {
-        if (
-          entry.botId !== bot.id
-          || !['work', 'tool'].includes(entry.kind)
-          || typeof entry.context !== 'string'
-          || typeof entry.prompt !== 'string'
-          || !entry.prompt
-        ) {
-          throw new Error('waiting-user-approval.json contains an invalid approval entry.');
+      try {
+        const { dataFolder } = await ensureBotFolders(bot);
+        const { workItems } = await readBotWorkState(dataFolder);
+        for (const item of workItems) {
+          if (!item.approval) continue;
+          if (item.approval.botId !== bot.id) {
+            traceError('bots.approval-owner-mismatch', {
+              bot_id: bot.id,
+              approval_id: item.approval.id,
+              approval_bot_id: item.approval.botId,
+            });
+            continue;
+          }
+          this.approvals.set(item.approval.id, item.approval);
         }
-        this.approvals.set(entry.id, entry);
+      } catch (error) {
+        traceError('bots.work-state-load-error', {
+          bot_id: bot.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
   }
 
-  async persistBotApprovals(botId) {
+  async refreshBotApprovalIndex(botId) {
+    for (const [approvalId, approval] of this.approvals) {
+      if (approval.botId === botId) this.approvals.delete(approvalId);
+    }
     const bot = getBot(botId);
-    if (!bot) throw new Error('Bot not found.');
-    await mutateBotDailyLogs(bot.id, async () => {
-      const { dataFolder } = await ensureBotFolders(bot);
-      await writeBotDailyLogs(
-        dataFolder,
-        'waiting-user-approval',
-        [...this.approvals.values()].filter((entry) => entry.botId === botId),
-      );
-    });
+    if (!bot) return;
+    const { dataFolder } = await ensureBotFolders(bot);
+    const { workItems } = await readBotWorkState(dataFolder);
+    for (const item of workItems) {
+      if (!item.approval || item.approval.botId !== bot.id) continue;
+      this.approvals.set(item.approval.id, item.approval);
+    }
   }
 
   broadcast(type, payload = {}) {
@@ -258,13 +252,57 @@ export class BotManager {
     });
   }
 
-  async listDailyLogsByBot() {
-    return Object.fromEntries(await Promise.all(listBots().map((bot) => (
-      mutateBotDailyLogs(bot.id, async () => {
+  async listWorkStateByBot() {
+    const conversations = listAllConversations();
+    const byId = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+    return Object.fromEntries(await Promise.all(listBots().map(async (bot) => {
+      try {
         const { dataFolder } = await ensureBotFolders(bot);
-        return [bot.id, await readBotDailyLogs(dataFolder)];
-      })
-    ))));
+        const { workItems, activity } = await readBotWorkState(dataFolder);
+        const trackedWorkerIds = new Set(workItems.flatMap((item) => item.workerThreadIds));
+        const enrichWorker = (threadId) => {
+          const thread = byId.get(threadId);
+          if (!thread) return {
+            id: threadId,
+            title: 'Missing worker thread',
+            status: 'missing',
+            running: false,
+            needsAttention: true,
+            updatedAt: null,
+          };
+          const running = Boolean(this.chatRunner?.runs?.has(thread.id));
+          return {
+            id: thread.id,
+            title: thread.title,
+            status: running ? 'running' : thread.needsAttention ? 'needs-attention' : 'idle',
+            running,
+            needsAttention: thread.needsAttention,
+            updatedAt: thread.updatedAt,
+          };
+        };
+        return [bot.id, {
+          items: workItems.map((item) => ({
+            ...item,
+            workers: item.workerThreadIds.map(enrichWorker),
+          })),
+          activity,
+          untrackedWorkers: conversations.flatMap((thread) => (
+            thread.parentConversationId === bot.conversationId
+            && !trackedWorkerIds.has(thread.id)
+              ? [enrichWorker(thread.id)]
+              : []
+          )),
+          error: null,
+        }];
+      } catch (error) {
+        return [bot.id, {
+          items: [],
+          activity: [],
+          untrackedWorkers: [],
+          error: error instanceof Error ? error.message : String(error),
+        }];
+      }
+    })));
   }
 
   async createBotFromConfig(config) {
@@ -311,7 +349,7 @@ export class BotManager {
     const updated = updateBot(id, changes);
     if (changes.workingFolder !== undefined) {
       await ensureBotFolders(updated);
-      await this.persistBotApprovals(id);
+      await this.refreshBotApprovalIndex(id);
     }
     if (
       changes.workingFolder !== undefined
@@ -334,7 +372,6 @@ export class BotManager {
     for (const [approvalId, entry] of [...this.approvals.entries()]) {
       if (entry.botId === id) this.approvals.delete(approvalId);
     }
-    await this.persistBotApprovals(id);
     deleteBot(id);
     deleteConversation(bot.conversationId);
     traceInfo('bots.deleted', { bot_id: id });
@@ -347,17 +384,8 @@ export class BotManager {
     if (!bot) throw new Error('Bot not found.');
     this.chatRunner?.stop(bot.conversationId, { includeSubagents: true, stoppedByUser: true });
     updateBotScheduler(bot.id, { activeAssistantMessageId: null });
-    let persisted = false;
-    for (const [approvalId, entry] of [...this.approvals.entries()]) {
-      if (entry.botId === id) {
-        this.approvals.delete(approvalId);
-        persisted = true;
-      }
-    }
-    if (persisted) await this.persistBotApprovals(id);
     const conversation = clearConversationMessages(bot.conversationId);
     this.broadcast('bots:updated');
-    if (persisted) this.broadcast('bots:logs');
     return conversation;
   }
 
@@ -390,34 +418,20 @@ export class BotManager {
     };
   }
 
-  async queueUserApproval(conversationId, { title, context, prompt } = {}) {
+  async queueUserApproval(conversationId, { workItemId, context, prompt } = {}) {
     const bot = getBotByConversation(conversationId);
     if (!bot) throw new Error('This conversation has no bot.');
-    const normalizedTitle = String(title ?? '').trim();
-    if (!normalizedTitle) throw new Error('title is required.');
-    const now = new Date();
-    const entry = {
-      id: randomUUID(),
+    const { dataFolder } = await ensureBotFolders(bot);
+    const item = await createBotWorkApproval(dataFolder, {
       botId: bot.id,
+      workItemId: String(workItemId ?? '').trim(),
       kind: 'work',
-      title: normalizedTitle,
-      content: String(context ?? '').trim(),
       context: String(context ?? '').trim(),
-      prompt: String(prompt ?? '').trim() || normalizedTitle,
-      status: 'waiting-user-approval',
-      date: botDailyLogDate(now),
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    };
-    this.approvals.set(entry.id, entry);
-    try {
-      await this.persistBotApprovals(bot.id);
-    } catch (error) {
-      this.approvals.delete(entry.id);
-      throw error;
-    }
-    this.broadcast('bots:logs');
-    return `Queued for user approval (id: ${entry.id}). The protected daily log entry was created automatically; do not retry it until the user approves it.`;
+      prompt: String(prompt ?? '').trim(),
+    });
+    this.approvals.set(item.approval.id, item.approval);
+    this.broadcast('bots:work-state');
+    return `Queued for user approval (id: ${item.approval.id}, work item: ${item.id}). Continue with other independent work and do not retry this action until the user decides.`;
   }
 
   async queueToolApproval({
@@ -429,64 +443,71 @@ export class BotManager {
   }) {
     const bot = getBotByConversation(conversationId);
     if (!bot) return null;
-    const now = new Date();
-    const content = `The bot requested human approval to run ${toolName}.`;
-    const entry = {
-      id: randomUUID(),
-      botId: bot.id,
-      kind: 'tool',
+    const { dataFolder } = await ensureBotFolders(bot);
+    const item = await createBotWorkItem(dataFolder, {
       title: invocationSummary || toolName,
-      content,
-      context: content,
-      prompt: `The user approved the ${toolName} action: ${invocationSummary}. Run it now (it will not require approval again) and continue the related work.`,
+      objective: `Run the approved ${toolName} action and verify its outcome.`,
+      priority: 'normal',
+    });
+    await updateBotWorkItem(dataFolder, {
+      id: item.id,
+      summary: `The next action requires approval before ${toolName} can run.`,
+      nextStep: `Wait for the user decision, then run ${toolName} or choose a safe alternative.`,
+    });
+    const withApproval = await createBotWorkApproval(dataFolder, {
+      botId: bot.id,
+      workItemId: item.id,
+      kind: 'tool',
+      context: `Approve running ${toolName}: ${invocationSummary}`,
+      prompt: `Run ${toolName} with the approved arguments and continue this work item.`,
       toolName,
       workspacePath,
       input: input ?? null,
-      status: 'waiting-user-approval',
-      date: botDailyLogDate(now),
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    };
-    this.approvals.set(entry.id, entry);
-    try {
-      await this.persistBotApprovals(bot.id);
-    } catch (error) {
-      this.approvals.delete(entry.id);
-      throw error;
-    }
-    this.broadcast('bots:logs');
-    return entry;
+    });
+    this.approvals.set(withApproval.approval.id, withApproval.approval);
+    this.broadcast('bots:work-state');
+    return withApproval.approval;
   }
 
   async resolveApproval(approvalId, decision) {
     const entry = this.approvals.get(approvalId);
     if (!entry) throw new Error('Approval item not found.');
-    this.approvals.delete(approvalId);
-    try {
-      await this.persistBotApprovals(entry.botId);
-    } catch (error) {
-      this.approvals.set(approvalId, entry);
-      throw error;
-    }
     const bot = getBot(entry.botId);
-    if (!bot) {
-      this.broadcast('bots:logs');
-      return { resolved: true, delivered: false };
+    if (!bot) throw new Error('Bot not found.');
+    const { dataFolder } = await ensureBotFolders(bot);
+    const { workItems } = await readBotWorkState(dataFolder);
+    const persistedApproval = workItems.find((item) => item.approval?.id === approvalId)?.approval;
+    if (!persistedApproval || persistedApproval.botId !== bot.id) {
+      this.approvals.delete(approvalId);
+      throw new Error('Approval ownership mismatch.');
+    }
+    const approved = decision !== false;
+    const { item } = await consumeBotWorkApproval(dataFolder, approvalId);
+    this.approvals.delete(approvalId);
+    if (!approved) {
+      await updateBotWorkItem(dataFolder, {
+        id: item.id,
+        state: 'waiting',
+        summary: 'The user denied the requested action. The bot must choose a safe alternative or cancel the work.',
+        lastProgress: 'The requested action was not approved.',
+        nextStep: 'Inspect the work again and either choose a non-destructive alternative or cancel it with a clear reason.',
+        blocker: {
+          reason: 'The requested action was denied by the user.',
+          waitingOn: 'The bot to choose an alternative approach or cancel the work.',
+        },
+      });
     }
     this.noteUserInteraction(bot.conversationId);
-    const approved = decision !== false;
     const text = approved
       ? [
-          `<bot-approval-resolved id="${entry.id}" decision="approved">`,
-          `Title: ${entry.title}`,
-          'Move the related regular work entry from blocked to ongoing before proceeding.',
+          `<bot-approval-resolved id="${entry.id}" work-item-id="${entry.workItemId}" decision="approved">`,
           entry.prompt,
+          'Read the work item again, execute only the approved action, and update its progress and next step.',
           '</bot-approval-resolved>',
         ].join('\n')
       : [
-          `<bot-approval-resolved id="${entry.id}" decision="denied">`,
-          `Title: ${entry.title}`,
-          'The user did not approve this. Do not discard the related work automatically: move it to discarded only if the denial ends the work, backlog if it is deliberately deferred, blocked if another decision or prerequisite is required, or ongoing if an alternative can proceed now. State any needed clarification in your response.',
+          `<bot-approval-resolved id="${entry.id}" work-item-id="${entry.workItemId}" decision="denied">`,
+          'Read the work item again. Choose a safe alternative or cancel it with a clear reason. Do not retry the denied action.',
           '</bot-approval-resolved>',
         ].join('\n');
     let delivered = false;
@@ -502,13 +523,19 @@ export class BotManager {
       });
       delivered = true;
     } catch (error) {
+      await appendBotActivity(dataFolder, {
+        workItemId: item.id,
+        type: 'failure',
+        summary: 'Could not deliver the user decision to the bot.',
+        details: error instanceof Error ? error.message : String(error),
+      });
       traceError('bots.approval-delivery-error', {
         bot_id: bot.id,
         error: error instanceof Error ? error.message : String(error),
       });
     }
-    this.broadcast('bots:logs');
-    return { resolved: true, delivered };
+    this.broadcast('bots:work-state');
+    return { resolved: true, delivered, workItemId: item.id };
   }
 
   async tick() {
@@ -560,10 +587,10 @@ export class BotManager {
     }
   }
 
-  async activateBot(botId, { trigger = 'scheduler' } = {}) {
+  async activateBot(botId, { trigger = 'scheduler', force = false } = {}) {
     const bot = getBot(botId);
     if (!bot) throw new Error('Bot not found.');
-    if (!bot.enabled) return null;
+    if (!bot.enabled && !force) return null;
     if (this.activating.has(bot.id)) return null;
     if (this.chatRunner?.runs?.has(bot.conversationId)) {
       updateBotScheduler(bot.id, {
@@ -631,105 +658,135 @@ export class BotManager {
     if (!bot) return null;
     const workingFolder = resolveBotWorkingFolder(bot);
     const dataFolder = resolveBotDataFolder(bot);
+    const attentionSchema = {
+      type: ['object', 'null'],
+      properties: {
+        type: { type: 'string', enum: [...BOT_ATTENTION_TYPES] },
+        summary: { type: 'string' },
+      },
+      required: ['type', 'summary'],
+      additionalProperties: false,
+    };
+    const blockerSchema = {
+      type: ['object', 'null'],
+      properties: {
+        reason: { type: 'string' },
+        waitingOn: { type: 'string' },
+      },
+      required: ['reason', 'waitingOn'],
+      additionalProperties: false,
+    };
     const tools = [
       {
-        name: 'bot_daily_write_log',
-        description: 'Write one relevant work log entry. The runtime infers its date. Do not log trivial actions or edit the JSON files directly.',
+        name: 'bot_work_create',
+        description: 'Create one durable user-visible work item with a clear objective. Do not create items for routine reads or tool calls.',
         approval: 'never',
         canEditFile: false,
         canPerformDestructiveActions: false,
         inputSchema: {
           type: 'object',
           properties: {
-            title: { type: 'string', description: 'Concise title for the work item.' },
-            content: { type: 'string', description: 'Relevant details, outcome, next step, decisions, or thread ids.' },
-            status: {
-              type: 'string',
-              enum: BOT_WRITABLE_LOG_STATUSES,
-              description: 'Current work state: backlog is not started; ongoing is actively advancing; blocked waits on a concrete prerequisite; user-review is complete but requires a specific user action; done is complete with no user action; discarded is intentionally abandoned.',
-            },
+            title: { type: 'string', description: 'Short recognizable label.' },
+            objective: { type: 'string', description: 'The concrete result that defines success.' },
+            priority: { type: 'string', enum: [...BOT_WORK_PRIORITIES] },
+            workerThreadIds: { type: 'array', items: { type: 'string' }, uniqueItems: true },
           },
-          required: ['title', 'content', 'status'],
+          required: ['title', 'objective'],
           additionalProperties: false,
         },
-        execute: (input) => mutateBotDailyLogs(bot.id, async () => {
+        execute: async (input) => {
           await ensureBotFolders(bot);
-          const entry = await writeBotDailyLog(dataFolder, input);
-          this.broadcast('bots:logs');
-          return entry;
-        }),
+          const item = await createBotWorkItem(dataFolder, input);
+          this.broadcast('bots:work-state');
+          return item;
+        },
       },
       {
-        name: 'bot_daily_update_log',
-        description: 'Edit, move, or remove an existing bot work log entry by id. User approval entries are runtime-owned and cannot be changed with this tool.',
+        name: 'bot_work_update',
+        description: 'Update the current situation of a work item. Keep objective, material progress, next step, attention, blocker, workers, and evidence accurate. Pending approval fields are runtime-owned.',
         approval: 'never',
         canEditFile: false,
         canPerformDestructiveActions: false,
         inputSchema: {
           type: 'object',
           properties: {
-            id: { type: 'string', description: 'Entry id returned by bot_daily_read or bot_daily_write_log.' },
-            operation: { type: 'string', enum: ['edit', 'move', 'remove'] },
-            title: { type: 'string', description: 'Replacement title for edit or move.' },
-            content: { type: 'string', description: 'Replacement content for edit or move.' },
-            status: {
-              type: 'string',
-              enum: BOT_WRITABLE_LOG_STATUSES,
-              description: 'Destination state: backlog is not started; ongoing is actively advancing; blocked waits on a concrete prerequisite; user-review is complete but requires a specific user action; done is complete with no user action; discarded is intentionally abandoned.',
-            },
+            id: { type: 'string' },
+            title: { type: 'string' },
+            objective: { type: 'string' },
+            state: { type: 'string', enum: [...BOT_WORK_ITEM_STATES] },
+            summary: { type: 'string' },
+            lastProgress: { type: 'string' },
+            nextStep: { type: 'string' },
+            attention: attentionSchema,
+            blocker: blockerSchema,
+            priority: { type: 'string', enum: [...BOT_WORK_PRIORITIES] },
+            workerThreadIds: { type: 'array', items: { type: 'string' }, uniqueItems: true },
+            evidence: { type: 'array', items: { type: 'string' }, uniqueItems: true },
           },
-          required: ['id', 'operation'],
+          required: ['id'],
           additionalProperties: false,
         },
-        execute: (input) => mutateBotDailyLogs(bot.id, async () => {
+        execute: async (input) => {
           await ensureBotFolders(bot);
-          const entry = await updateBotDailyLog(dataFolder, input);
-          this.broadcast('bots:logs');
-          return entry;
-        }),
+          const item = await updateBotWorkItem(dataFolder, input);
+          this.broadcast('bots:work-state');
+          return item;
+        },
       },
       {
-        name: 'bot_daily_read',
-        description: 'Read bot work logs, optionally filtering by status and/or inferred log date in YYYY-MM-DD format.',
+        name: 'bot_activity_append',
+        description: 'Append one material event to the recent activity timeline. Do not record routine reads, tool calls, or duplicate item updates.',
         approval: 'never',
         canEditFile: false,
         canPerformDestructiveActions: false,
         inputSchema: {
           type: 'object',
           properties: {
-            status: { type: 'string', enum: BOT_DAILY_LOG_STATUSES },
-            date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' },
+            workItemId: { type: ['string', 'null'] },
+            type: { type: 'string', enum: [...BOT_ACTIVITY_TYPES] },
+            summary: { type: 'string' },
+            details: { type: 'string' },
           },
+          required: ['type', 'summary'],
           additionalProperties: false,
         },
-        execute: (input) => mutateBotDailyLogs(bot.id, async () => {
+        execute: async (input) => {
           await ensureBotFolders(bot);
-          return readBotDailyLogs(dataFolder, input);
-        }),
+          const entry = await appendBotActivity(dataFolder, input);
+          this.broadcast('bots:work-state');
+          return entry;
+        },
+      },
+      {
+        name: 'bot_work_read',
+        description: 'Read all durable work items and material activity. The Bots panel enriches referenced workers with their live runtime state.',
+        approval: 'never',
+        canEditFile: false,
+        canPerformDestructiveActions: false,
+        inputSchema: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        },
+        execute: async () => {
+          await ensureBotFolders(bot);
+          return readBotWorkState(dataFolder);
+        },
       },
       {
         name: 'queue_user_approval',
-        description: 'Queue a work item when it needs explicit user approval before execution (implementations, behavior changes, or potentially destructive actions). First move its regular work entry to blocked. Provide a short context explaining why it matters and the prompt to resume with once approved. The runtime creates the protected approval entry automatically; add its returned id to the regular entry, then continue with other work.',
+        description: 'Attach one protected approval request only when the next material decision or sensitive action is not already authorized by the user’s request, the bot owner’s instructions, or a prior approval. Never ask the user to approve the same scope twice. Continue with other independent work after queuing it.',
         approval: 'never',
         canEditFile: false,
         canPerformDestructiveActions: false,
         inputSchema: {
           type: 'object',
           properties: {
-            title: {
-              type: 'string',
-              description: 'Short action title shown in the Bots panel.',
-            },
-            context: {
-              type: 'string',
-              description: 'Mini-context explaining why this needs the user.',
-            },
-            prompt: {
-              type: 'string',
-              description: 'Instructions to resume this work once the user approves it.',
-            },
+            workItemId: { type: 'string', description: 'Existing work item id returned by bot_work_create or bot_work_read.' },
+            context: { type: 'string', description: 'Why this exact action needs the user.' },
+            prompt: { type: 'string', description: 'Exact instructions to resume this work after approval.' },
           },
-          required: ['title', 'context', 'prompt'],
+          required: ['workItemId', 'context', 'prompt'],
           additionalProperties: false,
         },
         execute: (input) => this.queueUserApproval(conversationId, input),
@@ -737,17 +794,14 @@ export class BotManager {
       ...(bot.activationMode === 'smart'
         ? [{
             name: 'set_bot_idle',
-            description: 'Put this bot to sleep for four activation periods when there is nothing meaningful to do: the backlog is empty or irrelevant, user review has many items pending, or too much is waiting for user approval. Unlike sleep, this ends the current inference immediately instead of waiting.',
+            description: 'Put this bot to sleep for four activation periods when no work item is actionable. This ends the current inference after the tool result.',
             approval: 'never',
             canEditFile: false,
             canPerformDestructiveActions: false,
             inputSchema: {
               type: 'object',
               properties: {
-                reason: {
-                  type: 'string',
-                  description: 'Short reason for going idle.',
-                },
+                reason: { type: 'string', description: 'Short reason why no item is actionable.' },
               },
               required: ['reason'],
               additionalProperties: false,

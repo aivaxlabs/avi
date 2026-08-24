@@ -61,7 +61,7 @@ threads.delete
 bots.read
 bots.manage
 bots.run
-bots.readLogs
+bots.readState
 bots.approvals.resolve
 tools.register
 tools.intercept

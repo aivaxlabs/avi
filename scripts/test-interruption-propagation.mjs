@@ -927,7 +927,7 @@ try {
     (tool) => tool.name === 'read_terminal_output',
   );
   assert.equal(sleep.inputSchema.properties.seconds.minimum, 5);
-  assert.equal(sleep.inputSchema.properties.seconds.maximum, 1_800);
+  assert.equal(sleep.inputSchema.properties.seconds.maximum, 3_600);
   const sleepStartedAt = Date.now();
   const sleepResult = await sleep.execute(
     { seconds: 5 },
@@ -941,7 +941,11 @@ try {
   assert.ok(Date.now() - sleepStartedAt >= 4_900);
   await assert.rejects(
     sleep.execute({ seconds: 4 }, { conversationId: 'sleep-owner' }),
-    /seconds must be a number from 5 to 1800/,
+    /seconds must be a number from 5 to 3600/,
+  );
+  await assert.rejects(
+    sleep.execute({ seconds: 3_601 }, { conversationId: 'sleep-owner' }),
+    /seconds must be a number from 5 to 3600/,
   );
   const writeFileTool = clientTools.CLIENT_TOOLS.find((tool) => tool.name === 'write_file');
   const writtenFile = join(testProfile, 'written-by-tool.md');

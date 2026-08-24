@@ -146,7 +146,7 @@ export default function App() {
   const [sideChats, setSideChats] = useState([]);
   const [subagents, setSubagents] = useState([]);
   const [bots, setBots] = useState([]);
-  const [botLogsByBot, setBotLogsByBot] = useState({});
+  const [botWorkStateByBot, setBotWorkStateByBot] = useState({});
   const [botSettingsTarget, setBotSettingsTarget] = useState(null);
   const [botQueueTabOpen, setBotQueueTabOpen] = useState(false);
   const [selectedBotLogId, setSelectedBotLogId] = useState('');
@@ -445,7 +445,7 @@ export default function App() {
     try {
       const state = await api.bots.list();
       setBots(state.bots ?? []);
-      setBotLogsByBot(state.logsByBot ?? {});
+      setBotWorkStateByBot(state.workStateByBot ?? {});
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
@@ -2360,7 +2360,7 @@ export default function App() {
               <AuxiliaryPanel
                 sideChats={sideChats}
                 bots={bots}
-                botLogsByBot={botLogsByBot}
+                botWorkStateByBot={botWorkStateByBot}
                 onResolveBotApproval={auxiliaryOnResolveBotApproval}
                 botQueueTabOpen={botQueueTabOpen}
                 selectedBotId={selectedBotLogId}
