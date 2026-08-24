@@ -26,6 +26,7 @@ const markup = renderToStaticMarkup(React.createElement(Sidebar, {
     conversation('2', 'Needs attention', 'Beta', true),
     conversation('3', 'Completed task', 'Alpha'),
     conversation('4', 'Ordinary chat', 'Beta'),
+    { ...conversation('5', 'Agent-created thread', 'Beta'), createdBy: 'agent' },
   ],
   bots: [
     { id: 'working-bot', conversationId: 'bot-1', name: 'Working bot', running: true, scheduleState: 'working' },
@@ -80,6 +81,7 @@ const foldersMarkup = markup.slice(foldersIndex);
 for (const title of ['Active task', 'Needs attention', 'Completed task', 'Ordinary chat']) {
   assert.match(foldersMarkup, new RegExp(title));
 }
+assert.doesNotMatch(markup, /Agent-created thread/);
 
 assert.match(markup, /class="lucide lucide-loader-circle run-spinner"[^>]*aria-label="Working"/);
 assert.match(markup, /class="bot-status-dot active" aria-label="Active"/);
@@ -87,4 +89,4 @@ assert.match(markup, /class="lucide lucide-moon bot-status-sleep"[^>]*aria-label
 assert.match(markup, /class="conversation-item bot-item disabled"/);
 assert.match(markup, /class="bot-status-dot disabled" aria-label="Disabled"/);
 
-console.log('Sidebar task section and bot status tests passed.');
+console.log('Sidebar task section, agent-created thread filter, and bot status tests passed.');

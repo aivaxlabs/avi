@@ -121,6 +121,17 @@ try {
   ) {
     throw new Error('Permission mode was not reflected in the approval parameter contract.');
   }
+  const botApprovalDescription = decorateToolsForInvocation(
+    [tool],
+    'approve_for_me',
+    { honorExplicitAuthorization: true },
+  )[0].inputSchema.properties.__requires_human_approval.description;
+  if (
+    !botApprovalDescription.includes('within the user’s current request')
+    || !botApprovalDescription.includes('Never ask the user to approve the same decision twice')
+  ) {
+    throw new Error('Bot tool schemas do not honor explicit user authorization.');
+  }
 
   console.log('Calling prefixed MCP tool...');
   const result = await tool.execute({ n: 2 }, { signal: new AbortController().signal });
