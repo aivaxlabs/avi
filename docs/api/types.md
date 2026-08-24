@@ -157,40 +157,92 @@ interface BotSnapshot {
 
 ### BotApproval
 
-Returned by `bot.approvals.list()` while a bot run waits for a human decision.
+Returned by `bot.approvals.list()` and embedded in its protected work item while a bot waits for a human decision.
 
 ```ts
 interface BotApproval {
   id: string;
   botId: string;
-  kind: 'tool';
-  title: string;
-  content: string;
+  workItemId: string;
+  kind: 'work' | 'tool';
   context: string;
   prompt: string;
-  toolName: string;
-  workspacePath: string | null;
-  input: JsonValue | null;
-  status: 'waiting-user-approval';
-  date: string;
+  status: 'pending';
+  toolName?: string;
+  workspacePath?: string;
+  input?: JsonValue;
   createdAt: string;
   updatedAt: string;
 }
 ```
 
-### BotDailyLogEntry
-
-`bot.logs.list()` returns `BotDailyLogEntry[]` for the bot.
+### BotWorkItem
 
 ```ts
-interface BotDailyLogEntry {
+interface BotWorkItem {
   id: string;
   title: string;
-  content: string;
-  status: string;
-  date: string;
+  objective: string;
+  state: 'planned' | 'active' | 'waiting' | 'completed' | 'cancelled';
+  summary: string;
+  lastProgress: string;
+  nextStep: string;
+  attention: null | {
+    type: 'approval' | 'review' | 'answer';
+    summary: string;
+  };
+  blocker: null | {
+    reason: string;
+    waitingOn: string;
+  };
+  priority: 'critical' | 'high' | 'normal' | 'low';
+  workerThreadIds: string[];
+  workers: BotWorkerSnapshot[];
+  evidence: string[];
+  approval?: BotApproval | null;
   createdAt: string;
   updatedAt: string;
+  completedAt: string | null;
+}
+```
+
+### BotWorkerSnapshot
+
+```ts
+interface BotWorkerSnapshot {
+  id: string;
+  title: string;
+  status: 'running' | 'needs-attention' | 'idle' | 'missing';
+  running: boolean;
+  needsAttention: boolean;
+  updatedAt: string | null;
+}
+```
+
+### BotActivityEntry
+
+```ts
+interface BotActivityEntry {
+  id: string;
+  workItemId: string | null;
+  type: 'created' | 'progress' | 'discovery' | 'decision' | 'delegated'
+    | 'blocked' | 'attention' | 'completed' | 'cancelled' | 'failure' | 'approval';
+  summary: string;
+  details: string;
+  createdAt: string;
+}
+```
+
+### BotWorkState
+
+Returned by `bot.workState.get()`.
+
+```ts
+interface BotWorkState {
+  items: BotWorkItem[];
+  activity: BotActivityEntry[];
+  untrackedWorkers: BotWorkerSnapshot[];
+  error: string | null;
 }
 ```
 
@@ -255,13 +307,16 @@ interface ProviderTypeDescriptor {
   fields?: Array<{
     id: string;
     label: string;
+    type?: 'text' | 'password' | 'select';
+    description?: string;
+    placeholder?: string;
     default?: string;
     options?: Array<{ value: string; label: string }>;
   }>;
 }
 ```
 
-`connection: 'custom'` marks endpoint-driven types that require an HTTP/HTTPS `baseUrl` and accept credentials.
+`connection: 'custom'` marks endpoint-driven types that require an HTTP/HTTPS `baseUrl` and accept credentials. Fields are available to both custom and managed provider types; omitted `type` values render as text inputs.
 
 ### ProviderUsageSnapshot
 

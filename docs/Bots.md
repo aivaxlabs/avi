@@ -1,10 +1,14 @@
 # Bots
 
-Bots are autonomous AI teammates. Each bot lives in a persistent thread, is activated periodically by Avi, and works proactively: it finds work, organizes it, delegates it to worker threads, and follows up on results. Execution stays user-coordinated — bots never implement or test anything themselves.
+Bots are autonomous AI teammates. Each bot lives in a persistent thread, is activated periodically by Avi, and works proactively: it finds work, organizes it, executes bounded work directly, and follows outcomes across activations. Worker threads are reserved for genuinely long or context-heavy deliverables, not routine exploration, research, listings, status checks, or short diagnostics.
 
 ## Creating a bot
 
 Use the **+** button in the sidebar's **Bots** section. Avi creates the bot with a random identity icon and opens its settings. Every bot needs a configured model before creation.
+
+Agents in normal threads and Quick Chat can also manage bots with `bots_list`, `bots_create`, `bots_update`, `bots_delete`, and `bots_activate`. Select `/create-bot` in the composer for a guided setup that checks existing bots, defines the purpose and schedule, creates the bot, verifies its configuration, and optionally starts its first activation. Autonomous bot conversations do not receive these management tools and cannot create or control other bots.
+
+`bots_activate` is an explicit one-time call: it ignores automatic enabled, period, idle, activation-window, and activation-limit rules, while refusing to start a duplicate run when the bot is already active. The sidebar's **Activate now** action keeps the normal enabled-state behavior.
 
 ## Bot settings
 
@@ -43,64 +47,50 @@ Settings are organized by the decisions they control:
 
 **Data — storage and conversation maintenance**
 
-- Shows the isolated `<working folder>/.avi-bots/<bot id>/` folder where the bot's memory and daily logs live.
-- **Clear conversation** — removes conversation messages without touching memory or daily logs.
+- Shows the isolated `<working folder>/.avi-bots/<bot id>/` folder where the bot's memory and work state live.
+- **Clear conversation** — removes conversation messages without touching memory, work items, activity, or pending approvals.
 
-## Daily logs
+## Work state
 
-Each bot keeps its persistent state in `<working folder>/.avi-bots/<bot id>/`:
+Each bot keeps its durable state in `<working folder>/.avi-bots/<bot id>/`:
 
-- `MEMORY.md` — durable memory across activations.
-- `backlog.json` — relevant work not yet started.
-- `ongoing.json` — work in progress.
-- `blocked.json` — work waiting on something.
-- `waiting-user-approval.json` — runtime-owned approval requests.
-- `user-review.json` — finished work waiting for your review.
-- `done.json` — completed work and its outcome.
-- `discarded.json` — intentionally abandoned work and its reason.
+- `MEMORY.md` — durable knowledge across activations.
+- `work-items.json` — the current, user-visible work inventory.
+- `activity.json` — an append-only timeline of material events.
 
-Every log file contains a JSON array. Regular entries use `id`, `title`, `content`, `status`, `date`, `createdAt`, and `updatedAt`. Approval entries use the same base fields and may include runtime data needed to resume an approved action.
+A work item records its objective, current summary, latest material progress, next step, priority, linked worker thread IDs, evidence, blocker, and any user attention it needs. Its state is `planned`, `active`, `waiting`, `completed`, or `cancelled`. Attention is separate from execution state and can request an `approval`, `review`, or `answer`. A waiting item must identify either the attention needed or a concrete blocker and who it is waiting on.
 
-The bot never edits these JSON files directly. It manages them with three bot-only tools:
+The bot never edits these JSON files directly. It uses bot-only tools:
 
-- `bot_daily_write_log` — records relevant work with a title, content, and status; Avi infers the date.
-- `bot_daily_update_log` — edits, moves, or removes an entry by id.
-- `bot_daily_read` — reads entries, optionally filtered by status and/or `YYYY-MM-DD` date.
+- `bot_work_create` — creates a durable item with a clear title and objective.
+- `bot_work_update` — keeps status, progress, next step, blockers, attention, workers, and evidence accurate.
+- `bot_activity_append` — records only material discoveries, decisions, delegations, blockers, failures, approvals, and outcomes.
+- `bot_work_read` — reads all durable work and activity at activation start and whenever reconciliation is needed.
 
-The approval file is protected: `queue_user_approval` and tool approval handling create its entries, and the runtime removes them after you decide. The daily update tool cannot move, edit, or remove these entries.
+Routine reads and tool calls do not belong in the timeline. A delegated thread is referenced by its real thread ID; Avi reconciles that reference with runtime state and shows whether the worker is running, idle, missing, or needs attention. Workers created by the bot but not attached to a work item are shown as untracked.
 
-### How bots choose a status
+Approvals are runtime-owned fields embedded in their work item. While an approval is pending, regular work updates cannot replace it or change the protected state, attention, or blocker fields. Approval returns the item to active work; denial leaves a visible waiting item so the bot can choose a safe alternative or cancel it.
 
-A regular work item has one status based on the next action that remains:
+Avi always creates a `.gitignore` inside the isolated bot folder so internal state is not committed accidentally. If `MEMORY.md` exists at the working-folder root when a bot folder is first created, Avi copies it without overwriting later isolated changes. The work-state files are not imported from any previous report format.
 
-- New, inactive work starts in `backlog`; work being advanced by the bot or a delegated thread stays `ongoing`.
-- A running delegated thread and returned output the bot still needs to inspect are `ongoing`, not `blocked`.
-- `blocked` means a concrete prerequisite prevents the next step. The entry records what is missing, what clears it, and what happens next.
-- When approval is requested, the underlying regular entry moves to `blocked`. The separate protected `waiting-user-approval` entry represents only your pending decision. Approval moves the regular entry back to `ongoing`.
-- A denial does not automatically discard the work. It becomes `discarded` only when the denial ends it, `backlog` when deliberately deferred, `blocked` when another decision is needed, or `ongoing` when an alternative can proceed.
-- Completed work moves to `user-review` only when you must take a specific action, such as accepting it, validating it visually, answering a question, or choosing an option. If no action remains, it moves directly to `done`.
-- Accepted review moves from `user-review` to `done`; requested changes move it back to `ongoing`.
+At the beginning of every activation, the bot reads the work state, reconciles linked workers, and advances actionable items. It keeps the report oriented to outcomes instead of execution mechanics so the user can understand current work, recent results, next steps, and required decisions without reading the chat history.
 
-Avi always creates a `.gitignore` inside `<working folder>/.avi-bots/<bot id>/` so the bot's internal files are not committed by accident. When upgrading from a version that stored these files directly in the working folder, Avi copies each missing file into the isolated bot folder without overwriting either location.
-
-At the beginning of every activation, the bot reads the logs and handles everything you have specified, preferring ongoing work. When nothing is specified, it decides what needs attention — continuing ongoing work, starting backlog items, reviewing delegated output, and checking your review queue. It writes only relevant changes so later activations start from an accurate state instead of a stream of trivial activity.
-
-Bots do not get the memory tools; `MEMORY.md` is their memory. Bots have no sub-agents and cannot ask you questions mid-run; they orchestrate regular threads with `chat_create_thread`, `chat_list_threads`, `chat_send_prompt`, `chat_interrupt_thread`, and `chat_inspect_thread`. Threads created by agents get a robot icon in the sidebar.
+Bots do not get the memory tools; `MEMORY.md` is their memory. Bots perform bounded work directly with their available tools, including exploration, research, data gathering, read-only audits, status checks, and short diagnostics. They cannot ask you questions mid-run. For genuinely long work such as feature implementation, substantial migrations, full articles, or extensive validation, they can coordinate regular threads with `chat_create_thread`, `chat_list_threads`, `chat_send_prompt`, `chat_interrupt_thread`, and `chat_inspect_thread`. Threads created by a bot are linked to its main conversation, appear under that bot's `workThreads` in `bots_list`, and get a robot icon in the sidebar.
 
 ## Approvals and the Bots panel
 
-Bot permission handling is a special "approve for me" mode:
+Bot permission handling is a special "approve for me" mode based on the authority already granted, not merely the category of work:
 
-- Tool calls the bot marks as not needing a human run immediately.
-- Actions the bot marks as needing a human — implementations, behavior changes, destructive actions — are queued instead of pausing for a response. The queued item resumes once you approve it.
-- The bot can also queue work proposals with `queue_user_approval`, including a short context of why it needs you.
+- The user's current request and the bot's recurring owner instructions authorize the stated outcome and its ordinary local completion steps. Editing, rewriting, implementing, building, testing, regenerating, and validating within that scope do not require another approval.
+- The bot queues approval only for a materially new decision or action outside that authority with meaningful external, irreversible, financial, credential, privacy, production, or destructive impact, such as an unrequested publish, deploy, push, merge, external message, secret access, purchase, production mutation, or broad deletion.
+- If the user explicitly requested the sensitive action itself, that is the approval. The bot must not ask the user to repeat the same decision.
+- The bot may attach a genuinely new work approval to an existing item with `queue_user_approval` and continue other independent work while it is pending.
 
 Threads the bot creates or messages always run in **Full access**: unattended threads have no one to answer a permission prompt, so only the bot's own conversation uses the approval queue above.
 
-Open **Bots** from the auxiliary panel. Select a bot, then switch between the seven stage tabs. Each tab shows its entry count. **Waiting approval** also provides:
+Open **Bots** from the auxiliary panel. The default **Overview** shows current work, items needing your attention, recently completed items, work up next, and recent activity. **All work** provides the complete state-filterable inventory, while **Activity** shows the material timeline. Cards expose objectives, current progress, next steps, blockers, real worker state, evidence, and last update.
 
-- **Approve** — sends the approved prompt back to the bot so it proceeds, usually by delegating to a worker thread.
-- **Deny** — tells the bot you declined; it keeps, defers, blocks, or discards the related work according to whether another path remains.
+Tool approvals show the exact tool name, workspace path, and formatted input before **Approve** or **Deny**. Approve sends the resume prompt back to the bot; deny keeps the outcome visible and tells the bot to choose a safe alternative or cancel the item.
 
 ## Bot chats
 
@@ -110,5 +100,5 @@ If Avi closes or restarts while a bot is working, its current activation resumes
 
 ## Sidebar
 
-- The bot's context menu offers **Bot settings**, **Activate now**, and **Delete bot...** (removes the conversation and pending approvals; memory and daily log files stay on disk).
+- The bot's context menu offers **Bot settings**, **Activate now**, and **Delete bot...** (removes the conversation and pending approvals; memory and work-state files stay on disk).
 - The sidebar indicator reflects the bot state: a spinner while working, a green dot while active and waiting for its next activation, or a gray moon while sleeping because of smart idle, a repeated-activation pause, a manual pause, or the schedule window. Disabled bots use a gray dot and appear dimmed.

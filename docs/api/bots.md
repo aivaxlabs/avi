@@ -28,7 +28,7 @@ const bot = await avi.bots.create({
 
 ## BotHandle
 
-Value types `BotSnapshot`, `BotApproval`, and `BotDailyLogEntry` are defined in [Shared types](./types.md). `ThreadHandle` and `ThreadSnapshot` are defined in [Threads](./threads.md) and [Shared types](./types.md).
+Value types `BotSnapshot`, `BotApproval`, `BotWorkItem`, `BotActivityEntry`, and `BotWorkState` are defined in [Shared types](./types.md). `ThreadHandle` and `ThreadSnapshot` are defined in [Threads](./threads.md) and [Shared types](./types.md).
 
 ```ts
 bot.id: string
@@ -42,7 +42,7 @@ bot.disable(): Promise<BotSnapshot>
 bot.getThread(): Promise<ThreadHandle>
 bot.clearThread(): Promise<ThreadSnapshot>
 bot.delete(): Promise<boolean>
-bot.logs.list(): Promise<object>
+bot.workState.get(): Promise<BotWorkState>
 bot.approvals.list(): BotApproval[]
 bot.approvals.resolve(approvalId, decision): Promise<object>
 bot.tools.register(tool): Disposable
@@ -55,7 +55,7 @@ bot.tools.register(tool): Disposable
 - `bots.read`: list and inspect bots and obtain their thread handles.
 - `bots.manage`: create, update, pause, enable, clear, or delete bots.
 - `bots.run`: activate bots.
-- `bots.readLogs`: read daily logs and pending approvals.
+- `bots.readState`: read durable work items, activity, worker state, and pending approvals.
 - `bots.approvals.resolve`: approve or deny a pending bot approval.
 
 Resolving approvals is deliberately separate from bot management because it acts on behalf of the user.

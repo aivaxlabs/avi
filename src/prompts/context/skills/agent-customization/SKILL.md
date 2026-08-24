@@ -5,7 +5,7 @@ user-invocable: false
 ---
 # Avi Context Customization
 
-Use this skill to customize Avi with five supported primitives: **instructions, skills, workflows, MCP, and plugins**.
+Use this skill to customize Avi with five supported primitives: **instructions, skills, workflows, MCP, and plugins**. Avi bots are persistent autonomous teammates configured through built-in agent tools rather than an additional context primitive.
 
 Avi does not discover VS Code or Copilot prompt files, hooks, custom-agent files, `.github` customization folders, or `.claude` skill folders. Runtime features such as Plan, Goal, Ultra, and sub-agents are Avi features, not additional context file types.
 
@@ -104,6 +104,7 @@ Avi may recognize some legacy instruction filenames for compatibility, but new p
 ## References
 
 - [Writing effective instructions](./references/agent-instructions.md)
+- [Bots](./references/bots.md)
 - [Instruction discovery and hierarchy](./references/instructions.md)
 - [MCP configuration](./references/mcp.md)
 - [Plugins](./references/plugins.md)
