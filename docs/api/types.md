@@ -249,13 +249,20 @@ interface BotApproval {
 ### BotWorkItem
 
 ```ts
+type BotEvidence =
+  | { type: 'file_reference'; value: string }
+  | { type: 'external_reference'; value: string }
+  | { type: 'text'; value: string };
+
 interface BotWorkItem {
   id: string;
   title: string;
   objective: string;
   state: 'planned' | 'active' | 'waiting' | 'completed' | 'cancelled';
+  /** Current situation, or a final what/why/how account when completed. */
   summary: string;
   lastProgress: string;
+  /** Next action for planned or active work; empty when completed. */
   nextStep: string;
   attention: null | {
     type: 'approval' | 'review' | 'answer';
@@ -268,7 +275,7 @@ interface BotWorkItem {
   priority: 'critical' | 'high' | 'normal' | 'low';
   workerThreadIds: string[];
   workers: BotWorkerSnapshot[];
-  evidence: string[];
+  evidence: BotEvidence[];
   approval?: BotApproval | null;
   createdAt: string;
   updatedAt: string;

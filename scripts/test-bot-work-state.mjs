@@ -8,6 +8,7 @@ import {
   BOT_WORK_ITEM_STATES,
   BOT_WORK_PRIORITIES,
   BOT_ATTENTION_TYPES,
+  BOT_EVIDENCE_TYPES,
   BOT_ACTIVITY_TYPES,
   BOT_WORK_STATE_FILES,
   ensureBotWorkStateFiles,
@@ -64,6 +65,9 @@ await run([
   test('constants: BOT_ATTENTION_TYPES', async () => {
     assert.deepEqual(BOT_ATTENTION_TYPES, new Set(['approval', 'review', 'answer']));
   }),
+  test('constants: BOT_EVIDENCE_TYPES', async () => {
+    assert.deepEqual(BOT_EVIDENCE_TYPES, new Set(['file_reference', 'external_reference', 'text']));
+  }),
   test('constants: BOT_ACTIVITY_TYPES', async () => {
     assert.ok(BOT_ACTIVITY_TYPES.has('created'));
     assert.ok(BOT_ACTIVITY_TYPES.has('approval'));
@@ -99,6 +103,21 @@ await run([
     assert.deepEqual(state.workItems, []);
     assert.deepEqual(state.activity, []);
   }),
+  test('read: normalizes legacy string evidence', async () => {
+    const d = sub('read-legacy-evidence');
+    await mkdir(d, { recursive: true });
+    await writeFile(join(d, 'work-items.json'), `${JSON.stringify([{
+      id: 'legacy', title: 'Legacy', objective: OBJ, state: 'active', summary: '',
+      lastProgress: '', nextStep: '', attention: null, blocker: null, priority: 'normal',
+      workerThreadIds: [], evidence: ['https://example.com/pr/1', 'validated locally'],
+      createdAt: T, updatedAt: T, completedAt: null,
+    }])}\n`, 'utf8');
+    const state = await readBotWorkState(d);
+    assert.deepEqual(state.workItems[0].evidence, [
+      { type: 'external_reference', value: 'https://example.com/pr/1' },
+      { type: 'text', value: 'validated locally' },
+    ]);
+  }),
 ]);
 
 // --- CRUD create ---
@@ -120,9 +139,12 @@ await run([
     assert.equal(item.updatedAt, T);
     assert.equal(typeof item.id, 'string');
   }),
-  test('create: with explicit priority and workerThreadIds', async () => {
+  test('create: with explicit next step, priority, and workerThreadIds', async () => {
     const d = sub('create-explicit');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ, priority: 'high', workerThreadIds: ['w1', 'w2'] }, T);
+    const item = await createBotWorkItem(d, {
+      title: 'T', objective: OBJ, nextStep: 'Inspect the current implementation.', priority: 'high', workerThreadIds: ['w1', 'w2'],
+    }, T);
+    assert.equal(item.nextStep, 'Inspect the current implementation.');
     assert.equal(item.priority, 'high');
     assert.deepEqual(item.workerThreadIds, ['w1', 'w2']);
   }),
@@ -168,11 +190,21 @@ await run([
     assert.equal(updated.completedAt, null);
     assert.equal(updated.updatedAt, T2);
   }),
-  test('update: fills completedAt for completed', async () => {
+  test('update: completed work requires a final summary and clears its next step', async () => {
     const d = sub('update-completed');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    const updated = await updateBotWorkItem(d, { id: item.id, state: 'completed' }, T2);
+    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ, nextStep: 'Run validation.' }, T);
+    await assert.rejects(
+      () => updateBotWorkItem(d, { id: item.id, state: 'completed' }, T2),
+      /summary for completed work/,
+    );
+    const updated = await updateBotWorkItem(d, {
+      id: item.id,
+      state: 'completed',
+      summary: 'Implemented the requested behavior to remove duplicated reporting, using the existing work-item fields.',
+      nextStep: 'This must be cleared.',
+    }, T2);
     assert.equal(updated.completedAt, T2);
+    assert.equal(updated.nextStep, '');
   }),
   test('update: fills completedAt for cancelled', async () => {
     const d = sub('update-cancelled');
@@ -183,7 +215,7 @@ await run([
   test('update: clears completedAt when transitioning from completed to active', async () => {
     const d = sub('update-clear-completed');
     const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    await updateBotWorkItem(d, { id: item.id, state: 'completed' }, T2);
+    await updateBotWorkItem(d, { id: item.id, state: 'completed', summary: 'Completed the first item for the transition test.' }, T2);
     const item2 = await createBotWorkItem(d, { title: 'T2', objective: OBJ }, T);
     const active = await updateBotWorkItem(d, { id: item2.id, state: 'active' }, T2);
     assert.equal(active.completedAt, null);
@@ -223,11 +255,48 @@ await run([
     }, T);
     assert.equal(updated.state, 'waiting');
   }),
+  test('update: accepts typed evidence', async () => {
+    const d = sub('update-evidence');
+    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
+    const evidence = [
+      { type: 'file_reference', value: './src/main/bot-work-state.js' },
+      { type: 'external_reference', value: 'https://example.com/pr/1' },
+      { type: 'text', value: 'Focused tests passed.' },
+    ];
+    const updated = await updateBotWorkItem(d, { id: item.id, evidence }, T);
+    assert.deepEqual(updated.evidence, evidence);
+  }),
+  test('update: rejects invalid evidence types and references', async () => {
+    const d = sub('update-invalid-evidence');
+    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
+    await assert.rejects(
+      () => updateBotWorkItem(d, { id: item.id, evidence: [{ type: 'unknown', value: 'x' }] }, T),
+      /Invalid evidence type/,
+    );
+    await assert.rejects(
+      () => updateBotWorkItem(d, { id: item.id, evidence: [{ type: 'external_reference', value: 'file:///tmp/report' }] }, T),
+      /Invalid external_reference/,
+    );
+    await assert.rejects(
+      () => updateBotWorkItem(d, { id: item.id, evidence: [{ type: 'file_reference', value: 'src/main/bot-work-state.js' }] }, T),
+      /Invalid file_reference/,
+    );
+    await assert.rejects(
+      () => updateBotWorkItem(d, { id: item.id, evidence: ['legacy text'] }, T),
+      /Invalid evidence entry/,
+    );
+  }),
   test('update: duplicate evidence throws', async () => {
     const d = sub('update-dupev');
     const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
     await assert.rejects(
-      () => updateBotWorkItem(d, { id: item.id, evidence: ['e1', 'e1'] }, T),
+      () => updateBotWorkItem(d, {
+        id: item.id,
+        evidence: [
+          { type: 'text', value: 'e1' },
+          { type: 'text', value: 'e1' },
+        ],
+      }, T),
       /Duplicate evidence entry/,
     );
   }),

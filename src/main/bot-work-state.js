@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 export const BOT_WORK_ITEM_STATES = new Set(['planned', 'active', 'waiting', 'completed', 'cancelled']);
 export const BOT_WORK_PRIORITIES = new Set(['critical', 'high', 'normal', 'low']);
 export const BOT_ATTENTION_TYPES = new Set(['approval', 'review', 'answer']);
+export const BOT_EVIDENCE_TYPES = new Set(['file_reference', 'external_reference', 'text']);
 export const BOT_ACTIVITY_TYPES = new Set([
   'created', 'progress', 'discovery', 'decision', 'delegated',
   'blocked', 'attention', 'completed', 'cancelled', 'failure', 'approval',
@@ -50,6 +51,33 @@ function validateUniqueStrings(value, name) {
   }
 }
 
+function validateEvidence(value) {
+  if (!Array.isArray(value)) throw new Error('Invalid evidence: expected array');
+  const seen = new Set();
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) {
+      throw new Error('Invalid evidence entry: expected object');
+    }
+    if (!BOT_EVIDENCE_TYPES.has(entry.type)) {
+      throw new Error(`Invalid evidence type: ${entry.type}`);
+    }
+    requireString(entry.value, 'evidence.value');
+    if (entry.type === 'external_reference') {
+      let url;
+      try { url = new URL(entry.value); } catch { throw new Error('Invalid external_reference: expected HTTP or HTTPS URL'); }
+      if (!['http:', 'https:'].includes(url.protocol) || !url.host) {
+        throw new Error('Invalid external_reference: expected HTTP or HTTPS URL');
+      }
+    }
+    if (entry.type === 'file_reference' && !entry.value.replaceAll('\\', '/').match(/^(?:\.\/|\.\.\/)/)) {
+      throw new Error('Invalid file_reference: expected a path starting with ./ or ../');
+    }
+    const key = `${entry.type}\u0000${entry.value}`;
+    if (seen.has(key)) throw new Error(`Duplicate evidence entry: ${entry.value}`);
+    seen.add(key);
+  }
+}
+
 function validateAttention(value) {
   if (value === null || value === undefined) return;
   if (typeof value !== 'object') throw new Error('Invalid attention: expected null or object');
@@ -91,7 +119,7 @@ function validateWorkItem(item) {
   validateBlocker(item.blocker);
   if (!BOT_WORK_PRIORITIES.has(item.priority)) throw new Error(`Invalid priority: ${item.priority}`);
   validateUniqueStrings(item.workerThreadIds, 'workerThreadIds');
-  validateUniqueStrings(item.evidence, 'evidence');
+  validateEvidence(item.evidence);
   validateApprovalObject(item.approval);
   if (item.approval && (
     item.approval.workItemId !== item.id
@@ -157,7 +185,17 @@ async function readJsonFile(filePath, validator, fallback) {
 }
 
 async function readWorkItemsFile(dataFolder) {
-  return readJsonFile(join(dataFolder, BOT_WORK_STATE_FILES.workItems), validateWorkItemsPayload, () => []);
+  return readJsonFile(join(dataFolder, BOT_WORK_STATE_FILES.workItems), (items) => {
+    if (!Array.isArray(items)) return validateWorkItemsPayload(items);
+    return validateWorkItemsPayload(items.map((item) => ({
+      ...item,
+      evidence: Array.isArray(item?.evidence)
+        ? item.evidence.map((entry) => typeof entry === 'string'
+          ? { type: /^https?:\/\//i.test(entry) ? 'external_reference' : 'text', value: entry }
+          : entry)
+        : item?.evidence,
+    })));
+  }, () => []);
 }
 
 async function readActivityFile(dataFolder) {
@@ -210,9 +248,10 @@ export async function readBotWorkState(dataFolder) {
 }
 
 export async function createBotWorkItem(dataFolder, input, now) {
-  const { title, objective, priority = 'normal', workerThreadIds = [] } = input;
+  const { title, objective, nextStep = '', priority = 'normal', workerThreadIds = [] } = input;
   requireString(title, 'title');
   requireString(objective, 'objective');
+  if (typeof nextStep !== 'string') throw new Error('Invalid nextStep: expected string');
   if (!BOT_WORK_PRIORITIES.has(priority)) throw new Error(`Invalid priority: ${priority}`);
   validateUniqueStrings(workerThreadIds, 'workerThreadIds');
 
@@ -224,7 +263,7 @@ export async function createBotWorkItem(dataFolder, input, now) {
     state: 'planned',
     summary: '',
     lastProgress: '',
-    nextStep: '',
+    nextStep,
     attention: null,
     blocker: null,
     priority,
@@ -293,12 +332,16 @@ export async function updateBotWorkItem(dataFolder, input, now) {
       updated.workerThreadIds = patch.workerThreadIds;
     }
     if (patch.evidence !== undefined) {
-      validateUniqueStrings(patch.evidence, 'evidence');
+      validateEvidence(patch.evidence);
       updated.evidence = patch.evidence;
     }
 
     if (updated.state === 'waiting' && !updated.attention && !updated.blocker) {
       throw new Error('Waiting state requires attention or blocker');
+    }
+    if (patch.state === 'completed') {
+      requireString(updated.summary, 'summary for completed work');
+      updated.nextStep = '';
     }
 
     applyCompletedAt(updated, ts);
