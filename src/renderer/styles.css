@@ -4857,8 +4857,7 @@ button svg {
     flex: 0 0 auto;
     min-height: 0;
     max-height: 220px;
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow: auto;
     display: grid;
     align-content: start;
     gap: 2px;
@@ -4866,33 +4865,6 @@ button svg {
     scrollbar-gutter: stable;
     scrollbar-width: thin;
     scrollbar-color: var(--text-4) transparent;
-}
-
-.sidebar-bots::-webkit-scrollbar {
-    width: 10px;
-}
-
-.sidebar-bots::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.sidebar-bots::-webkit-scrollbar-thumb {
-    min-height: 44px;
-    background: var(--text-4);
-    background-clip: padding-box;
-    border: 3px solid transparent;
-    border-radius: 999px;
-}
-
-.sidebar-bots:hover::-webkit-scrollbar-thumb {
-    background: var(--text-3);
-    background-clip: padding-box;
-}
-
-.sidebar-bots::-webkit-scrollbar-button {
-    width: 0;
-    height: 0;
-    display: none;
 }
 
 .sidebar-bots .conversation-main {
@@ -4984,6 +4956,9 @@ button svg {
 }
 
 .bot-queue {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
     min-height: 0;
     overflow: hidden;
     display: grid;
@@ -4994,17 +4969,19 @@ button svg {
 }
 
 .bot-work-selector {
+    min-width: 0;
     display: block;
 }
 
 .bot-work-selector select {
-    min-width: 200px;
+    width: min(200px, 100%);
+    min-width: 0;
     padding: 4px 8px !important;
     color: var(--text-1);
     background: var(--background-1);
     border: 1px solid var(--border-color);
     border-radius: 32px;
-    font: inherit;
+    font-family: inherit;
     font-size: var(--font-md);
 }
 
@@ -5067,13 +5044,44 @@ button svg {
 }
 
 .bot-work-view {
+    width: 100%;
+    min-width: 0;
     min-height: 0;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
     display: grid;
     align-content: start;
     gap: 8px;
+    scrollbar-gutter: stable;
     scrollbar-width: thin;
     scrollbar-color: var(--text-4) transparent;
+}
+
+.bot-work-view::-webkit-scrollbar {
+    width: 10px;
+}
+
+.bot-work-view::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.bot-work-view::-webkit-scrollbar-thumb {
+    min-height: 44px;
+    background: var(--text-4);
+    background-clip: padding-box;
+    border: 3px solid transparent;
+    border-radius: 999px;
+}
+
+.bot-work-view:hover::-webkit-scrollbar-thumb {
+    background: var(--text-3);
+    background-clip: padding-box;
+}
+
+.bot-work-view::-webkit-scrollbar-button {
+    width: 0;
+    height: 0;
+    display: none;
 }
 
 .bot-queue-empty {
@@ -5094,36 +5102,8 @@ button svg {
     font-size: var(--font-sm);
 }
 
-.bot-work-card {
-    position: relative;
-    display: grid;
-    gap: 6px;
-    padding: 10px;
-    background: var(--background-1);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-}
-
-.bot-work-card header {
-    min-width: 0;
-    display: grid;
-    gap: 2px;
-    padding-right: 28px;
-}
-
-.bot-work-card header strong {
-    color: var(--text-1);
-    font-size: var(--font-sm);
-    overflow-wrap: anywhere;
-}
-
-.bot-work-card header small {
-    color: var(--text-4);
-    font-size: var(--font-xs);
-}
-
 .bot-work-dialog {
-    width: min(820px, calc(100vw - 60px));
+    width: min(1100px, calc(100vw - 60px));
     max-width: none;
     max-height: min(760px, 88vh);
     margin: auto;
@@ -5135,6 +5115,7 @@ button svg {
     border: 1px solid var(--border-color);
     border-radius: 14px;
     box-shadow: 0 24px 64px rgb(0 0 0 / .42);
+    font-size: var(--font-md);
 }
 
 .bot-work-dialog[open] {
@@ -5156,39 +5137,66 @@ button svg {
     min-width: 0;
 }
 
-.bot-work-dialog > .dialog-header h2 {
+.bot-work-dialog > .dialog-header > div > h2 {
     overflow: hidden;
     margin: 0;
     color: var(--text-1);
-    font-size: var(--font-md);
+    font-size: inherit;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.bot-work-dialog > .dialog-header p {
+.bot-work-dialog > .dialog-header > div > p {
     margin: 2px 0 0;
-    color: var(--text-4);
-    font-size: var(--font-xs);
+    color: var(--text-2);
+    font-size: inherit;
 }
 
-.bot-work-dialog-content {
+.bot-work-dialog > .bot-work-dialog-content {
     min-height: 0;
     overflow: auto;
+    display: grid;
+    gap: 14px;
     padding: 18px;
-    color: var(--text-2);
+    color: var(--text-1);
     overflow-wrap: anywhere;
     scrollbar-width: thin;
     scrollbar-color: var(--text-4) transparent;
 }
 
+.bot-work-dialog > .bot-work-dialog-content > .bot-work-detail-fields {
+    display: grid;
+    grid-template-columns: 140px minmax(0, 1fr);
+    gap: 14px 8px;
+    margin: 0;
+    line-height: 1.4;
+}
+
+.bot-work-dialog > .bot-work-dialog-content > .bot-work-detail-fields > dt {
+    min-width: 0;
+    color: var(--text-2);
+    overflow-wrap: anywhere;
+}
+
+.bot-work-dialog > .bot-work-dialog-content > .bot-work-detail-fields > dd {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+    margin: 0;
+    color: inherit;
+    overflow-wrap: anywhere;
+}
+
 .bot-work-overview, .bot-all-work {
+    min-width: 0;
     display: grid;
     align-content: start;
-    gap: 14px;
+    gap: 2em;
 }
 
 .bot-work-section {
+    min-width: 0;
     display: grid;
     gap: 8px;
 }
@@ -5197,6 +5205,8 @@ button svg {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: .5em;
     gap: 8px;
     color: var(--text-2);
 }
@@ -5208,7 +5218,7 @@ button svg {
 }
 
 .bot-work-section > header strong {
-    font-size: var(--font-sm);
+    font-size: var(--font-lg);
     font-weight: 600;
 }
 
@@ -5224,12 +5234,9 @@ button svg {
 
 .bot-work-section-empty {
     margin: 0;
-    padding: 10px;
     color: var(--text-4);
-    background: var(--background-1);
-    border: 1px dashed var(--border-color);
     border-radius: 8px;
-    font-size: var(--font-xs);
+    font-size: var(--font-sm);
 }
 
 .bot-work-warning {
@@ -5250,15 +5257,91 @@ button svg {
     margin-top: 1px;
 }
 
+.bot-work-card {
+    position: relative;
+    min-width: 0;
+    display: grid;
+    gap: 6px;
+    color: var(--text-1);
+    line-height: 1.5;
+}
+
+.bot-work-card:not(.expanded) {
+    font-size: var(--font-sm);
+}
+
+.bot-work-card.expanded {
+    border: 0;
+    opacity: 1;
+}
+
+.bot-work-card.expanded > .bot-work-open {
+    display: none;
+}
+
+.bot-work-card.expanded .markdown-body {
+    line-height: 1.6;
+}
+
 .bot-work-card.needs-attention {
     border-left: 3px solid var(--warning-color, var(--text-2));
 }
 
-.bot-work-card.state-completed, .bot-work-card.state-cancelled {
+.bot-work-card.state-completed:not(.expanded), .bot-work-card.state-cancelled:not(.expanded) {
     opacity: .82;
 }
 
-.bot-work-card .bot-work-open {
+.bot-work-card.completed, .bot-work-card.up-next {
+    gap: 4px;
+    opacity: 1;
+}
+
+.bot-work-card > header {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+    padding-right: 28px;
+}
+
+.bot-work-card > header > .bot-work-card-heading {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    padding-right: 2px;
+}
+
+.bot-work-card > header > .bot-work-card-heading > strong {
+    min-width: 0;
+    flex: 1 1 160px;
+    overflow-wrap: anywhere;
+}
+
+.bot-work-card > header > .bot-work-card-heading > .bot-work-state, .bot-work-card > header > .bot-work-card-heading > .bot-work-priority {
+    flex: 0 0 auto;
+    padding: 1px 5px;
+    color: var(--text-2);
+    background: var(--background-3);
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.bot-work-card > header > .bot-work-card-heading > .bot-work-state.active, .bot-work-card > header > .bot-work-card-heading > .bot-work-priority.active {
+    color: var(--success-color, var(--text-2));
+}
+
+.bot-work-card > header > .bot-work-card-heading > .bot-work-state.waiting, .bot-work-card > header > .bot-work-card-heading > .bot-work-priority.waiting, .bot-work-card > header > .bot-work-card-heading > .bot-work-state.critical, .bot-work-card > header > .bot-work-card-heading > .bot-work-priority.critical, .bot-work-card > header > .bot-work-card-heading > .bot-work-state.high, .bot-work-card > header > .bot-work-card-heading > .bot-work-priority.high {
+    color: var(--warning-color, var(--text-2));
+}
+
+.bot-work-card > header > small {
+    color: var(--text-2);
+    font-size: inherit;
+}
+
+.bot-work-card > .bot-work-open {
     position: absolute;
     top: 7px;
     right: 7px;
@@ -5267,197 +5350,260 @@ button svg {
     display: grid;
     place-items: center;
     padding: 0;
-    color: var(--text-3);
+    color: var(--text-2);
     background: transparent;
     border: 0;
     border-radius: 6px;
 }
 
-.bot-work-card .bot-work-open:hover {
+.bot-work-card > .bot-work-open:hover {
     color: var(--text-1);
     background: var(--item-hover);
 }
 
-.bot-work-card .bot-work-open:focus-visible {
+.bot-work-card > .bot-work-open:focus-visible {
     outline: 2px solid var(--text-3);
     outline-offset: 1px;
 }
 
-.bot-work-card-heading {
+.bot-work-card > .bot-work-card-body {
     min-width: 0;
-    display: flex;
+    display: grid;
+    gap: 6px;
+}
+
+.bot-work-card > .bot-work-card-body.clamped {
+    position: relative;
+    max-height: 300px;
+    overflow: hidden;
+}
+
+.bot-work-card > .bot-work-card-body.clamped::after {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 44px;
+    background: linear-gradient(to top, var(--background-1) 30%, transparent);
+    content: '';
+    pointer-events: none;
+}
+
+.bot-work-card > .bot-work-card-body > .bot-work-expand {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    z-index: 1;
+    display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding-right: 2px;
-}
-
-.bot-work-card-heading > strong {
-    min-width: 0;
-    flex: 1;
-}
-
-.bot-work-state, .bot-work-priority {
-    flex: 0 0 auto;
-    padding: 1px 5px;
-    color: var(--text-3);
-    background: var(--background-3);
-    border-radius: 999px;
-    font-size: var(--font-xs);
-    font-weight: 600;
-    text-transform: capitalize;
-}
-
-.bot-work-state.active, .bot-work-priority.active {
-    color: var(--success-color, var(--text-2));
-}
-
-.bot-work-state.waiting, .bot-work-priority.waiting, .bot-work-state.critical, .bot-work-priority.critical, .bot-work-state.high, .bot-work-priority.high {
-    color: var(--warning-color, var(--text-2));
-}
-
-.bot-work-objective {
+    padding: 4px 9px;
     color: var(--text-2);
-    font-size: var(--font-sm);
-    line-height: 1.45;
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
 }
 
-.bot-work-objective > span {
-    display: block;
-    margin-bottom: 2px;
-    color: var(--text-4);
-    font-size: var(--font-xs);
+.bot-work-card > .bot-work-card-body > .bot-work-expand:hover {
+    color: var(--text-1);
+    background: var(--item-hover);
+}
+
+.bot-work-card > .bot-work-card-body > .bot-work-expand:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 1px;
+}
+
+.bot-work-card .markdown-body {
+    font-size: inherit;
+    line-height: inherit;
+}
+
+.bot-work-card .markdown-body h1, .bot-work-card .markdown-body h2, .bot-work-card .markdown-body h3, .bot-work-card .markdown-body h4, .bot-work-card .markdown-body h5, .bot-work-card .markdown-body h6, .bot-work-card .markdown-body small {
+    font-size: inherit;
+}
+
+.bot-work-card .markdown-body code, .bot-work-card .markdown-body pre {
+    font-family: inherit;
+    font-size: inherit;
+}
+
+.bot-work-card .markdown-body p, .bot-work-card .markdown-body ul, .bot-work-card .markdown-body ol {
+    margin: 0 0 6px;
+}
+
+.bot-work-card .bot-markdown-body {
+    color: inherit;
+}
+
+.bot-work-card .bot-markdown-body > h2 {
+    margin: 1.25em 0 .5em;
+    padding-bottom: .25em;
+    border-bottom: 2px solid var(--border-color);
+    font-size: inherit;
     font-weight: 600;
-    letter-spacing: .04em;
-    text-transform: uppercase;
 }
 
-.bot-work-objective p {
+.bot-work-card .bot-markdown-body p {
     margin: 0;
 }
 
-.bot-work-summary {
-    margin: 0;
-    color: var(--text-3);
-    font-size: var(--font-xs);
-    line-height: 1.45;
+.bot-work-card .bot-markdown-body + .bot-work-fields {
+    margin-top: 2em;
+    padding-top: 1em;
+    border-top: 2px solid var(--border-color);
 }
 
-.bot-work-fields, .bot-approval-details dl, .bot-work-detail-fields {
+.bot-work-card .bot-work-fields, .bot-work-card .bot-approval-details dl {
     display: grid;
-    grid-template-columns: 88px minmax(0, 1fr);
+    grid-template-columns: 140px minmax(0, 1fr);
     gap: 4px 8px;
     margin: 0;
-    font-size: var(--font-xs);
     line-height: 1.4;
 }
 
-.bot-work-fields dt, .bot-approval-details dl dt, .bot-work-detail-fields dt {
-    color: var(--text-4);
-}
-
-.bot-work-fields dd, .bot-approval-details dl dd, .bot-work-detail-fields dd {
+.bot-work-card .bot-work-fields dt, .bot-work-card .bot-approval-details dl dt {
     min-width: 0;
-    margin: 0;
     color: var(--text-2);
     overflow-wrap: anywhere;
 }
 
-.bot-work-notice {
+.bot-work-card .bot-work-fields dd, .bot-work-card .bot-approval-details dl dd {
+    min-width: 0;
+    margin: 0;
+    color: inherit;
+    overflow-wrap: anywhere;
+}
+
+.bot-work-card .bot-evidence-list {
+    display: grid;
+    gap: .5em;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.bot-work-card .bot-evidence-list li {
+    margin: 0;
+}
+
+.bot-work-card .bot-evidence-list a, .bot-work-card .bot-evidence-list button {
+    padding: 0;
+    color: var(--link-color);
+    background: none;
+    border: 0;
+    font: inherit;
+    text-align: left;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+
+.bot-work-card .bot-evidence-list a:hover, .bot-work-card .bot-evidence-list button:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.bot-work-card .bot-evidence-list a:focus-visible, .bot-work-card .bot-evidence-list button:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 2px;
+}
+
+.bot-work-card .bot-work-notice {
     display: flex;
     align-items: flex-start;
     gap: 7px;
     padding: 8px;
     background: var(--background-2);
     border-radius: 7px;
-    font-size: var(--font-xs);
     line-height: 1.4;
 }
 
-.bot-work-notice svg {
+.bot-work-card .bot-work-notice svg {
     flex: 0 0 auto;
     margin-top: 1px;
 }
 
-.bot-work-notice span {
+.bot-work-card .bot-work-notice span {
+    min-width: 0;
     display: grid;
     gap: 2px;
+    overflow-wrap: anywhere;
 }
 
-.bot-work-notice strong {
+.bot-work-card .bot-work-notice strong {
     color: var(--text-2);
-    font-size: var(--font-xs);
     text-transform: capitalize;
 }
 
-.bot-work-notice.attention {
-    color: var(--warning-color, var(--text-3));
+.bot-work-card .bot-work-notice.attention {
+    color: var(--warning-color, var(--text-2));
 }
 
-.bot-work-notice.blocker {
-    color: var(--danger-color, var(--text-3));
+.bot-work-card .bot-work-notice.blocker {
+    color: var(--danger-color, var(--text-2));
 }
 
-.bot-work-chips {
+.bot-work-card .bot-work-chips {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
 }
 
-.bot-work-chips code, .bot-work-chips .bot-worker-chip {
+.bot-work-card .bot-work-chips code, .bot-work-card .bot-work-chips .bot-worker-chip {
     max-width: 100%;
     overflow: hidden;
     padding: 3px 6px;
-    color: var(--text-3);
+    color: var(--text-2);
     background: var(--background-3);
     border-radius: 5px;
-    font-size: var(--font-xs);
+    font: inherit;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.bot-worker-chip {
+.bot-work-card .bot-worker-chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
 }
 
-.bot-worker-chip > span {
+.bot-work-card .bot-worker-chip > span {
     width: 6px;
     height: 6px;
     background: var(--text-4);
     border-radius: 999px;
 }
 
-.bot-worker-chip.running > span {
+.bot-work-card .bot-worker-chip.running > span {
     background: var(--success-color, var(--text-2));
 }
 
-.bot-worker-chip.needs-attention > span, .bot-worker-chip.missing > span {
+.bot-work-card .bot-worker-chip.needs-attention > span, .bot-work-card .bot-worker-chip.missing > span {
     background: var(--warning-color, var(--text-2));
 }
 
-.bot-approval-details {
+.bot-work-card .bot-approval-details {
     display: grid;
     gap: 7px;
     padding-top: 7px;
     border-top: 1px solid var(--border-color);
 }
 
-.bot-approval-details p {
+.bot-work-card .bot-approval-details p {
     margin: 0;
-    color: var(--text-2);
-    font-size: var(--font-xs);
+    color: inherit;
 }
 
-.bot-approval-details pre {
+.bot-work-card .bot-approval-details pre {
     max-height: 180px;
     overflow: auto;
     margin: 0;
     padding: 8px;
-    color: var(--text-2);
+    color: inherit;
     background: var(--background-2);
     border-radius: 6px;
-    font-size: var(--font-xs);
+    font: inherit;
     white-space: pre-wrap;
 }
 
@@ -5475,7 +5621,8 @@ button svg {
     background: var(--background-1);
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    font: inherit;
+    font-family: inherit;
+    font-size: var(--font-xs);
 }
 
 .bot-activity-list {
@@ -5509,25 +5656,27 @@ button svg {
 }
 
 .bot-activity-list li > div {
+    min-width: 0;
     display: grid;
     gap: 3px;
+    overflow-wrap: anywhere;
 }
 
 .bot-activity-list li strong {
     color: var(--text-2);
-    font-size: var(--font-xs);
+    font-size: var(--font-md);
 }
 
 .bot-activity-list li p {
     margin: 0;
     color: var(--text-3);
-    font-size: var(--font-xs);
+    font-size: var(--font-sm);
     line-height: 1.45;
 }
 
 .bot-activity-list li small {
     color: var(--text-4);
-    font-size: var(--font-xs);
+    font-size: var(--font-sm);
     text-transform: capitalize;
 }
 
@@ -5536,7 +5685,7 @@ button svg {
     z-index: 1;
     width: 7px;
     height: 7px;
-    margin-top: 4px;
+    margin-top: 6px;
     background: var(--text-4);
     border-radius: 999px;
 }
@@ -5547,28 +5696,6 @@ button svg {
 
 .bot-activity-dot.blocked, .bot-activity-dot.attention, .bot-activity-dot.failure {
     background: var(--warning-color, var(--text-2));
-}
-
-.bot-work-dialog-content {
-    display: grid;
-    gap: 14px;
-}
-
-.bot-work-dialog-content .bot-work-card {
-    border: 0;
-}
-
-.bot-work-dialog-content .bot-work-open {
-    display: none;
-}
-
-.bot-work-detail-fields {
-    padding: 0 10px 10px;
-}
-
-.bot-work-detail-fields dd {
-    display: grid;
-    gap: 3px;
 }
 
 .bot-queue-actions {
@@ -5774,7 +5901,7 @@ button svg {
     background: var(--background-1);
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    font: inherit;
+    font-family: inherit;
     font-size: var(--font-sm);
     transition: border-color 140ms var(--base-transition),
       background 140ms var(--base-transition);

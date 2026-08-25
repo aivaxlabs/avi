@@ -102,26 +102,31 @@ const composerCommands = [
     id: 'ultra',
     name: 'ultra',
     description: 'Lead a proactive team of sub-agents for maximum quality',
+    availableInBot: false,
   },
   {
     id: 'plan',
     name: 'plan',
     description: 'Create a detailed execution plan without changing anything',
+    availableInBot: false,
   },
   {
     id: 'goal',
     name: 'goal',
     description: 'Work persistently until a defined objective is completed or blocked',
+    availableInBot: false,
   },
   {
     id: 'efforts',
     name: 'effort',
     description: 'Set the reasoning effort for the selected model',
+    availableInBot: false,
   },
   {
     id: 'models',
     name: 'model',
     description: 'Switch the active model',
+    availableInBot: false,
   },
   {
     id: 'compress',
@@ -327,14 +332,17 @@ export function Composer({
 
     if (commandMode === 'commands') {
       const builtInCommands = commandPrefix === '/'
-        ? composerCommands
-          .filter((command) => command.id !== 'compress' || projectLocked)
-          .filter((command) => command.id !== 'side' || onCreateSideChat)
-          .filter((command) => command.id !== 'usage' || providerUsageProviders.length > 0)
-          .map((command) => ({
-            ...command,
-            label: `/${command.name}`,
-          }))
+        ? composerCommands.flatMap((command) => (
+          (!botMode || command.availableInBot !== false)
+          && (command.id !== 'compress' || projectLocked)
+          && (command.id !== 'side' || onCreateSideChat)
+          && (command.id !== 'usage' || providerUsageProviders.length > 0)
+            ? [{
+                ...command,
+                label: `/${command.name}`,
+              }]
+            : []
+        ))
         : [];
       const markerCommands = contextCommands
         .filter(({ type }) => type === (commandPrefix === '/' ? 'workflow' : 'skill'))
@@ -387,6 +395,7 @@ export function Composer({
     return [];
   }, [
     activeReasoningEffort,
+    botMode,
     commandMode,
     commandPrefix,
     commandQuery,
@@ -402,7 +411,8 @@ export function Composer({
   const activeGoal = goal && ['active', 'paused'].includes(goal.status) ? goal : null;
   const finishedGoal = goal && ['completed', 'blocked', 'cancelled'].includes(goal.status) ? goal : null;
   const visibleGoal = activeGoal ?? finishedGoal;
-  const effectiveWorkMode = activeGoal ? 'goal' : workMode;
+  const effectiveWorkMode = activeGoal ? 'goal' : botMode ? null : workMode;
+  const effectiveUltraMode = botMode ? false : ultraMode;
   const canSend = !goalPreparation && !promptExpanding && !commandMode && (
     effectiveWorkMode === 'goal' && !activeGoal
       ? Boolean(text.trim())
@@ -724,7 +734,7 @@ export function Composer({
       reasoningEffort: activeReasoningEffort,
       permissionMode,
       workMode: effectiveWorkMode,
-      ultraMode,
+      ultraMode: effectiveUltraMode,
     };
     if (inline) {
       await onSend(payload);
@@ -816,6 +826,10 @@ export function Composer({
     if (!option) return;
 
     if (commandMode === 'commands') {
+      if (botMode && option.availableInBot === false) {
+        exitCommandMode();
+        return;
+      }
       if (option.kind === 'context_marker') {
         const prefix = option.type === 'workflow' ? '/' : '$';
         setAttachments((items) => (
@@ -887,7 +901,7 @@ export function Composer({
           reasoningEffort: activeReasoningEffort,
           permissionMode,
           workMode: effectiveWorkMode,
-          ultraMode,
+          ultraMode: effectiveUltraMode,
         });
         return;
       }
@@ -1016,7 +1030,7 @@ export function Composer({
       reasoningEffort: activeReasoningEffort,
       permissionMode,
       workMode: effectiveWorkMode,
-      ultraMode,
+      ultraMode: effectiveUltraMode,
     });
   }
 
@@ -1165,14 +1179,14 @@ export function Composer({
           )}
         </ComposerStrip>
       )}
-      {tasks.length > 0 && !botMode && (
+      {tasks.length > 0 && (
         <ComposerStrip as="button" className="tasks-strip" type="button" aria-label="Open thread tasks" onClick={onOpenTasks}>
           <ListChecks size={15} aria-hidden="true" />
           <span aria-live="polite">{tasks.filter((task) => task.done).length}/{tasks.length} tasks completed</span>
           <ChevronRight size={15} aria-hidden="true" />
         </ComposerStrip>
       )}
-      {subagents.length > 0 && !botMode && (
+      {subagents.length > 0 && (
         <ComposerStrip
           as="button"
           className="subagent-strip"
@@ -1553,11 +1567,11 @@ export function Composer({
                   ? 'Goal paused...'
                   : activeGoal
                     ? 'Guide the active Goal...'
-                    : workMode === 'goal'
+                    : effectiveWorkMode === 'goal'
                       ? 'Describe the Goal...'
-                      : workMode === 'plan'
+                      : effectiveWorkMode === 'plan'
                         ? 'Describe your task to generate a plan...'
-                        : ultraMode
+                        : effectiveUltraMode
                           ? 'Describe the objective for the Ultra team...'
                           : `Message ${modelName || 'model'}`}
             aria-expanded={Boolean(commandMode)}
