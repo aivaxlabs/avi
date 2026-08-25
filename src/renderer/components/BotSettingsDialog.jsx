@@ -57,6 +57,7 @@ export function BotSettingsDialog({
   onSave,
   onChooseFolder,
   onClearThread,
+  onFullReset,
 }) {
   const [tab, setTab] = useState('profile');
   const [saving, setSaving] = useState(false);
@@ -184,6 +185,14 @@ export function BotSettingsDialog({
   function clearThread() {
     if (!window.confirm('Clear this bot conversation? Messages are removed. Memory, work state, and approvals are kept.')) return;
     onClearThread?.(bot?.id);
+  }
+
+  function fullReset() {
+    const fileScope = bot?.workingFolder
+      ? 'Only its isolated .avi-bots data folder will be deleted; project files stay untouched.'
+      : 'Its dedicated working folder and all files inside it will be deleted.';
+    if (!window.confirm(`Full reset "${bot?.name ?? 'this bot'}"? Conversation history, work threads, tasks, goals, memory, activity, work items, approvals, and bot-owned files are permanently deleted. ${fileScope} All bot and MCP settings are kept.`)) return;
+    onFullReset?.(bot?.id);
   }
 
   function rerollIcon() {
@@ -674,6 +683,16 @@ export function BotSettingsDialog({
                     <button type="button" className="danger" onClick={clearThread}>
                       <Trash2 size={14} aria-hidden="true" />
                       Clear conversation
+                    </button>
+                  </div>
+                  <div className="bot-settings-danger-action">
+                    <span>
+                      <strong>Full reset</strong>
+                      <small>Deletes all bot-owned history, tracking, memory, approvals, and files while keeping its settings.</small>
+                    </span>
+                    <button type="button" className="danger" onClick={fullReset}>
+                      <RotateCcw size={14} aria-hidden="true" />
+                      Full reset
                     </button>
                   </div>
                 </section>

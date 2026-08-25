@@ -49,6 +49,7 @@ Settings are organized by the decisions they control:
 
 - Shows the isolated `<working folder>/.avi-bots/<bot id>/` folder where the bot's memory and work state live.
 - **Clear conversation** — removes conversation messages without touching memory, work items, activity, or pending approvals.
+- **Full reset** — keeps the bot and all of its configuration, including its identity, instructions, model, schedule, working folder, and MCP settings. It permanently removes the bot's conversation history, work threads, tasks, Goals, memory, activity, work items, pending approvals, and bot-owned files. For a custom working folder, only the isolated `.avi-bots/<bot id>/` data folder is removed; other project files are never deleted. For Avi's dedicated default working folder, operational files are removed while MCP configuration is preserved.
 
 ## Work state
 
@@ -58,7 +59,7 @@ Each bot keeps its durable state in `<working folder>/.avi-bots/<bot id>/`:
 - `work-items.json` — the current, user-visible work inventory.
 - `activity.json` — an append-only timeline of material events.
 
-A work item records its objective, current summary, latest material progress, next step, priority, linked worker thread IDs, evidence, blocker, and any user attention it needs. Its state is `planned`, `active`, `waiting`, `completed`, or `cancelled`. Attention is separate from execution state and can request an `approval`, `review`, or `answer`. A waiting item must identify either the attention needed or a concrete blocker and who it is waiting on.
+A work item records its objective, current summary, latest material progress, next step, priority, linked worker thread IDs, evidence, blocker, and any user attention it needs. Evidence entries are typed as `file_reference` for project-relative file links, `external_reference` for HTTP(S) links, or `text` for arbitrary non-link text. Its state is `planned`, `active`, `waiting`, `completed`, or `cancelled`. Attention is separate from execution state and can request an `approval`, `review`, or `answer`. A waiting item must identify either the attention needed or a concrete blocker and who it is waiting on. When work is completed, its summary becomes a concise final report explaining what the bot did, why, and how; Avi clears the next step.
 
 The bot never edits these JSON files directly. It uses bot-only tools:
 
@@ -88,7 +89,7 @@ Bot permission handling is a special "approve for me" mode based on the authorit
 
 Threads the bot creates or messages always run in **Full access**: unattended threads have no one to answer a permission prompt, so only the bot's own conversation uses the approval queue above.
 
-Open **Bots** from the auxiliary panel. The default **Overview** shows current work, items needing your attention, recently completed items, work up next, and recent activity. **All work** provides the complete state-filterable inventory, while **Activity** shows the material timeline. Cards expose objectives, current progress, next steps, blockers, real worker state, evidence, and last update.
+Open **Bots** from the auxiliary panel. The default **Overview** shows current work, items needing your attention, recently completed items, work up next, and recent activity. **Recently completed** keeps each result concise: its title and a plain-language account of what the bot did, why, and how. **Up next** collects the next actions from planned and active work instead of repeating them inside every card. **All work** provides the complete state-filterable inventory, while **Activity** shows the material timeline.
 
 Tool approvals show the exact tool name, workspace path, and formatted input before **Approve** or **Deny**. Approve sends the resume prompt back to the bot; deny keeps the outcome visible and tells the bot to choose a safe alternative or cancel the item.
 

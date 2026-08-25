@@ -879,6 +879,21 @@ const statements = {
     DELETE FROM messages
     WHERE conversation_id = ?
   `),
+  deleteConversationGoals: db.prepare('DELETE FROM goals WHERE conversation_id = ?'),
+  deleteConversationComposerState: db.prepare(`
+    DELETE FROM conversation_composer_states
+    WHERE conversation_id = ?
+  `),
+  resetConversationState: db.prepare(`
+    UPDATE conversations
+    SET context_checkpoint = '',
+        checkpoint_message_id = NULL,
+        context_tokens = 0,
+        tasks = '[]',
+        next_subagent_name_index = 0,
+        updated_at = ?
+    WHERE id = ?
+  `),
   insertBot: db.prepare(`
     INSERT INTO bots (
       id, conversation_id, name, icon_seed, personality, working_folder, model,
@@ -938,6 +953,15 @@ const statements = {
   hardDeleteChildConversations: db.prepare(`
     DELETE FROM conversations
     WHERE conversation_type IN ('side', 'subagent') AND parent_conversation_id = ?
+  `),
+  hardDeleteConversationDescendants: db.prepare(`
+    WITH RECURSIVE descendants(id) AS (
+      SELECT id FROM conversations WHERE parent_conversation_id = ?
+      UNION ALL
+      SELECT c.id FROM conversations c
+      JOIN descendants d ON c.parent_conversation_id = d.id
+    )
+    DELETE FROM conversations WHERE id IN descendants
   `),
   archiveOldConversations: db.prepare(`
     WITH RECURSIVE descendants(id) AS (
@@ -1567,13 +1591,29 @@ export function listSubagents(parentConversationId) {
   return statements.listSubagents.all(parentConversationId).map(mapConversation);
 }
 
-export function clearConversationMessages(conversationId) {
-  statements.deleteConversationMessages.run(conversationId);
-  updateConversation(conversationId, {
-    contextCheckpoint: '',
-    checkpointMessageId: null,
-    contextTokens: 0,
-  });
+export function clearConversationMessages(conversationId, { resetState = false } = {}) {
+  if (!resetState) {
+    statements.deleteConversationMessages.run(conversationId);
+    updateConversation(conversationId, {
+      contextCheckpoint: '',
+      checkpointMessageId: null,
+      contextTokens: 0,
+    });
+    return getConversation(conversationId);
+  }
+
+  db.exec('BEGIN');
+  try {
+    statements.hardDeleteConversationDescendants.run(conversationId);
+    statements.deleteConversationMessages.run(conversationId);
+    statements.deleteConversationGoals.run(conversationId);
+    statements.deleteConversationComposerState.run(conversationId);
+    statements.resetConversationState.run(timestamp(), conversationId);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
   return getConversation(conversationId);
 }
 

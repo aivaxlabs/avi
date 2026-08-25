@@ -1276,6 +1276,7 @@ function registerIpc() {
   applicationIpc.handle('bots:clear-thread', (_event, botId) => (
     botManager.clearBotThread(botId)
   ));
+  applicationIpc.handle('bots:full-reset', (_event, botId) => botManager.fullResetBot(botId));
   applicationIpc.handle('bots:activate', (_event, botId) => (
     botManager.activateBot(botId, { trigger: 'manual' })
   ));

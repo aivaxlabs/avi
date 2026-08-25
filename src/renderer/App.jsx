@@ -950,6 +950,24 @@ export default function App() {
     }
   }
 
+  async function fullResetBot(botId) {
+    const bot = bots.find((item) => item.id === botId);
+    if (!bot) return;
+    try {
+      await api.bots.fullReset(botId);
+      setConversations(await api.conversations.list());
+      setMessagesByConversation((state) => {
+        if (!(bot.conversationId in state)) return state;
+        const next = { ...state };
+        delete next[bot.conversationId];
+        return next;
+      });
+      await refreshBots();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }
+
   async function activateBot(botId) {
     try {
       await api.bots.activate(botId);
@@ -2477,6 +2495,7 @@ export default function App() {
             }
             await refreshBots();
           }}
+          onFullReset={fullResetBot}
           onDeleteBot={deleteBot}
         />
       )}

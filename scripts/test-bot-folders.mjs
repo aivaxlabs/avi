@@ -18,7 +18,20 @@ try {
     resolveBotDataFolder,
     resolveBotWorkingFolder,
   } = await import('../src/main/bot-manager.js');
-  const { createBot, createConversation } = database;
+  const {
+    createBot,
+    createConversation,
+    getBot,
+    getComposerState,
+    getConversation,
+    getGoalForConversation,
+    getMessages,
+    insertGoal,
+    insertMessage,
+    listTasks,
+    replaceTasks,
+    setComposerState,
+  } = database;
   const workingFolder = join(resolvedProfile, 'workspace');
   await mkdir(workingFolder, { recursive: true });
 
@@ -106,8 +119,10 @@ try {
   assert.equal(manager.describeInvocationBot(firstConversation.id).dataFolder, firstDataFolder);
 
   let activationRequest = null;
+  const stoppedConversationIds = [];
   manager.attachChatRunner({
     runs: new Map(),
+    stop: (conversationId) => stoppedConversationIds.push(conversationId),
     send: async (request) => {
       activationRequest = request;
       return { message: { id: 'assistant-message' } };
@@ -115,8 +130,104 @@ try {
   });
   assert.equal(await manager.activateBot(firstBot.id, { trigger: 'manual' }), true);
   assert.equal(activationRequest.project.path, workingFolder);
-  assert.ok(activationRequest.text.includes(`Bot data folder: ${firstDataFolder}`));
-  assert.ok(activationRequest.text.includes('bot_work_read'));
+
+  insertMessage({ conversationId: firstConversation.id, role: 'user', content: 'Reset me.' });
+  replaceTasks(firstConversation.id, [{ title: 'Reset tracking', done: false }]);
+  const now = new Date().toISOString();
+  insertGoal({
+    id: 'goal-to-reset',
+    conversationId: firstConversation.id,
+    specification: 'Reset this goal.',
+    status: 'active',
+    revision: 1,
+    model: 'test/model',
+    reasoningEffort: null,
+    permissionMode: 'full_access',
+    activeElapsedMs: 0,
+    resumedAt: now,
+    resultSummary: null,
+    tokensTransacted: null,
+    startedAt: now,
+    updatedAt: now,
+    endedAt: null,
+  });
+  setComposerState(firstConversation.id, {
+    model: 'test/model',
+    workMode: 'goal',
+    draftText: 'Reset this draft.',
+  });
+  const workerConversation = createConversation({
+    model: 'test/model',
+    projectPath: workingFolder,
+    createdBy: 'agent',
+    parentConversationId: firstConversation.id,
+  });
+  insertMessage({ conversationId: workerConversation.id, role: 'user', content: 'Worker history.' });
+  manager.approvals.set('approval-to-reset', { botId: firstBot.id });
+  await writeFile(join(firstDataFolder, 'extra-tracking.json'), '{}\n', 'utf8');
+  await writeFile(join(secondDataFolder, 'MEMORY.md'), '# Keep this memory\n', 'utf8');
+
+  const resetConversation = await manager.fullResetBot(firstBot.id);
+  assert.equal(resetConversation.id, firstConversation.id);
+  assert.deepEqual(
+    {
+      name: getBot(firstBot.id)?.name,
+      iconSeed: getBot(firstBot.id)?.iconSeed,
+      workingFolder: getBot(firstBot.id)?.workingFolder,
+      model: getBot(firstBot.id)?.model,
+      activationPeriodMinutes: getBot(firstBot.id)?.activationPeriodMinutes,
+      enabled: getBot(firstBot.id)?.enabled,
+    },
+    {
+      name: firstBot.name,
+      iconSeed: firstBot.iconSeed,
+      workingFolder: firstBot.workingFolder,
+      model: firstBot.model,
+      activationPeriodMinutes: firstBot.activationPeriodMinutes,
+      enabled: firstBot.enabled,
+    },
+    'full reset must keep the bot configuration',
+  );
+  assert.deepEqual(getMessages(firstConversation.id), []);
+  assert.deepEqual(listTasks(firstConversation.id), []);
+  assert.equal(getGoalForConversation(firstConversation.id), null);
+  assert.equal(getComposerState(firstConversation.id), null);
+  assert.equal(getConversation(workerConversation.id), null);
+  assert.equal(manager.approvals.has('approval-to-reset'), false);
+  assert.equal(existsSync(firstDataFolder), false);
+  assert.equal(await readFile(join(secondDataFolder, 'MEMORY.md'), 'utf8'), '# Keep this memory\n');
+  assert.ok(stoppedConversationIds.includes(firstConversation.id));
+  assert.ok(stoppedConversationIds.includes(workerConversation.id));
+
+  const dedicatedConversation = createConversation({
+    model: 'test/model',
+    conversationType: 'bot',
+  });
+  const dedicatedBot = createBot({
+    conversationId: dedicatedConversation.id,
+    name: 'Dedicated bot',
+    iconSeed: 'dedicated-bot',
+    model: 'test/model',
+  });
+  const dedicatedWorkingFolder = resolveBotWorkingFolder(dedicatedBot);
+  const dedicatedDataFolder = resolveBotDataFolder(dedicatedBot);
+  const dedicatedMcpConfig = join(
+    dedicatedWorkingFolder,
+    '.agents',
+    'bots',
+    dedicatedBot.id,
+    'mcpconfig.json',
+  );
+  await ensureBotFolders(dedicatedBot);
+  await mkdir(join(dedicatedWorkingFolder, '.agents', 'bots', dedicatedBot.id), { recursive: true });
+  await writeFile(dedicatedMcpConfig, '{"mcpServers":{}}\n', 'utf8');
+  await writeFile(join(dedicatedWorkingFolder, 'bot-output.txt'), 'remove me\n', 'utf8');
+
+  await manager.fullResetBot(dedicatedBot.id);
+  assert.ok(getBot(dedicatedBot.id), 'full reset must preserve a dedicated bot configuration');
+  assert.equal(existsSync(dedicatedDataFolder), false);
+  assert.equal(existsSync(join(dedicatedWorkingFolder, 'bot-output.txt')), false);
+  assert.equal(await readFile(dedicatedMcpConfig, 'utf8'), '{"mcpServers":{}}\n');
 
   console.log('Bot folder tests passed.');
 } finally {

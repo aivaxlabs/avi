@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -27,6 +27,7 @@ import {
 import {
   BOT_ACTIVITY_TYPES,
   BOT_ATTENTION_TYPES,
+  BOT_EVIDENCE_TYPES,
   BOT_WORK_ITEM_STATES,
   BOT_WORK_PRIORITIES,
   BOT_WORK_STATE_FILES,
@@ -87,23 +88,6 @@ export async function ensureBotFolders(bot) {
   }
   await ensureBotWorkStateFiles(dataFolder);
   return { workingFolder, dataFolder };
-}
-
-function activationText(bot, { activationNumber, queueCount, folders }) {
-  const maxLine = bot.maxActivations > 0
-    ? ` of at most ${bot.maxActivations} before automatic sleep`
-    : '';
-  return [
-    `<bot-activation trigger="scheduler" at="${new Date().toISOString()}">`,
-    `Activation #${activationNumber}${maxLine}.`,
-    'Handle everything the user has specified. When nothing is explicit, advance the most valuable actionable work until nothing meaningful remains.',
-    '',
-    `Working folder: ${folders.workingFolder}`,
-    `Bot data folder: ${folders.dataFolder}`,
-    `Pending user approvals: ${queueCount}.`,
-    'Start with bot_work_read. Keep every item understandable in the Bots overview: objective, current situation, latest material progress, next step, attention, workers, and evidence. Use bot_activity_append only for material events.',
-    '</bot-activation>',
-  ].join('\n');
 }
 
 export class BotManager {
@@ -389,6 +373,87 @@ export class BotManager {
     return conversation;
   }
 
+  async fullResetBot(id) {
+    const bot = getBot(id);
+    if (!bot) throw new Error('Bot not found.');
+    const conversations = listAllConversations();
+    const conversationIds = new Set([bot.conversationId]);
+    let addedDescendant = true;
+    while (addedDescendant) {
+      addedDescendant = false;
+      for (const conversation of conversations) {
+        if (
+          conversation.parentConversationId
+          && conversationIds.has(conversation.parentConversationId)
+          && !conversationIds.has(conversation.id)
+        ) {
+          conversationIds.add(conversation.id);
+          addedDescendant = true;
+        }
+      }
+    }
+
+    const activeRuns = [...conversationIds].flatMap((conversationId) => {
+      const run = this.chatRunner?.runs.get(conversationId);
+      return run ? [run.completion] : [];
+    });
+    for (const conversationId of conversationIds) {
+      this.chatRunner?.stop(conversationId, { stoppedByUser: true });
+    }
+    await Promise.allSettled(activeRuns);
+    for (const conversationId of conversationIds) {
+      this.chatRunner?.pausedQueues?.delete(conversationId);
+      this.chatRunner?.continuationGenerations?.get(conversationId)?.controller.abort('full-reset');
+      this.chatRunner?.continuationGenerations?.delete(conversationId);
+      this.chatRunner?.pendingCompletionNotifications?.delete(conversationId);
+    }
+    for (const [approvalId, approval] of this.chatRunner?.pendingApprovals ?? []) {
+      if (conversationIds.has(approval.conversationId)) {
+        approval.finish(false);
+        this.chatRunner.pendingApprovals.delete(approvalId);
+      }
+    }
+    for (const [questionId, question] of this.chatRunner?.pendingQuestions ?? []) {
+      if (conversationIds.has(question.conversationId)) {
+        question.finish({ cancelled: true, answers: [] });
+        this.chatRunner.pendingQuestions.delete(questionId);
+      }
+    }
+    this.chatRunner?.removeConversationSemaphores?.([...conversationIds]);
+
+    for (const [approvalId, entry] of [...this.approvals.entries()]) {
+      if (entry.botId === id) this.approvals.delete(approvalId);
+    }
+
+    const workingFolder = resolveBotWorkingFolder(bot);
+    const dataFolder = resolveBotDataFolder(bot);
+    if (bot.workingFolder) {
+      await rm(dataFolder, { recursive: true, force: true });
+    } else {
+      const mcpConfigPath = join(workingFolder, '.agents', 'bots', bot.id, 'mcpconfig.json');
+      const mcpConfig = await readFile(mcpConfigPath).catch((error) => {
+        if (error?.code === 'ENOENT') return null;
+        throw error;
+      });
+      await rm(workingFolder, { recursive: true, force: true });
+      if (mcpConfig) {
+        await mkdir(join(workingFolder, '.agents', 'bots', bot.id), { recursive: true });
+        await writeFile(mcpConfigPath, mcpConfig);
+      }
+    }
+
+    updateBotScheduler(bot.id, {
+      status: 'active',
+      idleUntil: 'clear',
+      activationCount: 0,
+      activeAssistantMessageId: null,
+    });
+    const conversation = clearConversationMessages(bot.conversationId, { resetState: true });
+    traceInfo('bots.full-reset', { bot_id: id });
+    this.broadcast('bots:updated');
+    return conversation;
+  }
+
   noteUserInteraction(conversationId) {
     const bot = getBotByConversation(conversationId);
     if (!bot) return false;
@@ -603,19 +668,12 @@ export class BotManager {
     this.activating.add(bot.id);
     try {
       const folders = await ensureBotFolders(bot);
-      const queueCount = [...this.approvals.values()]
-        .filter((entry) => entry.botId === bot.id).length;
-      const text = activationText(bot, {
-        activationNumber: bot.activationCount + 1,
-        queueCount,
-        folders,
-      });
       await this.chatRunner?.send({
         conversationId: bot.conversationId,
         model: bot.model,
         reasoningEffort: bot.reasoningEffort,
         permissionMode: 'approve_for_me',
-        text,
+        text: `<bot-activation at="${new Date().toISOString()}" />`,
         fromAgent: true,
         project: { path: folders.workingFolder },
       });
@@ -688,6 +746,7 @@ export class BotManager {
           properties: {
             title: { type: 'string', description: 'Short recognizable label.' },
             objective: { type: 'string', description: 'The concrete result that defines success.' },
+            nextStep: { type: 'string', description: 'The next concrete action. Provide it when the work should appear in Up next.' },
             priority: { type: 'string', enum: [...BOT_WORK_PRIORITIES] },
             workerThreadIds: { type: 'array', items: { type: 'string' }, uniqueItems: true },
           },
@@ -714,14 +773,27 @@ export class BotManager {
             title: { type: 'string' },
             objective: { type: 'string' },
             state: { type: 'string', enum: [...BOT_WORK_ITEM_STATES] },
-            summary: { type: 'string' },
+            summary: { type: 'string', description: 'Current situation. When completing work, provide a concise plain-language account of what was done, why it was done, and how it was done.' },
             lastProgress: { type: 'string' },
-            nextStep: { type: 'string' },
+            nextStep: { type: 'string', description: 'The next concrete action for planned or active work. It is cleared automatically when work is completed.' },
             attention: attentionSchema,
             blocker: blockerSchema,
             priority: { type: 'string', enum: [...BOT_WORK_PRIORITIES] },
             workerThreadIds: { type: 'array', items: { type: 'string' }, uniqueItems: true },
-            evidence: { type: 'array', items: { type: 'string' }, uniqueItems: true },
+            evidence: {
+              type: 'array',
+              description: 'Evidence supporting the report. Use file_reference for project-relative file paths, external_reference for HTTP(S) URLs, and text for non-link evidence.',
+              items: {
+                type: 'object',
+                properties: {
+                  type: { type: 'string', enum: [...BOT_EVIDENCE_TYPES] },
+                  value: { type: 'string' },
+                },
+                required: ['type', 'value'],
+                additionalProperties: false,
+              },
+              uniqueItems: true,
+            },
           },
           required: ['id'],
           additionalProperties: false,
