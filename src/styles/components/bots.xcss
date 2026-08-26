@@ -65,8 +65,30 @@
   }
 }
 
+.bot-item-indicator {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: center;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  transition: opacity 180ms var(--base-transition);
+}
+
+.bot-item:hover .bot-item-indicator,
+.bot-item.menu-open .bot-item-indicator,
+.bot-item:has(> .icon-button:focus-visible) .bot-item-indicator {
+  opacity: 0;
+}
+
+.sidebar .bot-item > .icon-button:focus-visible {
+  opacity: .4;
+  pointer-events: auto;
+}
+
 .bot-status-dot {
-  flex: 0 0 auto;
   width: 9px;
   height: 9px;
   border: 2px solid var(--background-2);
@@ -82,19 +104,17 @@
 }
 
 .bot-status-sleep {
-  flex: 0 0 auto;
   color: var(--text-4);
 }
 
 .bot-queue-badge {
-  flex: 0 0 auto;
   min-width: 16px;
   height: 16px;
   display: grid;
   place-items: center;
   padding: 0 4px;
-  color: var(--background-1);
-  background: var(--text-2);
+  color: var(--text-5);
+  background: var(--danger-color);
   border-radius: 999px;
   font-size: --font-xs;
   font-weight: 600;

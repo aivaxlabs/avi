@@ -932,12 +932,17 @@ const BotItem = memo(function BotItem({ bot, active, onSelect, onSettings, onAct
           />
         </span>
         <span className="conversation-title">{bot.name}</span>
-        {bot.attentionCount > 0 && (
-          <span className="bot-queue-badge" title="Needs your attention">
+      </button>
+      <span className="bot-item-indicator">
+        {bot.attentionCount > 0 ? (
+          <span
+            className="bot-queue-badge"
+            title="Needs your attention"
+            aria-label={`${bot.attentionCount} notification${bot.attentionCount === 1 ? '' : 's'} requiring attention`}
+          >
             {bot.attentionCount}
           </span>
-        )}
-        {bot.running || bot.scheduleState === 'working' ? (
+        ) : bot.running || bot.scheduleState === 'working' ? (
           <LoaderCircle className="run-spinner" size={13} aria-label="Working" />
         ) : bot.scheduleState === 'disabled' ? (
           <span className="bot-status-dot disabled" aria-label={statusLabel} />
@@ -946,7 +951,7 @@ const BotItem = memo(function BotItem({ bot, active, onSelect, onSettings, onAct
         ) : (
           <span className="bot-status-dot active" aria-label={statusLabel} />
         )}
-      </button>
+      </span>
       <button
         className="icon-button tiny"
         type="button"
