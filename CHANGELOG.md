@@ -3,30 +3,40 @@
 ## [0.5.0] — 2026-08-26
 
 ### Added
-- **Bot work-state system** — bots now retain typed evidence, next steps, blocked/inconclusive outcomes, persistent work queues, scheduler snoozing, full reset controls, and a dedicated overview panel with bot-mode composer support.
-- **Bot attention indicators** — the sidebar surfaces pending bot notifications without obscuring each bot’s current run or schedule state.
-- **Plugin thread snapshots and semaphore APIs** — trusted plugins can inspect thread snapshots and coordinate work through semaphores.
-- **Cliproxyapi provider** for compatible model access.
-- **AIVAX Teach Skill tool** — turn an attached tutorial video into reusable Avi skill instructions.
-- **Configurable response verbosity** in settings.
+- **Persistent bot work state** — bots track planned, ongoing, blocked, user-review, discarded, and completed work in their working folder instead of daily log files. The state includes typed evidence and an explicit next step for reliable handoffs between activations.
+- **Bot management tools** — agents can create, update, organize, and review their own task lists, including blocked and inconclusive work statuses.
+- **Bot control surface** — added an overview panel, a bot-mode composer, persistent ordered work queues, scheduler snoozing, full reset, clearer activation cleanup, and visible task state in the sidebar.
+- **Bot attention notifications** — the sidebar surfaces pending bot notifications while retaining a distinct indicator for working, sleeping, active, or disabled bots.
+- **Semaphore management** — semaphore permits can be cleared through the bot/runtime API; blocked semaphore state is visible and can record the concrete reason user intervention is required.
+- **Plugin thread snapshot and semaphore APIs** — trusted plugins can inspect thread snapshots and coordinate work through Avi-managed semaphores.
+- **Cliproxyapi provider plugin** for compatible model access.
+- **AIVAX Teach Skill client tool and workflow** — turn an attached tutorial video into reusable Avi skill instructions.
+- **Configurable response verbosity** — choose low, medium, or high verbosity for injected assistant instructions.
 
 ### Changed
-- **AIVAX account and bot settings** have been redesigned for a clearer configuration experience.
-- **Bot management** uses persistent work state rather than daily logs, with corresponding user guidance and management tools.
+- **Bot runtime and storage** now use durable work-state files and management operations rather than daily JSON logs; bot instructions and runtime context were updated to match.
+- **Bot settings** now expose reset, scheduling, work-queue, activation, and working-folder management more clearly.
+- **AIVAX account settings** have been redesigned, with related bot configuration and orchestration controls refined for a clearer configuration experience.
+- **Task and semaphore lifecycle** now distinguish active, completed, blocked, and inconclusive work so agents can pause safely when human intervention is necessary.
+- **Bot sidebar presentation** improves status/notification visibility and scrollbar behavior.
 
 ### Fixed
-- **Large attachments** over 20 MB are referenced rather than embedded.
+- **Large attachments** over 20 MB are referenced rather than embedded in chat payloads.
 - **Provider connection timeout** now allows up to two minutes before aborting a stalled server connection.
 
 ### Docs
-- Documented bot work-state and management tools.
-- Updated sub-agent, API, and core UI guidance.
+- Added bot work-state, task-management, scheduling, reset, and semaphore documentation across the bot guide, API reference, type definitions, events, and overview pages.
+- Added the bot customization reference and the `/create-bot` workflow to the bundled agent context.
+- Documented the Cliproxyapi provider plugin and provider API additions.
+- Updated AIVAX features, advanced settings, context management, personalities, sub-agent, UI basics, thread, event, and API overview guidance.
 
 ### Chores
 - Version bumped to 0.5.0.
 
 ### Tests
-- Updated MCP, server retry, and sidebar task-section coverage for the new work-state, notification, and timeout behavior.
+- Added focused coverage for bot work state, management tools, scheduler controls, enabled-state persistence, folders, reset, overview, composer behavior, activation interruption, and sidebar task/notification rendering.
+- Added Cliproxyapi provider coverage and expanded plugin runtime v2 tests for thread snapshots and semaphores.
+- Expanded MCP manager, semaphore, goal-mode, side-chat database, context-injection, AIVAX client, file-panel, and provider retry coverage.
 
 ---
 
