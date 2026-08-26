@@ -1,5 +1,7 @@
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowUp,
   Bot,
   BriefcaseBusiness,
   Clock3,
@@ -92,6 +94,7 @@ export function BotSettingsDialog({
     windowStart: minuteToTimeString(bot?.activationWindow?.startMinute),
     windowEnd: minuteToTimeString(bot?.activationWindow?.endMinute),
     instructions: bot?.instructions ?? '',
+    workQueue: (bot?.workQueue ?? []).map((value) => ({ id: crypto.randomUUID(), value })),
   }));
 
   useEffect(() => {
@@ -168,6 +171,10 @@ export function BotSettingsDialog({
           }
           : { days: [], startMinute: null, endMinute: null },
         instructions: draft.instructions,
+        workQueue: draft.workQueue.flatMap((item) => {
+          const value = item.value.trim();
+          return value ? [value] : [];
+        }),
       });
       onClose();
     } catch (nextError) {
@@ -335,6 +342,97 @@ export function BotSettingsDialog({
                     />
                     <small>These instructions are included in every activation.</small>
                   </label>
+                </section>
+                <section className="bot-settings-section">
+                  <header>
+                    <h3>Work queue</h3>
+                    <p>Each activation focuses on the next task, cycling through this list in order.</p>
+                  </header>
+                  {draft.workQueue.length > 0 ? (
+                    <ol className="bot-settings-work-queue">
+                      {draft.workQueue.map((item, index) => (
+                        <li key={item.id} className="bot-settings-work-queue-item">
+                          <label className="sr-only" htmlFor={`bot-work-queue-${index}`}>
+                            Work queue item {index + 1}
+                          </label>
+                          <input
+                            id={`bot-work-queue-${index}`}
+                            type="text"
+                            value={item.value}
+                            placeholder="Describe a recurring task"
+                            onChange={(event) => update({
+                              workQueue: draft.workQueue.map((current, itemIndex) => (
+                                itemIndex === index
+                                  ? { ...current, value: event.target.value }
+                                  : current
+                              )),
+                            })}
+                          />
+                          <div className="bot-settings-work-queue-actions">
+                            <button
+                              className="icon-button tiny"
+                              type="button"
+                              disabled={index === 0}
+                              aria-label={`Move work queue item ${index + 1} up`}
+                              onClick={() => update({
+                                workQueue: draft.workQueue.map((current, itemIndex) => (
+                                  itemIndex === index - 1
+                                    ? draft.workQueue[index]
+                                    : itemIndex === index
+                                      ? draft.workQueue[index - 1]
+                                      : current
+                                )),
+                              })}
+                            >
+                              <ArrowUp size={14} aria-hidden="true" />
+                            </button>
+                            <button
+                              className="icon-button tiny"
+                              type="button"
+                              disabled={index === draft.workQueue.length - 1}
+                              aria-label={`Move work queue item ${index + 1} down`}
+                              onClick={() => update({
+                                workQueue: draft.workQueue.map((current, itemIndex) => (
+                                  itemIndex === index
+                                    ? draft.workQueue[index + 1]
+                                    : itemIndex === index + 1
+                                      ? draft.workQueue[index]
+                                      : current
+                                )),
+                              })}
+                            >
+                              <ArrowDown size={14} aria-hidden="true" />
+                            </button>
+                            <button
+                              className="icon-button tiny danger"
+                              type="button"
+                              aria-label={`Remove work queue item ${index + 1}`}
+                              onClick={() => update({
+                                workQueue: draft.workQueue.filter((_, itemIndex) => itemIndex !== index),
+                              })}
+                            >
+                              <Trash2 size={14} aria-hidden="true" />
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="bot-settings-work-queue-empty">
+                      Add at least one task to allow this bot to activate.
+                    </p>
+                  )}
+                  <button
+                    className="bot-settings-work-queue-add"
+                    type="button"
+                    onClick={() => update({
+                      workQueue: [...draft.workQueue, { id: crypto.randomUUID(), value: '' }],
+                    })}
+                  >
+                    <Plus size={14} aria-hidden="true" />
+                    Add task
+                  </button>
+                  <small className="bot-settings-hint">An empty queue prevents automatic and manual activations.</small>
                 </section>
                 <section className="bot-settings-section">
                   <header>

@@ -1,5 +1,15 @@
-import { ChevronDown, ExternalLink, LoaderCircle, LogOut, Plus, RefreshCw, X } from 'lucide-react';
+import {
+  ChevronDown,
+  ExternalLink,
+  KeyRound,
+  LoaderCircle,
+  LogOut,
+  Plus,
+  RefreshCw,
+  X,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
+import aivaxLogoUrl from '../../../assets/aivax.png';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -11,6 +21,7 @@ export function AivaxFeaturesSettings() {
   const [state, setState] = useState(null);
   const [collections, setCollections] = useState([]);
   const [loginKey, setLoginKey] = useState('');
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
   const [collectionPickerTarget, setCollectionPickerTarget] = useState(null);
   const [collectionCreateTarget, setCollectionCreateTarget] = useState(null);
@@ -36,11 +47,171 @@ export function AivaxFeaturesSettings() {
     };
   }, []);
 
+  function closeLoginDialog() {
+    setLoginDialogOpen(false);
+    setLoginKey('');
+    setError('');
+  }
+
   if (!state) {
     return (
       <div className="aivax-settings-loading">
         <LoaderCircle size={18} />
-        Loading AIVAX account...
+        Loading AIVAX account&hellip;
+      </div>
+    );
+  }
+
+  if (!state.connected) {
+    return (
+      <div className="aivax-features-settings aivax-landing">
+        <section className="aivax-landing-intro">
+          <img className="aivax-landing-logo" src={aivaxLogoUrl} width="1404" height="266" alt="AIVAX" />
+          <div>
+            <h3>Connect AIVAX to Avi</h3>
+            <p>
+              Link your account to enable persistent memory, web and media tools, and semantic
+              search across your conversations.
+            </p>
+            <div className="aivax-landing-actions">
+              <button
+                className="primary-mini aivax-link-account"
+                type="button"
+                onClick={() => {
+                  setError('');
+                  setLoginDialogOpen(true);
+                }}
+              >
+                <KeyRound size={15} />
+                Link login key
+              </button>
+              <button
+                className="aivax-create-account"
+                type="button"
+                onClick={() => window.chatApp.app.openExternal('https://console.aivax.net/login')}
+              >
+                Create an account
+                <ExternalLink size={13} />
+              </button>
+            </div>
+            <p className="aivax-landing-security">
+              The login key is exchanged once. Avi stores only the resulting access token, encrypted locally.
+            </p>
+          </div>
+        </section>
+
+        <section className="aivax-landing-features" aria-labelledby="aivax-landing-features-title">
+          <h3 id="aivax-landing-features-title">Available after linking</h3>
+          <dl>
+            <div>
+              <dt>Persistent memory</dt>
+              <dd>Store and retrieve useful context across conversations.</dd>
+            </div>
+            <div>
+              <dt>Web tools</dt>
+              <dd>Search current results and extract content from pages and documents.</dd>
+            </div>
+            <div>
+              <dt>Media descriptions</dt>
+              <dd>Read images, audio, video, and PDFs when the selected model cannot.</dd>
+            </div>
+            <div>
+              <dt>Thread search</dt>
+              <dd>Find previous conversations by meaning instead of exact wording.</dd>
+            </div>
+          </dl>
+        </section>
+
+        {loginDialogOpen && (
+          <div
+            className="dialog-backdrop aivax-login-dialog-backdrop"
+            onMouseDown={() => !busy && closeLoginDialog()}
+          >
+            <section
+              className="aivax-login-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="aivax-login-dialog-title"
+              aria-describedby="aivax-login-dialog-description"
+              onMouseDown={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && !busy) closeLoginDialog();
+              }}
+            >
+              <header className="dialog-header">
+                <div>
+                  <img src={aivaxLogoUrl} width="1404" height="266" alt="" />
+                  <h2 id="aivax-login-dialog-title">Link your AIVAX account</h2>
+                  <p id="aivax-login-dialog-description">
+                    Paste the login key from your AIVAX account. Avi exchanges it once for an encrypted access token.
+                  </p>
+                </div>
+                <button
+                  className="icon-button tiny"
+                  type="button"
+                  aria-label="Close login key dialog"
+                  disabled={busy}
+                  onClick={closeLoginDialog}
+                >
+                  <X size={16} />
+                </button>
+              </header>
+              <form
+                className="aivax-login-form"
+                onSubmit={async (event) => {
+                  event.preventDefault();
+                  setBusy(true);
+                  setError('');
+                  try {
+                    const nextState = await window.chatApp.aivax.connect(loginKey);
+                    setState(nextState);
+                    setLoginKey('');
+                    setLoginDialogOpen(false);
+                    const items = await window.chatApp.aivax.collections();
+                    setCollections(Array.isArray(items) ? items : []);
+                  } catch (nextError) {
+                    setError(nextError instanceof Error ? nextError.message : String(nextError));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <label>
+                  <span>Login key</span>
+                  <input
+                    autoFocus
+                    type="password"
+                    autoComplete="off"
+                    spellCheck="false"
+                    value={loginKey}
+                    disabled={busy}
+                    onChange={(event) => setLoginKey(event.target.value)}
+                    placeholder="Paste your AIVAX login key"
+                  />
+                </label>
+                {error && <div className="settings-context-error" role="alert">{error}</div>}
+                <div className="aivax-login-actions">
+                  <button
+                    className="aivax-login-cancel"
+                    type="button"
+                    disabled={busy}
+                    onClick={closeLoginDialog}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="primary-mini aivax-link-account"
+                    type="submit"
+                    disabled={busy || !loginKey.trim()}
+                  >
+                    {busy ? <LoaderCircle className="aivax-spinner" size={15} /> : <KeyRound size={15} />}
+                    {busy ? <>Linking&hellip;</> : 'Link account'}
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+        )}
       </div>
     );
   }
@@ -53,125 +224,85 @@ export function AivaxFeaturesSettings() {
           <p>Connect Avi to AIVAX using a login key. The resulting access token is encrypted locally.</p>
         </div>
         <div className="settings-section-card settings-row-card">
-          {state.connected ? (
-            <>
-              <div className="settings-card-row aivax-account-row">
-                <span>
-                  <strong>Login key</strong>
-                  <small>Connected · ••••••••••••••••</small>
-                </span>
-                <div className="aivax-account-actions">
-                  <button
-                    className="button button-secondary"
-                    type="button"
-                    disabled={busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      setError('');
-                      try {
-                        setState(await window.chatApp.aivax.disconnect());
-                        setCollections([]);
-                      } catch (nextError) {
-                        setError(nextError instanceof Error ? nextError.message : String(nextError));
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    <LogOut size={14} />
-                    Disconnect
-                  </button>
-                </div>
-              </div>
-              <div className="settings-card-row aivax-account-row">
-                <span>
-                  <strong>Current balance</strong>
-                  <small>{currencyFormatter.format(Number(state.account?.balance) || 0)}</small>
-                </span>
-                <div className="aivax-account-actions">
-                  <button
-                    className="button button-secondary"
-                    type="button"
-                    onClick={() => window.chatApp.app.openExternal('https://console.aivax.net/dashboard/usage')}
-                  >
-                    Add balance
-                    <ExternalLink size={13} />
-                  </button>
-                </div>
-              </div>
-              <div className="settings-card-row aivax-account-row">
-                <span>
-                  <strong>Usage · last 24 hours</strong>
-                  <small>{currencyFormatter.format(Number(state.account?.usage24h) || 0)}</small>
-                </span>
-                <div className="aivax-account-actions">
-                  <button
-                    className="button button-secondary"
-                    type="button"
-                    disabled={busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      setError('');
-                      try {
-                        setState(await window.chatApp.aivax.state());
-                      } catch (nextError) {
-                        setError(nextError instanceof Error ? nextError.message : String(nextError));
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    <RefreshCw size={13} />
-                    Refresh
-                  </button>
-                </div>
-              </div>
-              <div className="settings-card-row aivax-account-row">
-                <span>
-                  <strong>Plan</strong>
-                  <small>{Array.isArray(state.account?.plan)
-                    ? state.account.plan.join(', ') || 'Unknown'
-                    : state.account?.plan || 'Unknown'}</small>
-                </span>
-              </div>
-            </>
-          ) : (
-            <form
-              className="aivax-connect-form"
-              onSubmit={async (event) => {
-                event.preventDefault();
-                setBusy(true);
-                setError('');
-                try {
-                  const nextState = await window.chatApp.aivax.connect(loginKey);
-                  setState(nextState);
-                  setLoginKey('');
-                  const items = await window.chatApp.aivax.collections();
-                  setCollections(Array.isArray(items) ? items : []);
-                } catch (nextError) {
-                  setError(nextError instanceof Error ? nextError.message : String(nextError));
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              <label className="settings-field settings-field-wide">
-                <span>Login key</span>
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={loginKey}
-                  onChange={(event) => setLoginKey(event.target.value)}
-                  placeholder="Paste your AIVAX login key"
-                />
-                <small>The login key is exchanged once and is never shown again.</small>
-              </label>
-              <button className="button button-primary" type="submit" disabled={busy || !loginKey.trim()}>
-                {busy && <LoaderCircle className="aivax-spinner" size={14} />}
-                Connect account
+          <div className="settings-card-row aivax-account-row">
+            <span>
+              <strong>Login key</strong>
+              <small>Connected · ••••••••••••••••</small>
+            </span>
+            <div className="aivax-account-actions">
+              <button
+                className="button button-secondary"
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError('');
+                  try {
+                    setState(await window.chatApp.aivax.disconnect());
+                    setCollections([]);
+                  } catch (nextError) {
+                    setError(nextError instanceof Error ? nextError.message : String(nextError));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <LogOut size={14} />
+                Disconnect
               </button>
-            </form>
-          )}
+            </div>
+          </div>
+          <div className="settings-card-row aivax-account-row">
+            <span>
+              <strong>Current balance</strong>
+              <small>{currencyFormatter.format(Number(state.account?.balance) || 0)}</small>
+            </span>
+            <div className="aivax-account-actions">
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => window.chatApp.app.openExternal('https://console.aivax.net/dashboard/usage')}
+              >
+                Add balance
+                <ExternalLink size={13} />
+              </button>
+            </div>
+          </div>
+          <div className="settings-card-row aivax-account-row">
+            <span>
+              <strong>Usage · last 24 hours</strong>
+              <small>{currencyFormatter.format(Number(state.account?.usage24h) || 0)}</small>
+            </span>
+            <div className="aivax-account-actions">
+              <button
+                className="button button-secondary"
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError('');
+                  try {
+                    setState(await window.chatApp.aivax.state());
+                  } catch (nextError) {
+                    setError(nextError instanceof Error ? nextError.message : String(nextError));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <RefreshCw size={13} />
+                Refresh
+              </button>
+            </div>
+          </div>
+          <div className="settings-card-row aivax-account-row">
+            <span>
+              <strong>Plan</strong>
+              <small>{Array.isArray(state.account?.plan)
+                ? state.account.plan.join(', ') || 'Unknown'
+                : state.account?.plan || 'Unknown'}</small>
+            </span>
+          </div>
         </div>
       </section>
 

@@ -27,6 +27,7 @@ const TOKEN_CHART_TOP = 12;
 const TOKEN_CHART_BOTTOM = 228;
 const USAGE_TYPE_LABELS = Object.freeze({
   subagent: 'Sub-agent',
+  bot: 'Bot',
   inference: 'Inference',
   auxiliary: 'Auxiliary',
   supervision: 'Supervision',

@@ -147,6 +147,11 @@ export default function App() {
   const [subagents, setSubagents] = useState([]);
   const [bots, setBots] = useState([]);
   const [botWorkStateByBot, setBotWorkStateByBot] = useState({});
+  const [botSchedulerSnooze, setBotSchedulerSnooze] = useState({
+    active: false,
+    mode: null,
+    until: null,
+  });
   const [botSettingsTarget, setBotSettingsTarget] = useState(null);
   const [botQueueTabOpen, setBotQueueTabOpen] = useState(false);
   const [selectedBotLogId, setSelectedBotLogId] = useState('');
@@ -446,6 +451,11 @@ export default function App() {
       const state = await api.bots.list();
       setBots(state.bots ?? []);
       setBotWorkStateByBot(state.workStateByBot ?? {});
+      setBotSchedulerSnooze(state.schedulerSnooze ?? {
+        active: false,
+        mode: null,
+        until: null,
+      });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
@@ -971,6 +981,14 @@ export default function App() {
   async function activateBot(botId) {
     try {
       await api.bots.activate(botId);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }
+
+  async function snoozeBots(options) {
+    try {
+      setBotSchedulerSnooze(await api.bots.snooze(options));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
@@ -1854,6 +1872,7 @@ export default function App() {
   const sidebarOnBotSettings = useStableCallback(setBotSettingsTarget);
   const sidebarOnDeleteBot = useStableCallback(deleteBot);
   const sidebarOnActivateBot = useStableCallback(activateBot);
+  const sidebarOnSnoozeBots = useStableCallback(snoozeBots);
   const sidebarOnFork = useStableCallback(forkConversation);
   const sidebarOnArchive = useStableCallback(archiveConversation);
   const sidebarOnSearch = useStableCallback(() => setSearchOpen(true));
@@ -2203,6 +2222,7 @@ export default function App() {
           <Sidebar
             conversations={conversations}
             bots={bots}
+            botSchedulerSnooze={botSchedulerSnooze}
             models={models}
             selectedId={selectedId}
             running={running}
@@ -2225,6 +2245,7 @@ export default function App() {
             onBotSettings={sidebarOnBotSettings}
             onDeleteBot={sidebarOnDeleteBot}
             onActivateBot={sidebarOnActivateBot}
+            onSnoozeBots={sidebarOnSnoozeBots}
             onSearch={sidebarOnSearch}
             onOpenOrchestration={sidebarOnOpenOrchestration}
             onFork={sidebarOnFork}

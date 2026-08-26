@@ -53,6 +53,7 @@ const compactTokenFormatter = new Intl.NumberFormat(undefined, {
 export const Sidebar = memo(function Sidebar({
   conversations,
   bots = emptyList,
+  botSchedulerSnooze = emptyObject,
   models = emptyList,
   selectedId,
   running,
@@ -69,6 +70,7 @@ export const Sidebar = memo(function Sidebar({
   onBotSettings,
   onDeleteBot,
   onActivateBot,
+  onSnoozeBots,
   onSearch,
   onOpenOrchestration,
   onFork,
@@ -90,6 +92,8 @@ export const Sidebar = memo(function Sidebar({
 }) {
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
   const [filterMenuPosition, setFilterMenuPosition] = useState(null);
+  const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
+  const [snoozeMenuPosition, setSnoozeMenuPosition] = useState(null);
   const [conversationGrouping, setConversationGrouping] = useState(() => {
     const saved = window.localStorage.getItem(conversationGroupingKey);
     return ['model', 'folder'].includes(saved) ? saved : 'chronological';
@@ -102,6 +106,7 @@ export const Sidebar = memo(function Sidebar({
   const [tagsSaving, setTagsSaving] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const filterButtonRef = useRef(null);
+  const snoozeButtonRef = useRef(null);
   const folderMenuButtonRef = useRef(null);
   const chronologicalDayStart = conversationGrouping === 'chronological'
     ? new Date(now).setHours(0, 0, 0, 0)
@@ -276,6 +281,28 @@ export const Sidebar = memo(function Sidebar({
   }, [filterMenuOpen]);
 
   useEffect(() => {
+    if (!snoozeMenuOpen) return undefined;
+    const close = (event) => {
+      if (snoozeButtonRef.current?.contains(event.target)) return;
+      if (event.target.closest?.('.bot-snooze-menu')) return;
+      setSnoozeMenuOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      setSnoozeMenuOpen(false);
+      snoozeButtonRef.current?.focus();
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('resize', close, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('resize', close);
+    };
+  }, [snoozeMenuOpen]);
+
+  useEffect(() => {
     if (!folderMenu) return undefined;
     const close = (event) => {
       if (folderMenuButtonRef.current?.contains(event.target)) return;
@@ -304,6 +331,12 @@ export const Sidebar = memo(function Sidebar({
       left: Math.max(8, Math.min(rect.left, window.innerWidth - 236)),
     });
     setFilterMenuOpen((value) => !value);
+  }
+
+  function chooseBotSnooze(options) {
+    setSnoozeMenuOpen(false);
+    snoozeButtonRef.current?.focus();
+    onSnoozeBots(options);
   }
 
   function chooseConversationGrouping(grouping) {
@@ -383,18 +416,71 @@ export const Sidebar = memo(function Sidebar({
           <Bot size={13} aria-hidden="true" />
           <span>Bots</span>
         </span>
-        {onNewBot && (
-          <button
-            className="recent-filter-button"
-            type="button"
-            aria-label="New bot"
-            title="New bot"
-            onClick={() => onNewBot()}
-          >
-            <Plus size={13} />
-          </button>
-        )}
+        <span className="bots-label-actions">
+          {onSnoozeBots && (
+            <button
+              ref={snoozeButtonRef}
+              className={classNames(
+                'recent-filter-button',
+                (snoozeMenuOpen || botSchedulerSnooze.active) && 'active',
+              )}
+              type="button"
+              aria-label={botSchedulerSnooze.active ? 'Change bot Snooze' : 'Snooze bots'}
+              aria-haspopup="menu"
+              aria-expanded={snoozeMenuOpen}
+              title={botSchedulerSnooze.active
+                ? botSchedulerSnooze.mode === 'until-restart'
+                  ? 'Bots snoozed until restart'
+                  : `Bots snoozed until ${new Date(botSchedulerSnooze.until).toLocaleString()}`
+                : 'Snooze bots'}
+              onClick={() => {
+                const rect = snoozeButtonRef.current.getBoundingClientRect();
+                setSnoozeMenuPosition({
+                  top: rect.bottom + 4,
+                  left: Math.max(8, Math.min(rect.right - 190, window.innerWidth - 198)),
+                });
+                setSnoozeMenuOpen((value) => !value);
+              }}
+            >
+              <Moon size={13} />
+            </button>
+          )}
+          {onNewBot && (
+            <button
+              className="recent-filter-button"
+              type="button"
+              aria-label="New bot"
+              title="New bot"
+              onClick={() => onNewBot()}
+            >
+              <Plus size={13} />
+            </button>
+          )}
+        </span>
       </div>
+      {snoozeMenuOpen && snoozeMenuPosition && createPortal(
+        <DropdownMenu
+          className="bot-snooze-menu"
+          fixed
+          role="menu"
+          aria-label="Snooze bot activations"
+          style={{ top: snoozeMenuPosition.top, left: snoozeMenuPosition.left }}
+        >
+          <DropdownMenuItem icon={<Clock size={14} />} role="menuitem" onClick={() => chooseBotSnooze({ durationMinutes: 60 })}>
+            Snooze for 1h
+          </DropdownMenuItem>
+          <DropdownMenuItem icon={<Clock size={14} />} role="menuitem" onClick={() => chooseBotSnooze({ durationMinutes: 360 })}>
+            Snooze for 6h
+          </DropdownMenuItem>
+          <DropdownMenuItem icon={<Clock size={14} />} role="menuitem" onClick={() => chooseBotSnooze({ durationMinutes: 1_440 })}>
+            Snooze for 24h
+          </DropdownMenuItem>
+          <DropdownMenuItem icon={<Moon size={14} />} role="menuitem" onClick={() => chooseBotSnooze({ untilRestart: true })}>
+            Snooze until restart
+          </DropdownMenuItem>
+        </DropdownMenu>,
+        document.body,
+      )}
       <div className="sidebar-bots">
         {bots.length === 0 ? (
           <p className="sidebar-bots-empty">
@@ -881,8 +967,12 @@ const BotItem = memo(function BotItem({ bot, active, onSelect, onSettings, onAct
           </DropdownMenuItem>
           <DropdownMenuItem
             icon={<Play size={14} />}
-            disabled={bot.enabled === false}
-            title={bot.enabled === false ? 'Enable this bot in Schedule first' : undefined}
+            disabled={bot.enabled === false || bot.workQueue.length === 0}
+            title={bot.enabled === false
+              ? 'Enable this bot in Schedule first'
+              : bot.workQueue.length === 0
+                ? 'Add a task to the Work queue first'
+                : undefined}
             onClick={() => {
               setMenuOpen(false);
               onActivate(bot.id);

@@ -415,13 +415,243 @@
       }
     }
 
-    .aivax-connect-form {
+    &.aivax-landing {
+      display: grid;
+      gap: 32px;
+      padding: 16px 0 8px;
+    }
+
+    > .aivax-landing-intro {
+      display: grid;
+      grid-template-columns: 168px minmax(0, 1fr);
+      align-items: start;
+      gap: 32px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid var(--border-color);
+
+      > .aivax-landing-logo {
+        width: 144px;
+        height: auto;
+        margin-top: 4px;
+        object-fit: contain;
+
+        :root[data-color-scheme="dark"] & {
+          filter: invert(1);
+        }
+      }
+
+      > div {
+        > h3 {
+          margin: 0;
+          color: var(--text-1);
+          font-size: 18px;
+          font-weight: 500;
+          line-height: 1.4;
+        }
+
+        > p {
+          max-width: 520px;
+          margin: 8px 0 0;
+          color: var(--text-3);
+          font-size: 12px;
+          line-height: 1.6;
+          text-wrap: pretty;
+        }
+
+        > .aivax-landing-actions {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 8px;
+          margin-top: 20px;
+        }
+
+        > .aivax-landing-security {
+          max-width: 520px;
+          margin-top: 16px;
+          color: var(--text-4);
+          font-size: 10px;
+          line-height: 1.5;
+        }
+      }
+    }
+
+    .aivax-link-account,
+    .aivax-create-account,
+    .aivax-login-cancel {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 500;
+
+      > svg {
+        margin: 0;
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--text-3);
+        outline-offset: 2px;
+      }
+
+      &:disabled {
+        cursor: not-allowed;
+        opacity: .55;
+      }
+    }
+
+    .aivax-create-account {
+      color: var(--text-2);
+      background: transparent;
+
+      &:hover {
+        color: var(--text-1);
+        background: var(--item-hover);
+      }
+    }
+
+    .aivax-login-cancel {
+      color: var(--text-2);
+      background: var(--background-3);
+
+      &:hover:not(:disabled) {
+        background: var(--item-hover);
+      }
+    }
+
+    > .aivax-landing-features {
+      display: grid;
+      grid-template-columns: 168px minmax(0, 1fr);
+      align-items: start;
+      gap: 32px;
+
+      > h3 {
+        margin: 0;
+        color: var(--text-2);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1.5;
+      }
+
+      > dl {
+        margin: 0;
+        border-top: 1px solid var(--border-color);
+
+        > div {
+          min-height: 56px;
+          display: grid;
+          grid-template-columns: 160px minmax(0, 1fr);
+          align-items: center;
+          gap: 24px;
+          padding: 12px 0;
+          border-bottom: 1px solid var(--border-color);
+
+          > dt {
+            color: var(--text-1);
+            font-size: 11px;
+            font-weight: 500;
+          }
+
+          > dd {
+            margin: 0;
+            color: var(--text-3);
+            font-size: 11px;
+            line-height: 1.5;
+            text-wrap: pretty;
+          }
+        }
+      }
+    }
+
+    .aivax-login-dialog-backdrop {
+      z-index: 90;
+    }
+
+    .aivax-login-dialog {
+      width: min(460px, 100%);
+      display: grid;
+      gap: 24px;
+      padding: 24px;
+      color: var(--text-1);
+      background: var(--background-1);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      box-shadow: 0 24px 72px rgb(0 0 0 / 28%);
+
+      > .dialog-header {
+        > div {
+          min-width: 0;
+
+          > img {
+            width: 88px;
+            height: auto;
+            margin-bottom: 24px;
+
+            :root[data-color-scheme="dark"] & {
+              filter: invert(1);
+            }
+          }
+
+          > h2 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 500;
+          }
+
+          > p {
+            max-width: 380px;
+            margin: 8px 0 0;
+            color: var(--text-3);
+            font-size: 11px;
+            line-height: 1.6;
+            text-wrap: pretty;
+          }
+        }
+      }
+    }
+
+    .aivax-login-form {
       display: grid;
       gap: 16px;
-      padding: 18px;
 
-      > button {
-        justify-self: end;
+      > label {
+        min-width: 0;
+        display: grid;
+        gap: 8px;
+
+        > span {
+          color: var(--text-2);
+          font-size: 11px;
+          font-weight: 500;
+        }
+
+        > input {
+          width: 100%;
+          height: 40px;
+          padding: 8px 12px;
+          color: var(--text-1);
+          background: var(--background-0);
+          border: 1px solid var(--border-color);
+          border-radius: 8px;
+          outline: 0;
+          font-family: var(--font-code);
+          font-size: 12px;
+
+          &:focus-visible {
+            border-color: var(--text-3);
+            box-shadow: 0 0 0 2px var(--background-4);
+          }
+        }
+      }
+
+      > .aivax-login-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
       }
     }
 
@@ -606,6 +836,47 @@
     }
 
     @media (max-width: 700px) {
+      > .aivax-landing-intro,
+      > .aivax-landing-features {
+        grid-template-columns: 1fr;
+        gap: 24px;
+      }
+
+      > .aivax-landing-intro {
+        padding-bottom: 24px;
+
+        > .aivax-landing-logo {
+          width: 128px;
+          margin-top: 0;
+        }
+      }
+
+      > .aivax-landing-features > dl > div {
+        grid-template-columns: 1fr;
+        gap: 4px;
+        padding: 12px 0;
+      }
+
+      .aivax-login-dialog-backdrop {
+        padding: 16px;
+      }
+
+      .aivax-login-dialog {
+        padding: 20px;
+
+        > .dialog-header > div > img {
+          margin-bottom: 16px;
+        }
+      }
+
+      .aivax-login-form > .aivax-login-actions {
+        flex-direction: column-reverse;
+
+        > button {
+          width: 100%;
+        }
+      }
+
       .aivax-account-actions {
         flex-basis: auto;
         width: 100%;

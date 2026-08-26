@@ -2251,6 +2251,7 @@ export class ChatRunner {
             'bots_update',
             'bots_delete',
             'bots_activate',
+            'sleep_semaphore',
           ].includes(tool.name))
           .filter((tool) => (
             tool.name !== 'chat_spawn_subagent'
@@ -3298,6 +3299,58 @@ export class ChatRunner {
 
   async runSemaphoreNow(conversationId) {
     return this.resumeSemaphore(this.semaphores.runNow(conversationId), { forced: true });
+  }
+
+  async releaseSemaphoreHolder({ name, conversationId }) {
+    const conversation = getConversation(conversationId);
+    if (!conversation) throw new Error('The holder thread was not found.');
+    const activeRun = this.runs.get(conversationId);
+    const result = this.semaphores.releaseHolder({ name, conversationId });
+    const overriddenWait = this.semaphores.waitSnapshot(conversationId);
+    if (overriddenWait) this.semaphores.cancel(conversationId);
+    try {
+      const sent = await this.send({
+        conversationId,
+        model: activeRun?.model ?? conversation.model,
+        reasoningEffort: activeRun?.reasoningEffort ?? null,
+        permissionMode: activeRun?.permissionMode ?? 'approve_for_me',
+        text: `A supervising bot released your ${result.released} permit(s) from semaphore "${result.name}". Continue the task now without owning permits from this semaphore. Do not release permits you no longer own.`,
+        steer: true,
+        fromAgent: true,
+        workMode: activeRun?.workMode
+          ?? (conversation.orchestrationMode === 'plan' ? 'plan' : null),
+        ultraMode: activeRun?.ultraMode
+          ?? conversation.orchestrationMode === 'ultra',
+        goalId: activeRun?.goalId ?? null,
+        queuePriority: true,
+      });
+      return {
+        ...result,
+        resumed: true,
+        queued: sent.queued,
+        ...(overriddenWait ? { overriddenWait: overriddenWait.name } : {}),
+      };
+    } catch (error) {
+      return {
+        ...result,
+        resumed: false,
+        resumeError: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  releaseAllSemaphoreHolders(name) {
+    const semaphore = this.semaphores.globalSnapshot().find((item) => item.name === name);
+    if (!semaphore) throw new Error(`Semaphore "${name}" does not exist.`);
+    const conversationIds = [
+      ...semaphore.holders.map((holder) => holder.conversationId),
+      ...semaphore.queue.map((waiter) => waiter.conversationId),
+    ];
+    for (const conversationId of conversationIds) {
+      this.stop(conversationId, { stoppedByUser: true });
+    }
+    const result = this.semaphores.clear(name);
+    return { ...result, stopped: conversationIds };
   }
 
   cancelSemaphore(conversationId) {

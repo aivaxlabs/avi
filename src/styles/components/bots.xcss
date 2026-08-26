@@ -3,6 +3,16 @@
   padding-top: 8px;
 }
 
+.bots-label-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.bot-snooze-menu {
+  width: 190px;
+}
+
 .sidebar-bots {
   flex: 0 0 auto;
   min-height: 0;
@@ -1234,6 +1244,68 @@
   }
 }
 
+.bot-settings-work-queue {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bot-settings-work-queue-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  background: var(--background-1);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+
+  > .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+.bot-settings-work-queue-actions {
+  display: flex;
+  gap: 2px;
+
+  > button {
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    padding: 0;
+  }
+}
+
+.bot-settings-work-queue-empty {
+  margin: 0;
+  padding: 14px;
+  color: var(--text-4);
+  background: var(--background-1);
+  border: 1px dashed var(--border-color);
+  border-radius: 10px;
+  font-size: --font-sm;
+}
+
+.bot-settings-work-queue-add {
+  justify-self: start;
+}
+
+.bot-settings-hint {
+  color: var(--text-4);
+  font-size: --font-xs;
+  line-height: 1.45;
+}
+
 .bot-settings-profile {
   display: flex;
   align-items: center;
@@ -1578,8 +1650,13 @@
 
   .bot-settings-folder,
   .bot-settings-grid,
-  .bot-settings-choices {
+  .bot-settings-choices,
+  .bot-settings-work-queue-item {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bot-settings-work-queue-actions {
+    justify-content: flex-end;
   }
 
   .bot-settings-folder input {
