@@ -28,6 +28,12 @@ The memory toggle remains unavailable without both an account and a collection. 
 
 These utilities depend on the external service. Media Descriptions is a fallback in `read_media_file`: models that support the supplied media continue to receive it directly. `read_media_file` accepts an optional extraction guidance that is forwarded to Media Descriptions and ignored when the model reads the media directly. Processing can consume AIVAX balance.
 
+### Create a skill from a tutorial video
+
+Attach one tutorial video, select `/teach-skill` from the composer, and describe the skill you want. Avi sends the selected video to AIVAX Teach Skill, converts the returned tutorial into a local Avi `SKILL.md`, and validates its structure. The workflow chooses project or user-global scope from the tutorial's applicability and asks when that choice is materially ambiguous. It does not overwrite an existing same-name skill unless the request clearly asks for an update.
+
+The video leaves the computer for external processing and the request can consume AIVAX balance. An AIVAX account must be connected. Failed or empty generation does not create a partial skill.
+
 ## In-app search
 
 Select a dedicated **Thread search collection** to enable semantic thread search. Do not use the Memory collection or a collection containing other documents: Avi synchronizes the complete thread-search corpus with `sync` mode, which removes remote documents that are not part of the current corpus.

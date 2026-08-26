@@ -8,7 +8,12 @@ const resolvedProfile = resolve(testProfile);
 assert.ok(resolvedProfile.startsWith(resolve(tmpdir())));
 process.env.USERPROFILE = resolvedProfile;
 
-const { indexAivaxDocuments, loginToAivax, requestAivax } = await import('../src/main/aivax-client.js');
+const {
+  AIVAX_LONG_INFERENCE_BASE_URL,
+  indexAivaxDocuments,
+  loginToAivax,
+  requestAivax,
+} = await import('../src/main/aivax-client.js');
 const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
 const { closeDatabase } = await import('../src/main/database.js');
 
@@ -50,6 +55,18 @@ try {
   });
   assert.deepEqual(balance, { balance: 999, usage24h: 0, plan: 'Max' });
   assert.equal(requests.at(-1).options.headers.Authorization, 'Bearer test-access-token');
+
+  reply({ message: null, data: { resultText: 'Long inference result.' } });
+  assert.deepEqual(await requestAivax('/api/v1/generations/teach-skill', {
+    accessToken: 'test-access-token',
+    baseUrl: AIVAX_LONG_INFERENCE_BASE_URL,
+    body: { videos: [] },
+    responseType: 'object',
+  }), { resultText: 'Long inference result.' });
+  assert.equal(
+    requests.at(-1).url,
+    'https://direct.inference.aivax.net/api/v1/generations/teach-skill',
+  );
 
   const collectionsPayload = [{
     id: 'collection-id',
@@ -207,6 +224,7 @@ try {
   });
   assert.equal(chatAttachments.attachments.length, 4);
   assert.deepEqual(chatAttachments.attachments[0], {
+    attachmentIndex: 0,
     name: 'existing.png',
     kind: 'image_url',
     mime: 'image/png',
@@ -215,10 +233,10 @@ try {
     materialized: false,
   });
   const materializedAttachments = chatAttachments.attachments.slice(1);
-  assert.deepEqual(materializedAttachments.map(({ name }) => name), [
-    'inference.png',
-    'inference.mp3',
-    'inference.mp4',
+  assert.deepEqual(materializedAttachments.map(({ attachmentIndex, name }) => ({ attachmentIndex, name })), [
+    { attachmentIndex: 1, name: 'inference.png' },
+    { attachmentIndex: 2, name: 'inference.mp3' },
+    { attachmentIndex: 3, name: 'inference.mp4' },
   ]);
   assert.ok(materializedAttachments.every(({ path, temporary, materialized }) => (
     path.startsWith(resolve(tmpdir(), '.avi', 'chat-attachments'))
@@ -313,6 +331,74 @@ try {
     },
   });
   assert.equal(directResult.mediaContent[0].type, 'image_url');
+
+  const teachSkill = CLIENT_TOOLS.find((tool) => tool.name === 'aivax_teach_skill');
+  assert.ok(teachSkill);
+  assert.deepEqual(teachSkill.inputSchema.required, ['attachmentIndex']);
+  let unauthenticatedRequestCalled = false;
+  await assert.rejects(
+    teachSkill.execute({ attachmentIndex: 0 }, {
+      aivax: { connected: false },
+      requestAivax: async () => {
+        unauthenticatedRequestCalled = true;
+      },
+      userAttachments: [{ kind: 'video_url', mime: 'video/mp4', path: mediaFixtures[1].path }],
+    }),
+    /AIVAX is not authenticated.*user must connect an AIVAX account in Settings/,
+  );
+  assert.equal(unauthenticatedRequestCalled, false);
+
+  const taughtSkill = await teachSkill.execute({ attachmentIndex: 0 }, {
+    aivax: { connected: true },
+    requestAivax: async (path, options) => {
+      assert.equal(path, '/api/v1/generations/teach-skill');
+      assert.equal(options.baseUrl, AIVAX_LONG_INFERENCE_BASE_URL);
+      assert.equal(options.responseType, 'object');
+      assert.equal(options.signal.aborted, false);
+      assert.equal(options.body.videos.length, 1);
+      assert.equal(options.body.videos[0].type, 'video_url');
+      assert.equal(
+        options.body.videos[0].video_url.url,
+        `data:video/mp4;base64,${mediaFixtures[1].contents.toString('base64')}`,
+      );
+      return {
+        resultText: '---\nname: example-skill\ndescription: Example skill.\n---\n# Example',
+        usage: { processedUnits: 5 },
+      };
+    },
+    signal: new AbortController().signal,
+    userAttachments: [{
+      kind: 'video_url',
+      mime: 'video/mp4',
+      path: mediaFixtures[1].path,
+    }],
+  });
+  assert.deepEqual(taughtSkill, {
+    resultText: '---\nname: example-skill\ndescription: Example skill.\n---\n# Example',
+    usage: { processedUnits: 5 },
+  });
+  await assert.rejects(
+    teachSkill.execute({ attachmentIndex: 0 }, {
+      aivax: { connected: true },
+      userAttachments: [{ kind: 'image_url', mime: 'image/png', path: mediaFixtures[0].path }],
+    }),
+    /requires a video attachment/,
+  );
+  await assert.rejects(
+    teachSkill.execute({ attachmentIndex: 1 }, {
+      aivax: { connected: true },
+      userAttachments: [{ kind: 'video_url', mime: 'video/mp4', path: mediaFixtures[1].path }],
+    }),
+    /selected chat attachment is not available/,
+  );
+  await assert.rejects(
+    teachSkill.execute({ attachmentIndex: 0 }, {
+      aivax: { connected: true },
+      requestAivax: async () => ({ resultText: '' }),
+      userAttachments: [{ kind: 'video_url', mime: 'video/mp4', path: mediaFixtures[1].path }],
+    }),
+    /returned no skill instructions/,
+  );
 
   const memoryDelete = CLIENT_TOOLS.find((tool) => tool.name === 'memory_delete');
   assert.ok(memoryDelete);

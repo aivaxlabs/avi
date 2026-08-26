@@ -1,6 +1,7 @@
 import { getAivaxAccessToken } from './database.js';
 
 const AIVAX_API_BASE_URL = 'https://inference.aivax.net';
+export const AIVAX_LONG_INFERENCE_BASE_URL = 'https://direct.inference.aivax.net';
 
 export async function loginToAivax(loginKey, { signal } = {}) {
   const key = String(loginKey ?? '').trim();
@@ -15,6 +16,7 @@ export async function loginToAivax(loginKey, { signal } = {}) {
 
 export async function requestAivax(path, {
   accessToken = getAivaxAccessToken(),
+  baseUrl = AIVAX_API_BASE_URL,
   body,
   includeResponseEnvelope = false,
   includeResponseMetadata = false,
@@ -27,7 +29,7 @@ export async function requestAivax(path, {
   }
 
   const multipart = body instanceof FormData;
-  const response = await fetch(new URL(path, AIVAX_API_BASE_URL), {
+  const response = await fetch(new URL(path, baseUrl), {
     method,
     headers: {
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
