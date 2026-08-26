@@ -384,6 +384,11 @@
   gap: 2em;
 }
 
+.bot-all-work .bot-work-card + .bot-work-card {
+  border-top: 5px solid --border-color;
+  padding-top: 1em;
+}
+
 .bot-work-section {
   min-width: 0;
   display: grid;
@@ -472,7 +477,8 @@
   }
 
   &.needs-attention {
-    border-left: 3px solid var(--warning-color, var(--text-2));
+    border-left: 3px solid var(--warn-color, var(--text-2));
+    padding-left: .75em;
   }
 
   &.state-completed:not(.expanded),
@@ -721,10 +727,12 @@
     background: var(--background-2);
     border-radius: 7px;
     line-height: 1.4;
+    margin-left: 140px;
 
     svg {
       flex: 0 0 auto;
       margin-top: 1px;
+      color: --warn-color;
     }
 
     span {
@@ -735,8 +743,8 @@
     }
 
     strong {
-      color: var(--text-2);
       text-transform: capitalize;
+      color: --warn-color;
     }
 
     &.attention {
