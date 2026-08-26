@@ -6,9 +6,11 @@ Bots are autonomous AI teammates. Each bot lives in a persistent thread, is acti
 
 Use the **+** button in the sidebar's **Bots** section. Avi creates the bot with a random identity icon and opens its settings. Every bot needs a configured model before creation.
 
+Use the moon button beside **+** to snooze scheduled bot activations for 1 hour, 6 hours, 24 hours, or until Avi restarts. Snooze does not stop bots that are already working, change the Work queue order, or block **Activate now**. Timed Snoozes keep their deadline if Avi restarts; **Snooze until restart** ends when Avi restarts.
+
 Agents in normal threads and Quick Chat can also manage bots with `bots_list`, `bots_create`, `bots_update`, `bots_delete`, and `bots_activate`. Select `/create-bot` in the composer for a guided setup that checks existing bots, defines the purpose and schedule, creates the bot, verifies its configuration, and optionally starts its first activation. Autonomous bot conversations do not receive these management tools and cannot create or control other bots.
 
-`bots_activate` is an explicit one-time call: it ignores automatic enabled, period, idle, activation-window, and activation-limit rules, while refusing to start a duplicate run when the bot is already active. The sidebar's **Activate now** action keeps the normal enabled-state behavior.
+`bots_activate` is an explicit one-time call: it ignores automatic enabled, period, idle, activation-window, and activation-limit rules, while refusing to start a duplicate run when the bot is already active. It still requires at least one configured Work queue task. The sidebar's **Activate now** action keeps the normal enabled-state behavior and is also unavailable while the queue is empty.
 
 ## Bot settings
 
@@ -23,6 +25,7 @@ Settings are organized by the decisions they control:
 **Work — what it does and where**
 
 - **Instructions** — free-form guidance injected into every activation describing responsibilities, priorities, and boundaries.
+- **Work queue** — an ordered list of recurring tasks configured by the user. Each successful activation receives the next task as its primary focus, then advances to the following task and wraps to the beginning after the last one. If **Current work** contains an active item or one with a running worker, the activation focuses that item instead and leaves the recurring queue at its current position. Editing or reordering the list restarts the cycle from the first task. An empty queue prevents automatic, sidebar, tool, and plugin activations.
 - **Working folder** — where the bot lives. Leave empty to use a dedicated folder in `~/.aivax/bots/<bot id>`. The bot shares the general instructions, context discovery, and workspace MCP servers of this folder, plus global context and MCP servers. It also receives root and nested `BOTS.md` instructions discovered there and in `$HOME/.agents`; those bot-only instructions are never exposed to normal threads.
 
 **MCP servers — external tools**
@@ -74,9 +77,11 @@ Approvals are runtime-owned fields embedded in their work item. While an approva
 
 Avi always creates a `.gitignore` inside the isolated bot folder so internal state is not committed accidentally. If `MEMORY.md` exists at the working-folder root when a bot folder is first created, Avi copies it without overwriting later isolated changes. The work-state files are not imported from any previous report format.
 
-At the beginning of every activation, the bot reads the work state, reconciles linked workers, and advances actionable items. It keeps the report oriented to outcomes instead of execution mechanics so the user can understand current work, recent results, next steps, and required decisions without reading the chat history.
+At the beginning of every activation, the bot receives its primary task in `<focus-task>` and reads the work state. Avi uses an item from **Current work** while one is active or has a running worker; otherwise it uses and advances the current Work queue task. The bot reconciles linked workers and advances that focus before using remaining capacity for other actionable items. It keeps the report oriented to outcomes instead of execution mechanics so the user can understand current work, recent results, next steps, and required decisions without reading the chat history.
 
-Bots do not get the memory tools; `MEMORY.md` is their memory. Bots perform bounded work directly with their available tools, including exploration, research, data gathering, read-only audits, status checks, and short diagnostics. They cannot ask you questions mid-run. For genuinely long work such as feature implementation, substantial migrations, full articles, or extensive validation, they can coordinate regular threads with `chat_create_thread`, `chat_list_threads`, `chat_send_prompt`, `chat_interrupt_thread`, and `chat_inspect_thread`. Threads created by a bot are linked to its main conversation, appear under that bot's `workThreads` in `bots_list`, and get a robot icon in the sidebar.
+Bots do not get the memory tools; `MEMORY.md` is their memory. Bots perform bounded work directly with their available tools, including exploration, research, data gathering, read-only audits, status checks, and short diagnostics. They cannot ask you questions mid-run. For genuinely long work such as feature implementation, substantial migrations, full articles, or extensive validation, they have advanced delegation tools to create, steer, inspect, interrupt, and reconcile regular worker threads. Threads created by a bot are linked to its main conversation, appear under that bot's `workThreads` in `bots_list`, and get a robot icon in the sidebar.
+
+The root bot acts as a central orchestrator and can supervise shared capacity across the entire app. It can inspect every semaphore and its full FIFO queue, including holders and waiters from unrelated threads. `bot_semaphore_release_thread` releases one holder and resumes that thread; `bot_semaphore_release_all` stops every holder and waiter on the named semaphore and removes it without resuming them. These administrative tools are available only to the root bot conversation, not to normal conversations or worker threads. Bots cannot acquire semaphore permits for themselves: `sleep_semaphore` is excluded from root bot activations.
 
 ## Approvals and the Bots panel
 
@@ -101,5 +106,6 @@ If Avi closes or restarts while a bot is working, its current activation resumes
 
 ## Sidebar
 
+- The moon beside **+** opens the global Snooze menu for scheduled activations. The button remains highlighted while Snooze is active.
 - The bot's context menu offers **Bot settings**, **Activate now**, and **Delete bot...** (removes the conversation and pending approvals; memory and work-state files stay on disk).
 - The sidebar indicator reflects the bot state: a spinner while working, a green dot while active and waiting for its next activation, or a gray moon while sleeping because of smart idle, a repeated-activation pause, a manual pause, or the schedule window. Disabled bots use a gray dot and appear dimmed.

@@ -145,6 +145,7 @@ contextBridge.exposeInMainWorld('chatApp', {
   },
   bots: {
     list: () => invoke('bots:list'),
+    snooze: (options) => invoke('bots:snooze', options),
     create: (payload) => invoke('bots:create', payload),
     update: (payload) => invoke('bots:update', payload),
     delete: (botId) => invoke('bots:delete', botId),

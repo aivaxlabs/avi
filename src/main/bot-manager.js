@@ -10,9 +10,11 @@ import {
   deleteConversation,
   getBot,
   getBotByConversation,
+  getBotSchedulerSnoozeUntil,
   getConversation,
   listAllConversations,
   listBots,
+  setBotSchedulerSnoozeUntil,
   updateBot,
   updateBotScheduler,
   updateConversation,
@@ -42,6 +44,7 @@ import {
 import { traceError, traceInfo } from './trace-log.js';
 
 const TICK_INTERVAL_MS = 30_000;
+const SNOOZE_DURATIONS_MINUTES = new Set([60, 360, 1_440]);
 const WORK_FILES = Object.freeze({
   'MEMORY.md': '# Memory\n\nDurable knowledge for this bot across activations.\n',
   [BOT_WORK_STATE_FILES.workItems]: '[]\n',
@@ -97,6 +100,8 @@ export class BotManager {
     this.timer = null;
     this.approvals = new Map();
     this.activating = new Set();
+    this.schedulerSnoozeUntil = getBotSchedulerSnoozeUntil();
+    this.schedulerSnoozeUntilRestart = false;
   }
 
   attachChatRunner(chatRunner) {
@@ -119,6 +124,40 @@ export class BotManager {
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  getSchedulerSnooze(now = Date.now()) {
+    if (this.schedulerSnoozeUntilRestart) {
+      return { active: true, mode: 'until-restart', until: null };
+    }
+    const until = new Date(this.schedulerSnoozeUntil ?? '').getTime();
+    if (Number.isFinite(until) && until > now) {
+      return { active: true, mode: 'until', until: this.schedulerSnoozeUntil };
+    }
+    if (this.schedulerSnoozeUntil) {
+      this.schedulerSnoozeUntil = null;
+      setBotSchedulerSnoozeUntil(null);
+    }
+    return { active: false, mode: null, until: null };
+  }
+
+  setSchedulerSnooze({ durationMinutes, untilRestart = false } = {}) {
+    if (untilRestart === true) {
+      this.schedulerSnoozeUntilRestart = true;
+      this.schedulerSnoozeUntil = null;
+      setBotSchedulerSnoozeUntil(null);
+    } else {
+      const duration = Number(durationMinutes);
+      if (!SNOOZE_DURATIONS_MINUTES.has(duration)) {
+        throw new Error('Bot Snooze duration must be 60, 360, or 1440 minutes.');
+      }
+      this.schedulerSnoozeUntilRestart = false;
+      this.schedulerSnoozeUntil = new Date(Date.now() + duration * 60_000).toISOString();
+      setBotSchedulerSnoozeUntil(this.schedulerSnoozeUntil);
+    }
+    const snooze = this.getSchedulerSnooze();
+    this.broadcast('bots:snooze', { snooze });
+    return snooze;
   }
 
   noteRunStarted(conversationId, assistantMessageId) {
@@ -226,7 +265,7 @@ export class BotManager {
           ? 'working'
           : bot.enabled === false
             ? 'disabled'
-            : ['idle', 'outside-window', 'max-activations', 'paused'].includes(
+            : ['idle', 'outside-window', 'max-activations', 'paused', 'empty-work-queue'].includes(
                 decideActivation({ bot, now: Date.now() }).reason,
               )
               ? 'sleep'
@@ -316,6 +355,7 @@ export class BotManager {
       maxActivations: config?.maxActivations ?? 10,
       activationWindow: config?.activationWindow ?? {},
       instructions: config?.instructions ?? '',
+      workQueue: config?.workQueue ?? [],
       enabled: config?.enabled ?? true,
       nextActivationAt: new Date(
         nextActivationFrom(config?.activationPeriodMinutes ?? 10, Date.now()),
@@ -604,14 +644,22 @@ export class BotManager {
   }
 
   async tick() {
-    for (const bot of listBots()) {
-      if (!bot.enabled) continue;
+    const bots = listBots();
+    for (const bot of bots) {
       if (
-        bot.activeAssistantMessageId
+        bot.enabled
+        && bot.activeAssistantMessageId
         && !this.chatRunner?.runs?.has(bot.conversationId)
       ) {
         await this.resumeInterruptedRun(bot);
       }
+    }
+    const hadSnooze = Boolean(this.schedulerSnoozeUntil || this.schedulerSnoozeUntilRestart);
+    if (this.getSchedulerSnooze().active) return;
+    if (hadSnooze) this.broadcast('bots:snooze', { snooze: this.getSchedulerSnooze() });
+
+    for (const bot of bots) {
+      if (!bot.enabled) continue;
       const currentBot = getBot(bot.id);
       const decision = decideActivation({
         bot: currentBot,
@@ -655,6 +703,7 @@ export class BotManager {
   async activateBot(botId, { trigger = 'scheduler', force = false } = {}) {
     const bot = getBot(botId);
     if (!bot) throw new Error('Bot not found.');
+    if (bot.workQueue.length === 0) return null;
     if (!bot.enabled && !force) return null;
     if (this.activating.has(bot.id)) return null;
     if (this.chatRunner?.runs?.has(bot.conversationId)) {
@@ -668,17 +717,37 @@ export class BotManager {
     this.activating.add(bot.id);
     try {
       const folders = await ensureBotFolders(bot);
+      const { workItems } = await readBotWorkState(folders.dataFolder);
+      const activeWorkItem = workItems.find((item) => (
+        item.state === 'active'
+        || item.workerThreadIds.some((threadId) => this.chatRunner?.runs?.has(threadId))
+      ));
+      const focusTask = activeWorkItem?.title ?? bot.workQueue[bot.workQueueIndex];
+      const escapedFocusTask = focusTask
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
       await this.chatRunner?.send({
         conversationId: bot.conversationId,
         model: bot.model,
         reasoningEffort: bot.reasoningEffort,
         permissionMode: 'approve_for_me',
-        text: `<bot-activation at="${new Date().toISOString()}" />`,
+        text: [
+          `<bot-activation at="${new Date().toISOString()}">`,
+          `<focus-task>${escapedFocusTask}</focus-task>`,
+          '</bot-activation>',
+        ].join('\n'),
         fromAgent: true,
         project: { path: folders.workingFolder },
       });
       const activationCount = bot.activationCount + 1;
       const sleeping = bot.maxActivations > 0 && activationCount >= bot.maxActivations;
+      const currentBot = getBot(bot.id);
+      const workQueueIndex = activeWorkItem
+        ? currentBot.workQueueIndex
+        : JSON.stringify(currentBot.workQueue) === JSON.stringify(bot.workQueue)
+          ? (bot.workQueueIndex + 1) % bot.workQueue.length
+          : currentBot.workQueueIndex;
       const activatedAt = Date.now();
       const nextActivationAt = new Date(
         sleeping
@@ -687,6 +756,7 @@ export class BotManager {
       ).toISOString();
       updateBotScheduler(bot.id, {
         activationCount: sleeping ? 0 : activationCount,
+        workQueueIndex,
         idleUntil: sleeping ? nextActivationAt : 'clear',
         nextActivationAt,
         status: 'active',
@@ -736,6 +806,74 @@ export class BotManager {
     };
     const tools = [
       {
+        name: 'bot_semaphore_inspect',
+        description: 'Inspect one application-wide semaphore, including every holder and the complete FIFO queue. Bot semaphore access is global and is not limited to this bot or threads it created.',
+        approval: 'never',
+        canEditFile: false,
+        canPerformDestructiveActions: false,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', minLength: 1, maxLength: 200 },
+          },
+          required: ['name'],
+          additionalProperties: false,
+        },
+        execute: async ({ name }) => {
+          const semaphore = this.chatRunner?.semaphores.globalSnapshot()
+            .find((item) => item.name === String(name).trim());
+          if (!semaphore) throw new Error(`Semaphore "${String(name).trim()}" does not exist.`);
+          return {
+            ...semaphore,
+            holders: semaphore.holders.map((holder) => ({
+              ...holder,
+              title: getConversation(holder.conversationId)?.title ?? 'Missing thread',
+              running: Boolean(this.chatRunner?.runs.has(holder.conversationId)),
+            })),
+            queue: semaphore.queue.map((waiter) => ({
+              ...waiter,
+              title: getConversation(waiter.conversationId)?.title ?? 'Missing thread',
+            })),
+          };
+        },
+      },
+      {
+        name: 'bot_semaphore_release_thread',
+        description: 'Release every permit held by one thread on a semaphore, then resume that thread with an explicit continuation message. This root-level operation may target any thread, not only threads created by this bot.',
+        approval: 'never',
+        canEditFile: false,
+        canPerformDestructiveActions: true,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', minLength: 1, maxLength: 200 },
+            threadId: { type: 'string', minLength: 1 },
+          },
+          required: ['name', 'threadId'],
+          additionalProperties: false,
+        },
+        execute: ({ name, threadId }) => this.chatRunner.releaseSemaphoreHolder({
+          name: String(name).trim(),
+          conversationId: String(threadId).trim(),
+        }),
+      },
+      {
+        name: 'bot_semaphore_release_all',
+        description: 'Stop every holder and queued thread associated with a named semaphore, then remove the semaphore without resuming any of those threads.',
+        approval: 'never',
+        canEditFile: false,
+        canPerformDestructiveActions: true,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', minLength: 1, maxLength: 200 },
+          },
+          required: ['name'],
+          additionalProperties: false,
+        },
+        execute: ({ name }) => this.chatRunner.releaseAllSemaphoreHolders(String(name).trim()),
+      },
+      {
         name: 'bot_work_create',
         description: 'Create one durable user-visible work item with a clear objective. Do not create items for routine reads or tool calls.',
         approval: 'never',
@@ -745,8 +883,8 @@ export class BotManager {
           type: 'object',
           properties: {
             title: { type: 'string', description: 'Short recognizable label.' },
-            objective: { type: 'string', description: 'The concrete result that defines success.' },
-            nextStep: { type: 'string', description: 'The next concrete action. Provide it when the work should appear in Up next.' },
+            objective: { type: 'string', description: 'The concrete result that defines success, written as concise GitHub-flavored Markdown.' },
+            nextStep: { type: 'string', description: 'The next concrete action in concise GitHub-flavored Markdown. Provide it when the work should appear in Up next.' },
             priority: { type: 'string', enum: [...BOT_WORK_PRIORITIES] },
             workerThreadIds: { type: 'array', items: { type: 'string' }, uniqueItems: true },
           },
@@ -771,11 +909,11 @@ export class BotManager {
           properties: {
             id: { type: 'string' },
             title: { type: 'string' },
-            objective: { type: 'string' },
+            objective: { type: 'string', description: 'The result that defines success, written as concise GitHub-flavored Markdown.' },
             state: { type: 'string', enum: [...BOT_WORK_ITEM_STATES] },
-            summary: { type: 'string', description: 'Current situation. When completing work, provide a concise plain-language account of what was done, why it was done, and how it was done.' },
-            lastProgress: { type: 'string' },
-            nextStep: { type: 'string', description: 'The next concrete action for planned or active work. It is cleared automatically when work is completed.' },
+            summary: { type: 'string', description: 'Current situation in concise GitHub-flavored Markdown. Use short bullets for multiple results. When completing work, explain what was done, why, and how without repeating structured evidence.' },
+            lastProgress: { type: 'string', description: 'Latest material result, discovery, or change in concise GitHub-flavored Markdown.' },
+            nextStep: { type: 'string', description: 'The next concrete action for planned or active work, written as concise GitHub-flavored Markdown. It is cleared automatically when work is completed.' },
             attention: attentionSchema,
             blocker: blockerSchema,
             priority: { type: 'string', enum: [...BOT_WORK_PRIORITIES] },
@@ -907,6 +1045,7 @@ export class BotManager {
       activationPeriodMinutes: bot.activationPeriodMinutes,
       pendingApprovals: queueCount,
       instructions: bot.instructions,
+      workQueue: bot.workQueue,
       personality: bot.personality,
       contextSize: bot.contextSize,
       model: bot.model,

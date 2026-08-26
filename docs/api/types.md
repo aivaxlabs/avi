@@ -212,6 +212,9 @@ interface BotSnapshot {
     endMinute?: number;
   };
   instructions: string;
+  workQueue: string[];
+  /** Zero-based index of the task selected by the next activation. */
+  workQueueIndex: number;
   enabled: boolean;
   status: 'active' | 'sleeping' | 'paused';
   nextActivationAt: string | null;
@@ -223,7 +226,7 @@ interface BotSnapshot {
 }
 ```
 
-`activationWindow.days` uses `0` (Sunday) through `6` (Saturday); minutes are counted from midnight.
+`activationWindow.days` uses `0` (Sunday) through `6` (Saturday); minutes are counted from midnight. `workQueue` is processed round-robin in array order. Empty queues do not activate, and updating the queue resets `workQueueIndex` to `0`.
 
 ### BotApproval
 

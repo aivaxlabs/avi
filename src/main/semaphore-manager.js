@@ -127,6 +127,25 @@ export class SemaphoreManager {
     return { name, maxCount: semaphore.maxCount, released, activated: ready.length };
   }
 
+  clear(name) {
+    name = normalizeName(name);
+    const semaphore = this.state.semaphores[name];
+    if (!semaphore) throw new Error(`Semaphore "${name}" does not exist.`);
+    const holders = Object.entries(semaphore.holders ?? {}).map(([conversationId, count]) => ({
+      conversationId,
+      count,
+    }));
+    const waiting = [...(semaphore.queue ?? [])].map((conversationId, index) => ({
+      conversationId,
+      count: this.state.waiting[conversationId]?.count ?? 0,
+      position: index + 1,
+    }));
+    for (const { conversationId } of waiting) delete this.state.waiting[conversationId];
+    delete this.state.semaphores[name];
+    this.persist();
+    return { name, maxCount: semaphore.maxCount, holders, waiting };
+  }
+
   acquire({ conversationId, name, count, maxCount, resume = {} }) {
     name = normalizeName(name);
     count = normalizePositiveInteger(count, 'count');
@@ -190,6 +209,22 @@ export class SemaphoreManager {
     this.persist();
     this.notifyReady(ready);
     return { name, released: count, remaining: held - count, activated: ready.length };
+  }
+
+  releaseHolder({ conversationId, name }) {
+    name = normalizeName(name);
+    const semaphore = this.state.semaphores[name];
+    if (!semaphore) throw new Error(`Semaphore "${name}" does not exist.`);
+    const held = semaphore.holders?.[conversationId] ?? 0;
+    if (held < 1) throw new Error(`Thread "${conversationId}" does not hold semaphore "${name}".`);
+
+    delete semaphore.holders[conversationId];
+    delete semaphore.blocked?.[conversationId];
+    const ready = this.drain(name);
+    this.removeIfEmpty(name);
+    this.persist();
+    this.notifyReady(ready);
+    return { name, conversationId, released: held, activated: ready.length };
   }
 
   setBlocked({ conversationId, name, blocked, summary }) {

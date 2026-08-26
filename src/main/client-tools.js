@@ -13,7 +13,7 @@ import {
   resolve,
 } from 'node:path';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
-import { requestAivax } from './aivax-client.js';
+import { AIVAX_LONG_INFERENCE_BASE_URL, requestAivax } from './aivax-client.js';
 import {
   attachmentToApiBlock,
   createConversation,
@@ -68,6 +68,11 @@ const BOT_CONFIG_PROPERTIES = Object.freeze({
     additionalProperties: false,
   },
   instructions: { type: 'string', description: 'Responsibilities, priorities, and boundaries injected into every activation.' },
+  workQueue: {
+    type: 'array',
+    description: 'Ordered round-robin tasks. The bot does not activate while this list is empty.',
+    items: { type: 'string', minLength: 1 },
+  },
   enabled: { type: 'boolean', description: 'Whether automatic scheduling may activate the bot.' },
 });
 const terminals = new Map();
@@ -161,7 +166,7 @@ async function waitForTerminal(terminal, { untilExit, timeout }) {
 export const CLIENT_TOOLS = Object.freeze([
   {
     name: 'get_chat_attachments',
-    description: 'Get local paths for images, audio, and videos attached by the user in the current chat. Existing files are returned directly; inference-only media is copied to Avi temporary storage first.',
+    description: 'Get local paths and stable attachment indexes for images, audio, and videos attached by the user in the current chat. Existing files are returned directly; inference-only media is copied to Avi temporary storage first.',
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
@@ -178,7 +183,7 @@ export const CLIENT_TOOLS = Object.freeze([
       const results = [];
       const seen = new Set();
 
-      for (const attachment of mediaAttachments) {
+      for (const [attachmentIndex, attachment] of mediaAttachments.entries()) {
         const identity = attachment.id
           ?? attachment.path
           ?? attachment.dataUrl
@@ -190,6 +195,7 @@ export const CLIENT_TOOLS = Object.freeze([
         if (!localFile) continue;
 
         results.push({
+          attachmentIndex,
           name: attachment.name ?? basename(localFile.path),
           kind: attachment.kind,
           mime: attachment.mime ?? null,
@@ -304,6 +310,86 @@ export const CLIENT_TOOLS = Object.freeze([
         throw new Error('The selected model does not expose video input capability.');
       }
       throw new Error(`The selected model cannot read this media type (${attachment.mime}).`);
+    },
+  },
+  {
+    name: 'aivax_teach_skill',
+    description: 'Analyze one tutorial video attached in the current chat with AIVAX Teach Skill and return reusable skill instructions. Use the attachmentIndex returned by get_chat_attachments.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        attachmentIndex: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Stable index of one video returned by get_chat_attachments.',
+        },
+      },
+      required: ['attachmentIndex'],
+      additionalProperties: false,
+    },
+    execute: async ({ attachmentIndex }, {
+      aivax,
+      requestAivax: requestTeachSkill = requestAivax,
+      signal,
+      userAttachments = [],
+    }) => {
+      if (!aivax?.connected) {
+        throw new Error('AIVAX is not authenticated. The user must connect an AIVAX account in Settings before using Teach Skill.');
+      }
+
+      const mediaAttachments = userAttachments.filter((attachment) => (
+        ['image_url', 'input_audio', 'video_url'].includes(attachment?.kind)
+        || ['image', 'audio', 'video'].some((type) => attachment?.mime?.startsWith(`${type}/`))
+      ));
+      const attachment = mediaAttachments[attachmentIndex];
+      if (!attachment) throw new Error('The selected chat attachment is not available.');
+      if (attachment.kind !== 'video_url' && !attachment.mime?.startsWith('video/')) {
+        throw new Error('AIVAX Teach Skill requires a video attachment.');
+      }
+
+      const localFile = await materializeAttachment(attachment);
+      if (!localFile) throw new Error('Could not create a local copy of the selected video.');
+      const mime = [
+        'video/mp4',
+        'video/quicktime',
+        'video/webm',
+        'video/x-matroska',
+        'video/x-msvideo',
+      ].includes(attachment.mime)
+        ? attachment.mime
+        : {
+            '.avi': 'video/x-msvideo',
+            '.m4v': 'video/mp4',
+            '.mkv': 'video/x-matroska',
+            '.mov': 'video/quicktime',
+            '.mp4': 'video/mp4',
+            '.webm': 'video/webm',
+          }[extname(localFile.path).toLowerCase()];
+      if (!mime) throw new Error('AIVAX Teach Skill requires an MP4, WebM, MOV, M4V, AVI, or MKV video.');
+
+      const result = await requestTeachSkill('/api/v1/generations/teach-skill', {
+        baseUrl: AIVAX_LONG_INFERENCE_BASE_URL,
+        body: {
+          videos: [{
+            type: 'video_url',
+            video_url: {
+              url: `data:${mime};base64,${(await readFile(localFile.path)).toString('base64')}`,
+            },
+          }],
+        },
+        responseType: 'object',
+        signal,
+      });
+      if (typeof result.resultText !== 'string' || !result.resultText.trim()) {
+        throw new Error('AIVAX Teach Skill returned no skill instructions.');
+      }
+      return {
+        resultText: result.resultText,
+        usage: result.usage ?? null,
+      };
     },
   },
   {
@@ -566,6 +652,8 @@ export const CLIENT_TOOLS = Object.freeze([
           contextSize: bot.contextSize,
           personality: bot.personality,
           instructions: bot.instructions,
+          workQueue: bot.workQueue,
+          workQueueIndex: bot.workQueueIndex,
           enabled: bot.enabled,
           running: bot.running,
           scheduleState: bot.scheduleState,
@@ -663,7 +751,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'bots_activate',
-    description: 'Activate a bot immediately, ignoring automatic enabled, period, idle, activation-window, and activation-limit rules. It does not start a duplicate run when the bot is already running.',
+    description: 'Activate a bot immediately, ignoring automatic enabled, period, idle, activation-window, and activation-limit rules. It does not activate with an empty work queue or start a duplicate run.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -677,10 +765,15 @@ export const CLIENT_TOOLS = Object.freeze([
     execute: async ({ id }, { botManager }) => {
       if (!botManager) throw new Error('Bot management is not available.');
       const activated = await botManager.activateBot(id, { trigger: 'agent', force: true });
+      const bot = botManager.describeBots().find((item) => item.id === id);
       return {
         id,
         activated: activated === true,
-        status: activated === true ? 'started' : 'already_running_or_start_failed',
+        status: activated === true
+          ? 'started'
+          : bot?.workQueue.length === 0
+            ? 'empty_work_queue'
+            : 'already_running_or_start_failed',
       };
     },
   },

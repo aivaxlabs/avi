@@ -332,11 +332,13 @@ db.exec(`
     max_activations INTEGER NOT NULL DEFAULT 10,
     activation_window TEXT NOT NULL DEFAULT '{}',
     instructions TEXT NOT NULL DEFAULT '',
+    work_queue TEXT NOT NULL DEFAULT '[]',
     enabled INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'active',
     next_activation_at TEXT,
     idle_until TEXT,
     activation_count INTEGER NOT NULL DEFAULT 0,
+    work_queue_index INTEGER NOT NULL DEFAULT 0,
     active_assistant_message_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -514,6 +516,12 @@ if (!botColumns.some((column) => column.name === 'active_assistant_message_id'))
 }
 if (!botColumns.some((column) => column.name === 'enabled')) {
   db.exec('ALTER TABLE bots ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1');
+}
+if (!botColumns.some((column) => column.name === 'work_queue')) {
+  db.exec("ALTER TABLE bots ADD COLUMN work_queue TEXT NOT NULL DEFAULT '[]'");
+}
+if (!botColumns.some((column) => column.name === 'work_queue_index')) {
+  db.exec('ALTER TABLE bots ADD COLUMN work_queue_index INTEGER NOT NULL DEFAULT 0');
 }
 const conversationColumns = db.prepare("PRAGMA table_info('conversations')").all();
 db.exec(`
@@ -898,16 +906,16 @@ const statements = {
     INSERT INTO bots (
       id, conversation_id, name, icon_seed, personality, working_folder, model,
       reasoning_effort, context_size, activation_period_minutes, activation_mode,
-      max_activations, activation_window, instructions, enabled, status, next_activation_at,
-      idle_until, activation_count, active_assistant_message_id,
-      created_at, updated_at
+      max_activations, activation_window, instructions, work_queue, enabled, status,
+      next_activation_at, idle_until, activation_count, work_queue_index,
+      active_assistant_message_id, created_at, updated_at
     )
     VALUES (
       @id, @conversationId, @name, @iconSeed, @personality, @workingFolder, @model,
       @reasoningEffort, @contextSize, @activationPeriodMinutes, @activationMode,
-      @maxActivations, @activationWindow, @instructions, @enabled, @status, @nextActivationAt,
-      @idleUntil, @activationCount, @activeAssistantMessageId,
-      @createdAt, @updatedAt
+      @maxActivations, @activationWindow, @instructions, @workQueue, @enabled, @status,
+      @nextActivationAt, @idleUntil, @activationCount, @workQueueIndex,
+      @activeAssistantMessageId, @createdAt, @updatedAt
     )
   `),
   updateBot: db.prepare(`
@@ -924,6 +932,8 @@ const statements = {
         max_activations = COALESCE(@maxActivations, max_activations),
         activation_window = COALESCE(@activationWindow, activation_window),
         instructions = COALESCE(@instructions, instructions),
+        work_queue = COALESCE(@workQueue, work_queue),
+        work_queue_index = CASE WHEN @workQueueChanged = 1 THEN 0 ELSE work_queue_index END,
         enabled = COALESCE(@enabled, enabled),
         status = COALESCE(@status, status),
         updated_at = @updatedAt
@@ -938,6 +948,7 @@ const statements = {
           ELSE idle_until
         END,
         activation_count = COALESCE(@activationCount, activation_count),
+        work_queue_index = COALESCE(@workQueueIndex, work_queue_index),
         active_assistant_message_id = CASE
           WHEN @activeAssistantMessageIdChanged = 1 THEN @activeAssistantMessageId
           ELSE active_assistant_message_id
@@ -1638,7 +1649,16 @@ function normalizeActivationWindow(window) {
   };
 }
 
+function normalizeWorkQueue(queue) {
+  const source = typeof queue === 'string' ? parse(queue, []) : queue;
+  return (Array.isArray(source) ? source : []).flatMap((item) => {
+    const value = String(item ?? '').trim();
+    return value ? [value] : [];
+  });
+}
+
 function mapBot(row) {
+  const workQueue = normalizeWorkQueue(row.work_queue);
   return {
     id: row.id,
     conversationId: row.conversation_id,
@@ -1654,6 +1674,10 @@ function mapBot(row) {
     maxActivations: Math.max(0, Number(row.max_activations) || 0),
     activationWindow: normalizeActivationWindow(row.activation_window),
     instructions: row.instructions || '',
+    workQueue,
+    workQueueIndex: workQueue.length > 0
+      ? Math.max(0, Number(row.work_queue_index) || 0) % workQueue.length
+      : 0,
     enabled: row.enabled !== 0,
     status: ['active', 'sleeping', 'paused'].includes(row.status) ? row.status : 'active',
     nextActivationAt: row.next_activation_at || null,
@@ -1679,6 +1703,7 @@ export function createBot({
   maxActivations = 10,
   activationWindow = {},
   instructions = '',
+  workQueue = [],
   enabled = true,
   status = 'active',
   nextActivationAt = null,
@@ -1699,11 +1724,13 @@ export function createBot({
     maxActivations: Math.max(0, Number(maxActivations) || 0),
     activationWindow: stringify(normalizeActivationWindow(activationWindow)),
     instructions: String(instructions ?? ''),
+    workQueue: stringify(normalizeWorkQueue(workQueue)),
     enabled: enabled ? 1 : 0,
     status: ['active', 'sleeping', 'paused'].includes(status) ? status : 'active',
     nextActivationAt,
     idleUntil: null,
     activationCount: 0,
+    workQueueIndex: 0,
     activeAssistantMessageId: null,
     createdAt: now,
     updatedAt: now,
@@ -1713,6 +1740,12 @@ export function createBot({
 
 export function updateBot(id, changes = {}) {
   const changed = (key) => (Object.prototype.hasOwnProperty.call(changes, key) ? 1 : 0);
+  const currentBot = getBot(id);
+  const workQueue = changes.workQueue === undefined
+    ? null
+    : normalizeWorkQueue(changes.workQueue);
+  const workQueueChanged = workQueue !== null
+    && JSON.stringify(workQueue) !== JSON.stringify(currentBot?.workQueue ?? []);
   statements.updateBot.run({
     id,
     name: changes.name ?? null,
@@ -1733,6 +1766,8 @@ export function updateBot(id, changes = {}) {
       ? null
       : stringify(normalizeActivationWindow(changes.activationWindow)),
     instructions: changes.instructions ?? null,
+    workQueue: workQueue === null ? null : stringify(workQueue),
+    workQueueChanged: workQueueChanged ? 1 : 0,
     enabled: changes.enabled === undefined ? null : (changes.enabled ? 1 : 0),
     status: changes.status ?? null,
     updatedAt: timestamp(),
@@ -1748,6 +1783,7 @@ export function updateBotScheduler(id, changes = {}) {
     idleUntil: changes.idleUntil === 'clear' ? null : (changes.idleUntil ?? null),
     idleUntilChanged: Object.prototype.hasOwnProperty.call(changes, 'idleUntil') ? 1 : 0,
     activationCount: changes.activationCount ?? null,
+    workQueueIndex: changes.workQueueIndex ?? null,
     activeAssistantMessageId: changes.activeAssistantMessageId ?? null,
     activeAssistantMessageIdChanged: Object.prototype.hasOwnProperty.call(
       changes,
@@ -2525,6 +2561,16 @@ export function getSemaphoreState() {
 export function setSemaphoreState(state) {
   writeJson('semaphores', state);
   return state;
+}
+
+export function getBotSchedulerSnoozeUntil() {
+  const value = readJson('botSchedulerSnoozeUntil');
+  return typeof value === 'string' ? value : null;
+}
+
+export function setBotSchedulerSnoozeUntil(value) {
+  writeJson('botSchedulerSnoozeUntil', value);
+  return value;
 }
 
 function normalizeArchiveSettings(value, strict = false) {

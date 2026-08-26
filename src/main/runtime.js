@@ -1264,8 +1264,12 @@ function registerIpc() {
         )).length,
       })),
       workStateByBot,
+      schedulerSnooze: botManager.getSchedulerSnooze(),
     };
   });
+  applicationIpc.handle('bots:snooze', (_event, options = {}) => (
+    botManager.setSchedulerSnooze(options)
+  ));
   applicationIpc.handle('bots:create', (_event, config = {}) => (
     botManager.createBotFromConfig(config)
   ));
@@ -1465,7 +1469,11 @@ function registerIpc() {
           continue;
         }
         inferenceRecords.push({
-          type: conversation.isSubagent ? 'subagent' : 'inference',
+          type: conversation.isSubagent
+            ? 'subagent'
+            : conversation.isBot
+              ? 'bot'
+              : 'inference',
           model: message.model || conversation.model || 'Unknown model',
           projectPath: conversation.projectPath,
           project: projectDetails.get(conversation.projectPath),
@@ -1491,6 +1499,7 @@ function registerIpc() {
     const dailyModelUsage = new Map();
     const usageByType = new Map([
       ['subagent', { id: 'subagent', responses: 0, tokens: 0 }],
+      ['bot', { id: 'bot', responses: 0, tokens: 0 }],
       ['inference', { id: 'inference', responses: 0, tokens: 0 }],
       ['auxiliary', { id: 'auxiliary', responses: 0, tokens: 0 }],
       ['supervision', { id: 'supervision', responses: 0, tokens: 0 }],

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
@@ -114,6 +115,18 @@ assert.ok(
   upNext.indexOf('planned-action title') < upNext.indexOf('active-action title'),
   'Up next must keep priority ordering.',
 );
+
+const runtimeSource = readFileSync(new URL('../src/main/runtime.js', import.meta.url), 'utf8');
+const orchestrationSource = readFileSync(
+  new URL('../src/renderer/components/OrchestrationPage.jsx', import.meta.url),
+  'utf8',
+);
+assert.match(
+  runtimeSource,
+  /conversation\.isSubagent\s*\? 'subagent'\s*:\s*conversation\.isBot\s*\? 'bot'\s*:\s*'inference'/,
+);
+assert.match(runtimeSource, /\['bot', \{ id: 'bot', responses: 0, tokens: 0 \}\]/);
+assert.match(orchestrationSource, /bot: 'Bot'/);
 
 await vite.close();
 console.log('Bot Overview tests passed.');

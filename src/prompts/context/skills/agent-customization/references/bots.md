@@ -10,7 +10,7 @@ Normal threads and Quick Chat can manage bots with:
 - `bots_create`: creates a persistent bot and main conversation.
 - `bots_update`: changes selected configuration fields without replacing the full configuration.
 - `bots_delete`: removes the bot, its main conversation, and pending approvals. Persistent files and work threads remain available. This is destructive and requires approval outside Full access.
-- `bots_activate`: starts an immediate activation while ignoring automatic enabled, period, idle, window, and activation-limit rules. It never starts a duplicate run for a bot that is already running.
+- `bots_activate`: starts an immediate activation while ignoring automatic enabled, period, idle, window, and activation-limit rules. It requires a non-empty Work queue and never starts a duplicate run for a bot that is already running.
 
 These tools are intentionally unavailable inside autonomous bot conversations. A bot may coordinate its worker threads, but it must not create or control other bots.
 
@@ -20,6 +20,7 @@ These tools are intentionally unavailable inside autonomous bot conversations. A
 
 - `workingFolder`: absolute project folder. If omitted, Avi creates a dedicated folder under `~/.aivax/bots/`.
 - `instructions`: recurring responsibilities, priorities, boundaries, and completion signals.
+- `workQueue`: ordered recurring tasks distributed round-robin across successful activations. The current item is supplied as the activation's focus. An empty list prevents all activations, including `bots_activate`.
 - `reasoningEffort` and `contextSize`: model-specific overrides.
 - `personality`: optional personality ID, or `null` to inherit the global setting.
 - `activationMode`: `static` runs every due period; `smart` can request idle time when no meaningful work remains.

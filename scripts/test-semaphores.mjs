@@ -153,6 +153,58 @@ try {
 
   manager.acquire({
     conversationId: conversations[0].id,
+    name: 'administrative-release',
+    count: 1,
+    maxCount: 1,
+  });
+  manager.acquire({
+    conversationId: conversations[1].id,
+    name: 'administrative-release',
+    count: 1,
+    maxCount: 1,
+  });
+  assert.deepEqual(manager.releaseHolder({
+    conversationId: conversations[0].id,
+    name: 'administrative-release',
+  }), {
+    name: 'administrative-release',
+    conversationId: conversations[0].id,
+    released: 1,
+    activated: 1,
+  });
+  assert.deepEqual(manager.holdings(conversations[0].id), []);
+  assert.equal(manager.holdings(conversations[1].id)[0].count, 1);
+  manager.release({
+    conversationId: conversations[1].id,
+    name: 'administrative-release',
+    count: 1,
+  });
+
+  manager.acquire({
+    conversationId: conversations[0].id,
+    name: 'administrative-clear',
+    count: 1,
+    maxCount: 1,
+  });
+  manager.acquire({
+    conversationId: conversations[1].id,
+    name: 'administrative-clear',
+    count: 1,
+    maxCount: 1,
+  });
+  const readyBeforeClear = ready.length;
+  assert.deepEqual(manager.clear('administrative-clear'), {
+    name: 'administrative-clear',
+    maxCount: 1,
+    holders: [{ conversationId: conversations[0].id, count: 1 }],
+    waiting: [{ conversationId: conversations[1].id, count: 1, position: 1 }],
+  });
+  assert.equal(ready.length, readyBeforeClear, 'clearing must not resume queued threads');
+  assert.equal(manager.waitSnapshot(conversations[1].id), null);
+  assert.equal(manager.globalSnapshot().some((item) => item.name === 'administrative-clear'), false);
+
+  manager.acquire({
+    conversationId: conversations[0].id,
     name: 'capacity',
     count: 2,
     maxCount: 3,
@@ -268,6 +320,7 @@ try {
     'utf8',
   );
   assert.match(runnerSource, /tool\.name === 'sleep_semaphore' && value\.suspendRun === true/);
+  assert.match(runnerSource, /'sleep_semaphore',/);
   assert.match(runnerSource, /if \(run\.suspendAfterTools\)/);
   assert.match(runnerSource, /fromAgent: true/);
   assert.match(runnerSource, /release_semaphore\(name:/);
@@ -642,6 +695,60 @@ try {
     message.hidden && message.content.includes('<task_continuation>')
   )).length, 1);
   assert.equal(database.listTasks(ignoredTaskConversation.id)[0].status, 'pending');
+
+  const administrativeHolder = createConversation({ model: model.id, projectPath: process.cwd() });
+  runner.acquireSemaphore({
+    conversationId: administrativeHolder.id,
+    name: 'bot-admin-release',
+    count: 1,
+    maxCount: 1,
+  });
+  const requestsBeforeAdministrativeRelease = providerRequests.length;
+  const administrativeRelease = await runner.releaseSemaphoreHolder({
+    name: 'bot-admin-release',
+    conversationId: administrativeHolder.id,
+  });
+  assert.equal(administrativeRelease.resumed, true);
+  assert.equal(administrativeRelease.released, 1);
+  await waitFor(() => providerRequests.length === requestsBeforeAdministrativeRelease + 1
+    && !runner.runs.has(administrativeHolder.id));
+  assert.deepEqual(runner.semaphores.holdings(administrativeHolder.id), []);
+  assert.match(
+    database.getMessages(administrativeHolder.id).findLast((message) => message.fromAgent).content,
+    /supervising bot released your 1 permit/,
+  );
+
+  const bulkHolder = createConversation({ model: model.id, projectPath: process.cwd() });
+  const bulkWaiter = createConversation({ model: model.id, projectPath: process.cwd() });
+  runner.acquireSemaphore({
+    conversationId: bulkHolder.id,
+    name: 'bot-admin-clear',
+    count: 1,
+    maxCount: 1,
+  });
+  runner.acquireSemaphore({
+    conversationId: bulkWaiter.id,
+    name: 'bot-admin-clear',
+    count: 1,
+    maxCount: 1,
+  });
+  const stoppedByBulkRelease = [];
+  const originalStop = runner.stop.bind(runner);
+  runner.stop = (conversationId, options) => {
+    stoppedByBulkRelease.push({ conversationId, options });
+    return originalStop(conversationId, options);
+  };
+  const requestsBeforeBulkRelease = providerRequests.length;
+  const bulkRelease = runner.releaseAllSemaphoreHolders('bot-admin-clear');
+  assert.deepEqual(bulkRelease.stopped, [bulkHolder.id, bulkWaiter.id]);
+  assert.deepEqual(
+    stoppedByBulkRelease.map((entry) => entry.conversationId),
+    [bulkHolder.id, bulkWaiter.id],
+  );
+  assert.ok(stoppedByBulkRelease.every((entry) => entry.options.stoppedByUser === true));
+  assert.equal(providerRequests.length, requestsBeforeBulkRelease, 'bulk release must not resume threads');
+  assert.equal(runner.semaphores.globalSnapshot().some((item) => item.name === 'bot-admin-clear'), false);
+  runner.stop = originalStop;
 
   const failedResumeHolder = createConversation({ model: model.id, projectPath: process.cwd() });
   const failedResumeWaiter = createConversation({ model: model.id, projectPath: process.cwd() });

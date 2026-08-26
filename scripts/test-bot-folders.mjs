@@ -46,6 +46,7 @@ try {
     iconSeed: 'first-bot',
     workingFolder,
     model: 'test/model',
+    workQueue: ['Verify folder isolation'],
   });
   const secondConversation = createConversation({
     model: 'test/model',

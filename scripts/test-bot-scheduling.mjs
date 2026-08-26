@@ -100,6 +100,7 @@ assert.equal(smartIdleUntil(15, wednesday), wednesday + 60 * minute, 'smart idle
 
 // decideActivation
 const defaultBot = {
+  workQueue: ['Review current work'],
   status: 'active',
   activationWindow: {},
   maxActivations: 10,
@@ -109,6 +110,11 @@ const defaultBot = {
 };
 
 assert.equal(decideActivation({ bot: defaultBot, now: wednesday }).action, 'activate');
+assert.deepEqual(
+  decideActivation({ bot: { ...defaultBot, workQueue: [] }, now: wednesday }),
+  { action: 'skip', reason: 'empty-work-queue' },
+  'bots without configured work never activate',
+);
 assert.equal(decideActivation({ bot: null, now: wednesday }).action, 'skip');
 assert.equal(
   decideActivation({ bot: { ...defaultBot, status: 'paused' }, now: wednesday }).action,

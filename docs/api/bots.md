@@ -19,6 +19,7 @@ const bot = await avi.bots.create({
   model: 'provider:model',
   reasoningEffort: 'medium',
   instructions: 'Monitor the Acme integration and organize investigations.',
+  workQueue: ['Review integration health', 'Triage open failures'],
   activationPeriodMinutes: 30,
   activationMode: 'static',
   maxActivations: 10,
@@ -48,7 +49,7 @@ bot.approvals.resolve(approvalId, decision): Promise<object>
 bot.tools.register(tool): Disposable
 ```
 
-`activate()` uses BotManager's normal activation path. It does not execute a custom plugin callback in place of the bot runtime.
+`activate()` uses BotManager's normal activation path. It does not execute a custom plugin callback in place of the bot runtime. A bot with an empty `workQueue` is not activated.
 
 ## Capabilities
 
