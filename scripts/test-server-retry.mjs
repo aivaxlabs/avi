@@ -14,10 +14,12 @@ assert.ok(resolvedProfile.startsWith(resolvedTemp));
 process.env.USERPROFILE = resolvedProfile;
 
 const nativeSetTimeout = globalThis.setTimeout;
-const acceleratedDelays = new Set([1_000, 2_000, 4_000, 8_000, 10_000, 60_000, 300_000]);
+const acceleratedDelays = new Set([
+  1_000, 2_000, 4_000, 8_000, 10_000, 30_000, 60_000, 300_000,
+]);
 globalThis.setTimeout = (callback, delay, ...args) => nativeSetTimeout(
   callback,
-  delay === 30_000 ? 5 : acceleratedDelays.has(delay) ? 1 : delay,
+  delay === 120_000 ? 5 : acceleratedDelays.has(delay) ? 1 : delay,
   ...args,
 );
 
@@ -726,7 +728,7 @@ try {
         signal.addEventListener('abort', () => rejectRequest(signal.reason), { once: true });
       });
     })),
-    /did not respond within 30 seconds/,
+    /did not respond within 2 minutes/,
   );
   assert.equal(timeoutAttempts, 6);
 

@@ -8,7 +8,7 @@ const EMPTY_PROVIDER_CONTRIBUTIONS = Object.freeze({
   auxiliaryPanels: Object.freeze([]),
   usageProviders: Object.freeze([]),
 });
-const SERVER_CONNECT_TIMEOUT_MS = 30_000;
+const SERVER_CONNECT_TIMEOUT_MS = 2 * 60_000;
 const NORMAL_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 10_000];
 const GOAL_RETRY_DELAYS_MS = [1_000, 4_000, 8_000, 30_000, 60_000, 5 * 60_000];
 
@@ -106,7 +106,7 @@ export class ModelProvider {
       let retryError = null;
       const connectTimeout = setTimeout(() => {
         connectTimedOut = true;
-        attemptController.abort(new Error('The server did not respond within 30 seconds.'));
+        attemptController.abort(new Error('The server did not respond within 2 minutes.'));
       }, SERVER_CONNECT_TIMEOUT_MS);
       traceVerbose('provider.attempt-started', {
         provider_id: this.config.id,
@@ -140,7 +140,7 @@ export class ModelProvider {
         retryError = connectTimedOut
           ? {
               code: 'server_timeout',
-              message: 'The server did not respond within 30 seconds.',
+              message: 'The server did not respond within 2 minutes.',
             }
           : {
               code: 'provider_error',
