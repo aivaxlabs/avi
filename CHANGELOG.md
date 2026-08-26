@@ -1,5 +1,35 @@
 # Avi Changelog
 
+## [0.5.0] — 2026-08-26
+
+### Added
+- **Bot work-state system** — bots now retain typed evidence, next steps, blocked/inconclusive outcomes, persistent work queues, scheduler snoozing, full reset controls, and a dedicated overview panel with bot-mode composer support.
+- **Bot attention indicators** — the sidebar surfaces pending bot notifications without obscuring each bot’s current run or schedule state.
+- **Plugin thread snapshots and semaphore APIs** — trusted plugins can inspect thread snapshots and coordinate work through semaphores.
+- **Cliproxyapi provider** for compatible model access.
+- **AIVAX Teach Skill tool** — turn an attached tutorial video into reusable Avi skill instructions.
+- **Configurable response verbosity** in settings.
+
+### Changed
+- **AIVAX account and bot settings** have been redesigned for a clearer configuration experience.
+- **Bot management** uses persistent work state rather than daily logs, with corresponding user guidance and management tools.
+
+### Fixed
+- **Large attachments** over 20 MB are referenced rather than embedded.
+- **Provider connection timeout** now allows up to two minutes before aborting a stalled server connection.
+
+### Docs
+- Documented bot work-state and management tools.
+- Updated sub-agent, API, and core UI guidance.
+
+### Chores
+- Version bumped to 0.5.0.
+
+### Tests
+- Updated MCP, server retry, and sidebar task-section coverage for the new work-state, notification, and timeout behavior.
+
+---
+
 ## [0.4.0] — 2026-08-23
 
 ### Added
