@@ -578,13 +578,65 @@
     font-size: --font-sm;
   }
 
+  &.bot-work-preview {
+    width: 100%;
+    padding: 8px 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--item-hover);
+      border-color: var(--border-color);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: 1px;
+    }
+
+    > .bot-work-preview-heading {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+
+      > strong {
+        min-width: 0;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      > svg {
+        flex: 0 0 auto;
+        color: var(--text-3);
+      }
+    }
+
+    > .bot-work-preview-summary {
+      min-width: 0;
+      display: -webkit-box;
+      color: var(--text-3);
+      line-height: 1.4;
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    &.attention > .bot-work-preview-summary {
+      color: var(--text-1);
+      font-weight: 500;
+    }
+  }
+
   &.expanded {
     border: 0;
     opacity: 1;
-
-    > .bot-work-open {
-      display: none;
-    }
 
     .markdown-body {
       line-height: 1.6;
@@ -655,77 +707,10 @@
     }
   }
 
-  > .bot-work-open {
-    position: absolute;
-    top: 7px;
-    right: 7px;
-    width: 26px;
-    height: 26px;
-    display: grid;
-    place-items: center;
-    padding: 0;
-    color: var(--text-2);
-    background: transparent;
-    border: 0;
-    border-radius: 6px;
-
-    &:hover {
-      color: var(--text-1);
-      background: var(--item-hover);
-    }
-
-    &:focus-visible {
-      outline: 2px solid var(--text-3);
-      outline-offset: 1px;
-    }
-  }
-
   > .bot-work-card-body {
     min-width: 0;
     display: grid;
     gap: 6px;
-
-    &.clamped {
-      position: relative;
-      max-height: 300px;
-      overflow: hidden;
-
-      &::after {
-        position: absolute;
-        right: 0;
-        bottom: 0;
-        left: 0;
-        height: 44px;
-        background: linear-gradient(to top, var(--background-1) 30%, transparent);
-        content: '';
-        pointer-events: none;
-      }
-    }
-
-    > .bot-work-expand {
-      position: absolute;
-      right: 8px;
-      bottom: 8px;
-      z-index: 1;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 4px 9px;
-      color: var(--text-2);
-      background: var(--background-2);
-      border: 1px solid var(--border-color);
-      border-radius: 6px;
-
-      &:hover {
-        color: var(--text-1);
-        background: var(--item-hover);
-      }
-
-      &:focus-visible {
-        outline: 2px solid var(--text-3);
-        outline-offset: 1px;
-      }
-    }
   }
 
   .markdown-body {

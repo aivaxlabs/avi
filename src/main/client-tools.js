@@ -208,7 +208,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'read_media_file',
-    description: 'Read local images, videos, audio, and PDFs. The selected model reads supported media directly; when connected and enabled, AIVAX Media Descriptions converts unsupported media to text and the optional extractionGuidance refines that extraction. extractionGuidance is ignored when the model reads the media directly. Text files are not supported.',
+    description: 'Read local images, videos, audio, and PDFs. The selected model reads supported media directly; when connected and enabled, AIVAX Media Descriptions converts unsupported media to text and the optional extractionGuidance refines that extraction. extractionGuidance is ignored when the model reads the media directly. Text files are not supported. Media already attached to the conversation is delivered to you directly; never call this tool on attachments already in context.',
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
@@ -233,6 +233,7 @@ export const CLIENT_TOOLS = Object.freeze([
       capabilities = {},
       requestAivax: requestMediaDescription = requestAivax,
       signal,
+      userAttachments = [],
     }) => {
       if (typeof path !== 'string' || !isAbsolute(path)) {
         throw new Error('path must be an absolute file path.');
@@ -847,7 +848,7 @@ export const CLIENT_TOOLS = Object.freeze([
         },
       },
     },
-    execute: async ({ folderPath }, { chatRunner, conversationId }) => {
+    execute: async ({ folderPath }, { chatRunner, botManager, conversationId }) => {
       if (folderPath && !isAbsolute(String(folderPath))) {
         throw new Error('folderPath must be absolute.');
       }

@@ -190,13 +190,19 @@ await run([
     assert.equal(updated.completedAt, null);
     assert.equal(updated.updatedAt, T2);
   }),
-  test('update: completed work requires a final summary and clears its next step', async () => {
+  test('update: completed work requires a final summary and clears open state', async () => {
     const d = sub('update-completed');
     const item = await createBotWorkItem(d, { title: 'T', objective: OBJ, nextStep: 'Run validation.' }, T);
     await assert.rejects(
       () => updateBotWorkItem(d, { id: item.id, state: 'completed' }, T2),
       /summary for completed work/,
     );
+    await updateBotWorkItem(d, {
+      id: item.id,
+      state: 'waiting',
+      attention: { type: 'review', summary: 'Review the result.' },
+      blocker: { reason: 'Review is pending.', waitingOn: 'user' },
+    }, T);
     const updated = await updateBotWorkItem(d, {
       id: item.id,
       state: 'completed',
@@ -205,12 +211,22 @@ await run([
     }, T2);
     assert.equal(updated.completedAt, T2);
     assert.equal(updated.nextStep, '');
+    assert.equal(updated.attention, null);
+    assert.equal(updated.blocker, null);
   }),
-  test('update: fills completedAt for cancelled', async () => {
+  test('update: cancelled work fills completedAt and clears open state', async () => {
     const d = sub('update-cancelled');
     const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
+    await updateBotWorkItem(d, {
+      id: item.id,
+      state: 'waiting',
+      attention: { type: 'answer', summary: 'Answer a question.' },
+      blocker: { reason: 'An answer is pending.', waitingOn: 'user' },
+    }, T);
     const updated = await updateBotWorkItem(d, { id: item.id, state: 'cancelled' }, T2);
     assert.equal(updated.completedAt, T2);
+    assert.equal(updated.attention, null);
+    assert.equal(updated.blocker, null);
   }),
   test('update: clears completedAt when transitioning from completed to active', async () => {
     const d = sub('update-clear-completed');

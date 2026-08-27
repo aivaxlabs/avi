@@ -962,8 +962,8 @@ const BotItem = memo(function BotItem({ bot, active, onSelect, onSettings, onAct
         {bot.attentionCount > 0 ? (
           <span
             className="bot-queue-badge"
-            title="Needs your attention"
-            aria-label={`${bot.attentionCount} notification${bot.attentionCount === 1 ? '' : 's'} requiring attention`}
+            title="Action required"
+            aria-label={`${bot.attentionCount} action${bot.attentionCount === 1 ? '' : 's'} required`}
           >
             {bot.attentionCount}
           </span>

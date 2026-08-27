@@ -343,6 +343,10 @@ export async function updateBotWorkItem(dataFolder, input, now) {
       requireString(updated.summary, 'summary for completed work');
       updated.nextStep = '';
     }
+    if (patch.state === 'completed' || patch.state === 'cancelled') {
+      updated.attention = null;
+      updated.blocker = null;
+    }
 
     applyCompletedAt(updated, ts);
     updated.updatedAt = ts;

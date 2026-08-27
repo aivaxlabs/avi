@@ -13,7 +13,6 @@ import {
   Files,
   Gauge,
   GitPullRequest,
-  Maximize2,
   MessageSquarePlus,
   ListChecks,
   Moon,
@@ -22,6 +21,7 @@ import {
   Shield,
   X,
 } from 'lucide-react';
+import { hasOpenBotUserAction } from '../../shared/bot-work-items.js';
 import { ChatView } from './ChatView.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { FilesPanel } from './FilesPanel.jsx';
@@ -64,109 +64,96 @@ const botWorkStatusOptions = Object.freeze([
   { value: 'cancelled', label: 'Cancelled' },
 ]);
 
-const botWorkCardBodyMaxHeight = 300;
+const botUserActionCopy = Object.freeze({
+  approval: 'You need to approve this.',
+  review: 'You need to review this.',
+  answer: 'You need to answer this.',
+});
 
-function BotWorkCard({ item, expanded = false, onOpen, onOpenFileReference, onResolveApproval, variant = 'full', clampContent = true }) {
-  const completedSummary = item.summary || item.lastProgress || item.objective;
-  const compact = variant !== 'full';
-  const bodyRef = useRef(null);
-  const [clamped, setClamped] = useState(false);
-  useEffect(() => {
-    setClamped(clampContent && bodyRef.current?.scrollHeight > botWorkCardBodyMaxHeight);
-  });
+function BotWorkCard({ item, expanded = false, onOpen, onOpenFileReference, onResolveApproval, variant = 'summary' }) {
+  const actionType = item.approval ? 'approval' : item.attention?.type;
+  const previewText = hasOpenBotUserAction(item)
+    ? botUserActionCopy[actionType]
+    : item.state === 'completed'
+      ? item.summary || item.lastProgress || 'Work completed.'
+      : item.state === 'planned'
+        ? item.nextStep || 'No next step reported yet.'
+        : item.lastProgress || item.summary || 'No progress reported yet.';
+
+  if (!expanded) {
+    return (
+      <button
+        className={`bot-work-card bot-work-preview state-${item.state} ${variant}${hasOpenBotUserAction(item) ? ' needs-attention' : ''}`}
+        type="button"
+        aria-label={`Open work item: ${item.title}`}
+        onClick={onOpen}
+      >
+        <span className="bot-work-preview-heading">
+          <strong>{item.title}</strong>
+          <ChevronRight size={14} aria-hidden="true" />
+        </span>
+        <span className="bot-work-preview-summary">{previewText}</span>
+      </button>
+    );
+  }
+
   return (
-    <article className={`bot-work-card state-${item.state}${compact ? ` ${variant}` : ''}${expanded ? ' expanded' : ''}${item.attention || item.approval ? ' needs-attention' : ''}`}>
+    <article className={`bot-work-card state-${item.state} expanded${hasOpenBotUserAction(item) ? ' needs-attention' : ''}`}>
       <header>
         <div className="bot-work-card-heading">
           <strong>{item.title}</strong>
-          {!compact && <span className={`bot-work-state ${item.state}`}>{item.state}</span>}
-          {!compact && item.priority !== 'normal' && (
+          <span className={`bot-work-state ${item.state}`}>{item.state}</span>
+          {item.priority !== 'normal' && (
             <span className={`bot-work-priority ${item.priority}`}>{item.priority}</span>
           )}
         </div>
-        {!compact && <small>{new Date(item.updatedAt).toLocaleString()}</small>}
+        <small>{new Date(item.updatedAt).toLocaleString()}</small>
       </header>
-      {!compact && onOpen && (
-        <button
-          className="bot-work-open"
-          type="button"
-          aria-label={`Open work item: ${item.title}`}
-          title="Open work item"
-          onClick={onOpen}
-        >
-          <Maximize2 size={14} aria-hidden="true" />
-        </button>
-      )}
-      <div className={`bot-work-card-body${clamped ? ' clamped' : ''}`} ref={bodyRef}>
-        {variant === 'completed' ? (
+      <div className="bot-work-card-body">
+        <div className="bot-markdown-body bot-work-objective">
+          <h2>Objective</h2>
+          <div className="markdown-body">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>
+              {item.objective || ''}
+            </ReactMarkdown>
+          </div>
+        </div>
+        {item.summary && (
           <div className="bot-markdown-body bot-work-summary">
+            <h2>Summary</h2>
             <div className="markdown-body">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>
-                {completedSummary || ''}
+                {item.summary}
               </ReactMarkdown>
             </div>
           </div>
-        ) : variant === 'up-next' ? (
-          <div className="bot-markdown-body bot-work-summary">
-            <div className="markdown-body">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>
-                {item.nextStep || ''}
-              </ReactMarkdown>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="bot-markdown-body bot-work-objective">
-              <h2>Objective</h2>
+        )}
+        {item.lastProgress && (
+          <dl className="bot-work-fields">
+            <dt>Latest progress</dt>
+            <dd>
               <div className="markdown-body">
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>
-                  {item.objective || ''}
+                  {item.lastProgress}
                 </ReactMarkdown>
               </div>
-            </div>
-            {item.summary && (
-              <div className="bot-markdown-body bot-work-summary">
-                <h2>Summary</h2>
-                <div className="markdown-body">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>
-                    {item.summary}
-                  </ReactMarkdown>
-                </div>
-              </div>
-            )}
-            {item.lastProgress && (
-              <dl className="bot-work-fields">
-                <dt>Latest progress</dt>
-                <dd>
-                  <div className="markdown-body">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>
-                      {item.lastProgress}
-                    </ReactMarkdown>
-                  </div>
-                </dd>
-              </dl>
-            )}
-          </>
-        )}
-        {clamped && onOpen && (
-          <button className="bot-work-expand" type="button" onClick={onOpen}>
-            <Maximize2 size={13} aria-hidden="true" /><span>Expand</span>
-          </button>
+            </dd>
+          </dl>
         )}
       </div>
-      {variant === 'full' && item.attention && (
+      {item.attention && (
         <div className="bot-work-notice attention">
           <Shield size={14} aria-hidden="true" />
           <span><strong>{item.attention.type}</strong>{item.attention.summary}</span>
         </div>
       )}
-      {variant === 'full' && item.blocker && (
+      {item.blocker && (
         <div className="bot-work-notice blocker">
           <AlertTriangle size={14} aria-hidden="true" />
           <span><strong>Blocked by {item.blocker.waitingOn}</strong>{item.blocker.reason}</span>
         </div>
       )}
-      {variant === 'full' && item.workers?.length > 0 && (
+      {item.workers?.length > 0 && (
         <div className="bot-work-chips" aria-label="Workers">
           {item.workers.map((worker) => (
             <span className={`bot-worker-chip ${worker.status}`} key={worker.id}>
@@ -175,7 +162,7 @@ function BotWorkCard({ item, expanded = false, onOpen, onOpenFileReference, onRe
           ))}
         </div>
       )}
-      {variant === 'full' && item.evidence?.length > 0 && (
+      {item.evidence?.length > 0 && (
         <dl className="bot-work-fields">
           <dt>Evidence</dt>
           <dd>
@@ -203,7 +190,7 @@ function BotWorkCard({ item, expanded = false, onOpen, onOpenFileReference, onRe
           </dd>
         </dl>
       )}
-      {variant === 'full' && item.approval && (
+      {item.approval && (
         <div className="bot-approval-details">
           {item.approval.kind === 'tool' && (
             <>
@@ -462,17 +449,16 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
     ? botWorkStateByBot[selectedBot.id] ?? { items: emptyList, activity: emptyList, untrackedWorkers: emptyList, error: null }
     : { items: emptyList, activity: emptyList, untrackedWorkers: emptyList, error: null };
   const currentBotWork = selectedBotState.items.filter((item) => (
-    item.state === 'active' || item.workers?.some((worker) => worker.running)
+    !hasOpenBotUserAction(item)
+    && (item.state === 'active' || item.workers?.some((worker) => worker.running))
   ));
-  const botWorkNeedingAttention = selectedBotState.items.filter((item) => (
-    item.attention || item.approval || (item.state === 'waiting' && item.blocker)
-  ));
+  const botWorkNeedingAttention = selectedBotState.items.filter(hasOpenBotUserAction);
   const recentlyCompletedBotWork = selectedBotState.items
     .filter((item) => item.state === 'completed')
     .sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt))
     .slice(0, 5);
   const upcomingBotWork = selectedBotState.items
-    .filter((item) => item.nextStep && (item.state === 'planned' || item.state === 'active'))
+    .filter((item) => item.nextStep && item.state === 'planned' && !hasOpenBotUserAction(item))
     .sort((left, right) => (
       botPriorityOrder[left.priority] - botPriorityOrder[right.priority]
       || new Date(right.updatedAt) - new Date(left.updatedAt)
@@ -814,8 +800,8 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                           </section>
                         )}
                         {[
-                          ['Current work', currentBotWork, 'full'],
-                          ['Needs your attention', botWorkNeedingAttention, 'full'],
+                          ['Current work', currentBotWork, 'summary'],
+                          ['Needs your attention', botWorkNeedingAttention, 'attention'],
                           ['Recently completed', recentlyCompletedBotWork, 'completed'],
                           ['Up next', upcomingBotWork, 'up-next'],
                         ].map(([title, items, variant]) => (
@@ -1119,7 +1105,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
             </div>
           </header>
           <div className="bot-work-dialog-content">
-            <BotWorkCard item={expandedBotItem} expanded onResolveApproval={onResolveBotApproval} onOpenFileReference={onOpenFileReference} clampContent={false} />
+            <BotWorkCard item={expandedBotItem} expanded onResolveApproval={onResolveBotApproval} onOpenFileReference={onOpenFileReference} />
             <dl className="bot-work-detail-fields">
               <dt>Created</dt><dd>{new Date(expandedBotItem.createdAt).toLocaleString()}</dd>
               {expandedBotItem.completedAt && <><dt>Completed</dt><dd>{new Date(expandedBotItem.completedAt).toLocaleString()}</dd></>}

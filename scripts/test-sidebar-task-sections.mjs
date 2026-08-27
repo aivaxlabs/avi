@@ -99,6 +99,8 @@ const notificationMarkup = markup.slice(
   markup.indexOf('Disabled bot'),
 );
 assert.match(notificationMarkup, /class="bot-queue-badge"/);
+assert.match(notificationMarkup, /title="Action required"/);
+assert.match(notificationMarkup, /aria-label="2 actions required"/);
 assert.match(notificationMarkup, />2<\/span>/);
 assert.doesNotMatch(notificationMarkup, /bot-status|run-spinner/);
 

@@ -1,3 +1,4 @@
+import { hasOpenBotUserAction } from '../shared/bot-work-items.js';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import {
   app,
@@ -1344,9 +1345,7 @@ function registerIpc() {
     return {
       bots: botManager.describeBots().map((bot) => ({
         ...bot,
-        attentionCount: (workStateByBot[bot.id]?.items ?? []).filter((item) => (
-          item.attention || item.approval || (item.state === 'waiting' && item.blocker)
-        )).length,
+        attentionCount: (workStateByBot[bot.id]?.items ?? []).filter(hasOpenBotUserAction).length,
       })),
       workStateByBot,
       schedulerSnooze: botManager.getSchedulerSnooze(),
