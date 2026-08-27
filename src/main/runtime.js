@@ -9,6 +9,7 @@ import {
   Menu,
   nativeImage,
   Notification,
+  protocol,
   shell,
   Tray,
 } from 'electron';
@@ -17,8 +18,10 @@ import {
   access,
   appendFile,
   copyFile,
+  lstat,
   mkdir,
   readFile,
+  realpath,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -89,6 +92,7 @@ import {
   setThreadSearchManifest,
   setTuningSettings,
   updateConversation,
+  updateMessage,
 } from './database.js';
 import { indexAivaxDocuments, loginToAivax, requestAivax } from './aivax-client.js';
 import { listAivaxUsageProviders } from './aivax-usage-provider.js';
