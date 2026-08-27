@@ -4,6 +4,7 @@ import {
   readFileSync,
   rmSync,
 } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -34,8 +35,10 @@ try {
   const { minifyToolOutputJson } = await import('../src/main/tool-output.js');
   const {
     chatCompletionsApi,
+    openAiCompatibleProviderTypes,
     responsesApi,
   } = await import('../src/providers/openai-compatible.js');
+  const { fileBase64JsonValue } = await import('../src/main/json-request-body.js');
   assert.equal(
     minifyToolOutputJson('{\n  "weather": "sunny",\n  "temperature": 28\n}', 8_192),
     '{"weather":"sunny","temperature":28}',
@@ -157,6 +160,81 @@ try {
     /provider\.inference-usage: .*thread_id="trace-thread".*operation="chat".*round=3.*attempt=1.*message_count=1.*tool_count=1.*tool_history_count=1.*input_tokens=1000.*cached_input_tokens=400.*cache_ratio=0\.4.*output_tokens=25/,
   );
   assert.doesNotMatch(inferenceTrace, new RegExp(sensitiveTraceMarker));
+
+  const videoPath = join(testProfile, 'streamed-video.mp4');
+  const videoBytes = Buffer.from('streamed-video-payload');
+  await import('node:fs/promises').then(({ writeFile }) => writeFile(videoPath, videoBytes));
+  const compatibleType = openAiCompatibleProviderTypes.find(({ descriptor }) => (
+    descriptor.id === 'responses'
+  ));
+  const streamedRequests = [];
+  const streamedServer = createServer((request, response) => {
+    const chunks = [];
+    request.on('data', (chunk) => chunks.push(chunk));
+    request.on('end', () => {
+      streamedRequests.push({
+        method: request.method,
+        url: request.url,
+        headers: request.headers,
+        bytes: Buffer.concat(chunks),
+      });
+      response.writeHead(streamedRequests.length === 1 ? 500 : 200, {
+        'Content-Type': 'text/event-stream',
+      });
+      response.end(streamedRequests.length === 1 ? 'retry' : 'data: [DONE]\n\n');
+    });
+  });
+  await new Promise((resolveListen) => streamedServer.listen(0, '127.0.0.1', resolveListen));
+  try {
+    const streamedProvider = new ModelProvider(
+      {
+        id: 'streamed-test',
+        baseUrl: `http://127.0.0.1:${streamedServer.address().port}/v1`,
+        interface: 'responses',
+        enabled: true,
+        models: [],
+      },
+      {
+        ...compatibleType,
+        createBody: async () => ({
+          model: 'test',
+          input: [{
+            type: 'input_video',
+            video_url: fileBase64JsonValue(videoPath, 'video/mp4'),
+          }],
+          stream: true,
+        }),
+      },
+      {},
+    );
+    const acceleratedSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = (callback, delay, ...args) => nativeSetTimeout(
+      callback,
+      delay === 120_000 ? 5_000 : acceleratedDelays.has(delay) ? 1 : delay,
+      ...args,
+    );
+    try {
+      await stream(streamedProvider);
+    } finally {
+      globalThis.setTimeout = acceleratedSetTimeout;
+    }
+  } finally {
+    await new Promise((resolveClose) => streamedServer.close(resolveClose));
+  }
+  assert.equal(streamedRequests.length, 2);
+  for (const request of streamedRequests) {
+    assert.equal(request.method, 'POST');
+    assert.equal(request.url, '/v1/responses');
+    assert.equal(Number(request.headers['content-length']), request.bytes.length);
+    assert.deepEqual(JSON.parse(request.bytes), {
+      model: 'test',
+      input: [{
+        type: 'input_video',
+        video_url: `data:video/mp4;base64,${videoBytes.toString('base64')}`,
+      }],
+      stream: true,
+    });
+  }
 
   const contextInvocation = {
     workspacePath: testProfile,

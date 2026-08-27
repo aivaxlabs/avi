@@ -13,6 +13,7 @@ import {
   isAbsolute,
   join,
 } from 'node:path';
+import { sendJsonRequest } from '../main/json-request-body.js';
 import { defineProvider } from '../main/provider-api.js';
 import {
   traceError,
@@ -383,8 +384,7 @@ async function requestOpenAiSubscription({
   };
   const send = async (forceRefresh = false) => {
     const tokens = await getTokens(provider.id, services, forceRefresh);
-    return fetch(RESPONSES_URL, {
-      method: 'POST',
+    return sendJsonRequest(RESPONSES_URL, {
       headers: {
         Accept: 'text/event-stream',
         Authorization: `Bearer ${tokens.accessToken}`,
@@ -395,7 +395,7 @@ async function requestOpenAiSubscription({
         'thread-id': sessionId,
         'x-client-request-id': randomUUID(),
       },
-      body: JSON.stringify(requestBody),
+      value: requestBody,
       signal,
     });
   };

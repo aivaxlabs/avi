@@ -1,3 +1,4 @@
+import { fileBase64JsonValue, sendJsonRequest } from '../main/json-request-body.js';
 import { defineProvider, prepareProviderInvocation } from '../main/provider-api.js';
 
 function toResponsesContent(content) {
@@ -7,7 +8,12 @@ function toResponsesContent(content) {
       return { type: 'input_image', image_url: item.image_url?.url };
     }
     if (item.type === 'video_url') {
-      return { type: 'input_video', video_url: item.video_url?.url };
+      return {
+        type: 'input_video',
+        video_url: item.video_url?.path
+          ? fileBase64JsonValue(item.video_url.path, item.video_url.mime ?? 'video/mp4')
+          : item.video_url?.url,
+      };
     }
     if (item.type === 'file') {
       return {
@@ -18,6 +24,19 @@ function toResponsesContent(content) {
     }
     return item;
   });
+}
+
+function toChatContent(content) {
+  return content.map((item) => (
+    item.type === 'video_url' && item.video_url?.path
+      ? {
+          type: 'video_url',
+          video_url: {
+            url: fileBase64JsonValue(item.video_url.path, item.video_url.mime ?? 'video/mp4'),
+          },
+        }
+      : item
+  ));
 }
 
 function toResponsesInput(message, model) {
@@ -298,7 +317,12 @@ export const chatCompletionsApi = {
         ...(prepared.dynamicContext
           ? [{ role: 'system', content: prepared.dynamicContext }]
           : []),
-        ...messages,
+        ...messages.map((message) => ({
+          ...message,
+          content: Array.isArray(message.content)
+            ? toChatContent(message.content)
+            : message.content,
+        })),
         ...toolHistory.flatMap((round) => [
           {
             role: 'assistant',
@@ -324,10 +348,15 @@ export const chatCompletionsApi = {
               content: result.output,
             },
             ...(result.mediaContent?.length
-              ? [{ role: 'user', content: result.mediaContent }]
+              ? [{ role: 'user', content: toChatContent(result.mediaContent) }]
               : []),
           ]),
-          ...(round.messages ?? []),
+          ...(round.messages ?? []).map((message) => ({
+            ...message,
+            content: Array.isArray(message.content)
+              ? toChatContent(message.content)
+              : message.content,
+          })),
         ]),
       ],
       ...(serializedTools.length > 0
@@ -466,14 +495,13 @@ function requestOpenAiCompatible({ provider, body, signal }, interfacePath) {
       ? `${baseUrl}${interfacePath.slice(3)}`
       : `${baseUrl}${interfacePath}`;
 
-  return fetch(endpoint, {
-    method: 'POST',
+  return sendJsonRequest(endpoint, {
     headers: {
       Accept: 'text/event-stream',
       'Content-Type': 'application/json',
       ...(provider.apiKey ? { Authorization: `Bearer ${provider.apiKey}` } : {}),
     },
-    body: JSON.stringify(body),
+    value: body,
     signal,
   });
 }
