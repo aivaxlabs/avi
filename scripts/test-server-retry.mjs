@@ -928,6 +928,343 @@ try {
     }
   }
 
+  const pendingHistoryEvents = [];
+  const pendingHistoryRequests = [];
+  const pendingHistoryProvider = {
+    getContributions: () => ({
+      tools: [{
+        name: 'pending_history_tool',
+        description: 'Execute a tool call missing its persisted output.',
+        inputSchema: {
+          type: 'object',
+          properties: { value: { type: 'string' } },
+          required: ['value'],
+          additionalProperties: false,
+        },
+        execute: async ({ value }) => {
+          pendingHistoryEvents.push('tool');
+          return { repaired: value };
+        },
+      }],
+    }),
+    stream: async (request) => {
+      pendingHistoryEvents.push('provider');
+      pendingHistoryRequests.push(structuredClone(request.toolHistory));
+      request.onEvent({ type: 'content', text: 'Inference received the repaired tool output.' });
+      return {
+        assistantContent: 'Inference received the repaired tool output.',
+        continuation: [],
+        toolCalls: [],
+      };
+    },
+  };
+  const pendingHistoryRunner = new ChatRunner({
+    registry: {
+      resolve: () => ({ model, provider: pendingHistoryProvider }),
+      listModels: () => [model],
+    },
+    mcpManager: null,
+    sendEvent: () => {},
+  });
+  const pendingHistoryConversation = database.createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  database.insertMessage({
+    conversationId: pendingHistoryConversation.id,
+    role: 'user',
+    status: 'sent',
+    content: 'Start the tool call.',
+  });
+  const pendingHistoryAssistant = database.insertMessage({
+    conversationId: pendingHistoryConversation.id,
+    role: 'assistant',
+    model: model.id,
+    status: 'aborted',
+    content: 'Calling the tool.',
+    segments: [{
+      type: 'tool-call',
+      key: 'round:7:pending-history-call',
+      callId: 'pending-history-call',
+      name: 'pending_history_tool',
+      argumentsText: JSON.stringify({
+        value: 'missing-output',
+        __invocation_goal: 'Repair the incomplete tool round before inference.',
+        __requires_human_approval: false,
+      }),
+      status: 'running',
+    }],
+  });
+  await pendingHistoryRunner.send({
+    conversationId: pendingHistoryConversation.id,
+    model: model.id,
+    text: 'Continue normally.',
+    permissionMode: 'full_access',
+  });
+  await waitFor(() => !pendingHistoryRunner.runs.has(pendingHistoryConversation.id));
+  assert.deepEqual(pendingHistoryEvents, ['tool', 'provider']);
+  assert.equal(pendingHistoryRequests.length, 1);
+  const repairedRound = pendingHistoryRequests[0].find((round) => (
+    round.toolCalls.some((toolCall) => toolCall.callId === 'pending-history-call')
+  ));
+  assert.deepEqual(repairedRound.results, [{
+    callId: 'pending-history-call',
+    output: '{"repaired":"missing-output"}',
+    isError: false,
+  }]);
+  assert.deepEqual(repairedRound.messages.map((message) => message.content), ['Continue normally.']);
+  const repairedPendingSegments = database.getMessage(pendingHistoryAssistant.id).segments.filter((segment) => (
+    segment.type === 'tool-call' && segment.callId === 'pending-history-call'
+  ));
+  assert.equal(repairedPendingSegments.length, 1);
+  assert.equal(repairedPendingSegments[0].resultText, '{"repaired":"missing-output"}');
+
+  pendingHistoryEvents.length = 0;
+  pendingHistoryRequests.length = 0;
+  const retryPendingConversation = database.createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  database.insertMessage({
+    conversationId: retryPendingConversation.id,
+    role: 'user',
+    status: 'sent',
+    content: 'Start the historical tool call.',
+  });
+  const retryPendingAssistant = database.insertMessage({
+    conversationId: retryPendingConversation.id,
+    role: 'assistant',
+    model: model.id,
+    status: 'aborted',
+    content: 'Calling the historical tool.',
+    segments: [{
+      type: 'tool-call',
+      key: 'round:12:retry-pending-call',
+      callId: 'retry-pending-call',
+      name: 'pending_history_tool',
+      argumentsText: JSON.stringify({
+        value: 'retry-missing-output',
+        __invocation_goal: 'Repair the historical tool call before retry inference.',
+        __requires_human_approval: false,
+      }),
+      status: 'running',
+    }],
+  });
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    database.insertMessage({
+      conversationId: retryPendingConversation.id,
+      role: 'user',
+      model: model.id,
+      status: 'error',
+      content: `Retry prompt ${attempt}.`,
+    });
+    database.insertMessage({
+      conversationId: retryPendingConversation.id,
+      role: 'assistant',
+      model: model.id,
+      status: 'error',
+      content: 'Streaming error.',
+      segments: [{
+        type: 'error',
+        code: 'provider_error',
+        message: 'No tool output found for function call retry-pending-call.',
+        status: 'completed',
+      }],
+    });
+  }
+  const retryFailedAssistant = database.getMessages(retryPendingConversation.id).at(-1);
+  await pendingHistoryRunner.retry({
+    conversationId: retryPendingConversation.id,
+    model: model.id,
+    assistantMessageId: retryFailedAssistant.id,
+    resumeFromFailure: true,
+    permissionMode: 'full_access',
+  });
+  await waitFor(() => !pendingHistoryRunner.runs.has(retryPendingConversation.id));
+  assert.deepEqual(pendingHistoryEvents, ['tool', 'provider']);
+  const retryRepairedRound = pendingHistoryRequests[0].find((round) => (
+    round.toolCalls.some((toolCall) => toolCall.callId === 'retry-pending-call')
+  ));
+  assert.deepEqual(retryRepairedRound.results, [{
+    callId: 'retry-pending-call',
+    output: '{"repaired":"retry-missing-output"}',
+    isError: false,
+  }]);
+  assert.deepEqual(retryRepairedRound.messages.map((message) => message.content), ['Retry prompt 2.']);
+  assert.equal(
+    database.getMessage(retryPendingAssistant.id).segments.find((segment) => (
+      segment.type === 'tool-call' && segment.callId === 'retry-pending-call'
+    )).resultText,
+    '{"repaired":"retry-missing-output"}',
+  );
+
+  pendingHistoryEvents.length = 0;
+  pendingHistoryRequests.length = 0;
+  const directRetryConversation = database.createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  database.insertMessage({
+    conversationId: directRetryConversation.id,
+    role: 'user',
+    status: 'sent',
+    content: 'Start the directly retried tool call.',
+  });
+  const directRetryAssistant = database.insertMessage({
+    conversationId: directRetryConversation.id,
+    role: 'assistant',
+    model: model.id,
+    status: 'aborted',
+    content: 'Calling the directly retried tool.',
+    segments: [{
+      type: 'tool-call',
+      key: 'round:15:direct-retry-pending-call',
+      callId: 'direct-retry-pending-call',
+      name: 'pending_history_tool',
+      argumentsText: JSON.stringify({
+        value: 'direct-retry-missing-output',
+        __invocation_goal: 'Repair the directly retried tool call before inference.',
+        __requires_human_approval: false,
+      }),
+      status: 'running',
+    }],
+  });
+  await pendingHistoryRunner.retry({
+    conversationId: directRetryConversation.id,
+    model: model.id,
+    assistantMessageId: directRetryAssistant.id,
+    resumeFromFailure: true,
+    permissionMode: 'full_access',
+  });
+  await waitFor(() => !pendingHistoryRunner.runs.has(directRetryConversation.id));
+  assert.deepEqual(pendingHistoryEvents, ['tool', 'provider']);
+  const directRetryRound = pendingHistoryRequests[0].find((round) => (
+    round.toolCalls.some((toolCall) => toolCall.callId === 'direct-retry-pending-call')
+  ));
+  assert.deepEqual(directRetryRound.results, [{
+    callId: 'direct-retry-pending-call',
+    output: '{"repaired":"direct-retry-missing-output"}',
+    isError: false,
+  }]);
+  const directRetrySegments = database.getMessage(directRetryAssistant.id).segments.filter((segment) => (
+    segment.type === 'tool-call' && segment.callId === 'direct-retry-pending-call'
+  ));
+  assert.equal(directRetrySegments.length, 1);
+  assert.equal(directRetrySegments[0].resultText, '{"repaired":"direct-retry-missing-output"}');
+
+  const restartEvents = [];
+  const restartRequests = [];
+  const restartProvider = {
+    getContributions: () => ({
+      tools: [{
+        name: 'restart_pending_tool',
+        description: 'Execute a persisted tool call interrupted by application restart.',
+        inputSchema: {
+          type: 'object',
+          properties: { value: { type: 'string' } },
+          required: ['value'],
+          additionalProperties: false,
+        },
+        execute: async ({ value }) => {
+          restartEvents.push('tool');
+          return { restarted: value };
+        },
+      }],
+    }),
+    stream: async (request) => {
+      restartEvents.push('provider');
+      restartRequests.push(structuredClone(request.toolHistory));
+      if (restartRequests.length === 1) {
+        return {
+          assistantContent: '',
+          continuation: [],
+          toolCalls: [{
+            callId: 'complete-central-restart-goal',
+            name: 'update_goal_status',
+            argumentsText: JSON.stringify({
+              status: 'completed',
+              summary: 'The central pre-inference repair completed the restarted Goal.',
+              __invocation_goal: 'Complete the restarted Goal after repairing its tool output.',
+              __requires_human_approval: false,
+            }),
+          }],
+        };
+      }
+      return {
+        assistantContent: 'Restarted Goal completed.',
+        continuation: [],
+        toolCalls: [],
+      };
+    },
+  };
+  const restartRunner = new ChatRunner({
+    registry: {
+      resolve: () => ({ model, provider: restartProvider }),
+      listModels: () => [model],
+    },
+    mcpManager: null,
+    sendEvent: () => {},
+  });
+  const restartConversation = database.createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  const { goal: restartGoal } = await restartRunner.startGoal({
+    conversationId: restartConversation.id,
+    model: model.id,
+    specification: 'Resume through the central pre-inference tool repair.',
+    permissionMode: 'full_access',
+  });
+  database.insertMessage({
+    conversationId: restartConversation.id,
+    role: 'user',
+    model: model.id,
+    permissionMode: 'full_access',
+    workMode: 'goal',
+    goalId: restartGoal.id,
+    status: 'sent',
+    content: 'Start the Goal tool.',
+  });
+  const restartPendingAssistant = database.insertMessage({
+    conversationId: restartConversation.id,
+    role: 'assistant',
+    model: model.id,
+    permissionMode: 'full_access',
+    workMode: 'goal',
+    goalId: restartGoal.id,
+    status: 'aborted',
+    content: 'Calling the Goal tool.',
+    segments: [{
+      type: 'tool-call',
+      key: 'round:18:restart-pending-call',
+      callId: 'restart-pending-call',
+      name: 'restart_pending_tool',
+      argumentsText: JSON.stringify({
+        value: 'restart-missing-output',
+        __invocation_goal: 'Repair the interrupted Goal tool before inference.',
+        __requires_human_approval: false,
+      }),
+      status: 'running',
+    }],
+  });
+  restartRunner.resumeGoals();
+  await waitFor(() => !restartRunner.runs.has(restartConversation.id));
+  assert.deepEqual(restartEvents, ['tool', 'provider', 'provider']);
+  const restartRepairedRound = restartRequests[0].find((round) => (
+    round.toolCalls.some((toolCall) => toolCall.callId === 'restart-pending-call')
+  ));
+  assert.deepEqual(restartRepairedRound.results, [{
+    callId: 'restart-pending-call',
+    output: '{"restarted":"restart-missing-output"}',
+    isError: false,
+  }]);
+  assert.equal(
+    database.getMessage(restartPendingAssistant.id).segments.find((segment) => (
+      segment.type === 'tool-call' && segment.callId === 'restart-pending-call'
+    )).resultText,
+    '{"restarted":"restart-missing-output"}',
+  );
+
   const adaptiveToolOutputLimit = 100;
   const inspectedConversation = database.createConversation({
     model: model.id,

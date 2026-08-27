@@ -192,6 +192,7 @@ export class ChatRunner {
     noteBotRunStarted = () => {},
     noteBotRunFinished = () => {},
     noteBotRunStopped = () => {},
+    canCreateDisposableConversation = () => true,
     beforeToolExecute = async ({ input }) => ({ input, requireApproval: false }),
     afterToolExecute = async ({ output }) => output,
     sendPluginEvent = () => {},
@@ -213,6 +214,7 @@ export class ChatRunner {
     this.noteBotRunStarted = noteBotRunStarted;
     this.noteBotRunFinished = noteBotRunFinished;
     this.noteBotRunStopped = noteBotRunStopped;
+    this.canCreateDisposableConversation = canCreateDisposableConversation;
     this.beforeToolExecute = beforeToolExecute;
     this.afterToolExecute = afterToolExecute;
     this.sendPluginEvent = sendPluginEvent;
@@ -2065,6 +2067,7 @@ export class ChatRunner {
       ? permissionMode
       : 'approve_for_me';
     const controller = new AbortController();
+    const persistedMessagesAtStart = getMessages(conversationId);
     const accumulator = new StreamAccumulator({
       segments: initialSegments,
       usage: initialUsage,
@@ -2313,6 +2316,121 @@ export class ChatRunner {
         toolCalls: [...round.toolCalls],
         results: [...round.results],
       }));
+      const persistedResultCallIds = new Set(
+        messages
+          .filter((message) => message.role === 'tool' && message.tool_call_id)
+          .map((message) => message.tool_call_id),
+      );
+      const firstPersistedToolRound = messages.findIndex((message) => (
+        message.role === 'assistant'
+        && message.tool_calls?.some((toolCall) => !persistedResultCallIds.has(toolCall.id))
+      ));
+      if (firstPersistedToolRound >= 0) {
+        const persistedMessages = messages.slice(firstPersistedToolRound);
+        messages = messages.slice(0, firstPersistedToolRound);
+        let persistedRound = null;
+        for (const message of persistedMessages) {
+          if (message.role === 'assistant' && message.tool_calls?.length > 0) {
+            if (persistedRound) toolHistory.push(persistedRound);
+            const callIds = new Set(message.tool_calls.map((toolCall) => toolCall.id));
+            const sourceMessage = getMessages(conversationId).find((candidate) => (
+              candidate.role === 'assistant'
+              && candidate.segments.some((segment) => (
+                segment.type === 'tool-call' && callIds.has(segment.callId)
+              ))
+            ));
+            const providerContinuation = message[Symbol.for('avi.providerContinuation')];
+            persistedRound = {
+              assistantContent: message.content ?? '',
+              reasoningContent: message.reasoning_content ?? '',
+              continuation: (
+                providerContinuation?.model === selection.model.id
+                && providerContinuation.interface === selection.model.interface
+                && Array.isArray(providerContinuation.items)
+              ) ? providerContinuation.items : [],
+              toolCalls: message.tool_calls.map((toolCall) => ({
+                key: sourceMessage?.segments.find((segment) => (
+                  segment.type === 'tool-call' && segment.callId === toolCall.id
+                ))?.key,
+                callId: toolCall.id,
+                name: toolCall.function.name,
+                argumentsText: toolCall.function.arguments ?? '',
+              })),
+              results: [],
+              messages: [],
+              sourceMessageId: sourceMessage?.id ?? null,
+            };
+          } else if (
+            message.role === 'tool'
+            && persistedRound?.toolCalls.some((toolCall) => toolCall.callId === message.tool_call_id)
+          ) {
+            persistedRound.results.push({
+              callId: message.tool_call_id,
+              output: message.content,
+              isError: false,
+            });
+          } else if (persistedRound) {
+            persistedRound.messages.push(message);
+          } else {
+            messages.push(message);
+          }
+        }
+        if (persistedRound) toolHistory.push(persistedRound);
+      }
+      const knownToolCallIds = new Set(toolHistory.flatMap((round) => (
+        round.toolCalls.map((toolCall) => toolCall.callId)
+      )));
+      const checkpointIndex = currentConversation?.checkpointMessageId
+        ? persistedMessagesAtStart.findIndex((message) => (
+            message.id === currentConversation.checkpointMessageId
+          ))
+        : -1;
+      for (const sourceMessage of persistedMessagesAtStart.slice(checkpointIndex + 1)) {
+        if (sourceMessage.role !== 'assistant') continue;
+        const orphanSegments = sourceMessage.segments.filter((segment) => (
+          segment.type === 'tool-call'
+          && segment.callId
+          && segment.name
+          && segment.resultText === undefined
+          && !knownToolCallIds.has(segment.callId)
+        ));
+        for (const orphanSegment of orphanSegments) {
+          const round = Number(orphanSegment.key?.match(/^round:(\d+):/)?.[1]);
+          const roundSegments = sourceMessage.segments.filter((segment) => (
+            segment.type === 'tool-call'
+            && segment.callId
+            && segment.name
+            && Number(segment.key?.match(/^round:(\d+):/)?.[1]) === round
+          ));
+          const toolCalls = roundSegments.filter((segment) => !knownToolCallIds.has(segment.callId));
+          if (toolCalls.length === 0) continue;
+          for (const segment of toolCalls) knownToolCallIds.add(segment.callId);
+          toolHistory.push({
+            assistantContent: sourceMessage.content,
+            reasoningContent: sourceMessage.segments
+              .filter((segment) => segment.type === 'reasoning')
+              .map((segment) => segment.text ?? '')
+              .join(''),
+            continuation: [],
+            toolCalls: toolCalls.map((segment) => ({
+              key: segment.key,
+              callId: segment.callId,
+              name: segment.name,
+              argumentsText: segment.argumentsText ?? '',
+            })),
+            results: roundSegments
+              .filter((segment) => segment.resultText !== undefined)
+              .map((segment) => ({
+                callId: segment.callId,
+                output: segment.resultText,
+                ...(segment.mediaContent?.length ? { mediaContent: segment.mediaContent } : {}),
+                isError: segment.status === 'error',
+              })),
+            messages: [],
+            sourceMessageId: sourceMessage.id,
+          });
+        }
+      }
       let liveContextTokens = currentConversation?.contextTokens ?? 0;
       let finalAssistantContent = '';
       let firstResponseAt = null;
@@ -2360,7 +2478,11 @@ export class ChatRunner {
       });
 
       while (true) {
-        const roundIndex = toolHistory.length;
+        const pendingRoundIndex = toolHistory.findIndex((round) => {
+          const resultCallIds = new Set(round.results.map((result) => result.callId));
+          return round.toolCalls.some((toolCall) => !resultCallIds.has(toolCall.callId));
+        });
+        const roundIndex = pendingRoundIndex >= 0 ? pendingRoundIndex : toolHistory.length;
         const roundSegmentStart = accumulator.segments.length;
         const mcpRuntime = workMode === 'plan' || !this.mcpManager
           ? { tools: [], instructions: [] }
@@ -2391,16 +2513,19 @@ export class ChatRunner {
             && (currentConversation?.isSideChat || !conversation.isSideChat)
             && conversation.projectPath === currentConversation?.projectPath
           ));
-        run.phase = 'inference';
-        this.sendPluginEvent('inference.turn.started', {
-          threadId: conversationId,
-          runId: assistantMessage.id,
-          providerId: selection.model.providerId,
-          data: { round: roundIndex, model: selection.model.id, toolCount: availableTools.length },
-        });
+        const pendingRound = pendingRoundIndex >= 0 ? toolHistory[pendingRoundIndex] : null;
+        if (!pendingRound) {
+          run.phase = 'inference';
+          this.sendPluginEvent('inference.turn.started', {
+            threadId: conversationId,
+            runId: assistantMessage.id,
+            providerId: selection.model.providerId,
+            data: { round: roundIndex, model: selection.model.id, toolCount: availableTools.length },
+          });
+        }
         let turn;
         try {
-          turn = await selection.provider.stream({
+          turn = pendingRound ?? await selection.provider.stream({
             model: selection.model,
             messages,
             tools: availableTools,
@@ -2510,13 +2635,15 @@ export class ChatRunner {
               });
             },
           });
-          this.sendPluginEvent('inference.turn.completed', {
-            threadId: conversationId,
-            runId: assistantMessage.id,
-            providerId: selection.model.providerId,
-            data: { round: roundIndex, toolCallCount: turn.toolCalls.length },
-          });
-          retriedAfterContextCompaction = false;
+          if (!pendingRound) {
+            this.sendPluginEvent('inference.turn.completed', {
+              threadId: conversationId,
+              runId: assistantMessage.id,
+              providerId: selection.model.providerId,
+              data: { round: roundIndex, toolCallCount: turn.toolCalls.length },
+            });
+            retriedAfterContextCompaction = false;
+          }
         } catch (error) {
           this.sendPluginEvent('inference.turn.failed', {
             threadId: conversationId,
@@ -2550,14 +2677,16 @@ export class ChatRunner {
           applyCompactionCheckpoint(compressedConversation);
           continue;
         }
-        accumulator.apply({
-          type: 'provider-continuation',
-          round: roundIndex,
-          model: selection.model.id,
-          interface: selection.model.interface,
-          items: turn.continuation,
-        });
-        persistAssistant({ force: true });
+        if (!pendingRound) {
+          accumulator.apply({
+            type: 'provider-continuation',
+            round: roundIndex,
+            model: selection.model.id,
+            interface: selection.model.interface,
+            items: turn.continuation,
+          });
+          persistAssistant({ force: true });
+        }
         run.phase = 'boundary';
         if (controller.signal.aborted) throw new Error('The run was interrupted.');
         if (turn.toolCalls.length === 0) {
@@ -2568,6 +2697,28 @@ export class ChatRunner {
         if (turn.toolCalls.some((toolCall) => !toolCall.callId || !toolCall.name)) {
           throw new Error('The provider returned a tool call without a call ID or name.');
         }
+        const sourceToolMessage = pendingRound?.sourceMessageId
+          ? persistedMessagesAtStart.find((message) => message.id === pendingRound.sourceMessageId)
+          : null;
+        const repairsCurrentAssistant = sourceToolMessage?.id === assistantMessage.id;
+        const toolAccumulator = repairsCurrentAssistant
+          ? accumulator
+          : sourceToolMessage
+            ? new StreamAccumulator({
+                segments: sourceToolMessage.segments,
+                usage: sourceToolMessage.usage,
+              })
+            : accumulator;
+        const persistToolState = sourceToolMessage && !repairsCurrentAssistant
+          ? () => {
+              const message = updateMessage(sourceToolMessage.id, {
+                content: toolAccumulator.content,
+                segments: toolAccumulator.segments,
+              });
+              this.emit(conversationId, { type: 'message', message });
+              return message;
+            }
+          : persistAssistant;
         if (
           turn.toolCalls.length > 1
           && turn.toolCalls.some((toolCall) => toolCall.name === 'sleep_semaphore')
@@ -2579,28 +2730,33 @@ export class ChatRunner {
             isError: true,
           }));
           for (const result of semaphoreRoundResults) {
-            accumulator.apply({
+            toolAccumulator.apply({
               type: 'tool-result',
               callId: result.callId,
               output: result.output,
               isError: true,
             });
           }
-          persistAssistant({ force: true });
-          toolHistory.push({
-            assistantContent: turn.assistantContent,
-            reasoningContent: accumulator.segments
+          persistToolState({ force: true });
+          const semaphoreRound = {
+            ...turn,
+            reasoningContent: turn.reasoningContent ?? accumulator.segments
               .slice(roundSegmentStart)
               .filter((segment) => segment.type === 'reasoning')
               .map((segment) => segment.text ?? '')
               .join(''),
-            continuation: turn.continuation,
-            toolCalls: turn.toolCalls,
             results: semaphoreRoundResults,
-          });
+          };
+          if (pendingRound) toolHistory[pendingRoundIndex] = semaphoreRound;
+          else toolHistory.push(semaphoreRound);
           continue;
         }
-        const results = await mapToolCalls(turn.toolCalls, async (toolCall) => {
+        const existingResults = new Map(
+          (turn.results ?? []).map((result) => [result.callId, result]),
+        );
+        const pendingResults = await mapToolCalls(
+          turn.toolCalls.filter((toolCall) => !existingResults.has(toolCall.callId)),
+          async (toolCall) => {
           let tool = availableTools.find((item) => item.name === toolCall.name);
           const isMcpTool = Boolean(tool?.mcp);
           let args;
@@ -2627,9 +2783,11 @@ export class ChatRunner {
             || toolCall.name
           ).replace(/\s+/g, ' ').trim();
           const approvalPattern = `${workspacePath ?? ''}\0${invocationSummary.toLowerCase()}`;
-          accumulator.apply({
+          toolAccumulator.apply({
             type: 'tool-call',
-            key: `round:${roundIndex}:${toolCall.key ?? toolCall.callId}`,
+            key: String(toolCall.key ?? '').startsWith('round:')
+              ? toolCall.key
+              : `round:${roundIndex}:${toolCall.key ?? toolCall.callId}`,
             callId: toolCall.callId,
             name: toolCall.name,
             argumentsText: toolCall.argumentsText,
@@ -2638,7 +2796,7 @@ export class ChatRunner {
             requiresHumanApproval: requiresHumanApproval === true,
             isMcp: isMcpTool,
           });
-          persistAssistant({ force: true });
+          persistToolState({ force: true });
 
           let output;
           let mediaContent;
@@ -2735,6 +2893,9 @@ export class ChatRunner {
               }
             }
 
+            if (tool.name === 'chat_spawn_subagent' && !this.canCreateDisposableConversation()) {
+              throw new Error('Sub-agents cannot be created during forced cleanup.');
+            }
             run.phase = 'tool';
             toolStartedAt = Date.now();
             const executionInput = tool.name === 'openai_subscription_generate_or_edit_image'
@@ -2912,28 +3073,30 @@ export class ChatRunner {
             ...(mediaContent?.length ? { mediaContent } : {}),
             isError,
           };
-          accumulator.apply({
+          toolAccumulator.apply({
             type: 'tool-result',
             callId: toolCall.callId,
             output,
             isError,
             mediaContent,
           });
-          persistAssistant({ force: true });
+          persistToolState({ force: true });
           return result;
         });
-
-        toolHistory.push({
-          assistantContent: turn.assistantContent,
-          reasoningContent: accumulator.segments
+        for (const result of pendingResults) existingResults.set(result.callId, result);
+        const completedRound = {
+          ...turn,
+          reasoningContent: turn.reasoningContent ?? accumulator.segments
             .slice(roundSegmentStart)
             .filter((segment) => segment.type === 'reasoning')
             .map((segment) => segment.text ?? '')
             .join(''),
-          continuation: turn.continuation,
-          toolCalls: turn.toolCalls,
-          results,
-        });
+          results: turn.toolCalls
+            .map((toolCall) => existingResults.get(toolCall.callId))
+            .filter(Boolean),
+        };
+        if (pendingRound) toolHistory[pendingRoundIndex] = completedRound;
+        else toolHistory.push(completedRound);
         if (run.suspendAfterTools) {
           if (!run.semaphoreResume) run.queuePaused = true;
           break;
