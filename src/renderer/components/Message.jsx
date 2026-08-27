@@ -58,14 +58,16 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
+import remarkDirective from 'remark-directive';
 import remarkGfm from 'remark-gfm';
 import { formatBytes } from '../lib/files.js';
 import { consolidateFileEdits, createUndoPrompt } from '../lib/file-edits.js';
 import { parseStructuredUserMessage } from '../lib/message-groups.js';
+import { remarkAviDirectives } from '../lib/markdown-directives.js';
 import { classNames } from '../lib/format.js';
+import { AttachmentVideo } from './AttachmentVideo.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { CopyablePanel, RichContent } from './RichContent.jsx';
-import { splitRichMarkdownBlocks } from '../lib/rich-content.js';
 import {
   answerTextFromTextualBlocks,
   executionPlansFromTextualBlocks,
@@ -300,7 +302,7 @@ function AttachmentLightbox({ attachment, onClose }) {
       }}
     >
       {isVideo ? (
-        <video src={attachment.dataUrl} controls autoPlay />
+        <AttachmentVideo attachment={attachment} controls autoPlay />
       ) : (
         <img src={attachment.dataUrl} alt={attachment.name} />
       )}
@@ -414,10 +416,10 @@ function UserMessage({ message, editing, onEdit, editor }) {
                       <img src={attachment.dataUrl} alt={attachment.name} />
                     </button>
                   )
-                : attachment.kind === 'video_url' && attachment.dataUrl
+                : attachment.kind === 'video_url' && (attachment.path || attachment.dataUrl)
                   ? (
                       <div key={attachment.id} className="user-attachment-video" title={attachment.name}>
-                        <video src={attachment.dataUrl} controls preload="metadata" />
+                        <AttachmentVideo attachment={attachment} controls preload="metadata" />
                       </div>
                     )
                   : (

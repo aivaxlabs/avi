@@ -2122,7 +2122,7 @@ export function insertMessage(message) {
   return getMessage(row.id);
 }
 
-export function updateMessage(id, patch) {
+export function updateMessage(id, patch, { touch = true } = {}) {
   statements.updateMessage.run({
     id,
     status: patch.status ?? null,
@@ -2136,7 +2136,7 @@ export function updateMessage(id, patch) {
     updatedAt: timestamp(),
   });
   const message = getMessage(id);
-  if (message) {
+  if (message && touch) {
     touchConversation(message.conversationId);
   }
   return message;
@@ -2625,7 +2625,12 @@ export function attachmentToApiBlock(attachment, capabilities = {}) {
   }
   if (attachment.kind === 'video_url') {
     return capabilities.video
-      ? { type: 'video_url', video_url: { url: attachment.dataUrl } }
+      ? {
+          type: 'video_url',
+          video_url: attachment.path
+            ? { path: attachment.path, mime: attachment.mime ?? 'video/mp4' }
+            : { url: attachment.dataUrl },
+        }
       : unsupportedAttachmentToApiBlock(attachment);
   }
   if (attachment.kind === 'input_audio') {

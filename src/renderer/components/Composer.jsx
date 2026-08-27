@@ -52,6 +52,7 @@ import {
   splitFastModelName,
   titleCaseEffort,
 } from '../lib/models.js';
+import { AttachmentVideo } from './AttachmentVideo.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { ModelPicker } from './ModelPicker.jsx';
 import { ProviderUsages } from './ProviderUsages.jsx';
@@ -1577,9 +1578,9 @@ export function Composer({
                     <X size={13} />
                   </button>
                 </figure>
-              ) : attachment.kind === 'video_url' && attachment.dataUrl ? (
+              ) : attachment.kind === 'video_url' && (attachment.path || attachment.dataUrl) ? (
                 <figure key={attachment.id} className="attachment-image attachment-video">
-                  <video src={attachment.dataUrl} controls muted preload="metadata" />
+                  <AttachmentVideo attachment={attachment} controls muted preload="metadata" />
                   <figcaption>
                     <span title={attachment.name}>{attachment.name}</span>
                     <small>{formatBytes(attachment.size)}</small>

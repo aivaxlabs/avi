@@ -1,4 +1,4 @@
-import { app, ipcMain } from 'electron';
+import { app, ipcMain, protocol } from 'electron';
 import { registerFatalErrorHandlers } from './fatal-errors.js';
 import {
   rotateTraceLog,
@@ -15,6 +15,15 @@ export function reportFatal(event, error, details = {}) {
 }
 
 registerFatalErrorHandlers({ app, ipcMain, traceError, traceFatal });
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'avi-attachment',
+  privileges: {
+    secure: true,
+    standard: true,
+    stream: true,
+    supportFetchAPI: true,
+  },
+}]);
 
 rotateTraceLog()
   .then(() => {

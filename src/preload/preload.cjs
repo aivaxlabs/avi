@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const fatalErrorText = (value) => {
   if (value && typeof value === 'object') {
@@ -239,6 +239,8 @@ contextBridge.exposeInMainWorld('chatApp', {
   },
   files: {
     select: () => invoke('files:select'),
+    pathForFile: (file) => webUtils.getPathForFile(file),
+    materializeVideo: (attachment) => invoke('files:materialize-video', attachment),
     workspace: (folderPath) => invoke('files:workspace', folderPath),
     directory: (payload) => invoke('files:directory', payload),
     read: (payload) => invoke('files:read', payload),
@@ -256,6 +258,8 @@ contextBridge.exposeInMainWorld('chatApp', {
   },
   attachments: {
     imageAction: (payload) => invoke('attachments:image-action', payload),
+    preview: (attachment) => invoke('attachments:preview', attachment),
+    releasePreview: (token) => invoke('attachments:release-preview', token),
   },
   projects: {
     select: (payload) => invoke('projects:select', payload),

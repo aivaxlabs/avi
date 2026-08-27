@@ -248,6 +248,15 @@ export const CLIENT_TOOLS = Object.freeze([
           && capabilities.pdfFiles
         );
       if (supported) {
+        const alreadyInContext = userAttachments.some((contextAttachment) => (
+          contextAttachment.kind === attachment.kind
+          && contextAttachment.path === attachment.path
+        ));
+        if (alreadyInContext) {
+          return {
+            output: `This media file is already attached to this conversation and was delivered to you as direct input. Do not call read_media_file on it again; analyze the media you already received.`,
+          };
+        }
         return {
           output: `Media file loaded: ${attachment.path}`,
           mediaContent: [attachmentToApiBlock(attachment, capabilities)],
@@ -258,10 +267,13 @@ export const CLIENT_TOOLS = Object.freeze([
       }
       if (aivax?.connected && aivax.mediaDescriptionsEnabled) {
         const audioFormat = extname(attachment.path).slice(1).toLowerCase();
+        const videoDataUrl = attachment.kind === 'video_url'
+          ? `data:${attachment.mime};base64,${(await readFile(attachment.path)).toString('base64')}`
+          : null;
         const input = attachment.kind === 'image_url'
           ? { type: 'image_url', image_url: { url: attachment.dataUrl } }
           : attachment.kind === 'video_url'
-            ? { type: 'video_url', video_url: { url: attachment.dataUrl } }
+            ? { type: 'video_url', video_url: { url: videoDataUrl } }
             : attachment.kind === 'input_audio'
               ? {
                 type: 'input_audio',

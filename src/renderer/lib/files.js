@@ -24,7 +24,8 @@ const textExtensions = new Set([
 
 export async function fileToAttachment(file, source = null) {
   const kind = kindFromFile(file);
-  const path = typeof file.path === 'string' && file.path.trim() ? file.path : null;
+  const path = globalThis.window?.chatApp?.files?.pathForFile?.(file)
+    || (typeof file.path === 'string' && file.path.trim() ? file.path : null);
   const attachment = {
     id: crypto.randomUUID(),
     name: file.name,
@@ -35,6 +36,10 @@ export async function fileToAttachment(file, source = null) {
     ...(path ? { path } : {}),
   };
   if (attachment.kind === 'file_reference') return attachment;
+  if (kind === 'video_url' && path) return attachment;
+  if (kind === 'video_url' && file.size > attachmentContentSizeLimit) {
+    throw new Error('Save this video to disk before attaching it.');
+  }
   if (kind === 'text_inline') {
     return {
       ...attachment,
@@ -49,10 +54,13 @@ export async function fileToAttachment(file, source = null) {
       format: extension(file.name) || 'mp3',
     };
   }
-  return {
+  const withData = {
     ...attachment,
     dataUrl,
   };
+  return kind === 'video_url' && globalThis.window?.chatApp?.files?.materializeVideo
+    ? window.chatApp.files.materializeVideo(withData)
+    : withData;
 }
 
 export function textToAttachment(text, name = 'pasted-text.txt') {

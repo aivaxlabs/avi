@@ -2274,8 +2274,8 @@ export class ChatRunner {
               return {
                 ...tool,
                 description: supportedMedia.length > 0
-                  ? `Read local ${supportedMedia.join(', ')} using the selected model multimodally.${fallbackDescription} Text files are not supported.`
-                  : `Read local images, videos, audio, and PDFs as text using AIVAX Media Descriptions. Text files are not supported.`,
+                  ? `Read local ${supportedMedia.join(', ')} using the selected model multimodally.${fallbackDescription} Text files are not supported. Media already attached to the conversation is delivered to you directly; never call this tool on attachments already in context.`
+                  : `Read local images, videos, audio, and PDFs as text using AIVAX Media Descriptions. Text files are not supported. Media already attached to the conversation is delivered to you directly; never call this tool on attachments already in context.`,
               };
             }
             if (['chat_create_thread', 'chat_spawn_subagent'].includes(tool.name)) {

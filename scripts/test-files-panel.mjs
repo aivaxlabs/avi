@@ -16,6 +16,7 @@ import {
   filePathToAttachment,
   inspectWorkspaceFiles,
   listWorkspaceDirectory,
+  materializeVideoAttachment,
   normalizeAttachmentsForModel,
   readWorkspaceFile,
   readWorkspaceFileDiff,
@@ -257,10 +258,40 @@ try {
 
   const imageData = Buffer.from('image-data');
   const pdfData = Buffer.from('pdf-data');
+  const videoData = Buffer.from('video-data');
   const diskImagePath = join(testRoot, 'image.png');
   const diskPdfPath = join(testRoot, 'document.pdf');
+  const diskVideoPath = join(testRoot, 'video.mp4');
   await writeFile(diskImagePath, imageData);
   await writeFile(diskPdfPath, pdfData);
+  await writeFile(diskVideoPath, videoData);
+  const videoAttachment = filePathToAttachment(diskVideoPath);
+  assert.equal(videoAttachment.kind, 'video_url');
+  assert.equal(videoAttachment.mime, 'video/mp4');
+  assert.equal(videoAttachment.path, resolve(diskVideoPath));
+  assert.equal(videoAttachment.size, videoData.length);
+  assert.equal('dataUrl' in videoAttachment, false);
+  const [normalizedVideoAttachment] = await normalizeAttachmentsForModel(
+    [videoAttachment],
+    { video: true },
+  );
+  assert.equal(normalizedVideoAttachment.kind, 'video_url');
+  assert.equal(normalizedVideoAttachment.path, resolve(diskVideoPath));
+  assert.equal('dataUrl' in normalizedVideoAttachment, false);
+  const materializedVideo = await materializeVideoAttachment({
+    id: 'clipboard-video',
+    source: 'clipboard',
+    name: 'clipboard.mp4',
+    mime: 'video/mp4',
+    size: videoData.length,
+    kind: 'video_url',
+    dataUrl: `data:video/mp4;base64,${videoData.toString('base64')}`,
+  });
+  assert.equal(materializedVideo.kind, 'video_url');
+  assert.equal(materializedVideo.temporary, true);
+  assert.equal('dataUrl' in materializedVideo, false);
+  assert.deepEqual(await readFile(materializedVideo.path), videoData);
+  await rm(materializedVideo.path, { force: true });
   const mixedAttachments = await normalizeAttachmentsForModel([
     {
       id: 'disk-image',

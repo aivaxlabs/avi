@@ -103,8 +103,11 @@ import {
   resolveInstallationContextPath,
 } from './context-injection.js';
 import {
+  createVideoFileResponse,
   filePathToAttachment,
   inspectWorkspaceFiles,
+  materializeLegacyVideoAttachments,
+  materializeVideoAttachment,
   listWorkspaceDirectory,
   readWorkspaceFile,
   readWorkspaceFileDiff,
@@ -191,7 +194,18 @@ let aivaxModelCatalogRequest = null;
 let threadSearchSyncInterval;
 let threadSearchSyncPromise = null;
 const ipcHandlers = new Map();
+const attachmentPreviews = new Map();
+const legacyVideoMigrations = new Map();
+const attachmentPreviewLifetimeMs = 60 * 60 * 1_000;
+const videoPreviewExtensions = new Set(['.avi', '.m4v', '.mkv', '.mov', '.mp4', '.webm']);
 const applicationIpc = { handle: (channel, handler) => ipcHandlers.set(channel, handler) };
+
+function deleteAttachmentPreview(token) {
+  const preview = attachmentPreviews.get(token);
+  if (!preview) return;
+  clearTimeout(preview.expiry);
+  attachmentPreviews.delete(token);
+}
 
 app.on('before-quit', (event) => {
   isQuitting = true;
@@ -282,6 +296,25 @@ resourceSnapshotInterval = setInterval(() => {
 }, 60_000);
 resourceSnapshotInterval.unref();
 logDefaultModelWarnings('startup');
+protocol.handle('avi-attachment', async (request) => {
+  const token = new URL(request.url).hostname;
+  const preview = attachmentPreviews.get(token);
+  if (!preview || preview.expiresAt <= Date.now()) {
+    deleteAttachmentPreview(token);
+    return new Response(null, { status: 404 });
+  }
+  try {
+    const path = await realpath(preview.path);
+    if (!(await lstat(path)).isFile() || !videoPreviewExtensions.has(extname(path).toLowerCase())) {
+      deleteAttachmentPreview(token);
+      return new Response(null, { status: 404 });
+    }
+    return createVideoFileResponse(path, request.headers.get('range'));
+  } catch {
+    deleteAttachmentPreview(token);
+    return new Response(null, { status: 404 });
+  }
+});
 registerIpc();
 ipcMain.handle('avi:invoke', invokeApplicationRequest);
 await applyLoginSettings();
@@ -1268,7 +1301,22 @@ function registerIpc() {
   applicationIpc.handle('conversations:update', (_event, payload = {}) => (
     refreshConversationProject(updateConversation(payload.id, payload))
   ));
-  applicationIpc.handle('conversations:messages', (_event, conversationId) => getMessages(conversationId));
+  applicationIpc.handle('conversations:messages', async (_event, conversationId) => {
+    const messages = getMessages(conversationId);
+    return Promise.all(messages.map(async (message) => {
+      if (!message.attachments.some((attachment) => (
+        attachment?.kind === 'video_url' && typeof attachment.dataUrl === 'string'
+      ))) return message;
+
+      if (!legacyVideoMigrations.has(message.id)) {
+        const migration = materializeLegacyVideoAttachments(message.attachments)
+          .then((attachments) => updateMessage(message.id, { attachments }, { touch: false }))
+          .finally(() => legacyVideoMigrations.delete(message.id));
+        legacyVideoMigrations.set(message.id, migration);
+      }
+      return legacyVideoMigrations.get(message.id);
+    }));
+  });
   applicationIpc.handle('conversations:set-tags', (_event, payload = {}) => (
     refreshConversationProject(setConversationTags(payload.conversationId, payload.tags))
   ));
@@ -1279,9 +1327,14 @@ function registerIpc() {
   applicationIpc.handle('folders:save-color', (_event, payload = {}) => (
     setFolderColor(payload.path, payload.color)
   ));
-  applicationIpc.handle('composer-state:get', (_event, conversationId) => (
-    getComposerState(conversationId)
-  ));
+  applicationIpc.handle('composer-state:get', async (_event, conversationId) => {
+    const state = getComposerState(conversationId);
+    if (!state) return null;
+    const attachments = await materializeLegacyVideoAttachments(state.attachments);
+    return attachments.some((attachment, index) => attachment !== state.attachments[index])
+      ? setComposerState(conversationId, { ...state, attachments })
+      : state;
+  });
   applicationIpc.handle('composer-state:save', (_event, payload = {}) => (
     setComposerState(payload.conversationId, payload)
   ));
@@ -2137,6 +2190,38 @@ function registerIpc() {
       properties: ['openFile', 'multiSelections'],
     });
     return canceled ? [] : filePaths.map(filePathToAttachment);
+  });
+  applicationIpc.handle('files:materialize-video', (_event, attachment) => (
+    materializeVideoAttachment(attachment)
+  ));
+  applicationIpc.handle('attachments:preview', async (event, attachment = {}) => {
+    if (attachment.kind !== 'video_url' || typeof attachment.path !== 'string') {
+      throw new Error('A local video attachment is required.');
+    }
+    const path = await realpath(attachment.path);
+    if (!(await lstat(path)).isFile() || !videoPreviewExtensions.has(extname(path).toLowerCase())) {
+      throw new Error('The attachment is not a supported video file.');
+    }
+    const token = crypto.randomUUID();
+    const preview = {
+      path,
+      ownerId: event.sender.id,
+      expiresAt: Date.now() + attachmentPreviewLifetimeMs,
+      expiry: null,
+    };
+    attachmentPreviews.set(token, preview);
+    preview.expiry = setTimeout(() => deleteAttachmentPreview(token), attachmentPreviewLifetimeMs);
+    preview.expiry.unref();
+    return {
+      token,
+      url: `avi-attachment://${token}/video`,
+      expiresAt: preview.expiresAt,
+    };
+  });
+  applicationIpc.handle('attachments:release-preview', (event, token) => {
+    const preview = attachmentPreviews.get(token);
+    if (preview?.ownerId === event.sender.id) deleteAttachmentPreview(token);
+    return true;
   });
   applicationIpc.handle('files:workspace', (_event, folderPath) => (
     inspectWorkspaceFiles(folderPath)

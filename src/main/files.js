@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { createReadStream, readFileSync, realpathSync, statSync } from 'node:fs';
 import {
   lstat,
   mkdir,
@@ -20,6 +20,7 @@ import {
 } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createInterface } from 'node:readline';
+import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import { attachmentContentSizeLimit } from '../shared/attachments.js';
 
@@ -71,6 +72,8 @@ const mimeTypes = {
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',
   '.m4v': 'video/mp4',
+  '.avi': 'video/x-msvideo',
+  '.mkv': 'video/x-matroska',
   '.mp3': 'audio/mpeg',
   '.wav': 'audio/wav',
   '.m4a': 'audio/mp4',
@@ -103,15 +106,15 @@ export function filePathToAttachment(filePath) {
   if (size > attachmentContentSizeLimit) {
     return makeAttachment({ name, mime, size, kind: 'file_reference', path });
   }
+  if (videoExtensions.has(ext)) {
+    return makeAttachment({ name, mime, size, kind: 'video_url', path });
+  }
   const buffer = readFileSync(path);
   const base64 = buffer.toString('base64');
   const dataUrl = `data:${mime};base64,${base64}`;
 
   if (imageExtensions.has(ext)) {
     return makeAttachment({ name, mime, size: buffer.length, kind: 'image_url', path, dataUrl });
-  }
-  if (videoExtensions.has(ext)) {
-    return makeAttachment({ name, mime, size: buffer.length, kind: 'video_url', path, dataUrl });
   }
   if (audioExtensions.has(ext) && ext === '.mp3') {
     return makeAttachment({ name, mime, size: buffer.length, kind: 'input_audio', path, base64, format: 'mp3' });
@@ -143,6 +146,10 @@ export async function normalizeAttachmentsForModel(attachments, capabilities = {
       const path = resolve(clipboardDirectory, `${crypto.randomUUID()}${extension}`);
       await writeFile(path, buffer);
       attachment = { ...attachment, path, temporary: true };
+    }
+
+    if (attachment.kind === 'video_url') {
+      attachment = await materializeVideoAttachment(attachment);
     }
 
     const supported = attachment.kind === 'context_marker'
@@ -181,6 +188,84 @@ export async function normalizeAttachmentsForModel(attachments, capabilities = {
       temporary,
     };
   }));
+}
+
+export async function materializeVideoAttachment(attachment) {
+  if (attachment?.kind !== 'video_url') throw new Error('Only video attachments can be materialized.');
+  const materialized = await materializeAttachment(attachment);
+  if (!materialized) throw new Error(`Could not create a local copy of "${attachment.name ?? 'video'}".`);
+  const {
+    base64: _base64,
+    dataUrl: _dataUrl,
+    text: _text,
+    ...metadata
+  } = attachment;
+  return {
+    ...metadata,
+    path: materialized.path,
+    temporary: materialized.temporary,
+  };
+}
+
+export async function materializeLegacyVideoAttachments(attachments) {
+  return Promise.all(attachments.map((attachment) => (
+    attachment?.kind === 'video_url' && typeof attachment.dataUrl === 'string'
+      ? materializeVideoAttachment(attachment)
+      : attachment
+  )));
+}
+
+export async function createVideoFileResponse(path, rangeHeader = null) {
+  const file = await stat(path);
+  const size = file.size;
+  const extension = extname(path).toLowerCase();
+  const mime = mimeTypes[extension] ?? 'application/octet-stream';
+  const headers = {
+    'Accept-Ranges': 'bytes',
+    'Content-Type': mime,
+  };
+
+  if (!rangeHeader || rangeHeader.includes(',')) {
+    return new Response(Readable.toWeb(createReadStream(path)), {
+      status: 200,
+      headers: { ...headers, 'Content-Length': String(size) },
+    });
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+  if (!match || (!match[1] && !match[2])) {
+    return new Response(null, {
+      status: 416,
+      headers: { ...headers, 'Content-Range': `bytes */${size}` },
+    });
+  }
+
+  const requestedStart = match[1] ? Number(match[1]) : null;
+  const requestedEnd = match[2] ? Number(match[2]) : null;
+  const suffixRange = requestedStart === null;
+  const start = suffixRange ? Math.max(0, size - requestedEnd) : requestedStart;
+  const end = suffixRange ? size - 1 : Math.min(requestedEnd ?? size - 1, size - 1);
+  if (
+    !Number.isSafeInteger(start)
+    || !Number.isSafeInteger(end)
+    || start < 0
+    || start >= size
+    || end < start
+  ) {
+    return new Response(null, {
+      status: 416,
+      headers: { ...headers, 'Content-Range': `bytes */${size}` },
+    });
+  }
+
+  return new Response(Readable.toWeb(createReadStream(path, { start, end })), {
+    status: 206,
+    headers: {
+      ...headers,
+      'Content-Length': String(end - start + 1),
+      'Content-Range': `bytes ${start}-${end}/${size}`,
+    },
+  });
 }
 
 export async function materializeAttachment(attachment) {
