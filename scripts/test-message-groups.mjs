@@ -41,6 +41,13 @@ assert.equal(isHumanUserMessage(crossThread), false);
 assert.equal(isHumanUserMessage(agentPrompt), false);
 assert.equal(isHumanUserMessage(assistantOne), false);
 
+const focusMessages = [human, assistantOne, report, agentPrompt, nextHuman, finalAssistant];
+assert.equal(
+  focusMessages.findLast(isHumanUserMessage)?.id,
+  nextHuman.id,
+  'focuses the last human message instead of the final assistant or agent-generated user rows',
+);
+
 const windowMessages = [
   message('11', 'user', 'User one'),
   message('12', 'assistant', 'Assistant one'),

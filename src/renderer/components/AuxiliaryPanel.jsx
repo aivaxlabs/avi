@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Bot,
   Check,
+  ChevronDown,
   ChevronRight,
   Files,
   Gauge,
@@ -55,6 +56,13 @@ const botWorkMarkdownComponents = {
   ),
 };
 const botPriorityOrder = Object.freeze({ critical: 0, high: 1, normal: 2, low: 3 });
+const botWorkStatusOptions = Object.freeze([
+  { value: 'planned', label: 'Planned' },
+  { value: 'active', label: 'Active' },
+  { value: 'waiting', label: 'Waiting' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'cancelled', label: 'Cancelled' },
+]);
 
 const botWorkCardBodyMaxHeight = 300;
 
@@ -291,6 +299,8 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   bots = emptyList,
   botWorkStateByBot = emptyObject,
   onResolveBotApproval,
+  onMentionBotWork,
+  onSetBotWorkState,
   botQueueTabOpen = false,
   selectedBotId,
   onSelectBot,
@@ -370,6 +380,12 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   const [expandedBotItem, setExpandedBotItem] = useState(null);
   const botWorkDialogRef = useRef(null);
   const botWorkOpenerRef = useRef(null);
+  const [workActionsMenu, setWorkActionsMenu] = useState(null);
+  const workActionsButtonRef = useRef(null);
+  const [workStatusDialogOpen, setWorkStatusDialogOpen] = useState(false);
+  const workStatusDialogRef = useRef(null);
+  const [workStatusError, setWorkStatusError] = useState(null);
+  const [workStatusUpdating, setWorkStatusUpdating] = useState(false);
 
   useEffect(() => {
     if (!expandedBotItem || !botWorkDialogRef.current) return undefined;
@@ -380,6 +396,66 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
       if (dialog.open) dialog.close();
     };
   }, [expandedBotItem]);
+
+  useEffect(() => {
+    if (!workActionsMenu) return undefined;
+    const close = (event) => {
+      if (workActionsButtonRef.current?.contains(event.target)) return;
+      if (event.target.closest?.('.dropdown-menu')) return;
+      setWorkActionsMenu(null);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setWorkActionsMenu(null);
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [workActionsMenu]);
+
+  useEffect(() => {
+    if (!workStatusDialogOpen || !workStatusDialogRef.current) return undefined;
+    const dialog = workStatusDialogRef.current;
+    dialog.showModal();
+    queueMicrotask(() => dialog.querySelector('button:not([disabled])')?.focus());
+    return () => {
+      if (dialog.open) dialog.close();
+    };
+  }, [workStatusDialogOpen]);
+
+  useEffect(() => {
+    setWorkActionsMenu(null);
+    setWorkStatusDialogOpen(false);
+    setWorkStatusError(null);
+    setWorkStatusUpdating(false);
+  }, [expandedBotItem?.id]);
+
+  function toggleWorkActionsMenu(event) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setWorkActionsMenu((open) => (open ? null : {
+      top: Math.min(rect.bottom + 4, window.innerHeight - 150),
+      left: Math.min(rect.right - 180, window.innerWidth - 200),
+    }));
+  }
+
+  async function handleSetWorkStatus(state) {
+    if (!expandedBotItem || workStatusUpdating) return;
+    setWorkStatusUpdating(true);
+    setWorkStatusError(null);
+    try {
+      const updated = await onSetBotWorkState(expandedBotItem, state);
+      setExpandedBotItem((current) => (
+        current?.id === updated.id ? { ...updated, workers: current.workers } : current
+      ));
+      workStatusDialogRef.current?.close();
+    } catch (error) {
+      setWorkStatusError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setWorkStatusUpdating(false);
+    }
+  }
 
   const selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? bots[0] ?? null;
   const selectedBotState = selectedBot
@@ -1025,9 +1101,22 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
               <h2 id="bot-work-dialog-title">{expandedBotItem.title}</h2>
               <p>{expandedBotItem.state} · updated {new Date(expandedBotItem.updatedAt).toLocaleString()}</p>
             </div>
-            <button className="icon-button tiny" type="button" aria-label="Close work item" title="Close" onClick={() => botWorkDialogRef.current?.close()}>
-              <X size={16} aria-hidden="true" />
-            </button>
+            <div className="dialog-header-actions">
+              <button
+                ref={workActionsButtonRef}
+                className="bot-work-actions-trigger"
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={Boolean(workActionsMenu)}
+                onClick={toggleWorkActionsMenu}
+              >
+                Actions
+                <ChevronDown size={13} aria-hidden="true" />
+              </button>
+              <button className="icon-button tiny" type="button" aria-label="Close work item" title="Close" onClick={() => botWorkDialogRef.current?.close()}>
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
           </header>
           <div className="bot-work-dialog-content">
             <BotWorkCard item={expandedBotItem} expanded onResolveApproval={onResolveBotApproval} onOpenFileReference={onOpenFileReference} clampContent={false} />
@@ -1038,6 +1127,90 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
               {expandedBotItem.workerThreadIds?.length > 0 && <><dt>Worker thread IDs</dt><dd>{expandedBotItem.workerThreadIds.map((id) => <span key={id}>{id}</span>)}</dd></>}
             </dl>
           </div>
+        </dialog>,
+        document.body,
+      )}
+      {expandedBotItem && workActionsMenu && botWorkDialogRef.current && createPortal(
+        <DropdownMenu
+          fixed
+          role="menu"
+          aria-label={`Actions for ${expandedBotItem.title}`}
+          style={{ top: workActionsMenu.top, left: workActionsMenu.left }}
+        >
+          <DropdownMenuItem
+            icon={<MessageSquarePlus size={14} />}
+            role="menuitem"
+            onClick={() => {
+              setWorkActionsMenu(null);
+              onMentionBotWork(expandedBotItem);
+              botWorkDialogRef.current?.close();
+            }}
+          >
+            Mention in chat
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            icon={<ListChecks size={14} />}
+            role="menuitem"
+            disabled={Boolean(expandedBotItem.approval)}
+            title={expandedBotItem.approval ? 'Resolve the pending approval first.' : undefined}
+            onClick={() => {
+              setWorkActionsMenu(null);
+              setWorkStatusError(null);
+              setWorkStatusDialogOpen(true);
+            }}
+          >
+            Set status
+          </DropdownMenuItem>
+        </DropdownMenu>,
+        botWorkDialogRef.current,
+      )}
+      {expandedBotItem && workStatusDialogOpen && createPortal(
+        <dialog
+          ref={workStatusDialogRef}
+          className="bot-work-status-dialog"
+          aria-labelledby="bot-work-status-dialog-title"
+          onClose={() => setWorkStatusDialogOpen(false)}
+        >
+          <header className="dialog-header">
+            <div>
+              <h2 id="bot-work-status-dialog-title">Set status</h2>
+              <p>{expandedBotItem.title}</p>
+            </div>
+            <button
+              className="icon-button tiny"
+              type="button"
+              aria-label="Close status dialog"
+              title="Close"
+              onClick={() => workStatusDialogRef.current?.close()}
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          </header>
+          <div className="bot-work-status-options">
+            {botWorkStatusOptions.map((option) => {
+              const isCurrent = option.value === expandedBotItem.state;
+              const waitingNeedsContext = option.value === 'waiting'
+                && !expandedBotItem.attention
+                && !expandedBotItem.blocker
+                && !expandedBotItem.approval;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`bot-work-status-option${isCurrent ? ' current' : ''}`}
+                  disabled={isCurrent || workStatusUpdating || waitingNeedsContext}
+                  title={waitingNeedsContext
+                    ? 'Waiting work needs an attention or blocker context, which only the bot can set.'
+                    : undefined}
+                  onClick={() => handleSetWorkStatus(option.value)}
+                >
+                  <span className={`bot-work-state ${option.value}`}>{option.label}</span>
+                  {isCurrent && <small>Current</small>}
+                </button>
+              );
+            })}
+          </div>
+          {workStatusError && <p className="bot-work-status-error" role="alert">{workStatusError}</p>}
         </dialog>,
         document.body,
       )}

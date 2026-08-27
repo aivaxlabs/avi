@@ -176,10 +176,10 @@ export const ChatView = memo(function ChatView({
   currentModel,
   currentProject,
   contextUsage,
-  recentModels,
   recentProjects,
   models,
   favorites,
+  intelligenceLevels = [],
   isRunning,
   semaphoreWait,
   onRunSemaphoreNow,
@@ -297,7 +297,7 @@ export const ChatView = memo(function ChatView({
   }, [currentMessages]);
   const lastAssistantMessage = visibleMessages.findLast((message) => message.role === 'assistant');
   const lastMessage = visibleMessages.at(-1);
-  const lastRenderedMessage = groupedMessages.at(-1)?.message;
+  const lastHumanMessage = visibleMessages.findLast(isHumanUserMessage);
   const isEmptyChat = visibleMessages.length === 0;
   const streamScrollKey = [
     lastMessage?.id ?? '',
@@ -326,7 +326,7 @@ export const ChatView = memo(function ChatView({
     scrollKey: streamScrollKey,
     isRunning,
     resetKey: currentConversation?.id,
-    focusKey: lastRenderedMessage?.id ?? null,
+    focusKey: lastHumanMessage?.id ?? null,
     focusReady: messagesLoaded,
     prependKey: groupedMessages[0]?.message.id ?? null,
   });
@@ -815,7 +815,7 @@ export const ChatView = memo(function ChatView({
                     onCompress={onCompress}
                     models={models}
                     favorites={favorites}
-                    recentModels={recentModels}
+                    intelligenceLevels={intelligenceLevels}
                     recentProjects={recentProjects}
                     currentModel={message.model || currentModel}
                     modelName={getModelDisplayName(models, message.model || currentModel)}
@@ -1170,10 +1170,10 @@ export const ChatView = memo(function ChatView({
         onSteerQueued={onSteerQueued}
         droppedFiles={droppedFiles}
         modelName={modelName}
-        recentModels={recentModels}
         recentProjects={recentProjects}
         models={models}
         favorites={favorites}
+        intelligenceLevels={intelligenceLevels}
         currentModel={currentModel}
         contextUsage={contextUsage}
         onChooseModel={onChooseModel}
@@ -1255,12 +1255,6 @@ export const ChatView = memo(function ChatView({
           && subagent.title === nextSubagents[index]?.title
           && subagent.firstPrompt === nextSubagents[index]?.firstPrompt
         ));
-    }
-    if (property === 'recentModels') {
-      const previousModels = previous[property] ?? [];
-      const nextModels = next[property] ?? [];
-      return previousModels.length === nextModels.length
-        && previousModels.every((model, index) => model === nextModels[index]);
     }
     return Object.is(previous[property], next[property]);
   });

@@ -29,7 +29,7 @@ Side chats open as separate private conversation panels.
 
 ## Composer
 
-The model picker groups models by provider and shows favorites and recent selections. Changing models clears an incompatible reasoning effort. The project folder can be changed only before the thread is created.
+The model picker has two modes. When **Settings → Default models → Intelligence levels** defines at least three levels, the picker opens as an intelligence slider: each level applies a configured model and reasoning effort, and **Advanced** switches to direct selection. In advanced mode, **Model** lists favorite models plus **Explore models**, and **Effort** lists the reasoning levels supported by the selected model. Changing models clears an incompatible reasoning effort. Model names containing `(Fast)` or `- Fast` show that text as a lightning icon after the name instead. The project folder can be changed only before the thread is created.
 
 ### Sending while work is running
 

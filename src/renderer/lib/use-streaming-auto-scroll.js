@@ -13,7 +13,10 @@ export function useStreamingAutoScroll({
   const followRef = useRef(null);
   const previousScrollKeyRef = useRef(scrollKey);
   const previousResetKeyRef = useRef();
+  const previousFocusKeyRef = useRef(focusKey);
+  const pendingRunFocusKeyRef = useRef(null);
   const focusPendingRef = useRef(false);
+  const continueFollowingAfterFocusRef = useRef(false);
   const recenterFrameRef = useRef(null);
   const prependRestoreRef = useRef(null);
   const prependFrameRef = useRef(null);
@@ -56,12 +59,19 @@ export function useStreamingAutoScroll({
     if (!follow || !scrollElement) return;
 
     const resetChanged = resetKey !== previousResetKeyRef.current;
+    const focusChanged = focusKey !== previousFocusKeyRef.current;
+    previousFocusKeyRef.current = focusKey;
     if (resetChanged) {
       previousResetKeyRef.current = resetKey;
       previousScrollKeyRef.current = scrollKey;
       focusPendingRef.current = focusKey !== undefined;
+      continueFollowingAfterFocusRef.current = false;
+      pendingRunFocusKeyRef.current = null;
       wasRunningRef.current = isRunning;
       follow.setFollowing(true);
+    } else if (focusChanged) {
+      focusPendingRef.current = focusKey !== undefined;
+      continueFollowingAfterFocusRef.current = isRunning;
     }
 
     if (focusPendingRef.current && focusReady) {
@@ -71,6 +81,10 @@ export function useStreamingAutoScroll({
           .find((element) => element.dataset.messageId === focusKey)
         : null;
       if (target) {
+        if (focusChanged && !resetChanged) {
+          wasRunningRef.current = isRunning;
+          pendingRunFocusKeyRef.current = isRunning ? null : focusKey;
+        }
         previousScrollKeyRef.current = scrollKey;
         follow.alignStart(target);
         follow.setFollowing(false);
@@ -80,7 +94,7 @@ export function useStreamingAutoScroll({
           recenterFrameRef.current = null;
           if (frameResetKeyRef.current !== targetResetKey) return;
           follow.alignStart(target);
-          follow.setFollowing(false);
+          follow.setFollowing(continueFollowingAfterFocusRef.current);
         });
         return;
       }
@@ -126,10 +140,15 @@ export function useStreamingAutoScroll({
   useEffect(() => {
     if (isRunning && !wasRunningRef.current) {
       followRef.current?.setFollowing(true);
-      followRef.current?.jumpToBottom();
+      continueFollowingAfterFocusRef.current = true;
+      if (pendingRunFocusKeyRef.current === focusKey) {
+        pendingRunFocusKeyRef.current = null;
+      } else {
+        followRef.current?.jumpToBottom();
+      }
     }
     wasRunningRef.current = isRunning;
-  }, [isRunning]);
+  }, [focusKey, isRunning]);
 
   useEffect(() => {
     if (scrollKey === previousScrollKeyRef.current) return;

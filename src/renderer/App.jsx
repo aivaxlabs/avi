@@ -1917,6 +1917,27 @@ export default function App() {
     setSidebarCollapsed((value) => !value)
   ));
   const auxiliaryOnResolveBotApproval = useStableCallback(resolveBotApproval);
+  const auxiliaryOnMentionBotWork = useStableCallback((item) => {
+    const bot = bots.find((entry) => entry.id === selectedBotLogId);
+    if (!bot?.conversationId) return;
+    sidebarOnSelect(bot.conversationId);
+    setPendingComposerAttachment({
+      id: crypto.randomUUID(),
+      kind: 'context_marker',
+      markerType: 'work_item',
+      name: item.title,
+      size: 0,
+      text: [
+        `<bot-work-mention id="${item.id}" state="${item.state}" priority="${item.priority}">`,
+        `The user mentioned this work item in chat: "${item.title}".`,
+        'Read the full work item with bot_work_read before acting on it.',
+        '</bot-work-mention>',
+      ].join('\n'),
+    });
+  });
+  const auxiliaryOnSetBotWorkState = useStableCallback((item, state) => (
+    api.bots.updateWorkItem({ botId: selectedBotLogId, workItemId: item.id, state })
+  ));
   const auxiliaryOnOpenBotQueueTab = useStableCallback(openBotQueueTab);
   const auxiliaryOnCloseBotQueueTab = useStableCallback(closeBotQueueTab);
   const auxiliaryOnSelectTab = useStableCallback(async (tabId) => {
@@ -2301,6 +2322,7 @@ export default function App() {
               currentProject={currentProject}
               models={models}
               favorites={favorites}
+              intelligenceLevels={appState.defaultModels?.intelligence?.levels ?? emptyList}
               onSend={chatOnSend}
               onReplaceUserMessage={chatOnReplaceUserMessage}
               onExpandPrompt={chatOnExpandPrompt}
@@ -2407,6 +2429,8 @@ export default function App() {
                 bots={bots}
                 botWorkStateByBot={botWorkStateByBot}
                 onResolveBotApproval={auxiliaryOnResolveBotApproval}
+                onMentionBotWork={auxiliaryOnMentionBotWork}
+                onSetBotWorkState={auxiliaryOnSetBotWorkState}
                 botQueueTabOpen={botQueueTabOpen}
                 selectedBotId={selectedBotLogId}
                 onSelectBot={setSelectedBotLogId}

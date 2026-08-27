@@ -428,11 +428,13 @@ function UserMessage({ message, editing, onEdit, editor }) {
                       {attachment.kind === 'context_marker' && (
                         attachment.markerType === 'workflow'
                           ? <Workflow size={13} />
-                          : attachment.markerType === 'directory_reference'
-                            ? <FolderTree size={13} />
-                            : attachment.markerType?.startsWith('file_')
-                              ? <FileText size={13} />
-                              : <Sparkles size={13} />
+                          : attachment.markerType === 'work_item'
+                            ? <ListChecks size={13} />
+                            : attachment.markerType === 'directory_reference'
+                              ? <FolderTree size={13} />
+                              : attachment.markerType?.startsWith('file_')
+                                ? <FileText size={13} />
+                                : <Sparkles size={13} />
                       )}
                       <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
                       {attachment.kind !== 'context_marker' && <small>{formatBytes(attachment.size)}</small>}

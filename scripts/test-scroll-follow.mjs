@@ -239,6 +239,26 @@ const atBottom = (element) => element.scrollHeight - element.scrollTop - element
   );
 }
 
+// A newly sent user message aligns at its start, then follows the growing assistant response.
+{
+  const scenario = createScenario({ contentHeight: 1600 });
+  const targetTop = 1050;
+  scenario.follow.alignStart({
+    getBoundingClientRect: () => ({
+      top: targetTop - scenario.element.scrollTop,
+      height: 100,
+    }),
+  });
+  scenario.follow.setFollowing(true);
+
+  assert.equal(targetTop - scenario.element.scrollTop, 22);
+
+  scenario.grow(500);
+  scenario.follow.chase();
+  scenario.scheduler.flush();
+  assert.ok(atBottom(scenario.element) <= 1, 'follows the response after focusing the user message');
+}
+
 // A tall active response also opens at its start and remains there during existing streaming.
 {
   const scenario = createScenario({ contentHeight: 2400 });
