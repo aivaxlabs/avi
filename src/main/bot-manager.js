@@ -265,7 +265,7 @@ export class BotManager {
           ? 'working'
           : bot.enabled === false
             ? 'disabled'
-            : ['idle', 'outside-window', 'max-activations', 'paused', 'empty-work-queue'].includes(
+            : ['idle', 'outside-window', 'max-activations', 'paused'].includes(
                 decideActivation({ bot, now: Date.now() }).reason,
               )
               ? 'sleep'
@@ -643,6 +643,27 @@ export class BotManager {
     return { resolved: true, delivered, workItemId: item.id };
   }
 
+  async setBotWorkItemState(botId, workItemId, state) {
+    const bot = getBot(botId);
+    if (!bot) throw new Error('Bot not found.');
+    if (!BOT_WORK_ITEM_STATES.has(state)) throw new Error(`Invalid state: ${state}`);
+    const { dataFolder } = await ensureBotFolders(bot);
+    const { workItems } = await readBotWorkState(dataFolder);
+    const item = workItems.find((entry) => entry.id === workItemId);
+    if (!item) throw new Error(`Work item not found: ${workItemId}`);
+    if (item.approval) throw new Error('Resolve the pending approval before changing the status.');
+    const updated = await updateBotWorkItem(dataFolder, {
+      id: item.id,
+      state,
+      // updateBotWorkItem refuses to complete work without a summary; the user action
+      // still needs a one-line note when the bot has not written one yet.
+      ...(state === 'completed' && !item.summary ? { summary: 'Marked as completed by the user.' } : {}),
+    });
+    this.noteUserInteraction(bot.conversationId);
+    this.broadcast('bots:work-state');
+    return updated;
+  }
+
   async tick() {
     const bots = listBots();
     for (const bot of bots) {
@@ -703,7 +724,6 @@ export class BotManager {
   async activateBot(botId, { trigger = 'scheduler', force = false } = {}) {
     const bot = getBot(botId);
     if (!bot) throw new Error('Bot not found.');
-    if (bot.workQueue.length === 0) return null;
     if (!bot.enabled && !force) return null;
     if (this.activating.has(bot.id)) return null;
     if (this.chatRunner?.runs?.has(bot.conversationId)) {
@@ -723,27 +743,27 @@ export class BotManager {
         || item.workerThreadIds.some((threadId) => this.chatRunner?.runs?.has(threadId))
       ));
       const focusTask = activeWorkItem?.title ?? bot.workQueue[bot.workQueueIndex];
-      const escapedFocusTask = focusTask
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;');
+      const activationPrompt = [`<bot-activation at="${new Date().toISOString()}">`];
+      if (focusTask) {
+        activationPrompt.push(`<focus-task>${focusTask
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')}</focus-task>`);
+      }
+      activationPrompt.push('</bot-activation>');
       await this.chatRunner?.send({
         conversationId: bot.conversationId,
         model: bot.model,
         reasoningEffort: bot.reasoningEffort,
         permissionMode: 'approve_for_me',
-        text: [
-          `<bot-activation at="${new Date().toISOString()}">`,
-          `<focus-task>${escapedFocusTask}</focus-task>`,
-          '</bot-activation>',
-        ].join('\n'),
+        text: activationPrompt.join('\n'),
         fromAgent: true,
         project: { path: folders.workingFolder },
       });
       const activationCount = bot.activationCount + 1;
       const sleeping = bot.maxActivations > 0 && activationCount >= bot.maxActivations;
       const currentBot = getBot(bot.id);
-      const workQueueIndex = activeWorkItem
+      const workQueueIndex = activeWorkItem || bot.workQueue.length === 0
         ? currentBot.workQueueIndex
         : JSON.stringify(currentBot.workQueue) === JSON.stringify(bot.workQueue)
           ? (bot.workQueueIndex + 1) % bot.workQueue.length

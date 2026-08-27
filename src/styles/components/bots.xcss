@@ -330,6 +330,22 @@
         font-size: inherit;
       }
     }
+
+    .bot-work-actions-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 10px;
+      font-size: --font-sm;
+      color: var(--text-1);
+      background: var(--background-2);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+
+      &:hover {
+        background: var(--item-hover);
+      }
+    }
   }
 
   > .bot-work-dialog-content {
@@ -373,6 +389,105 @@
     max-height: none;
     border: 0;
     border-radius: 0;
+  }
+}
+
+.bot-work-status-dialog {
+  width: min(420px, calc(100vw - 48px));
+  margin: auto;
+  padding: 16px;
+  color: var(--text-1);
+  background: var(--background-1);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgb(0 0 0 / .42);
+
+  &::backdrop {
+    background: rgb(0 0 0 / .24);
+  }
+
+  > .dialog-header {
+    align-items: center;
+    margin-bottom: 12px;
+
+    > div {
+      min-width: 0;
+
+      > h2 {
+        overflow: hidden;
+        margin: 0;
+        font-size: inherit;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      > p {
+        overflow: hidden;
+        margin: 2px 0 0;
+        color: var(--text-2);
+        font-size: --font-sm;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+  }
+
+  > .bot-work-status-options {
+    display: grid;
+    gap: 6px;
+
+    > .bot-work-status-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 10px;
+      text-align: left;
+      color: var(--text-1);
+      background: var(--background-2);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+
+      &:hover:not(:disabled) {
+        background: var(--item-hover);
+      }
+
+      &.current {
+        background: var(--item-active);
+      }
+
+      &:disabled {
+        opacity: .55;
+      }
+
+      > .bot-work-state {
+        padding: 1px 5px;
+        color: var(--text-2);
+        background: var(--background-3);
+        border-radius: 999px;
+        font-weight: 600;
+        text-transform: capitalize;
+
+        &.active {
+          color: var(--success-color, var(--text-2));
+        }
+
+        &.waiting {
+          color: var(--warning-color, var(--text-2));
+        }
+      }
+
+      > small {
+        color: var(--text-3);
+      }
+    }
+  }
+
+  > .bot-work-status-error {
+    margin: 10px 0 0;
+    color: var(--danger-color, var(--text-2));
+    font-size: --font-sm;
   }
 }
 

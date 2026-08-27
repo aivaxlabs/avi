@@ -751,7 +751,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'bots_activate',
-    description: 'Activate a bot immediately, ignoring automatic enabled, period, idle, activation-window, and activation-limit rules. It does not activate with an empty work queue or start a duplicate run.',
+    description: 'Activate a bot immediately, ignoring automatic enabled, period, idle, activation-window, and activation-limit rules. With an empty work queue, the bot reviews its full scope without a specific focus task. It does not start a duplicate run.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -771,9 +771,7 @@ export const CLIENT_TOOLS = Object.freeze([
         activated: activated === true,
         status: activated === true
           ? 'started'
-          : bot?.workQueue.length === 0
-            ? 'empty_work_queue'
-            : 'already_running_or_start_failed',
+          : 'already_running_or_start_failed',
       };
     },
   },

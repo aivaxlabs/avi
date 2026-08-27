@@ -419,7 +419,7 @@ export function BotSettingsDialog({
                     </ol>
                   ) : (
                     <p className="bot-settings-work-queue-empty">
-                      Add at least one task to allow this bot to activate.
+                      No recurring tasks. Each activation reviews the bot's full scope.
                     </p>
                   )}
                   <button
@@ -432,7 +432,7 @@ export function BotSettingsDialog({
                     <Plus size={14} aria-hidden="true" />
                     Add task
                   </button>
-                  <small className="bot-settings-hint">An empty queue prevents automatic and manual activations.</small>
+                  <small className="bot-settings-hint">Add tasks to cycle through a specific focus on each activation.</small>
                 </section>
                 <section className="bot-settings-section">
                   <header>

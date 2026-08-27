@@ -112,8 +112,8 @@ const defaultBot = {
 assert.equal(decideActivation({ bot: defaultBot, now: wednesday }).action, 'activate');
 assert.deepEqual(
   decideActivation({ bot: { ...defaultBot, workQueue: [] }, now: wednesday }),
-  { action: 'skip', reason: 'empty-work-queue' },
-  'bots without configured work never activate',
+  { action: 'activate' },
+  'bots without recurring tasks still activate to review their full scope',
 );
 assert.equal(decideActivation({ bot: null, now: wednesday }).action, 'skip');
 assert.equal(

@@ -972,12 +972,8 @@ const BotItem = memo(function BotItem({ bot, active, onSelect, onSettings, onAct
           </DropdownMenuItem>
           <DropdownMenuItem
             icon={<Play size={14} />}
-            disabled={bot.enabled === false || bot.workQueue.length === 0}
-            title={bot.enabled === false
-              ? 'Enable this bot in Schedule first'
-              : bot.workQueue.length === 0
-                ? 'Add a task to the Work queue first'
-                : undefined}
+            disabled={bot.enabled === false}
+            title={bot.enabled === false ? 'Enable this bot in Schedule first' : undefined}
             onClick={() => {
               setMenuOpen(false);
               onActivate(bot.id);

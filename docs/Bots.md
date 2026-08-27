@@ -10,7 +10,7 @@ Use the moon button beside **+** to snooze scheduled bot activations for 1 hour,
 
 Agents in normal threads and Quick Chat can also manage bots with `bots_list`, `bots_create`, `bots_update`, `bots_delete`, and `bots_activate`. Select `/create-bot` in the composer for a guided setup that checks existing bots, defines the purpose and schedule, creates the bot, verifies its configuration, and optionally starts its first activation. Autonomous bot conversations do not receive these management tools and cannot create or control other bots.
 
-`bots_activate` is an explicit one-time call: it ignores automatic enabled, period, idle, activation-window, and activation-limit rules, while refusing to start a duplicate run when the bot is already active. It still requires at least one configured Work queue task. The sidebar's **Activate now** action keeps the normal enabled-state behavior and is also unavailable while the queue is empty.
+`bots_activate` is an explicit one-time call: it ignores automatic enabled, period, idle, activation-window, and activation-limit rules, while refusing to start a duplicate run when the bot is already active. The sidebar's **Activate now** action keeps the normal enabled-state behavior. Both paths can activate a bot with an empty Work queue; that activation reviews the bot's full scope without a specific recurring focus.
 
 ## Bot settings
 
@@ -25,7 +25,7 @@ Settings are organized by the decisions they control:
 **Work — what it does and where**
 
 - **Instructions** — free-form guidance injected into every activation describing responsibilities, priorities, and boundaries.
-- **Work queue** — an ordered list of recurring tasks configured by the user. Each successful activation receives the next task as its primary focus, then advances to the following task and wraps to the beginning after the last one. If **Current work** contains an active item or one with a running worker, the activation focuses that item instead and leaves the recurring queue at its current position. Editing or reordering the list restarts the cycle from the first task. An empty queue prevents automatic, sidebar, tool, and plugin activations.
+- **Work queue** — an optional ordered list of recurring tasks configured by the user. Each successful activation receives the next task as its primary focus, then advances to the following task and wraps to the beginning after the last one. If **Current work** contains an active item or one with a running worker, the activation focuses that item instead and leaves the recurring queue at its current position. Editing or reordering the list restarts the cycle from the first task. With an empty queue, scheduled, sidebar, tool, and plugin activations still run and review the bot's full instructions, work state, and available scope without a specific recurring focus.
 - **Working folder** — where the bot lives. Leave empty to use a dedicated folder in `~/.aivax/bots/<bot id>`. The bot shares the general instructions, context discovery, and workspace MCP servers of this folder, plus global context and MCP servers. It also receives root and nested `BOTS.md` instructions discovered there and in `$HOME/.agents`; those bot-only instructions are never exposed to normal threads.
 
 **MCP servers — external tools**
@@ -77,7 +77,7 @@ Approvals are runtime-owned fields embedded in their work item. While an approva
 
 Avi always creates a `.gitignore` inside the isolated bot folder so internal state is not committed accidentally. If `MEMORY.md` exists at the working-folder root when a bot folder is first created, Avi copies it without overwriting later isolated changes. The work-state files are not imported from any previous report format.
 
-At the beginning of every activation, the bot receives its primary task in `<focus-task>` and reads the work state. Avi uses an item from **Current work** while one is active or has a running worker; otherwise it uses and advances the current Work queue task. The bot reconciles linked workers and advances that focus before using remaining capacity for other actionable items. It keeps the report oriented to outcomes instead of execution mechanics so the user can understand current work, recent results, next steps, and required decisions without reading the chat history.
+At the beginning of an activation, the bot reads the work state and receives a primary task in `<focus-task>` when **Current work** has an active item, a worker is running, or the Work queue has a current recurring task. With an empty queue and no active work, Avi omits `<focus-task>` so the bot reviews its full instructions, state, and available scope. Avi leaves the recurring queue at its current position while active work has priority; otherwise a configured queue advances after a successful activation. The bot reconciles linked workers and advances any focus before using remaining capacity for other actionable items. It keeps the report oriented to outcomes instead of execution mechanics so the user can understand current work, recent results, next steps, and required decisions without reading the chat history.
 
 Bots do not get the memory tools; `MEMORY.md` is their memory. Bots perform bounded work directly with their available tools, including exploration, research, data gathering, read-only audits, status checks, and short diagnostics. They cannot ask you questions mid-run. For genuinely long work such as feature implementation, substantial migrations, full articles, or extensive validation, they have advanced delegation tools to create, steer, inspect, interrupt, and reconcile regular worker threads. Threads created by a bot are linked to its main conversation, appear under that bot's `workThreads` in `bots_list`, and get a robot icon in the sidebar.
 
@@ -97,6 +97,8 @@ Threads the bot creates or messages always run in **Full access**: unattended th
 Open **Bots** from the auxiliary panel. The default **Overview** shows current work, items needing your attention, recently completed items, work up next, and recent activity. **Recently completed** keeps each result concise: its title and a plain-language account of what the bot did, why, and how. **Up next** collects the next actions from planned and active work instead of repeating them inside every card. **All work** provides the complete state-filterable inventory, while **Activity** shows the material timeline.
 
 Tool approvals show the exact tool name, workspace path, and formatted input before **Approve** or **Deny**. Approve sends the resume prompt back to the bot; deny keeps the outcome visible and tells the bot to choose a safe alternative or cancel the item.
+
+Opening a work item shows its full detail dialog with an **Actions** menu. **Mention in chat** opens the bot's conversation with the work item attached as a context marker, so whatever you type next refers to that work. **Set status** opens a sub-dialog to move the item between `planned`, `active`, `waiting`, `completed`, and `cancelled`; it is unavailable while a pending approval owns the item.
 
 ## Bot chats
 

@@ -87,9 +87,6 @@ export function describeActivationWindow(window) {
 
 export function decideActivation({ bot, now = Date.now(), isRunning = false }) {
   if (!bot) return { action: 'skip', reason: 'missing-bot' };
-  if (!Array.isArray(bot.workQueue) || bot.workQueue.length === 0) {
-    return { action: 'skip', reason: 'empty-work-queue' };
-  }
   if (bot.enabled === false) return { action: 'skip', reason: 'disabled' };
   if (bot.status === 'paused') return { action: 'skip', reason: 'paused' };
   if (isRunning) return { action: 'skip', reason: 'running' };

@@ -231,10 +231,16 @@ try {
   const emptyQueue = await tool('bots_activate').execute({ id: created.bot.id }, context);
   assert.deepEqual(emptyQueue, {
     id: created.bot.id,
-    activated: false,
-    status: 'empty_work_queue',
+    activated: true,
+    status: 'started',
   });
-  assert.equal(activationRequests.length, 3, 'an empty queue must prevent forced activation');
+  assert.equal(activationRequests.length, 4, 'an empty queue must allow forced activation');
+  assert.doesNotMatch(
+    activationRequests[3].text,
+    /<focus-task>/,
+    'an empty queue must activate without a specific focus task',
+  );
+  assert.equal(getBot(created.bot.id).workQueueIndex, 0, 'an empty queue must preserve its queue index');
   await tool('bots_update').execute({
     id: created.bot.id,
     changes: { workQueue: ['Resume protected work'] },
@@ -244,7 +250,7 @@ try {
   const duplicate = await tool('bots_activate').execute({ id: created.bot.id }, context);
   assert.equal(duplicate.activated, false);
   assert.equal(duplicate.status, 'already_running_or_start_failed');
-  assert.equal(activationRequests.length, 3, 'explicit activation must not start duplicate runs');
+  assert.equal(activationRequests.length, 4, 'explicit activation must not start duplicate runs');
   chatRunner.runs.clear();
   const workItem = await botRuntime.tools
     .find((item) => item.name === 'bot_work_create')
