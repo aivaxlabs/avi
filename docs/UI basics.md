@@ -56,7 +56,7 @@ Plan persists on the conversation, is incompatible with Ultra, and cancels an ac
 
 ### Goal
 
-Goal creates a persistent objective with a specification, revision, elapsed time, and status. You can pause, resume, edit, or stop it. Avi continues until the Goal is `completed`, `blocked`, or `cancelled`, and resumes continuing Goals after application startup. Interrupting active inference normally pauses rather than cancels the Goal.
+Goal creates a persistent objective with a specification, revision, elapsed time, and status. You can pause, resume, edit, or stop it. Avi continues until the Goal is `completed`, `blocked`, or `cancelled`, and resumes continuing Goals after application startup. Interrupting active inference normally pauses rather than cancels the Goal. A finished Goal can be discarded from its strip; discarding clears the strip and the thread's blocked warning, and a new Goal can be started afterwards.
 
 Agents can also keep an internal task list for substantial work. If a turn ends with pending tasks, Avi sends one invisible continuation asking the agent to finish them; it does not repeat the same hook until new user input arrives. A task can be marked `inconclusive` only for a concrete blocker that requires the user. Threads with a blocked Goal, an inconclusive task, or a blocked owned semaphore show a warning icon and `Blocked` status in the sidebar; blocked state suppresses other automatic completion hooks until it is resolved.
 

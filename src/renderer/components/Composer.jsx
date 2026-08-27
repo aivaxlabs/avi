@@ -1262,6 +1262,23 @@ export function Composer({
             </button>
           </span>
           )}
+          {finishedGoal && (
+            <span className="goal-strip-actions">
+              <button
+                type="button"
+                disabled={Boolean(goalAction)}
+                title="Discard Goal"
+                aria-label="Discard Goal"
+                onClick={async () => {
+                  setGoalAction('discard');
+                  await onGoalAction?.('discard');
+                  setGoalAction(null);
+                }}
+              >
+                <Trash2 size={14} aria-hidden="true" />
+              </button>
+            </span>
+          )}
         </ComposerStrip>
       )}
       {tasks.length > 0 && (

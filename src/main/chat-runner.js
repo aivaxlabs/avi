@@ -736,7 +736,24 @@ export class ChatRunner {
     stopRun = true,
   }) {
     const goal = getGoalForConversation(conversationId);
-    if (!goal || !CONTINUING_GOAL_STATUSES.has(goal.status)) {
+    if (!goal) {
+      throw new Error('This conversation does not have an active Goal.');
+    }
+
+    if (action === 'discard') {
+      if (!TERMINAL_GOAL_STATUSES.has(goal.status)) {
+        throw new Error('Only a completed, blocked, or cancelled Goal can be discarded.');
+      }
+      const discardedGoal = updateGoalRecord({
+        ...goal,
+        status: 'discarded',
+        updatedAt: new Date().toISOString(),
+      });
+      this.emitConversation(conversationId);
+      return discardedGoal;
+    }
+
+    if (!CONTINUING_GOAL_STATUSES.has(goal.status)) {
       throw new Error('This conversation does not have an active Goal.');
     }
 

@@ -301,7 +301,7 @@ try {
   assert.equal(typeof completionResult, 'string');
   assert.match(completionResult, /^Goal completed\./);
   assert.match(completionResult, new RegExp(`ID: ${completedGoal.id}`));
-  assert.match(completionResult, /Summary:\nImplementation and tests are complete\./);
+  assert.match(completionResult, /Summary:\nAll acceptance terms were verified\./);
   assert.match(completionResult, /Tokens transacted: 110/);
   assert.match(completionResult, /Active time: \d+ ms/);
   assert.deepEqual(
@@ -360,6 +360,33 @@ try {
   )));
   const forkedContinuation = forkConversation(continuationConversation.id);
   assert.ok(forkedContinuation.messages.every((message) => !message.hidden));
+
+  await continuationRunner.changeGoal({
+    conversationId: continuationConversation.id,
+    action: 'discard',
+  });
+  assert.equal(getGoalForConversation(continuationConversation.id).status, 'discarded');
+  await assert.rejects(
+    continuationRunner.changeGoal({
+      conversationId: continuationConversation.id,
+      action: 'discard',
+    }),
+    { message: 'Only a completed, blocked, or cancelled Goal can be discarded.' },
+  );
+  const discardFollowUpGoal = await continuationRunner.startGoal({
+    conversationId: continuationConversation.id,
+    model: model.id,
+    specification: 'Fresh Goal after the blocked one was discarded.',
+    sendInitialPrompt: false,
+  });
+  assert.equal(discardFollowUpGoal.goal.status, 'active');
+  await assert.rejects(
+    continuationRunner.changeGoal({
+      conversationId: continuationConversation.id,
+      action: 'discard',
+    }),
+    { message: 'Only a completed, blocked, or cancelled Goal can be discarded.' },
+  );
 
   const pauseCalls = [];
   let finishPausedIteration;
