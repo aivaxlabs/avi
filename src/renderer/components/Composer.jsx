@@ -685,8 +685,7 @@ export function Composer({
     if (!modelMenuOpen) return undefined;
     const close = (event) => {
       if (modelMenuRef.current?.contains(event.target)) return;
-      setModelMenuOpen(false);
-      setReasoningMenuOpen(false);
+      closeModelMenu();
     };
     window.addEventListener('pointerdown', close);
     return () => window.removeEventListener('pointerdown', close);
@@ -838,6 +837,9 @@ export function Composer({
     setCurrentModel(level.modelId);
     onChooseModel(level.modelId);
     setReasoningEffort(level.reasoningEffort ?? null);
+    // Persist before the initial-model resync effect reads the stored effort,
+    // otherwise it restores a stale effort and the committed level is lost.
+    if (persistState) writePersistedReasoningEffort(level.modelId, level.reasoningEffort ?? null);
     setModelPickerOpen(false);
   }
 
