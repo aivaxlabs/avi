@@ -167,7 +167,8 @@ service.save({
 providers.get('one:model').stream = async () => {
   calls.push({ id: 'one:model', reasoningEffort: null });
   const error = new Error('invalid request');
-  error.code = 'invalid_request';
+  error.code = 'BAD_REQUEST';
+  error.status = 400;
   throw error;
 };
 const nonRetryable = service.resolve('@errors');
@@ -180,13 +181,47 @@ await assert.rejects(
     signal: new AbortController().signal,
     onEvent: () => {},
   }),
-  (error) => error.code === 'invalid_request',
+  (error) => error.code === 'BAD_REQUEST',
 );
 assert.deepEqual(calls.map(({ id }) => id), ['one:model']);
 assert.deepEqual(
   service.list().find((router) => router.id === '@errors').models.map(({ available }) => available),
   [true, true],
 );
+
+for (const [routerId, message] of [
+  ['@insufficient-credits', '{"error":{"message":"You have insufficient credits to make this request.","code":"BAD_REQUEST"}}'],
+  ['@insufficient-balance', 'Your account has an Insufficient Balance.'],
+  ['@insufficient-quota', 'Insufficient quota remaining.'],
+]) {
+  service.save({
+    id: routerId,
+    name: routerId,
+    mode: 'fallback',
+    models: [{ modelId: 'one:model' }, { modelId: 'two:model' }],
+  });
+  providers.get('one:model').stream = async () => {
+    calls.push({ id: 'one:model', reasoningEffort: null });
+    const error = new Error(message);
+    error.code = 'BAD_REQUEST';
+    error.status = 400;
+    throw error;
+  };
+  calls.length = 0;
+  const accountLimitResult = await service.resolve(routerId).provider.stream({
+    model: catalog,
+    messages: [],
+    reasoningEffort: null,
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  assert.equal(accountLimitResult.assistantContent, 'two:model');
+  assert.deepEqual(calls.map(({ id }) => id), ['one:model', 'two:model']);
+  assert.deepEqual(
+    service.list().find((router) => router.id === routerId).models.map(({ available }) => available),
+    [false, true],
+  );
+}
 
 service.save({
   id: '@quota',

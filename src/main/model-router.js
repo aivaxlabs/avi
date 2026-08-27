@@ -38,9 +38,16 @@ const FAILOVER_ERROR_CODES = new Set([
   'usage_limit_reached',
 ]);
 
-const isRouterFailoverError = (error) => error?.code === 'provider_retry_exhausted'
-  || error?.status === 429
-  || FAILOVER_ERROR_CODES.has(String(error?.code ?? '').toLowerCase());
+const isRouterFailoverError = (error) => {
+  const message = String(error?.message ?? '').toLowerCase();
+  return error?.code === 'provider_retry_exhausted'
+    || error?.status === 429
+    || FAILOVER_ERROR_CODES.has(String(error?.code ?? '').toLowerCase())
+    || (
+      message.includes('insufficient')
+      && ['credits', 'balance', 'quota'].some((term) => message.includes(term))
+    );
+};
 
 export class RouterProvider {
   constructor(service, router) {
