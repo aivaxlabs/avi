@@ -28,8 +28,13 @@ Despite its name, Remote control is not directly exposed to the LAN or Internet.
 
 ## Exposed tools
 
-Remote control exposes only:
+Remote control exposes:
 
+- `bots_list`;
+- `bots_create`;
+- `bots_update`;
+- `bots_delete`;
+- `bots_activate`;
 - `chat_list_folders`;
 - `chat_list_threads`;
 - `chat_create_thread`;
@@ -37,7 +42,11 @@ Remote control exposes only:
 - `chat_interrupt_thread`;
 - `chat_inspect_thread`.
 
-The create-thread schema follows [Default models](Default%20models.md): model levels when enabled, or explicit model and reasoning fields when disabled.
+`chat_list_threads` includes each configured bot's main thread. Bot threads use the bot name as the conversation name and `~avi-bot/<bot name>` as the model so MCP clients can identify them without a separate lookup.
+
+The create-thread schema follows [Default models](Default%20models.md): model levels when enabled, or explicit model and reasoning fields when disabled. Text results are returned directly as MCP text content. Structured tool results, including `bots_*` responses, are returned as MCP `structuredContent` without an additional JSON-encoded text envelope.
+
+During MCP initialization, Avi provides complementary operational instructions for orchestrators. They explain how to choose persistent bots versus bounded threads, discover and reuse existing ownership, follow asynchronous work without tight polling, verify mutations, and reserve interruption or deletion for intentional lifecycle decisions. Tool descriptions remain the source for individual inputs and immediate behavior.
 
 ## Manage the access key
 

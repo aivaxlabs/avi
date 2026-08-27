@@ -110,6 +110,13 @@ try {
   assert.equal(updated.bot.maxActivations, 4);
   assert.equal(getConversation(created.bot.conversationId).title, 'Release manager');
 
+  const threadList = await tool('chat_list_threads').execute({ folderPath: workspace }, context);
+  const botThread = threadList.split('\n--------\n')
+    .find((thread) => thread.includes(`ID: ${created.bot.conversationId}`));
+  assert.ok(botThread, 'chat_list_threads must include the bot main thread');
+  assert.match(botThread, /(?:^|\n)- Release manager\n/);
+  assert.match(botThread, /\n  Model: ~avi-bot\/Release manager\n/);
+
   const createThreadResult = await tool('chat_create_thread').execute({
     folderPath: workspace,
     model_name: model.id,

@@ -858,7 +858,10 @@ export const CLIENT_TOOLS = Object.freeze([
       const folderKey = process.platform === 'win32'
         ? normalizedFolder?.toLowerCase()
         : normalizedFolder;
-      const sourceConversation = getConversation(conversationId);
+      const sourceConversation = conversationId ? getConversation(conversationId) : null;
+      const botsByConversationId = new Map(
+        (botManager?.describeBots() ?? []).map((bot) => [bot.conversationId, bot]),
+      );
       const threads = listAllConversations()
         .filter((conversation) => sourceConversation?.isSideChat || !conversation.isSideChat)
         .filter((conversation) => {
@@ -867,20 +870,23 @@ export const CLIENT_TOOLS = Object.freeze([
           return (process.platform === 'win32' ? conversationPath.toLowerCase() : conversationPath)
             === folderKey;
         })
-        .map((conversation) => ({
-          id: conversation.id,
-          title: conversation.title,
-          folderPath: conversation.projectPath,
-          model: conversation.model,
-          status: isThreadWaitingForInput(chatRunner, conversation.id)
-            ? 'waiting_for_input'
-            : chatRunner.semaphores.waitSnapshot(conversation.id)
-              ? 'sleeping'
-              : chatRunner.runs.has(conversation.id) ? 'running' : 'idle',
-          semaphoreHoldings: chatRunner.semaphores.holdings(conversation.id),
-          createdAt: conversation.createdAt,
-          updatedAt: conversation.updatedAt,
-        }));
+        .map((conversation) => {
+          const bot = botsByConversationId.get(conversation.id);
+          return {
+            id: conversation.id,
+            title: bot?.name ?? conversation.title,
+            folderPath: conversation.projectPath,
+            model: bot ? `~avi-bot/${bot.name}` : conversation.model,
+            status: isThreadWaitingForInput(chatRunner, conversation.id)
+              ? 'waiting_for_input'
+              : chatRunner.semaphores.waitSnapshot(conversation.id)
+                ? 'sleeping'
+                : chatRunner.runs.has(conversation.id) ? 'running' : 'idle',
+            semaphoreHoldings: chatRunner.semaphores.holdings(conversation.id),
+            createdAt: conversation.createdAt,
+            updatedAt: conversation.updatedAt,
+          };
+        });
 
       if (threads.length === 0) return 'No threads found.';
       return [

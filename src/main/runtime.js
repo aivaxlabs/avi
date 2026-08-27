@@ -741,7 +741,7 @@ function initializeServices() {
     },
   });
   if (!remoteMcpServer) {
-    remoteMcpServer = new RemoteMcpServer({ chatRunner, providerRegistry, getPreferences, getApiKey: getRemoteApiKey });
+    remoteMcpServer = new RemoteMcpServer({ chatRunner, botManager, providerRegistry, getPreferences, getApiKey: getRemoteApiKey });
     const settings = getRemoteSettings();
     if (settings.enabled && !getRemoteApiKey()) setRemoteSettings({ ...settings, enabled: false });
     else if (settings.enabled) remoteMcpServer.start(settings.port).catch((error) => {

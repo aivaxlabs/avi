@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { Readable } from 'node:stream';
 import { homedir } from 'node:os';
@@ -12,6 +13,11 @@ import { CLIENT_TOOLS } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
 
 const REMOTE_TOOL_NAMES = new Set([
+  'bots_list',
+  'bots_create',
+  'bots_update',
+  'bots_delete',
+  'bots_activate',
   'chat_list_folders',
   'chat_list_threads',
   'chat_create_thread',
@@ -20,11 +26,13 @@ const REMOTE_TOOL_NAMES = new Set([
   'chat_inspect_thread',
 ]);
 const remoteTools = CLIENT_TOOLS.filter((tool) => REMOTE_TOOL_NAMES.has(tool.name));
+const REMOTE_MCP_INSTRUCTIONS = readFileSync(new URL('../prompts/mgmt-instructions.md', import.meta.url), 'utf8');
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 
 export class RemoteMcpServer {
-  constructor({ chatRunner, providerRegistry, getPreferences, getApiKey }) {
+  constructor({ chatRunner, botManager, providerRegistry, getPreferences, getApiKey }) {
     this.chatRunner = chatRunner;
+    this.botManager = botManager;
     this.providerRegistry = providerRegistry;
     this.getPreferences = getPreferences;
     this.getApiKey = getApiKey;
@@ -156,7 +164,10 @@ export class RemoteMcpServer {
     });
     const mcpServer = new Server(
       { name: 'avi-remote', version: '1.0.0' },
-      { capabilities: { tools: {} } },
+      {
+        capabilities: { tools: {} },
+        instructions: REMOTE_MCP_INSTRUCTIONS,
+      },
     );
     mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: this.listTools(),
@@ -167,15 +178,16 @@ export class RemoteMcpServer {
       try {
         const result = await tool.execute(requestInfo.params.arguments ?? {}, {
           chatRunner: this.chatRunner,
+          botManager: this.botManager,
           conversationId: null,
           model: this.getPreferences().lastModel,
           models: this.providerRegistry.listModels(),
           defaultModels: this.getPreferences().defaultModels,
           workspacePath: homedir(),
         });
-        return {
-          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-        };
+        return typeof result === 'string'
+          ? { content: [{ type: 'text', text: result }] }
+          : { content: [], structuredContent: result };
       } catch (error) {
         return {
           isError: true,
