@@ -40,6 +40,7 @@ import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import aviIconUrl from '../../../assets/icon/avi.png';
 import { classNames } from '../lib/format.js';
+import { intelligenceLevelLimits, titleCaseEffort } from '../lib/models.js';
 import { AivaxFeaturesSettings } from './AivaxFeaturesSettings.jsx';
 import { AppearanceSettings } from './AppearanceSettings.jsx';
 import { MaintenanceSettings } from './MaintenanceSettings.jsx';
@@ -369,6 +370,25 @@ export function SettingsPage({
   const [tuningDraft, setTuningDraft] = useState(tuning);
   const [defaultModelsDraft, setDefaultModelsDraft] = useState(defaultModels);
   const [defaultModelsSaved, setDefaultModelsSaved] = useState(false);
+  const updateIntelligenceLevel = (index, changes) => {
+    setDefaultModelsSaved(false);
+    setDefaultModelsDraft((current) => ({
+      ...current,
+      intelligence: {
+        levels: current.intelligence.levels.map((level, levelIndex) => (
+          levelIndex === index ? { ...level, ...changes } : level
+        )),
+      },
+    }));
+  };
+  const moveIntelligenceLevel = (from, to) => {
+    setDefaultModelsSaved(false);
+    setDefaultModelsDraft((current) => {
+      const levels = [...current.intelligence.levels];
+      [levels[from], levels[to]] = [levels[to], levels[from]];
+      return { ...current, intelligence: { levels } };
+    });
+  };
   const [tuningSaved, setTuningSaved] = useState(false);
   const [terminalShells, setTerminalShells] = useState(null);
   const [terminalShellError, setTerminalShellError] = useState('');
@@ -1628,6 +1648,119 @@ export function SettingsPage({
                         }}
                       />
                     ))}
+                  </div>
+                </section>
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>Intelligence levels</h3>
+                    <p>Between 3 and 10 levels for the composer intelligence slider. Each level selects a model and an optional reasoning effort.</p>
+                  </div>
+                  {(defaultModelsDraft.intelligence?.levels ?? []).map((level, index, levels) => {
+                    const levelModel = models.find((model) => model.id === level.modelId);
+                    const levelEffort = level.reasoningEffort
+                      ?? (levelModel?.reasoning.includes('medium')
+                        ? 'medium'
+                        : levelModel?.reasoning[0] ?? null);
+                    const levelSummary = levelModel
+                      ? `${levelModel.name} - ${titleCaseEffort(levelEffort) || 'Default'}`
+                      : `Level ${index + 1}`;
+                    return (
+                      <div
+                        className="settings-section-card settings-form settings-row-card"
+                        key={level.id}
+                      >
+                        <DefaultModelField
+                          label={`Level ${index + 1}`}
+                          description="Select the model and reasoning effort used at this slider position."
+                          models={models}
+                          required
+                          value={level.modelId ? {
+                            modelId: level.modelId,
+                            reasoningEffort: level.reasoningEffort,
+                          } : null}
+                          onChange={(value) => updateIntelligenceLevel(index, {
+                            modelId: value?.modelId ?? '',
+                            reasoningEffort: value?.reasoningEffort ?? null,
+                          })}
+                        />
+                        <div className="settings-card-row">
+                        <span>{levelSummary}</span>
+                        <span>
+                          <button
+                            className="icon-button tiny"
+                            type="button"
+                            disabled={index === 0}
+                            aria-label={`Move level ${index + 1} up`}
+                            onClick={() => moveIntelligenceLevel(index, index - 1)}
+                          >
+                            <ArrowUp size={13} />
+                          </button>
+                          <button
+                            className="icon-button tiny"
+                            type="button"
+                            disabled={index === levels.length - 1}
+                            aria-label={`Move level ${index + 1} down`}
+                            onClick={() => moveIntelligenceLevel(index, index + 1)}
+                          >
+                            <ArrowDown size={13} />
+                          </button>
+                          <button
+                            className="icon-button tiny danger"
+                            type="button"
+                            disabled={levels.length === intelligenceLevelLimits.min}
+                            aria-label={`Remove level ${index + 1}`}
+                            onClick={() => {
+                              setDefaultModelsSaved(false);
+                              setDefaultModelsDraft((current) => ({
+                                ...current,
+                                intelligence: {
+                                  levels: current.intelligence.levels.filter(
+                                    (_, levelIndex) => levelIndex !== index,
+                                  ),
+                                },
+                              }));
+                            }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="settings-section-card settings-form settings-row-card">
+                    <div className="settings-card-row">
+                      <span>
+                        {(defaultModelsDraft.intelligence?.levels?.length ?? 0) === 0
+                          ? 'No intelligence levels configured. The composer model picker stays in advanced mode.'
+                          : `${defaultModelsDraft.intelligence.levels.length} of ${intelligenceLevelLimits.max} levels configured.`}
+                      </span>
+                      <button
+                        type="button"
+                        className="primary-mini"
+                        disabled={(defaultModelsDraft.intelligence?.levels?.length ?? 0)
+                          >= intelligenceLevelLimits.max}
+                        onClick={() => {
+                          setDefaultModelsSaved(false);
+                          setDefaultModelsDraft((current) => ({
+                            ...current,
+                            intelligence: {
+                              levels: [
+                                ...(current.intelligence?.levels ?? []),
+                                {
+                                  id: crypto.randomUUID(),
+                                  modelId: '',
+                                  reasoningEffort: null,
+                                },
+                              ],
+                            },
+                          }));
+                        }}
+                      >
+                        <Plus size={13} />
+                        Add level
+                      </button>
+                    </div>
                   </div>
                 </section>
               </div>

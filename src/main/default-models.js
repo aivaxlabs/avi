@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { traceError } from './trace-log.js';
 
 export const emptyDefaultModels = Object.freeze({
@@ -11,7 +12,12 @@ export const emptyDefaultModels = Object.freeze({
     medium: null,
     large: null,
   }),
+  intelligence: Object.freeze({
+    levels: Object.freeze([]),
+  }),
 });
+
+export const intelligenceLimits = Object.freeze({ min: 3, max: 10 });
 
 const roleLabels = Object.freeze({
   auxiliary: 'Auxiliary model',
@@ -22,6 +28,21 @@ const roleLabels = Object.freeze({
   medium: 'Medium sub-agent model',
   large: 'Large sub-agent model',
 });
+
+function normalizeIntelligenceLevels(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const levels = Array.isArray(source.levels) ? source.levels : [];
+  return levels.slice(0, intelligenceLimits.max).map((level) => {
+    const entry = level && typeof level === 'object' ? level : {};
+    return {
+      id: typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : randomUUID(),
+      modelId: typeof entry.modelId === 'string' ? entry.modelId.trim() : '',
+      reasoningEffort: typeof entry.reasoningEffort === 'string' && entry.reasoningEffort.trim()
+        ? entry.reasoningEffort.trim()
+        : null,
+    };
+  });
+}
 
 export function normalizeDefaultModels(value, strict = false) {
   const source = value && typeof value === 'object' ? value : {};
@@ -39,7 +60,18 @@ export function normalizeDefaultModels(value, strict = false) {
       medium: normalizeSelection(subagents.medium),
       large: normalizeSelection(subagents.large),
     },
+    intelligence: {
+      levels: normalizeIntelligenceLevels(source.intelligence),
+    },
   };
+
+  if (strict
+    && normalized.intelligence.levels.length > 0
+    && normalized.intelligence.levels.length < intelligenceLimits.min) {
+    throw new Error(
+      `Configure between ${intelligenceLimits.min} and ${intelligenceLimits.max} intelligence levels.`,
+    );
+  }
 
   if (strict && normalized.subagents.enabled && [
     normalized.subagents.small,
@@ -66,7 +98,7 @@ export function validateDefaultModels(settings, models) {
     ] : []),
   ];
 
-  return configured.flatMap(([role, selection]) => {
+  const warnings = configured.flatMap(([role, selection]) => {
     const availability = inspectSelection(selection, modelsById);
     if (availability.available || (!selection && ['auxiliary', 'supervision', 'quickChat', 'compactation'].includes(role))) {
       return [];
@@ -85,6 +117,60 @@ export function validateDefaultModels(settings, models) {
           : unavailableMessage,
     }];
   });
+
+  const levels = normalized.intelligence.levels;
+  if (levels.length > 0 && levels.length < intelligenceLimits.min) {
+    warnings.push({
+      role: 'intelligence',
+      label: 'Intelligence levels',
+      modelId: null,
+      reason: 'invalid level count',
+      message: `Configure between ${intelligenceLimits.min} and ${intelligenceLimits.max} intelligence levels to use the intelligence slider.`,
+    });
+  }
+  const levelSelections = new Map();
+  levels.forEach((level, index) => {
+    if (level.modelId) {
+      const model = modelsById.get(level.modelId);
+      const effectiveEffort = level.reasoningEffort
+        ?? (model?.reasoning.includes('medium') ? 'medium' : model?.reasoning[0] ?? null);
+      const selectionKey = JSON.stringify([level.modelId, effectiveEffort]);
+      const duplicateIndex = levelSelections.get(selectionKey);
+      if (duplicateIndex !== undefined) {
+        warnings.push({
+          role: 'intelligence',
+          label: `Intelligence level ${index + 1}`,
+          modelId: level.modelId,
+          reason: 'duplicate selection',
+          message: `Intelligence levels ${duplicateIndex + 1} and ${index + 1} use the same model and reasoning effort. Choose a different combination for each level.`,
+        });
+      } else {
+        levelSelections.set(selectionKey, index);
+      }
+    }
+    if (!level.modelId) {
+      warnings.push({
+        role: 'intelligence',
+        label: `Intelligence level ${index + 1}`,
+        modelId: null,
+        reason: 'not selected',
+        message: `Intelligence level ${index + 1} has no model selected.`,
+      });
+      return;
+    }
+    const availability = inspectSelection(level, modelsById);
+    if (!availability.available) {
+      warnings.push({
+        role: 'intelligence',
+        label: `Intelligence level ${index + 1}`,
+        modelId: level.modelId,
+        reason: availability.reason,
+        message: `Intelligence level ${index + 1} is unavailable (${availability.reason}).`,
+      });
+    }
+  });
+
+  return warnings;
 }
 
 export function applySubagentModelSchema(tool, models, settings) {

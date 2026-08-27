@@ -32,6 +32,14 @@ When model levels are disabled:
 - `chat_create_thread` prefers the most recent model and reasoning effort used in the target folder, then the invoking model;
 - an incompatible saved reasoning effort produces an error rather than being silently changed.
 
+## Intelligence levels
+
+**Settings → Default models → Intelligence levels** configures the composer intelligence slider. Define between 3 and 10 levels; each level selects a model with an optional reasoning effort and is displayed as **Model - Reasoning**.
+
+When at least three levels are configured, the composer model picker opens in slider mode: drag the slider or use the arrow keys to preview a model and reasoning combination, then release to apply it. **Advanced** switches to direct model and reasoning selection, and the same button returns to the slider. The composer chip always shows the selected model and effort. With fewer than three configured levels, the picker stays in advanced mode.
+
+Levels that reference a missing model or an unsupported reasoning effort are reported as availability warnings and skipped by the slider.
+
 ## Quick Chat requirement
 
 Quick Chat requires an explicitly available **Quick chat model**. It does not automatically fall back to the last-used or first catalog model. Configure this role before selecting **Quick chat** from the Sidebar or tray. The model can be changed inside the Quick Chat window after it opens.

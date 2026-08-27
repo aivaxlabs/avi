@@ -5445,6 +5445,22 @@ button svg {
     font-size: inherit;
 }
 
+.bot-work-dialog > .dialog-header .bot-work-actions-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    font-size: var(--font-sm);
+    color: var(--text-1);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+}
+
+.bot-work-dialog > .dialog-header .bot-work-actions-trigger:hover {
+    background: var(--item-hover);
+}
+
 .bot-work-dialog > .bot-work-dialog-content {
     min-height: 0;
     overflow: auto;
@@ -5478,6 +5494,105 @@ button svg {
     margin: 0;
     color: inherit;
     overflow-wrap: anywhere;
+}
+
+.bot-work-status-dialog {
+    width: min(420px, calc(100vw - 48px));
+    margin: auto;
+    padding: 16px;
+    color: var(--text-1);
+    background: var(--background-1);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    box-shadow: 0 24px 64px rgb(0 0 0 / .42);
+}
+
+.bot-work-status-dialog::backdrop {
+    background: rgb(0 0 0 / .24);
+}
+
+.bot-work-status-dialog > .dialog-header {
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.bot-work-status-dialog > .dialog-header > div {
+    min-width: 0;
+}
+
+.bot-work-status-dialog > .dialog-header > div > h2 {
+    overflow: hidden;
+    margin: 0;
+    font-size: inherit;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bot-work-status-dialog > .dialog-header > div > p {
+    overflow: hidden;
+    margin: 2px 0 0;
+    color: var(--text-2);
+    font-size: var(--font-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bot-work-status-dialog > .bot-work-status-options {
+    display: grid;
+    gap: 6px;
+}
+
+.bot-work-status-dialog > .bot-work-status-options > .bot-work-status-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    text-align: left;
+    color: var(--text-1);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.bot-work-status-dialog > .bot-work-status-options > .bot-work-status-option:hover:not(:disabled) {
+    background: var(--item-hover);
+}
+
+.bot-work-status-dialog > .bot-work-status-options > .bot-work-status-option.current {
+    background: var(--item-active);
+}
+
+.bot-work-status-dialog > .bot-work-status-options > .bot-work-status-option:disabled {
+    opacity: .55;
+}
+
+.bot-work-status-dialog > .bot-work-status-options > .bot-work-status-option > .bot-work-state {
+    padding: 1px 5px;
+    color: var(--text-2);
+    background: var(--background-3);
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.bot-work-status-dialog > .bot-work-status-options > .bot-work-status-option > .bot-work-state.active {
+    color: var(--success-color, var(--text-2));
+}
+
+.bot-work-status-dialog > .bot-work-status-options > .bot-work-status-option > .bot-work-state.waiting {
+    color: var(--warning-color, var(--text-2));
+}
+
+.bot-work-status-dialog > .bot-work-status-options > .bot-work-status-option > small {
+    color: var(--text-3);
+}
+
+.bot-work-status-dialog > .bot-work-status-error {
+    margin: 10px 0 0;
+    color: var(--danger-color, var(--text-2));
+    font-size: var(--font-sm);
 }
 
 .bot-work-overview, .bot-all-work {
@@ -13635,10 +13750,23 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     background: var(--background-4);
 }
 
+.composer-wrap .model-input-name {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 4px;
+}
+
+.composer-wrap .model-input-name svg {
+    flex: 0 0 auto;
+    color: currentColor;
+}
+
 .composer-wrap .model-input-menu {
     right: 0;
     bottom: 42px;
     width: min(260px, calc(100vw - 56px));
+    max-width: min(260px, calc(100vw - 56px));
     gap: 4px;
 }
 
@@ -13739,6 +13867,19 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     gap: 12px;
 }
 
+.composer-wrap .model-reasoning-trigger > span > span + span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 5px;
+    color: var(--text-2);
+    overflow: visible;
+}
+
+.composer-wrap .model-reasoning-trigger > span > span + span svg {
+    margin: 0;
+}
+
 .composer-wrap .model-reasoning-trigger > span svg {
     flex: 0 0 auto;
     color: var(--text-3);
@@ -13747,7 +13888,6 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 .composer-wrap .model-reasoning-submenu {
     top: -4px;
     left: calc(100% + 6px);
-    width: 138px;
 }
 
 .composer-wrap .model-reasoning-submenu .dropdown-menu-item:focus-visible, .composer-wrap .model-reasoning-trigger:focus-visible {
@@ -13760,6 +13900,153 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     height: 16px;
     display: grid;
     place-items: center;
+}
+
+.composer-wrap .intelligence-menu {
+    right: 0;
+    bottom: 42px;
+    width: min(260px, calc(100vw - 56px));
+}
+
+.composer-wrap .intelligence-slider {
+    position: relative;
+    display: grid;
+    align-items: center;
+    height: 34px;
+    isolation: isolate;
+}
+
+.composer-wrap .intelligence-slider:has(.intelligence-slider-input:focus-visible) .intelligence-slider-track {
+    box-shadow: inset 0 0 0 2px var(--text-3);
+}
+
+.composer-wrap .intelligence-slider:has(.intelligence-slider-input:active) .intelligence-slider-track::before, .composer-wrap .intelligence-slider:has(.intelligence-slider-input:active) .intelligence-slider-track::after, .composer-wrap .intelligence-slider:has(.intelligence-slider-input:active) .intelligence-slider-thumb {
+    transition-duration: 0ms;
+}
+
+.composer-wrap .intelligence-slider:has(.intelligence-slider-input:active) .intelligence-slider-thumb {
+    transform: translate(-50%, -50%) scale(1.08);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary-color) 18%, transparent),
+          0 2px 7px rgba(0, 0, 0, 0.4);
+}
+
+.composer-wrap .intelligence-slider-track {
+    position: absolute;
+    z-index: 2;
+    top: 50%;
+    right: 0;
+    left: 0;
+    height: 22px;
+    overflow: hidden;
+    background: var(--background-4);
+    border-radius: 999px;
+    box-shadow: inset 0 0 0 0 transparent;
+    pointer-events: none;
+    transform: translateY(-50%);
+    transition: box-shadow 180ms ease;
+}
+
+.composer-wrap .intelligence-slider-track::before, .composer-wrap .intelligence-slider-track::after {
+    position: absolute;
+    inset: 0;
+    content: '';
+}
+
+.composer-wrap .intelligence-slider-track::before {
+    background: linear-gradient(
+        90deg,
+        var(--primary-color) 0%,
+        var(--primary-color) 42%,
+        #7567ee 70%,
+        #b85cf1 100%
+      );
+    clip-path: inset(
+        0 calc(100% - var(--intelligence-fill, 50%) - var(--intelligence-thumb-offset, 0px)) 0 0
+      );
+    transition: clip-path 180ms var(--base-transition);
+}
+
+.composer-wrap .intelligence-slider-track::after {
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0 1px, transparent 1.5px)
+          3px 2px / 29px 13px,
+        radial-gradient(circle, rgba(234, 221, 255, 0.8) 0 0.8px, transparent 1.4px)
+          16px 9px / 37px 15px;
+    opacity: var(--intelligence-shimmer-opacity, 0);
+    -webkit-mask-image: linear-gradient(90deg, transparent 40%, #000 68%);
+    mask-image: linear-gradient(90deg, transparent 40%, #000 68%);
+    animation: intelligence-slider-shimmer 2.8s linear infinite;
+    animation-play-state: var(--intelligence-shimmer-play-state, paused);
+    transition: opacity 180ms ease;
+}
+
+.composer-wrap .intelligence-slider-input {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 34px;
+    margin: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    border: 0;
+    outline: none;
+    cursor: pointer;
+}
+
+.composer-wrap .intelligence-slider-input::-webkit-slider-runnable-track {
+    height: 22px;
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+}
+
+.composer-wrap .intelligence-slider-input::-webkit-slider-thumb {
+    width: 26px;
+    height: 26px;
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    border: 0;
+}
+
+.composer-wrap .intelligence-slider-dots {
+    position: absolute;
+    z-index: 3;
+    inset: 0 13px;
+    pointer-events: none;
+}
+
+.composer-wrap .intelligence-slider-dots span {
+    position: absolute;
+    top: 50%;
+    width: 4px;
+    height: 4px;
+    background: var(--text-4);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    transition: background 140ms ease, transform 140ms var(--base-transition);
+}
+
+.composer-wrap .intelligence-slider-dots .filled {
+    background: rgba(255, 255, 255, 0.9);
+    transform: translate(-50%, -50%) scale(1.08);
+}
+
+.composer-wrap .intelligence-slider-thumb {
+    position: absolute;
+    z-index: 4;
+    top: 50%;
+    left: calc(var(--intelligence-fill, 50%) + var(--intelligence-thumb-offset, 0px));
+    width: 26px;
+    height: 26px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    transition: left 180ms var(--base-transition),
+      box-shadow 180ms ease,
+      transform 120ms ease;
 }
 
 .chat-empty .composer-wrap {
@@ -13795,6 +14082,26 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 
     .composer-wrap .permission-mode-trigger span, .composer-wrap .permission-mode-trigger svg:last-child {
         display: none;
+    }
+}
+
+@keyframes intelligence-slider-shimmer {
+    from {
+        background-position: 3px 2px, 16px 9px;
+    }
+
+    to {
+        background-position: 61px 2px, 90px 9px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .composer-wrap .intelligence-slider-track::after {
+        animation: none;
+    }
+
+    .composer-wrap .intelligence-slider-track, .composer-wrap .intelligence-slider-track::before, .composer-wrap .intelligence-slider-track::after, .composer-wrap .intelligence-slider-thumb, .composer-wrap .intelligence-slider-dots span {
+        transition: none;
     }
 }
 /* components\code-block.xcss */

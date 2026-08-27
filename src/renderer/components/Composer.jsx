@@ -31,7 +31,6 @@ import {
   Sparkles,
   SquareTerminal,
   Square,
-  Star,
   Target,
   Trash2,
   Workflow,
@@ -48,11 +47,17 @@ import {
 import { createPortal } from 'react-dom';
 import { createMp3Attachment } from '../lib/audio.js';
 import { fileToAttachment, formatBytes, textToAttachment } from '../lib/files.js';
+import {
+  intelligenceLevelLimits,
+  splitFastModelName,
+  titleCaseEffort,
+} from '../lib/models.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { ModelPicker } from './ModelPicker.jsx';
 import { ProviderUsages } from './ProviderUsages.jsx';
 
 const composerDraftKey = 'aivax.composer.draft';
+const emptyIntelligenceLevels = Object.freeze([]);
 const composerReasoningEffortsKey = 'aivax.composer.reasoning-efforts';
 
 function readPersistedReasoningEfforts() {
@@ -196,10 +201,10 @@ export function Composer({
   onSteerQueued,
   droppedFiles,
   modelName,
-  recentModels = [],
   recentProjects = [],
   models,
   favorites,
+  intelligenceLevels = emptyIntelligenceLevels,
   currentModel: initialModel,
   contextUsage,
   onChooseModel,
@@ -242,7 +247,10 @@ export function Composer({
   const [permissionMode, setPermissionMode] = useState(
     initialState?.permissionMode ?? defaultPermissionMode,
   );
-  const [reasoningMenuOpen, setReasoningMenuOpen] = useState(false);
+  const [advancedPickerOpen, setAdvancedPickerOpen] = useState(false);
+  const [advancedModelSubmenuOpen, setAdvancedModelSubmenuOpen] = useState(false);
+  const [advancedEffortSubmenuOpen, setAdvancedEffortSubmenuOpen] = useState(false);
+  const [intelligencePreviewIndex, setIntelligencePreviewIndex] = useState(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [commandStage, setCommandStage] = useState(null);
   const [commandDraft, setCommandDraft] = useState(null);
@@ -268,6 +276,7 @@ export function Composer({
   const plusHolderRef = useRef(null);
   const permissionMenuRef = useRef(null);
   const modelMenuRef = useRef(null);
+  const intelligencePreviewIndexRef = useRef(null);
   const projectMenuRef = useRef(null);
   const projectSearchRef = useRef(null);
   const textAreaRef = useRef(null);
@@ -304,28 +313,65 @@ export function Composer({
     : commandMode
       ? text
       : '';
-  const {
-    currentModelConfig,
-    favoriteModels,
-    quickRecentModels,
-  } = useMemo(() => {
+  const { currentModelConfig, favoriteModels } = useMemo(() => {
     const modelsById = new Map(models.map((model) => [model.id, model]));
     const nextFavoriteModels = favorites
       .map((modelId) => modelsById.get(modelId))
       .filter(Boolean);
-    const favoriteModelIds = new Set(nextFavoriteModels.map((model) => model.id));
 
     return {
       currentModelConfig: modelsById.get(currentModel) ?? null,
       favoriteModels: nextFavoriteModels,
-      quickRecentModels: recentModels.filter((model) => !favoriteModelIds.has(model.id)),
     };
-  }, [currentModel, favorites, models, recentModels]);
+  }, [currentModel, favorites, models]);
+  const currentModelDefaultReasoningEffort = currentModelConfig?.reasoning.includes('medium')
+    ? 'medium'
+    : currentModelConfig?.reasoning[0] ?? null;
   const activeReasoningEffort = currentModelConfig?.reasoning.includes(reasoningEffort)
     ? reasoningEffort
-    : currentModelConfig?.reasoning.includes('medium')
+    : currentModelDefaultReasoningEffort;
+  const usableIntelligenceLevels = useMemo(() => {
+    const modelsById = new Map(models.map((model) => [model.id, model]));
+    return intelligenceLevels.filter((level) => level?.modelId && modelsById.has(level.modelId));
+  }, [intelligenceLevels, models]);
+  const hasIntelligenceSlider = usableIntelligenceLevels.length >= intelligenceLevelLimits.min;
+  const activeIntelligenceIndex = usableIntelligenceLevels.findIndex((level) => (
+    level.modelId === currentModel
+    && (level.reasoningEffort ?? currentModelDefaultReasoningEffort) === activeReasoningEffort
+  ));
+  const maxIntelligenceIndex = Math.max(usableIntelligenceLevels.length - 1, 0);
+  const committedIntelligenceIndex = Math.min(
+    Math.max(activeIntelligenceIndex, 0),
+    maxIntelligenceIndex,
+  );
+  const intelligenceLevelIndex = intelligencePreviewIndex ?? committedIntelligenceIndex;
+  const activeSliderLevel = usableIntelligenceLevels[intelligenceLevelIndex] ?? null;
+  const activeSliderModel = models.find((model) => model.id === activeSliderLevel?.modelId) ?? null;
+  const activeSliderEffort = activeSliderLevel?.reasoningEffort
+    ?? (activeSliderModel?.reasoning.includes('medium')
       ? 'medium'
-      : currentModelConfig?.reasoning[0] ?? null;
+      : activeSliderModel?.reasoning[0] ?? null);
+  const activeSliderValue = activeSliderModel
+    ? `${splitFastModelName(activeSliderModel.name).name} - ${titleCaseEffort(activeSliderEffort) || 'Default'}`
+    : undefined;
+  const sliderFillPercent = maxIntelligenceIndex > 0
+    ? (committedIntelligenceIndex / maxIntelligenceIndex) * 100
+    : 100;
+  const sliderThumbOffset = maxIntelligenceIndex > 0
+    ? 13 - ((committedIntelligenceIndex / maxIntelligenceIndex) * 26)
+    : 0;
+  const previewingIntelligence = modelMenuOpen
+    && hasIntelligenceSlider
+    && !advancedPickerOpen
+    && intelligencePreviewIndex !== null;
+  const chipModel = splitFastModelName(
+    previewingIntelligence
+      ? activeSliderModel?.name ?? ''
+      : currentModelConfig?.name ?? modelName ?? '',
+  );
+  const chipEffortLabel = titleCaseEffort(
+    previewingIntelligence ? activeSliderEffort : activeReasoningEffort,
+  ) || null;
   const activePermissionMode = permissionModes.find((mode) => mode.id === permissionMode);
   const commandOptions = useMemo(() => {
     const normalized = commandQuery.trim().toLowerCase();
@@ -385,8 +431,10 @@ export function Composer({
         .filter((effort) => effort.includes(normalized))
         .map((effort) => ({
           id: effort,
-          label: effort,
-          description: effort === 'max' ? 'Maximum reasoning depth' : `${effort} reasoning effort`,
+          label: titleCaseEffort(effort),
+          description: effort === 'max'
+            ? 'Maximum reasoning depth'
+            : `${titleCaseEffort(effort)} reasoning effort`,
           value: effort,
           selected: effort === activeReasoningEffort,
         }));
@@ -747,12 +795,48 @@ export function Composer({
     await onSend(payload);
   }
 
+  function closeModelMenu() {
+    setModelMenuOpen(false);
+    setAdvancedPickerOpen(false);
+    setAdvancedModelSubmenuOpen(false);
+    setAdvancedEffortSubmenuOpen(false);
+    intelligencePreviewIndexRef.current = null;
+    setIntelligencePreviewIndex(null);
+  }
+
   function chooseModel(modelId) {
     setCurrentModel(modelId);
     onChooseModel(modelId);
     setReasoningEffort(readPersistedReasoningEffort(modelId) ?? null);
-    setReasoningMenuOpen(false);
-    setModelMenuOpen(false);
+    closeModelMenu();
+    setModelPickerOpen(false);
+  }
+
+  function updateIntelligenceSliderPosition(input, position) {
+    const ratio = maxIntelligenceIndex > 0 ? position / maxIntelligenceIndex : 1;
+    const slider = input.parentElement;
+    input.value = String(position);
+    slider.style.setProperty('--intelligence-fill', `${ratio * 100}%`);
+    slider.style.setProperty('--intelligence-thumb-offset', `${13 - (ratio * 26)}px`);
+    slider.style.setProperty(
+      '--intelligence-shimmer-opacity',
+      position === maxIntelligenceIndex ? '0.72' : '0',
+    );
+    slider.style.setProperty(
+      '--intelligence-shimmer-play-state',
+      position === maxIntelligenceIndex ? 'running' : 'paused',
+    );
+  }
+
+  function commitIntelligencePreview(position) {
+    const snappedIndex = Math.round(position);
+    const level = usableIntelligenceLevels[snappedIndex];
+    intelligencePreviewIndexRef.current = snappedIndex;
+    setIntelligencePreviewIndex(snappedIndex);
+    if (!level) return;
+    setCurrentModel(level.modelId);
+    onChooseModel(level.modelId);
+    setReasoningEffort(level.reasoningEffort ?? null);
     setModelPickerOpen(false);
   }
 
@@ -1517,11 +1601,13 @@ export function Composer({
                   {attachment.kind === 'context_marker'
                     ? attachment.markerType === 'workflow'
                       ? <Workflow size={13} />
-                      : attachment.markerType === 'directory_reference'
-                        ? <FolderOpen size={13} />
-                        : attachment.markerType?.startsWith('file_')
-                          ? <FileText size={13} />
-                          : <Sparkles size={13} />
+                      : attachment.markerType === 'work_item'
+                        ? <ListChecks size={13} />
+                        : attachment.markerType === 'directory_reference'
+                          ? <FolderOpen size={13} />
+                          : attachment.markerType?.startsWith('file_')
+                            ? <FileText size={13} />
+                            : <Sparkles size={13} />
                     : <Paperclip size={13} />}
                   <span className="attachment-name" title={attachment.name}>{attachment.name}</span>
                   {attachment.kind !== 'context_marker' && <small>{formatBytes(attachment.size)}</small>}
@@ -1732,148 +1818,335 @@ export function Composer({
                 className="model-input-label bot-model-label"
                 title="The model is configured in the bot settings"
               >
-                {currentModelConfig?.name || modelName || 'Model'}
-                {activeReasoningEffort && (
-                  <span className="model-input-effort"> - {activeReasoningEffort}</span>
+                {chipModel.name || 'Model'}
+                {chipModel.isFast && <Zap size={12} fill="currentColor" aria-hidden="true" />}
+                {chipEffortLabel && (
+                  <span className="model-input-effort"> - {chipEffortLabel}</span>
                 )}
               </span>
             ) : (
             <button
               className="model-input-trigger"
               type="button"
+              title={currentModelConfig || modelName
+                ? `${chipModel.name}${chipEffortLabel ? ` - ${chipEffortLabel}` : ''}`
+                : undefined}
               onClick={() => {
-                setReasoningMenuOpen(false);
+                setAdvancedPickerOpen(activeIntelligenceIndex < 0);
+                setAdvancedModelSubmenuOpen(false);
+                setAdvancedEffortSubmenuOpen(false);
+                intelligencePreviewIndexRef.current = null;
+                setIntelligencePreviewIndex(null);
                 setModelMenuOpen((value) => !value);
               }}
             >
-              <span className="model-input-label">
-                {currentModelConfig?.name || modelName || 'Choose model'}
-                {activeReasoningEffort && (
-                  <span className="model-input-effort"> - {activeReasoningEffort}</span>
-                )}
+              <span
+                className="model-input-label"
+                title={currentModelConfig || modelName
+                  ? `${chipModel.name}${chipEffortLabel ? ` - ${chipEffortLabel}` : ''}`
+                  : undefined}
+              >
+                <span className="model-input-name">
+                  {chipModel.name || 'Choose model'}
+                  {chipModel.isFast && <Zap size={12} fill="currentColor" aria-hidden="true" />}
+                  {chipEffortLabel && (
+                    <span className="model-input-effort"> - {chipEffortLabel}</span>
+                  )}
+                </span>
               </span>
               <ChevronDown size={14} />
             </button>
             )}
-            {modelMenuOpen && (
-              <DropdownMenu className="model-input-menu">
-                <div className="model-input-menu-list">
-                  {[
-                    {
-                      id: 'recent',
-                      label: 'Recent',
-                      icon: <Clock3 size={12} />,
-                      models: quickRecentModels,
-                      empty: 'No recent models',
-                    },
-                    {
-                      id: 'favorites',
-                      label: 'Favorites',
-                      icon: <Star size={12} />,
-                      models: favoriteModels,
-                      empty: 'No favorite models',
-                    },
-                  ].map((section) => (
-                    <section className="model-menu-section" key={section.id}>
-                      <div className="model-menu-section-title">
-                        {section.icon}
-                        <span>{section.label}</span>
-                      </div>
-                      {section.models.length > 0 ? section.models.map((model) => (
-                        <DropdownMenuItem
-                          className="model-menu-model"
-                          key={model.id}
-                          active={model.id === currentModel}
-                          aria-label={`${model.name || model.id}, ${model.providerName}`}
-                          onClick={() => chooseModel(model.id)}
-                        >
-                          <span className="model-menu-model-copy">
-                            <strong>{model.name || model.id}</strong>
-                            <small>{model.providerName}</small>
-                          </span>
-                        </DropdownMenuItem>
-                      )) : (
-                        <span className="dropdown-menu-empty">{section.empty}</span>
-                      )}
-                    </section>
-                  ))}
-                </div>
-                <div className="dropdown-menu-divider" />
-                {currentModelConfig?.reasoning.length > 0 && (
-                  <>
-                    <div
-                      className="model-reasoning-submenu-holder"
-                      onMouseEnter={() => setReasoningMenuOpen(true)}
-                      onMouseLeave={() => setReasoningMenuOpen(false)}
-                      onFocus={() => setReasoningMenuOpen(true)}
-                      onBlur={(event) => {
-                        if (!event.currentTarget.contains(event.relatedTarget)) {
-                          setReasoningMenuOpen(false);
-                        }
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Escape' || event.key === 'ArrowLeft') {
-                          event.preventDefault();
-                          setReasoningMenuOpen(false);
-                          event.currentTarget.querySelector('.model-reasoning-trigger')?.focus();
-                        } else if (event.key === 'ArrowRight') {
-                          event.preventDefault();
-                          const holder = event.currentTarget;
-                          setReasoningMenuOpen(true);
-                          queueMicrotask(() => (
-                            holder.querySelector('.model-reasoning-submenu button')?.focus()
-                          ));
-                        }
-                      }}
-                    >
-                      <DropdownMenuItem
-                        className="model-reasoning-trigger"
-                        icon={<Brain size={14} />}
-                        aria-haspopup="menu"
-                        aria-expanded={reasoningMenuOpen}
-                        onClick={() => setReasoningMenuOpen((open) => !open)}
-                      >
-                        <>
-                          <span>Reasoning</span>
-                          <ChevronRight size={14} />
-                        </>
-                      </DropdownMenuItem>
-                      {reasoningMenuOpen && (
-                        <DropdownMenu className="model-reasoning-submenu">
-                          {currentModelConfig.reasoning.map((effort) => (
-                            <DropdownMenuItem
-                              key={effort}
-                              active={effort === activeReasoningEffort}
-                              icon={(
-                                <span className="model-reasoning-check">
-                                  {effort === activeReasoningEffort && <Check size={13} />}
-                                </span>
-                              )}
-                              onClick={() => {
-                                setReasoningEffort(effort);
-                                if (persistState) writePersistedReasoningEffort(currentModel, effort);
-                                setReasoningMenuOpen(false);
-                                setModelMenuOpen(false);
-                              }}
-                            >
-                              {effort}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenu>
-                      )}
-                    </div>
-                    <div className="dropdown-menu-divider" />
-                  </>
+            {modelMenuOpen && (!hasIntelligenceSlider || advancedPickerOpen) && (
+              <DropdownMenu
+                className="model-input-menu"
+                role="menu"
+                aria-label="Model and reasoning"
+                onKeyDown={(event) => {
+                  if (event.key !== 'Escape') return;
+                  event.preventDefault();
+                  closeModelMenu();
+                }}
+              >
+                {hasIntelligenceSlider && (
+                  <DropdownMenuItem
+                    className="model-reasoning-trigger"
+                    onClick={() => {
+                      setAdvancedPickerOpen(false);
+                      setAdvancedModelSubmenuOpen(false);
+                      setAdvancedEffortSubmenuOpen(false);
+                    }}
+                  >
+                    <>
+                      <span>Advanced</span>
+                      <ChevronDown size={13} />
+                    </>
+                  </DropdownMenuItem>
                 )}
-                <DropdownMenuItem
-                  icon={<Search size={14} />}
-                  onClick={() => {
-                    setReasoningMenuOpen(false);
-                    setModelMenuOpen(false);
-                    setModelPickerOpen(true);
+                <div
+                  className="model-reasoning-submenu-holder"
+                  onMouseEnter={() => {
+                    setAdvancedModelSubmenuOpen(true);
+                    setAdvancedEffortSubmenuOpen(false);
+                  }}
+                  onMouseLeave={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) {
+                      setAdvancedModelSubmenuOpen(false);
+                    }
+                  }}
+                  onFocus={() => {
+                    setAdvancedModelSubmenuOpen(true);
+                    setAdvancedEffortSubmenuOpen(false);
+                  }}
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) {
+                      setAdvancedModelSubmenuOpen(false);
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape' || event.key === 'ArrowLeft') {
+                      event.preventDefault();
+                      setAdvancedModelSubmenuOpen(false);
+                      event.currentTarget.querySelector('.model-reasoning-trigger')?.focus();
+                    } else if (event.key === 'ArrowRight') {
+                      event.preventDefault();
+                      const holder = event.currentTarget;
+                      setAdvancedModelSubmenuOpen(true);
+                      queueMicrotask(() => (
+                        holder.querySelector('.model-reasoning-submenu button')?.focus()
+                      ));
+                    }
                   }}
                 >
-                  Explore models
+                  <DropdownMenuItem
+                    className="model-reasoning-trigger"
+                    aria-haspopup="menu"
+                    aria-expanded={advancedModelSubmenuOpen}
+                    onClick={() => {
+                      setAdvancedModelSubmenuOpen((open) => !open);
+                      setAdvancedEffortSubmenuOpen(false);
+                    }}
+                  >
+                    <>
+                      <span>Model</span>
+                      <span>
+                        {chipModel.name || 'Choose model'}
+                        {chipModel.isFast && <Zap size={12} fill="currentColor" aria-hidden="true" />}
+                        <ChevronRight size={13} />
+                      </span>
+                    </>
+                  </DropdownMenuItem>
+                  {advancedModelSubmenuOpen && (
+                    <DropdownMenu className="model-reasoning-submenu">
+                      {favoriteModels.slice(0, 5).map((model) => {
+                        const { name, isFast } = splitFastModelName(model.name || model.id);
+                        return (
+                          <DropdownMenuItem
+                            key={model.id}
+                            active={model.id === currentModel}
+                            aria-label={`${model.name || model.id}, ${model.providerName}`}
+                            onClick={() => chooseModel(model.id)}
+                          >
+                            {name}
+                            {isFast && <Zap size={12} fill="currentColor" aria-hidden="true" />}
+                          </DropdownMenuItem>
+                        );
+                      })}
+                      {favoriteModels.length === 0 && (
+                        <span className="dropdown-menu-empty">No favorite models</span>
+                      )}
+                      <div className="dropdown-menu-divider" />
+                      <DropdownMenuItem
+                        icon={<Search size={14} />}
+                        onClick={() => {
+                          closeModelMenu();
+                          setModelPickerOpen(true);
+                        }}
+                      >
+                        Explore models
+                      </DropdownMenuItem>
+                    </DropdownMenu>
+                  )}
+                </div>
+                {currentModelConfig?.reasoning.length > 0 && (
+                  <div
+                    className="model-reasoning-submenu-holder"
+                    onMouseEnter={() => {
+                      setAdvancedEffortSubmenuOpen(true);
+                      setAdvancedModelSubmenuOpen(false);
+                    }}
+                    onMouseLeave={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget)) {
+                        setAdvancedEffortSubmenuOpen(false);
+                      }
+                    }}
+                    onFocus={() => {
+                      setAdvancedEffortSubmenuOpen(true);
+                      setAdvancedModelSubmenuOpen(false);
+                    }}
+                    onBlur={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget)) {
+                        setAdvancedEffortSubmenuOpen(false);
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape' || event.key === 'ArrowLeft') {
+                        event.preventDefault();
+                        setAdvancedEffortSubmenuOpen(false);
+                        event.currentTarget.querySelector('.model-reasoning-trigger')?.focus();
+                      } else if (event.key === 'ArrowRight') {
+                        event.preventDefault();
+                        const holder = event.currentTarget;
+                        setAdvancedEffortSubmenuOpen(true);
+                        queueMicrotask(() => (
+                          holder.querySelector('.model-reasoning-submenu button')?.focus()
+                        ));
+                      }
+                    }}
+                  >
+                    <DropdownMenuItem
+                      className="model-reasoning-trigger"
+                      aria-haspopup="menu"
+                      aria-expanded={advancedEffortSubmenuOpen}
+                      onClick={() => {
+                        setAdvancedEffortSubmenuOpen((open) => !open);
+                        setAdvancedModelSubmenuOpen(false);
+                      }}
+                    >
+                      <>
+                        <span>Effort</span>
+                        <span>
+                          {chipEffortLabel ?? 'Default'}
+                          <ChevronRight size={13} />
+                        </span>
+                      </>
+                    </DropdownMenuItem>
+                    {advancedEffortSubmenuOpen && (
+                      <DropdownMenu className="model-reasoning-submenu">
+                        {currentModelConfig.reasoning.map((effort) => (
+                          <DropdownMenuItem
+                            key={effort}
+                            active={effort === activeReasoningEffort}
+                            icon={(
+                              <span className="model-reasoning-check">
+                                {effort === activeReasoningEffort && <Check size={13} />}
+                              </span>
+                            )}
+                            onClick={() => {
+                              setReasoningEffort(effort);
+                              if (persistState) writePersistedReasoningEffort(currentModel, effort);
+                              closeModelMenu();
+                            }}
+                          >
+                            {titleCaseEffort(effort)}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenu>
+                    )}
+                  </div>
+                )}
+              </DropdownMenu>
+            )}
+            {modelMenuOpen && hasIntelligenceSlider && !advancedPickerOpen && (
+              <DropdownMenu
+                className="intelligence-menu"
+                role="dialog"
+                aria-label="Choose intelligence level"
+                onKeyDown={(event) => {
+                  if (event.key !== 'Escape') return;
+                  event.preventDefault();
+                  closeModelMenu();
+                }}
+              >
+                <div
+                  className="intelligence-slider"
+                  style={{
+                    '--intelligence-fill': `${sliderFillPercent}%`,
+                    '--intelligence-thumb-offset': `${sliderThumbOffset}px`,
+                    '--intelligence-shimmer-opacity': committedIntelligenceIndex
+                      === maxIntelligenceIndex ? '0.72' : '0',
+                    '--intelligence-shimmer-play-state': committedIntelligenceIndex
+                      === maxIntelligenceIndex ? 'running' : 'paused',
+                  }}
+                >
+                  <span className="intelligence-slider-track" aria-hidden="true" />
+                  <input
+                    className="intelligence-slider-input"
+                    type="range"
+                    min={0}
+                    max={maxIntelligenceIndex}
+                    step={0.01}
+                    defaultValue={committedIntelligenceIndex}
+                    aria-label="Intelligence level"
+                    aria-valuetext={activeSliderValue}
+                    onChange={(event) => {
+                      const position = Number(event.currentTarget.value);
+                      updateIntelligenceSliderPosition(event.currentTarget, position);
+                      const nextIndex = Math.round(position);
+                      if (intelligencePreviewIndexRef.current !== nextIndex) {
+                        intelligencePreviewIndexRef.current = nextIndex;
+                        setIntelligencePreviewIndex(nextIndex);
+                      }
+                    }}
+                    onPointerUp={(event) => {
+                      const snappedIndex = Math.round(Number(event.currentTarget.value));
+                      updateIntelligenceSliderPosition(event.currentTarget, snappedIndex);
+                      commitIntelligencePreview(snappedIndex);
+                    }}
+                    onPointerCancel={(event) => {
+                      updateIntelligenceSliderPosition(
+                        event.currentTarget,
+                        committedIntelligenceIndex,
+                      );
+                      intelligencePreviewIndexRef.current = null;
+                      setIntelligencePreviewIndex(null);
+                    }}
+                    onKeyDown={(event) => {
+                      const currentIndex = Math.round(Number(event.currentTarget.value));
+                      const nextIndex = event.key === 'Home'
+                        ? 0
+                        : event.key === 'End'
+                          ? maxIntelligenceIndex
+                          : ['ArrowRight', 'ArrowUp', 'PageUp'].includes(event.key)
+                            ? Math.min(currentIndex + 1, maxIntelligenceIndex)
+                            : ['ArrowLeft', 'ArrowDown', 'PageDown'].includes(event.key)
+                              ? Math.max(currentIndex - 1, 0)
+                              : null;
+                      if (nextIndex === null) return;
+                      event.preventDefault();
+                      updateIntelligenceSliderPosition(event.currentTarget, nextIndex);
+                      commitIntelligencePreview(nextIndex);
+                    }}
+                    onBlur={() => {
+                      intelligencePreviewIndexRef.current = null;
+                      setIntelligencePreviewIndex(null);
+                    }}
+                  />
+                  <div className="intelligence-slider-dots" aria-hidden="true">
+                    {usableIntelligenceLevels.map((level, index) => (
+                      <span
+                        key={level.id}
+                        className={index <= intelligenceLevelIndex ? 'filled' : ''}
+                        style={{ left: `${usableIntelligenceLevels.length > 1
+                          ? (index / (usableIntelligenceLevels.length - 1)) * 100
+                          : 50}%` }}
+                      />
+                    ))}
+                  </div>
+                  <span className="intelligence-slider-thumb" aria-hidden="true" />
+                </div>
+                <DropdownMenuItem
+                  className="model-reasoning-trigger"
+                  onClick={() => {
+                    setAdvancedPickerOpen(true);
+                    setAdvancedModelSubmenuOpen(false);
+                    setAdvancedEffortSubmenuOpen(false);
+                  }}
+                >
+                  <>
+                    <span>Advanced</span>
+                    <ChevronRight size={13} />
+                  </>
                 </DropdownMenuItem>
               </DropdownMenu>
             )}

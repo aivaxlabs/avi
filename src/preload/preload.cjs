@@ -153,6 +153,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     fullReset: (botId) => invoke('bots:full-reset', botId),
     activate: (botId) => invoke('bots:activate', botId),
     resolveApproval: (payload) => invoke('bots:resolve-approval', payload),
+    updateWorkItem: (payload) => invoke('bots:update-work-item', payload),
     chooseFolder: () => invoke('bots:choose-folder'),
   },
   providers: {
