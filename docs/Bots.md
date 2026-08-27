@@ -6,7 +6,7 @@ Bots are autonomous AI teammates. Each bot lives in a persistent thread, is acti
 
 Use the **+** button in the sidebar's **Bots** section. Avi creates the bot with a random identity icon and opens its settings. Every bot needs a configured model before creation.
 
-Use the moon button beside **+** to snooze scheduled bot activations for 1 hour, 6 hours, 24 hours, or until Avi restarts. Snooze does not stop bots that are already working, change the Work queue order, or block **Activate now**. Timed Snoozes keep their deadline if Avi restarts; **Snooze until restart** ends when Avi restarts.
+Use the moon button beside **+** to snooze scheduled bot activations for 1 hour, 6 hours, 24 hours, or until Avi restarts. Repeated timed Snoozes add to the active deadline instead of replacing it. While Snooze is active, the menu shows the remaining time and a **Reset** action that removes it. Snooze does not stop bots that are already working, change the Work queue order, or block **Activate now**. Timed Snoozes keep their deadline if Avi restarts; **Snooze until restart** ends when Avi restarts.
 
 Agents in normal threads and Quick Chat can also manage bots with `bots_list`, `bots_create`, `bots_update`, `bots_delete`, and `bots_activate`. Select `/create-bot` in the composer for a guided setup that checks existing bots, defines the purpose and schedule, creates the bot, verifies its configuration, and optionally starts its first activation. Autonomous bot conversations do not receive these management tools and cannot create or control other bots.
 
@@ -108,6 +108,6 @@ If Avi closes or restarts while a bot is working, its current activation resumes
 
 ## Sidebar
 
-- The moon beside **+** opens the global Snooze menu for scheduled activations. The button remains highlighted while Snooze is active.
+- The moon beside **+** opens the global Snooze menu for scheduled activations. The button remains highlighted while Snooze is active; open the menu to see the remaining time or reset it.
 - The bot's context menu offers **Bot settings**, **Activate now**, and **Delete bot...** (removes the conversation and pending approvals; memory and work-state files stay on disk).
 - The sidebar indicator reflects the bot state: a spinner while working, a green dot while active and waiting for its next activation, or a gray moon while sleeping because of smart idle, a repeated-activation pause, a manual pause, or the schedule window. Disabled bots use a gray dot and appear dimmed.

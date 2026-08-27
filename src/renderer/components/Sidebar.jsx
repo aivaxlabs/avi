@@ -111,6 +111,18 @@ export const Sidebar = memo(function Sidebar({
   const chronologicalDayStart = conversationGrouping === 'chronological'
     ? new Date(now).setHours(0, 0, 0, 0)
     : null;
+  const snoozeUntil = new Date(botSchedulerSnooze.until ?? '').getTime();
+  const snoozeRemainingMinutes = Math.ceil((snoozeUntil - now) / 60_000);
+  let snoozeRemaining = null;
+  if (botSchedulerSnooze.mode === 'until-restart') {
+    snoozeRemaining = 'until restart';
+  } else if (Number.isFinite(snoozeUntil) && snoozeRemainingMinutes > 0) {
+    snoozeRemaining = snoozeRemainingMinutes >= 1_440
+      ? `${Math.floor(snoozeRemainingMinutes / 1_440)}d`
+      : snoozeRemainingMinutes >= 60
+        ? `${Math.floor(snoozeRemainingMinutes / 60)}h`
+        : `${snoozeRemainingMinutes}m`;
+  }
 
   const conversationGroups = useMemo(() => {
     const sortedConversations = [...conversations]
@@ -292,15 +304,19 @@ export const Sidebar = memo(function Sidebar({
       setSnoozeMenuOpen(false);
       snoozeButtonRef.current?.focus();
     };
+    const countdownTimer = botSchedulerSnooze.mode === 'until'
+      ? window.setInterval(() => setNow(Date.now()), 30_000)
+      : null;
     window.addEventListener('pointerdown', close);
     window.addEventListener('keydown', closeOnEscape);
     window.addEventListener('resize', close, { once: true });
     return () => {
+      if (countdownTimer !== null) window.clearInterval(countdownTimer);
       window.removeEventListener('pointerdown', close);
       window.removeEventListener('keydown', closeOnEscape);
       window.removeEventListener('resize', close);
     };
-  }, [snoozeMenuOpen]);
+  }, [botSchedulerSnooze.mode, snoozeMenuOpen]);
 
   useEffect(() => {
     if (!folderMenu) return undefined;
@@ -435,6 +451,7 @@ export const Sidebar = memo(function Sidebar({
                 : 'Snooze bots'}
               onClick={() => {
                 const rect = snoozeButtonRef.current.getBoundingClientRect();
+                setNow(Date.now());
                 setSnoozeMenuPosition({
                   top: rect.bottom + 4,
                   left: Math.max(8, Math.min(rect.right - 190, window.innerWidth - 198)),
@@ -478,6 +495,14 @@ export const Sidebar = memo(function Sidebar({
           <DropdownMenuItem icon={<Moon size={14} />} role="menuitem" onClick={() => chooseBotSnooze({ untilRestart: true })}>
             Snooze until restart
           </DropdownMenuItem>
+          {botSchedulerSnooze.active && snoozeRemaining && (
+            <>
+              <hr className="dropdown-menu-divider" />
+              <DropdownMenuItem icon={<X size={14} />} role="menuitem" onClick={() => chooseBotSnooze({ reset: true })}>
+                Reset ({snoozeRemaining})
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenu>,
         document.body,
       )}

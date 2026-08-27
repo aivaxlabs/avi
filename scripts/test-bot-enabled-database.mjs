@@ -61,6 +61,12 @@ try {
   assert.equal(timedSnooze.mode, 'until');
   assert.equal(getBotSchedulerSnoozeUntil(), timedSnooze.until, 'timed Snooze is persisted');
   assert.equal(new BotManager().getSchedulerSnooze().until, timedSnooze.until, 'timed Snooze survives a new manager');
+  const cumulativeSnooze = manager.setSchedulerSnooze({ durationMinutes: 60 });
+  assert.equal(
+    new Date(cumulativeSnooze.until).getTime(),
+    new Date(timedSnooze.until).getTime() + 3_600_000,
+    'timed Snooze adds to the active deadline',
+  );
 
   const queueIndexBeforeSnooze = getBot(bot.id).workQueueIndex;
   await manager.tick();
@@ -71,10 +77,19 @@ try {
   assert.equal(activationRequests.length, 1, 'manual activation remains available during Snooze');
   assert.equal(getBot(bot.id).workQueueIndex, 0, 'manual activation keeps the existing queue order');
 
+  const resetTimedSnooze = manager.setSchedulerSnooze({ reset: true });
+  assert.deepEqual(resetTimedSnooze, { active: false, mode: null, until: null });
+  assert.equal(getBotSchedulerSnoozeUntil(), null, 'Reset clears a timed Snooze deadline');
+
   const restartSnooze = manager.setSchedulerSnooze({ untilRestart: true });
   assert.deepEqual(restartSnooze, { active: true, mode: 'until-restart', until: null });
   assert.equal(getBotSchedulerSnoozeUntil(), null, 'restart Snooze is not persisted');
   assert.equal(new BotManager().getSchedulerSnooze().active, false, 'restart Snooze ends with the manager process');
+  assert.deepEqual(
+    manager.setSchedulerSnooze({ reset: true }),
+    { active: false, mode: null, until: null },
+    'Reset clears a restart Snooze',
+  );
   assert.throws(
     () => manager.setSchedulerSnooze({ durationMinutes: 30 }),
     /must be 60, 360, or 1440 minutes/,

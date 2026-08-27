@@ -141,8 +141,12 @@ export class BotManager {
     return { active: false, mode: null, until: null };
   }
 
-  setSchedulerSnooze({ durationMinutes, untilRestart = false } = {}) {
-    if (untilRestart === true) {
+  setSchedulerSnooze({ durationMinutes, untilRestart = false, reset = false } = {}) {
+    if (reset === true) {
+      this.schedulerSnoozeUntilRestart = false;
+      this.schedulerSnoozeUntil = null;
+      setBotSchedulerSnoozeUntil(null);
+    } else if (untilRestart === true) {
       this.schedulerSnoozeUntilRestart = true;
       this.schedulerSnoozeUntil = null;
       setBotSchedulerSnoozeUntil(null);
@@ -151,8 +155,15 @@ export class BotManager {
       if (!SNOOZE_DURATIONS_MINUTES.has(duration)) {
         throw new Error('Bot Snooze duration must be 60, 360, or 1440 minutes.');
       }
+      const now = Date.now();
+      const currentUntil = new Date(this.schedulerSnoozeUntil ?? '').getTime();
+      const startsAt = !this.schedulerSnoozeUntilRestart
+        && Number.isFinite(currentUntil)
+        && currentUntil > now
+        ? currentUntil
+        : now;
       this.schedulerSnoozeUntilRestart = false;
-      this.schedulerSnoozeUntil = new Date(Date.now() + duration * 60_000).toISOString();
+      this.schedulerSnoozeUntil = new Date(startsAt + duration * 60_000).toISOString();
       setBotSchedulerSnoozeUntil(this.schedulerSnoozeUntil);
     }
     const snooze = this.getSchedulerSnooze();
