@@ -1,6 +1,6 @@
 # Setup folders and initialize context
 
-A conversation folder is its workspace: files, `<fileref path="./path" />` references, terminal working directory, project context, and folder-scoped MCP servers.
+A conversation folder is its workspace: files, `:fileref{path="./path"}` references, terminal working directory, project context, and folder-scoped MCP servers.
 
 ## Select a folder
 

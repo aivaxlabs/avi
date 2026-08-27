@@ -14,7 +14,7 @@ The center area displays messages, reasoning, and tool traces when **Chat reason
 
 The built-in `get_chat_attachments` tool returns local paths and stable `attachmentIndex` values for images, audio, and videos attached by the user in the current chat. When an attachment exists only in the model inference payload, Avi first materializes it under managed temporary storage. The returned `temporary` and `materialized` fields identify temporary files and copies created by the current call. Temporary copies can be removed from **Settings → Maintenance → Archive → Delete temporary storage**.
 
-Message actions may retry or resume a response, fork from a point in history, undo recorded file edits, open `<fileref path="./path" />` references, or implement a completed Plan.
+Message actions may retry or resume a response, fork from a point in history, undo recorded file edits, open `:fileref{path="./path"}` references, or implement a completed Plan.
 
 ## Auxiliary panel
 

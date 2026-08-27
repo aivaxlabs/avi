@@ -1,0 +1,108 @@
+.markdown-body {
+  .directive-heading {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 1.75em 0 .65em;
+    padding: 8px 12px;
+    color: var(--text-1);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-left: 3px solid currentColor;
+    border-radius: 8px;
+    font-size: 1em;
+    font-weight: 600;
+
+    > svg { flex: 0 0 auto; }
+    > span { min-width: 0; }
+
+    &.callout-info { color: var(--primary-color); }
+    &.callout-success { color: var(--success-color); }
+    &.callout-warning,
+    &.finding-p1 { color: var(--warn-color); }
+    &.callout-danger,
+    &.finding-p0 { color: var(--danger-color); }
+
+    &.finding-heading {
+      &::before {
+        content: attr(data-directive-label);
+        flex: 0 0 auto;
+        width: 32px;
+        padding: 1px 0;
+        background: color-mix(in srgb, currentColor 9%, transparent);
+        border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+        border-radius: 4px;
+        font: 700 .82em var(--font-code);
+        text-align: center;
+      }
+    }
+
+    strong,
+    code { color: inherit; }
+  }
+
+  .avi-diff-code {
+    max-height: min(520px, 60vh);
+    margin: 0;
+    border-radius: 0;
+    font: 12px/1.55 var(--font-code);
+  }
+
+  .rich-chart-progress {
+    .rich-chart-bar-row {
+      grid-template-columns: minmax(70px, 140px) minmax(100px, 1fr) minmax(70px, auto);
+
+      i { background: var(--success-color); }
+    }
+  }
+
+  .async-visualization {
+    min-width: 0;
+    max-width: 100%;
+    margin: 12px 0;
+    padding: 16px;
+    overflow: auto;
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+
+    &.is-loading {
+      min-height: 96px;
+      background: linear-gradient(100deg, var(--background-2) 25%, var(--background-3) 40%, var(--background-2) 55%);
+      background-size: 220% 100%;
+      animation: visualization-loading 1.4s ease-in-out infinite;
+    }
+
+    &.has-error {
+      color: var(--danger-color);
+
+      pre {
+        margin: 10px 0 0;
+        color: var(--text-2);
+      }
+    }
+  }
+
+  img.mermaid-visualization {
+    width: auto;
+    max-height: min(680px, 75vh);
+    display: block;
+    margin-inline: auto;
+    object-fit: contain;
+  }
+
+  .latex-visualization {
+    color: var(--text-1);
+    text-align: center;
+  }
+}
+
+@keyframes visualization-loading {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown-body .async-visualization.is-loading { animation: none; }
+}

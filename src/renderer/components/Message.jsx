@@ -79,79 +79,9 @@ const compactTokenFormatter = new Intl.NumberFormat('en-US', {
 });
 const STANDARD_MARKDOWN_PLUGINS = Object.freeze([remarkGfm]);
 const MARKDOWN_PLUGINS = Object.freeze([
+  remarkDirective,
+  remarkAviDirectives,
   ...STANDARD_MARKDOWN_PLUGINS,
-  () => (tree) => {
-    for (const node of tree.children ?? []) {
-      const firstChild = node.children?.[0];
-      if (
-        (node.type !== 'paragraph' && node.type !== 'heading')
-        || firstChild?.type !== 'text'
-      ) {
-        continue;
-      }
-      const match = /^[\u200B-\u200D\u2060\uFEFF]*#finding:(P[0-3])\s+/.exec(firstChild.value);
-      if (!match) continue;
-
-      const priority = match[1];
-      node.type = 'heading';
-      node.depth = 3;
-      firstChild.value = firstChild.value.slice(match[0].length);
-      if (!firstChild.value) node.children.shift();
-      node.data = {
-        hProperties: {
-          className: `finding-heading finding-${priority.toLowerCase()}`,
-          'data-finding-priority': priority,
-        },
-      };
-    }
-  },
-  () => (tree) => {
-    const walk = (node) => {
-      if (
-        !node.children
-        || ['code', 'inlineCode', 'link', 'linkReference', 'html'].includes(node.type)
-      ) {
-        return;
-      }
-
-      node.children = node.children.flatMap((child) => {
-        if (child.type !== 'html') {
-          walk(child);
-          return child;
-        }
-
-        const parts = [];
-        let cursor = 0;
-        for (const match of parseFileReferences(child.value)) {
-          if (match.index > cursor) {
-            parts.push({
-              type: 'text',
-              value: child.value.slice(cursor, match.index),
-            });
-          }
-          parts.push({
-            type: 'link',
-            url: `#file-reference=${encodeURIComponent(JSON.stringify(match.reference))}`,
-            children: [{
-              type: 'text',
-              value: match.raw,
-            }],
-          });
-          cursor = match.index + match.raw.length;
-        }
-        if (parts.length === 0) return child;
-        if (cursor < child.value.length) {
-          parts.push({
-            type: 'text',
-            value: child.value.slice(cursor),
-          });
-        }
-        return parts;
-      });
-    };
-
-    walk(tree);
-  },
 ]);
 const MemoizedMarkdown = memo(ReactMarkdown);
 const TOOL_ICONS = Object.freeze({
@@ -1032,27 +962,26 @@ const MarkdownSegment = memo(function MarkdownSegment({
     ),
     [finalized, onOpenFileReference, openFileReferenceContextMenu],
   );
-  const parts = useMemo(() => splitRichMarkdownBlocks(renderedText).flatMap((richPart) => {
-    if (richPart.type !== 'markdown') return richPart;
+  const parts = useMemo(() => {
     const parsed = [];
-    const plans = executionPlansFromTextualBlocks(richPart.text);
+    const plans = executionPlansFromTextualBlocks(renderedText);
     const pattern = /<execution-plan>\s*[\s\S]*?\S\s*<\/execution-plan>/gi;
     let cursor = 0;
     let planIndex = 0;
     let match;
-    while ((match = pattern.exec(richPart.text)) !== null) {
+    while ((match = pattern.exec(renderedText)) !== null) {
       if (match.index > cursor) {
-        parsed.push({ type: 'markdown', text: richPart.text.slice(cursor, match.index) });
+        parsed.push({ type: 'markdown', text: renderedText.slice(cursor, match.index) });
       }
       parsed.push({ type: 'execution-plan', text: plans[planIndex] });
       planIndex += 1;
       cursor = match.index + match[0].length;
     }
-    if (cursor < richPart.text.length) {
-      parsed.push({ type: 'markdown', text: richPart.text.slice(cursor) });
+    if (cursor < renderedText.length) {
+      parsed.push({ type: 'markdown', text: renderedText.slice(cursor) });
     }
     return parsed;
-  }), [renderedText]);
+  }, [renderedText]);
   const planCount = parts.filter((part) => part.type === 'execution-plan').length;
   const startPlanAction = async (action, plan) => {
     setPlanMenuOpen(false);
@@ -1147,22 +1076,13 @@ const MarkdownSegment = memo(function MarkdownSegment({
               </div>
             )}
           </CopyablePanel>
-        ) : part.type === 'markdown' ? (
-          part.text.trim() ? (
-            <div key={`markdown:${index}`} className="markdown-body">
-              <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>
-                {part.text}
-              </MemoizedMarkdown>
-            </div>
-          ) : null
-        ) : (
-          <RichContent
-            key={`${part.type}:${index}`}
-            part={part}
-            onOpenFileReference={onOpenFileReference}
-            onFileReferenceContextMenu={openFileReferenceContextMenu}
-          />
-        )
+        ) : part.text.trim() ? (
+          <div key={`markdown:${index}`} className="markdown-body">
+            <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>
+              {part.text}
+            </MemoizedMarkdown>
+          </div>
+        ) : null
       ))}
       {fileReferenceMenu && createPortal(
         <DropdownMenu
@@ -1290,6 +1210,86 @@ function createMarkdownComponents(finalized, onOpenFileReference, onFileReferenc
           <FileText size={13} aria-hidden="true" />
           <span>{displayLabel}</span>
         </a>
+      );
+    },
+    'avi-fileref': function FileReferenceDirective({ path, lineFrom, lineTo }) {
+      const reference = {
+        path,
+        lineFrom: lineFrom ? Number(lineFrom) : null,
+        lineTo: lineTo ? Number(lineTo) : null,
+      };
+      const fileName = path.split('/').filter(Boolean).at(-1) ?? path;
+      const displayLabel = reference.lineFrom === null
+        ? fileName
+        : reference.lineFrom === reference.lineTo
+          ? `${fileName}, line ${reference.lineFrom}`
+          : `${fileName}, lines ${reference.lineFrom}-${reference.lineTo}`;
+      const lineLabel = reference.lineFrom === null
+        ? ''
+        : reference.lineFrom === reference.lineTo
+          ? ` at line ${reference.lineFrom}`
+          : ` at lines ${reference.lineFrom} to ${reference.lineTo}`;
+      if (!onOpenFileReference) return <code>{displayLabel}</code>;
+      return (
+        <a
+          className="file-reference-link"
+          href={`#file-reference=${encodeURIComponent(JSON.stringify(reference))}`}
+          title={`Open ${path}${lineLabel}`}
+          onClick={(event) => {
+            event.preventDefault();
+            onOpenFileReference(reference);
+          }}
+          onContextMenu={(event) => onFileReferenceContextMenu(event, reference)}
+        >
+          <FileText size={13} aria-hidden="true" />
+          <span>{displayLabel}</span>
+        </a>
+      );
+    },
+    'avi-chart': function ChartDirective({ chartType, title, chartData }) {
+      return <RichContent part={{ type: 'chart', chartType, title, data: JSON.parse(chartData) }} />;
+    },
+    'avi-copy': function CopyDirective({ label, value }) {
+      return <RichContent part={{ type: 'copy', label, value }} />;
+    },
+    'avi-callout': function CalloutDirective({ children, kind, title }) {
+      return <RichContent part={{ type: 'callout', kind, title }}>{children}</RichContent>;
+    },
+    'avi-finding': function FindingDirective({ children, level, title }) {
+      return <RichContent part={{ type: 'finding', level, title }}>{children}</RichContent>;
+    },
+    'avi-diff': function DiffDirective({ source, title }) {
+      return <RichContent part={{ type: 'diff', title, value: source }} />;
+    },
+    'avi-mermaid': function MermaidDirective({ source }) {
+      return <RichContent part={{ type: 'mermaid', source }} />;
+    },
+    'avi-latex': function LatexDirective({ source, displayMode }) {
+      return <RichContent part={{ type: 'latex', source, displayMode: Boolean(displayMode) }} />;
+    },
+    'avi-file-mention': function FileMentionDirective({
+      children,
+      path,
+      lineFrom,
+      lineTo,
+      language,
+      value,
+    }) {
+      return (
+        <RichContent
+          part={{
+            type: 'file-mention',
+            path,
+            lineFrom: lineFrom ? Number(lineFrom) : null,
+            lineTo: lineTo ? Number(lineTo) : null,
+            language,
+            value,
+          }}
+          onOpenFileReference={onOpenFileReference}
+          onFileReferenceContextMenu={onFileReferenceContextMenu}
+        >
+          {children}
+        </RichContent>
       );
     },
     pre({ children, ...props }) {
@@ -1844,40 +1844,6 @@ function tagValue(text, tagName) {
   const valueStart = start + startTag.length;
   const end = findTag(text, endTag, valueStart);
   return stripTags(end >= 0 ? text.slice(valueStart, end) : text.slice(valueStart)).trim();
-}
-
-// Models frequently emit <fileref> with a missing or malformed closing
-// (">" instead of " />", stray text before the closing ">", missing quotes).
-// The parser is intentionally tolerant about the closing shape and strict
-// about the payload: invalid references are left as plain text.
-const FILE_REFERENCE_TAG_PATTERN = /<fileref\b((?:(?!<\/?>)[\s\S])*?)(?:\/(?:\s|>|$)|>)/gi;
-
-export function parseFileReferences(text) {
-  const matches = [];
-  for (const match of text.matchAll(FILE_REFERENCE_TAG_PATTERN)) {
-    const body = match[1];
-    const path = attributeValue(body, 'path');
-    const normalizedPath = path.replaceAll('\\', '/');
-    const lineFromText = attributeValue(body, 'line-from');
-    const lineToText = attributeValue(body, 'line-to');
-    const lineFrom = /^\d+$/.test(lineFromText) ? Number(lineFromText) : null;
-    const lineTo = /^\d+$/.test(lineToText) ? Number(lineToText) : lineFrom;
-    if (
-      (!normalizedPath.startsWith('./') && !normalizedPath.startsWith('../'))
-      || (lineFromText && lineFrom === null)
-      || (lineToText && lineTo === null)
-      || (lineToText && lineFrom === null)
-      || (lineFrom !== null && (lineFrom < 1 || lineTo < lineFrom))
-    ) {
-      continue;
-    }
-    matches.push({
-      index: match.index,
-      raw: match[0],
-      reference: { path, lineFrom, lineTo },
-    });
-  }
-  return matches;
 }
 
 function attributeValue(text, name) {

@@ -28,32 +28,40 @@ function renderFinding(content) {
 }
 
 for (const [content, priority, title] of [
-  ['#finding:P1 Redirects can bypass SSRF protection', 'P1', 'Redirects can bypass SSRF protection'],
-  ['\u200B#finding:P2 **Formatted** title', 'P2', '<strong>Formatted</strong> title'],
-  ['\u2060#finding:P3 `Inline code` title', 'P3', '<code>Inline code</code> title'],
-  [
-    [
-      'Recomendação: Classifique `memory` / `mcp` como semi-estáveis.',
-      '',
-      '#finding:P1 Sem `cache_control` explícito — depende de cache implícito frágil Evidência: Nenhum `createBody` emite',
-      '`cache_control` / cached hints. O projeto conta com prefix-cache implícito do provider (OpenAI/Anthropic).',
-    ].join('\n'),
-    'P1',
-    'Sem <code>cache_control</code> explícito',
-  ],
+  ['::finding[Redirects can bypass SSRF protection]{level="P1"}', 'P1', 'Redirects can bypass SSRF protection'],
+  ['::finding[**Formatted** title]{level="P2"}', 'P2', '<strong>Formatted</strong> title'],
+  ['::finding[`Inline code` title]{level="P3"}', 'P3', '<code>Inline code</code> title'],
 ]) {
   const markup = renderFinding(content);
-  assert.match(markup, new RegExp(`class="finding-heading finding-${priority.toLowerCase()}"`));
-  assert.match(markup, new RegExp(`data-finding-priority="${priority}"`));
+  assert.match(markup, new RegExp(`class="directive-heading finding-heading finding-${priority.toLowerCase()}"`));
+  assert.match(markup, new RegExp(`data-directive-label="${priority}"`));
   assert.match(markup, new RegExp(title));
-  assert.doesNotMatch(markup, /#finding:P[0-3]/);
+  assert.doesNotMatch(markup, /::finding/);
 }
 
-const ordinaryText = renderFinding('Invisible prefix: \u200B#finding:P1 does not start a finding');
-assert.doesNotMatch(ordinaryText, /class="finding-heading/);
+const findingWithDetails = renderFinding([
+  '::finding[Sem `cache_control` explícito.]{level="P1"}',
+  '',
+  '**Evidence:** Nenhum `createBody` emite cached hints.',
+  '',
+  '**Impact:** O cache implícito é frágil.',
+].join('\n'));
+assert.match(findingWithDetails, /finding-heading finding-p1/);
+assert.match(findingWithDetails, /<p><strong>Evidence:<\/strong>/);
+assert.match(findingWithDetails, /<p><strong>Impact:<\/strong>/);
 
-const wrappedOrdinary = renderFinding('Intro line\n#finding:P1 does not start a finding');
-assert.doesNotMatch(wrappedOrdinary, /class="finding-heading/);
-assert.match(wrappedOrdinary, /#finding:P1 does not start a finding/);
+for (const invalid of [
+  '::finding[Missing level]',
+  '::finding[Unsupported level]{level="P4"}',
+  ':::finding{level="P1"}\nLegacy container.\n:::',
+]) {
+  const markup = renderFinding(invalid);
+  assert.doesNotMatch(markup, /class="directive-heading finding-heading/);
+  assert.match(markup, /finding/);
+}
+
+const fenced = renderFinding('```markdown\n::finding[Not rendered]{level="P0"}\n```');
+assert.doesNotMatch(fenced, /class="directive-heading finding-heading/);
+assert.match(fenced, /language-markdown/);
 
 console.log('Finding rendering tests passed.');

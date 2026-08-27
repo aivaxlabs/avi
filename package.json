@@ -49,7 +49,12 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
     "boring-avatars": "2.0.4",
+    "dompurify": "^3.4.14",
     "extract-zip": "^2.0.1",
+    "katex": "^0.18.4",
+    "mdast-util-to-string": "^4.0.0",
+    "mermaid": "^11.17.2",
+    "remark-directive": "^4.0.0",
     "semver": "^7.8.5",
     "zod": "^3.25.76"
   },
