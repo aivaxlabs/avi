@@ -241,6 +241,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     select: () => invoke('files:select'),
     pathForFile: (file) => webUtils.getPathForFile(file),
     materializeVideo: (attachment) => invoke('files:materialize-video', attachment),
+    importVideo: (attachment) => invoke('files:import-video', attachment),
     workspace: (folderPath) => invoke('files:workspace', folderPath),
     directory: (payload) => invoke('files:directory', payload),
     read: (payload) => invoke('files:read', payload),

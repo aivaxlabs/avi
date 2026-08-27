@@ -110,6 +110,7 @@ import {
 import {
   createVideoFileResponse,
   filePathToAttachment,
+  importVideoAttachment,
   inspectWorkspaceFiles,
   materializeLegacyVideoAttachments,
   materializeVideoAttachment,
@@ -2196,6 +2197,9 @@ function registerIpc() {
   });
   applicationIpc.handle('files:materialize-video', (_event, attachment) => (
     materializeVideoAttachment(attachment)
+  ));
+  applicationIpc.handle('files:import-video', (_event, attachment) => (
+    importVideoAttachment(attachment)
   ));
   applicationIpc.handle('attachments:preview', async (event, attachment = {}) => {
     if (attachment.kind !== 'video_url' || typeof attachment.path !== 'string') {

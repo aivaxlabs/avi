@@ -36,7 +36,10 @@ export async function fileToAttachment(file, source = null) {
     ...(path ? { path } : {}),
   };
   if (attachment.kind === 'file_reference') return attachment;
-  if (kind === 'video_url' && path) return attachment;
+  if (kind === 'video_url' && path) {
+    const imported = await globalThis.window?.chatApp?.files?.importVideo?.(attachment);
+    return imported ?? attachment;
+  }
   if (kind === 'video_url' && file.size > attachmentContentSizeLimit) {
     throw new Error('Save this video to disk before attaching it.');
   }

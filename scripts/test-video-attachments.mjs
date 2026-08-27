@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, resolve } from 'node:path';
 import {
   createVideoFileResponse,
+  importVideoAttachment,
   materializeLegacyVideoAttachments,
   materializeVideoAttachment,
   normalizeAttachmentsForModel,
@@ -26,6 +29,7 @@ try {
     chatApp: {
       files: {
         pathForFile: () => '',
+        importVideo: (attachment) => importVideoAttachment(attachment),
       },
     },
   };
@@ -90,8 +94,60 @@ try {
   assert.equal(normalized.base64, undefined);
   assert.deepEqual(await readFile(normalized.path), bytes);
 
+  const transientDirectory = resolve(tmpdir(), `avi-video-test-${Date.now()}`);
+  await mkdir(transientDirectory, { recursive: true });
+  paths.push(transientDirectory);
+  const transientName = `Avi_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}.mp4`;
+  const transientSource = resolve(transientDirectory, transientName);
+  await writeFile(transientSource, bytes);
+
+  const imported = await importVideoAttachment({
+    id: 'transient',
+    name: transientName,
+    mime: 'video/mp4',
+    size: bytes.length,
+    kind: 'video_url',
+    path: transientSource,
+  });
+  paths.push(imported.path);
+  assert.equal(imported.kind, 'video_url');
+  assert.equal(imported.temporary, true);
+  assert.notEqual(imported.path, transientSource);
+  assert.equal(basename(imported.path).endsWith(`-${transientName}`), true);
+  assert.deepEqual(await readFile(imported.path), bytes);
+
+  const dropped = await fileToAttachment({
+    name: transientName,
+    type: 'video/mp4',
+    size: bytes.length,
+    path: transientSource,
+  }, 'clipboard');
+  assert.equal(dropped.kind, 'video_url');
+  assert.equal(dropped.temporary, true);
+  assert.equal(basename(dropped.path).endsWith(`-${transientName}`), true);
+  assert.deepEqual(await readFile(dropped.path), bytes);
+  paths.push(dropped.path);
+
+  const stablePath = resolve('package.json');
+  const stable = await importVideoAttachment({
+    id: 'stable',
+    name: 'stable.mp4',
+    kind: 'video_url',
+    path: stablePath,
+  });
+  assert.equal(stable.path, stablePath);
+  assert.equal(stable.temporary, undefined);
+
+  const missing = await importVideoAttachment({
+    id: 'missing',
+    name: 'Avi_missing.mp4',
+    kind: 'video_url',
+    path: resolve(tmpdir(), `avi-video-test-missing-${Date.now()}.mp4`),
+  });
+  assert.equal(missing.temporary, undefined);
+
   console.log('Video attachment tests passed.');
 } finally {
   delete globalThis.window;
-  await Promise.all(paths.map((path) => rm(path, { force: true })));
+  await Promise.all(paths.map((path) => rm(path, { force: true, recursive: true })));
 }

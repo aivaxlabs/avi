@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { createReadStream, readFileSync, realpathSync, statSync } from 'node:fs';
 import {
+  copyFile,
   lstat,
   mkdir,
   readFile,
@@ -213,6 +214,30 @@ export async function materializeLegacyVideoAttachments(attachments) {
       ? materializeVideoAttachment(attachment)
       : attachment
   )));
+}
+
+function pathIsInsideDirectory(path, directory) {
+  const prefix = `${directory.replace(/[\\/]+$/, '').toLowerCase()}${sep}`;
+  return path.toLowerCase().startsWith(prefix);
+}
+
+export async function importVideoAttachment(attachment) {
+  if (attachment?.kind !== 'video_url') return attachment;
+  if (typeof attachment.path !== 'string' || !isAbsolute(attachment.path)) return attachment;
+  const real = await realpath(attachment.path).catch(() => null);
+  if (!real || !(await lstat(real).catch(() => null))?.isFile()) return attachment;
+  if (pathIsInsideDirectory(real, temporaryAttachmentDirectory)) return attachment;
+  // Files dragged out of web content (for example, a video player inside a chat
+  // message) are materialized by Chromium as transient snapshots in the OS temp
+  // directory and deleted shortly after the drop, which breaks the send later.
+  // Copy them into the managed attachments directory while the source still exists.
+  if (!pathIsInsideDirectory(real, tmpdir())) return attachment;
+  await mkdir(temporaryAttachmentDirectory, { recursive: true });
+  const safeName = basename(attachment.name || basename(real))
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
+  const path = resolve(temporaryAttachmentDirectory, `${crypto.randomUUID()}-${safeName}`);
+  await copyFile(real, path);
+  return { ...attachment, path, temporary: true };
 }
 
 export async function createVideoFileResponse(path, rangeHeader = null) {
