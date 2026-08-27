@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { CLIENT_TOOLS } from '../src/main/client-tools.js';
 import {
   consolidateFileEdits,
+  createFileEditDiff,
   createUndoPrompt,
 } from '../src/renderer/lib/file-edits.js';
 
@@ -68,6 +69,18 @@ try {
   assert.match(createUndoPrompt(edits), /existing\.txt \(original lines 2-2; current lines 2-2\)/);
   assert.match(createUndoPrompt(edits), /created\.txt \(file did not exist before this iteration/);
 
+  const modifiedDiff = createFileEditDiff(edits[0]);
+  assert.match(modifiedDiff, /--- a\/.*existing\.txt/);
+  assert.match(modifiedDiff, /\+\+\+ b\/.*existing\.txt/);
+  assert.match(modifiedDiff, /@@ -1,3 \+1,3 @@/);
+  assert.match(modifiedDiff, /-two\n\+final/);
+
+  const createdDiff = createFileEditDiff(edits[1]);
+  assert.match(createdDiff, /--- \/dev\/null/);
+  assert.match(createdDiff, /\+\+\+ b\/.*created\.txt/);
+  assert.match(createdDiff, /@@ -0,0 \+1,1 @@/);
+  assert.match(createdDiff, /\+new file/);
+
   const deletion = consolidateFileEdits([{ edits: [{
     filePath: existingPath,
     before: 'one\ntwo\nthree',
@@ -75,6 +88,24 @@ try {
   }] }]);
   assert.match(createUndoPrompt(deletion), /current insertion point at line 2/);
   assert.equal(deletion[0].additions, 0);
+  assert.match(createFileEditDiff(deletion[0]), /-two/);
+
+  const emptiedDiff = createFileEditDiff({
+    filePath: join(testRoot, 'emptied.txt'),
+    before: 'content',
+    after: '',
+  });
+  assert.match(emptiedDiff, /@@ -1,1 \+0,0 @@/);
+  assert.match(emptiedDiff, /-content/);
+
+  const separatedDiff = createFileEditDiff({
+    filePath: join(testRoot, 'separated.txt'),
+    before: Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join('\n'),
+    after: Array.from({ length: 20 }, (_, index) => (
+      index === 1 || index === 18 ? `changed ${index + 1}` : `line ${index + 1}`
+    )).join('\n'),
+  });
+  assert.equal(separatedDiff.match(/^@@ /gm)?.length, 2);
 
   assert.deepEqual(consolidateFileEdits([{
     edits: [

@@ -1,3 +1,5 @@
+import { createTwoFilesPatch } from 'diff';
+
 export function consolidateFileEdits(messages) {
   const editsByPath = new Map();
   for (const message of messages) {
@@ -13,6 +15,19 @@ export function consolidateFileEdits(messages) {
   return [...editsByPath.values()]
     .filter((edit) => edit.before !== edit.after)
     .map((edit) => ({ ...edit, ...changedLineRange(edit.before, edit.after) }));
+}
+
+export function createFileEditDiff({ filePath, before, after }) {
+  const normalizedPath = filePath.replaceAll('\\', '/');
+  return createTwoFilesPatch(
+    before === null ? '/dev/null' : `a/${normalizedPath}`,
+    `b/${normalizedPath}`,
+    before ?? '',
+    after,
+    '',
+    '',
+    { context: 3 },
+  );
 }
 
 export function changedLineRange(before, after) {

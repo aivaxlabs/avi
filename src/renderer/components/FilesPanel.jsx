@@ -39,6 +39,7 @@ import 'prismjs/components/prism-yaml';
 import 'prismjs/plugins/diff-highlight/prism-diff-highlight';
 import 'prismjs/plugins/diff-highlight/prism-diff-highlight.css';
 import iconTheme from '../../../assets/fileicons/studio-icons.json';
+import { createFileEditDiff } from '../lib/file-edits.js';
 import { formatBytes } from '../lib/files.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 
@@ -100,29 +101,6 @@ function selectionOffset(code, container, offset) {
   range.selectNodeContents(code);
   range.setEnd(container, offset);
   return range.toString().length;
-}
-
-function FileEditPane({ title, lines, start, end, emptyLabel }) {
-  return (
-    <section className="files-edit-pane">
-      <header>{title}</header>
-      <pre>{lines.length === 0 ? (
-        <span className="files-edit-empty">{emptyLabel}</span>
-      ) : lines.map((line, index) => {
-        const lineNumber = index + 1;
-        return (
-          <span
-            className={`files-edit-line${
-              lineNumber >= start && lineNumber <= end ? ' is-changed' : ''
-            }`}
-            key={lineNumber}
-          >
-            <span>{lineNumber}</span><code>{line || ' '}</code>
-          </span>
-        );
-      })}</pre>
-    </section>
-  );
 }
 
 function FileIcon({
@@ -294,9 +272,9 @@ export function FilesPanel({
     if (navigation.kind === 'edit' && navigation.edit) {
       setSelectedPath(navigation.path);
       setPreview({
-        kind: 'edit',
+        kind: 'diff',
         name: navigation.path.split(/[\\/]/).at(-1),
-        edit: navigation.edit,
+        content: createFileEditDiff(navigation.edit),
       });
       setPreviewLine(null);
       setPreviewLineTo(null);
@@ -992,23 +970,6 @@ export function FilesPanel({
                   <LoaderCircle className="spin" size={18} aria-hidden="true" />
                   <span>Opening preview...</span>
                 </div>
-              ) : preview?.kind === 'edit' ? (
-                <div className="files-edit-columns" aria-label={`Changes to ${selectedPath}`}>
-                  <FileEditPane
-                    title="Before"
-                    lines={preview.edit.beforeLines}
-                    start={preview.edit.beforeStartLine}
-                    end={preview.edit.beforeEndLine}
-                    emptyLabel="File did not exist"
-                  />
-                  <FileEditPane
-                    title="After"
-                    lines={preview.edit.afterLines}
-                    start={preview.edit.afterStartLine}
-                    end={preview.edit.afterEndLine}
-                    emptyLabel="Empty file"
-                  />
-                </div>
               ) : preview?.kind === 'text' ? (
                 <pre
                   className="files-code"
@@ -1043,7 +1004,7 @@ export function FilesPanel({
                 <pre
                   className={`files-code files-diff diff-highlight language-${previewLanguage}`}
                   tabIndex={0}
-                  aria-label={`Git diff for ${preview.name}`}
+                  aria-label={`Diff for ${preview.name}`}
                   onMouseUp={updateSelectionAction}
                   onKeyUp={updateSelectionAction}
                   onScroll={() => setSelectionAction(null)}
