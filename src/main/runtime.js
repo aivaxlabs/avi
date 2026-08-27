@@ -61,6 +61,7 @@ import {
   listArchivedConversations,
   listConversations,
   listFavorites,
+  listForcedCleanupConversationIds,
   listInferenceUsage,
   listModelRouters,
   listProviders,
@@ -177,6 +178,7 @@ let mcpManager;
 let remoteMcpServer;
 let remoteStartError = '';
 let reloadSnapshot = null;
+let forcedCleanupRunning = false;
 const quickChatWindows = new Map();
 let shutdownStarted = false;
 let shutdownReady = false;
@@ -582,6 +584,7 @@ function initializeServices() {
         botManager?.noteRunFinished(conversationId, assistantMessageId)
       ),
       noteBotRunStopped: (conversationId) => botManager?.noteRunStopped(conversationId),
+      canCreateDisposableConversation: () => !forcedCleanupRunning,
       beforeToolExecute: (invocation) => pluginManager.runtime.beforeTool(invocation),
       afterToolExecute: (invocation) => pluginManager.runtime.afterTool(invocation),
       sendPluginEvent: (type, payload) => pluginManager.runtime.emit(type, payload),
@@ -1026,6 +1029,14 @@ function registerIpc() {
     return saved;
   });
   applicationIpc.handle('default-models:save', (_event, settings) => {
+    const validationWarnings = validateDefaultModels(settings, providerRegistry.listModels());
+    const blockingWarnings = validationWarnings.filter((warning) => (
+      warning.role === 'intelligence'
+      && ['invalid level count', 'duplicate selection'].includes(warning.reason)
+    ));
+    if (blockingWarnings.length > 0) {
+      throw new Error(blockingWarnings.map((warning) => warning.message).join(' '));
+    }
     const saved = setDefaultModels(settings);
     const warnings = logDefaultModelWarnings('settings-saved');
     return { settings: saved, warnings };
@@ -1195,13 +1206,34 @@ function registerIpc() {
     chatRunner.semaphores.cleanMissingConversations();
     return archiveState(options);
   });
-  applicationIpc.handle('archive:maintenance', (_event, options = {}) => {
-    const maintenance = runArchiveMaintenance();
-    chatRunner.semaphores.cleanMissingConversations();
-    return {
-      ...archiveState(options),
-      maintenance,
-    };
+  applicationIpc.handle('archive:maintenance', async (_event, options = {}) => {
+    if (forcedCleanupRunning) throw new Error('Forced cleanup is already running.');
+    forcedCleanupRunning = true;
+    try {
+      const maintenanceNow = new Date();
+      const conversationIds = listForcedCleanupConversationIds({ now: maintenanceNow });
+      const activeRuns = conversationIds.flatMap((conversationId) => {
+        const run = chatRunner.runs.get(conversationId);
+        return run ? [run] : [];
+      });
+      for (const conversationId of conversationIds) {
+        chatRunner.stop(conversationId, { includeSubagents: true, stoppedByUser: true });
+      }
+      await Promise.allSettled(activeRuns.map((run) => run.completion));
+      chatRunner.removeConversationSemaphores(conversationIds);
+      const maintenance = runArchiveMaintenance({
+        now: maintenanceNow,
+        forced: true,
+        activeConversationIds: [...chatRunner.runs.keys()],
+      });
+      chatRunner.semaphores.cleanMissingConversations();
+      return {
+        ...archiveState(options),
+        maintenance,
+      };
+    } finally {
+      forcedCleanupRunning = false;
+    }
   });
   applicationIpc.handle('archive:temporary-storage', () => getTemporaryStorage());
   applicationIpc.handle('archive:clear-temporary-storage', () => clearTemporaryStorage());
@@ -1286,6 +1318,9 @@ function registerIpc() {
   ));
   applicationIpc.handle('bots:resolve-approval', (_event, payload = {}) => (
     botManager.resolveApproval(payload.approvalId, payload.decision)
+  ));
+  applicationIpc.handle('bots:update-work-item', (_event, payload = {}) => (
+    botManager.setBotWorkItemState(String(payload.botId ?? ''), String(payload.workItemId ?? ''), payload.state)
   ));
   applicationIpc.handle('bots:choose-folder', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
@@ -1665,6 +1700,7 @@ function registerIpc() {
     listSideChats(parentConversationId).map(refreshConversationProject)
   ));
   applicationIpc.handle('side-chats:create', (_event, { parentConversationId } = {}) => {
+    if (forcedCleanupRunning) throw new Error('Side chats cannot be created during forced cleanup.');
     const parent = getConversation(parentConversationId);
     if (!parent || parent.isSideChat || parent.isSubagent) return null;
     const result = forkConversation(parent.id, { sideChat: true });

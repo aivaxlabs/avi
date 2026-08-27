@@ -18,6 +18,11 @@ const disposableDeletionOptions = [
   { value: '30', label: 'After 30 days' },
   { value: 'never', label: 'Never' },
 ];
+const botHistoryRetentionOptions = [
+  { value: '3', label: 'Keep 3 days' },
+  { value: '7', label: 'Keep 7 days' },
+  { value: '30', label: 'Keep 30 days' },
+];
 const byteFormatter = new Intl.NumberFormat('en-US', {
   style: 'unit',
   unit: 'megabyte',
@@ -204,6 +209,30 @@ export function MaintenanceSettings() {
                   ))}
                 </select>
               </label>
+              <label className="settings-field settings-field-wide">
+                <span>Keep bot conversation history</span>
+                <select
+                  disabled={busy}
+                  value={state.settings.botHistoryRetentionDays}
+                  onChange={(event) =>
+                    run(() =>
+                      window.chatApp.archive.save(
+                        {
+                          ...state.settings,
+                          botHistoryRetentionDays: Number(event.target.value),
+                        },
+                        archiveOptions,
+                      ),
+                    )
+                  }
+                >
+                  {botHistoryRetentionOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </section>
 
@@ -374,7 +403,7 @@ export function MaintenanceSettings() {
             <div className="settings-section-card archive-maintenance">
               <span>
                 <strong>Forced cleanup</strong>
-                <small>Archives old threads, deletes expired archive entries, and removes expired side chats and sub-agents using the policies above.</small>
+                <small>Archives eligible old threads, permanently deletes the entire archive including archived side chats and sub-agents, then prunes old bot history.</small>
               </span>
               <button
                 className="danger"
@@ -382,13 +411,13 @@ export function MaintenanceSettings() {
                 disabled={busy}
                 onClick={async () => {
                   if (
-                    !window.confirm('Run forced cleanup now? Eligible conversations will be archived or permanently deleted according to the current settings.')
+                    !window.confirm('Run forced cleanup now? This permanently deletes every archived conversation, including archived side chats and sub-agents, after archiving eligible old threads. Active side chats and sub-agents are preserved. Old bot history will also be pruned. This cannot be undone.')
                   )
                     return;
                   const next = await run(() => window.chatApp.archive.maintenance(archiveOptions));
                   if (next?.maintenance) {
                     setNotice(
-                      `Cleanup complete: ${next.maintenance.archived} archived, ${next.maintenance.deletedArchived} archived deleted, ${next.maintenance.deletedDisposable} disposable deleted.`,
+                      `Cleanup complete: ${next.maintenance.archived} archived, ${next.maintenance.deletedArchived} archived threads deleted, ${next.maintenance.deletedDisposable} archived side chats and sub-agents deleted, ${next.maintenance.prunedBotMessages} old bot messages deleted.`,
                     );
                   }
                 }}

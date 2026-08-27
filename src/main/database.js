@@ -77,10 +77,12 @@ const defaultArchiveSettings = Object.freeze({
   archiveAfterDays: 7,
   deleteArchivedAfterDays: 30,
   deleteDisposableAfterDays: 1,
+  botHistoryRetentionDays: 7,
 });
 const archiveRetentionOptions = Object.freeze([7, 30, null]);
 const archivedDeletionOptions = Object.freeze([30, 60, null]);
 const disposableDeletionOptions = Object.freeze([1, 7, 30, null]);
+const botHistoryRetentionOptions = Object.freeze([3, 7, 30]);
 const subagentNames = Object.freeze([...new Set([
   'Euclid',
   'Archimedes',
@@ -995,11 +997,95 @@ const statements = {
       AND conversation_type = 'thread'
       AND archived_at < ?
   `),
+  countAllArchived: db.prepare(`
+    SELECT COUNT(*) AS total FROM conversations
+    WHERE deleted_at IS NULL
+      AND archived_at IS NOT NULL
+      AND conversation_type = 'thread'
+  `),
+  countArchivedDisposable: db.prepare(`
+    SELECT COUNT(*) AS total FROM conversations
+    WHERE deleted_at IS NULL
+      AND archived_at IS NOT NULL
+      AND conversation_type IN ('side', 'subagent')
+  `),
+  deleteAllArchived: db.prepare(`
+    DELETE FROM conversations
+    WHERE deleted_at IS NULL AND archived_at IS NOT NULL
+  `),
   deleteExpiredDisposable: db.prepare(`
     DELETE FROM conversations
     WHERE deleted_at IS NULL
       AND conversation_type IN ('side', 'subagent')
       AND updated_at < ?
+  `),
+  listForcedCleanupConversationIds: db.prepare(`
+    WITH RECURSIVE targets(id) AS (
+      SELECT id FROM conversations
+      WHERE deleted_at IS NULL
+        AND (
+          archived_at IS NOT NULL
+          OR (
+            @archiveCutoff IS NOT NULL
+            AND conversation_type = 'thread'
+            AND archived_at IS NULL
+            AND updated_at < @archiveCutoff
+          )
+        )
+      UNION ALL
+      SELECT c.id FROM conversations c
+      JOIN targets t ON c.parent_conversation_id = t.id
+      WHERE c.deleted_at IS NULL
+    )
+    SELECT DISTINCT id FROM targets
+  `),
+  listBotHistoryAnchors: db.prepare(`
+    WITH anchors AS (
+      SELECT
+        id,
+        rowid AS row_id,
+        LEAD(rowid) OVER (ORDER BY rowid ASC) AS next_row_id
+      FROM messages
+      WHERE conversation_id = @conversationId
+        AND role = 'user'
+        AND hidden = 0
+        AND (
+          from_agent = 0
+          OR (from_agent = 1 AND content LIKE '<bot-activation%')
+        )
+    )
+    SELECT
+      anchors.id,
+      anchors.row_id,
+      MAX(unixepoch(COALESCE(messages.updated_at, messages.created_at))) AS block_updated_at_seconds
+    FROM anchors
+    JOIN messages ON messages.conversation_id = @conversationId
+      AND messages.rowid >= anchors.row_id
+      AND (anchors.next_row_id IS NULL OR messages.rowid < anchors.next_row_id)
+    GROUP BY anchors.id, anchors.row_id
+    ORDER BY anchors.row_id ASC
+  `),
+  botHistoryBlocked: db.prepare(`
+    SELECT (
+      EXISTS (
+        SELECT 1 FROM messages
+        WHERE conversation_id = @conversationId
+          AND status IN ('queued', 'steered', 'streaming', 'waiting_mcp')
+      )
+      OR EXISTS (
+        SELECT 1 FROM goals
+        WHERE conversation_id = @conversationId AND status IN ('active', 'paused')
+      )
+    ) AS blocked
+  `),
+  deleteBotMessagesBefore: db.prepare(`
+    DELETE FROM messages
+    WHERE conversation_id = @conversationId AND rowid < @anchorRowId
+  `),
+  clearConversationCheckpoint: db.prepare(`
+    UPDATE conversations
+    SET context_checkpoint = '', checkpoint_message_id = NULL, context_tokens = 0
+    WHERE id = ?
   `),
   conversationCounts: db.prepare(`
     SELECT
@@ -1880,12 +1966,24 @@ export function deleteConversation(id, { hard = false } = {}) {
   statements.deleteConversation.run(now, now, id);
 }
 
-export function runArchiveMaintenance({ now = new Date() } = {}) {
+export function listForcedCleanupConversationIds({ now = new Date() } = {}) {
+  const { archiveAfterDays } = getArchiveSettings();
+  return statements.listForcedCleanupConversationIds.all({
+    archiveCutoff: archiveAfterDays === null ? null : daysBefore(now, archiveAfterDays),
+  }).map((row) => row.id);
+}
+
+export function runArchiveMaintenance({
+  now = new Date(),
+  forced = false,
+  activeConversationIds = [],
+} = {}) {
   const settings = getArchiveSettings();
   const result = {
     archived: 0,
     deletedArchived: 0,
     deletedDisposable: 0,
+    prunedBotMessages: 0,
   };
   db.exec('BEGIN');
   try {
@@ -1895,21 +1993,50 @@ export function runArchiveMaintenance({ now = new Date() } = {}) {
         cutoff: daysBefore(now, settings.archiveAfterDays),
       }).changes);
     }
-    if (settings.deleteArchivedAfterDays !== null) {
-      result.deletedArchived = Number(statements.deleteExpiredArchived.run(
-        daysBefore(now, settings.deleteArchivedAfterDays),
-      ).changes);
+    if (forced) {
+      result.deletedArchived = Number(statements.countAllArchived.get().total);
+      result.deletedDisposable = Number(statements.countArchivedDisposable.get().total);
+      statements.deleteAllArchived.run();
+    } else {
+      if (settings.deleteArchivedAfterDays !== null) {
+        result.deletedArchived = Number(statements.deleteExpiredArchived.run(
+          daysBefore(now, settings.deleteArchivedAfterDays),
+        ).changes);
+      }
+      if (settings.deleteDisposableAfterDays !== null) {
+        result.deletedDisposable = Number(statements.deleteExpiredDisposable.run(
+          daysBefore(now, settings.deleteDisposableAfterDays),
+        ).changes);
+      }
     }
-    if (settings.deleteDisposableAfterDays !== null) {
-      result.deletedDisposable = Number(statements.deleteExpiredDisposable.run(
-        daysBefore(now, settings.deleteDisposableAfterDays),
-      ).changes);
+    const botCutoff = now.getTime() - settings.botHistoryRetentionDays * 86_400_000;
+    const activeConversationIdSet = new Set(activeConversationIds);
+    for (const bot of listBots()) {
+      if (
+        activeConversationIdSet.has(bot.conversationId)
+        || bot.activeAssistantMessageId
+        || statements.botHistoryBlocked.get({ conversationId: bot.conversationId }).blocked
+      ) continue;
+      const anchors = statements.listBotHistoryAnchors.all({
+        conversationId: bot.conversationId,
+      });
+      if (anchors.length < 2) continue;
+      const anchor = anchors.find((message) => (
+        Number(message.block_updated_at_seconds) * 1_000 >= botCutoff
+      )) ?? anchors.at(-1);
+      const deleted = Number(statements.deleteBotMessagesBefore.run({
+        conversationId: bot.conversationId,
+        anchorRowId: anchor.row_id,
+      }).changes);
+      if (deleted === 0) continue;
+      result.prunedBotMessages += deleted;
+      statements.clearConversationCheckpoint.run(bot.conversationId);
     }
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
     traceError('database.transaction-error', {
-      operation: 'archive-maintenance',
+      operation: forced ? 'archive-forced-cleanup' : 'archive-maintenance',
       error: error instanceof Error ? error.message : String(error),
     });
     throw error;
@@ -2585,6 +2712,9 @@ function normalizeArchiveSettings(value, strict = false) {
     deleteDisposableAfterDays: disposableDeletionOptions.includes(settings.deleteDisposableAfterDays)
       ? settings.deleteDisposableAfterDays
       : defaultArchiveSettings.deleteDisposableAfterDays,
+    botHistoryRetentionDays: botHistoryRetentionOptions.includes(settings.botHistoryRetentionDays)
+      ? settings.botHistoryRetentionDays
+      : defaultArchiveSettings.botHistoryRetentionDays,
   };
   if (strict && Object.entries(normalized).some(([key, entry]) => entry !== settings[key])) {
     throw new Error('Archive settings are invalid.');
