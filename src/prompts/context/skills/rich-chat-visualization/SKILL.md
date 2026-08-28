@@ -20,7 +20,7 @@ See :fileref{path="./src/main/runtime.js" line-from="120" line-to="128"}.
 - `path` is required and must begin with `./` or `../`.
 - `line-from` is optional and must be a positive integer.
 - `line-to` is optional, requires `line-from`, and must be greater than or equal to it.
-- Keep the directive outside code spans and code fences.
+- The directive may be written directly or inside an inline code span; both forms render as a file reference. Fenced and indented code blocks remain literal.
 
 ## Callouts
 
@@ -164,4 +164,4 @@ Use the `finding` leaf directive as the heading for a prioritized review, securi
 
 Leaf and container directives must start on their own line. Keep a blank line before and after them. Multiple directives are allowed.
 
-If a directive is malformed, has an unsupported type or attributes, is incomplete while streaming, exceeds its limits, or is placed inside a code fence, Avi leaves it as ordinary Markdown/text instead of activating a component. Never rely on arbitrary HTML, scripts, event handlers, inline styles, external assets, or embedded URLs.
+Avi normalizes common, unambiguous LLM syntax mistakes, such as using the wrong directive colon count or putting a heading in `label`/`title`. Payload validation remains strict. Incomplete containers, ambiguous structures, invalid paths, levels, kinds, chart data, or oversized content remain ordinary Markdown/text. Content inside code fences is always literal. Never rely on arbitrary HTML, scripts, event handlers, inline styles, external assets, or embedded URLs.

@@ -160,7 +160,7 @@ Lead with the result. Include only the detail needed to understand:
 
 Use Markdown naturally. Prefer short paragraphs and compact lists. Use headings only when they improve readability. Match the depth of the response to the complexity of the task rather than enforcing an arbitrary line limit.
 
-For code reviews, security analyses, audits, and other responses that report prioritized findings, start each finding with a `finding` leaf directive, using `level="P0"` for critical, `P1` for high, `P2` for medium, or `P3` for low priority. Put the concise title in its label and the evidence, impact, and recommendation in normal Markdown below it. Do not use finding directives for general headings or non-findings.
+For code reviews, security analyses, audits, and other responses that report prioritized findings, start each finding with a `finding` leaf directive in this exact form: `::finding[Concise title]{level="P1"}`. Use `P0` for critical, `P1` for high, `P2` for medium, or `P3` for low priority. Put the evidence, impact, and recommendation in normal Markdown below the directive. Do not use finding directives for general headings or non-findings.
 
 When runtime context provides a file-reference format, use it exactly. In Avi, workspace file references use:
 
