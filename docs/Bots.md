@@ -109,5 +109,5 @@ If Avi closes or restarts while a bot is working, its current activation resumes
 ## Sidebar
 
 - The moon beside **+** opens the global Snooze menu for scheduled activations. The button remains highlighted while Snooze is active; open the menu to see the remaining time or reset it.
-- The bot's context menu offers **Bot settings**, **Activate now**, and **Delete bot...** (removes the conversation and pending approvals; memory and work-state files stay on disk).
-- The sidebar indicator reflects the bot state: a spinner while working, a green dot while active and waiting for its next activation, or a gray moon while sleeping because of smart idle, a repeated-activation pause, a manual pause, or the schedule window. Disabled bots use a gray dot and appear dimmed.
+- The bot's context menu offers **Bot settings**, **Activate now**, **Snooze**, and **Delete bot...**. Per-bot Snooze uses the same 1h, 6h, 24h, until-restart, and Reset options as global Snooze, but blocks scheduled activations only for that bot. Manual activation remains available. Delete removes the conversation and pending approvals; memory and work-state files stay on disk.
+- The sidebar indicator reflects the bot state: a spinner while working, a green dot while active and waiting for its next activation, or a gray moon while sleeping because of Snooze, smart idle, a repeated-activation pause, a manual pause, or the schedule window. Disabled bots use a gray dot and appear dimmed.

@@ -28,6 +28,13 @@ try {
     iconSeed: 'enabled-bot',
     model: 'test/model',
   });
+  const otherConversation = createConversation({ model: 'test/model', projectPath: resolvedProfile });
+  const otherBot = createBot({
+    conversationId: otherConversation.id,
+    name: 'Other bot',
+    iconSeed: 'other-bot',
+    model: 'test/model',
+  });
 
   assert.equal(bot.enabled, true, 'new bots are enabled by default');
   assert.deepEqual(bot.workQueue, [], 'new bots have an empty work queue by default');
@@ -56,6 +63,70 @@ try {
       return { message: { id: `message-${activationRequests.length}` } };
     },
   });
+  const timedBotSnooze = manager.setBotSnooze(bot.id, { durationMinutes: 60 });
+  assert.equal(timedBotSnooze.active, true);
+  assert.equal(timedBotSnooze.mode, 'until');
+  assert.equal(getBot(bot.id).snoozeUntil, timedBotSnooze.until, 'timed bot Snooze is persisted');
+  assert.equal(getBot(otherBot.id).snoozeUntil, null, 'bot Snooze is isolated to its target');
+  assert.equal(
+    new BotManager().getBotSnooze(bot.id).until,
+    timedBotSnooze.until,
+    'timed bot Snooze survives a new manager',
+  );
+  assert.equal(
+    manager.describeBots().find((item) => item.id === bot.id)?.scheduleState,
+    'sleep',
+    'a snoozed bot is described as sleeping',
+  );
+  const cumulativeBotSnooze = manager.setBotSnooze(bot.id, { durationMinutes: 60 });
+  assert.equal(
+    new Date(cumulativeBotSnooze.until).getTime(),
+    new Date(timedBotSnooze.until).getTime() + 3_600_000,
+    'timed bot Snooze adds to its active deadline',
+  );
+
+  const botQueueIndexBeforeSnooze = getBot(bot.id).workQueueIndex;
+  await manager.tick();
+  assert.deepEqual(
+    activationRequests.map((request) => request.conversationId),
+    [otherBot.conversationId],
+    'bot Snooze blocks only the target bot scheduled activation',
+  );
+  assert.equal(
+    getBot(bot.id).workQueueIndex,
+    botQueueIndexBeforeSnooze,
+    'bot Snooze does not advance the target work queue',
+  );
+  assert.equal(await manager.activateBot(bot.id, { trigger: 'manual' }), true);
+  assert.equal(
+    activationRequests.at(-1)?.conversationId,
+    bot.conversationId,
+    'manual activation remains available during bot Snooze',
+  );
+  assert.deepEqual(
+    manager.setBotSnooze(bot.id, { reset: true }),
+    { active: false, mode: null, until: null },
+    'Reset clears only the target bot Snooze',
+  );
+  assert.equal(getBot(otherBot.id).snoozeUntil, null);
+  assert.deepEqual(
+    manager.setBotSnooze(bot.id, { untilRestart: true }),
+    { active: true, mode: 'until-restart', until: null },
+  );
+  assert.equal(getBot(bot.id).snoozeUntil, null, 'restart bot Snooze is not persisted');
+  assert.equal(
+    new BotManager().getBotSnooze(bot.id).active,
+    false,
+    'restart bot Snooze ends with the manager process',
+  );
+  manager.setBotSnooze(bot.id, { reset: true });
+  assert.throws(
+    () => manager.setBotSnooze(bot.id, { durationMinutes: 30 }),
+    /must be 60, 360, or 1440 minutes/,
+  );
+
+  activationRequests.length = 0;
+  updateBotScheduler(bot.id, { workQueueIndex: 1 });
   const timedSnooze = manager.setSchedulerSnooze({ durationMinutes: 60 });
   assert.equal(timedSnooze.active, true);
   assert.equal(timedSnooze.mode, 'until');

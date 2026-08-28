@@ -972,7 +972,9 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                     </span>
                     <span className="subagent-list-copy">
                       <strong>{subagent.title}</strong>
-                      <span>{assignment || subagent.firstPrompt || 'Waiting for an assignment'}</span>
+                      <span>{subagent.isRubberDuck
+                        ? subagent.firstPrompt || 'General execution review'
+                        : assignment || subagent.firstPrompt || 'Waiting for an assignment'}</span>
                     </span>
                     <span className={`subagent-status ${subagent.status}`}>
                       {subagent.status}
@@ -1015,7 +1017,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
               onStop={() => onStop(activeThread.id)}
               onCompress={() => onCompress(activeThread.id, currentModel)}
               onMentionSelection={onAddToChat}
-              onAskSelection={activeThread.isSubagent ? undefined : onAskInSideChat}
+              onAskSelection={activeThread.isSubagent || activeThread.isRubberDuck ? undefined : onAskInSideChat}
               onFork={(conversationId, throughMessageId) => onFork(
                 conversationId,
                 throughMessageId,

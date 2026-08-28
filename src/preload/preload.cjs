@@ -143,9 +143,13 @@ contextBridge.exposeInMainWorld('chatApp', {
   subagents: {
     list: (parentConversationId) => invoke('subagents:list', parentConversationId),
   },
+  rubberDucks: {
+    list: (parentConversationId) => invoke('rubber-ducks:list', parentConversationId),
+  },
   bots: {
     list: () => invoke('bots:list'),
     snooze: (options) => invoke('bots:snooze', options),
+    snoozeOne: (botId, options) => invoke('bots:snooze-one', { botId, options }),
     create: (payload) => invoke('bots:create', payload),
     update: (payload) => invoke('bots:update', payload),
     delete: (botId) => invoke('bots:delete', botId),
@@ -186,6 +190,8 @@ contextBridge.exposeInMainWorld('chatApp', {
     list: () => invoke('plugins:list'),
     sideload: () => invoke('plugins:sideload'),
     setEnabled: (payload) => invoke('plugins:set-enabled', payload),
+    settings: (payload) => invoke('plugins:settings', payload),
+    setSetting: (payload) => invoke('plugins:set-setting', payload),
     remove: (payload) => invoke('plugins:remove', payload),
     docs: () => invoke('plugins:docs'),
     restartAvi: () => invoke('plugins:restart-avi'),
@@ -241,7 +247,6 @@ contextBridge.exposeInMainWorld('chatApp', {
     select: () => invoke('files:select'),
     pathForFile: (file) => webUtils.getPathForFile(file),
     materializeVideo: (attachment) => invoke('files:materialize-video', attachment),
-    importVideo: (attachment) => invoke('files:import-video', attachment),
     workspace: (folderPath) => invoke('files:workspace', folderPath),
     directory: (payload) => invoke('files:directory', payload),
     read: (payload) => invoke('files:read', payload),

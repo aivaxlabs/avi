@@ -12,6 +12,7 @@ import {
   getBotByConversation,
   getBotSchedulerSnoozeUntil,
   getConversation,
+  getMessage,
   listAllConversations,
   listBots,
   setBotSchedulerSnoozeUntil,
@@ -19,6 +20,7 @@ import {
   updateBotScheduler,
   updateConversation,
   updateConversationProject,
+  updateMessage,
 } from './database.js';
 import {
   decideActivation,
@@ -100,6 +102,7 @@ export class BotManager {
     this.timer = null;
     this.approvals = new Map();
     this.activating = new Set();
+    this.botSnoozeUntilRestart = new Set();
     this.schedulerSnoozeUntil = getBotSchedulerSnoozeUntil();
     this.schedulerSnoozeUntilRestart = false;
   }
@@ -112,7 +115,9 @@ export class BotManager {
     if (this.timer) return;
     await this.loadPersistedApprovals();
     for (const bot of listBots()) {
-      if (bot.enabled && bot.activeAssistantMessageId) await this.resumeInterruptedRun(bot);
+      if (!bot.enabled || !bot.activeAssistantMessageId) continue;
+      const resumed = await this.resumeInterruptedRun(bot);
+      if (resumed) await this.chatRunner?.runs.get(bot.conversationId)?.preparation;
     }
     this.timer = setInterval(() => {
       this.tick().catch((error) => traceError('bots.tick-error', {
@@ -171,6 +176,51 @@ export class BotManager {
     return snooze;
   }
 
+  getBotSnooze(botId, now = Date.now()) {
+    const bot = getBot(botId);
+    if (!bot) throw new Error('Bot not found.');
+    if (this.botSnoozeUntilRestart.has(botId)) {
+      return { active: true, mode: 'until-restart', until: null };
+    }
+    const until = new Date(bot.snoozeUntil ?? '').getTime();
+    if (Number.isFinite(until) && until > now) {
+      return { active: true, mode: 'until', until: bot.snoozeUntil };
+    }
+    if (bot.snoozeUntil) updateBotScheduler(botId, { snoozeUntil: 'clear' });
+    return { active: false, mode: null, until: null };
+  }
+
+  setBotSnooze(botId, { durationMinutes, untilRestart = false, reset = false } = {}) {
+    const bot = getBot(botId);
+    if (!bot) throw new Error('Bot not found.');
+    if (reset === true) {
+      this.botSnoozeUntilRestart.delete(botId);
+      updateBotScheduler(botId, { snoozeUntil: 'clear' });
+    } else if (untilRestart === true) {
+      this.botSnoozeUntilRestart.add(botId);
+      updateBotScheduler(botId, { snoozeUntil: 'clear' });
+    } else {
+      const duration = Number(durationMinutes);
+      if (!SNOOZE_DURATIONS_MINUTES.has(duration)) {
+        throw new Error('Bot Snooze duration must be 60, 360, or 1440 minutes.');
+      }
+      const now = Date.now();
+      const currentUntil = new Date(bot.snoozeUntil ?? '').getTime();
+      const startsAt = !this.botSnoozeUntilRestart.has(botId)
+        && Number.isFinite(currentUntil)
+        && currentUntil > now
+        ? currentUntil
+        : now;
+      this.botSnoozeUntilRestart.delete(botId);
+      updateBotScheduler(botId, {
+        snoozeUntil: new Date(startsAt + duration * 60_000).toISOString(),
+      });
+    }
+    const snooze = this.getBotSnooze(botId);
+    this.broadcast('bots:snooze', { botId, snooze });
+    return snooze;
+  }
+
   noteRunStarted(conversationId, assistantMessageId) {
     const bot = getBotByConversation(conversationId);
     if (!bot) return;
@@ -193,6 +243,29 @@ export class BotManager {
 
   async resumeInterruptedRun(bot) {
     try {
+      const assistantMessage = getMessage(bot.activeAssistantMessageId);
+      const interruptedToolCalls = assistantMessage?.segments.filter((segment) => (
+        segment.type === 'tool-call'
+        && segment.status === 'running'
+        && segment.resultText === undefined
+      )) ?? [];
+      if (interruptedToolCalls.length > 0) {
+        updateMessage(assistantMessage.id, {
+          segments: assistantMessage.segments.map((segment) => (
+            interruptedToolCalls.includes(segment)
+              ? {
+                  ...segment,
+                  status: 'error',
+                  resultText: 'Tool execution was interrupted by the application restart. Its completion is unknown, so Avi did not retry it automatically.',
+                }
+              : segment
+          )),
+        });
+        traceInfo('bots.interrupted-tools-failed', {
+          bot_id: bot.id,
+          tool_count: interruptedToolCalls.length,
+        });
+      }
       const result = await this.chatRunner?.retry({
         conversationId: bot.conversationId,
         model: bot.model,
@@ -272,11 +345,14 @@ export class BotManager {
         running: Boolean(this.chatRunner?.runs?.has(bot.conversationId)),
         pendingApprovals: [...this.approvals.values()]
           .filter((entry) => entry.botId === bot.id).length,
+        snooze: this.getBotSnooze(bot.id),
         scheduleState: this.chatRunner?.runs?.has(bot.conversationId)
           ? 'working'
           : bot.enabled === false
             ? 'disabled'
-            : ['idle', 'outside-window', 'max-activations', 'paused'].includes(
+            : this.getBotSnooze(bot.id).active
+              ? 'sleep'
+              : ['idle', 'outside-window', 'max-activations', 'paused'].includes(
                 decideActivation({ bot, now: Date.now() }).reason,
               )
               ? 'sleep'
@@ -407,6 +483,7 @@ export class BotManager {
     for (const [approvalId, entry] of [...this.approvals.entries()]) {
       if (entry.botId === id) this.approvals.delete(approvalId);
     }
+    this.botSnoozeUntilRestart.delete(id);
     deleteBot(id);
     deleteConversation(bot.conversationId);
     traceInfo('bots.deleted', { bot_id: id });
@@ -498,7 +575,9 @@ export class BotManager {
       idleUntil: 'clear',
       activationCount: 0,
       activeAssistantMessageId: null,
+      snoozeUntil: 'clear',
     });
+    this.botSnoozeUntilRestart.delete(id);
     const conversation = clearConversationMessages(bot.conversationId, { resetState: true });
     traceInfo('bots.full-reset', { bot_id: id });
     this.broadcast('bots:updated');
@@ -693,6 +772,13 @@ export class BotManager {
     for (const bot of bots) {
       if (!bot.enabled) continue;
       const currentBot = getBot(bot.id);
+      const hadBotSnooze = Boolean(
+        currentBot.snoozeUntil || this.botSnoozeUntilRestart.has(bot.id),
+      );
+      if (this.getBotSnooze(bot.id).active) continue;
+      if (hadBotSnooze) {
+        this.broadcast('bots:snooze', { botId: bot.id, snooze: this.getBotSnooze(bot.id) });
+      }
       const decision = decideActivation({
         bot: currentBot,
         now: Date.now(),

@@ -3,6 +3,7 @@ import {
   Bot,
   Check,
   CheckCircle2,
+  ChevronRight,
   Clock,
   Copy,
   CopyPlus,
@@ -70,6 +71,7 @@ export const Sidebar = memo(function Sidebar({
   onBotSettings,
   onDeleteBot,
   onActivateBot,
+  onSnoozeBot,
   onSnoozeBots,
   onSearch,
   onOpenOrchestration,
@@ -520,6 +522,7 @@ export const Sidebar = memo(function Sidebar({
               onSelect={onSelectBot}
               onSettings={onBotSettings}
               onActivate={onActivateBot}
+              onSnooze={onSnoozeBot}
               onDelete={onDeleteBot}
             />
           ))
@@ -883,9 +886,19 @@ export const Sidebar = memo(function Sidebar({
   );
 });
 
-const BotItem = memo(function BotItem({ bot, active, onSelect, onSettings, onActivate, onDelete }) {
+const BotItem = memo(function BotItem({
+  bot,
+  active,
+  onSelect,
+  onSettings,
+  onActivate,
+  onSnooze,
+  onDelete,
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
+  const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const itemRef = useRef(null);
 
   useEffect(() => {
@@ -896,15 +909,24 @@ const BotItem = memo(function BotItem({ bot, active, onSelect, onSettings, onAct
       setMenuOpen(false);
     };
     const closeOnEscape = (event) => {
-      if (event.key === 'Escape') setMenuOpen(false);
+      if (event.key !== 'Escape') return;
+      if (snoozeMenuOpen) {
+        setSnoozeMenuOpen(false);
+      } else {
+        setMenuOpen(false);
+      }
     };
+    const countdownTimer = snoozeMenuOpen && bot.snooze?.mode === 'until'
+      ? window.setInterval(() => setNow(Date.now()), 30_000)
+      : null;
     window.addEventListener('pointerdown', close);
     window.addEventListener('keydown', closeOnEscape);
     return () => {
+      if (countdownTimer !== null) window.clearInterval(countdownTimer);
       window.removeEventListener('pointerdown', close);
       window.removeEventListener('keydown', closeOnEscape);
     };
-  }, [menuOpen]);
+  }, [bot.snooze?.mode, menuOpen, snoozeMenuOpen]);
 
   function toggleMenu(sourceEvent) {
     const rect = sourceEvent?.currentTarget?.getBoundingClientRect?.();
@@ -912,8 +934,21 @@ const BotItem = memo(function BotItem({ bot, active, onSelect, onSettings, onAct
       top: Math.min(rect.bottom + 4, window.innerHeight - 150),
       left: Math.min(rect.right - 150, window.innerWidth - 160),
     } : { top: 100, left: 100 });
+    setSnoozeMenuOpen(false);
     setMenuOpen((value) => !value);
   }
+
+  const snoozeUntil = new Date(bot.snooze?.until ?? '').getTime();
+  const snoozeRemainingMinutes = Math.ceil((snoozeUntil - now) / 60_000);
+  const snoozeRemaining = bot.snooze?.mode === 'until-restart'
+    ? 'until restart'
+    : Number.isFinite(snoozeUntil) && snoozeRemainingMinutes > 0
+      ? snoozeRemainingMinutes >= 1_440
+        ? `${Math.floor(snoozeRemainingMinutes / 1_440)}d`
+        : snoozeRemainingMinutes >= 60
+          ? `${Math.floor(snoozeRemainingMinutes / 60)}h`
+          : `${snoozeRemainingMinutes}m`
+      : null;
 
   const statusLabel = bot.running || bot.scheduleState === 'working'
     ? 'Working'
@@ -939,6 +974,7 @@ const BotItem = memo(function BotItem({ bot, active, onSelect, onSettings, onAct
           top: Math.max(8, Math.min(event.clientY, window.innerHeight - 150)),
           left: Math.max(8, Math.min(event.clientX, window.innerWidth - 160)),
         });
+        setSnoozeMenuOpen(false);
         setMenuOpen(true);
       }}
     >
@@ -1006,6 +1042,59 @@ const BotItem = memo(function BotItem({ bot, active, onSelect, onSettings, onAct
           >
             Activate now
           </DropdownMenuItem>
+          <div className="bot-snooze-submenu-holder">
+            <DropdownMenuItem
+              className="bot-snooze-trigger"
+              icon={<Moon size={14} />}
+              aria-haspopup="menu"
+              aria-expanded={snoozeMenuOpen}
+              onClick={() => setSnoozeMenuOpen((open) => !open)}
+            >
+              <>
+                <span>Snooze</span>
+                <ChevronRight size={13} />
+              </>
+            </DropdownMenuItem>
+            {snoozeMenuOpen && (
+              <DropdownMenu className="bot-snooze-submenu" role="menu" aria-label={`Snooze ${bot.name}`}>
+                <DropdownMenuItem icon={<Clock size={14} />} role="menuitem" onClick={() => {
+                  setMenuOpen(false);
+                  onSnooze(bot.id, { durationMinutes: 60 });
+                }}>
+                  Snooze for 1h
+                </DropdownMenuItem>
+                <DropdownMenuItem icon={<Clock size={14} />} role="menuitem" onClick={() => {
+                  setMenuOpen(false);
+                  onSnooze(bot.id, { durationMinutes: 360 });
+                }}>
+                  Snooze for 6h
+                </DropdownMenuItem>
+                <DropdownMenuItem icon={<Clock size={14} />} role="menuitem" onClick={() => {
+                  setMenuOpen(false);
+                  onSnooze(bot.id, { durationMinutes: 1_440 });
+                }}>
+                  Snooze for 24h
+                </DropdownMenuItem>
+                <DropdownMenuItem icon={<Moon size={14} />} role="menuitem" onClick={() => {
+                  setMenuOpen(false);
+                  onSnooze(bot.id, { untilRestart: true });
+                }}>
+                  Snooze until restart
+                </DropdownMenuItem>
+                {bot.snooze?.active && snoozeRemaining && (
+                  <>
+                    <hr className="dropdown-menu-divider" />
+                    <DropdownMenuItem icon={<X size={14} />} role="menuitem" onClick={() => {
+                      setMenuOpen(false);
+                      onSnooze(bot.id, { reset: true });
+                    }}>
+                      Reset ({snoozeRemaining})
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenu>
+            )}
+          </div>
           <DropdownMenuItem icon={<Trash2 size={14} />} onClick={() => {
             setMenuOpen(false);
             onDelete(bot.id);

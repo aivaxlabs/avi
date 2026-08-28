@@ -1,5 +1,28 @@
 # Avi Changelog
 
+## [Canary]
+
+### Added
+- **Per-bot Snooze** — each bot's context menu can pause only that bot's scheduled activations for 1h, 6h, 24h, or until Avi restarts.
+- **Declarative plugin settings** — backward-compatible Plugin API v2 definitions can add Avi-rendered settings sections backed by JSON Schema and main-process read, validation, and write handlers.
+- **Startup diagnostics** — `--inactive-bots` prevents automatic bot initialization, while `--memory-trace` records process CPU, memory, and I/O samples every 250 ms.
+
+### Changed
+- Removed the built-in CLIProxyAPI provider plugin.
+
+### Fixed
+- Rendered valid `fileref` directives inside inline code while preserving literal references in code blocks.
+- Rejected prematurely closed Responses API streams before partial tool calls can execute.
+- Reduced startup I/O and memory pressure by storing and streaming local media as file references, querying only lightweight thread status and model-selection fields, failing interrupted bot tools instead of replaying uncertain side effects, deferring thread-search synchronization, sequencing automatic resumptions, and honoring bot context limits during compaction.
+
+### Docs
+- Improved the `/create-plugin` workflow description to highlight hooks, providers, themes, and advanced customizations.
+
+### Tests
+- Added regression coverage for generated-image and tool-media persistence, interrupted bot messages and tools, Goal resumption, and lightweight thread-search projection.
+
+---
+
 ## [0.5.0] — 2026-08-26
 
 ### Added

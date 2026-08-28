@@ -239,7 +239,9 @@ export const CLIENT_TOOLS = Object.freeze([
         throw new Error('path must be an absolute file path.');
       }
 
-      const attachment = filePathToAttachment(path);
+      const attachment = filePathToAttachment(path, {
+        deferImageContent: capabilities.images === true,
+      });
       const supported = (attachment.kind === 'image_url' && capabilities.images)
         || (attachment.kind === 'video_url' && capabilities.video)
         || (attachment.kind === 'input_audio' && capabilities.audio)
@@ -924,7 +926,11 @@ export const CLIENT_TOOLS = Object.freeze([
       if (!currentConversation) throw new Error('The current thread was not found.');
       const teamRootId = currentConversation.isSubagent || currentConversation.isSideChat
         ? currentConversation.parentConversationId
-        : currentConversation.id;
+        : currentConversation.isRubberDuck
+          ? listAllConversations().find((conversation) => (
+            conversation.id === currentConversation.parentConversationId
+          ))?.parentConversationId ?? currentConversation.parentConversationId
+          : currentConversation.id;
       const orchestrator = teamRootId ? getConversation(teamRootId) : null;
       const subagents = teamRootId ? listSubagents(teamRootId) : [];
       let visibleConversations = currentConversation.isSubagent
@@ -949,11 +955,9 @@ export const CLIENT_TOOLS = Object.freeze([
         ].filter(Boolean).map((conversation) => [conversation.id, conversation])).values()];
       }
       const threads = visibleConversations.filter(Boolean).map((conversation) => {
-        const messages = getMessages(conversation.id);
-        const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
-        const lastAssistant = messages
-          .slice(lastUserIndex + 1)
-          .findLast((message) => message.role === 'assistant');
+        const latestConversation = getConversation(conversation.id) ?? conversation;
+        const completed = latestConversation.lastMessageRole === 'assistant'
+          && latestConversation.lastMessageStatus === 'completed';
         const initialPrompt = String(
           conversation.initialPrompt ?? conversation.firstPrompt ?? '',
         ).replace(/\s+/g, ' ').trim();
@@ -965,10 +969,10 @@ export const CLIENT_TOOLS = Object.freeze([
           status: isThreadWaitingForInput(chatRunner, conversation.id)
             ? 'waiting_for_input'
             : chatRunner.semaphores.waitSnapshot(conversation.id)
-              ? 'sleeping'
-              : chatRunner.runs.has(conversation.id)
-                ? 'in_progress'
-                : lastAssistant?.status === 'completed'
+            ? 'sleeping'
+            : chatRunner.runs.has(conversation.id)
+              ? 'in_progress'
+              : completed
                 ? 'completed'
                 : conversation.isSubagent
                   ? 'failed'
@@ -1066,20 +1070,22 @@ export const CLIENT_TOOLS = Object.freeze([
       if (!details.isDirectory()) {
         throw new Error('folderPath must point to a directory.');
       }
-      const projectKey = process.platform === 'win32'
-        ? projectPath.toLowerCase()
-        : projectPath;
-      const folderConversations = listAllConversations().filter((item) => {
-        const conversationPath = resolve(item.projectPath);
-        return (process.platform === 'win32' ? conversationPath.toLowerCase() : conversationPath)
-          === projectKey;
-      });
       const levelSelection = defaultModels?.subagents?.enabled
         ? resolveSubagentModel(model_level, defaultModels, models, {
           modelId: model,
           reasoningEffort,
         })
         : null;
+      const projectKey = process.platform === 'win32'
+        ? projectPath.toLowerCase()
+        : projectPath;
+      const folderConversations = listAllConversations({
+        includeLatestReasoningEffort: !levelSelection && reasoning_effort === undefined,
+      }).filter((item) => {
+        const conversationPath = resolve(item.projectPath);
+        return (process.platform === 'win32' ? conversationPath.toLowerCase() : conversationPath)
+          === projectKey;
+      });
       const selectedModelId = levelSelection?.modelId ?? (model_name === undefined
         ? folderConversations[0]?.model ?? model
         : String(model_name).trim());
@@ -1092,10 +1098,10 @@ export const CLIENT_TOOLS = Object.freeze([
         );
       }
       const lastReasoningEffort = folderConversations
-        .flatMap((item) => getMessages(item.id))
-        .filter((messageItem) => messageItem.reasoningEffort)
-        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
-        ?.reasoningEffort ?? null;
+        .filter((item) => item.lastReasoningEffort)
+        .sort((left, right) => String(right.lastReasoningAt ?? '')
+          .localeCompare(String(left.lastReasoningAt ?? '')))[0]
+        ?.lastReasoningEffort ?? null;
       const selectedReasoningEffort = levelSelection
         ? levelSelection.reasoningEffort
         : reasoning_effort === undefined
@@ -1166,6 +1172,89 @@ export const CLIENT_TOOLS = Object.freeze([
         ...(response ? ['', `Response status: ${response.status}`, 'Response:', response.text] : []),
       ].join('\n');
     },
+  },
+  {
+    name: 'invoke_rubber_duck',
+    description: 'Fork the current thread into a read-only Rubber Duck judgment session. A supervision model interviews the subject agent and returns a report that must only be presented to the user with the discussed points and a proposed execution plan; do not act on the report automatically.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        context: {
+          type: ['string', 'null'],
+          description: 'Optional focus for the judgment. Use null to let the supervisor decide what to scrutinize.',
+        },
+      },
+      required: ['context'],
+      additionalProperties: false,
+    },
+    execute: async ({ context }, {
+      chatRunner,
+      conversationId,
+      permissionMode,
+      signal,
+    }) => {
+      const result = await chatRunner.startRubberDuck({
+        conversationId,
+        context,
+        permissionMode,
+        signal,
+      });
+      return [
+        `<rubber_duck_report thread_id="${result.rubberDuck.id}" action="present_only">`,
+        'Do not implement, edit, retry, or otherwise act on this report automatically.',
+        'Present the conversation and material points to the user, then propose an execution plan and wait for the user’s direction.',
+        '',
+        result.report,
+        '</rubber_duck_report>',
+      ].join('\n');
+    },
+  },
+  {
+    name: 'rubber_duck_ask_agent',
+    description: 'Ask the subject agent one focused interview question and receive its read-only answer.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: {
+          type: 'string',
+          minLength: 1,
+          description: 'One focused question about the subject agent’s execution, reasoning, assumptions, blockers, or validation.',
+        },
+      },
+      required: ['question'],
+      additionalProperties: false,
+    },
+    execute: ({ question }, { chatRunner, conversationId, signal }) => (
+      chatRunner.askRubberDuckSubject({ conversationId, question, signal })
+    ),
+  },
+  {
+    name: 'rubber_duck_submit_report',
+    description: 'Submit the final Rubber Duck judgment report and end the session.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        report: {
+          type: 'string',
+          minLength: 1,
+          description: 'Complete judgment with evidence, strengths, problems, uncertainty, verdict, and concrete recommended next steps.',
+        },
+      },
+      required: ['report'],
+      additionalProperties: false,
+    },
+    execute: ({ report }, { chatRunner, conversationId }) => (
+      chatRunner.submitRubberDuckReport({ conversationId, report })
+    ),
   },
   {
     name: 'chat_spawn_subagent',

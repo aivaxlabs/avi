@@ -12,11 +12,13 @@ import {
   deleteMessage,
   deleteMessagesFrom,
   ensureConversation,
+  forkConversation,
   getConversation,
   getGoal,
   getGoalForConversation,
   getMessage,
   getMessages,
+  hydratePersistedMediaContent,
   getPreferences as readPreferences,
   insertGoal,
   insertInferenceUsage,
@@ -230,6 +232,7 @@ export class ChatRunner {
     this.approvedToolPatterns = new Set();
     this.continuationGenerations = new Map();
     this.pendingCompletionNotifications = new Map();
+    this.rubberDuckReports = new Map();
     this.shuttingDown = false;
     this.semaphores = new SemaphoreManager({
       onChanged: (waits) => {
@@ -608,6 +611,170 @@ export class ChatRunner {
     }
   }
 
+  async startRubberDuck({
+    conversationId,
+    context = null,
+    permissionMode = 'approve_for_me',
+    signal,
+  }) {
+    const subject = getConversation(conversationId);
+    if (!subject || subject.isSideChat || subject.isSubagent) {
+      throw new Error('Rubber Duck can only judge a normal or Rubber Duck thread.');
+    }
+    const configuredModel = this.getPreferences().defaultModels?.supervision;
+    if (!configuredModel?.modelId) {
+      throw new Error('Configure a Supervision Model in Settings before invoking Rubber Duck.');
+    }
+    const selection = this.registry.resolve(configuredModel.modelId);
+    if (!selection) throw new Error('The configured Supervision Model is unavailable.');
+
+    const result = forkConversation(subject.id, {
+      rubberDuck: true,
+      rubberDuckContext: context,
+    });
+    if (!result) throw new Error('The Rubber Duck thread could not be created.');
+    const rubberDuck = updateConversation(result.conversation.id, { model: selection.model.id });
+    let rootSubject = subject;
+    while (rootSubject.isRubberDuck && rootSubject.parentConversationId) {
+      rootSubject = getConversation(rootSubject.parentConversationId) ?? rootSubject;
+      if (!rootSubject.isRubberDuck) break;
+    }
+    this.emit(subject.id, {
+      type: 'rubber-duck-created',
+      rubberDuck,
+      rootConversationId: rootSubject.id,
+    });
+    const abortRubberDuck = () => this.stop(rubberDuck.id, { pauseGoal: false });
+    signal?.addEventListener('abort', abortRubberDuck, { once: true });
+
+    try {
+      const prompt = [
+        'Judge the subject agent’s execution through a focused interview.',
+        context ? `Invocation focus: ${String(context).trim()}` : 'No invocation focus was provided; decide what deserves scrutiny.',
+        'Ask only questions that materially improve the verdict, inspect read-only evidence when useful, then submit the report with rubber_duck_submit_report.',
+      ].join('\n');
+      await this.send({
+        conversationId: rubberDuck.id,
+        model: selection.model.id,
+        reasoningEffort: configuredModel.reasoningEffort,
+        permissionMode,
+        text: prompt,
+        fromAgent: true,
+        project: { path: rubberDuck.projectPath },
+      });
+
+      const waitForRun = async () => {
+        const run = this.runs.get(rubberDuck.id);
+        if (run) await run.completion;
+      };
+      await waitForRun();
+      if (signal?.aborted) throw signal.reason ?? new Error('Rubber Duck was interrupted.');
+      if (!this.rubberDuckReports.has(rubberDuck.id)) {
+        await this.send({
+          conversationId: rubberDuck.id,
+          model: selection.model.id,
+          reasoningEffort: configuredModel.reasoningEffort,
+          permissionMode,
+          text: 'The judgment must end now. Submit the complete report immediately with rubber_duck_submit_report.',
+          fromAgent: true,
+          project: { path: rubberDuck.projectPath },
+        });
+        await waitForRun();
+      }
+
+      const report = this.rubberDuckReports.get(rubberDuck.id);
+      if (!report) throw new Error('Rubber Duck ended without submitting a report.');
+      this.rubberDuckReports.delete(rubberDuck.id);
+      return { rubberDuck, report };
+    } finally {
+      signal?.removeEventListener('abort', abortRubberDuck);
+    }
+  }
+
+  async askRubberDuckSubject({ conversationId, question, signal }) {
+    const rubberDuck = getConversation(conversationId);
+    if (!rubberDuck?.isRubberDuck || !rubberDuck.parentConversationId) {
+      throw new Error('This tool is only available inside a Rubber Duck thread.');
+    }
+    const normalizedQuestion = String(question ?? '').trim();
+    if (!normalizedQuestion) throw new Error('question is required.');
+    const subject = getConversation(rubberDuck.parentConversationId);
+    if (!subject) throw new Error('The subject thread no longer exists.');
+    const selection = this.registry.resolve(subject.model);
+    if (!selection) throw new Error('The subject agent model is unavailable.');
+
+    const copiedMessages = getMessages(conversationId);
+    const sourceEndIndex = copiedMessages.findIndex((message) => (
+      message.hidden && message.content === '<rubber-duck-source-end />'
+    ));
+    const sourceMessages = copiedMessages
+      .slice(0, sourceEndIndex < 0 ? copiedMessages.length : sourceEndIndex)
+      .filter((message) => (
+        ['user', 'assistant'].includes(message.role)
+        && ['completed', 'sent', 'aborted'].includes(message.status)
+      ))
+      .flatMap((message) => messageToApiBlocks(message, selection.model.capabilities));
+    let usage = null;
+    const turn = await selection.provider.stream({
+      model: selection.model,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You are the subject agent being interviewed about the execution shown below.',
+            'Answer the supervisor’s question directly and truthfully using the available history.',
+            'Do not perform work, call tools, modify anything, or propose pretending that unverified work was verified.',
+            'State uncertainty, assumptions, blockers, and missing validation explicitly.',
+          ].join('\n'),
+        },
+        ...sourceMessages,
+        { role: 'user', content: normalizedQuestion },
+      ],
+      tools: [],
+      toolHistory: [],
+      reasoningEffort: getMessages(subject.id).findLast((message) => (
+        message.role === 'assistant' && message.reasoningEffort
+      ))?.reasoningEffort ?? null,
+      invocationContext: {
+        conversationId: subject.id,
+        workspacePath: subject.projectPath,
+        traceOperation: 'rubber-duck-interview',
+        orchestrationRole: 'subject',
+      },
+      signal: AbortSignal.any([
+        signal ?? new AbortController().signal,
+        AbortSignal.timeout(AUXILIARY_MODEL_TIMEOUT_MS),
+      ]),
+      onEvent: (event) => {
+        if (event.type === 'usage') usage = event.usage;
+      },
+    });
+    if (turn.toolCalls.length > 0) throw new Error('The subject agent attempted to call a tool.');
+    if (usage) {
+      insertInferenceUsage({
+        type: 'supervision',
+        model: selection.model.id,
+        projectPath: subject.projectPath,
+        usage,
+      });
+    }
+
+    return turn.assistantContent.trim() || 'The subject agent returned no answer.';
+  }
+
+  submitRubberDuckReport({ conversationId, report }) {
+    const rubberDuck = getConversation(conversationId);
+    if (!rubberDuck?.isRubberDuck) {
+      throw new Error('This tool is only available inside a Rubber Duck thread.');
+    }
+    const normalizedReport = String(report ?? '').trim();
+    if (!normalizedReport) throw new Error('report is required.');
+    this.rubberDuckReports.set(conversationId, normalizedReport);
+    const run = this.runs.get(conversationId);
+    if (run) run.endAfterTools = true;
+    return 'Rubber Duck report submitted. End the judgment now.';
+  }
+
   async forwardSubagentResult(message, permissionMode = 'approve_for_me') {
     const subagent = message ? getConversation(message.conversationId) : null;
     if (
@@ -901,9 +1068,10 @@ export class ChatRunner {
     return updatedGoal;
   }
 
-  resumeGoals() {
+  async resumeGoals() {
     for (const goal of listContinuingGoals()) {
-      if (!this.runs.has(goal.conversationId)) this.continueGoal(goal, 'restart');
+      if (this.runs.has(goal.conversationId) || !this.continueGoal(goal, 'restart')) continue;
+      await this.runs.get(goal.conversationId)?.preparation;
     }
   }
 
@@ -1472,7 +1640,10 @@ export class ChatRunner {
     }
 
     if (resumeFromFailure) {
-      const failedAssistant = getMessage(assistantMessageId);
+      const conversationMessages = getMessages(conversation.id);
+      const failedAssistant = conversationMessages.find(
+        (message) => message.id === assistantMessageId,
+      );
       if (
         !failedAssistant
         || failedAssistant.conversationId !== conversation.id
@@ -1482,7 +1653,6 @@ export class ChatRunner {
         return { conversation: getConversation(conversation.id), message: null, queued: false };
       }
 
-      const conversationMessages = getMessages(conversation.id);
       const assistantIndex = conversationMessages.findIndex(
         (message) => message.id === assistantMessageId,
       );
@@ -1498,6 +1668,7 @@ export class ChatRunner {
         {
           includeFailedUser: true,
           capabilities: selectedModel.model.capabilities,
+          sourceMessages: conversationMessages,
         },
       );
       if (!sourceUser || messages.length === 0) {
@@ -1570,7 +1741,7 @@ export class ChatRunner {
         });
       }
 
-      updateMessage(sourceUser.id, { status: 'sent' });
+      if (sourceUser.status !== 'sent') updateMessage(sourceUser.id, { status: 'sent' });
       const queue = this.getQueuedItems(conversation.id, model);
       this.start({
         conversationId: conversation.id,
@@ -1583,6 +1754,8 @@ export class ChatRunner {
         initialSegments: resumeSegments,
         initialEdits: failedAssistant.edits,
         initialUsage: failedAssistant.usage,
+        persistedMessages: conversationMessages,
+        resumeAssistantMessage: failedAssistant,
         permissionMode,
         workMode: sourceUser.workMode,
         ultraMode: sourceUser.ultraMode,
@@ -1590,7 +1763,7 @@ export class ChatRunner {
       });
       return {
         conversation: getConversation(conversation.id),
-        message: getMessage(failedAssistant.id),
+        message: failedAssistant,
         queued: false,
       };
     }
@@ -2065,6 +2238,8 @@ export class ChatRunner {
     initialSegments = [],
     initialEdits = [],
     initialUsage = null,
+    persistedMessages = null,
+    resumeAssistantMessage = null,
     reasoningEffort = null,
     permissionMode = 'approve_for_me',
     workMode = null,
@@ -2084,19 +2259,22 @@ export class ChatRunner {
       ? permissionMode
       : 'approve_for_me';
     const controller = new AbortController();
-    const persistedMessagesAtStart = getMessages(conversationId);
+    const persistedMessagesAtStart = persistedMessages ?? getMessages(conversationId);
     const accumulator = new StreamAccumulator({
       segments: initialSegments,
       usage: initialUsage,
     });
     const assistantMessage = resumeAssistantMessageId
-      ? updateMessage(resumeAssistantMessageId, {
-          status: 'streaming',
-          content: accumulator.content,
-          segments: accumulator.segments,
-          edits: initialEdits,
-          usage: accumulator.usage,
-        })
+      ? resumeAssistantMessage?.id === resumeAssistantMessageId
+        && resumeAssistantMessage.status === 'streaming'
+        ? resumeAssistantMessage
+        : updateMessage(resumeAssistantMessageId, {
+            status: 'streaming',
+            content: accumulator.content,
+            segments: accumulator.segments,
+            edits: initialEdits,
+            usage: accumulator.usage,
+          })
       : insertMessage({
           conversationId,
           role: 'assistant',
@@ -2128,7 +2306,9 @@ export class ChatRunner {
       userMessageIds,
     };
     const completion = Promise.withResolvers();
+    const preparation = Promise.withResolvers();
     run.completion = completion.promise;
+    run.preparation = preparation.promise;
     this.runs.set(conversationId, run);
     this.noteBotRunStarted(conversationId, assistantMessage.id);
     this.emit(conversationId, { type: 'message', message: assistantMessage });
@@ -2225,14 +2405,17 @@ export class ChatRunner {
       const preferences = this.getPreferences();
       const tuning = preferences.tuning;
       const aivax = preferences.aivax;
-      const contextLimit = selection.model.context.input;
-      const pluginTools = workMode === 'plan' ? [] : this.getPluginTools(conversationId);
+      const contextLimit = botRuntime?.bot.contextSize > 0
+        ? botRuntime.bot.contextSize
+        : selection.model.context.input;
+      const rubberDuckMode = currentConversation?.isRubberDuck === true;
+      const pluginTools = workMode === 'plan' || rubberDuckMode ? [] : this.getPluginTools(conversationId);
       const providerContributionContext = {
         model: selection.model,
         conversation: currentConversation,
         workspacePath,
       };
-      const selectedProviderTools = workMode === 'plan'
+      const selectedProviderTools = workMode === 'plan' || rubberDuckMode
         ? []
         : selection.provider.getContributions(providerContributionContext).tools;
       const selectedProviderToolNames = new Set(selectedProviderTools.map((tool) => tool.name));
@@ -2244,6 +2427,17 @@ export class ChatRunner {
               .filter((tool) => !selectedProviderToolNames.has(tool.name)),
           ];
       const coreTools = CLIENT_TOOLS
+          .filter((tool) => rubberDuckMode
+            ? [
+                'invoke_rubber_duck',
+                'rubber_duck_ask_agent',
+                'rubber_duck_submit_report',
+                'get_chat_attachments',
+                'read_media_file',
+                'read_file',
+                'read_url',
+              ].includes(tool.name)
+            : !['rubber_duck_ask_agent', 'rubber_duck_submit_report'].includes(tool.name))
           .filter((tool) => (
             tool.name !== 'read_media_file'
             || selection.model.capabilities?.images
@@ -2440,7 +2634,9 @@ export class ChatRunner {
               .map((segment) => ({
                 callId: segment.callId,
                 output: segment.resultText,
-                ...(segment.mediaContent?.length ? { mediaContent: segment.mediaContent } : {}),
+                ...(segment.mediaContent?.length
+                  ? { mediaContent: hydratePersistedMediaContent(segment.mediaContent) }
+                  : {}),
                 isError: segment.status === 'error',
               })),
             messages: [],
@@ -2506,8 +2702,13 @@ export class ChatRunner {
           : botRuntime
             ? this.mcpManager.runtimeForBot(workspacePath, botRuntime.bot.id)
             : this.mcpManager.runtimeForWorkspace(workspacePath);
+        if (rubberDuckMode) {
+          mcpRuntime.tools = mcpRuntime.tools.filter((tool) => (
+            tool.canEditFile === false && tool.canPerformDestructiveActions === false
+          ));
+        }
         const extensionTools = [
-          ...(botRuntime?.tools ?? []),
+          ...(rubberDuckMode ? [] : botRuntime?.tools ?? []),
           ...providerTools.map((tool) => ({ ...tool, providerTool: true })),
           ...mcpRuntime.tools,
         ];
@@ -2567,7 +2768,9 @@ export class ChatRunner {
                 ? 'subagent'
                 : currentConversation?.isSideChat
                   ? 'side_chat'
-                  : 'orchestrator',
+                  : currentConversation?.isRubberDuck
+                    ? 'supervisor'
+                    : 'orchestrator',
               goal: goalContext,
               tasks: listTasks(conversationId),
               semaphoreHoldings: this.semaphores.holdings(conversationId),
@@ -2575,6 +2778,7 @@ export class ChatRunner {
               hasThreads,
               tuning,
               aivax,
+              onPrepared: () => preparation.resolve(),
             },
             signal: controller.signal,
             onEvent: (event) => {
@@ -2706,6 +2910,23 @@ export class ChatRunner {
         }
         run.phase = 'boundary';
         if (controller.signal.aborted) throw new Error('The run was interrupted.');
+        if (
+          rubberDuckMode
+          && roundIndex + 1 >= tuning.rubberDuckMaxTurns
+          && !run.rubberDuckLimitNotified
+          && !turn.toolCalls.some((toolCall) => toolCall.name === 'rubber_duck_submit_report')
+        ) {
+          run.rubberDuckLimitNotified = true;
+          await this.send({
+            conversationId,
+            model,
+            text: 'The Rubber Duck Max Turns soft limit has been reached. Submit the report immediately with rubber_duck_submit_report. Do not ask another question.',
+            steer: true,
+            fromAgent: true,
+            permissionMode,
+            project: { path: workspacePath },
+          });
+        }
         if (turn.toolCalls.length === 0) {
           finalAssistantContent = turn.assistantContent;
           break;
@@ -3334,6 +3555,7 @@ export class ChatRunner {
         this.emit(conversationId, { type: 'error', message });
       }
     } finally {
+      preparation.resolve();
       try {
         if (!this.shuttingDown) {
           try {

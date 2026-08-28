@@ -52,6 +52,7 @@ const defaultTuningSettings = Object.freeze({
   terminalShell: 'auto',
   terminalTimeoutSeconds: 30,
   maxConcurrentSubagents: 128,
+  rubberDuckMaxTurns: 20,
   logLevel: 'minimal',
 });
 const defaultRemoteSettings = Object.freeze({
@@ -342,6 +343,7 @@ db.exec(`
     activation_count INTEGER NOT NULL DEFAULT 0,
     work_queue_index INTEGER NOT NULL DEFAULT 0,
     active_assistant_message_id TEXT,
+    snooze_until TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
@@ -525,13 +527,10 @@ if (!botColumns.some((column) => column.name === 'work_queue')) {
 if (!botColumns.some((column) => column.name === 'work_queue_index')) {
   db.exec('ALTER TABLE bots ADD COLUMN work_queue_index INTEGER NOT NULL DEFAULT 0');
 }
+if (!botColumns.some((column) => column.name === 'snooze_until')) {
+  db.exec('ALTER TABLE bots ADD COLUMN snooze_until TEXT');
+}
 const conversationColumns = db.prepare("PRAGMA table_info('conversations')").all();
-db.exec(`
-  UPDATE messages
-  SET status = 'aborted', updated_at = CURRENT_TIMESTAMP
-  WHERE status = 'streaming'
-    AND role IN ('assistant', 'system');
-`);
 
 if (!conversationColumns.some((column) => column.name === 'project_path')) {
   db.exec('ALTER TABLE conversations ADD COLUMN project_path TEXT');
@@ -606,6 +605,70 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_conversations_archive
     ON conversations(archived_at, conversation_type, updated_at);
 `);
+if (!db.prepare("SELECT 1 FROM session_values WHERE key = 'generatedImageMediaReferencesMigrated'").get()) {
+  const rows = db.prepare(`
+    SELECT id, segments, attachments
+    FROM messages
+    WHERE attachments LIKE '%"source":"generated_image"%'
+      AND attachments LIKE '%"dataUrl"%'
+  `).all();
+  const updatePersistedMedia = db.prepare(`
+    UPDATE messages SET segments = ?, attachments = ? WHERE id = ?
+  `);
+  db.exec('BEGIN');
+  try {
+    for (const row of rows) {
+      const segments = parse(row.segments, null);
+      const attachments = parse(row.attachments, null);
+      if (!Array.isArray(segments) || !Array.isArray(attachments)) continue;
+      const persisted = normalizePersistedMessageMedia(segments, attachments);
+      const persistedSegments = stringify(persisted.segments);
+      const persistedAttachments = stringify(persisted.attachments);
+      if (persistedSegments === row.segments && persistedAttachments === row.attachments) continue;
+      updatePersistedMedia.run(persistedSegments, persistedAttachments, row.id);
+    }
+    db.prepare(`
+      INSERT INTO session_values (key, value, updated_at)
+      VALUES ('generatedImageMediaReferencesMigrated', 'true', CURRENT_TIMESTAMP)
+    `).run();
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+if (!db.prepare("SELECT 1 FROM session_values WHERE key = 'interruptedToolMediaReferencesMigrated'").get()) {
+  const rows = db.prepare(`
+    SELECT id, segments, attachments
+    FROM messages
+    WHERE status IN ('streaming', 'aborted')
+      AND segments LIKE '%"mediaContent"%'
+  `).all();
+  const updatePersistedMedia = db.prepare(`
+    UPDATE messages SET segments = ?, attachments = ? WHERE id = ?
+  `);
+  db.exec('BEGIN');
+  try {
+    for (const row of rows) {
+      const segments = parse(row.segments, null);
+      const attachments = parse(row.attachments, null);
+      if (!Array.isArray(segments) || !Array.isArray(attachments)) continue;
+      const persisted = normalizePersistedMessageMedia(segments, attachments);
+      const persistedSegments = stringify(persisted.segments);
+      const persistedAttachments = stringify(persisted.attachments);
+      if (persistedSegments === row.segments && persistedAttachments === row.attachments) continue;
+      updatePersistedMedia.run(persistedSegments, persistedAttachments, row.id);
+    }
+    db.prepare(`
+      INSERT INTO session_values (key, value, updated_at)
+      VALUES ('interruptedToolMediaReferencesMigrated', 'true', CURRENT_TIMESTAMP)
+    `).run();
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
 const conversationsWithoutContextUsage = db.prepare(`
   SELECT c.id, (
     SELECT usage
@@ -779,6 +842,21 @@ const statements = {
       AND parent_conversation_id = ?
     ORDER BY created_at ASC
   `),
+  listRubberDucks: db.prepare(`
+    WITH RECURSIVE rubber_duck_threads AS (
+      SELECT * FROM conversations
+      WHERE parent_conversation_id = ? AND conversation_type = 'rubber_duck'
+      UNION ALL
+      SELECT c.* FROM conversations c
+      JOIN rubber_duck_threads parent ON c.parent_conversation_id = parent.id
+      WHERE c.conversation_type = 'rubber_duck'
+    )
+    SELECT c.*,
+      COALESCE(c.initial_prompt, '') AS first_prompt
+    FROM rubber_duck_threads c
+    WHERE c.deleted_at IS NULL AND c.archived_at IS NULL
+    ORDER BY c.created_at ASC
+  `),
   listAllConversations: db.prepare(`
     SELECT c.*,
       COALESCE((
@@ -786,6 +864,32 @@ const statements = {
         WHERE conversation_id = c.id AND role = 'user' AND hidden = 0
         ORDER BY created_at LIMIT 1
       ), '') AS first_prompt
+    FROM conversations c
+    WHERE deleted_at IS NULL
+      AND archived_at IS NULL
+    ORDER BY updated_at DESC
+  `),
+  listAllConversationsWithLatestReasoning: db.prepare(`
+    SELECT c.*,
+      COALESCE((
+        SELECT content FROM messages
+        WHERE conversation_id = c.id AND role = 'user' AND hidden = 0
+        ORDER BY created_at LIMIT 1
+      ), '') AS first_prompt,
+      (
+        SELECT reasoning_effort FROM messages
+        WHERE conversation_id = c.id
+          AND reasoning_effort IS NOT NULL
+          AND reasoning_effort != ''
+        ORDER BY created_at DESC, rowid DESC LIMIT 1
+      ) AS last_reasoning_effort,
+      (
+        SELECT created_at FROM messages
+        WHERE conversation_id = c.id
+          AND reasoning_effort IS NOT NULL
+          AND reasoning_effort != ''
+        ORDER BY created_at DESC, rowid DESC LIMIT 1
+      ) AS last_reasoning_at
     FROM conversations c
     WHERE deleted_at IS NULL
       AND archived_at IS NULL
@@ -910,14 +1014,14 @@ const statements = {
       reasoning_effort, context_size, activation_period_minutes, activation_mode,
       max_activations, activation_window, instructions, work_queue, enabled, status,
       next_activation_at, idle_until, activation_count, work_queue_index,
-      active_assistant_message_id, created_at, updated_at
+      active_assistant_message_id, snooze_until, created_at, updated_at
     )
     VALUES (
       @id, @conversationId, @name, @iconSeed, @personality, @workingFolder, @model,
       @reasoningEffort, @contextSize, @activationPeriodMinutes, @activationMode,
       @maxActivations, @activationWindow, @instructions, @workQueue, @enabled, @status,
       @nextActivationAt, @idleUntil, @activationCount, @workQueueIndex,
-      @activeAssistantMessageId, @createdAt, @updatedAt
+      @activeAssistantMessageId, @snoozeUntil, @createdAt, @updatedAt
     )
   `),
   updateBot: db.prepare(`
@@ -955,6 +1059,10 @@ const statements = {
           WHEN @activeAssistantMessageIdChanged = 1 THEN @activeAssistantMessageId
           ELSE active_assistant_message_id
         END,
+        snooze_until = CASE
+          WHEN @snoozeUntilChanged = 1 THEN @snoozeUntil
+          ELSE snooze_until
+        END,
         updated_at = @updatedAt
     WHERE id = @id
   `),
@@ -965,7 +1073,7 @@ const statements = {
   hardDeleteConversation: db.prepare('DELETE FROM conversations WHERE id = ?'),
   hardDeleteChildConversations: db.prepare(`
     DELETE FROM conversations
-    WHERE conversation_type IN ('side', 'subagent') AND parent_conversation_id = ?
+    WHERE conversation_type IN ('side', 'subagent', 'rubber_duck') AND parent_conversation_id = ?
   `),
   hardDeleteConversationDescendants: db.prepare(`
     WITH RECURSIVE descendants(id) AS (
@@ -1007,7 +1115,7 @@ const statements = {
     SELECT COUNT(*) AS total FROM conversations
     WHERE deleted_at IS NULL
       AND archived_at IS NOT NULL
-      AND conversation_type IN ('side', 'subagent')
+      AND conversation_type IN ('side', 'subagent', 'rubber_duck')
   `),
   deleteAllArchived: db.prepare(`
     DELETE FROM conversations
@@ -1016,7 +1124,7 @@ const statements = {
   deleteExpiredDisposable: db.prepare(`
     DELETE FROM conversations
     WHERE deleted_at IS NULL
-      AND conversation_type IN ('side', 'subagent')
+      AND conversation_type IN ('side', 'subagent', 'rubber_duck')
       AND updated_at < ?
   `),
   listForcedCleanupConversationIds: db.prepare(`
@@ -1160,7 +1268,44 @@ const statements = {
     WHERE conversation_id = ?
     ORDER BY created_at ASC
   `),
+  listThreadSearchMessages: db.prepare(`
+    SELECT
+      c.id AS conversation_id,
+      c.title AS conversation_title,
+      m.id,
+      m.role,
+      m.status,
+      m.content,
+      m.updated_at,
+      m.hidden,
+      m.from_agent
+    FROM conversations c
+    JOIN messages m ON m.conversation_id = c.id
+    WHERE c.deleted_at IS NULL
+      AND c.archived_at IS NULL
+      AND c.conversation_type = 'thread'
+      AND m.hidden = 0
+      AND (
+        (m.role = 'user' AND m.from_agent = 0 AND m.status IN ('sent', 'completed'))
+        OR (m.role = 'assistant' AND m.status = 'completed')
+      )
+    ORDER BY c.id, m.created_at ASC, m.rowid ASC
+  `),
   getMessage: db.prepare('SELECT * FROM messages WHERE id = ?'),
+  abortInterruptedMessages: db.prepare(`
+    UPDATE messages
+    SET status = 'aborted', updated_at = CURRENT_TIMESTAMP
+    WHERE status = 'streaming'
+      AND role IN ('assistant', 'system')
+      AND (
+        @preserveActiveBots = 0
+        OR NOT EXISTS (
+          SELECT 1 FROM bots
+          WHERE bots.active_assistant_message_id = messages.id
+            AND bots.enabled = 1
+        )
+      )
+  `),
   insertInferenceUsage: db.prepare(`
     INSERT INTO inference_usage (id, type, model, project_path, usage, created_at)
     VALUES (@id, @type, @model, @projectPath, @usage, @createdAt)
@@ -1516,6 +1661,12 @@ export function closeDatabase() {
   db.close();
 }
 
+export function abortInterruptedMessages({ preserveActiveBots = false } = {}) {
+  return Number(statements.abortInterruptedMessages.run({
+    preserveActiveBots: preserveActiveBots ? 1 : 0,
+  }).changes) || 0;
+}
+
 export function listTasks(conversationId) {
   return parse(statements.listTasks.get(conversationId)?.tasks, []);
 }
@@ -1654,8 +1805,11 @@ export function listConversations() {
   return statements.listConversations.all().map(mapConversation);
 }
 
-export function listAllConversations() {
-  return statements.listAllConversations.all().map(mapConversation);
+export function listAllConversations({ includeLatestReasoningEffort = false } = {}) {
+  const statement = includeLatestReasoningEffort
+    ? statements.listAllConversationsWithLatestReasoning
+    : statements.listAllConversations;
+  return statement.all().map(mapConversation);
 }
 
 export function countArchivedConversations(query = '') {
@@ -1686,6 +1840,10 @@ export function listSideChats(parentConversationId) {
 
 export function listSubagents(parentConversationId) {
   return statements.listSubagents.all(parentConversationId).map(mapConversation);
+}
+
+export function listRubberDucks(parentConversationId) {
+  return statements.listRubberDucks.all(parentConversationId).map(mapConversation);
 }
 
 export function clearConversationMessages(conversationId, { resetState = false } = {}) {
@@ -1723,6 +1881,7 @@ function normalizeActivationWindow(window) {
     .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))]
     .sort((left, right) => left - right);
   const normalizeMinute = (minute) => {
+    if (minute === null || minute === undefined) return null;
     const value = Number(minute);
     return Number.isInteger(value) && value >= 0 && value < 1440 ? value : null;
   };
@@ -1770,6 +1929,7 @@ function mapBot(row) {
     idleUntil: row.idle_until || null,
     activationCount: Math.max(0, Number(row.activation_count) || 0),
     activeAssistantMessageId: row.active_assistant_message_id || null,
+    snoozeUntil: row.snooze_until || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1818,6 +1978,7 @@ export function createBot({
     activationCount: 0,
     workQueueIndex: 0,
     activeAssistantMessageId: null,
+    snoozeUntil: null,
     createdAt: now,
     updatedAt: now,
   });
@@ -1875,6 +2036,8 @@ export function updateBotScheduler(id, changes = {}) {
       changes,
       'activeAssistantMessageId',
     ) ? 1 : 0,
+    snoozeUntil: changes.snoozeUntil === 'clear' ? null : (changes.snoozeUntil ?? null),
+    snoozeUntilChanged: Object.prototype.hasOwnProperty.call(changes, 'snoozeUntil') ? 1 : 0,
     updatedAt: timestamp(),
   });
   return getBot(id);
@@ -2087,6 +2250,10 @@ export function listInferenceUsage(from, to) {
 
 export function insertMessage(message) {
   const now = timestamp();
+  const persistedMedia = normalizePersistedMessageMedia(
+    message.segments ?? [],
+    message.attachments ?? [],
+  );
   const row = {
     id: message.id ?? crypto.randomUUID(),
     conversationId: message.conversationId,
@@ -2109,9 +2276,9 @@ export function insertMessage(message) {
     queuePosition: Number.isInteger(message.queuePosition) ? message.queuePosition : null,
     status: message.status ?? 'completed',
     content: message.content ?? '',
-    segments: stringify(message.segments ?? []),
+    segments: stringify(persistedMedia.segments),
     edits: stringify(message.edits ?? []),
-    attachments: stringify(message.attachments ?? []),
+    attachments: stringify(persistedMedia.attachments),
     continuations: stringify(message.continuations ?? []),
     usage: stringify(message.usage ?? {}),
     createdAt: Object.hasOwn(message, 'createdAt') ? message.createdAt : now,
@@ -2123,13 +2290,14 @@ export function insertMessage(message) {
 }
 
 export function updateMessage(id, patch, { touch = true } = {}) {
+  const persistedMedia = normalizePersistedMessageMedia(patch.segments, patch.attachments);
   statements.updateMessage.run({
     id,
     status: patch.status ?? null,
     content: patch.content ?? null,
-    segments: patch.segments === undefined ? null : stringify(patch.segments),
+    segments: patch.segments === undefined ? null : stringify(persistedMedia.segments),
     edits: patch.edits === undefined ? null : stringify(patch.edits),
-    attachments: patch.attachments === undefined ? null : stringify(patch.attachments),
+    attachments: patch.attachments === undefined ? null : stringify(persistedMedia.attachments),
     continuations: patch.continuations === undefined ? null : stringify(patch.continuations),
     usage: patch.usage === undefined ? null : stringify(patch.usage),
     createdAt: patch.createdAt ?? null,
@@ -2215,6 +2383,20 @@ export function getMessages(conversationId) {
   return statements.getMessages.all(conversationId).map(mapMessage);
 }
 
+export function listThreadSearchMessages() {
+  return statements.listThreadSearchMessages.all().map((row) => ({
+    conversationId: row.conversation_id,
+    conversationTitle: row.conversation_title,
+    id: row.id,
+    role: row.role,
+    status: row.status,
+    content: row.content,
+    updatedAt: row.updated_at,
+    hidden: Boolean(row.hidden),
+    fromAgent: Boolean(row.from_agent),
+  }));
+}
+
 export function getMessage(id) {
   const row = statements.getMessage.get(id);
   return row ? mapMessage(row) : null;
@@ -2228,16 +2410,19 @@ export function forkConversation(id, {
   throughMessageId = null,
   sideChat = false,
   subagent = false,
+  rubberDuck = false,
   subagentPrompt = null,
+  rubberDuckContext = null,
   orchestrationMode = null,
   autoForwardToParent = false,
 } = {}) {
   const source = getConversation(id);
-  const childThread = sideChat || subagent;
+  const childThread = sideChat || subagent || rubberDuck;
   if (
     !source
-    || (sideChat && subagent)
-    || (childThread && (source.isSideChat || source.isSubagent))
+    || [sideChat, subagent, rubberDuck].filter(Boolean).length > 1
+    || ((sideChat || subagent) && (source.isSideChat || source.isSubagent || source.isRubberDuck))
+    || (rubberDuck && (source.isSideChat || source.isSubagent))
   ) {
     return null;
   }
@@ -2259,18 +2444,25 @@ export function forkConversation(id, {
     : -1;
   const subagentName = subagentNameIndex >= 0 ? subagentNames[subagentNameIndex] : null;
   if (subagent && !subagentName) return null;
+  const rubberDuckNumber = rubberDuck ? listRubberDucks(source.id).length + 1 : null;
   const target = createConversation({
     title: sideChat
       ? `Side chat ${childNumber}`
       : subagent
         ? subagentName
-        : `${source.title} - Copy`,
+        : rubberDuck
+          ? `Rubber Duck ${rubberDuckNumber}`
+          : `${source.title} - Copy`,
     model: source.model,
     projectPath: source.projectPath,
     gitBranch: source.gitBranch,
-    conversationType: sideChat ? 'side' : subagent ? 'subagent' : 'thread',
+    conversationType: sideChat ? 'side' : subagent ? 'subagent' : rubberDuck ? 'rubber_duck' : 'thread',
     parentConversationId: childThread ? source.id : null,
-    initialPrompt: subagent ? String(subagentPrompt ?? '').trim() || null : null,
+    initialPrompt: subagent
+      ? String(subagentPrompt ?? '').trim() || null
+      : rubberDuck
+        ? String(rubberDuckContext ?? '').trim() || null
+        : null,
     orchestrationMode: subagent ? orchestrationMode : null,
     autoForwardToParent: subagent && autoForwardToParent,
     titleStatus: childThread ? 'generated' : 'pending',
@@ -2291,7 +2483,9 @@ export function forkConversation(id, {
       throughIndex >= 0
         ? sourceMessages.slice(0, throughIndex + 1)
         : sourceMessages.filter((message) => (
-          !childThread || !['queued', 'steered'].includes(message.status)
+          !childThread
+          || !['queued', 'steered'].includes(message.status)
+            && (!rubberDuck || message.status !== 'streaming')
         ))
     ).filter((message) => !message.hidden);
     const now = Date.now();
@@ -2304,7 +2498,7 @@ export function forkConversation(id, {
         id: messageId,
         conversationId: target.id,
         goalId: null,
-        status: sideChat && messages[index].status === 'streaming'
+        status: (sideChat || rubberDuck) && messages[index].status === 'streaming'
           ? 'completed'
           : messages[index].status,
         createdAt: new Date(now + index).toISOString(),
@@ -2315,18 +2509,20 @@ export function forkConversation(id, {
       checkpointMessageId: copiedMessageIds.get(source.checkpointMessageId) ?? null,
       contextTokens: source.contextTokens,
     });
-    if (sideChat) {
+    if (sideChat || rubberDuck) {
       insertMessage({
         conversationId: target.id,
         role: 'user',
         status: 'sent',
         hidden: true,
-        content: [
-          '<side-chat-instructions>',
-          'The parent thread history above was forked into this side chat from this point on.',
-          'Follow the side-chat contract in the <thread_context> system message of this conversation.',
-          '</side-chat-instructions>',
-        ].join('\n'),
+        content: sideChat
+          ? [
+            '<side-chat-instructions>',
+            'The parent thread history above was forked into this side chat from this point on.',
+            'Follow the side-chat contract in the <thread_context> system message of this conversation.',
+            '</side-chat-instructions>',
+          ].join('\n')
+          : '<rubber-duck-source-end />',
         createdAt: new Date(now + messages.length).toISOString(),
       });
     }
@@ -2351,7 +2547,28 @@ export function setFavorite(modelId, favorited) {
 }
 
 function childThreadContext(conversation) {
-  if (!['side', 'subagent'].includes(conversation?.conversation_type)) return [];
+  if (!['side', 'subagent', 'rubber_duck'].includes(conversation?.conversation_type)) return [];
+
+  if (conversation.conversation_type === 'rubber_duck') {
+    const parent = statements.getConversation.get(conversation.parent_conversation_id);
+    return [{
+      role: 'system',
+      content: [
+        '<thread_context>',
+        'thread_type: rubber_duck',
+        `thread_id: ${conversation.id}`,
+        `subject_thread_id: ${conversation.parent_conversation_id}`,
+        `subject_thread_title: ${parent?.title ?? 'Unknown'}`,
+        'You are an uncompromising but fair supervisor judging whether the subject agent executed its work well or poorly.',
+        'Interview the subject agent with focused questions. Decide what to ask based on the evidence, including what it did, why, alternatives, blockers, assumptions, and validation.',
+        'Use rubber_duck_ask_agent for the interview. Use read-only inspection tools only when evidence is missing.',
+        'Never edit files, mutate data, send instructions to other threads, or perform implementation work.',
+        'When you can render a justified verdict, call rubber_duck_submit_report exactly once with the complete report.',
+        'The report must distinguish evidence, strengths, problems, unresolved uncertainty, and concrete recommended next steps.',
+        '</thread_context>',
+      ].join('\n'),
+    }];
+  }
 
   if (conversation.conversation_type === 'subagent') {
     const parent = statements.getConversation.get(conversation.parent_conversation_id);
@@ -2454,9 +2671,9 @@ export function toModelMessages(
 export function toModelMessagesThroughUser(
   conversationId,
   beforeMessageId,
-  { includeFailedUser = false, capabilities = {} } = {},
+  { includeFailedUser = false, capabilities = {}, sourceMessages = null } = {},
 ) {
-  const messages = getMessages(conversationId);
+  const messages = sourceMessages ?? getMessages(conversationId);
   const conversation = statements.getConversation.get(conversationId);
   const beforeIndex = messages.findIndex((message) => message.id === beforeMessageId);
   const searchEnd = beforeIndex >= 0 ? beforeIndex : messages.length;
@@ -2546,7 +2763,8 @@ export function messageToApiBlocks(message, capabilities = {}) {
         content: segment.resultText,
       });
       if (segment.mediaContent?.length) {
-        blocks.push({ role: 'user', content: segment.mediaContent });
+        const mediaContent = hydratePersistedMediaContent(segment.mediaContent);
+        if (mediaContent.length > 0) blocks.push({ role: 'user', content: mediaContent });
       }
     }
     content = '';
@@ -2619,8 +2837,9 @@ export function attachmentToApiBlock(attachment, capabilities = {}) {
     };
   }
   if (attachment.kind === 'image_url') {
-    return capabilities.images
-      ? { type: 'image_url', image_url: { url: attachment.dataUrl } }
+    const url = imageDataUrl(attachment);
+    return capabilities.images && url
+      ? { type: 'image_url', image_url: { url } }
       : unsupportedAttachmentToApiBlock(attachment);
   }
   if (attachment.kind === 'video_url') {
@@ -2665,6 +2884,155 @@ function unsupportedAttachmentToApiBlock(attachment) {
       ? `Attachment "${attachment.name ?? 'attachment'}" is available at: ${attachment.path}`
       : `Attachment: ${attachment.name ?? 'unavailable'}`,
   };
+}
+
+function normalizePersistedMessageMedia(segments, attachments) {
+  const persistedMediaReferences = new Map();
+  const persistedAttachments = Array.isArray(attachments) ? attachments.map((attachment) => {
+    if (
+      attachment?.kind !== 'image_url'
+      || attachment.source !== 'generated_image'
+      || typeof attachment.path !== 'string'
+      || typeof attachment.dataUrl !== 'string'
+    ) return attachment;
+    try {
+      if (!statSync(attachment.path).isFile()) return attachment;
+    } catch {
+      return attachment;
+    }
+    const { dataUrl, base64: _base64, ...persisted } = attachment;
+    persistedMediaReferences.set(dataUrl, {
+      path: persisted.path,
+      mime: persisted.mime ?? 'image/png',
+    });
+    return persisted;
+  }) : attachments;
+  const persistedSegments = Array.isArray(segments)
+    ? segments.map((segment) => {
+        if (!Array.isArray(segment?.mediaContent)) return segment;
+        const hasInlineMedia = segment.mediaContent.some((media) => (
+          typeof media?.image_url?.url === 'string'
+          || typeof media?.video_url?.url === 'string'
+          || typeof media?.input_audio?.data === 'string'
+          || typeof media?.file?.file_data === 'string'
+        ));
+        if (!hasInlineMedia) return segment;
+
+        let toolMediaPath = null;
+        if (segment.name === 'read_media_file') {
+          const input = parse(segment.argumentsText, {});
+          if (typeof input?.path === 'string' && isAbsolute(input.path)) {
+            try {
+              if (statSync(input.path).isFile()) toolMediaPath = input.path;
+            } catch {
+              toolMediaPath = null;
+            }
+          }
+        }
+
+        let changed = false;
+        const mediaContent = segment.mediaContent.map((media) => {
+          const generatedReference = persistedMediaReferences.get(media?.image_url?.url);
+          if (generatedReference) {
+            changed = true;
+            return { ...media, image_url: generatedReference };
+          }
+          if (!toolMediaPath) return media;
+
+          if (media?.type === 'image_url' && typeof media.image_url?.url === 'string') {
+            changed = true;
+            return {
+              ...media,
+              image_url: {
+                path: toolMediaPath,
+                mime: media.image_url.url.match(/^data:([^;,]+)/)?.[1] ?? 'image/png',
+              },
+            };
+          }
+          if (media?.type === 'video_url' && typeof media.video_url?.url === 'string') {
+            changed = true;
+            return {
+              ...media,
+              video_url: {
+                path: toolMediaPath,
+                mime: media.video_url.url.match(/^data:([^;,]+)/)?.[1] ?? 'video/mp4',
+              },
+            };
+          }
+          if (media?.type === 'input_audio' && typeof media.input_audio?.data === 'string') {
+            changed = true;
+            return {
+              ...media,
+              input_audio: {
+                path: toolMediaPath,
+                mime: `audio/${media.input_audio.format ?? 'mp3'}`,
+                format: media.input_audio.format ?? 'mp3',
+              },
+            };
+          }
+          if (media?.type === 'file' && typeof media.file?.file_data === 'string') {
+            changed = true;
+            return {
+              ...media,
+              file: {
+                path: toolMediaPath,
+                mime: media.file.file_data.match(/^data:([^;,]+)/)?.[1] ?? 'application/octet-stream',
+                filename: media.file.filename ?? basename(toolMediaPath),
+              },
+            };
+          }
+          return media;
+        });
+        return changed ? { ...segment, mediaContent } : segment;
+      })
+    : segments;
+  return { segments: persistedSegments, attachments: persistedAttachments };
+}
+
+export function hydratePersistedMediaContent(mediaContent) {
+  if (!Array.isArray(mediaContent)) return [];
+  return mediaContent.flatMap((media) => {
+    if (media?.type === 'image_url' && media.image_url?.path) return [media];
+    if (media?.type === 'input_audio' && !media.input_audio?.data) {
+      try {
+        return [{
+          ...media,
+          input_audio: {
+            data: readFileSync(media.input_audio?.path).toString('base64'),
+            format: media.input_audio?.format ?? 'mp3',
+          },
+        }];
+      } catch {
+        return [];
+      }
+    }
+    if (media?.type === 'file' && !media.file?.file_data) {
+      try {
+        const mime = media.file?.mime ?? 'application/octet-stream';
+        return [{
+          ...media,
+          file: {
+            filename: media.file?.filename ?? basename(media.file?.path ?? 'attachment'),
+            file_data: `data:${mime};base64,${readFileSync(media.file?.path).toString('base64')}`,
+          },
+        }];
+      } catch {
+        return [];
+      }
+    }
+    return [media];
+  });
+}
+
+function imageDataUrl(attachment) {
+  if (typeof attachment?.dataUrl === 'string') return attachment.dataUrl;
+  if (typeof attachment?.path !== 'string' || !isAbsolute(attachment.path)) return null;
+  try {
+    const mime = typeof attachment.mime === 'string' ? attachment.mime : 'image/png';
+    return `data:${mime};base64,${readFileSync(attachment.path).toString('base64')}`;
+  } catch {
+    return null;
+  }
 }
 
 function touchConversation(id) {
@@ -2809,6 +3177,7 @@ function normalizeTuningSettings(value, strict = false) {
     : Number(tuning.toolOutputLimit);
   const terminalTimeoutSeconds = Number(tuning.terminalTimeoutSeconds);
   const maxConcurrentSubagents = Number(tuning.maxConcurrentSubagents);
+  const rubberDuckMaxTurns = Number(tuning.rubberDuckMaxTurns);
 
   const normalized = {
     personality: typeof tuning.personality === 'string'
@@ -2853,6 +3222,11 @@ function normalizeTuningSettings(value, strict = false) {
       && maxConcurrentSubagents <= 128
       ? maxConcurrentSubagents
       : defaultTuningSettings.maxConcurrentSubagents,
+    rubberDuckMaxTurns: Number.isInteger(rubberDuckMaxTurns)
+      && rubberDuckMaxTurns >= 10
+      && rubberDuckMaxTurns <= 500
+      ? rubberDuckMaxTurns
+      : defaultTuningSettings.rubberDuckMaxTurns,
     logLevel: ['verbose', 'minimal', 'disabled'].includes(tuning.logLevel)
       ? tuning.logLevel
       : defaultTuningSettings.logLevel,
@@ -2888,6 +3262,7 @@ function mapConversation(row) {
     conversationType: row.conversation_type,
     isSideChat: row.conversation_type === 'side',
     isSubagent: row.conversation_type === 'subagent',
+    isRubberDuck: row.conversation_type === 'rubber_duck',
     isBot: row.conversation_type === 'bot',
     createdBy: row.created_by === 'agent' ? 'agent' : 'user',
     parentConversationId: row.parent_conversation_id || null,
@@ -2898,10 +3273,14 @@ function mapConversation(row) {
     contextCheckpoint: row.context_checkpoint || '',
     checkpointMessageId: row.checkpoint_message_id || null,
     contextTokens: Number(row.context_tokens) || 0,
+    lastReasoningEffort: row.last_reasoning_effort || null,
+    lastReasoningAt: row.last_reasoning_at || null,
     tags: normalizeTagIds(parse(row.tags, [])),
     goal,
     workStatus: blocked ? 'blocked' : null,
     firstPrompt: row.first_prompt ?? '',
+    lastMessageRole: row.last_message_role ?? null,
+    lastMessageStatus: row.last_message_status ?? null,
     needsAttention: ['error', 'aborted', 'streaming'].includes(row.last_message_status)
       || (
         row.last_message_role === 'user'

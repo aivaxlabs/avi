@@ -145,6 +145,7 @@ export default function App() {
   const [draftProject, setDraftProject] = useState(null);
   const [sideChats, setSideChats] = useState([]);
   const [subagents, setSubagents] = useState([]);
+  const [rubberDucks, setRubberDucks] = useState([]);
   const [bots, setBots] = useState([]);
   const [botWorkStateByBot, setBotWorkStateByBot] = useState({});
   const [botSchedulerSnooze, setBotSchedulerSnooze] = useState({
@@ -247,9 +248,10 @@ export default function App() {
       ? selectedBot.contextSize
       : currentModelContextLimit,
   }), [currentConversation?.contextTokens, currentModelContextLimit, selectedBot?.contextSize]);
-  const visibleSubagents = useMemo(() => subagents.filter(
-    (subagent) => subagent.parentConversationId === selectedId,
-  ), [selectedId, subagents]);
+  const visibleSubagents = useMemo(() => [
+    ...subagents.filter((subagent) => subagent.parentConversationId === selectedId),
+    ...rubberDucks,
+  ], [rubberDucks, selectedId, subagents]);
   const auxiliaryConversationIds = useMemo(() => [
     ...sideChats.map((sideChat) => sideChat.id),
     ...visibleSubagents.map((subagent) => subagent.id),
@@ -574,6 +576,12 @@ export default function App() {
           if (event.conversation.parentConversationId === selectedConversationIdRef.current) {
             setSubagents((state) => upsertById(state, event.conversation));
           }
+        } else if (event.conversation.isRubberDuck) {
+          setRubberDucks((state) => (
+            state.some((rubberDuck) => rubberDuck.id === event.conversation.id)
+              ? upsertById(state, event.conversation)
+              : state
+          ));
         } else if (event.conversation.isSideChat) {
           setSideChats((state) => (
             state.some((sideChat) => sideChat.id === event.conversation.id)
@@ -608,6 +616,12 @@ export default function App() {
         ) {
           setSubagents((state) => upsertById(state, event.subagent));
           setSubagentsTabOpen(true);
+        }
+      } else if (event.type === 'rubber-duck-created') {
+        if (event.rootConversationId === selectedConversationIdRef.current) {
+          setRubberDucks((state) => upsertById(state, event.rubberDuck));
+          setSubagentsTabOpen(true);
+          setAuxiliaryPanelVisible(true);
         }
       } else if (event.type === 'tasks') {
         setTasksByConversation((state) => ({ ...state, [event.conversationId]: event.tasks }));
@@ -826,6 +840,7 @@ export default function App() {
     let active = true;
     setSideChats([]);
     setSubagents([]);
+    setRubberDucks([]);
     setSubagentsTabOpen(false);
     setTasksTabOpen(false);
     setActiveSubagentId(null);
@@ -834,18 +849,20 @@ export default function App() {
     Promise.all([
       api.sideChats.list(selectedId),
       api.subagents.list(selectedId),
+      api.rubberDucks.list(selectedId),
       api.tasks.list(selectedId),
     ])
-      .then(async ([nextSideChats, nextSubagents, nextTasks]) => {
+      .then(async ([nextSideChats, nextSubagents, nextRubberDucks, nextTasks]) => {
         const entries = await Promise.all(
-          [...nextSideChats, ...nextSubagents].map(async (childThread) => (
+          [...nextSideChats, ...nextSubagents, ...nextRubberDucks].map(async (childThread) => (
             [childThread.id, await api.conversations.messages(childThread.id)]
           )),
         );
         if (!active) return;
         setSideChats(nextSideChats);
         setSubagents(nextSubagents);
-        setSubagentsTabOpen(nextSubagents.length > 0);
+        setRubberDucks(nextRubberDucks);
+        setSubagentsTabOpen(nextSubagents.length > 0 || nextRubberDucks.length > 0);
         setTasksByConversation((state) => ({ ...state, [selectedId]: nextTasks }));
         setTasksTabOpen(nextTasks.length > 0);
         setMessagesByConversation((state) => ({
@@ -853,7 +870,7 @@ export default function App() {
           ...Object.fromEntries(entries),
         }));
         setActiveSubagentId((current) => (
-          nextSubagents.some((subagent) => subagent.id === current)
+          [...nextSubagents, ...nextRubberDucks].some((thread) => thread.id === current)
             ? current
             : null
         ));
@@ -994,6 +1011,15 @@ export default function App() {
     }
   }
 
+  async function snoozeBot(botId, options) {
+    try {
+      await api.bots.snoozeOne(botId, options);
+      await refreshBots();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }
+
   async function resolveBotApproval(approvalId, decision) {
     try {
       await api.bots.resolveApproval({ approvalId, decision });
@@ -1093,6 +1119,7 @@ export default function App() {
       ...bots.map((bot) => bot.conversation).filter(Boolean),
       ...sideChats,
       ...subagents,
+      ...rubberDucks,
     ].find((conversation) => conversation.id === conversationId);
     const activeBot = bots.find((bot) => bot.conversationId === conversationId) ?? null;
     if (activeBot) {
@@ -1104,7 +1131,7 @@ export default function App() {
     }
     const effectiveUltraMode = targetConversation?.isSubagent
       ? targetConversation.orchestrationMode === 'ultra'
-      : !targetConversation?.isSideChat && messageUltraMode;
+      : !targetConversation?.isSideChat && !targetConversation?.isRubberDuck && messageUltraMode;
     if (
       messageWorkMode === 'goal'
       && !['active', 'paused'].includes(targetConversation?.goal?.status)
@@ -1149,6 +1176,8 @@ export default function App() {
       void refreshBots();
     } else if (result.conversation.isSubagent) {
       setSubagents((state) => upsertById(state, result.conversation));
+    } else if (result.conversation.isRubberDuck) {
+      setRubberDucks((state) => upsertById(state, result.conversation));
     } else if (result.conversation.isSideChat) {
       setSideChats((state) => upsertById(state, result.conversation));
     } else {
@@ -1203,6 +1232,8 @@ export default function App() {
       void refreshBots();
     } else if (result.conversation.isSubagent) {
       setSubagents((state) => upsertById(state, result.conversation));
+    } else if (result.conversation.isRubberDuck) {
+      setRubberDucks((state) => upsertById(state, result.conversation));
     } else if (result.conversation.isSideChat) {
       setSideChats((state) => upsertById(state, result.conversation));
     } else {
@@ -1264,10 +1295,10 @@ export default function App() {
       ? nextWorkMode
       : null;
     const target = conversationId
-      ? [...conversations, ...sideChats, ...subagents]
+      ? [...conversations, ...sideChats, ...subagents, ...rubberDucks]
         .find((conversation) => conversation.id === conversationId)
       : null;
-    if (target?.isSubagent) return false;
+    if (target?.isSubagent || target?.isRubberDuck) return false;
     if (
       normalizedWorkMode === 'plan'
       && target?.goal
@@ -1305,10 +1336,10 @@ export default function App() {
   async function changeUltraMode(enabled, conversationId = selectedId) {
     const nextUltraMode = Boolean(enabled);
     const target = conversationId
-      ? [...conversations, ...sideChats, ...subagents]
+      ? [...conversations, ...sideChats, ...subagents, ...rubberDucks]
         .find((conversation) => conversation.id === conversationId)
       : null;
-    if (target?.isSubagent) return false;
+    if (target?.isSubagent || target?.isRubberDuck) return false;
     if (target) {
       try {
         const updated = await api.conversations.update({
@@ -1365,6 +1396,8 @@ export default function App() {
       });
       if (result.conversation.isSubagent) {
         setSubagents((state) => upsertById(state, result.conversation));
+      } else if (result.conversation.isRubberDuck) {
+        setRubberDucks((state) => upsertById(state, result.conversation));
       } else if (result.conversation.isSideChat) {
         setSideChats((state) => upsertById(state, result.conversation));
       } else {
@@ -1406,6 +1439,8 @@ export default function App() {
       });
       if (result.conversation.isSubagent) {
         setSubagents((state) => upsertById(state, result.conversation));
+      } else if (result.conversation.isRubberDuck) {
+        setRubberDucks((state) => upsertById(state, result.conversation));
       } else if (result.conversation.isSideChat) {
         setSideChats((state) => upsertById(state, result.conversation));
       } else {
@@ -1589,12 +1624,14 @@ export default function App() {
       if (selectedId === id) {
         for (const sideChat of sideChats) delete copy[sideChat.id];
         for (const subagent of subagents) delete copy[subagent.id];
+        for (const rubberDuck of rubberDucks) delete copy[rubberDuck.id];
       }
       return copy;
     });
     if (selectedId === id) {
       setSideChats([]);
       setSubagents([]);
+      setRubberDucks([]);
       setActiveAuxiliaryTab(null);
       setActiveSubagentId(null);
       const fallback = next[0]?.id ?? null;
@@ -1617,6 +1654,8 @@ export default function App() {
     const conversation = await api.conversations.update({ id: conversationId, model: modelId });
     if (conversation.isSubagent) {
       setSubagents((state) => upsertById(state, conversation));
+    } else if (conversation.isRubberDuck) {
+      setRubberDucks((state) => upsertById(state, conversation));
     } else if (conversation.isSideChat) {
       setSideChats((state) => upsertById(state, conversation));
     } else {
@@ -1631,6 +1670,8 @@ export default function App() {
       if (!conversation) return;
       if (conversation.isSubagent) {
         setSubagents((state) => upsertById(state, conversation));
+      } else if (conversation.isRubberDuck) {
+        setRubberDucks((state) => upsertById(state, conversation));
       } else if (conversation.isSideChat) {
         setSideChats((state) => upsertById(state, conversation));
       } else {
@@ -1872,6 +1913,7 @@ export default function App() {
   const sidebarOnBotSettings = useStableCallback(setBotSettingsTarget);
   const sidebarOnDeleteBot = useStableCallback(deleteBot);
   const sidebarOnActivateBot = useStableCallback(activateBot);
+  const sidebarOnSnoozeBot = useStableCallback(snoozeBot);
   const sidebarOnSnoozeBots = useStableCallback(snoozeBots);
   const sidebarOnFork = useStableCallback(forkConversation);
   const sidebarOnArchive = useStableCallback(archiveConversation);
@@ -2217,6 +2259,7 @@ export default function App() {
           }}
           onSave={async (provider) => applyProviders(await api.providers.save(provider))}
           onRemove={async (providerId) => applyProviders(await api.providers.remove(providerId))}
+          onModelsChange={async () => setModels(await api.models.list())}
           onRoutersChange={async () => setModels(await api.models.list())}
           onSaveDefaultModels={async (settings) => {
             const result = await api.defaultModels.save(settings);
@@ -2266,6 +2309,7 @@ export default function App() {
             onBotSettings={sidebarOnBotSettings}
             onDeleteBot={sidebarOnDeleteBot}
             onActivateBot={sidebarOnActivateBot}
+            onSnoozeBot={sidebarOnSnoozeBot}
             onSnoozeBots={sidebarOnSnoozeBots}
             onSearch={sidebarOnSearch}
             onOpenOrchestration={sidebarOnOpenOrchestration}

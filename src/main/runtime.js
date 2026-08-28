@@ -38,6 +38,7 @@ import {
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import {
+  abortInterruptedMessages,
   archiveConversation,
   closeDatabase,
   countArchivedConversations,
@@ -69,9 +70,11 @@ import {
   listInferenceUsage,
   listModelRouters,
   listProviders,
+  listRubberDucks,
   listSideChats,
   listSubagents,
   listTasks,
+  listThreadSearchMessages,
   restoreConversation,
   runArchiveMaintenance,
   setArchiveSettings,
@@ -110,7 +113,6 @@ import {
 import {
   createVideoFileResponse,
   filePathToAttachment,
-  importVideoAttachment,
   inspectWorkspaceFiles,
   materializeLegacyVideoAttachments,
   materializeVideoAttachment,
@@ -178,6 +180,8 @@ let providerRegistry;
 let providerUsageService;
 let routerService;
 let startHidden = process.argv.includes('--hidden');
+const inactiveBots = process.argv.includes('--inactive-bots');
+const memoryTraceEnabled = process.argv.includes('--memory-trace');
 let mainWindow;
 let tray;
 let chatRunner;
@@ -193,17 +197,35 @@ let shutdownStarted = false;
 let shutdownReady = false;
 let isQuitting = false;
 let lastCpuUsage = process.cpuUsage();
+let lastResourceUsage = process.resourceUsage();
+let lastResourceSampleAt = Date.now();
 let resourceSnapshotInterval;
+let memoryTraceProcess;
 let aivaxModelCatalog = [];
 let aivaxModelCatalogExpiresAt = 0;
 let aivaxModelCatalogRequest = null;
 let threadSearchSyncInterval;
 let threadSearchSyncPromise = null;
+const botInitialization = Promise.withResolvers();
 const ipcHandlers = new Map();
 const attachmentPreviews = new Map();
 const legacyVideoMigrations = new Map();
 const attachmentPreviewLifetimeMs = 60 * 60 * 1_000;
-const videoPreviewExtensions = new Set(['.avi', '.m4v', '.mkv', '.mov', '.mp4', '.webm']);
+const attachmentPreviewExtensions = new Set([
+  '.avi',
+  '.avif',
+  '.bmp',
+  '.gif',
+  '.jpeg',
+  '.jpg',
+  '.m4v',
+  '.mkv',
+  '.mov',
+  '.mp4',
+  '.png',
+  '.webm',
+  '.webp',
+]);
 const applicationIpc = { handle: (channel, handler) => ipcHandlers.set(channel, handler) };
 
 function deleteAttachmentPreview(token) {
@@ -213,6 +235,37 @@ function deleteAttachmentPreview(token) {
   attachmentPreviews.delete(token);
 }
 
+function traceMemorySample(io = {}) {
+  const sampledAt = Date.now();
+  const sampleInterval = Math.max(1, sampledAt - lastResourceSampleAt);
+  const cpuUsage = process.cpuUsage(lastCpuUsage);
+  const memory = process.memoryUsage();
+  const resourceUsage = process.resourceUsage();
+  traceInfo('app.memory-trace', {
+    process_id: process.pid,
+    scope: 'process',
+    sample_interval_ms: sampleInterval,
+    cpu_percent: Math.round(
+      ((cpuUsage.user + cpuUsage.system) / 1_000 / sampleInterval) * 10_000,
+    ) / 100,
+    cpu_user_ms: Math.round(cpuUsage.user / 1_000),
+    cpu_system_ms: Math.round(cpuUsage.system / 1_000),
+    rss_mb: Math.round((memory.rss / 1_048_576) * 100) / 100,
+    heap_used_mb: Math.round((memory.heapUsed / 1_048_576) * 100) / 100,
+    external_mb: Math.round((memory.external / 1_048_576) * 100) / 100,
+    io_read_ops: Math.max(0, resourceUsage.fsRead - lastResourceUsage.fsRead),
+    io_write_ops: Math.max(0, resourceUsage.fsWrite - lastResourceUsage.fsWrite),
+    major_page_faults: Math.max(
+      0,
+      resourceUsage.majorPageFault - lastResourceUsage.majorPageFault,
+    ),
+    ...io,
+  });
+  lastCpuUsage = process.cpuUsage();
+  lastResourceUsage = process.resourceUsage();
+  lastResourceSampleAt = sampledAt;
+}
+
 app.on('before-quit', (event) => {
   isQuitting = true;
   if (shutdownReady) return;
@@ -220,6 +273,7 @@ app.on('before-quit', (event) => {
   if (shutdownStarted) return;
   shutdownStarted = true;
   clearInterval(resourceSnapshotInterval);
+  memoryTraceProcess?.kill();
   clearInterval(threadSearchSyncInterval);
   botManager?.stop();
   for (const sessionId of quickChatWindows.keys()) quickChatRunner?.close(sessionId);
@@ -248,7 +302,10 @@ await app.whenReady();
 if (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin) startHidden = true;
 await initializeSecureStorage();
 runArchiveMaintenance();
-setTraceLevel(getPreferences().tuning.logLevel);
+const configuredTraceLevel = getPreferences().tuning.logLevel;
+setTraceLevel(memoryTraceEnabled && configuredTraceLevel === 'disabled'
+  ? 'minimal'
+  : configuredTraceLevel);
 await pluginManager.initialize();
 for (const failure of pluginManager.getFailures()) {
   traceError('plugin.load-error', {
@@ -288,19 +345,101 @@ providerUsageService = new ProviderUsageService({
   }),
 });
 traceVerbose('app.started', { log_level: getPreferences().tuning.logLevel });
-resourceSnapshotInterval = setInterval(() => {
-  const memory = process.memoryUsage();
-  const cpuUsage = process.cpuUsage(lastCpuUsage);
+if (memoryTraceEnabled) {
   lastCpuUsage = process.cpuUsage();
-  traceVerbose('app.resource-snapshot', {
-    rss_mb: Math.round(memory.rss / 1_048_576),
-    heap_used_mb: Math.round(memory.heapUsed / 1_048_576),
-    external_mb: Math.round(memory.external / 1_048_576),
-    cpu_user_ms: Math.round(cpuUsage.user / 1_000),
-    cpu_system_ms: Math.round(cpuUsage.system / 1_000),
+  lastResourceUsage = process.resourceUsage();
+  lastResourceSampleAt = Date.now();
+  traceInfo('app.memory-trace-started', {
+    process_id: process.pid,
+    scope: 'process',
+    sample_interval_ms: 250,
+    status: configuredTraceLevel === 'disabled' ? 'forced-by-flag' : 'enabled',
   });
-}, 60_000);
-resourceSnapshotInterval.unref();
+  if (process.platform === 'win32') {
+    const memoryTraceScript = `
+$targetPid = [int]$env:AVI_MEMORY_TRACE_PID
+$previous = Get-CimInstance Win32_Process -Filter "ProcessId=$targetPid" -ErrorAction Stop
+$previousAt = [Diagnostics.Stopwatch]::GetTimestamp()
+$frequency = [Diagnostics.Stopwatch]::Frequency
+$nextSampleAt = $previousAt + [math]::Round($frequency / 4)
+while ($null -ne $previous) {
+  $remainingMilliseconds = [math]::Ceiling(($nextSampleAt - [Diagnostics.Stopwatch]::GetTimestamp()) * 1000 / $frequency)
+  if ($remainingMilliseconds -gt 0) { Start-Sleep -Milliseconds $remainingMilliseconds }
+  $current = Get-CimInstance Win32_Process -Filter "ProcessId=$targetPid" -ErrorAction Stop
+  if ($null -eq $current) { break }
+  $currentAt = [Diagnostics.Stopwatch]::GetTimestamp()
+  $elapsed = [math]::Max(0.001, ($currentAt - $previousAt) / $frequency)
+  $readRate = [math]::Round(([double]$current.ReadTransferCount - [double]$previous.ReadTransferCount) / $elapsed)
+  $writeRate = [math]::Round(([double]$current.WriteTransferCount - [double]$previous.WriteTransferCount) / $elapsed)
+  $otherRate = [math]::Round(([double]$current.OtherTransferCount - [double]$previous.OtherTransferCount) / $elapsed)
+  [Console]::Out.WriteLine(('{0}|{1}|{2}' -f $readRate, $writeRate, $otherRate))
+  [Console]::Out.Flush()
+  $previous = $current
+  $previousAt = $currentAt
+  $nextSampleAt += [math]::Round($frequency / 4)
+  if ($nextSampleAt -lt $currentAt) { $nextSampleAt = $currentAt + [math]::Round($frequency / 4) }
+}`;
+    let outputBuffer = '';
+    let errorOutput = '';
+    memoryTraceProcess = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', memoryTraceScript],
+      {
+        env: { ...process.env, AVI_MEMORY_TRACE_PID: String(process.pid) },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      },
+    );
+    memoryTraceProcess.stdout.on('data', (chunk) => {
+      outputBuffer += chunk.toString();
+      const lines = outputBuffer.replaceAll('\r\n', '\n').split('\n');
+      outputBuffer = lines.pop() ?? '';
+      for (const line of lines) {
+        const [readRate, writeRate, otherRate] = line.split('|').map(Number);
+        if (![readRate, writeRate, otherRate].every(Number.isFinite)) continue;
+        traceMemorySample({
+          io_read_bytes_per_second: Math.max(0, readRate),
+          io_write_bytes_per_second: Math.max(0, writeRate),
+          io_other_bytes_per_second: Math.max(0, otherRate),
+        });
+      }
+    });
+    memoryTraceProcess.stderr.on('data', (chunk) => {
+      errorOutput = `${errorOutput}${chunk}`.slice(-4_000);
+    });
+    memoryTraceProcess.on('error', (error) => traceError('app.memory-trace-error', {
+      operation: 'start-io-sampler',
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    memoryTraceProcess.on('close', (code) => {
+      memoryTraceProcess = null;
+      if (!isQuitting && code !== 0) {
+        traceError('app.memory-trace-error', {
+          operation: 'sample-io',
+          error: errorOutput || `I/O sampler exited with code ${code}.`,
+        });
+      }
+    });
+    memoryTraceProcess.unref();
+  } else {
+    resourceSnapshotInterval = setInterval(() => traceMemorySample(), 250);
+    resourceSnapshotInterval.unref();
+  }
+} else {
+  resourceSnapshotInterval = setInterval(() => {
+    const memory = process.memoryUsage();
+    const cpuUsage = process.cpuUsage(lastCpuUsage);
+    lastCpuUsage = process.cpuUsage();
+    traceVerbose('app.resource-snapshot', {
+      rss_mb: Math.round(memory.rss / 1_048_576),
+      heap_used_mb: Math.round(memory.heapUsed / 1_048_576),
+      external_mb: Math.round(memory.external / 1_048_576),
+      cpu_user_ms: Math.round(cpuUsage.user / 1_000),
+      cpu_system_ms: Math.round(cpuUsage.system / 1_000),
+    });
+  }, 60_000);
+  resourceSnapshotInterval.unref();
+}
 logDefaultModelWarnings('startup');
 protocol.handle('avi-attachment', async (request) => {
   const token = new URL(request.url).hostname;
@@ -311,7 +450,7 @@ protocol.handle('avi-attachment', async (request) => {
   }
   try {
     const path = await realpath(preview.path);
-    if (!(await lstat(path)).isFile() || !videoPreviewExtensions.has(extname(path).toLowerCase())) {
+    if (!(await lstat(path)).isFile() || !attachmentPreviewExtensions.has(extname(path).toLowerCase())) {
       deleteAttachmentPreview(token);
       return new Response(null, { status: 404 });
     }
@@ -324,6 +463,15 @@ protocol.handle('avi-attachment', async (request) => {
 registerIpc();
 ipcMain.handle('avi:invoke', invokeApplicationRequest);
 await applyLoginSettings();
+const abortedInterruptedMessages = abortInterruptedMessages({
+  preserveActiveBots: !inactiveBots,
+});
+if (abortedInterruptedMessages > 0) {
+  traceInfo('database.interrupted-messages-aborted', {
+    message_count: abortedInterruptedMessages,
+    operation: 'startup',
+  });
+}
 createTray();
 createWindow();
 await pluginManager.activateAll();
@@ -331,20 +479,25 @@ mcpManager.setManagedServers(pluginManager.getContributions('mcps').map((server)
   name: `plugin-${server.pluginId}-${server.id}`,
   config: server.config,
 })));
-mcpManager.initializeGlobal().catch((error) => sendRendererEvent('mcp:event', {
+const globalMcpInitialization = mcpManager.initializeGlobal().catch((error) => sendRendererEvent('mcp:event', {
   type: 'configuration-error',
   message: error instanceof Error ? error.message : String(error),
 }));
-botManager.start().catch((error) => traceError('bots.start-error', {
+const startBots = inactiveBots ? Promise.resolve() : globalMcpInitialization
+  .then(() => botManager.start())
+  .catch((error) => traceError('bots.start-error', {
   error: error instanceof Error ? error.message : String(error),
-}));
+  }));
+void startBots.finally(() => botInitialization.resolve());
+if (inactiveBots) {
+  traceInfo('bots.initialization-skipped', { operation: 'startup', status: 'inactive-by-flag' });
+}
 for (const failure of pluginManager.getFailures().filter((item) => String(item.error).startsWith('Plugin activation failed:'))) {
   traceError('plugin.activation-error', {
     plugin: failure.pluginId ?? failure.fileName,
     error: failure.error,
   });
 }
-void synchronizeThreadSearchIndex();
 threadSearchSyncInterval = setInterval(() => void synchronizeThreadSearchIndex(), THREAD_SEARCH_SYNC_INTERVAL_MS);
 threadSearchSyncInterval.unref();
 
@@ -356,7 +509,7 @@ async function synchronizeThreadSearchIndex() {
 
   threadSearchSyncPromise = (async () => {
     const startedAt = Date.now();
-    const documents = buildThreadSearchDocuments(listConversations(), getMessages);
+    const documents = buildThreadSearchDocuments(listThreadSearchMessages());
     const nextManifest = createThreadSearchManifest(documents);
     const changes = compareThreadSearchManifests(
       getThreadSearchManifest(collectionId),
@@ -822,6 +975,7 @@ function cleanupConversation(conversationId) {
   const children = [
     ...listSubagents(conversationId),
     ...listSideChats(conversationId),
+    ...listRubberDucks(conversationId),
   ];
   for (const child of children) chatRunner.stop(child.id);
   chatRunner.removeConversationSemaphores([
@@ -1063,7 +1217,7 @@ function registerIpc() {
     }
     resolveTerminalShell(process.env, process.platform, tuning?.terminalShell);
     const saved = setTuningSettings(tuning);
-    setTraceLevel(saved.logLevel);
+    setTraceLevel(memoryTraceEnabled && saved.logLevel === 'disabled' ? 'minimal' : saved.logLevel);
     traceVerbose('logging.configuration-changed', { log_level: saved.logLevel });
     return saved;
   });
@@ -1359,6 +1513,9 @@ function registerIpc() {
   applicationIpc.handle('bots:snooze', (_event, options = {}) => (
     botManager.setSchedulerSnooze(options)
   ));
+  applicationIpc.handle('bots:snooze-one', (_event, payload = {}) => (
+    botManager.setBotSnooze(payload.botId, payload.options)
+  ));
   applicationIpc.handle('bots:create', (_event, config = {}) => (
     botManager.createBotFromConfig(config)
   ));
@@ -1563,9 +1720,11 @@ function registerIpc() {
         inferenceRecords.push({
           type: conversation.isSubagent
             ? 'subagent'
-            : conversation.isBot
-              ? 'bot'
-              : 'inference',
+            : conversation.isRubberDuck
+              ? 'supervision'
+              : conversation.isBot
+                ? 'bot'
+                : 'inference',
           model: message.model || conversation.model || 'Unknown model',
           projectPath: conversation.projectPath,
           project: projectDetails.get(conversation.projectPath),
@@ -1776,6 +1935,9 @@ function registerIpc() {
   applicationIpc.handle('subagents:list', (_event, parentConversationId) => (
     listSubagents(parentConversationId).map(refreshConversationProject)
   ));
+  applicationIpc.handle('rubber-ducks:list', (_event, parentConversationId) => (
+    listRubberDucks(parentConversationId).map(refreshConversationProject)
+  ));
 
   applicationIpc.handle('providers:list', () => listProviders());
   applicationIpc.handle('providers:types', () => providerRegistry.listTypes());
@@ -1966,6 +2128,13 @@ function registerIpc() {
   applicationIpc.handle('plugins:set-enabled', (_event, { id, enabled }) => (
     pluginManager.setEnabled(id, enabled)
   ));
+  applicationIpc.handle('plugins:settings', (_event, { id }) => pluginManager.getSettings(id));
+  applicationIpc.handle('plugins:set-setting', (_event, {
+    id,
+    sectionIndex,
+    optionIndex,
+    value,
+  }) => pluginManager.setSetting(id, sectionIndex, optionIndex, value));
   applicationIpc.handle('plugins:remove', async (_event, { id }) => {
     const plugin = pluginManager.list().find((entry) => entry.id === id);
     if (!plugin) throw new Error(`Plugin "${String(id ?? '')}" is not managed by Avi.`);
@@ -2183,8 +2352,9 @@ function registerIpc() {
       conversation: refreshConversationProject(getConversation(payload.conversationId)),
     };
   });
-  applicationIpc.handle('goals:resume', () => {
-    chatRunner.resumeGoals();
+  applicationIpc.handle('goals:resume', async () => {
+    await botInitialization.promise;
+    await chatRunner.resumeGoals();
     return true;
   });
 
@@ -2198,16 +2368,16 @@ function registerIpc() {
   applicationIpc.handle('files:materialize-video', (_event, attachment) => (
     materializeVideoAttachment(attachment)
   ));
-  applicationIpc.handle('files:import-video', (_event, attachment) => (
-    importVideoAttachment(attachment)
-  ));
   applicationIpc.handle('attachments:preview', async (event, attachment = {}) => {
-    if (attachment.kind !== 'video_url' || typeof attachment.path !== 'string') {
-      throw new Error('A local video attachment is required.');
+    if (
+      !['image_url', 'video_url'].includes(attachment.kind)
+      || typeof attachment.path !== 'string'
+    ) {
+      throw new Error('A local image or video attachment is required.');
     }
     const path = await realpath(attachment.path);
-    if (!(await lstat(path)).isFile() || !videoPreviewExtensions.has(extname(path).toLowerCase())) {
-      throw new Error('The attachment is not a supported video file.');
+    if (!(await lstat(path)).isFile() || !attachmentPreviewExtensions.has(extname(path).toLowerCase())) {
+      throw new Error('The attachment is not a supported image or video file.');
     }
     const token = crypto.randomUUID();
     const preview = {
@@ -2221,7 +2391,7 @@ function registerIpc() {
     preview.expiry.unref();
     return {
       token,
-      url: `avi-attachment://${token}/video`,
+      url: `avi-attachment://${token}/${attachment.kind === 'video_url' ? 'video' : 'image'}`,
       expiresAt: preview.expiresAt,
     };
   });

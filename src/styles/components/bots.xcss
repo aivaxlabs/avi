@@ -13,6 +13,40 @@
   width: 190px;
 }
 
+.bot-snooze-submenu-holder {
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: -8px;
+    bottom: 0;
+    width: 8px;
+  }
+
+  > .bot-snooze-trigger {
+    width: 100%;
+
+    > span {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+
+      > svg {
+        flex: 0 0 auto;
+      }
+    }
+  }
+
+  > .bot-snooze-submenu {
+    top: -4px;
+    left: calc(100% + 6px);
+    width: 190px;
+  }
+}
+
 .sidebar-bots {
   flex: 0 0 auto;
   min-height: 0;

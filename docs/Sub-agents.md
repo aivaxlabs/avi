@@ -55,6 +55,8 @@ See [Default models](Default%20models.md) for model inheritance and Small/Medium
 
 **Settings → Tuning → Orchestration** accepts 1–128 concurrent sub-agents and defaults to 128. Although the UI label says “per thread,” the current implementation counts running sub-agents globally across the Avi process.
 
+**Rubber Duck max turns** in the same section bounds each rubber-duck analysis. A running analysis appears as its own inspectable child thread in the auxiliary Sub-agents panel, and its critique is reported back to the conversation without automatic follow-up work.
+
 ## UI and persistence
 
 The **Sub-agents** auxiliary tab shows working, finished, failed, or waiting status. Sub-agent conversations are persisted as child threads in SQLite and appear in team context, but not in the normal Sidebar conversation list.

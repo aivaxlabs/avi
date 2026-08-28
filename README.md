@@ -150,16 +150,21 @@ bun install
 bun run dev
 ```
 
-To open the renderer developer tools:
+Runtime diagnostic flags can be passed together or separately:
+
+- `--inactive-bots`: starts Avi without starting the bot scheduler or resuming interrupted bot runs.
+- `--memory-trace`: writes process CPU, memory, and disk I/O samples to `~/.aivax/trace.log` every 250 ms.
+
+During development:
 
 ```bash
-bun run dev:devtools
+bun run dev --inactive-bots --memory-trace
 ```
 
-During development only, pass `--skip-single-instance` when parallel Avi instances are required:
+With an installed or packaged Windows executable:
 
-```bash
-bun run dev --skip-single-instance
+```powershell
+& "C:\Path\To\Avi.exe" --inactive-bots --memory-trace
 ```
 
 No environment variables are required for normal development. Providers and MCP servers are configured inside the application.

@@ -337,6 +337,7 @@ export function SettingsPage({
   onClose,
   onSave,
   onRemove,
+  onModelsChange,
   onRoutersChange,
   onSaveDefaultModels,
   onSaveTuning,
@@ -2054,6 +2055,26 @@ export function SettingsPage({
                         Global maximum of sub-agents that may run at the same time. From 1 to 128.
                       </small>
                     </label>
+                    <label className="settings-field settings-field-wide">
+                      <span>Rubber Duck max turns</span>
+                      <input
+                        type="number"
+                        min="10"
+                        max="500"
+                        step="1"
+                        value={tuningDraft.rubberDuckMaxTurns ?? ''}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            rubberDuckMaxTurns: Number(event.target.value),
+                          }));
+                        }}
+                      />
+                      <small>
+                        Maximum turns for a rubber-duck analysis before it must return its critique. From 10 to 500.
+                      </small>
+                    </label>
                   </div>
                 </section>
                 <section className="settings-section">
@@ -2273,6 +2294,7 @@ export function SettingsPage({
                                         throw nextError;
                                       }
                                     }
+                                    await onModelsChange();
                                   })}
                                 >
                                   {providerState.connection.action.label}
@@ -2689,6 +2711,9 @@ export function SettingsPage({
                         || !Number.isInteger(tuningDraft.maxConcurrentSubagents)
                         || tuningDraft.maxConcurrentSubagents < 1
                         || tuningDraft.maxConcurrentSubagents > 128
+                        || !Number.isInteger(tuningDraft.rubberDuckMaxTurns)
+                        || tuningDraft.rubberDuckMaxTurns < 10
+                        || tuningDraft.rubberDuckMaxTurns > 500
                 )}
                 onClick={() => runProviderMutation(async () => {
                   if (view === 'default-models') {

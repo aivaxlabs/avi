@@ -173,7 +173,13 @@ export class QuickChatRunner {
           .filter((tool) => !selectedProviderToolNames.has(tool.name)),
       ];
       const coreTools = CLIENT_TOOLS
-          .filter((tool) => !['sleep_semaphore', 'release_semaphore'].includes(tool.name))
+          .filter((tool) => ![
+            'invoke_rubber_duck',
+            'rubber_duck_ask_agent',
+            'rubber_duck_submit_report',
+            'sleep_semaphore',
+            'release_semaphore',
+          ].includes(tool.name))
           .filter((tool) => (
             tool.name !== 'read_media_file'
             || selection.model.capabilities?.images
