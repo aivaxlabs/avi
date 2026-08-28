@@ -106,6 +106,23 @@ assert.match(copy, /aria-label="API token"/);
 assert.match(copy, />Copy</);
 assert.match(copy, /abc&lt;123/);
 
+for (const [content, expected] of [
+  [':AVI-CHART{type="bar" source=\'[{"label":"GET","value":1}]\' label="Requests"}', /aria-label="Requests"/],
+  [':::avi-chart{type="pie" data=\'[{"label":"Yes","value":1}]\'}\n:::', /rich-chart-pie/],
+  [':avi-copy{title="Command" source="bun test"}', /aria-label="Command"/],
+  [':::avi-copy{label="Command"}\nbun test\n:::', /aria-label="Command"/],
+  [':callout{kind="WARNING" label="Careful"}', /callout-warning/],
+  [':::callout{kind="success" title="Recovered"}\nIgnored body\n:::', /callout-success/],
+  [':latex{value="E = mc^2"}', /latex-visualization/],
+  [':avi-file-mention{path=".\\demo.js" source="const demo = 1"}', /class="copyable-panel file-mention"/],
+  ['::avi-diff{label="Patch" value="-old\\n+new"}', /aria-label="Patch"/],
+  [':::avi-diff\n-old\n+new\n:::', /class="copyable-panel avi-diff"/],
+  [':mermaid-diagram{source="flowchart LR; A --&gt; B"}', /mermaid-visualization/],
+  [':::mermaid-diagram\nflowchart LR\nA --&gt; B\n:::', /mermaid-visualization/],
+]) {
+  assert.match(renderMessage(content), expected);
+}
+
 const plan = renderMessage('<execution-plan>1. Inspect\n2. Implement</execution-plan>');
 assert.match(plan, /class="copyable-panel execution-plan"/);
 assert.match(plan, /aria-label="Execution plan"/);
@@ -133,11 +150,8 @@ for (const invalid of [
   '::avi-chart{type="bar" data=\'[{"label":"A","value":1},{"label":"A","value":2}]\'}',
   '::avi-chart{type="progress" data=\'[{"label":"A","value":101,"max":100}]\'}',
   '::avi-chart{type="progress" data=\'[{"label":"A","value":1,"max":0}]\'}',
-  ':::callout{kind="warning"}\nWrong node type\n:::',
   '::callout[Unsupported]{kind="neutral"}',
   ':::avi-diff\n```js\n-old\n+new\n```\n:::',
-  ':::avi-diff\nNo diff fence\n:::',
-  ':::mermaid-diagram\nflowchart LR\nA --> B\n:::',
   ':::mermaid-diagram\n```js\nA --> B\n```\n:::',
   ':::avi-file-mention{path="C:\\outside.js" line-from="1"}\ntext\n:::',
   ':::avi-file-mention{path="./file.js" line-from="4" line-to="2"}\ntext\n:::',

@@ -31,6 +31,9 @@ for (const [content, priority, title] of [
   ['::finding[Redirects can bypass SSRF protection]{level="P1"}', 'P1', 'Redirects can bypass SSRF protection'],
   ['::finding[**Formatted** title]{level="P2"}', 'P2', '<strong>Formatted</strong> title'],
   ['::finding[`Inline code` title]{level="P3"}', 'P3', '<code>Inline code</code> title'],
+  [':FINDING{level="P1" label="Text form"}', 'P1', 'Text form'],
+  [':finding{level="p2" title="Title alias"}', 'P2', 'Title alias'],
+  [':::finding{level="P3" label="Container form"}\nIgnored body\n:::', 'P3', 'Container form'],
 ]) {
   const markup = renderFinding(content);
   assert.match(markup, new RegExp(`class="directive-heading finding-heading finding-${priority.toLowerCase()}"`));
@@ -53,15 +56,20 @@ assert.match(findingWithDetails, /<p><strong>Impact:<\/strong>/);
 for (const invalid of [
   '::finding[Missing level]',
   '::finding[Unsupported level]{level="P4"}',
-  ':::finding{level="P1"}\nLegacy container.\n:::',
+  ':finding{level="P1"}',
+  'Before :finding{level="P1" label="Inline block directive"} after',
 ]) {
   const markup = renderFinding(invalid);
   assert.doesNotMatch(markup, /class="directive-heading finding-heading/);
   assert.match(markup, /finding/);
 }
 
-const fenced = renderFinding('```markdown\n::finding[Not rendered]{level="P0"}\n```');
-assert.doesNotMatch(fenced, /class="directive-heading finding-heading/);
-assert.match(fenced, /language-markdown/);
+for (const literalCode of [
+  renderFinding('```markdown\n::finding[Not rendered]{level="P0"}\n```'),
+  renderFinding('`:finding{level="P1" label="Not rendered"}`'),
+]) {
+  assert.doesNotMatch(literalCode, /class="directive-heading finding-heading/);
+  assert.match(literalCode, /finding/);
+}
 
 console.log('Finding rendering tests passed.');

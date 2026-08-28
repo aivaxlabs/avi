@@ -8,9 +8,12 @@
 - **Startup diagnostics** — `--inactive-bots` prevents automatic bot initialization, while `--memory-trace` records process CPU, memory, and I/O samples every 250 ms.
 
 ### Changed
+- Refined dropdown, dialog, auxiliary panel, chat message, and toast motion with consistent timing, easing, and reduced-motion behavior.
 - Removed the built-in CLIProxyAPI provider plugin.
 
 ### Fixed
+- Made rich Markdown directives tolerant of common, unambiguous LLM syntax mistakes while preserving strict payload validation and literal code blocks.
+- Clarified the exact `finding` syntax in the base agent instructions.
 - Rendered valid `fileref` directives inside inline code while preserving literal references in code blocks.
 - Rejected prematurely closed Responses API streams before partial tool calls can execute.
 - Reduced startup I/O and memory pressure by storing and streaming local media as file references, querying only lightweight thread status and model-selection fields, failing interrupted bot tools instead of replaying uncertain side effects, deferring thread-search synchronization, sequencing automatic resumptions, and honoring bot context limits during compaction.

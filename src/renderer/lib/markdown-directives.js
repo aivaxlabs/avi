@@ -24,7 +24,7 @@ export function remarkAviDirectives() {
 }
 
 function transformDirective(node, file, processor) {
-  if (node.type === 'inlineCode' && node.value.startsWith(':fileref{')) {
+  if (node.type === 'inlineCode' && node.value.toLowerCase().startsWith(':fileref{')) {
     const parsed = processor.parse(node.value);
     const [paragraph] = parsed.children ?? [];
     const [directive] = paragraph?.children ?? [];
@@ -33,42 +33,62 @@ function transformDirective(node, file, processor) {
       && paragraph.type === 'paragraph'
       && paragraph.children.length === 1
       && directive.type === 'textDirective'
-      && directive.name === 'fileref'
+      && directive.name.toLowerCase() === 'fileref'
     ) {
       return transformFileReference(directive) ?? node;
     }
   }
+
+  const [onlyChild] = node.type === 'paragraph' ? node.children ?? [] : [];
+  if (
+    node.children?.length === 1
+    && onlyChild?.type === 'textDirective'
+    && onlyChild.name.toLowerCase() !== 'fileref'
+  ) {
+    return transformRichDirective(onlyChild, file) ?? node;
+  }
+
   if (!DIRECTIVE_TYPES.has(node.type)) return node;
   if (node.type === 'containerDirective' && !sourceForNode(node, file).trimEnd().endsWith(':::')) {
     return { type: 'text', value: sourceForNode(node, file) };
   }
 
-  const transformed = node.type === 'textDirective' && node.name === 'fileref'
+  const transformed = node.name.toLowerCase() === 'fileref'
     ? transformFileReference(node)
-    : node.type === 'leafDirective' && node.name === 'avi-chart'
-      ? transformChart(node)
-      : node.type === 'leafDirective' && node.name === 'avi-copy'
-        ? transformCopy(node)
-        : node.type === 'leafDirective' && node.name === 'callout'
-          ? transformHeader(node, 'callout')
-          : node.type === 'leafDirective' && node.name === 'finding'
-            ? transformHeader(node, 'finding')
-            : node.type === 'leafDirective' && node.name === 'latex'
-              ? transformSource(node, toString(node), 'avi-latex', { displayMode: false })
-              : node.type === 'containerDirective' && node.name === 'avi-file-mention'
-                ? transformFileMention(node, file)
-                : node.type === 'containerDirective' && node.name === 'avi-diff'
-                  ? transformCodeContainer(node, 'diff', 'avi-diff', {
-                    title: boundedTitle(node.attributes?.title, 'Diff'),
-                  })
-                  : node.type === 'containerDirective' && node.name === 'mermaid-diagram'
-                    ? transformCodeContainer(node, 'mermaid', 'avi-mermaid')
-                    : node.type === 'containerDirective' && node.name === 'latex'
-                      ? transformSource(node, sourceForChildren(node, file), 'avi-latex', { displayMode: true })
-                      : null;
+    : node.type === 'textDirective'
+      ? null
+      : transformRichDirective(node, file);
+  return transformed ?? { type: 'text', value: sourceForNode(node, file) };
+}
 
-  if (transformed) return transformed;
-  return { type: 'text', value: sourceForNode(node, file) };
+function transformRichDirective(node, file) {
+  const name = node.name.toLowerCase();
+  if (name === 'avi-chart') {
+    return node.type !== 'containerDirective' || node.children.length === 0
+      ? transformChart(node)
+      : null;
+  }
+  if (name === 'avi-copy') return transformCopy(node, file);
+  if (name === 'callout') return transformHeader(node, 'callout');
+  if (name === 'finding') return transformHeader(node, 'finding');
+  if (name === 'latex') {
+    const source = node.attributes?.value
+      ?? node.attributes?.source
+      ?? (node.type === 'containerDirective' ? sourceForChildren(node, file) : toString(node));
+    return transformSource(node, source, 'avi-latex', {
+      displayMode: node.type === 'containerDirective',
+    });
+  }
+  if (name === 'avi-file-mention') return transformFileMention(node, file);
+  if (name === 'avi-diff') {
+    return transformCodeDirective(node, file, 'diff', 'avi-diff', {
+      title: boundedTitle(node.attributes?.title ?? node.attributes?.label, 'Diff'),
+    });
+  }
+  if (name === 'mermaid-diagram') {
+    return transformCodeDirective(node, file, 'mermaid', 'avi-mermaid');
+  }
+  return null;
 }
 
 function transformFileReference(node) {
@@ -113,7 +133,10 @@ function transformChart(node) {
     ...(chartType === 'progress' ? { max: item.max } : {}),
   }));
   if (new Set(normalizedData.map((item) => item.label)).size !== normalizedData.length) return null;
-  const title = boundedTitle(node.attributes?.title, chartType === 'progress' ? 'Progress' : 'Chart');
+  const title = boundedTitle(
+    node.attributes?.title ?? node.attributes?.label,
+    chartType === 'progress' ? 'Progress' : 'Chart',
+  );
   if (!title) return null;
   return withElement(node, 'avi-chart', {
     chartType,
@@ -122,18 +145,21 @@ function transformChart(node) {
   });
 }
 
-function transformCopy(node) {
-  const value = node.attributes?.value;
-  if (!value) return null;
-  return withElement(node, 'avi-copy', {
-    label: node.attributes?.label?.trim() || 'Copyable text',
-    value,
-  });
+function transformCopy(node, file) {
+  const value = node.attributes?.value
+    ?? node.attributes?.source
+    ?? (node.type === 'containerDirective' ? sourceForChildren(node, file) : toString(node));
+  const label = boundedTitle(node.attributes?.label ?? node.attributes?.title, 'Copyable text');
+  if (!value?.trim() || value.length > MAX_SOURCE_LENGTH || !label) return null;
+  return withElement(node, 'avi-copy', { label, value });
 }
 
 function transformHeader(node, type) {
-  const title = toString(node).trim();
+  const title = node.attributes?.label?.trim()
+    || node.attributes?.title?.trim()
+    || toString(node).trim();
   if (!title || title.length > MAX_TITLE_LENGTH) return null;
+  if (node.type === 'containerDirective') node.children = [];
   if (type === 'callout') {
     const kind = node.attributes?.kind?.toLowerCase() || 'info';
     return CALLOUT_KINDS.has(kind) ? withElement(node, 'avi-callout', { kind, title }) : null;
@@ -144,35 +170,41 @@ function transformHeader(node, type) {
 
 function transformFileMention(node, file) {
   const reference = parseFileReference(node.attributes);
-  const value = sourceForChildren(node, file).trim();
-  if (!reference || !value || value.length > MAX_SOURCE_LENGTH) return null;
+  const value = node.attributes?.value
+    ?? node.attributes?.source
+    ?? sourceForChildren(node, file);
+  if (!reference || !value?.trim() || value.length > MAX_SOURCE_LENGTH) return null;
   const language = node.attributes?.language || /\.([\w]+)$/.exec(reference.path)?.[1] || 'text';
   return withElement(node, 'avi-file-mention', {
     path: reference.path,
     lineFrom: reference.lineFrom ?? undefined,
     lineTo: reference.lineTo ?? undefined,
     language: normalizeLanguage(language),
-    value,
+    value: value.trim(),
   });
 }
 
-function transformCodeContainer(node, language, hName, properties = {}) {
-  const [code] = node.children ?? [];
+function transformCodeDirective(node, file, language, hName, properties = {}) {
+  const children = node.children ?? [];
+  const [code] = children;
+  const hasCodeChild = children.some((child) => child.type === 'code');
   if (
     Object.values(properties).some((value) => value === null)
-    || node.children?.length !== 1
-    || code?.type !== 'code'
-    || code.lang?.toLowerCase() !== language
-    || !code.value.trim()
-    || code.value.length > MAX_SOURCE_LENGTH
+    || (hasCodeChild && (
+      children.length !== 1
+      || code.lang?.toLowerCase() !== language
+    ))
   ) {
     return null;
   }
-  return withElement(node, hName, { ...properties, source: code.value });
+  const source = node.attributes?.value
+    ?? node.attributes?.source
+    ?? (code?.type === 'code' ? code.value : sourceForChildren(node, file));
+  return transformSource(node, source, hName, properties);
 }
 
 function transformSource(node, value, hName, properties = {}) {
-  const source = value.trim();
+  const source = value?.trim();
   if (!source || source.length > MAX_SOURCE_LENGTH) return null;
   return withElement(node, hName, { ...properties, source });
 }
