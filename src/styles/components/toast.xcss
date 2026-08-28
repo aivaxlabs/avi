@@ -15,4 +15,18 @@
   border-radius: 8px;
   box-shadow: 0 18px 50px rgb(0 0 0 / 30%);
   z-index: 80;
+  animation: toast-in var(--duration-medium) var(--ease-smooth-out);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--distance-base)) scale(var(--scale-medium));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
 }

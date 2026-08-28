@@ -53,6 +53,7 @@
   overflow: hidden;
   background: --background-1;
   border-left: 1px solid --border-color;
+  animation: auxiliary-panel-in var(--duration-slow) var(--ease-smooth-out);
 
   .auxiliary-panel-header {
     min-width: 0;
@@ -870,6 +871,13 @@
   }
 }
 
+@keyframes auxiliary-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--distance-base));
+  }
+}
+
 @keyframes provider-panel-spin {
   to {
     transform: rotate(360deg);
@@ -888,6 +896,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+
+  .auxiliary-panel {
+    animation: none;
+  }
 
   .auxiliary-panel-toggle,
   .auxiliary-tab,

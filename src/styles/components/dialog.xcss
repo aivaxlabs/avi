@@ -17,6 +17,11 @@
   background: rgb(0 0 0 / 58%);
   backdrop-filter: blur(10px);
   z-index: 70;
+  animation: dialog-backdrop-in var(--duration-fast) var(--ease-smooth-out);
+
+  > :is(section, form, div) {
+    animation: dialog-surface-in var(--duration-fast) var(--ease-smooth-out);
+  }
 
   @media (max-width: 700px) {
     padding: 0;
@@ -958,6 +963,19 @@
   }
 }
 
+@keyframes dialog-backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes dialog-surface-in {
+  from {
+    opacity: 0;
+    transform: scale(var(--scale-large));
+  }
+}
+
 @keyframes search-dialog-spin {
   to {
     transform: rotate(360deg);
@@ -965,6 +983,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .dialog-backdrop,
+  .dialog-backdrop > :is(section, form, div) {
+    animation: none;
+  }
+
   .search-dialog .search-results button {
     transition: none;
   }

@@ -3,6 +3,13 @@
   --font-ui: "Segoe UI", system-ui, sans-serif;
   --font-code: ui-monospace, "Cascadia Code", Consolas, monospace;
   --base-transition: cubic-bezier(0.075, 0.82, 0.165, 1);
+  --duration-fast: 250ms;
+  --duration-medium: 350ms;
+  --duration-slow: 400ms;
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --distance-base: 8px;
+  --scale-large: .96;
+  --scale-medium: .97;
   --item-hover: var(--background-3);
   --item-active: var(--background-4);
   --border-color: var(--background-4);

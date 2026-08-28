@@ -13,6 +13,10 @@
   display: flex;
 }
 
+.messages-column > .message-row:last-child {
+  animation: message-row-in var(--duration-fast) var(--ease-smooth-out);
+}
+
 .user-row {
   position: relative;
   justify-content: flex-end;
@@ -1034,6 +1038,13 @@
   }
 }
 
+@keyframes message-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--distance-base));
+  }
+}
+
 @keyframes thinking-gradient {
   0% {
     background-position: -100% 0;
@@ -1059,7 +1070,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .assistant-placeholder-label {
+
+  .messages-column > .message-row:last-child,
+  .assistant-placeholder-label,
+  .message-usage-popover {
     animation: none;
   }
 }
@@ -1173,6 +1187,8 @@
   border-radius: 10px;
   box-shadow: 0 6px 18px #00000011;
   backdrop-filter: blur(18px);
+  transform-origin: bottom left;
+  animation: dropdown-menu-in var(--duration-fast) var(--ease-smooth-out);
 
   dl {
     display: grid;
@@ -1323,9 +1339,6 @@
   min-width: 0;
   margin: 4px 0;
   overflow: hidden;
-  background: var(--background-2);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
 }
 
 .copyable-panel.execution-plan {
@@ -1339,11 +1352,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 7px 10px 7px 12px;
+  padding: 7px 0;
   color: var(--text-3);
-  border-bottom: 1px solid var(--border-color);
-  font-size: 12px;
+  border-bottom: 2px solid var(--border-color);
   font-weight: 600;
+  font-size: --font-md;
 }
 
 .copyable-panel-header {
@@ -1374,13 +1387,13 @@
 
 .copyable-panel-text {
   max-height: min(360px, 50vh);
+  font-family: inherit;
+  font-size: --font-md;
   margin: 0;
   padding: 14px 16px;
   overflow: auto;
   color: var(--text-2);
-  font: 12px/1.55 var(--font-code);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .file-mention-target {
@@ -1444,14 +1457,13 @@
 
   > figcaption {
     color: var(--text-2);
-    font-size: 13px;
   }
 }
 
 .rich-chart-bars {
   display: grid;
   gap: 10px;
-  padding: 16px;
+  padding: 10px 0;
 }
 
 .rich-chart-bar-row {
@@ -1461,7 +1473,6 @@
   align-items: center;
   gap: 10px;
   color: var(--text-3);
-  font-size: 11px;
 
   > span {
     overflow: hidden;
@@ -1493,7 +1504,7 @@
 }
 
 .rich-line-chart {
-  padding: 14px 16px 12px;
+  padding: 10px 0;
 
   svg {
     width: 100%;
@@ -1542,7 +1553,7 @@
   grid-template-columns: minmax(140px, 210px) minmax(160px, 1fr);
   align-items: center;
   gap: 24px;
-  padding: 18px;
+  padding: 10px 0;
 
   ul {
     display: grid;
@@ -1559,7 +1570,6 @@
     align-items: center;
     gap: 8px;
     color: var(--text-3);
-    font-size: 11px;
 
     > i {
       width: 9px;
@@ -1590,14 +1600,37 @@
   box-shadow: inset 0 0 0 1px var(--border-color);
 }
 
-.rich-pie-layout li:nth-child(8n + 1) > i { background: var(--chart-0); }
-.rich-pie-layout li:nth-child(8n + 2) > i { background: var(--chart-1); }
-.rich-pie-layout li:nth-child(8n + 3) > i { background: var(--chart-2); }
-.rich-pie-layout li:nth-child(8n + 4) > i { background: var(--chart-3); }
-.rich-pie-layout li:nth-child(8n + 5) > i { background: var(--chart-4); }
-.rich-pie-layout li:nth-child(8n + 6) > i { background: var(--chart-5); }
-.rich-pie-layout li:nth-child(8n + 7) > i { background: var(--chart-6); }
-.rich-pie-layout li:nth-child(8n + 8) > i { background: var(--chart-7); }
+.rich-pie-layout li:nth-child(8n + 1) > i {
+  background: var(--chart-0);
+}
+
+.rich-pie-layout li:nth-child(8n + 2) > i {
+  background: var(--chart-1);
+}
+
+.rich-pie-layout li:nth-child(8n + 3) > i {
+  background: var(--chart-2);
+}
+
+.rich-pie-layout li:nth-child(8n + 4) > i {
+  background: var(--chart-3);
+}
+
+.rich-pie-layout li:nth-child(8n + 5) > i {
+  background: var(--chart-4);
+}
+
+.rich-pie-layout li:nth-child(8n + 6) > i {
+  background: var(--chart-5);
+}
+
+.rich-pie-layout li:nth-child(8n + 7) > i {
+  background: var(--chart-6);
+}
+
+.rich-pie-layout li:nth-child(8n + 8) > i {
+  background: var(--chart-7);
+}
 
 @media (max-width: 620px) {
   .rich-chart-bar-row {
