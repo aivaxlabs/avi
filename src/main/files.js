@@ -1,7 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { createReadStream, readFileSync, realpathSync, statSync } from 'node:fs';
 import {
-  copyFile,
   lstat,
   mkdir,
   readFile,
@@ -44,23 +43,6 @@ const filenameResultLimit = 80;
 const contentResultLimit = 120;
 const inlineTextAttachmentSizeLimit = 64 * 1024;
 const temporaryAttachmentDirectory = resolve(tmpdir(), '.avi', 'chat-attachments');
-const attachmentExtensionsByMime = {
-  'application/pdf': '.pdf',
-  'audio/mpeg': '.mp3',
-  'audio/mp4': '.m4a',
-  'audio/ogg': '.ogg',
-  'audio/wav': '.wav',
-  'image/avif': '.avif',
-  'image/bmp': '.bmp',
-  'image/gif': '.gif',
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-  'video/mp4': '.mp4',
-  'video/quicktime': '.mov',
-  'video/webm': '.webm',
-};
-
 const mimeTypes = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -98,7 +80,7 @@ const mimeTypes = {
   '.pdf': 'application/pdf',
 };
 
-export function filePathToAttachment(filePath) {
+export function filePathToAttachment(filePath, { deferImageContent = false } = {}) {
   const path = realpathSync.native(filePath);
   const ext = extname(path).toLowerCase();
   const name = basename(path);
@@ -109,6 +91,9 @@ export function filePathToAttachment(filePath) {
   }
   if (videoExtensions.has(ext)) {
     return makeAttachment({ name, mime, size, kind: 'video_url', path });
+  }
+  if (deferImageContent && imageExtensions.has(ext)) {
+    return makeAttachment({ name, mime, size, kind: 'image_url', path });
   }
   const buffer = readFileSync(path);
   const base64 = buffer.toString('base64');
@@ -127,7 +112,6 @@ export function filePathToAttachment(filePath) {
 }
 
 export async function normalizeAttachmentsForModel(attachments, capabilities = {}) {
-  const clipboardDirectory = resolve(temporaryAttachmentDirectory, String(Date.now()));
   return Promise.all(attachments.map(async (originalAttachment) => {
     let attachment = originalAttachment;
     if (
@@ -135,18 +119,15 @@ export async function normalizeAttachmentsForModel(attachments, capabilities = {
       && attachment.kind !== 'file_reference'
       && !attachment.temporary
     ) {
-      const buffer = attachmentToBuffer(attachment);
-      if (!buffer) {
+      const materialized = await materializeAttachment(attachment);
+      if (!materialized) {
         throw new Error(`Could not create a local copy of "${attachment.name ?? 'attachment'}".`);
       }
-
-      const extension = extname(attachment.name || '').toLowerCase()
-        || attachmentExtensionsByMime[attachment.mime]
-        || '.bin';
-      await mkdir(clipboardDirectory, { recursive: true });
-      const path = resolve(clipboardDirectory, `${crypto.randomUUID()}${extension}`);
-      await writeFile(path, buffer);
-      attachment = { ...attachment, path, temporary: true };
+      attachment = {
+        ...attachment,
+        path: materialized.path,
+        temporary: materialized.temporary,
+      };
     }
 
     if (attachment.kind === 'video_url') {
@@ -214,30 +195,6 @@ export async function materializeLegacyVideoAttachments(attachments) {
       ? materializeVideoAttachment(attachment)
       : attachment
   )));
-}
-
-function pathIsInsideDirectory(path, directory) {
-  const prefix = `${directory.replace(/[\\/]+$/, '').toLowerCase()}${sep}`;
-  return path.toLowerCase().startsWith(prefix);
-}
-
-export async function importVideoAttachment(attachment) {
-  if (attachment?.kind !== 'video_url') return attachment;
-  if (typeof attachment.path !== 'string' || !isAbsolute(attachment.path)) return attachment;
-  const real = await realpath(attachment.path).catch(() => null);
-  if (!real || !(await lstat(real).catch(() => null))?.isFile()) return attachment;
-  if (pathIsInsideDirectory(real, temporaryAttachmentDirectory)) return attachment;
-  // Files dragged out of web content (for example, a video player inside a chat
-  // message) are materialized by Chromium as transient snapshots in the OS temp
-  // directory and deleted shortly after the drop, which breaks the send later.
-  // Copy them into the managed attachments directory while the source still exists.
-  if (!pathIsInsideDirectory(real, tmpdir())) return attachment;
-  await mkdir(temporaryAttachmentDirectory, { recursive: true });
-  const safeName = basename(attachment.name || basename(real))
-    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
-  const path = resolve(temporaryAttachmentDirectory, `${crypto.randomUUID()}-${safeName}`);
-  await copyFile(real, path);
-  return { ...attachment, path, temporary: true };
 }
 
 export async function createVideoFileResponse(path, rangeHeader = null) {

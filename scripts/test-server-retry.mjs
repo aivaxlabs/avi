@@ -3,6 +3,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -64,6 +65,87 @@ try {
     reasoning: [],
     context: { input: 100_000, output: 10_000 },
   };
+
+  const generatedImagePath = join(testProfile, 'generated.png');
+  const generatedImageBytes = Buffer.from('generated-image-bytes');
+  const generatedImageDataUrl = `data:image/png;base64,${generatedImageBytes.toString('base64')}`;
+  writeFileSync(generatedImagePath, generatedImageBytes);
+  const botConversation = database.createConversation({
+    title: 'Persisted media bot',
+    model: model.id,
+    projectPath: testProfile,
+    conversationType: 'bot',
+  });
+  const bot = database.createBot({
+    conversationId: botConversation.id,
+    name: 'Persisted media bot',
+    iconSeed: 'persisted-media',
+    model: model.id,
+  });
+  const generatedAttachment = {
+    id: 'generated-image',
+    kind: 'image_url',
+    source: 'generated_image',
+    name: 'generated.png',
+    path: generatedImagePath,
+    dataUrl: generatedImageDataUrl,
+  };
+  const streamingMessage = database.insertMessage({
+    conversationId: botConversation.id,
+    role: 'assistant',
+    status: 'streaming',
+    segments: [{
+      id: 'tool-call-1',
+      sequence: 1,
+      type: 'tool-call',
+      key: 'round:0:image',
+      callId: 'generated-image-call',
+      name: 'generate_image',
+      argumentsText: '{}',
+      resultText: 'Generated image.',
+      mediaContent: [{ type: 'image_url', image_url: { url: generatedImageDataUrl } }],
+      status: 'completed',
+    }],
+    attachments: [generatedAttachment],
+  });
+  database.updateBotScheduler(bot.id, { activeAssistantMessageId: streamingMessage.id });
+  const persistedMessage = database.getMessage(streamingMessage.id);
+  assert.equal(persistedMessage.attachments[0].dataUrl, undefined);
+  assert.equal(persistedMessage.attachments[0].path, generatedImagePath);
+  assert.equal(persistedMessage.segments[0].mediaContent[0].image_url.url, undefined);
+  assert.equal(persistedMessage.segments[0].mediaContent[0].image_url.path, generatedImagePath);
+  const persistedBlocks = database.messageToApiBlocks(persistedMessage, { images: true });
+  assert.equal(
+    persistedBlocks.find((block) => block.role === 'user').content[0].image_url.url,
+    generatedImageDataUrl,
+  );
+  const readMediaMessage = database.insertMessage({
+    conversationId: botConversation.id,
+    role: 'assistant',
+    status: 'completed',
+    segments: [{
+      id: 'tool-call-read-media',
+      sequence: 1,
+      type: 'tool-call',
+      key: 'round:0:read-media',
+      callId: 'read-media-call',
+      name: 'read_media_file',
+      argumentsText: JSON.stringify({ path: generatedImagePath }),
+      resultText: `Media file loaded: ${generatedImagePath}`,
+      mediaContent: [{ type: 'image_url', image_url: { url: generatedImageDataUrl } }],
+      status: 'completed',
+    }],
+  });
+  assert.equal(readMediaMessage.segments[0].mediaContent[0].image_url.url, undefined);
+  assert.equal(readMediaMessage.segments[0].mediaContent[0].image_url.path, generatedImagePath);
+  assert.equal(
+    database.hydratePersistedMediaContent(readMediaMessage.segments[0].mediaContent)[0].image_url.path,
+    generatedImagePath,
+  );
+  assert.equal(database.abortInterruptedMessages({ preserveActiveBots: true }), 0);
+  assert.equal(database.getMessage(streamingMessage.id).status, 'streaming');
+  assert.equal(database.abortInterruptedMessages(), 1);
+  assert.equal(database.getMessage(streamingMessage.id).status, 'aborted');
 
   const createProvider = (request, eventsFrom = () => []) => new ModelProvider(
     { id: 'test', enabled: true, models: [] },
@@ -161,6 +243,61 @@ try {
   );
   assert.doesNotMatch(inferenceTrace, new RegExp(sensitiveTraceMarker));
 
+  const partialArgumentsMarker = 'partial-tool-arguments-must-not-be-logged';
+  let incompleteResponsesAttempts = 0;
+  const incompleteResponsesEvents = [];
+  const incompleteResponsesProvider = new ModelProvider(
+    {
+      id: 'incomplete-responses-test',
+      interface: 'responses',
+      enabled: true,
+      models: [],
+    },
+    {
+      ...responsesApi,
+      createBody: async () => ({}),
+      request: async () => {
+        incompleteResponsesAttempts += 1;
+        return new Response([
+          `data: ${JSON.stringify({
+            type: 'response.output_item.added',
+            output_index: 0,
+            item: {
+              type: 'function_call',
+              id: 'incomplete-item',
+              call_id: 'incomplete-call',
+              name: 'chat_create_thread',
+              arguments: `{"prompt":"${partialArgumentsMarker}`,
+            },
+          })}`,
+          'data: [DONE]',
+          '',
+        ].join('\n\n'), { status: 200 });
+      },
+    },
+    {},
+  );
+  await assert.rejects(
+    incompleteResponsesProvider.stream({
+      model,
+      messages: [],
+      tools: [],
+      toolHistory: [],
+      invocationContext: { conversationId: 'incomplete-thread', traceRound: 2 },
+      signal: new AbortController().signal,
+      onEvent: (event) => incompleteResponsesEvents.push(event),
+    }),
+    /ended before its completion event/,
+  );
+  assert.equal(incompleteResponsesAttempts, 1);
+  assert.equal(incompleteResponsesEvents.filter((event) => event.type === 'tool-call').length, 1);
+  const incompleteTrace = readFileSync(join(resolvedProfile, '.aivax', 'trace.log'), 'utf8');
+  assert.match(
+    incompleteTrace,
+    /provider\.stream-incomplete: .*thread_id="incomplete-thread".*attempt=1.*done_marker=true.*completion_event="missing".*tool_count=1/,
+  );
+  assert.doesNotMatch(incompleteTrace, new RegExp(partialArgumentsMarker));
+
   const videoPath = join(testProfile, 'streamed-video.mp4');
   const videoBytes = Buffer.from('streamed-video-payload');
   await import('node:fs/promises').then(({ writeFile }) => writeFile(videoPath, videoBytes));
@@ -181,7 +318,9 @@ try {
       response.writeHead(streamedRequests.length === 1 ? 500 : 200, {
         'Content-Type': 'text/event-stream',
       });
-      response.end(streamedRequests.length === 1 ? 'retry' : 'data: [DONE]\n\n');
+      response.end(streamedRequests.length === 1
+        ? 'retry'
+        : `data: ${JSON.stringify({ type: 'response.completed', response: {} })}\n\ndata: [DONE]\n\n`);
     });
   });
   await new Promise((resolveListen) => streamedServer.listen(0, '127.0.0.1', resolveListen));
@@ -556,6 +695,10 @@ try {
       },
       { type: 'item-complete', itemType: 'tool-call' },
     ],
+  );
+  assert.deepEqual(
+    responsesApi.eventsFrom({ type: 'response.completed', response: {} }),
+    [{ type: 'stream-complete', status: 'response.completed' }],
   );
 
   for (const index of [undefined, -1, 1.5]) {
@@ -1325,7 +1468,7 @@ try {
       status: 'running',
     }],
   });
-  restartRunner.resumeGoals();
+  await restartRunner.resumeGoals();
   await waitFor(() => !restartRunner.runs.has(restartConversation.id));
   assert.deepEqual(restartEvents, ['tool', 'provider', 'provider']);
   const restartRepairedRound = restartRequests[0].find((round) => (

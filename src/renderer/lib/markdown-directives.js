@@ -8,11 +8,12 @@ const MAX_SOURCE_LENGTH = 20_000;
 const DIRECTIVE_TYPES = new Set(['textDirective', 'leafDirective', 'containerDirective']);
 
 export function remarkAviDirectives() {
+  const processor = this;
   return (tree, file) => {
     const visit = (node) => {
       if (!node.children) return;
       node.children = node.children.map((child) => {
-        const replacement = transformDirective(child, file);
+        const replacement = transformDirective(child, file, processor);
         if (replacement !== child) return replacement;
         visit(child);
         return child;
@@ -22,7 +23,21 @@ export function remarkAviDirectives() {
   };
 }
 
-function transformDirective(node, file) {
+function transformDirective(node, file, processor) {
+  if (node.type === 'inlineCode' && node.value.startsWith(':fileref{')) {
+    const parsed = processor.parse(node.value);
+    const [paragraph] = parsed.children ?? [];
+    const [directive] = paragraph?.children ?? [];
+    if (
+      parsed.children?.length === 1
+      && paragraph.type === 'paragraph'
+      && paragraph.children.length === 1
+      && directive.type === 'textDirective'
+      && directive.name === 'fileref'
+    ) {
+      return transformFileReference(directive) ?? node;
+    }
+  }
   if (!DIRECTIVE_TYPES.has(node.type)) return node;
   if (node.type === 'containerDirective' && !sourceForNode(node, file).trimEnd().endsWith(':::')) {
     return { type: 'text', value: sourceForNode(node, file) };

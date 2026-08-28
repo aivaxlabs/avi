@@ -1,18 +1,25 @@
 import { fileBase64JsonValue, sendJsonRequest } from '../main/json-request-body.js';
 import { defineProvider, prepareProviderInvocation } from '../main/provider-api.js';
 
+function mediaJsonValue(media, defaultMime) {
+  return media?.path
+    ? fileBase64JsonValue(media.path, media.mime ?? defaultMime)
+    : media?.url;
+}
+
 function toResponsesContent(content) {
   return content.map((item) => {
     if (item.type === 'text') return { type: 'input_text', text: item.text };
     if (item.type === 'image_url') {
-      return { type: 'input_image', image_url: item.image_url?.url };
+      return {
+        type: 'input_image',
+        image_url: mediaJsonValue(item.image_url, 'image/png'),
+      };
     }
     if (item.type === 'video_url') {
       return {
         type: 'input_video',
-        video_url: item.video_url?.path
-          ? fileBase64JsonValue(item.video_url.path, item.video_url.mime ?? 'video/mp4')
-          : item.video_url?.url,
+        video_url: mediaJsonValue(item.video_url, 'video/mp4'),
       };
     }
     if (item.type === 'file') {
@@ -27,16 +34,17 @@ function toResponsesContent(content) {
 }
 
 function toChatContent(content) {
-  return content.map((item) => (
-    item.type === 'video_url' && item.video_url?.path
+  return content.map((item) => {
+    const media = item[item.type];
+    return ['image_url', 'video_url'].includes(item.type) && media?.path
       ? {
-          type: 'video_url',
-          video_url: {
-            url: fileBase64JsonValue(item.video_url.path, item.video_url.mime ?? 'video/mp4'),
+          type: item.type,
+          [item.type]: {
+            url: mediaJsonValue(media, item.type === 'image_url' ? 'image/png' : 'video/mp4'),
           },
         }
-      : item
-  ));
+      : item;
+  });
 }
 
 function toResponsesInput(message, model) {
@@ -122,6 +130,7 @@ function serializeTools(tools) {
 }
 
 export const responsesApi = {
+  requiresTerminalEvent: true,
   async createBody({
     provider,
     model,
@@ -282,6 +291,8 @@ export const responsesApi = {
             payload.response?.incomplete_details?.reason
             ?? 'The provider returned an incomplete response.',
         });
+      } else {
+        events.push({ type: 'stream-complete', status: payload.type });
       }
       return events;
     }

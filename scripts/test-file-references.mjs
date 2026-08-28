@@ -77,8 +77,16 @@ for (const invalid of [
   assert.match(markup, /:fileref/);
 }
 
-const code = renderReference('`:fileref{path="./file.js" line-from="1"}`');
-assert.doesNotMatch(code, /file-reference-link/);
-assert.match(code, /:fileref/);
+const inlineCode = renderReference('See `:fileref{path="./file.js" line-from="1"}`.');
+assert.match(inlineCode, /class="file-reference-link"/);
+assert.match(inlineCode, />file\.js, line 1</);
+
+for (const blockCode of [
+  renderReference('```text\n:fileref{path="./file.js" line-from="1"}\n```'),
+  renderReference('    :fileref{path="./file.js" line-from="1"}'),
+]) {
+  assert.doesNotMatch(blockCode, /file-reference-link/);
+  assert.match(blockCode, /:fileref/);
+}
 
 console.log('File reference tests passed.');

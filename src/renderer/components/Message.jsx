@@ -65,7 +65,7 @@ import { consolidateFileEdits, createUndoPrompt } from '../lib/file-edits.js';
 import { parseStructuredUserMessage } from '../lib/message-groups.js';
 import { remarkAviDirectives } from '../lib/markdown-directives.js';
 import { classNames } from '../lib/format.js';
-import { AttachmentVideo } from './AttachmentVideo.jsx';
+import { AttachmentImage, AttachmentVideo } from './AttachmentVideo.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { CopyablePanel, RichContent } from './RichContent.jsx';
 import {
@@ -234,7 +234,7 @@ function AttachmentLightbox({ attachment, onClose }) {
       {isVideo ? (
         <AttachmentVideo attachment={attachment} controls autoPlay />
       ) : (
-        <img src={attachment.dataUrl} alt={attachment.name} />
+        <AttachmentImage attachment={attachment} alt={attachment.name} />
       )}
       <button
         type="button"
@@ -333,7 +333,7 @@ function UserMessage({ message, editing, onEdit, editor }) {
         {visibleAttachments.length > 0 && (
           <div className="attachment-list user-attachment-list" aria-label="Message attachments">
             {visibleAttachments.map((attachment) => (
-              attachment.kind === 'image_url' && attachment.dataUrl
+              attachment.kind === 'image_url' && (attachment.dataUrl || attachment.path)
                 ? (
                     <button
                       key={attachment.id}
@@ -343,7 +343,7 @@ function UserMessage({ message, editing, onEdit, editor }) {
                       title={attachment.name}
                       onClick={() => setLightboxAttachment(attachment)}
                     >
-                      <img src={attachment.dataUrl} alt={attachment.name} />
+                      <AttachmentImage attachment={attachment} alt={attachment.name} />
                     </button>
                   )
                 : attachment.kind === 'video_url' && (attachment.path || attachment.dataUrl)
@@ -549,11 +549,11 @@ function AssistantMessage({
           </div>
         ) : null}
         {message.attachments.some((attachment) => (
-          attachment.kind === 'image_url' && attachment.dataUrl
+          attachment.kind === 'image_url' && (attachment.dataUrl || attachment.path)
         )) && (
           <div className="attachment-list user-attachment-list" aria-label="Generated images">
             {message.attachments.filter((attachment) => (
-              attachment.kind === 'image_url' && attachment.dataUrl
+              attachment.kind === 'image_url' && (attachment.dataUrl || attachment.path)
             )).map((attachment) => (
               <button
                 key={attachment.id}
@@ -571,7 +571,7 @@ function AssistantMessage({
                   });
                 }}
               >
-                <img src={attachment.dataUrl} alt={attachment.name} />
+                <AttachmentImage attachment={attachment} alt={attachment.name} />
               </button>
             ))}
           </div>

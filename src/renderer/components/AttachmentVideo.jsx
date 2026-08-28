@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-export function AttachmentVideo({ attachment, ...props }) {
+function useAttachmentPreview(attachment) {
   const [preview, setPreview] = useState(null);
 
   useEffect(() => {
@@ -41,6 +41,15 @@ export function AttachmentVideo({ attachment, ...props }) {
     };
   }, [attachment?.dataUrl, attachment?.path]);
 
-  const source = attachment?.dataUrl ?? preview?.url;
+  return attachment?.dataUrl ?? preview?.url;
+}
+
+export function AttachmentImage({ attachment, ...props }) {
+  const source = useAttachmentPreview(attachment);
+  return source ? <img {...props} src={source} /> : null;
+}
+
+export function AttachmentVideo({ attachment, ...props }) {
+  const source = useAttachmentPreview(attachment);
   return source ? <video {...props} src={source} /> : null;
 }

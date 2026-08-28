@@ -331,6 +331,8 @@ try {
     },
   });
   assert.equal(directResult.mediaContent[0].type, 'image_url');
+  assert.equal(directResult.mediaContent[0].image_url.path, mediaFixtures[0].path);
+  assert.equal(directResult.mediaContent[0].image_url.url, undefined);
 
   const teachSkill = CLIENT_TOOLS.find((tool) => tool.name === 'aivax_teach_skill');
   assert.ok(teachSkill);
