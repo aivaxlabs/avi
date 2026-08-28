@@ -39,6 +39,8 @@ Desktop toggles save immediately. Chat, Tuning, Personality, and Verbosity chang
 
 **Max concurrent sub-agents per thread** accepts 1–128 and defaults to 128. Despite the UI label, the current runtime counts active sub-agents globally across the Avi process.
 
+**Rubber Duck max turns** accepts 10–500 and bounds each rubber-duck analysis started with `/rubber-duck`. The analysis presents its critique to the conversation and proposes a plan; it does not act on the report by itself.
+
 ## Tuning → Diagnostics
 
 - **Verbose** — detailed timings and errors;
@@ -46,6 +48,11 @@ Desktop toggles save immediately. Chat, Tuning, Personality, and Verbosity chang
 - **Disabled** — fatal errors only; operational trace logging is disabled.
 
 Uncaught main-process and renderer errors, unhandled rejections, renderer/preload failures, and abnormal renderer or child-process termination are recorded as `FATAL` at every level. The log is `~/.aivax/trace.log`. Logs do not include prompts, messages, tool inputs, attachments, API keys, or user file paths.
+
+For isolated startup diagnostics, launch Avi with these command-line flags:
+
+- `--inactive-bots` keeps the bot scheduler stopped and does not resume interrupted bot runs;
+- `--memory-trace` writes `app.memory-trace` samples every 250 ms with main-process CPU, memory, filesystem-operation counts, page faults, and, on Windows, process I/O throughput in bytes per second. This explicit flag records samples even when the saved diagnostic level is Disabled and adds its own small logging overhead.
 
 ## Tool approvals
 
@@ -57,6 +64,6 @@ Full access removes the approval dialog but does not override higher-level runti
 
 ## Persistence and validation
 
-Tuning and Desktop settings are stored locally. Values outside accepted ranges are rejected or normalized. **Save changes** is disabled when the selected shell is unavailable or terminal timeout/concurrency values are invalid.
+Tuning and Desktop settings are stored locally. Values outside accepted ranges are rejected or normalized. **Save changes** is disabled when the selected shell is unavailable or terminal timeout, sub-agent concurrency, or Rubber Duck max turns values are invalid.
 
 See [Themes](Themes.md), [Personalities](Personalities.md), [Archive](Archive.md), and [Remote control](Remote%20control.md).

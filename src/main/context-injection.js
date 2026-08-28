@@ -29,7 +29,11 @@ const IGNORED_WORKSPACE_DIRECTORIES = new Set([
 const MAX_CONTEXT_RECURSION_DEPTH = 6;
 const CONTEXT_SCAN_TIMEOUT_MS = 5_000;
 const CONTEXT_SCAN_CONCURRENCY = 32;
+const CONTEXT_ITEM_CACHE_MS = 1_000;
+const CONTEXT_SCAN_CACHE_MS = 60_000;
 const CONTEXT_DIRECTORY_NAME = '.agents';
+const contextItemCache = new Map();
+const contextScanCache = new Map();
 const baseInstructions = readFileSync(new URL('../prompts/base-instructions.md', import.meta.url), 'utf8');
 const quickChatInstructions = readFileSync(new URL('../prompts/quick-chat-instructions.md', import.meta.url), 'utf8');
 const botInstructions = readFileSync(new URL('../prompts/bot-instructions.md', import.meta.url), 'utf8');
@@ -611,8 +615,26 @@ function escapeXml(value) {
     .replaceAll('>', '&gt;');
 }
 
-async function scanContextFiles(rootPath, { includeRootCatalog = false } = {}) {
+async function scanContextFiles(
+  rootPath,
+  { includeRootCatalog = false, skipCache = false } = {},
+) {
   const root = path.resolve(rootPath);
+  if (!skipCache) {
+    const cacheKey = `${normalizePathKey(root)}|${includeRootCatalog}`;
+    const cached = contextScanCache.get(cacheKey);
+    if (cached) return cached;
+
+    const request = scanContextFiles(root, { includeRootCatalog, skipCache: true });
+    contextScanCache.set(cacheKey, request);
+    const expire = () => {
+      setTimeout(() => {
+        if (contextScanCache.get(cacheKey) === request) contextScanCache.delete(cacheKey);
+      }, CONTEXT_SCAN_CACHE_MS).unref();
+    };
+    request.then(expire, expire);
+    return request;
+  }
   const instructionFiles = [];
   const botInstructionFiles = [];
   const skillFiles = [];
@@ -751,7 +773,23 @@ async function readDescription(filePath) {
   return (await readContextItem(filePath)).description;
 }
 
-async function readContextItem(filePath) {
+async function readContextItem(filePath, { skipCache = false } = {}) {
+  if (!skipCache) {
+    const cacheKey = normalizePathKey(filePath);
+    const cached = contextItemCache.get(cacheKey);
+    if (cached) return cached;
+
+    const request = readContextItem(filePath, { skipCache: true });
+    contextItemCache.set(cacheKey, request);
+    const expire = () => {
+      setTimeout(() => {
+        if (contextItemCache.get(cacheKey) === request) contextItemCache.delete(cacheKey);
+      }, CONTEXT_ITEM_CACHE_MS).unref();
+    };
+    request.then(expire, expire);
+    return request;
+  }
+
   let content;
   try {
     content = await readFile(filePath, 'utf8');

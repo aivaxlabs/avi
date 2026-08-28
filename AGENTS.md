@@ -35,6 +35,14 @@ Do not run provider/network/AI-consuming tests unless the changed behavior requi
 - Electron-dependent modules can fail under plain Bun because native modules and Electron exports require the Electron runtime. Use the repository's Electron-based test command or `bun x electron ...` when the target imports Electron/native persistence code.
 - Keep user documentation aligned when changing visible behavior, settings, context discovery, provider configuration, or plugin contracts. `docs/Plugins.md` is the authoritative public plugin contract.
 
+## Changelog maintenance
+- Update the applicable changelog in the same change as the implementation; do not defer changelog reconstruction until release time.
+- Maintain `CHANGELOG.md` for application releases. Keep the unreleased section at the top as `## [Canary]`; when publishing, rename that section to the released version and date, then create a new empty `Canary` section above it.
+- Maintain `CHANGELOG.plugins.md` independently for public Plugin API releases. Keep its unreleased API section as `## [Canary]`; only replace it with the published Plugin API version and date when that API version is released, then create a new empty `Canary` section.
+- A change that affects both the application release and the public plugin contract must update both changelogs. Plugin implementation changes that do not alter the public contract belong only in `CHANGELOG.md`.
+- Use these subsections, in this order, and omit empty ones: `Added` for new features, `Changed` for behavior changes, `Fixed` for corrected bugs or glitches, `Docs` for documentation updates, `Chores` for small maintenance work, and `Tests` for test updates. Record removals under `Changed` and identify them explicitly as removals.
+- In `CHANGELOG.plugins.md`, every added feature, changed behavior, or removal must state whether it is `Breaking` or `Backward compatible` and give an explicit supported Plugin API version range. For a breaking entry, state the first breaking API version and the last compatible API version; for example, `Compatibility: Breaking in API v3; last compatible version: API v2.` For a backward-compatible entry, state the full supported range; for example, `Compatibility: Backward compatible; supports API v2–v3.` Derive these claims from the implemented validation and public contract rather than guessing.
+
 ## Validation
 1. Run the narrowest affected `scripts/test-*.mjs` or `bun run test:<area>` command.
 2. Run `bun run syntax` for main-process or script changes; it does not cover JSX, preload, or `src/providers/`.
@@ -47,4 +55,4 @@ Do not run provider/network/AI-consuming tests unless the changed behavior requi
 - `src/main/AGENTS.md`: Electron runtime, IPC, providers, chat/tools, persistence, and main-process validation.
 - `src/renderer/AGENTS.md`: React UI, preload API consumption, XCSS sources, accessibility, and renderer validation.
 - `src/prompts/AGENTS.md`: base/personality prompts plus shipped Avi instructions, workflows, skills, discovery conventions, and packaging.
-- `plugins/AGENTS.md`: trusted plugin API v1, contribution contracts, materialized context, and plugin tests.
+- `plugins/AGENTS.md`: trusted Plugin API v2, contribution contracts, materialized context, and plugin tests.

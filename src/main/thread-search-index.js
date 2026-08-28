@@ -7,54 +7,64 @@ export const THREAD_SEARCH_TURN_LIMIT = 3;
 
 const truncateComponent = (value) => String(value ?? '').trim().slice(0, THREAD_SEARCH_COMPONENT_CHAR_LIMIT);
 
-export function buildThreadSearchDocuments(conversations, getConversationMessages) {
-  return conversations.flatMap((conversation) => {
-    const turns = [];
-    let pendingUser = null;
-    for (const message of getConversationMessages(conversation.id)) {
-      if (message.hidden) continue;
-      if (
-        message.role === 'user'
-        && !message.fromAgent
-        && ['sent', 'completed'].includes(message.status)
-      ) {
-        pendingUser = message;
-      } else if (message.role === 'assistant' && message.status === 'completed' && pendingUser) {
-        const userText = truncateComponent(pendingUser.content);
-        const assistantText = truncateComponent(answerTextFromTextualBlocks(message.content));
-        if (userText && assistantText) {
-          turns.push({
-            userMessageId: pendingUser.id,
-            assistantMessageId: message.id,
-            userText,
-            assistantText,
-            updatedAt: message.updatedAt,
-          });
-        }
-        pendingUser = null;
+export function buildThreadSearchDocuments(messages) {
+  const threads = new Map();
+  for (const message of messages) {
+    if (message.hidden) continue;
+    const thread = threads.get(message.conversationId) ?? {
+      id: message.conversationId,
+      title: message.conversationTitle,
+      pendingUser: null,
+      turns: [],
+    };
+    threads.set(message.conversationId, thread);
+    if (
+      message.role === 'user'
+      && !message.fromAgent
+      && ['sent', 'completed'].includes(message.status)
+    ) {
+      thread.pendingUser = message;
+    } else if (
+      message.role === 'assistant'
+      && message.status === 'completed'
+      && thread.pendingUser
+    ) {
+      const userText = truncateComponent(thread.pendingUser.content);
+      const assistantText = truncateComponent(answerTextFromTextualBlocks(message.content));
+      if (userText && assistantText) {
+        thread.turns.push({
+          userMessageId: thread.pendingUser.id,
+          assistantMessageId: message.id,
+          userText,
+          assistantText,
+          updatedAt: message.updatedAt,
+        });
       }
+      thread.pendingUser = null;
     }
+  }
 
-    return turns.slice(-THREAD_SEARCH_TURN_LIMIT).map((turn) => {
-      const title = truncateComponent(conversation.title);
-      const docid = `avi-thread:${conversation.id}:${turn.userMessageId}`;
+  return [...threads.values()].flatMap((thread) => (
+    thread.turns.slice(-THREAD_SEARCH_TURN_LIMIT).map((turn) => {
+      const title = truncateComponent(thread.title);
+      const docid = `avi-thread:${thread.id}:${turn.userMessageId}`;
       return {
         docid,
         text: [`Title: ${title}`, `User: ${turn.userText}`, `Assistant: ${turn.assistantText}`].join('\n'),
-        __ref: conversation.id,
+        __ref: thread.id,
         __tags: ['avi', 'thread-search'],
         __meta: {
           source: 'avi-thread-search',
           formatVersion: 1,
-          threadId: conversation.id,
+          threadId: thread.id,
           userMessageId: turn.userMessageId,
           assistantMessageId: turn.assistantMessageId,
           title,
           updatedAt: turn.updatedAt,
         },
       };
-    });
-  });
+    })
+  ));
 }
 
 export function createThreadSearchManifest(documents) {

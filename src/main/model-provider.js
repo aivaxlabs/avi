@@ -88,7 +88,14 @@ export class ModelProvider {
       toolHistory,
       invocationContext,
     });
+    invocationContext.onPrepared?.();
     const goalMode = invocationContext.workMode === 'goal';
+    const traceOperation = invocationContext.traceOperation
+      ?? (invocationContext.quickChat
+        ? 'quick-chat'
+        : invocationContext.auxiliary
+          ? 'auxiliary'
+          : 'chat');
     const retryDelays = goalMode ? GOAL_RETRY_DELAYS_MS : NORMAL_RETRY_DELAYS_MS;
     const maxAttempts = goalMode ? Infinity : retryDelays.length + 1;
     let assistantContent = '';
@@ -104,6 +111,13 @@ export class ModelProvider {
       let connectTimedOut = false;
       let response;
       let retryError = null;
+      let streamChunkCount = 0;
+      let streamBytes = 0;
+      let sseEventCount = 0;
+      let receivedDoneMarker = false;
+      let receivedTerminalEvent = this.implementation.requiresTerminalEvent !== true;
+      let completionEvent = receivedTerminalEvent ? 'not-required' : 'missing';
+      const attemptToolKeys = new Set();
       const connectTimeout = setTimeout(() => {
         connectTimedOut = true;
         attemptController.abort(new Error('The server did not respond within 2 minutes.'));
@@ -215,6 +229,10 @@ export class ModelProvider {
                 ? signal.reason
                 : new Error('The request was aborted.');
             }
+            if (value?.byteLength) {
+              streamChunkCount += 1;
+              streamBytes += value.byteLength;
+            }
             buffer = (
               buffer + decoder.decode(value ?? new Uint8Array(), { stream: !done })
             ).replaceAll('\r\n', '\n');
@@ -228,7 +246,12 @@ export class ModelProvider {
                 .map((line) => line.slice(5).trimStart())
                 .join('\n')
                 .trim();
-              if (!payload || payload === '[DONE]') continue;
+              if (!payload) continue;
+              if (payload === '[DONE]') {
+                receivedDoneMarker = true;
+                continue;
+              }
+              sseEventCount += 1;
 
               let json;
               try {
@@ -244,6 +267,11 @@ export class ModelProvider {
               }
 
               for (const event of this.implementation.eventsFrom(json)) {
+                if (event.type === 'stream-complete') {
+                  receivedTerminalEvent = true;
+                  completionEvent = event.status ?? 'completed';
+                  continue;
+                }
                 if (
                   event.type === 'error'
                   && (
@@ -312,6 +340,7 @@ export class ModelProvider {
                     ? event.argumentsText
                     : `${existing.argumentsText}${event.argumentsDelta ?? ''}`;
                   toolCalls.set(key, existing);
+                  attemptToolKeys.add(key);
                   normalizedEvent = {
                     ...event,
                     callId: existing.callId,
@@ -331,12 +360,7 @@ export class ModelProvider {
                     provider_id: this.config.id,
                     interface: this.config.interface,
                     model: model.modelId,
-                    operation: invocationContext.traceOperation
-                      ?? (invocationContext.quickChat
-                        ? 'quick-chat'
-                        : invocationContext.auxiliary
-                          ? 'auxiliary'
-                          : 'chat'),
+                    operation: traceOperation,
                     round: invocationContext.traceRound,
                     attempt,
                     message_count: messages?.length ?? 0,
@@ -376,6 +400,29 @@ export class ModelProvider {
           }
         } finally {
           signal.removeEventListener('abort', abortReader);
+        }
+
+        if (!retryError && !receivedTerminalEvent) {
+          traceError('provider.stream-incomplete', {
+            thread_id: invocationContext.conversationId,
+            provider_id: this.config.id,
+            interface: this.config.interface,
+            model: model.modelId,
+            operation: traceOperation,
+            round: invocationContext.traceRound,
+            attempt,
+            duration_ms: Date.now() - attemptStartedAt,
+            stream_chunk_count: streamChunkCount,
+            stream_bytes: streamBytes,
+            sse_event_count: sseEventCount,
+            done_marker: receivedDoneMarker,
+            completion_event: completionEvent,
+            tool_count: attemptToolKeys.size,
+          });
+          const error = new Error('The provider stream ended before its completion event.');
+          error.code = 'stream_incomplete';
+          if (receivedOutput) throw error;
+          retryError = { code: error.code, message: error.message };
         }
 
         if (!retryError) {

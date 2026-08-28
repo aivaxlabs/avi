@@ -5128,6 +5128,40 @@ button svg {
     width: 190px;
 }
 
+.bot-snooze-submenu-holder {
+    position: relative;
+}
+
+.bot-snooze-submenu-holder::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: -8px;
+    bottom: 0;
+    width: 8px;
+}
+
+.bot-snooze-submenu-holder > .bot-snooze-trigger {
+    width: 100%;
+}
+
+.bot-snooze-submenu-holder > .bot-snooze-trigger > span {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.bot-snooze-submenu-holder > .bot-snooze-trigger > span > svg {
+    flex: 0 0 auto;
+}
+
+.bot-snooze-submenu-holder > .bot-snooze-submenu {
+    top: -4px;
+    left: calc(100% + 6px);
+    width: 190px;
+}
+
 .sidebar-bots {
     flex: 0 0 auto;
     min-height: 0;
@@ -16684,6 +16718,169 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     font-size: 11px;
 }
 
+.plugin-settings-editor {
+    display: grid;
+    gap: 24px;
+}
+
+.plugin-settings-editor .settings-inline-back {
+    justify-self: start;
+}
+
+.plugin-settings-editor .plugin-settings-editor-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.plugin-settings-editor .plugin-settings-editor-heading h3 {
+    color: var(--text-1);
+    font-size: 16px;
+    font-weight: 550;
+}
+
+.plugin-settings-editor .plugin-settings-editor-heading p {
+    margin-top: 4px;
+    color: var(--text-3);
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.plugin-settings-editor .plugin-settings-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-3);
+    font-size: 11px;
+}
+
+.plugin-settings-editor .plugin-setting-option {
+    min-height: 88px;
+    display: grid;
+    grid-template-columns: minmax(180px, .42fr) minmax(260px, .58fr);
+    gap: 24px;
+    padding: 18px;
+}
+
+.plugin-settings-editor .plugin-setting-option:not(:first-child) {
+    border-top: 1px solid var(--border-color);
+}
+
+.plugin-settings-editor .plugin-setting-option-copy {
+    display: grid;
+    align-content: start;
+    gap: 4px;
+}
+
+.plugin-settings-editor .plugin-setting-option-copy strong {
+    color: var(--text-1);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.plugin-settings-editor .plugin-setting-option-copy small {
+    color: var(--text-3);
+    font-size: 10px;
+    line-height: 1.45;
+}
+
+.plugin-settings-editor .plugin-setting-control {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+}
+
+.plugin-settings-editor .plugin-setting-control > input:not([type='checkbox']), .plugin-settings-editor .plugin-setting-control > select, .plugin-settings-editor .plugin-setting-control textarea {
+    width: 100%;
+    min-width: 0;
+}
+
+.plugin-settings-editor .plugin-setting-control > .appearance-desktop-switch {
+    margin-top: 4px;
+}
+
+.plugin-settings-editor .plugin-setting-control > .plugin-setting-array, .plugin-settings-editor .plugin-setting-control > .plugin-setting-object, .plugin-settings-editor .plugin-setting-control > .plugin-setting-json-field, .plugin-settings-editor .plugin-setting-control > .plugin-setting-option-error {
+    grid-column: 1 / -1;
+}
+
+.plugin-settings-editor .plugin-setting-array {
+    display: grid;
+    gap: 9px;
+}
+
+.plugin-settings-editor .plugin-setting-array-item {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+}
+
+.plugin-settings-editor .plugin-setting-array-item > small {
+    color: var(--text-3);
+    font-size: 10px;
+}
+
+.plugin-settings-editor .plugin-setting-array-item-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.plugin-settings-editor .plugin-setting-array-item-heading strong {
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.plugin-settings-editor .plugin-setting-array-item-heading .danger {
+    color: var(--danger-color);
+}
+
+.plugin-settings-editor .plugin-setting-object {
+    display: grid;
+    gap: 12px;
+}
+
+.plugin-settings-editor .plugin-setting-object.inline {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.plugin-settings-editor .plugin-setting-object-field, .plugin-settings-editor .plugin-setting-json-field {
+    min-width: 0;
+    display: grid;
+    align-content: start;
+    gap: 5px;
+}
+
+.plugin-settings-editor .plugin-setting-object-field > span, .plugin-settings-editor .plugin-setting-json-field > span {
+    color: var(--text-2);
+    font-size: 10px;
+}
+
+.plugin-settings-editor .plugin-setting-object-field > small, .plugin-settings-editor .plugin-setting-json-field > small {
+    color: var(--text-3);
+    font-size: 9px;
+}
+
+.plugin-settings-editor .plugin-setting-json-field textarea {
+    min-height: 120px;
+    resize: vertical;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.5;
+}
+
+.plugin-settings-editor .plugin-setting-field-error, .plugin-settings-editor .plugin-setting-option-error {
+    color: var(--danger-color) !important;
+    font-size: 10px;
+    overflow-wrap: anywhere;
+}
+
 @media (max-width: 680px) {
     .plugins-settings .plugin-card {
         flex-wrap: wrap;
@@ -16693,5 +16890,24 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
         width: 100%;
         padding-left: 30px;
         justify-content: flex-start;
+    }
+}
+
+@media (max-width: 700px) {
+    .plugin-settings-editor .plugin-settings-editor-heading {
+        flex-direction: column;
+    }
+
+    .plugin-settings-editor .plugin-setting-option {
+        grid-template-columns: 1fr;
+        gap: 14px;
+    }
+
+    .plugin-settings-editor .plugin-setting-control {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .plugin-settings-editor .plugin-setting-control > .primary-mini {
+        justify-self: start;
     }
 }

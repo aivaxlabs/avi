@@ -57,21 +57,23 @@ try {
     new Date(Date.UTC(2025, 11, 31)).toISOString(),
   );
 
+  const threadSource = {
+    conversationId: 'thread-id',
+    conversationTitle: 'T'.repeat(THREAD_SEARCH_COMPONENT_CHAR_LIMIT + 10),
+  };
   const projectedDocuments = buildThreadSearchDocuments([
-    { id: 'thread-id', title: 'T'.repeat(THREAD_SEARCH_COMPONENT_CHAR_LIMIT + 10) },
-  ], () => [
-    { id: 'hidden-user', role: 'user', status: 'sent', content: 'hidden', hidden: true },
-    { id: 'agent-user', role: 'user', status: 'sent', content: 'internal', fromAgent: true },
-    { id: 'user-0', role: 'user', status: 'sent', content: 'oldest user' },
-    { id: 'assistant-0', role: 'assistant', status: 'completed', content: 'oldest assistant', updatedAt: '2026-01-01T00:00:00Z' },
-    { id: 'user-1', role: 'user', status: 'sent', content: 'first kept user' },
-    { id: 'assistant-1', role: 'assistant', status: 'completed', content: '<think>secret</think>first kept assistant', updatedAt: '2026-01-02T00:00:00Z' },
-    { id: 'user-2', role: 'user', status: 'completed', content: 'second kept user' },
-    { id: 'assistant-2', role: 'assistant', status: 'completed', content: 'second kept assistant', updatedAt: '2026-01-03T00:00:00Z' },
-    { id: 'user-3', role: 'user', status: 'sent', content: 'U'.repeat(THREAD_SEARCH_COMPONENT_CHAR_LIMIT + 10) },
-    { id: 'assistant-3', role: 'assistant', status: 'completed', content: '<assistant-answer>final kept assistant</assistant-answer>', updatedAt: '2026-01-04T00:00:00Z' },
-    { id: 'pending-user', role: 'user', status: 'sent', content: 'pending' },
-    { id: 'aborted-assistant', role: 'assistant', status: 'aborted', content: 'partial' },
+    { ...threadSource, id: 'hidden-user', role: 'user', status: 'sent', content: 'hidden', hidden: true },
+    { ...threadSource, id: 'agent-user', role: 'user', status: 'sent', content: 'internal', fromAgent: true },
+    { ...threadSource, id: 'user-0', role: 'user', status: 'sent', content: 'oldest user' },
+    { ...threadSource, id: 'assistant-0', role: 'assistant', status: 'completed', content: 'oldest assistant', updatedAt: '2026-01-01T00:00:00Z' },
+    { ...threadSource, id: 'user-1', role: 'user', status: 'sent', content: 'first kept user' },
+    { ...threadSource, id: 'assistant-1', role: 'assistant', status: 'completed', content: '<think>secret</think>first kept assistant', updatedAt: '2026-01-02T00:00:00Z' },
+    { ...threadSource, id: 'user-2', role: 'user', status: 'completed', content: 'second kept user' },
+    { ...threadSource, id: 'assistant-2', role: 'assistant', status: 'completed', content: 'second kept assistant', updatedAt: '2026-01-03T00:00:00Z' },
+    { ...threadSource, id: 'user-3', role: 'user', status: 'sent', content: 'U'.repeat(THREAD_SEARCH_COMPONENT_CHAR_LIMIT + 10) },
+    { ...threadSource, id: 'assistant-3', role: 'assistant', status: 'completed', content: '<assistant-answer>final kept assistant</assistant-answer>', updatedAt: '2026-01-04T00:00:00Z' },
+    { ...threadSource, id: 'pending-user', role: 'user', status: 'sent', content: 'pending' },
+    { ...threadSource, id: 'aborted-assistant', role: 'assistant', status: 'aborted', content: 'partial' },
   ]);
   assert.equal(projectedDocuments.length, 3);
   assert.deepEqual(projectedDocuments.map((document) => document.docid), [
