@@ -1,6 +1,6 @@
 ---
 name: create-plugin
-description: Create or update a trusted Avi JavaScript plugin package against the implemented plugin API contract.
+description: Use to create or update trusted Avi plugins that extend or change Avi behavior through hooks, providers, themes, tools, panels, and other advanced customizations.
 ---
 # Create an Avi plugin
 
@@ -12,8 +12,8 @@ Create the smallest plugin that satisfies the requested capability.
 2. **Confirm authority.** Plugin import executes trusted code with Avi main-process privileges. Never install, sideload, import, or execute third-party plugin code without explicit authority. Source review alone is not permission to execute it.
 3. **Choose exact capabilities.** Determine which v2 capabilities are required, what data the plugin reads or mutates, external endpoints or processes, credential strategy, tool risk, and whether trusted CSS or provider code is necessary.
 4. **Use the v2 shape.** Produce ESM `plugin.js` with a default definition or factory receiving `{ apiVersion, definePlugin }`. Use `apiVersion: 2`, lowercase kebab-case IDs, strict semantic versions, an explicit `capabilities` array, and optional `activate(avi)` or `deactivate(reason)`.
-5. **Choose static or runtime registration.** Use static `contributions` for resources known at load time. Use `activate(avi)` for dynamic tools, per-thread resources, event listeners, interceptors, storage, panels, provider types, or resources needing deterministic cleanup.
-6. **Respect boundaries.** Keep panels declarative, descriptors JSON-like, credentials write-only, events observational, and behavior changes in typed interceptors. Never expose or depend on internal database, ChatRunner, BotManager, Electron, IPC, or renderer objects.
+5. **Choose static, settings, or runtime registration.** Use static `contributions` for resources known at load time. Use top-level declarative `settings` for application-rendered plugin options backed by supported JSON Schemas and main-process handlers. Use `activate(avi)` for dynamic tools, per-thread resources, event listeners, interceptors, storage, panels, provider types, or resources needing deterministic cleanup.
+6. **Respect boundaries.** Keep panels and settings declarative, descriptors JSON-like, credentials write-only, events observational, and behavior changes in typed interceptors. Plugins never provide HTML or renderer JavaScript for settings. Never expose or depend on internal database, ChatRunner, BotManager, Electron, IPC, or renderer objects.
 7. **Preserve Avi controls.** Tools and interceptors must not bypass approval, Plan restrictions, cancellation, output limits, provider normalization, bot scheduling, or context scoping. Mark destructive runtime tools accurately.
 8. **Validate before installation.** Run `bun run test:plugins`, `bun run syntax`, and the narrow affected tests. Exercise activation, capability denial, cleanup, and representative failure behavior. Do not invoke paid model APIs merely to test structure.
 9. **Review the result.** Confirm the entrypoint, requested capabilities only, necessary package files only, collision behavior, serializability, handler placement, no embedded secrets, cleanup, and documentation alignment.
