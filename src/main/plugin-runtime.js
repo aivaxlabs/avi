@@ -93,7 +93,7 @@ function withTimeout(value, milliseconds, label) {
   ]).finally(() => clearTimeout(timer));
 }
 
-function validateSchema(value, schema, path = 'input') {
+export function validatePluginSchema(value, schema, path = 'input') {
   if (!schema || typeof schema !== 'object') return;
   const type = schema.type;
   const valid = type == null || Array.isArray(type)
@@ -149,10 +149,10 @@ function validateSchema(value, schema, path = 'input') {
       if (unknown) throw new AviError('VALIDATION_FAILED', `${path}.${unknown} is not allowed.`);
     }
     for (const [key, child] of Object.entries(value)) {
-      if (schema.properties?.[key]) validateSchema(child, schema.properties[key], `${path}.${key}`);
+      if (schema.properties?.[key]) validatePluginSchema(child, schema.properties[key], `${path}.${key}`);
     }
   }
-  if (type === 'array') value.forEach((child, index) => validateSchema(child, schema.items, `${path}[${index}]`));
+  if (type === 'array') value.forEach((child, index) => validatePluginSchema(child, schema.items, `${path}[${index}]`));
 }
 
 export class PluginRuntime {
@@ -394,7 +394,7 @@ export class PluginRuntime {
       }
       throw new AviError('VALIDATION_FAILED', `Tool interceptor "${entry.id}" returned an unsupported action.`);
     }
-    validateSchema(input, invocation.tool.inputSchema);
+    validatePluginSchema(input, invocation.tool.inputSchema);
     return { input, requireApproval, inputChanged };
   }
 

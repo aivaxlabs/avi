@@ -26,7 +26,7 @@ export default ({ apiVersion, definePlugin }) => definePlugin({
 });
 ```
 
-The definition supports `apiVersion`, `id`, `name`, `version`, optional `description`, `capabilities`, `activate`, `deactivate`, and `contributions`.
+The definition supports `apiVersion`, `id`, `name`, `version`, optional `description`, `capabilities`, `activate`, `deactivate`, `contributions`, and declarative `settings`.
 
 ## Runtime namespaces
 
@@ -90,6 +90,10 @@ Capabilities provide a stable contract, auditability, and UI transparency. They 
 
 The v2 definition still accepts the validated contribution arrays `context`, `mcps`, `tools`, `auxiliaryPanels`, `themes`, `personalities`, and `providers`. Runtime registration in `activate()` is preferred when the resource needs dynamic scope or cleanup.
 
+## Declarative settings
+
+The optional top-level `settings` array adds application-rendered sections to the plugin's card under **Settings → Plugins**. Options declare JSON Schemas while `getValue`, `validate`, and `setValue` handlers remain in the main process. This is a backward-compatible Plugin API v2 extension and requires no capability. See [Plugin settings](./settings.md).
+
 ## Security boundary
 
 Plugins are not sandboxed. They can use Node.js, access files and network resources available to Avi, and inspect process data. Install only reviewed code. Panels remain declarative and cannot inject renderer JavaScript. Provider credentials exposed through `avi.providers` are write-only.
@@ -104,6 +108,7 @@ Plugins are not sandboxed. They can use Node.js, access files and network resour
 - [Events](./events.md)
 - [Tool interceptors](./interceptors.md)
 - [Panels](./panels.md)
+- [Plugin settings](./settings.md)
 - [Providers](./providers.md)
 - [Context](./context.md)
 - [Storage](./storage.md)

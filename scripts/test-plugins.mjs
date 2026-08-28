@@ -28,6 +28,8 @@ const createZip = async (path, entries) => {
 
 try {
   await writePlugin('success', `
+    let personality = 'Peaceful';
+    let models = [{ id: 'model-1', enabled: true }];
     export default async (api) => api.definePlugin({
       apiVersion: api.apiVersion,
       id: 'success', name: 'Success', description: 'Success plugin', version: '1.0.0',
@@ -52,7 +54,43 @@ try {
             };
           }
         }]
-      }
+      },
+      settings: [{
+        label: 'Personality',
+        options: [{
+          title: 'Agent personality',
+          description: 'Choose the agent personality.',
+          valueSchema: { type: 'string', enums: ['Aggressive', 'Peaceful'] },
+          getValue() { return personality; },
+          setValue(oldValue, newValue) {
+            globalThis.__settingTransition = [oldValue, newValue];
+            personality = newValue;
+          },
+          validate(value) { return value === 'Aggressive' ? 'Aggressive is unavailable.' : true; }
+        }]
+      }, {
+        label: 'Model list',
+        options: [{
+          title: 'Models',
+          valueSchema: {
+            type: 'array',
+            itemsSchema: {
+              type: 'object',
+              $displayMode: 'inline',
+              $description: 'Model configuration',
+              $label: 'Model',
+              properties: {
+                id: { type: 'string', $label: 'Model ID' },
+                enabled: { type: 'boolean', $label: 'Enabled' }
+              },
+              required: ['id', 'enabled'],
+              additionalProperties: false
+            }
+          },
+          getValue() { return models; },
+          setValue(_oldValue, newValue) { models = structuredClone(newValue); }
+        }]
+      }]
     });
   `);
   await writePlugin('import-error', 'throw new Error("import exploded");');
@@ -140,6 +178,60 @@ try {
   assert.match(status.failures.find((failure) => failure.pluginId === 'unknown-definition').error, /does not support field "unexpected"/);
   assert.match(status.failures.find((failure) => failure.pluginId === 'unknown-mcp-field').error, /does not support field "unexpected"/);
   assert.equal(manager.getContributions('tools').some((tool) => tool.name === 'must_not_publish'), false);
+  assert.equal(manager.list().find((plugin) => plugin.id === 'success').settings, 2);
+  await assert.rejects(() => manager.getSettings('success'), /not active/);
+  await manager.activateAll();
+  const settings = await manager.getSettings('success');
+  assert.equal(settings.sections.length, 2);
+  assert.deepEqual(settings.sections[0].options[0], {
+    title: 'Agent personality',
+    description: 'Choose the agent personality.',
+    valueSchema: { type: 'string', enum: ['Aggressive', 'Peaceful'] },
+    value: 'Peaceful',
+  });
+  assert.equal(settings.sections[1].options[0].valueSchema.items.type, 'object');
+  settings.sections[1].options[0].value[0].id = 'renderer-mutation';
+  assert.equal((await manager.getSettings('success')).sections[1].options[0].value[0].id, 'model-1');
+  assert.equal(await manager.setSetting('success', 0, 0, 'Peaceful'), 'Peaceful');
+  assert.deepEqual(globalThis.__settingTransition, ['Peaceful', 'Peaceful']);
+  await assert.rejects(() => manager.setSetting('success', 0, 0, 'Aggressive'), /Aggressive is unavailable/);
+  await assert.rejects(() => manager.setSetting('success', 0, 0, 'Unknown'), /allowed values/);
+  await assert.rejects(() => manager.setSetting('success', 1, 0, [{ id: 'missing-enabled' }]), /enabled is required/);
+  assert.deepEqual(await manager.setSetting('success', 1, 0, [{ id: 'model-2', enabled: false }]), [{ id: 'model-2', enabled: false }]);
+  const [runtimeSource, preloadSource, pluginSettingsSource, editorSource] = await Promise.all([
+    readFile(new URL('../src/main/runtime.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/preload/preload.cjs', import.meta.url), 'utf8'),
+    readFile(new URL('../src/renderer/components/PluginsSettings.jsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/renderer/components/PluginSettingsEditor.jsx', import.meta.url), 'utf8'),
+  ]);
+  for (const channel of ['plugins:settings', 'plugins:set-setting']) {
+    assert.match(runtimeSource, new RegExp(`applicationIpc\\.handle\\('${channel}'`));
+    assert.match(preloadSource, new RegExp(`invoke\\('${channel}'`));
+  }
+  assert.match(pluginSettingsSource, /plugin\.settings > 0/);
+  assert.match(editorSource, /window\.chatApp\.plugins\.setSetting/);
+
+  const invalidSettingsDir = join(root, 'invalid-settings');
+  await mkdir(invalidSettingsDir);
+  await mkdir(join(invalidSettingsDir, 'invalid-setting'));
+  await writeFile(join(invalidSettingsDir, 'invalid-setting', 'plugin.js'), `export default {
+    apiVersion: 2, id: 'invalid-setting', name: 'Invalid setting', version: '1.0.0',
+    settings: [{ label: 'Invalid', options: [{
+      title: 'Missing setter', valueSchema: { type: 'string' }, getValue() { return ''; }
+    }] }]
+  };`);
+  await mkdir(join(invalidSettingsDir, 'invalid-schema'));
+  await writeFile(join(invalidSettingsDir, 'invalid-schema', 'plugin.js'), `export default {
+    apiVersion: 2, id: 'invalid-schema', name: 'Invalid schema', version: '1.0.0',
+    settings: [{ label: 'Invalid', options: [{
+      title: 'Unsupported', valueSchema: { type: 'null' }, getValue() { return null; }, setValue() {}
+    }] }]
+  };`);
+  const invalidSettingsManager = new PluginManager({ pluginsDir: invalidSettingsDir });
+  const invalidSettingsStatus = await invalidSettingsManager.initialize();
+  assert.match(invalidSettingsStatus.failures.find((failure) => failure.pluginId === 'invalid-setting').error, /requires a setValue function/);
+  assert.match(invalidSettingsStatus.failures.find((failure) => failure.pluginId === 'invalid-schema').error, /type is not supported/);
+  assert.equal(invalidSettingsManager.list().some((plugin) => plugin.status === 'loaded'), false);
 
   const tool = manager.getContributions('tools').find((entry) => entry.name === 'demo_tool');
   assert.equal(tool.pluginId, 'success');

@@ -17,7 +17,12 @@ import extractZip from 'extract-zip';
 import semver from 'semver';
 import { normalizeMcpServer } from './mcp-config.js';
 import { pluginApi, PLUGIN_API_VERSION } from './plugin-api.js';
-import { PluginRuntime } from './plugin-runtime.js';
+import {
+  PluginRuntime,
+  assertPluginSerializable,
+  clonePluginValue,
+  validatePluginSchema,
+} from './plugin-runtime.js';
 
 const CONTRIBUTION_TYPES = Object.freeze([
   'context',
@@ -39,6 +44,7 @@ const DEFINITION_FIELDS = new Set([
   'activate',
   'deactivate',
   'contributions',
+  'settings',
 ]);
 const CONTRIBUTION_FIELDS = Object.freeze({
   context: new Set(['path', 'content']),
@@ -255,6 +261,80 @@ export class PluginManager {
       }))),
       ...this.runtime.listProviderTypes(),
     ];
+  }
+
+  async getSettings(id) {
+    const plugin = this.#activePlugin(id);
+    return {
+      id: plugin.id,
+      name: plugin.name,
+      description: plugin.description,
+      sections: await Promise.all(plugin.settings.map(async (section, sectionIndex) => ({
+        label: section.label,
+        options: await Promise.all(section.options.map(async (option, optionIndex) => {
+          const value = await this.#runSettingHandler(
+            plugin,
+            option.getValue,
+            `settings[${sectionIndex}].options[${optionIndex}].getValue`,
+          );
+          assertPluginSerializable(value, `Plugin "${plugin.id}" setting value`);
+          validatePluginSchema(value, option.valueSchema, 'value');
+          return {
+            title: option.title,
+            description: option.description,
+            valueSchema: clonePluginValue(option.valueSchema),
+            value: clonePluginValue(value),
+          };
+        })),
+      }))),
+    };
+  }
+
+  async setSetting(id, sectionIndex, optionIndex, value) {
+    const plugin = this.#activePlugin(id);
+    if (!Number.isInteger(sectionIndex) || sectionIndex < 0
+      || !Number.isInteger(optionIndex) || optionIndex < 0) {
+      throw new Error('Plugin setting option was not found.');
+    }
+    const option = plugin.settings[sectionIndex]?.options[optionIndex];
+    if (!option) throw new Error('Plugin setting option was not found.');
+    assertPluginSerializable(value, 'Plugin setting value');
+    validatePluginSchema(value, option.valueSchema, 'value');
+    if (option.validate) {
+      const result = await this.#runSettingHandler(
+        plugin,
+        option.validate,
+        `settings[${sectionIndex}].options[${optionIndex}].validate`,
+        clonePluginValue(value),
+      );
+      if (result === false || typeof result === 'string') {
+        throw new Error(typeof result === 'string' && result.trim()
+          ? result
+          : `Plugin setting "${option.title}" is invalid.`);
+      }
+    }
+    const oldValue = await this.#runSettingHandler(
+      plugin,
+      option.getValue,
+      `settings[${sectionIndex}].options[${optionIndex}].getValue`,
+    );
+    assertPluginSerializable(oldValue, `Plugin "${plugin.id}" current setting value`);
+    validatePluginSchema(oldValue, option.valueSchema, 'current value');
+    await this.#runSettingHandler(
+      plugin,
+      option.setValue,
+      `settings[${sectionIndex}].options[${optionIndex}].setValue`,
+      clonePluginValue(oldValue),
+      clonePluginValue(value),
+    );
+    const nextValue = await this.#runSettingHandler(
+      plugin,
+      option.getValue,
+      `settings[${sectionIndex}].options[${optionIndex}].getValue`,
+    );
+    assertPluginSerializable(nextValue, `Plugin "${plugin.id}" setting value`);
+    validatePluginSchema(nextValue, option.valueSchema, 'value');
+    return clonePluginValue(nextValue);
   }
 
   setRuntimeServices(services) {
@@ -517,6 +597,7 @@ export class PluginManager {
         type,
         plugin.contributions[type].length,
       ])),
+      settings: plugin.settings.length,
       ...overrides,
     };
   }
@@ -534,6 +615,7 @@ export class PluginManager {
       fileName: DISABLED_ENTRYPOINT,
       capabilities: [],
       contributions: Object.fromEntries(CONTRIBUTION_TYPES.map((type) => [type, 0])),
+      settings: 0,
       ...overrides,
     };
   }
@@ -543,6 +625,29 @@ export class PluginManager {
     const plugin = this.inventory.find((entry) => entry.id.toLowerCase() === normalized.toLowerCase());
     if (!plugin) throw new Error(`Plugin "${normalized}" is not managed by Avi.`);
     return plugin;
+  }
+
+  #activePlugin(id) {
+    const normalized = this.#requireId(id, 'Plugin ID');
+    const plugin = this.plugins.get(normalized.toLowerCase());
+    if (!plugin || !this.runtime.records.has(normalized.toLowerCase())) {
+      throw new Error(`Plugin "${normalized}" is not active.`);
+    }
+    return plugin;
+  }
+
+  async #runSettingHandler(plugin, handler, label, ...args) {
+    let timeout;
+    try {
+      return await Promise.race([
+        Promise.resolve().then(() => handler(...args)),
+        new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error(`Plugin "${plugin.id}" ${label} timed out.`)), this.loadTimeoutMs);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async #assertManagedRegularFile(path) {
@@ -695,7 +800,110 @@ export class PluginManager {
         type,
         this.#validateContributions(type, contributions[type] ?? []),
       ])),
+      settings: this.#validateSettings(definition.settings ?? []),
     };
+  }
+
+  #validateSettings(sections) {
+    if (!Array.isArray(sections)) throw new Error('Plugin settings must be an array.');
+    return sections.map((section, sectionIndex) => {
+      if (!section || typeof section !== 'object' || Array.isArray(section)) {
+        throw new Error(`settings[${sectionIndex}] must be an object.`);
+      }
+      const unsupportedSection = Object.keys(section).filter((key) => !['label', 'options'].includes(key));
+      if (unsupportedSection.length) {
+        throw new Error(`settings[${sectionIndex}] does not support field "${unsupportedSection[0]}".`);
+      }
+      const label = this.#requireText(section.label, `settings[${sectionIndex}] label`);
+      if (!Array.isArray(section.options) || section.options.length === 0) {
+        throw new Error(`settings[${sectionIndex}] options must be a non-empty array.`);
+      }
+      return {
+        label,
+        options: section.options.map((option, optionIndex) => {
+          const path = `settings[${sectionIndex}].options[${optionIndex}]`;
+          if (!option || typeof option !== 'object' || Array.isArray(option)) {
+            throw new Error(`${path} must be an object.`);
+          }
+          const supported = ['title', 'description', 'valueSchema', 'getValue', 'setValue', 'validate'];
+          const unsupportedOption = Object.keys(option).filter((key) => !supported.includes(key));
+          if (unsupportedOption.length) {
+            throw new Error(`${path} does not support field "${unsupportedOption[0]}".`);
+          }
+          const valueSchema = this.#normalizeSettingSchema(option.valueSchema, `${path}.valueSchema`);
+          if (typeof option.getValue !== 'function') throw new Error(`${path} requires a getValue function.`);
+          if (typeof option.setValue !== 'function') throw new Error(`${path} requires a setValue function.`);
+          if (option.validate != null && typeof option.validate !== 'function') {
+            throw new Error(`${path} validate must be a function.`);
+          }
+          return {
+            title: this.#requireText(option.title, `${path} title`),
+            description: option.description == null ? '' : this.#requireText(option.description, `${path} description`),
+            valueSchema,
+            getValue: option.getValue,
+            setValue: option.setValue,
+            validate: option.validate,
+          };
+        }),
+      };
+    });
+  }
+
+  #normalizeSettingSchema(value, path) {
+    this.#requireObject(value, path);
+    this.#assertSerializable(value, path);
+    const schema = clonePluginValue(value);
+    if (schema.enums !== undefined) {
+      if (schema.enum !== undefined) throw new Error(`${path} cannot define both enum and enums.`);
+      schema.enum = schema.enums;
+      delete schema.enums;
+    }
+    if (schema.itemsSchema !== undefined) {
+      if (schema.items !== undefined) throw new Error(`${path} cannot define both items and itemsSchema.`);
+      schema.items = schema.itemsSchema;
+      delete schema.itemsSchema;
+    }
+    const supportedTypes = new Set(['string', 'number', 'integer', 'boolean', 'array', 'object']);
+    if (!supportedTypes.has(schema.type)) throw new Error(`${path}.type is not supported.`);
+    if (schema.enum !== undefined && (!Array.isArray(schema.enum) || schema.enum.length === 0)) {
+      throw new Error(`${path}.enum must be a non-empty array.`);
+    }
+    if (schema.default !== undefined) validatePluginSchema(schema.default, schema, `${path}.default`);
+    if (schema.pattern !== undefined) {
+      if (typeof schema.pattern !== 'string') throw new Error(`${path}.pattern must be a string.`);
+      try {
+        new RegExp(schema.pattern);
+      } catch {
+        throw new Error(`${path}.pattern must be a valid regular expression.`);
+      }
+    }
+    if (schema.$displayMode !== undefined && schema.$displayMode !== 'inline') {
+      throw new Error(`${path}.$displayMode must be "inline".`);
+    }
+    for (const annotation of ['$label', '$description']) {
+      if (schema[annotation] !== undefined && typeof schema[annotation] !== 'string') {
+        throw new Error(`${path}.${annotation} must be a string.`);
+      }
+    }
+    if (schema.type === 'array') {
+      if (!schema.items) throw new Error(`${path}.items is required for arrays.`);
+      schema.items = this.#normalizeSettingSchema(schema.items, `${path}.items`);
+    }
+    if (schema.type === 'object') {
+      if (schema.required !== undefined && (!Array.isArray(schema.required)
+        || schema.required.some((key) => typeof key !== 'string'))) {
+        throw new Error(`${path}.required must be an array of property names.`);
+      }
+      if (!schema.properties || typeof schema.properties !== 'object' || Array.isArray(schema.properties)) {
+        schema.properties = {};
+      } else {
+        schema.properties = Object.fromEntries(Object.entries(schema.properties).map(([key, child]) => [
+          key,
+          this.#normalizeSettingSchema(child, `${path}.properties.${key}`),
+        ]));
+      }
+    }
+    return schema;
   }
 
   #validateContributions(type, values) {

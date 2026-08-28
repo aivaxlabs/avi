@@ -70,6 +70,8 @@ contributions: {
 
 Use static contributions for resources known at load time. Use runtime registration in `activate(avi)` for per-thread resources, dynamic tools, event subscriptions, storage, interceptors, or deterministic cleanup.
 
+A definition can also declare a top-level `settings` array. Avi renders its sections and JSON Schema-backed editors under **Settings → Plugins** while the plugin retains its `getValue`, `validate`, and `setValue` handlers in the main process. Plugins cannot inject HTML or renderer JavaScript. See [Plugin settings](./api/settings.md).
+
 Contribution descriptors remain JSON-like, and functions are accepted only in documented top-level handlers. IDs use this ASCII pattern:
 
 ```text
@@ -134,6 +136,7 @@ ZIP packages are bounded by entry count and uncompressed size and reject symboli
 - [Events](./api/events.md)
 - [Tool interceptors](./api/interceptors.md)
 - [Panels](./api/panels.md)
+- [Plugin settings](./api/settings.md)
 - [Providers](./api/providers.md)
 - [Context](./api/context.md)
 - [Storage](./api/storage.md)

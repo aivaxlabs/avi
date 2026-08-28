@@ -8,17 +8,20 @@ import {
   Power,
   PowerOff,
   RefreshCw,
+  Settings2,
   Trash2,
   Wrench,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
+import { PluginSettingsEditor } from './PluginSettingsEditor.jsx';
 
 export function PluginsSettings() {
   const [state, setState] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [pluginBusy, setPluginBusy] = useState('');
+  const [selectedPlugin, setSelectedPlugin] = useState(null);
   const [developerToolsOpen, setDeveloperToolsOpen] = useState(false);
   const developerToolsRef = useRef(null);
   const load = () => window.chatApp.plugins.list().then(setState).catch((nextError) => {
@@ -80,6 +83,10 @@ export function PluginsSettings() {
   const failures = state?.failures ?? [];
   const directory = state?.directory ?? state?.pluginsDir;
 
+  if (selectedPlugin) {
+    return <PluginSettingsEditor plugin={selectedPlugin} onBack={() => setSelectedPlugin(null)} />;
+  }
+
   return (
     <div className="plugins-settings">
       <div className="plugins-trust-warning" role="note">
@@ -130,6 +137,16 @@ export function PluginsSettings() {
                   {plugin.error && <div className="plugin-error">{plugin.error}</div>}
                 </div>
                 <div className="plugin-card-actions">
+                  {plugin.settings > 0 && plugin.enabled !== false && plugin.status === 'active' && (
+                    <button
+                      className="secondary-mini"
+                      type="button"
+                      disabled={!!pluginBusy}
+                      onClick={() => setSelectedPlugin(plugin)}
+                    >
+                      <Settings2 size={14} />Settings
+                    </button>
+                  )}
                   <button
                     className="secondary-mini"
                     type="button"
