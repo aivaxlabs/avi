@@ -14,7 +14,7 @@
   <a href="https://github.com/aivaxlabs/avi">Source code</a>
 </p>
 
-Avi is an harness built from scratch which brings model conversations, cross-provider communication, project context, local tools, MCP servers, and multi-agent workflows into one desktop application. Conversation state is stored locally, while model requests are sent only to the providers you configure.
+Avi is a harness built from scratch which brings model conversations, cross-provider communication, project context, local tools, MCP servers, multi-agent workflows, and autonomous bots into one desktop application. Conversation state is stored locally, while model requests are sent only to the providers you configure.
 
 <p align="center">
   <img src="./.github/screenshot.png" alt="Avi">
@@ -30,15 +30,19 @@ Avi is an harness built from scratch which brings model conversations, cross-pro
   - OpenAI Subscription: your ChatGPT subscription – no need for Codex ACP
   - OpenAI-Compatible endpoints: /v1/responses and /v1/chat/completions
   - Model-specific settings: capabilities, reasoning supported
+  - Model routers: fallback and round-robin routing across providers
 - **Extensible**:
   - Plugins allow providing providers, themes, auxiliary panels, commands, skills, and many features for Avi.
   - Install trusted `.js` or `.zip` extensions from Settings, with controls to enable, disable, replace, and remove packages.
   - Extend Avi with context, MCP servers, chat tools, auxiliary panels, themes, personalities, and model providers.
+  - Trusted plugins integrate lifecycle hooks, domain APIs, storage, tools, events, interceptors, provider panels, and bot capabilities.
+  - Plugins can declare settings sections rendered by Avi and backed by JSON Schema validation.
   - Plugin packages are validated before installation and loaded atomically at startup.
 - **AIVAX Features**: optional integration for persistent memory, advanced web tools, and remote conversation-search reranking.
   - Connect an AIVAX account and choose which external capabilities to enable.
   - Agents can search, write, and delete persistent memory; fetch rich web content; and search the web with filters.
   - Semantic search across your threads and conversations.
+  - Teach Skill: turn an attached tutorial video into reusable Avi skill instructions.
 - **Powerful sub-agents**:
   - Sub-agents can actively communicate with the orchestrator and other sub-agents.
   - Define sub-agent levels: model + reasoning per sub-agent invocation level (low, medium, high), lets you choose which models and providers will run different task types
@@ -49,6 +53,12 @@ Avi is an harness built from scratch which brings model conversations, cross-pro
   - Shared semaphore queues by agents to order long tasks among agents.
   - Remote MCP: persistent server that provides orchestration tools to connect to external services (Claude, ChatGPT, etc.)
   - Orchestration panel: view ongoing tasks, newly completed tasks, consumption insights.
+- **Autonomous bots**:
+  - Scheduled agents that activate automatically and keep working on their own working folder.
+  - Persistent work state: planned, ongoing, blocked, user-review, discarded, and completed work with typed evidence and explicit next steps.
+  - Work queues: ordered round-robin tasks, activation windows, and per-bot snoozing for 1h, 6h, 24h, or until Avi restarts.
+  - Attention notifications in the sidebar, with distinct indicators for working, sleeping, active, and disabled bots.
+  - Agents can create, update, and manage bots themselves with dedicated bot tools.
 - **MCP client**:
   - MCP client scoped globally or per project
   - MCP control panel: view MCP tools, provided instructions
@@ -71,6 +81,9 @@ Avi is an harness built from scratch which brings model conversations, cross-pro
   - Automatic context compression on provider errors (context_length_exceeded) or when reaching user‐defined threshold.
   - Resume button on stopped or failed chats, which continue from the last assistant turn.
   - Improve your prompts and their clarity with /optimize-prompt, which also translates them to English.
+- **Rich chat content**:
+  - Assistant messages can render callouts, diffs, diagrams, equations, and bar, line, and pie charts.
+  - Workspace file excerpts and copyable text blocks rendered inline in the conversation.
 - **Goals and targets**:
   - Goals can be started with /goal or by the agent itself.
   - Helper model expands the goal with completion criteria, execution rules, and relevant meta‐information.
@@ -86,13 +99,16 @@ Avi is an harness built from scratch which brings model conversations, cross-pro
   - Delegates sub‐agents for exploration, research, and independent checks to refine the plan.
   - Instructs sub‐agents to talk actively with each other to reach a consensus.
   - Plan and Ultra selections persist with each conversation until disabled.
+- **Rubber Duck reviews**:
+  - Fork the current conversation into a read-only judgment session where a supervisor model interviews the agent.
+  - Returns the discussed points and a proposed execution plan before anything is executed.
 - **Quick chat and side chats**:
   - Side chats: fork the current conversation into a quick side chat to ask about the agent’s work without interrupting the main chat. Side chats can direct, orchestrate, and assist the main agent and its sub‐agents.
   - Quick chats: minimalist quick chat for fast questions unrelated to any thread or folder.
 - **Side panel**:
   - View files, git changes in the side panel
   - View tasks started by the agent during its threads
-  - View provider limits and consumption (OpenAI Subscription only)
+  - View provider limits and consumption in the side panel, or inspect usage from the composer with /usage (OpenAI Subscription, AIVAX, and plugin sources)
 - **Archive and retention**:
   - Search, restore, or permanently delete archived conversations.
   - Configure automatic retention for regular and disposable conversations.

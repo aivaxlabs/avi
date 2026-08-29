@@ -19,6 +19,7 @@
 - Reduced startup I/O and memory pressure by storing and streaming local media as file references, querying only lightweight thread status and model-selection fields, failing interrupted bot tools instead of replaying uncertain side effects, deferring thread-search synchronization, sequencing automatic resumptions, and honoring bot context limits during compaction.
 
 ### Docs
+- Refreshed the README feature overview with autonomous bots, Rubber Duck reviews, model routers, rich chat content, declarative plugin settings, Teach Skill, and updated usage tracking.
 - Improved the `/create-plugin` workflow description to highlight hooks, providers, themes, and advanced customizations.
 
 ### Tests
