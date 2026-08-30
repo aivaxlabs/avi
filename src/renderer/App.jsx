@@ -1663,6 +1663,16 @@ export default function App() {
     }
   }
 
+  async function quickCompressConversation(conversationId = selectedId) {
+    if (!conversationId || running[conversationId]) return;
+    try {
+      return await api.chat.compressQuick({ conversationId });
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return null;
+    }
+  }
+
   async function compressConversation(conversationId = selectedId, model = currentModel) {
     if (!conversationId || !model || running[conversationId]) return;
     try {
@@ -1788,6 +1798,7 @@ export default function App() {
   const chatOnImplementPlan = useStableCallback(implementPlan);
   const chatOnAnswerQuestion = useStableCallback(resolveQuestionRequest);
   const chatOnStop = useStableCallback(stopConversation);
+  const chatOnQuickCompress = useStableCallback(quickCompressConversation);
   const chatOnCompress = useStableCallback(compressConversation);
   const chatOnRunSemaphoreNow = useStableCallback(async (conversationId = selectedId) => {
     if (!conversationId || semaphoreResolving) return;
@@ -2379,6 +2390,7 @@ export default function App() {
               onCancelSemaphore={chatOnCancelSemaphore}
               semaphoreResolving={semaphoreResolving}
               onStop={chatOnStop}
+              onQuickCompress={chatOnQuickCompress}
               onCompress={chatOnCompress}
               onCreateSideChat={currentConversation ? chatOnCreateSideChat : undefined}
               onMentionSelection={setPendingComposerAttachment}

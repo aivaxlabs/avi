@@ -145,6 +145,7 @@
     border-radius: 4px;
     font-size: 13px;
     background: var(--background-3);
+    color: --primary-color;
   }
 
   hr {

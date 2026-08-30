@@ -1,0 +1,341 @@
+.context-usage-backdrop {
+  z-index: 90;
+  padding: max(38px, 7vh) 24px 24px;
+  align-items: start;
+}
+
+.context-usage-dialog {
+  width: min(620px, 100%);
+  max-height: min(720px, 86vh);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 18px;
+  color: --text-1;
+  background: --background-2;
+  border: 1px solid --border-color;
+  border-radius: 14px;
+  box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
+
+  .dialog-header {
+    h2 {
+      margin: 0;
+      font-size: --font-md;
+    }
+
+    p {
+      margin: 4px 0 0;
+      color: --text-3;
+      font-size: --font-xs;
+    }
+  }
+
+  button:focus-visible {
+    outline: 2px solid --text-3;
+    outline-offset: 2px;
+  }
+
+  button:disabled {
+    opacity: .55;
+    cursor: wait;
+  }
+}
+
+.context-usage-body {
+  min-height: 180px;
+  padding-right: 1em;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.context-usage-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-inline: 10px;
+
+  strong {
+    font-size: --font-lg;
+  }
+
+  span {
+    color: --text-3;
+    font-size: --font-sm;
+  }
+}
+
+.context-segment-bar {
+  min-height: 18px;
+  overflow: hidden;
+  display: flex;
+  background: --background-4;
+  border: 1px solid --border-color;
+  border-radius: 999px;
+
+  > .context-segment {
+    min-width: 3px;
+    height: 18px;
+    padding: 0;
+    border-radius: 0;
+    transition: filter var(--duration-fast) var(--ease-smooth-out),
+      opacity var(--duration-fast) var(--ease-smooth-out);
+
+    &:hover,
+    &:focus-visible {
+      z-index: 1;
+      filter: brightness(1.16);
+    }
+  }
+
+  & :has(.context-segment:hover) > .context-segment:not(:hover) {
+    opacity: .5;
+  }
+}
+
+.context-segment-0 {
+  background: var(--primary-color);
+}
+
+.context-segment-1 {
+  background: var(--success-color);
+}
+
+.context-segment-2 {
+  background: var(--warn-color);
+}
+
+.context-segment-3 {
+  background: var(--danger-color);
+}
+
+.context-segment-4 {
+  background: color-mix(in srgb, var(--primary-color) 58%, var(--success-color));
+}
+
+.context-segment-5 {
+  background: color-mix(in srgb, var(--warn-color) 62%, var(--primary-color));
+}
+
+.context-segment-6 {
+  background: color-mix(in srgb, var(--success-color) 62%, var(--warn-color));
+}
+
+.context-segment-7 {
+  background: color-mix(in srgb, var(--danger-color) 58%, var(--primary-color));
+}
+
+.context-segment-8 {
+  background: var(--text-3);
+}
+
+.context-segment-free {
+  background: --background-4;
+  pointer-events: none;
+}
+
+.context-segment-list {
+  display: block;
+
+  article {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) auto;
+    align-items: flex-start;
+    gap: 8px;
+    transition: background var(--duration-fast) var(--ease-smooth-out),
+      opacity var(--duration-fast) var(--ease-smooth-out);
+
+    &.context-segment-muted {
+      opacity: .32;
+    }
+
+    + article {
+      border-top: 1px solid --border-color;
+      margin-top: .5em;
+      padding-top: .5em;
+    }
+  }
+}
+
+.context-segment-dot {
+  position: relative;
+  top: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 6px;
+}
+
+.context-segment-copy,
+.context-segment-value {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+
+  strong {
+    overflow: hidden;
+    color: --text-1;
+    font-size: --font-md;
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  small {
+    overflow: hidden;
+    color: --text-3;
+    font-size: --font-sm;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.context-segment-value {
+  align-self: start;
+  text-align: right;
+
+  strong {
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.context-segment-subcategories {
+  display: grid;
+  gap: 2px;
+  margin-top: 2px;
+
+  small {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+
+    span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    b {
+      flex: 0 0 auto;
+      color: --text-1;
+      font-size: --font-xs;
+      font-weight: 400;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+}
+
+.context-usage-state,
+.context-usage-error,
+.context-usage-message {
+  margin: 0;
+  padding: 12px;
+  color: --text-3;
+  text-align: center;
+  font-size: --font-sm;
+}
+
+.context-usage-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.context-usage-error {
+  color: --danger;
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+  border-radius: 8px;
+}
+
+.context-usage-message {
+  color: --text-1;
+  background: --item-active;
+  border-radius: 8px;
+}
+
+.context-compression-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 14px;
+  border-top: 1px solid --border-color;
+
+  > div:first-child {
+    display: grid;
+    gap: 3px;
+
+    strong {
+      font-size: --font-md;
+      font-weight: 400;
+    }
+
+    span {
+      color: --text-3;
+      font-size: --font-sm;
+    }
+  }
+}
+
+.context-compression-menu {
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.context-compression-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  color: --text-2;
+  background: --background-4;
+  border-radius: 32px;
+  font-weight: 500;
+  font-size: --font-sm;
+
+  &:hover:not(:disabled),
+  &[aria-expanded="true"] {
+    color: --text-1;
+    background: --item-hover;
+  }
+}
+
+.context-compression-dropdown {
+  right: 0;
+  bottom: calc(100% + 6px);
+  width: 190px;
+  transform-origin: bottom right;
+
+  .dropdown-menu-item {
+    font-size: --font-sm;
+  }
+}
+
+@media (max-width: 560px) {
+  .context-usage-backdrop {
+    padding: 16px;
+  }
+
+  .context-compression-actions {
+    align-items: stretch;
+    display: grid;
+  }
+
+  .context-compression-menu {
+    justify-self: end;
+  }
+
+  .context-segment-list article {
+    grid-template-columns: 8px minmax(0, 1fr);
+  }
+
+  .context-segment-value {
+    grid-column: 2;
+    text-align: left;
+  }
+}

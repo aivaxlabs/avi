@@ -53,6 +53,7 @@ import {
   titleCaseEffort,
 } from '../lib/models.js';
 import { AttachmentVideo } from './AttachmentVideo.jsx';
+import { ContextUsageDialog } from './ContextUsageDialog.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { ModelPicker } from './ModelPicker.jsx';
 import { ProviderUsages } from './ProviderUsages.jsx';
@@ -140,6 +141,11 @@ const composerCommands = [
     description: 'Create a detailed checkpoint and compress the conversation context',
   },
   {
+    id: 'quick-compress',
+    name: 'quick-compress',
+    description: 'Remove tool results before the latest four turns without calling a model',
+  },
+  {
     id: 'optimize-prompt',
     name: 'optimize-prompt',
     description: 'Expand and optimize the current prompt using the auxiliary model',
@@ -188,6 +194,7 @@ export function Composer({
   onSend,
   onExpandPrompt,
   onStop,
+  onQuickCompress,
   onCompress,
   onCreateSideChat,
   subagents = [],
@@ -271,6 +278,7 @@ export function Composer({
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
   const [providerUsageProviders, setProviderUsageProviders] = useState([]);
   const [providerUsagesOpen, setProviderUsagesOpen] = useState(false);
+  const [contextUsageOpen, setContextUsageOpen] = useState(false);
   const [goalSpecification, setGoalSpecification] = useState('');
   const [goalAction, setGoalAction] = useState(null);
   const [goalNow, setGoalNow] = useState(Date.now());
@@ -942,6 +950,11 @@ export function Composer({
       if (option.id === 'compress') {
         exitCommandMode();
         onCompress();
+        return;
+      }
+      if (option.id === 'quick-compress') {
+        exitCommandMode();
+        onQuickCompress();
         return;
       }
       if (option.id === 'optimize-prompt') {
@@ -2347,16 +2360,16 @@ export function Composer({
             open={providerUsagesOpen}
             onOpenChange={setProviderUsagesOpen}
           />
-          <div
+          <button
             className="context-usage"
+            type="button"
             title={contextPercent === null
               ? 'Context limit is not configured for this model.'
               : `${contextUsage.tokens.toLocaleString()} of ${contextUsage.limit.toLocaleString()} input tokens used`}
-            role="progressbar"
-            aria-label="Context usage"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={contextPercent ?? undefined}
+            aria-label="Open Context usage"
+            aria-haspopup="dialog"
+            aria-expanded={contextUsageOpen}
+            onClick={() => setContextUsageOpen(true)}
           >
             <span
               className="context-usage-ring"
@@ -2364,9 +2377,17 @@ export function Composer({
               aria-hidden="true"
             />
             <span>{contextPercent === null ? '—' : contextPercent}%</span>
-          </div>
+          </button>
         </div>
       </div>
+      <ContextUsageDialog
+        conversationId={conversationId}
+        model={currentModel}
+        contextUsage={contextUsage}
+        open={contextUsageOpen}
+        onOpenChange={setContextUsageOpen}
+        onCompress={onCompress}
+      />
       {goalDialogOpen && createPortal(
         <div
           className="dialog-backdrop goal-dialog-backdrop"

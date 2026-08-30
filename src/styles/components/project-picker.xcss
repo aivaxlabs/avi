@@ -201,9 +201,11 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .provider-usages-trigger {
+  .provider-usages-trigger,
+  .context-usage {
     padding-inline: 5px;
     background: transparent;
+    border: 0;
     border-radius: 7px;
 
     &:hover {

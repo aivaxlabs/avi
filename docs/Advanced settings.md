@@ -30,6 +30,13 @@ Desktop toggles save immediately. Chat, Tuning, Personality, and Verbosity chang
 
 **Automatic compaction threshold** can be 80%, 90%, or 95%, with 90% as the default. When estimated context use crosses the threshold, Avi creates a detailed checkpoint and compacts earlier history. Use `/compress` to request manual compaction.
 
+Click the context percentage beside the composer to open **Context usage**. Its segmented bar counts serialized characters for Avi and custom instructions, global skills/workflows, Avi and MCP tools, messages, and tool results, then scales those weights to the latest input-token usage reported by the provider. MCP instructions and tools are grouped by server. **Other** is the remaining margin for media, files, provider-specific context, and data that cannot be classified reliably.
+
+The dialog offers two manual modes:
+
+- **Quick compaction** replaces tool results before the latest four user turns with `[output truncated due to context compress - invoke this tool again]`, removes associated tool media/provider continuation data, and does not call a model. Use `/quick-compress` to run it from the composer;
+- **Full compaction** runs the same detailed checkpoint flow as `/compress`.
+
 ## Tuning → Tool execution
 
 - **Tool output length** — 4,096, 8,192 (default), 32,768 characters, or Disabled/No limit. The UI estimates tokens as characters divided by four. Disabling truncation can exhaust the model context window.

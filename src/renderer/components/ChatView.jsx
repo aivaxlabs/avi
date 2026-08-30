@@ -189,6 +189,7 @@ export const ChatView = memo(function ChatView({
   onReplaceUserMessage,
   onExpandPrompt,
   onStop,
+  onQuickCompress,
   onCompress,
   onCreateSideChat,
   onMentionSelection,
@@ -812,6 +813,7 @@ export const ChatView = memo(function ChatView({
                     onSend={(payload) => handleReplaceUserMessage(message.id, payload)}
                     onExpandPrompt={onExpandPrompt}
                     onStop={onStop}
+                    onQuickCompress={onQuickCompress}
                     onCompress={onCompress}
                     models={models}
                     favorites={favorites}
@@ -1156,6 +1158,7 @@ export const ChatView = memo(function ChatView({
         onSend={onSend}
         onExpandPrompt={onExpandPrompt}
         onStop={onStop}
+        onQuickCompress={onQuickCompress}
         onCompress={onCompress}
         onCreateSideChat={onCreateSideChat}
         subagents={subagents}
