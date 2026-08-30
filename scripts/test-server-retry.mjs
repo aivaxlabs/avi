@@ -1097,6 +1097,57 @@ try {
   assert.equal(streamTransportEvents.filter((event) => event.type === 'retry').length, 1);
   assert.equal(streamTransportEvents.filter((event) => event.type === 'error').length, 0);
 
+  let dnsRequestAttempts = 0;
+  const dnsRequestEvents = [];
+  await stream(
+    createProvider(async () => {
+      dnsRequestAttempts += 1;
+      if (dnsRequestAttempts === 1) {
+        throw Object.assign(new Error('getaddrinfo ENOTFOUND chatgpt.com'), { code: 'ENOTFOUND' });
+      }
+      return new Response('data: [DONE]\n\n', { status: 200 });
+    }),
+    null,
+    new AbortController().signal,
+    (event) => dnsRequestEvents.push(event),
+  );
+  assert.equal(dnsRequestAttempts, 2);
+  assert.equal(dnsRequestEvents.filter((event) => event.type === 'retry').length, 1);
+  assert.equal(dnsRequestEvents.filter((event) => event.type === 'error').length, 0);
+
+  let streamResetAttempts = 0;
+  const streamResetEvents = [];
+  await stream(
+    createProvider(async () => {
+      streamResetAttempts += 1;
+      if (streamResetAttempts > 1) {
+        return new Response('data: [DONE]\n\n', { status: 200 });
+      }
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.error(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
+        },
+      }), { status: 200 });
+    }),
+    null,
+    new AbortController().signal,
+    (event) => streamResetEvents.push(event),
+  );
+  assert.equal(streamResetAttempts, 2);
+  assert.equal(streamResetEvents.filter((event) => event.type === 'retry').length, 1);
+  assert.equal(streamResetEvents.filter((event) => event.type === 'error').length, 0);
+
+  await assert.rejects(
+    stream(
+      createProvider(async () => {
+        throw Object.assign(new Error('spawn EPERM'), { code: 'EPERM' });
+      }),
+      null,
+      new AbortController().signal,
+    ),
+    /spawn EPERM/,
+  );
+
   let serverErrorAttempts = 0;
   const serverErrorEvents = [];
   const serverErrorResult = await stream(
