@@ -39,6 +39,13 @@ import {
   updateQueuedMessageOrder,
 } from './database.js';
 import { CLIENT_TOOLS, decorateToolsForInvocation } from './client-tools.js';
+import {
+  compactOldToolResults,
+  countMessageContext,
+  countSerializedCharacters,
+  distributeContextUsage,
+} from './context-usage.js';
+import { resolveDynamicContextUsage } from './context-injection.js';
 import { applySubagentModelSchema } from './default-models.js';
 import { normalizeAttachmentsForModel } from './files.js';
 import { SemaphoreManager } from './semaphore-manager.js';
@@ -68,6 +75,7 @@ const AUXILIARY_GOAL_CONTEXT_TURN_COUNT = 4;
 const AUXILIARY_PROMPT_CONTEXT_TURN_COUNT = 8;
 const AUXILIARY_CONTINUATION_CONTEXT_TURN_COUNT = 8;
 const MAX_CONTINUATION_COUNT = 4;
+const MAX_CONSECUTIVE_CONTEXT_COMPACTION_FAILURES = 3;
 const PLAN_TOOL_NAMES = new Set([
   'ask_question',
   'chat_inspect_thread',
@@ -1803,6 +1811,199 @@ export class ChatRunner {
     return { conversation: getConversation(conversation.id), message: null, queued: false };
   }
 
+  async contextUsage({ conversationId, model, contextLimit = null }) {
+    const conversation = getConversation(conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    const selection = this.registry.resolve(model || conversation.model);
+    if (!selection) throw new Error('The selected model is no longer configured.');
+
+    const sourceMessages = getMessages(conversation.id);
+    const messages = toModelMessages(conversation.id, {
+      capabilities: selection.model.capabilities,
+    });
+    const preferences = this.getPreferences();
+    const latestUser = sourceMessages.findLast((message) => message.role === 'user');
+    const workMode = latestUser?.workMode ?? null;
+    const permissionMode = latestUser?.permissionMode ?? preferences.defaultPermissionMode ?? 'approve_for_me';
+    const botRuntime = conversation.isBot ? this.getBotRuntimeContext(conversation.id) : null;
+    const mcpRuntime = workMode === 'plan' || !this.mcpManager
+      ? { tools: [], instructions: [] }
+      : botRuntime
+        ? this.mcpManager.runtimeForBot(conversation.projectPath, botRuntime.bot.id)
+        : this.mcpManager.runtimeForWorkspace(conversation.projectPath);
+    const providerContext = {
+      model: selection.model,
+      conversation,
+      workspacePath: conversation.projectPath,
+    };
+    const rubberDuckMode = conversation.isRubberDuck === true;
+    const selectedProviderTools = workMode === 'plan' || rubberDuckMode
+      ? []
+      : selection.provider.getContributions(providerContext).tools;
+    const selectedProviderToolNames = new Set(selectedProviderTools.map((tool) => tool.name));
+    const providerTools = workMode === 'plan'
+      ? []
+      : [
+          ...selectedProviderTools,
+          ...(this.registry.listGlobalTools?.(providerContext) ?? [])
+            .filter((tool) => !selectedProviderToolNames.has(tool.name)),
+        ];
+    const coreTools = CLIENT_TOOLS
+      .filter((tool) => workMode !== 'plan' || PLAN_TOOL_NAMES.has(tool.name))
+      .filter((tool) => !['memory_search', 'memory_write', 'memory_delete'].includes(tool.name) || (
+        preferences.aivax?.connected
+        && preferences.aivax.memoryEnabled
+        && preferences.aivax.memoryCollectionId
+      ))
+      .filter((tool) => tool.name !== 'web_search' || (
+        preferences.aivax?.connected && preferences.aivax.webSearchEnabled
+      ))
+      .filter((tool) => tool.name !== 'read_media_file' || (
+        selection.model.capabilities?.images
+        || selection.model.capabilities?.video
+        || selection.model.capabilities?.audio
+        || selection.model.capabilities?.pdfFiles
+        || (preferences.aivax?.connected && preferences.aivax.mediaDescriptionsEnabled)
+      ))
+      .filter((tool) => !botRuntime || ![
+        'memory_search',
+        'memory_write',
+        'memory_delete',
+        'chat_spawn_subagent',
+        'bots_list',
+        'bots_create',
+        'bots_update',
+        'bots_delete',
+        'bots_activate',
+        'sleep_semaphore',
+      ].includes(tool.name))
+      .filter((tool) => (
+        tool.name !== 'chat_spawn_subagent'
+        || (!conversation.isSubagent && !conversation.isSideChat)
+      ));
+    const extensionTools = [
+      ...(rubberDuckMode ? [] : botRuntime?.tools ?? []),
+      ...providerTools.map((tool) => ({ ...tool, providerTool: true })),
+      ...mcpRuntime.tools,
+    ];
+    const composedTools = composeToolsWithPlugins(
+      coreTools,
+      workMode === 'plan' || rubberDuckMode ? [] : this.getPluginTools(conversation.id),
+      extensionTools,
+    );
+    const toolNames = new Set();
+    const tools = decorateToolsForInvocation(
+      composedTools.filter((tool) => {
+        if (toolNames.has(tool.name)) return false;
+        toolNames.add(tool.name);
+        return true;
+      }),
+      permissionMode,
+      { honorExplicitAuthorization: Boolean(botRuntime) },
+    );
+    const teamRootId = conversation.isSubagent || conversation.isSideChat
+      ? conversation.parentConversationId
+      : conversation.id;
+    const hasSubagents = Boolean(teamRootId && listSubagents(teamRootId).length > 0);
+    const goal = latestUser?.goalId
+      ? getGoal(latestUser.goalId)
+      : getGoalForConversation(conversation.id);
+    const instructionUsage = await resolveDynamicContextUsage({
+      conversationId: conversation.id,
+      workspacePath: conversation.projectPath,
+      mcpInstructions: mcpRuntime.instructions,
+      ...this.getPluginContext({
+        conversationId: conversation.id,
+        workspacePath: conversation.projectPath,
+        botId: botRuntime?.bot.id ?? null,
+      }),
+      ...(botRuntime ? { bot: this.describeInvocationBot(conversation.id) } : {}),
+      permissionMode,
+      workMode,
+      ultraMode: latestUser?.ultraMode ?? false,
+      goal: goal && CONTINUING_GOAL_STATUSES.has(goal.status) ? goal : null,
+      tasks: listTasks(conversation.id),
+      semaphoreHoldings: this.semaphores.holdings(conversation.id),
+      hasSubagents,
+      hasThreads: hasSubagents || listAllConversations().some((item) => (
+        item.id !== conversation.id && item.projectPath === conversation.projectPath
+      )),
+      tuning: preferences.tuning,
+      aivax: preferences.aivax,
+    });
+    const messageUsage = countMessageContext(messages);
+    const toolCharacters = (tool) => countSerializedCharacters({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema,
+    });
+    const mcpTools = new Map();
+    let aviToolCharacters = 0;
+    for (const tool of tools) {
+      const characters = toolCharacters(tool);
+      if (!tool.mcp) {
+        aviToolCharacters += characters;
+        continue;
+      }
+      const server = tool.mcp.serverName || 'MCP server';
+      mcpTools.set(server, (mcpTools.get(server) ?? 0) + characters);
+    }
+
+    return distributeContextUsage({
+      contextTokens: conversation.contextTokens,
+      contextLimit: contextLimit || botRuntime?.bot.contextSize || selection.model.context.input,
+      segments: [
+        { id: 'avi-instructions', label: 'Avi instructions', characters: instructionUsage.aviInstructions },
+        { id: 'custom-instructions', label: 'Instructions / customizations', characters: instructionUsage.customInstructions },
+        ...instructionUsage.mcpInstructions.map((item) => ({
+          id: `mcp-instructions:${item.server}`,
+          label: 'MCP instructions',
+          server: item.server,
+          characters: item.characters,
+        })),
+        { id: 'global-context', label: 'Global context (skills + workflows)', characters: instructionUsage.globalContext },
+        { id: 'avi-tools', label: 'Avi tools', characters: aviToolCharacters },
+        ...[...mcpTools].map(([server, characters]) => ({
+          id: `mcp-tools:${server}`,
+          label: 'MCP tools',
+          server,
+          characters,
+        })),
+        { id: 'messages', label: 'Messages', characters: messageUsage.messagesCharacters },
+        { id: 'tool-results', label: 'Tool results', characters: messageUsage.toolResultCharacters },
+        { id: 'other', label: 'Other', characters: messageUsage.otherCharacters },
+      ],
+    });
+  }
+
+  compressQuick({ conversationId }) {
+    const conversation = getConversation(conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    if (this.runs.has(conversation.id)) {
+      throw new Error('Wait for the current response to finish before compressing context.');
+    }
+
+    const compacted = compactOldToolResults(getMessages(conversation.id), {
+      checkpointMessageId: conversation.checkpointMessageId,
+    });
+    const messages = compacted.updates.map((update) => (
+      updateMessage(update.id, { segments: update.segments })
+    ));
+    for (const message of messages) this.emit(conversation.id, { type: 'message', message });
+    const contextTokens = Math.max(
+      0,
+      conversation.contextTokens - Math.ceil(compacted.charactersRemoved / 4),
+    );
+    const updatedConversation = updateConversation(conversation.id, { contextTokens });
+    this.emit(conversation.id, { type: 'conversation', conversation: updatedConversation });
+    return {
+      conversation: updatedConversation,
+      messages,
+      replacedResults: compacted.replacedResults,
+      charactersRemoved: compacted.charactersRemoved,
+    };
+  }
+
   async compress({
     conversationId,
     model,
@@ -2090,15 +2291,29 @@ export class ChatRunner {
           : null,
         output_tokens: updatedConversation.contextTokens,
       }));
+      if (automatic && run?.kind === 'chat') {
+        run.consecutiveContextCompactionFailures = 0;
+      }
       return updatedConversation;
     } catch (error) {
       const stopped = controller.signal.aborted;
-      const stoppedByUser = stopped && this.runs.get(conversation.id)?.stoppedByUser;
+      const run = this.runs.get(conversation.id);
+      if (automatic && !stopped && run?.kind === 'chat') {
+        run.consecutiveContextCompactionFailures += 1;
+      }
+      const consecutiveFailures = run?.consecutiveContextCompactionFailures ?? 0;
+      const failureLimitReached = automatic
+        && !stopped
+        && run?.kind === 'chat'
+        && consecutiveFailures >= MAX_CONSECUTIVE_CONTEXT_COMPACTION_FAILURES;
+      const stoppedByUser = stopped && run?.stoppedByUser;
       const failedSegment = {
         ...compressionSegment,
         error: stopped
           ? 'Context compression stopped.'
-          : 'Context compression failed.',
+          : failureLimitReached
+            ? 'Context compression failed 3 consecutive times. Chat stopped.'
+            : 'Context compression failed.',
       };
       const failedMessage = updateMessage(compressionMessage.id, {
         status: stopped ? 'aborted' : 'error',
@@ -2125,8 +2340,18 @@ export class ChatRunner {
         operation: automatic ? 'automatic' : 'manual',
         status: stopped ? 'aborted' : 'error',
         code: error?.code,
+        consecutive_failures: consecutiveFailures,
+        chat_stopped: failureLimitReached,
       }));
       if (stopped) return getConversation(conversation.id);
+      if (failureLimitReached) {
+        const failureLimitError = new Error(
+          'Context compression failed 3 consecutive times. Chat stopped.',
+          { cause: error },
+        );
+        failureLimitError.code = 'context_compaction_failure_limit';
+        throw failureLimitError;
+      }
       throw error;
     } finally {
       if (!automatic) {
@@ -2303,6 +2528,7 @@ export class ChatRunner {
       kind: 'chat',
       phase: 'mcp',
       steerRequested: false,
+      consecutiveContextCompactionFailures: 0,
       userMessageIds,
     };
     const completion = Promise.withResolvers();
@@ -3359,12 +3585,14 @@ export class ChatRunner {
               model: selection.model.modelId,
               error: message,
             });
-            if (!controller.signal.aborted) {
-              this.emit(conversationId, {
-                type: 'error',
-                message: `Automatic context compaction failed: ${message}`,
-              });
-            }
+            if (
+              controller.signal.aborted
+              || error?.code === 'context_compaction_failure_limit'
+            ) throw error;
+            this.emit(conversationId, {
+              type: 'error',
+              message: `Automatic context compaction failed: ${message}`,
+            });
           }
         }
 
@@ -3493,12 +3721,14 @@ export class ChatRunner {
             model: selection.model.modelId,
             error: message,
           });
-          if (!controller.signal.aborted) {
-            this.emit(conversationId, {
-              type: 'error',
-              message: `Automatic context compaction failed: ${message}`,
-            });
-          }
+          if (
+            controller.signal.aborted
+            || error?.code === 'context_compaction_failure_limit'
+          ) throw error;
+          this.emit(conversationId, {
+            type: 'error',
+            message: `Automatic context compaction failed: ${message}`,
+          });
         }
       }
     } catch (error) {

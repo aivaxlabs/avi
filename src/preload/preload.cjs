@@ -228,6 +228,8 @@ contextBridge.exposeInMainWorld('chatApp', {
     expandPrompt: (payload) => invoke('chat:expand-prompt', payload),
     resolveApproval: (payload) => invoke('chat:resolve-approval', payload),
     answerQuestion: (payload) => invoke('chat:answer-question', payload),
+    contextUsage: (payload) => invoke('chat:context-usage', payload),
+    compressQuick: (payload) => invoke('chat:compress-quick', payload),
     compress: (payload) => invoke('chat:compress', payload),
     cancelQueued: (payload) => invoke('chat:cancel-queued', payload),
     reorderQueued: (payload) => invoke('chat:reorder-queued', payload),

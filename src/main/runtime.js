@@ -2289,6 +2289,14 @@ function registerIpc() {
     refreshTrayMenu();
     return result;
   });
+  applicationIpc.handle('chat:context-usage', (_event, payload) => chatRunner.contextUsage({
+    conversationId: payload?.conversationId,
+    model: payload?.model,
+    contextLimit: payload?.contextLimit,
+  }));
+  applicationIpc.handle('chat:compress-quick', (_event, payload) => chatRunner.compressQuick({
+    conversationId: payload?.conversationId,
+  }));
   applicationIpc.handle('chat:compress', (_event, payload) => chatRunner.compress({
     conversationId: payload?.conversationId,
     model: payload?.model,

@@ -68,19 +68,11 @@ export const dynamicContextInjectors = new Map([
       ? [
         '## Memory',
         'You have access to persistent memory through the memory_search, memory_write, and memory_delete tools.',
-        'Before starting any kind of relevant work run memory_search with terms describing the task to gather context from past work.',
-        'Use it to store and retrieve information such as:',
-        '- discoveries made to implement something;',
-        '- paths, conventions and rules provided by the user;',
-        '- technical and architectural decisions made during the work;',
-        '- solutions that have already been tested, including what worked and what didnt;',
-        '- user preferences relevant to future work;',
-        '- important context about projects, components and their responsibilities;',
-        '- recurring commands, tools and procedures;',
-        '- pending items, limitations and known issues that may affect future work;',
-        '- information needed to resume a task without repeating investigations already performed.',
-        'When you encounter new, relevant and reusable information, persist it with memory_write to keep the context useful for future work.',
-        'Always keep the memory up to date.',
+        'Before substantial or context-sensitive work, search memory for relevant prior context.',
+        'Write or update memory only when the work produces reusable knowledge, such as decisions, constraints, implementation details, validation results, known issues, user preferences, or pending work.',
+        'For significant changes, record what changed, why, how it was implemented and validated, the affected files or services, and any remaining limitations.',
+        'Keep entries concise, avoid duplicating existing memories, and update an existing entry when appropriate.',
+        'Each memory entry must include Markdown frontmatter with folder, title, and tags, followed by content organized with level-3 headings (###).'
       ].join('\n')
       : ''
   )],
@@ -429,6 +421,41 @@ export const dynamicContextInjectors = new Map([
     ];
   }],
 ]);
+
+export async function resolveDynamicContextUsage(invocationContext = {}) {
+  const context = await resolveDynamicContext(invocationContext);
+  if (!context) return { context, aviInstructions: 0, customInstructions: 0, globalContext: 0, mcpInstructions: [] };
+
+  const globalContext = context.match(/<available_context>[\s\S]*?<\/available_context>/)?.[0] ?? '';
+  const mcpInstructions = (invocationContext.mcpInstructions ?? [])
+    .filter((instruction) => instruction?.text)
+    .map((instruction) => ({
+      server: instruction.from || 'MCP server',
+      characters: [
+        `<mcp_context from="${escapeXml(instruction.from || 'MCP server')}">`,
+        instruction.text,
+        '</mcp_context>',
+      ].join('\n').length,
+    }));
+  const aviInstructions = invocationContext.quickChat
+    ? quickChatInstructions.length
+    : baseInstructions.length;
+  const customInstructions = Math.max(
+    0,
+    context.length
+    - aviInstructions
+    - globalContext.length
+    - mcpInstructions.reduce((total, instruction) => total + instruction.characters, 0),
+  );
+
+  return {
+    context,
+    aviInstructions,
+    customInstructions,
+    globalContext: globalContext.length,
+    mcpInstructions,
+  };
+}
 
 export async function resolveDynamicContext(invocationContext = {}) {
   // Keep volatile thread listings, prompts, statuses, timestamps, and queue state out of injected context so provider prompt caches remain reusable. Stable availability signals are safe; active semaphore holdings remain explicit because they control required release behavior.
