@@ -52,6 +52,18 @@ export default ({ definePlugin }) => definePlugin({
 
 See [Plugin API v2](./api/overview.md) for the complete runtime contract.
 
+## Included plugins
+
+### Child Processes
+
+The included **Child Processes** plugin starts configured programs or shell commands when Avi starts and applies saved configuration changes immediately. Each entry uses one command line containing the program and its arguments, plus an optional working directory (defaulting to `$HOME`), retry delay, and finite or unlimited retries. A process is retried only after an unsuccessful exit.
+
+Each managed program runs under a dedicated supervisor connected to Avi. Normal shutdown asks the supervisor to terminate the complete process tree; if Avi exits unexpectedly, closure of the inherited IPC channel triggers the same cleanup. On Windows the supervisor uses `taskkill /T /F`; on macOS and Linux it terminates the managed process group.
+
+Open the plugin's **Child Processes** auxiliary panel to start, stop, or restart each process independently and inspect combined timestamped stdout, stderr, lifecycle, retry, and non-zero exit messages. A manual stop lasts until the process is started from the panel or Avi starts again. The in-memory log retains only the newest 1 MiB per configured process and can be cleared from the panel.
+
+Configuration is persisted in Avi's isolated plugin storage. Because plugins are trusted main-process code, only configure programs and commands you trust.
+
 ## Static contributions
 
 Definitions may still declare validated static contribution arrays:
