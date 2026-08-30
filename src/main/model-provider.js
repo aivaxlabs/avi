@@ -11,6 +11,21 @@ const EMPTY_PROVIDER_CONTRIBUTIONS = Object.freeze({
 const SERVER_CONNECT_TIMEOUT_MS = 2 * 60_000;
 const NORMAL_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 10_000];
 const GOAL_RETRY_DELAYS_MS = [1_000, 4_000, 8_000, 30_000, 60_000, 5 * 60_000];
+const CONNECTION_ERROR_CODES = new Set([
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ECONNABORTED',
+  'ETIMEDOUT',
+  'EPIPE',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENETDOWN',
+]);
+
+const isConnectionError = (error) => [error, error?.cause]
+  .some((candidate) => candidate && CONNECTION_ERROR_CODES.has(candidate.code));
 
 export class ModelProvider {
   constructor(config, implementation, services) {
@@ -31,7 +46,7 @@ export class ModelProvider {
 
     return models.map((model) => ({
       ...model,
-      id: `${this.config.id}:${model.id}`,
+      id: `${this.config.id}:${model.instanceId ?? model.id}`,
       modelId: model.modelId ?? model.id,
       providerId: this.config.id,
       providerName: this.config.name,
@@ -141,7 +156,9 @@ export class ModelProvider {
         if (signal.aborted) {
           throw signal.reason instanceof Error ? signal.reason : error;
         }
-        if (!connectTimedOut && !(error instanceof TypeError)) throw error;
+        if (!connectTimedOut && !(error instanceof TypeError) && !isConnectionError(error)) {
+          throw error;
+        }
         traceError(connectTimedOut ? 'provider.connect-timeout' : 'provider.transport-error', {
           provider_id: this.config.id,
           model: model.modelId,
@@ -209,7 +226,7 @@ export class ModelProvider {
               if (signal.aborted) {
                 throw signal.reason instanceof Error ? signal.reason : error;
               }
-              if (!(error instanceof TypeError)) throw error;
+              if (!(error instanceof TypeError) && !isConnectionError(error)) throw error;
               traceError('provider.stream-transport-error', {
                 provider_id: this.config.id,
                 model: model.modelId,
@@ -529,7 +546,7 @@ export class ModelProviderRegistry {
       }
     }
 
-    const modelIds = new Set();
+    const modelInstanceIds = new Set();
     const models = implementation.descriptor.models === 'managed'
       ? []
       : Array.isArray(provider.models)
@@ -539,10 +556,13 @@ export class ModelProviderRegistry {
             if (!id || !modelName) {
               throw new Error('Every model requires an ID and a name.');
             }
-            if (modelIds.has(id)) {
-              throw new Error(`Model ID "${id}" is duplicated in this provider.`);
+            const persistedInstanceId = String(model?.instanceId ?? '').trim();
+            let instanceId = persistedInstanceId || id;
+            if (modelInstanceIds.has(instanceId) && persistedInstanceId) {
+              throw new Error(`Model instance ID "${instanceId}" is duplicated in this provider.`);
             }
-            modelIds.add(id);
+            while (modelInstanceIds.has(instanceId)) instanceId = randomUUID();
+            modelInstanceIds.add(instanceId);
 
             const inputContext = model?.context?.input === '' || model?.context?.input == null
               ? null
@@ -559,6 +579,7 @@ export class ModelProviderRegistry {
 
             return {
               id,
+              instanceId,
               name: modelName,
               enabled: model?.enabled !== false,
               capabilities: {

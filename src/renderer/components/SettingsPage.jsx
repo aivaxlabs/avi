@@ -614,7 +614,10 @@ export function SettingsPage({
     const model = selectedProvider?.models[index];
     if (!model) return;
     setModelIndex(index);
-    setModelDraft(structuredClone(model));
+    setModelDraft({
+      ...structuredClone(model),
+      instanceId: model.instanceId ?? model.id,
+    });
     setError('');
     setView('model');
   }
@@ -2453,6 +2456,7 @@ export function SettingsPage({
                         setModelIndex(-1);
                         setModelDraft({
                           id: '',
+                          instanceId: crypto.randomUUID(),
                           name: '',
                           enabled: true,
                           capabilities: { images: false, video: false, audio: false, pdfFiles: false },
@@ -2479,7 +2483,7 @@ export function SettingsPage({
                         return (
                           <article
                             className={classNames('settings-entity-row', !enabled && 'disabled')}
-                            key={`${model.id}:${index}`}
+                            key={model.instanceId ?? model.id}
                           >
                             <button
                               className="settings-entity-main"
@@ -2511,30 +2515,23 @@ export function SettingsPage({
                                 {
                                   label: 'Clone',
                                   icon: <Copy size={14} />,
-                                  onClick: () => runProviderMutation(async () => {
-                                    const copyIdBase = `${model.id}-copy`;
-                                    let copyId = copyIdBase;
-                                    let copyNumber = 2;
-                                    while (selectedProvider.models.some((item) => item.id === copyId)) {
-                                      copyId = `${copyIdBase}-${copyNumber}`;
-                                      copyNumber += 1;
-                                    }
-                                    const nextProviders = await onSave({
+                                  onClick: async () => {
+                                    const nextProviders = await runProviderMutation(() => onSave({
                                       ...selectedProvider,
                                       models: [
                                         ...selectedProvider.models,
                                         {
                                           ...structuredClone(model),
-                                          id: copyId,
+                                          instanceId: crypto.randomUUID(),
                                           name: `${model.name} - Copy`,
                                         },
                                       ],
-                                    });
-                                    const saved = nextProviders.find(
+                                    }));
+                                    const saved = nextProviders?.find(
                                       (provider) => provider.id === selectedProvider.id,
                                     );
                                     if (saved) setProviderDraft(structuredClone(saved));
-                                  }),
+                                  },
                                 },
                                 {
                                   label: enabled ? 'Disable' : 'Enable',
@@ -2611,6 +2608,7 @@ export function SettingsPage({
                         onChange={(event) => updateModelDraft({ id: event.target.value })}
                         placeholder="openai/gpt-5"
                       />
+                      <small>Sent to the provider API. Multiple configured variants can use the same Model ID.</small>
                     </label>
                     <label className="settings-field">
                       <span>Display name</span>

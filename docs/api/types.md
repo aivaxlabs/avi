@@ -346,6 +346,7 @@ interface ProviderSnapshot {
 
 interface ModelConfig {
   id: string;
+  instanceId: string;
   name: string;
   enabled: boolean;
   capabilities: {
@@ -361,7 +362,7 @@ interface ModelConfig {
 
 ### ModelSnapshot
 
-Returned by `avi.providers.models.list()`. Each model is globally qualified as `providerId:modelId`.
+Returned by `avi.providers.models.list()`. Each model is globally qualified as `providerId:instanceId`; `modelId` is the configured value sent to inference. Avi generates and preserves `instanceId`, and callers should treat it as opaque.
 
 ```ts
 interface ModelSnapshot extends ModelConfig {

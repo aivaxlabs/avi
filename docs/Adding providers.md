@@ -38,15 +38,15 @@ Choose the format actually implemented by the endpoint.
 
 After saving the provider, select **Add model**. Configure:
 
-- unique model ID and display name;
+- model ID sent to the provider API and a display name;
 - enabled state;
 - input and output context limits;
 - Images, Audio, and PDF files capabilities;
 - supported reasoning efforts: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`.
 
-Context limits, when provided, must be positive integers. Declare only capabilities that the endpoint supports because Avi uses them to accept attachments and serialize requests.
+Context limits, when provided, must be positive integers. Declare only capabilities that the endpoint supports because Avi uses them to accept attachments and serialize requests. Multiple configured variants can use the same model ID—for example, to expose different context limits—because Avi assigns each one a persistent internal instance ID.
 
-The global model identifier is `<provider-id>:<model-id>`. Changing an ID can invalidate favorites, default-model assignments, and saved thread selections.
+The global model identifier is `<provider-id>:<model-instance-id>`. The instance ID is generated and managed internally; the configured model ID is sent unchanged to the provider API.
 
 ## Model routers
 

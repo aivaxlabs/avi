@@ -63,7 +63,7 @@ provider.credentials.clear(): Promise<void>
 
 Credentials are write-only and stored through Avi's secure credential service. There is no `credentials.get()` method. Snapshots expose only `hasCredentials`. An `apiKey` supplied during `create()` or `update()` requires `providers.credentials.write`, is moved to secure storage, and is not persisted in the ordinary provider configuration.
 
-Provider creation and updates use ModelProviderRegistry normalization, including interface existence, endpoint rules, model IDs, and descriptor fields. Secure credentials are merged only when Avi instantiates the provider.
+Provider creation and updates use ModelProviderRegistry normalization, including interface existence, endpoint rules, model IDs, persistent model instance IDs, and descriptor fields. Multiple model configurations can share the same `id`; Avi generates and preserves each model’s opaque `instanceId`. Secure credentials are merged only when Avi instantiates the provider.
 
 ## Provider usages
 
