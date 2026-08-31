@@ -132,6 +132,7 @@ import { ProviderUsageService } from './provider-usage-service.js';
 import { ModelRouterService } from './model-router.js';
 import { rankAivaxPricingModels } from './model-pricing.js';
 import { McpManager } from './mcp-manager.js';
+import { searchWorkspaceMentions } from './workspace-mentions.js';
 import { PluginManager } from './plugin-manager.js';
 import { createPluginDomainApi, registerPluginTool } from './plugin-domain-api.js';
 import { RemoteMcpServer } from './remote-mcp-server.js';
@@ -2254,6 +2255,17 @@ function registerIpc() {
   });
   applicationIpc.handle('mcp:folder', (_event, folderPath) => mcpManager.listFolder(folderPath));
   applicationIpc.handle('mcp:workspace', (_event, folderPath) => mcpManager.listWorkspace(folderPath));
+  applicationIpc.handle('mentions:list', async (_event, payload = {}) => {
+    const folderPath = resolve(payload.folderPath || homedir());
+    const [paths, servers] = await Promise.all([
+      searchWorkspaceMentions(folderPath, payload.query),
+      mcpManager.listWorkspace(folderPath),
+    ]);
+    return {
+      paths,
+      servers: servers.filter((server) => server.enabled && server.status !== 'shadowed'),
+    };
+  });
   const resolveBotMcpTarget = (botId) => {
     const bot = botManager.describeBots().find((item) => item.id === botId);
     if (!bot) throw new Error('Bot not found.');

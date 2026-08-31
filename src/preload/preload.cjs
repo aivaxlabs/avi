@@ -278,6 +278,9 @@ contextBridge.exposeInMainWorld('chatApp', {
     commands: (folderPath) => invoke('context:commands', folderPath),
     open: (targetPath) => invoke('context:open', targetPath),
   },
+  mentions: {
+    list: (payload) => invoke('mentions:list', payload),
+  },
   shell: {
     openTerminal: (targetPath) => invoke('shell:open-terminal', targetPath),
   },
