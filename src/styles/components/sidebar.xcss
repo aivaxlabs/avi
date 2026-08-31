@@ -1,6 +1,6 @@
 .sidebar {
   --sidebar-font-size: 13px;
-  --sidebar-text-muted-opacity: .58;
+  --sidebar-text-muted-opacity: .62;
   --sidebar-background: transparent;
   --sidebar-background-hover: var(--background-3);
   --sidebar-background-active: var(--background-4);
@@ -18,9 +18,65 @@
   :root[data-transparency-mode="transparent"] & {
     --sidebar-background-hover: var(--background-transparent-3, color-mix(in srgb, var(--background-3) 72%, transparent));
     --sidebar-background-active: var(--background-transparent-4, color-mix(in srgb, var(--background-4) 72%, transparent));
-    --sidebar-border-color: var(--background-transparent-4, color-mix(in srgb, var(--background-4) 72%, transparent));
+    --sidebar-border-color: color-mix(in srgb, var(--text-1) 08%, transparent);
     backdrop-filter: saturate(135%);
     border-right: none;
+  }
+
+  .sidebar-sticky-top {
+    position: relative;
+    z-index: 1;
+    flex: 0 0 auto;
+    box-shadow: 0 1px 0 0 #00000000;
+    transition: .3s --base-transition;
+
+    & .scrolled {
+      box-shadow: 0 1px 3px 0 #00000011;
+    }
+
+    .nav-actions {
+      margin-bottom: 0;
+    }
+  }
+
+  .sidebar-sticky-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--text-1) 32%, transparent) transparent;
+
+    .nav-actions {
+      margin-top: -4px;
+    }
+
+    &::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      min-height: 44px;
+      background: color-mix(in srgb, var(--text-1) 32%, transparent);
+      background-clip: padding-box;
+      border: 3px solid transparent;
+      border-radius: 999px;
+    }
+
+    &:hover::-webkit-scrollbar-thumb {
+      background: color-mix(in srgb, var(--text-1) 48%, transparent);
+      background-clip: padding-box;
+    }
+
+    &::-webkit-scrollbar-button {
+      width: 0;
+      height: 0;
+      display: none;
+    }
   }
 
   .sidebar-titlebar {
@@ -197,45 +253,13 @@
   }
 
   .conversation-list {
-    flex: 1 1 auto;
     min-height: 0;
-    overflow: auto;
     display: grid;
     align-content: start;
     gap: 2px;
     padding: 6px;
     margin-bottom: 4px;
     border-bottom: 1px solid var(--sidebar-border-color);
-    scrollbar-gutter: stable;
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--text-1) 32%, transparent) transparent;
-
-    &::-webkit-scrollbar {
-      width: 10px;
-    }
-
-    &::-webkit-scrollbar-track {
-      background: transparent;
-    }
-
-    &::-webkit-scrollbar-thumb {
-      min-height: 44px;
-      background: color-mix(in srgb, var(--text-1) 32%, transparent);
-      background-clip: padding-box;
-      border: 3px solid transparent;
-      border-radius: 999px;
-    }
-
-    &:hover::-webkit-scrollbar-thumb {
-      background: color-mix(in srgb, var(--text-1) 48%, transparent);
-      background-clip: padding-box;
-    }
-
-    &::-webkit-scrollbar-button {
-      width: 0;
-      height: 0;
-      display: none;
-    }
   }
 
   .conversation-group {
@@ -441,8 +465,8 @@
   }
 
   .settings-button {
+    flex: 0 0 auto;
     margin: 4px;
-    margin-top: auto;
     border-radius: 6px;
   }
 

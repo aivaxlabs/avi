@@ -106,6 +106,7 @@ export const Sidebar = memo(function Sidebar({
   const [folderMenu, setFolderMenu] = useState(null);
   const [tagsManagerOpen, setTagsManagerOpen] = useState(false);
   const [tagsSaving, setTagsSaving] = useState(false);
+  const [stickyScrollActive, setStickyScrollActive] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const filterButtonRef = useRef(null);
   const snoozeButtonRef = useRef(null);
@@ -392,44 +393,52 @@ export const Sidebar = memo(function Sidebar({
 
   return (
     <aside className="sidebar" id="main-sidebar">
-      <div className="sidebar-titlebar">
-        <div className="app-name">
-          <img src={aviIconUrl} alt="" />
-          <span>Avi</span>
+      <div className={classNames('sidebar-sticky-top', stickyScrollActive && 'scrolled')}>
+        <div className="sidebar-titlebar">
+          <div className="app-name">
+            <img src={aviIconUrl} alt="" />
+            <span>Avi</span>
+          </div>
+          <button
+            className="sidebar-toggle"
+            type="button"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onClick={onToggleCollapsed}
+          >
+            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
         </div>
-        <button
-          className="sidebar-toggle"
-          type="button"
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          onClick={onToggleCollapsed}
-        >
-          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-        </button>
+        <div className="nav-actions">
+          <button type="button" onClick={() => onNewChat()}>
+            <MessageSquarePlus size={17} />
+            <span>New chat</span>
+          </button>
+          <button type="button" onClick={onQuickChat}>
+            <Zap size={17} />
+            <span>Quick chat</span>
+          </button>
+        </div>
       </div>
-      <div className="nav-actions">
-        <button type="button" onClick={() => onNewChat()}>
-          <MessageSquarePlus size={17} />
-          <span>New chat</span>
-        </button>
-        <button type="button" onClick={onQuickChat}>
-          <Zap size={17} />
-          <span>Quick chat</span>
-        </button>
-        <button
-          className={orchestrationOpen ? 'active' : undefined}
-          type="button"
-          aria-current={orchestrationOpen ? 'page' : undefined}
-          onClick={onOpenOrchestration}
-        >
-          <LayoutDashboard size={17} />
-          <span>Orchestration</span>
-        </button>
-        <button type="button" onClick={onSearch}>
-          <Search size={17} />
-          <span>Search chats</span>
-        </button>
-      </div>
-      <div className="recent-label bots-label">
+      <div
+        className="sidebar-sticky-scroll"
+        onScroll={(event) => setStickyScrollActive(event.currentTarget.scrollTop > 0)}
+      >
+        <div className="nav-actions">
+          <button
+            className={orchestrationOpen ? 'active' : undefined}
+            type="button"
+            aria-current={orchestrationOpen ? 'page' : undefined}
+            onClick={onOpenOrchestration}
+          >
+            <LayoutDashboard size={17} />
+            <span>Orchestration</span>
+          </button>
+          <button type="button" onClick={onSearch}>
+            <Search size={17} />
+            <span>Search chats</span>
+          </button>
+        </div>
+        <div className="recent-label bots-label">
         <span className="recent-title">
           <Bot size={13} aria-hidden="true" />
           <span>Bots</span>
@@ -868,6 +877,7 @@ export const Sidebar = memo(function Sidebar({
             </section>
           );
         })}
+      </div>
       </div>
       <button className="settings-button" type="button" onClick={() => onSettings()}>
         <Settings size={17} />

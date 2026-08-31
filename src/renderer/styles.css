@@ -145,6 +145,10 @@ html[data-transparency-mode="transparent"] .chat-workspace {
     height: calc(100% - 2px);
 }
 
+html[data-transparency-mode="transparent"][data-color-scheme="dark"] .chat-workspace {
+    filter: drop-shadow(-1px -1px 2px #00000031);
+}
+
 body.panel-resizing {
     cursor: col-resize;
     user-select: none;
@@ -2372,7 +2376,7 @@ body.panel-resizing * {
 .settings-page .settings-section-heading p {
     margin-top: 3px;
     color: var(--text-3);
-    font-size: 11px;
+    font-size: var(--font-sm);
 }
 
 .settings-page .settings-section-card {
@@ -4909,52 +4913,6 @@ body.panel-resizing * {
         flex-wrap: wrap;
     }
 }
-/* components\button.xcss */
-button {
-    border: 0;
-    border-radius: 9999px;
-    padding: 4px 10px;
-}
-
-button svg {
-    display: inline-block;
-    margin: 0 4px;
-}
-
-.icon-button, .round-button, .recent-filter-button, .user-message-action, .favorite-button, .sidebar-toggle, .attachment-chip button {
-    border-radius: 9999px;
-    padding: 0;
-}
-
-.icon-button, .round-button {
-    display: inline-grid;
-    place-items: center;
-    color: var(--text-2);
-    background: var(--background-2);
-    border: 1px solid var(--border-color);
-    border-radius: 999px;
-}
-
-.icon-button {
-    width: 34px;
-    height: 34px;
-}
-
-.icon-button.tiny {
-    width: 26px;
-    height: 26px;
-    background: transparent;
-    border: 0;
-}
-
-.icon-button:hover, .round-button:hover, .model-pill:hover, .message-actions button:hover, .continuations button:hover {
-    background: var(--item-hover);
-}
-
-.primary-mini {
-    color: var(--text-5) !important;
-    background: var(--background-5) !important;
-}
 /* components\markdown.xcss */
 .markdown-body {
     min-width: 0;
@@ -5160,6 +5118,52 @@ button svg {
         transition: none;
     }
 }
+/* components\button.xcss */
+button {
+    border: 0;
+    border-radius: 9999px;
+    padding: 4px 10px;
+}
+
+button svg {
+    display: inline-block;
+    margin: 0 4px;
+}
+
+.icon-button, .round-button, .recent-filter-button, .user-message-action, .favorite-button, .sidebar-toggle, .attachment-chip button {
+    border-radius: 9999px;
+    padding: 0;
+}
+
+.icon-button, .round-button {
+    display: inline-grid;
+    place-items: center;
+    color: var(--text-2);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+}
+
+.icon-button {
+    width: 34px;
+    height: 34px;
+}
+
+.icon-button.tiny {
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    border: 0;
+}
+
+.icon-button:hover, .round-button:hover, .model-pill:hover, .message-actions button:hover, .continuations button:hover {
+    background: var(--item-hover);
+}
+
+.primary-mini {
+    color: var(--text-5) !important;
+    background: var(--background-5) !important;
+}
 /* components\bots.xcss */
 .bots-label {
     margin: 0;
@@ -5284,10 +5288,10 @@ button svg {
 }
 
 .bot-status-dot {
-    width: 9px;
-    height: 9px;
-    border: 2px solid var(--background-2);
+    width: 5px;
+    height: 5px;
     border-radius: 999px;
+    outline: 2px solid var(--background-transparent-4);
 }
 
 .bot-status-dot.active {
@@ -14695,7 +14699,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 /* components\sidebar.xcss */
 .sidebar {
     --sidebar-font-size: 13px;
-    --sidebar-text-muted-opacity: .58;
+    --sidebar-text-muted-opacity: .62;
     --sidebar-background: transparent;
     --sidebar-background-hover: var(--background-3);
     --sidebar-background-active: var(--background-4);
@@ -14714,9 +14718,65 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 :root[data-transparency-mode="transparent"] .sidebar {
     --sidebar-background-hover: var(--background-transparent-3, color-mix(in srgb, var(--background-3) 72%, transparent));
     --sidebar-background-active: var(--background-transparent-4, color-mix(in srgb, var(--background-4) 72%, transparent));
-    --sidebar-border-color: var(--background-transparent-4, color-mix(in srgb, var(--background-4) 72%, transparent));
+    --sidebar-border-color: color-mix(in srgb, var(--text-1) 08%, transparent);
     backdrop-filter: saturate(135%);
     border-right: none;
+}
+
+.sidebar .sidebar-sticky-top {
+    position: relative;
+    z-index: 1;
+    flex: 0 0 auto;
+    box-shadow: 0 1px 0 0 #00000000;
+    transition: .3s var(--base-transition);
+}
+
+.sidebar .sidebar-sticky-top.scrolled {
+    box-shadow: 0 1px 3px 0 #00000011;
+}
+
+.sidebar .sidebar-sticky-top .nav-actions {
+    margin-bottom: 0;
+}
+
+.sidebar .sidebar-sticky-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--text-1) 32%, transparent) transparent;
+}
+
+.sidebar .sidebar-sticky-scroll .nav-actions {
+    margin-top: -4px;
+}
+
+.sidebar .sidebar-sticky-scroll::-webkit-scrollbar {
+    width: 10px;
+}
+
+.sidebar .sidebar-sticky-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.sidebar .sidebar-sticky-scroll::-webkit-scrollbar-thumb {
+    min-height: 44px;
+    background: color-mix(in srgb, var(--text-1) 32%, transparent);
+    background-clip: padding-box;
+    border: 3px solid transparent;
+    border-radius: 999px;
+}
+
+.sidebar .sidebar-sticky-scroll:hover::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--text-1) 48%, transparent);
+    background-clip: padding-box;
+}
+
+.sidebar .sidebar-sticky-scroll::-webkit-scrollbar-button {
+    width: 0;
+    height: 0;
+    display: none;
 }
 
 .sidebar .sidebar-titlebar {
@@ -14885,45 +14945,13 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .sidebar .conversation-list {
-    flex: 1 1 auto;
     min-height: 0;
-    overflow: auto;
     display: grid;
     align-content: start;
     gap: 2px;
     padding: 6px;
     margin-bottom: 4px;
     border-bottom: 1px solid var(--sidebar-border-color);
-    scrollbar-gutter: stable;
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--text-1) 32%, transparent) transparent;
-}
-
-.sidebar .conversation-list::-webkit-scrollbar {
-    width: 10px;
-}
-
-.sidebar .conversation-list::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.sidebar .conversation-list::-webkit-scrollbar-thumb {
-    min-height: 44px;
-    background: color-mix(in srgb, var(--text-1) 32%, transparent);
-    background-clip: padding-box;
-    border: 3px solid transparent;
-    border-radius: 999px;
-}
-
-.sidebar .conversation-list:hover::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--text-1) 48%, transparent);
-    background-clip: padding-box;
-}
-
-.sidebar .conversation-list::-webkit-scrollbar-button {
-    width: 0;
-    height: 0;
-    display: none;
 }
 
 .sidebar .conversation-group {
@@ -15118,8 +15146,8 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .sidebar .settings-button {
+    flex: 0 0 auto;
     margin: 4px;
-    margin-top: auto;
     border-radius: 6px;
 }
 
@@ -16229,6 +16257,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     overflow: auto;
     padding: 22px 5px calc(var(--composer-clearance, 176px) + 54px) 20px;
     scrollbar-gutter: stable;
+    outline: none;
 }
 
 .chat-area .file-drop-overlay {

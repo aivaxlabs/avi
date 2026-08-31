@@ -332,7 +332,7 @@
   .settings-section-heading p {
     margin-top: 3px;
     color: var(--text-3);
-    font-size: 11px;
+    font-size: --font-sm;
   }
 
   .settings-section-card {

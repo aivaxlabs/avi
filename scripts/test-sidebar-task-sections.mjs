@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Sidebar } from '../src/renderer/components/Sidebar.jsx';
@@ -62,6 +63,28 @@ const markup = renderToStaticMarkup(React.createElement(Sidebar, {
   onToggleCollapsed: () => {},
   homePath: 'C:\\Users\\test',
 }));
+
+const stickyTopIndex = markup.indexOf('class="sidebar-sticky-top"');
+const stickyScrollIndex = markup.indexOf('class="sidebar-sticky-scroll"');
+const settingsIndex = markup.indexOf('class="settings-button"');
+assert.ok(stickyTopIndex >= 0, 'The fixed sidebar top should be rendered.');
+assert.ok(stickyScrollIndex > stickyTopIndex, 'Scrollable content should follow the fixed sidebar top.');
+assert.ok(settingsIndex > stickyScrollIndex, 'Settings should remain outside the scrollable content.');
+
+const stickyTopMarkup = markup.slice(stickyTopIndex, stickyScrollIndex);
+assert.match(stickyTopMarkup, /New chat/);
+assert.match(stickyTopMarkup, /Quick chat/);
+assert.doesNotMatch(stickyTopMarkup, /Orchestration/);
+
+const stickyScrollMarkup = markup.slice(stickyScrollIndex, settingsIndex);
+assert.match(stickyScrollMarkup, /Orchestration/);
+assert.match(stickyScrollMarkup, /Search chats/);
+assert.doesNotMatch(stickyScrollMarkup, /<span>New chat<\/span>/);
+assert.doesNotMatch(stickyScrollMarkup, /<span>Quick chat<\/span>/);
+
+const sidebarStyles = readFileSync(new URL('../src/styles/components/sidebar.xcss', import.meta.url), 'utf8');
+assert.match(sidebarStyles, /\.sidebar-sticky-top[\s\S]*?&\.scrolled\s*{[\s\S]*?box-shadow:\s*0 1px 3px 0 #00000011;/);
+assert.match(sidebarStyles, /\.sidebar-sticky-scroll\s*{[\s\S]*?overflow:\s*auto;/);
 
 const workingIndex = markup.indexOf('Working tasks');
 const reviewIndex = markup.indexOf('Review');

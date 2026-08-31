@@ -57,6 +57,7 @@
     overflow: auto;
     padding: 22px 5px calc(var(--composer-clearance, 176px) + 54px) 20px;
     scrollbar-gutter: stable;
+    outline: none;
   }
 
   .file-drop-overlay {

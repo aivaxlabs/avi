@@ -123,10 +123,10 @@
 }
 
 .bot-status-dot {
-  width: 9px;
-  height: 9px;
-  border: 2px solid var(--background-2);
+  width: 5px;
+  height: 5px;
   border-radius: 999px;
+  outline: 2px solid --background-transparent-4;
 
   &.active {
     background: var(--success-color, var(--text-2));

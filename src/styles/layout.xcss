@@ -96,6 +96,12 @@ html[data-transparency-mode="transparent"] {
     top: 2px;
     height: calc(100% - 2px);
   }
+
+  & [data-color-scheme="dark"] {
+    .chat-workspace {
+      filter: drop-shadow(-1px -1px 2px #00000031);
+    }
+  }
 }
 
 body.panel-resizing {

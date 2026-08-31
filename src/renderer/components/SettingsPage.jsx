@@ -1294,12 +1294,12 @@ export function SettingsPage({
                       <option value="">Select a model</option>
                       {models.map((model) => (
                         !model.id.startsWith('@')
-                        && !routerDraft.models.some((entry) => entry.modelId === model.id)
+                          && !routerDraft.models.some((entry) => entry.modelId === model.id)
                           ? (
-                              <option key={model.id} value={model.id}>
-                                {model.providerName ? `${model.providerName} · ` : ''}{model.name}
-                              </option>
-                            )
+                            <option key={model.id} value={model.id}>
+                              {model.providerName ? `${model.providerName} · ` : ''}{model.name}
+                            </option>
+                          )
                           : null
                       ))}
                     </select>
@@ -1688,45 +1688,45 @@ export function SettingsPage({
                           })}
                         />
                         <div className="settings-card-row">
-                        <span>{levelSummary}</span>
-                        <span>
-                          <button
-                            className="icon-button tiny"
-                            type="button"
-                            disabled={index === 0}
-                            aria-label={`Move level ${index + 1} up`}
-                            onClick={() => moveIntelligenceLevel(index, index - 1)}
-                          >
-                            <ArrowUp size={13} />
-                          </button>
-                          <button
-                            className="icon-button tiny"
-                            type="button"
-                            disabled={index === levels.length - 1}
-                            aria-label={`Move level ${index + 1} down`}
-                            onClick={() => moveIntelligenceLevel(index, index + 1)}
-                          >
-                            <ArrowDown size={13} />
-                          </button>
-                          <button
-                            className="icon-button tiny danger"
-                            type="button"
-                            disabled={levels.length === intelligenceLevelLimits.min}
-                            aria-label={`Remove level ${index + 1}`}
-                            onClick={() => {
-                              setDefaultModelsSaved(false);
-                              setDefaultModelsDraft((current) => ({
-                                ...current,
-                                intelligence: {
-                                  levels: current.intelligence.levels.filter(
-                                    (_, levelIndex) => levelIndex !== index,
-                                  ),
-                                },
-                              }));
-                            }}
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                          <span>{levelSummary}</span>
+                          <span>
+                            <button
+                              className="icon-button tiny"
+                              type="button"
+                              disabled={index === 0}
+                              aria-label={`Move level ${index + 1} up`}
+                              onClick={() => moveIntelligenceLevel(index, index - 1)}
+                            >
+                              <ArrowUp size={13} />
+                            </button>
+                            <button
+                              className="icon-button tiny"
+                              type="button"
+                              disabled={index === levels.length - 1}
+                              aria-label={`Move level ${index + 1} down`}
+                              onClick={() => moveIntelligenceLevel(index, index + 1)}
+                            >
+                              <ArrowDown size={13} />
+                            </button>
+                            <button
+                              className="icon-button tiny danger"
+                              type="button"
+                              disabled={levels.length === intelligenceLevelLimits.min}
+                              aria-label={`Remove level ${index + 1}`}
+                              onClick={() => {
+                                setDefaultModelsSaved(false);
+                                setDefaultModelsDraft((current) => ({
+                                  ...current,
+                                  intelligence: {
+                                    levels: current.intelligence.levels.filter(
+                                      (_, levelIndex) => levelIndex !== index,
+                                    ),
+                                  },
+                                }));
+                              }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
                           </span>
                         </div>
                       </div>
@@ -2139,14 +2139,6 @@ export function SettingsPage({
                       </select>
                       <small>{activePersonality.description}</small>
                     </label>
-                  </div>
-                </section>
-                <section className="settings-section">
-                  <div className="settings-section-heading">
-                    <h3>Verbosity</h3>
-                    <p>Choose how much detail Avi includes in responses.</p>
-                  </div>
-                  <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
                       <span>Verbosity</span>
                       <select
@@ -2697,23 +2689,23 @@ export function SettingsPage({
                       : view === 'router'
                         ? !routerDraft?.name.trim() || routerDraft.models.length === 0
                         : view === 'default-models'
-                        ? !defaultModelsDraft
-                        || (defaultModelsDraft.subagents.enabled && [
-                          defaultModelsDraft.subagents.small,
-                          defaultModelsDraft.subagents.medium,
-                          defaultModelsDraft.subagents.large,
-                        ].some((selection) => !selection))
-                        : !tuningDraft
-                        || !selectedTerminalShell
-                        || !Number.isInteger(tuningDraft.terminalTimeoutSeconds)
-                        || tuningDraft.terminalTimeoutSeconds < 5
-                        || tuningDraft.terminalTimeoutSeconds > 300
-                        || !Number.isInteger(tuningDraft.maxConcurrentSubagents)
-                        || tuningDraft.maxConcurrentSubagents < 1
-                        || tuningDraft.maxConcurrentSubagents > 128
-                        || !Number.isInteger(tuningDraft.rubberDuckMaxTurns)
-                        || tuningDraft.rubberDuckMaxTurns < 10
-                        || tuningDraft.rubberDuckMaxTurns > 500
+                          ? !defaultModelsDraft
+                          || (defaultModelsDraft.subagents.enabled && [
+                            defaultModelsDraft.subagents.small,
+                            defaultModelsDraft.subagents.medium,
+                            defaultModelsDraft.subagents.large,
+                          ].some((selection) => !selection))
+                          : !tuningDraft
+                          || !selectedTerminalShell
+                          || !Number.isInteger(tuningDraft.terminalTimeoutSeconds)
+                          || tuningDraft.terminalTimeoutSeconds < 5
+                          || tuningDraft.terminalTimeoutSeconds > 300
+                          || !Number.isInteger(tuningDraft.maxConcurrentSubagents)
+                          || tuningDraft.maxConcurrentSubagents < 1
+                          || tuningDraft.maxConcurrentSubagents > 128
+                          || !Number.isInteger(tuningDraft.rubberDuckMaxTurns)
+                          || tuningDraft.rubberDuckMaxTurns < 10
+                          || tuningDraft.rubberDuckMaxTurns > 500
                 )}
                 onClick={() => runProviderMutation(async () => {
                   if (view === 'default-models') {
@@ -2782,8 +2774,8 @@ export function SettingsPage({
                       : view === 'router'
                         ? 'Save router'
                         : view === 'default-models'
-                        ? defaultModelsSaved ? 'Saved' : 'Save default models'
-                        : tuningSaved ? 'Saved' : 'Save changes'}
+                          ? defaultModelsSaved ? 'Saved' : 'Save default models'
+                          : tuningSaved ? 'Saved' : 'Save changes'}
               </button>
             </div>
           </footer>

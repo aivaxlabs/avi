@@ -12,6 +12,7 @@
 - **Startup diagnostics** — `--inactive-bots` prevents automatic bot initialization, while `--memory-trace` records process CPU, memory, and I/O samples every 250 ms.
 
 ### Changed
+- The sidebar now keeps New chat and Quick chat fixed above a unified scroll area while Settings remains fixed at the bottom.
 - **Personalization Mode controls** now use the standard Color mode dropdown alongside native Sidebar transparency.
 - Refined dropdown, dialog, auxiliary panel, chat message, and toast motion with consistent timing, easing, and reduced-motion behavior.
 - Removed the built-in CLIProxyAPI provider plugin.
