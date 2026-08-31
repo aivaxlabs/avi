@@ -110,7 +110,7 @@ A static panel is `{ id, title, load, invokeAction? }`. Panels return declarativ
 
 ### Themes
 
-A theme is `{ id, name, tagline, css, emptyChatBackground? }`. Theme CSS is trusted global presentation input and must be reviewed for remote URLs, overlays, unreadable states, and overly broad selectors.
+A theme is `{ id, name, tagline, css, emptyChatBackground? }`. Theme CSS should define `--background-transparent-0` through `--background-transparent-5` as translucent counterparts of its six background surfaces; Avi uses those tokens for the transparent Sidebar. Theme CSS is trusted global presentation input and must be reviewed for remote URLs, overlays, unreadable states, and overly broad selectors.
 
 ### Personalities
 

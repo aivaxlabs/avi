@@ -22,7 +22,8 @@ All Desktop options are disabled by default:
 
 - **Keep Avi in the background** — closing the window hides it in the tray;
 - **Start Avi on logon** — starts Avi hidden with the operating system;
-- **Notify when a conversation finishes** — shows a system notification after a user-created main thread finishes and none of its sub-agents are still running.
+- **Notify when a conversation finishes** — shows a system notification after a user-created main thread finishes and none of its sub-agents are still running;
+- **Transparent sidebar**, under **Settings → Personalization → Mode** — uses the supported operating-system window effect and active theme surfaces.
 
 Desktop toggles save immediately. Chat, Tuning, Personality, and Verbosity changes require **Save changes**.
 
