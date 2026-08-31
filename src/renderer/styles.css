@@ -93,6 +93,10 @@ html, body, #root {
     background: var(--background-1);
 }
 
+:root[data-transparency-mode="transparent"] .app-shell {
+    background: transparent;
+}
+
 .app-shell.platform-linux {
     background: radial-gradient(circle at 56% 92%, var(--background-4), transparent 24%),
       linear-gradient(135deg, var(--background-1), var(--background-2));
@@ -129,8 +133,16 @@ html, body, #root {
     outline-offset: -3px;
 }
 
-body {
+html[data-transparency-mode="opaque"] body {
     border-top: 1px solid var(--border-color);
+}
+
+html[data-transparency-mode="transparent"] .chat-workspace {
+    position: relative;
+    border-top-left-radius: 10px;
+    filter: drop-shadow(-1px -1px 1px #00000011);
+    top: 2px;
+    height: calc(100% - 2px);
 }
 
 body.panel-resizing {
@@ -2016,6 +2028,12 @@ body.panel-resizing * {
     --background-3: #eeeeee;
     --background-4: #e5e5e5;
     --background-5: #171717;
+    --background-transparent-0: color-mix(in srgb, var(--background-0) 82%, transparent);
+    --background-transparent-1: color-mix(in srgb, var(--background-0) 77%, transparent);
+    --background-transparent-2: color-mix(in srgb, var(--background-0) 52%, transparent);
+    --background-transparent-3: color-mix(in srgb, var(--background-0) 42%, transparent);
+    --background-transparent-4: color-mix(in srgb, var(--background-0) 32%, transparent);
+    --background-transparent-5: color-mix(in srgb, var(--background-0) 12%, transparent);
     --highlight-color: #fff1a8;
     --success-color: #18794e;
     --warn-color: #9a6700;
@@ -9312,6 +9330,12 @@ button svg {
     --background-3: #eae4d5;
     --background-4: #ddd5c1;
     --background-5: #272822;
+    --background-transparent-0: color-mix(in srgb, var(--background-0) 72%, transparent);
+    --background-transparent-1: color-mix(in srgb, var(--background-1) 72%, transparent);
+    --background-transparent-2: color-mix(in srgb, var(--background-2) 72%, transparent);
+    --background-transparent-3: color-mix(in srgb, var(--background-3) 72%, transparent);
+    --background-transparent-4: color-mix(in srgb, var(--background-4) 72%, transparent);
+    --background-transparent-5: color-mix(in srgb, var(--background-5) 72%, transparent);
     --highlight-color: #f4ecb2;
     --success-color: #5c8a12;
     --warn-color: #a06a00;
@@ -11161,6 +11185,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     height: 100%;
     overflow: auto;
     padding: 72px clamp(24px, 5vw, 72px) 48px;
+    background: var(--background-1);
     color: var(--text-1);
     scrollbar-width: thin;
     scrollbar-color: var(--text-4) transparent;
@@ -12362,6 +12387,12 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --background-3: #e8e6dc;
     --background-4: #dcd9cd;
     --background-5: #3d3929;
+    --background-transparent-0: color-mix(in srgb, var(--background-0) 72%, transparent);
+    --background-transparent-1: color-mix(in srgb, var(--background-1) 72%, transparent);
+    --background-transparent-2: color-mix(in srgb, var(--background-2) 72%, transparent);
+    --background-transparent-3: color-mix(in srgb, var(--background-3) 72%, transparent);
+    --background-transparent-4: color-mix(in srgb, var(--background-4) 72%, transparent);
+    --background-transparent-5: color-mix(in srgb, var(--background-5) 72%, transparent);
     --highlight-color: #f3e5c0;
     --success-color: #5f8a4e;
     --warn-color: #a06a00;
@@ -12478,7 +12509,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     display: grid;
     grid-template-rows: 44px minmax(0, 1fr);
     overflow: hidden;
-    background: var(--background-1);
+    background: var(--background-transparent-1, var(--background-1));
     border-left: 1px solid var(--border-color);
     animation: auxiliary-panel-in var(--duration-slow) var(--ease-smooth-out);
 }
@@ -13340,6 +13371,12 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --background-3: #e8e8e8;
     --background-4: #d9d9d9;
     --background-5: #0d0d0d;
+    --background-transparent-0: color-mix(in srgb, var(--background-0) 72%, transparent);
+    --background-transparent-1: color-mix(in srgb, var(--background-1) 72%, transparent);
+    --background-transparent-2: color-mix(in srgb, var(--background-2) 72%, transparent);
+    --background-transparent-3: color-mix(in srgb, var(--background-3) 72%, transparent);
+    --background-transparent-4: color-mix(in srgb, var(--background-4) 72%, transparent);
+    --background-transparent-5: color-mix(in srgb, var(--background-5) 72%, transparent);
     --highlight-color: #e5f3ff;
     --success-color: #16853f;
     --warn-color: #a15c00;
@@ -14658,14 +14695,28 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 /* components\sidebar.xcss */
 .sidebar {
     --sidebar-font-size: 13px;
+    --sidebar-text-muted-opacity: .58;
+    --sidebar-background: transparent;
+    --sidebar-background-hover: var(--background-3);
+    --sidebar-background-active: var(--background-4);
+    --sidebar-border-color: var(--border-color);
     position: relative;
     z-index: 55;
     display: flex;
     flex-direction: column;
     min-height: 0;
-    background: var(--background-2);
+    color: var(--text-1);
+    background: var(--sidebar-background);
     font-size: var(--sidebar-font-size);
-    border-right: 1px solid var(--border-color);
+    border-right: 1px solid var(--sidebar-border-color);
+}
+
+:root[data-transparency-mode="transparent"] .sidebar {
+    --sidebar-background-hover: var(--background-transparent-3, color-mix(in srgb, var(--background-3) 72%, transparent));
+    --sidebar-background-active: var(--background-transparent-4, color-mix(in srgb, var(--background-4) 72%, transparent));
+    --sidebar-border-color: var(--background-transparent-4, color-mix(in srgb, var(--background-4) 72%, transparent));
+    backdrop-filter: saturate(135%);
+    border-right: none;
 }
 
 .sidebar .sidebar-titlebar {
@@ -14685,7 +14736,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     text-transform: uppercase;
     letter-spacing: 1px;
     font-weight: 600;
-    opacity: .5;
+    opacity: var(--sidebar-text-muted-opacity);
     color: var(--text-1);
 }
 
@@ -14705,14 +14756,16 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     height: 26px;
     display: grid;
     place-items: center;
-    color: var(--text-3);
+    color: var(--text-1);
     background: transparent;
     border-radius: 6px;
+    opacity: var(--sidebar-text-muted-opacity);
     -webkit-app-region: no-drag;
 }
 
 .sidebar .sidebar-toggle:hover {
-    background: var(--item-hover);
+    background: var(--sidebar-background-hover);
+    opacity: 1;
 }
 
 .sidebar .conversation-item .icon-button {
@@ -14750,11 +14803,11 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .sidebar .nav-actions button:hover, .sidebar .settings-button:hover, .sidebar .conversation-item:hover {
-    background: var(--item-hover);
+    background: var(--sidebar-background-hover);
 }
 
 .sidebar .nav-actions button.active, .sidebar .conversation-item.active, .sidebar .conversation-item.menu-open {
-    background: var(--item-active);
+    background: var(--sidebar-background-active);
 }
 
 .sidebar .conversation-item:hover .icon-button, .sidebar .conversation-item.menu-open .icon-button {
@@ -14767,7 +14820,8 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .sidebar .nav-actions button:disabled {
-    color: var(--text-4);
+    color: var(--text-1);
+    opacity: var(--sidebar-text-muted-opacity);
 }
 
 .sidebar .recent-label {
@@ -14776,9 +14830,9 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid var(--sidebar-border-color);
     gap: 6px;
-    color: var(--text-4);
+    color: var(--text-1);
 }
 
 .sidebar .recent-title {
@@ -14786,6 +14840,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     display: flex;
     align-items: center;
     gap: 6px;
+    opacity: var(--sidebar-text-muted-opacity);
 }
 
 .sidebar .recent-filter-button {
@@ -14793,19 +14848,20 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     height: 22px;
     display: grid;
     place-items: center;
-    color: var(--text-3);
+    color: var(--text-1);
     background: transparent;
     border-radius: 5px;
+    opacity: var(--sidebar-text-muted-opacity);
 }
 
 .sidebar .recent-filter-button:hover {
-    color: var(--text-1);
-    background: var(--item-hover);
+    background: var(--sidebar-background-hover);
+    opacity: 1;
 }
 
 .sidebar .recent-filter-button.active {
-    color: var(--text-1);
-    background: var(--item-active);
+    background: var(--sidebar-background-active);
+    opacity: 1;
 }
 
 .sidebar .conversation-filter-empty {
@@ -14813,15 +14869,16 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     gap: 8px;
     justify-items: center;
     padding: 18px 12px;
-    color: var(--text-3);
+    color: var(--text-1);
     font-size: .85rem;
     text-align: center;
+    opacity: var(--sidebar-text-muted-opacity);
 }
 
 .sidebar .conversation-filter-empty button {
     padding: 4px 10px;
-    color: var(--text-2);
-    background: var(--item-hover);
+    color: var(--text-1);
+    background: var(--sidebar-background-hover);
     border: none;
     border-radius: 8px;
     font-size: .8rem;
@@ -14836,10 +14893,10 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     gap: 2px;
     padding: 6px;
     margin-bottom: 4px;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--sidebar-border-color);
     scrollbar-gutter: stable;
     scrollbar-width: thin;
-    scrollbar-color: var(--text-4) transparent;
+    scrollbar-color: color-mix(in srgb, var(--text-1) 32%, transparent) transparent;
 }
 
 .sidebar .conversation-list::-webkit-scrollbar {
@@ -14852,14 +14909,14 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 
 .sidebar .conversation-list::-webkit-scrollbar-thumb {
     min-height: 44px;
-    background: var(--text-4);
+    background: color-mix(in srgb, var(--text-1) 32%, transparent);
     background-clip: padding-box;
     border: 3px solid transparent;
     border-radius: 999px;
 }
 
 .sidebar .conversation-list:hover::-webkit-scrollbar-thumb {
-    background: var(--text-3);
+    background: color-mix(in srgb, var(--text-1) 48%, transparent);
     background-clip: padding-box;
 }
 
@@ -14887,7 +14944,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     justify-content: space-between;
     gap: 6px;
     margin: 4px 6px 2px 10px;
-    color: var(--text-3);
+    color: var(--text-1);
 }
 
 .sidebar .conversation-group-header > .conversation-group-title {
@@ -14895,6 +14952,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     display: flex;
     align-items: center;
     gap: 6px;
+    opacity: var(--sidebar-text-muted-opacity);
 }
 
 .sidebar .conversation-group-header > .conversation-group-title > svg {
@@ -14921,10 +14979,10 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     display: grid;
     place-items: center;
     padding: 0;
-    color: var(--text-3);
+    color: var(--text-1);
     background: transparent;
     border-radius: 9999px;
-    opacity: .72;
+    opacity: var(--sidebar-text-muted-opacity);
     transition: color 180ms var(--base-transition),
         background 180ms var(--base-transition),
         opacity 180ms var(--base-transition),
@@ -14933,13 +14991,13 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 
 .sidebar .conversation-group-header .conversation-group-actions > button:hover, .sidebar .conversation-group-header .conversation-group-actions > button:focus-visible {
     color: var(--text-1);
-    background: var(--item-hover);
+    background: var(--sidebar-background-hover);
     opacity: 1;
 }
 
 .sidebar .conversation-group-header .conversation-group-actions > button.active {
     color: var(--text-1);
-    background: var(--item-active);
+    background: var(--sidebar-background-active);
     opacity: 1;
 }
 
@@ -14948,7 +15006,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .sidebar .conversation-group-header .conversation-group-actions > button:focus-visible {
-    outline: 2px solid var(--text-3);
+    outline: 2px solid color-mix(in srgb, var(--text-1) 48%, transparent);
     outline-offset: 1px;
 }
 
@@ -14997,8 +15055,9 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     grid-row: 1;
     justify-self: center;
     flex: 0 0 auto;
-    color: var(--text-4);
+    color: var(--text-1);
     font-size: 12px;
+    opacity: var(--sidebar-text-muted-opacity);
     white-space: nowrap;
     pointer-events: none;
     transition: opacity 120ms var(--base-transition);
@@ -15008,16 +15067,17 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     width: fit-content;
     margin: 2px 0 4px 23px;
     padding: 4px 6px;
-    color: var(--text-3);
+    color: var(--text-1);
     background: transparent;
     border-radius: 5px;
     font-size: 12px;
     text-align: left;
+    opacity: var(--sidebar-text-muted-opacity);
 }
 
 .sidebar .conversation-show-toggle:hover {
-    color: var(--text-1);
-    background: var(--item-hover);
+    background: var(--sidebar-background-hover);
+    opacity: 1;
 }
 
 .sidebar .completion-indicator {
@@ -15032,12 +15092,13 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 
 .sidebar .sleep-indicator {
     flex: 0 0 auto;
-    color: var(--text-3);
+    color: var(--text-1);
+    opacity: var(--sidebar-text-muted-opacity);
 }
 
 .sidebar .run-spinner {
     flex: 0 0 auto;
-    color: var(--text-3);
+    color: var(--text-1);
     animation: sidebar-run-spin 800ms linear infinite;
 }
 
@@ -15376,41 +15437,6 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 .settings-page .appearance-desktop-switch:focus-visible {
     outline: 2px solid var(--primary-color);
     outline-offset: 2px;
-}
-
-.settings-page .appearance-scheme-switch {
-    display: inline-flex;
-    gap: 2px;
-    padding: 3px;
-    background: var(--background-2);
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-}
-
-.settings-page .appearance-scheme-option {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    color: var(--text-3);
-    font-size: 12px;
-    background: transparent;
-    border: none;
-    border-radius: 7px;
-    cursor: pointer;
-    transition: color 140ms var(--base-transition),
-      background 140ms var(--base-transition),
-      box-shadow 140ms var(--base-transition);
-}
-
-.settings-page .appearance-scheme-option:hover {
-    color: var(--text-1);
-}
-
-.settings-page .appearance-scheme-option.active {
-    color: var(--text-1);
-    background: var(--background-0);
-    box-shadow: 0 1px 3px rgb(0 0 0 / 14%);
 }
 
 .settings-page .appearance-theme-grid {
@@ -16381,6 +16407,12 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --background-3: #e9e9e9;
     --background-4: #dddddd;
     --background-5: #0078d4;
+    --background-transparent-0: color-mix(in srgb, var(--background-0) 72%, transparent);
+    --background-transparent-1: color-mix(in srgb, var(--background-1) 72%, transparent);
+    --background-transparent-2: color-mix(in srgb, var(--background-2) 72%, transparent);
+    --background-transparent-3: color-mix(in srgb, var(--background-3) 72%, transparent);
+    --background-transparent-4: color-mix(in srgb, var(--background-4) 72%, transparent);
+    --background-transparent-5: color-mix(in srgb, var(--background-5) 72%, transparent);
     --highlight-color: #fff3b8;
     --success-color: #16825d;
     --warn-color: #9a6700;

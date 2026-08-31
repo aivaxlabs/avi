@@ -73,6 +73,7 @@ const defaultDesktopSettings = Object.freeze({
   closeToTray: false,
   openAtLogin: false,
   notifyOnCompletion: false,
+  sidebarTransparency: false,
 });
 const defaultArchiveSettings = Object.freeze({
   archiveAfterDays: 7,
@@ -3101,11 +3102,13 @@ function normalizeDesktopSettings(value, strict = false) {
     closeToTray: settings.closeToTray === true,
     openAtLogin: settings.openAtLogin === true,
     notifyOnCompletion: settings.notifyOnCompletion === true,
+    sidebarTransparency: settings.sidebarTransparency === true,
   };
   if (strict && (
     typeof settings.closeToTray !== 'boolean'
     || typeof settings.openAtLogin !== 'boolean'
     || typeof settings.notifyOnCompletion !== 'boolean'
+    || typeof settings.sidebarTransparency !== 'boolean'
   )) {
     throw new Error('Desktop settings are invalid.');
   }

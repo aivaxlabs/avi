@@ -2172,6 +2172,8 @@ export function SettingsPage({
                   backgroundUrl={backgroundUrl}
                   previewScheme={previewScheme}
                   themeCatalog={pluginCatalog.themes ?? []}
+                  desktop={desktop}
+                  onDesktopChange={onDesktopChange}
                   onChange={(next) => {
                     setPreviewScheme(next.scheme);
                     onAppearanceChange(next);

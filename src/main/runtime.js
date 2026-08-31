@@ -25,7 +25,7 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { homedir, release } from 'node:os';
 import {
   basename,
   dirname,
@@ -690,6 +690,7 @@ function createWindow() {
     y: 100,
     show: false,
     icon,
+    ...getNativeWindowOptions(),
     webPreferences: {
       preload: join(__dirname, '../preload/preload.cjs'),
       contextIsolation: true,
@@ -1057,7 +1058,37 @@ async function applyLoginSettings() {
 }
 
 function getNativeWindowOptions() {
-  return { transparent: false, titleBarStyle: 'default' };
+  const options = { transparent: false, titleBarStyle: 'default' };
+  if (!getPreferences().desktop.sidebarTransparency) return options;
+  if (process.platform === 'win32') {
+    const windowsBuild = Number(release().split('.')[2] ?? 0);
+    return {
+      ...options,
+      backgroundColor: '#00000000',
+      backgroundMaterial: windowsBuild >= 22_000 ? 'tabbed' : 'acrylic',
+    };
+  }
+  if (process.platform === 'darwin') {
+    return {
+      ...options,
+      backgroundColor: '#00000000',
+      vibrancy: 'sidebar',
+      visualEffectState: 'followWindow',
+    };
+  }
+  return options;
+}
+
+function applyNativeWindowEffect() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const options = getNativeWindowOptions();
+  if (process.platform === 'win32') {
+    mainWindow.setBackgroundColor(options.backgroundColor ?? '#00000000');
+    mainWindow.setBackgroundMaterial(options.backgroundMaterial ?? 'none');
+  } else if (process.platform === 'darwin') {
+    mainWindow.setBackgroundColor(options.backgroundColor ?? '#00000000');
+    mainWindow.setVibrancy(options.vibrancy ?? null);
+  }
 }
 
 function logDefaultModelWarnings(operation) {
@@ -1181,6 +1212,7 @@ function registerIpc() {
   applicationIpc.handle('desktop:save', async (_event, settings) => {
     const saved = setDesktopSettings(settings);
     await applyLoginSettings();
+    applyNativeWindowEffect();
     return saved;
   });
   applicationIpc.handle('tuning:shells', () => {

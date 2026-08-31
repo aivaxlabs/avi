@@ -3,6 +3,7 @@
   height: 100%;
   overflow: auto;
   padding: 72px clamp(24px, 5vw, 72px) 48px;
+    background: var(--background-1);
   color: var(--text-1);
   scrollbar-width: thin;
   scrollbar-color: var(--text-4) transparent;

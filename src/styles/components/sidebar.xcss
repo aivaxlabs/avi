@@ -1,13 +1,27 @@
 .sidebar {
   --sidebar-font-size: 13px;
+  --sidebar-text-muted-opacity: .58;
+  --sidebar-background: transparent;
+  --sidebar-background-hover: var(--background-3);
+  --sidebar-background-active: var(--background-4);
+  --sidebar-border-color: var(--border-color);
   position: relative;
   z-index: 55;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: --background-2;
+  color: var(--text-1);
+  background: var(--sidebar-background);
   font-size: --sidebar-font-size;
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid var(--sidebar-border-color);
+
+  :root[data-transparency-mode="transparent"] & {
+    --sidebar-background-hover: var(--background-transparent-3, color-mix(in srgb, var(--background-3) 72%, transparent));
+    --sidebar-background-active: var(--background-transparent-4, color-mix(in srgb, var(--background-4) 72%, transparent));
+    --sidebar-border-color: var(--background-transparent-4, color-mix(in srgb, var(--background-4) 72%, transparent));
+    backdrop-filter: saturate(135%);
+    border-right: none;
+  }
 
   .sidebar-titlebar {
     height: 38px;
@@ -26,7 +40,7 @@
     text-transform: uppercase;
     letter-spacing: 1px;
     font-weight: 600;
-    opacity: .5;
+    opacity: var(--sidebar-text-muted-opacity);
     color: var(--text-1);
 
     img {
@@ -46,13 +60,15 @@
     height: 26px;
     display: grid;
     place-items: center;
-    color: var(--text-3);
+    color: var(--text-1);
     background: transparent;
     border-radius: 6px;
+    opacity: var(--sidebar-text-muted-opacity);
     -webkit-app-region: no-drag;
 
     &:hover {
-      background: var(--item-hover);
+      background: var(--sidebar-background-hover);
+      opacity: 1;
     }
   }
 
@@ -95,13 +111,13 @@
   .nav-actions button:hover,
   .settings-button:hover,
   .conversation-item:hover {
-    background: var(--item-hover);
+    background: var(--sidebar-background-hover);
   }
 
   .nav-actions button.active,
   .conversation-item.active,
   .conversation-item.menu-open {
-    background: var(--item-active);
+    background: var(--sidebar-background-active);
   }
 
   .conversation-item:hover .icon-button,
@@ -116,7 +132,8 @@
   }
 
   .nav-actions button:disabled {
-    color: var(--text-4);
+    color: var(--text-1);
+    opacity: var(--sidebar-text-muted-opacity);
   }
 
   .recent-label {
@@ -125,9 +142,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-top: 1px solid --border-color;
+    border-top: 1px solid var(--sidebar-border-color);
     gap: 6px;
-    color: var(--text-4);
+    color: var(--text-1);
   }
 
   .recent-title {
@@ -135,6 +152,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    opacity: var(--sidebar-text-muted-opacity);
   }
 
   .recent-filter-button {
@@ -142,18 +160,19 @@
     height: 22px;
     display: grid;
     place-items: center;
-    color: var(--text-3);
+    color: var(--text-1);
     background: transparent;
     border-radius: 5px;
+    opacity: var(--sidebar-text-muted-opacity);
 
     &:hover {
-      color: var(--text-1);
-      background: var(--item-hover);
+      background: var(--sidebar-background-hover);
+      opacity: 1;
     }
 
     &.active {
-      color: var(--text-1);
-      background: var(--item-active);
+      background: var(--sidebar-background-active);
+      opacity: 1;
     }
   }
 
@@ -162,14 +181,15 @@
     gap: 8px;
     justify-items: center;
     padding: 18px 12px;
-    color: var(--text-3);
+    color: var(--text-1);
     font-size: .85rem;
     text-align: center;
+    opacity: var(--sidebar-text-muted-opacity);
 
     button {
       padding: 4px 10px;
-      color: var(--text-2);
-      background: var(--item-hover);
+      color: var(--text-1);
+      background: var(--sidebar-background-hover);
       border: none;
       border-radius: 8px;
       font-size: .8rem;
@@ -185,10 +205,10 @@
     gap: 2px;
     padding: 6px;
     margin-bottom: 4px;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--sidebar-border-color);
     scrollbar-gutter: stable;
     scrollbar-width: thin;
-    scrollbar-color: var(--text-4) transparent;
+    scrollbar-color: color-mix(in srgb, var(--text-1) 32%, transparent) transparent;
 
     &::-webkit-scrollbar {
       width: 10px;
@@ -200,14 +220,14 @@
 
     &::-webkit-scrollbar-thumb {
       min-height: 44px;
-      background: var(--text-4);
+      background: color-mix(in srgb, var(--text-1) 32%, transparent);
       background-clip: padding-box;
       border: 3px solid transparent;
       border-radius: 999px;
     }
 
     &:hover::-webkit-scrollbar-thumb {
-      background: var(--text-3);
+      background: color-mix(in srgb, var(--text-1) 48%, transparent);
       background-clip: padding-box;
     }
 
@@ -236,13 +256,14 @@
     justify-content: space-between;
     gap: 6px;
     margin: 4px 6px 2px 10px;
-    color: var(--text-3);
+    color: var(--text-1);
 
     > .conversation-group-title {
       min-width: 0;
       display: flex;
       align-items: center;
       gap: 6px;
+      opacity: var(--sidebar-text-muted-opacity);
 
       > svg {
         flex: 0 0 auto;
@@ -269,10 +290,10 @@
       display: grid;
       place-items: center;
       padding: 0;
-      color: var(--text-3);
+      color: var(--text-1);
       background: transparent;
       border-radius: 9999px;
-      opacity: .72;
+      opacity: var(--sidebar-text-muted-opacity);
       transition: color 180ms var(--base-transition),
         background 180ms var(--base-transition),
         opacity 180ms var(--base-transition),
@@ -281,13 +302,13 @@
       &:hover,
       &:focus-visible {
         color: var(--text-1);
-        background: var(--item-hover);
+        background: var(--sidebar-background-hover);
         opacity: 1;
       }
 
       &.active {
         color: var(--text-1);
-        background: var(--item-active);
+        background: var(--sidebar-background-active);
         opacity: 1;
       }
 
@@ -296,7 +317,7 @@
       }
 
       &:focus-visible {
-        outline: 2px solid var(--text-3);
+        outline: 2px solid color-mix(in srgb, var(--text-1) 48%, transparent);
         outline-offset: 1px;
       }
     }
@@ -350,8 +371,9 @@
     grid-row: 1;
     justify-self: center;
     flex: 0 0 auto;
-    color: var(--text-4);
+    color: var(--text-1);
     font-size: 12px;
+    opacity: var(--sidebar-text-muted-opacity);
     white-space: nowrap;
     pointer-events: none;
     transition: opacity 120ms var(--base-transition);
@@ -361,15 +383,16 @@
     width: fit-content;
     margin: 2px 0 4px 23px;
     padding: 4px 6px;
-    color: var(--text-3);
+    color: var(--text-1);
     background: transparent;
     border-radius: 5px;
     font-size: 12px;
     text-align: left;
+    opacity: var(--sidebar-text-muted-opacity);
 
     &:hover {
-      color: var(--text-1);
-      background: var(--item-hover);
+      background: var(--sidebar-background-hover);
+      opacity: 1;
     }
   }
 
@@ -385,12 +408,13 @@
 
   .sleep-indicator {
     flex: 0 0 auto;
-    color: var(--text-3);
+    color: var(--text-1);
+    opacity: var(--sidebar-text-muted-opacity);
   }
 
   .run-spinner {
     flex: 0 0 auto;
-    color: var(--text-3);
+    color: var(--text-1);
     animation: sidebar-run-spin 800ms linear infinite;
 
     @media (prefers-reduced-motion: reduce) {

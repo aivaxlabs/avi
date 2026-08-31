@@ -1,13 +1,13 @@
-import { Check, ImagePlus, Monitor, Moon, Sun, Trash2 } from 'lucide-react';
+import { Check, ImagePlus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { classNames } from '../lib/format.js';
 import { themes } from '../lib/themes.js';
 import { Message } from './Message.jsx';
 
 const schemeOptions = Object.freeze([
-  { id: 'system', label: 'System', icon: Monitor },
-  { id: 'light', label: 'Light', icon: Sun },
-  { id: 'dark', label: 'Dark', icon: Moon },
+  { id: 'system', label: 'System', description: 'Follow the operating-system appearance.' },
+  { id: 'light', label: 'Light', description: 'Keep Avi in light mode.' },
+  { id: 'dark', label: 'Dark', description: 'Keep Avi in dark mode.' },
 ]);
 const blendModeOptions = Object.freeze([
   'normal',
@@ -102,7 +102,9 @@ export function AppearanceSettings({
   appearance,
   backgroundUrl,
   previewScheme,
+  desktop,
   onChange,
+  onDesktopChange,
   onBackgroundSelect,
   onBackgroundRemove,
   themeCatalog = themes,
@@ -112,34 +114,43 @@ export function AppearanceSettings({
   const shownMode = previewScheme === 'system'
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : previewScheme;
+  const selectedScheme = schemeOptions.find((option) => option.id === appearance.scheme);
 
   return (
     <div className="settings-appearance">
       <section className="settings-section">
         <div className="settings-section-heading">
           <h3>Mode</h3>
-          <p>Follow the system preference or pin Avi to a light or dark appearance.</p>
+          <p>Control Avi’s color scheme and native window appearance.</p>
         </div>
-        <div className="settings-section-card">
-          <div className="appearance-scheme-switch" role="radiogroup" aria-label="Color scheme">
-            {schemeOptions.map((option) => {
-              const Icon = option.icon;
-              const selected = appearance.scheme === option.id;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  className={classNames('appearance-scheme-option', selected && 'active')}
-                  onClick={() => onChange({ ...appearance, scheme: option.id })}
-                >
-                  <Icon size={14} />
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
+        <div className="settings-section-card settings-form settings-row-card">
+          <label className="settings-field settings-field-wide">
+            <span>Color mode</span>
+            <select
+              value={appearance.scheme}
+              onChange={(event) => onChange({ ...appearance, scheme: event.target.value })}
+            >
+              {schemeOptions.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+            <small>{selectedScheme.description}</small>
+          </label>
+          <label className="settings-toggle-row">
+            <span>
+              <strong>Transparent sidebar</strong>
+              <small>Use the operating system’s native transparency effect with the active theme surfaces.</small>
+            </span>
+            <input
+              className="appearance-desktop-switch"
+              type="checkbox"
+              checked={desktop.sidebarTransparency}
+              onChange={(event) => onDesktopChange({
+                ...desktop,
+                sidebarTransparency: event.target.checked,
+              })}
+            />
+          </label>
         </div>
       </section>
 
@@ -194,7 +205,7 @@ export function AppearanceSettings({
                 aria-hidden="true"
               />
             )}
-            <div className="chat-scroll" inert="" aria-hidden="true">
+            <div className="chat-scroll" inert aria-hidden="true">
               <div className="messages-column">
                 {backgroundPreviewMessages.map((message) => (
                   <Message

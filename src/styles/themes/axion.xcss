@@ -12,6 +12,12 @@
   --background-3: #eeeeee;
   --background-4: #e5e5e5;
   --background-5: #171717;
+  --background-transparent-0: color-mix(in srgb, var(--background-0) 82%, transparent);
+  --background-transparent-1: color-mix(in srgb, var(--background-0) 77%, transparent);
+  --background-transparent-2: color-mix(in srgb, var(--background-0) 52%, transparent);
+  --background-transparent-3: color-mix(in srgb, var(--background-0) 42%, transparent);
+  --background-transparent-4: color-mix(in srgb, var(--background-0) 32%, transparent);
+  --background-transparent-5: color-mix(in srgb, var(--background-0) 12%, transparent);
   --highlight-color: #fff1a8;
   --success-color: #18794e;
   --warn-color: #9a6700;

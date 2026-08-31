@@ -35,6 +35,10 @@ body,
     background: --background-1;
   }
 
+  :root[data-transparency-mode="transparent"] & {
+    background: transparent;
+  }
+
   &.platform-linux {
     background: radial-gradient(circle at 56% 92%, --background-4, transparent 24%),
       linear-gradient(135deg, --background-1, --background-2);
@@ -78,8 +82,20 @@ body,
   }
 }
 
-body {
-  border-top: 1px solid --border-color;
+html[data-transparency-mode="opaque"] {
+  body {
+    border-top: 1px solid --border-color;
+  }
+}
+
+html[data-transparency-mode="transparent"] {
+  .chat-workspace {
+    position: relative;
+    border-top-left-radius: 10px;
+    filter: drop-shadow(-1px -1px 1px #00000011);
+    top: 2px;
+    height: calc(100% - 2px);
+  }
 }
 
 body.panel-resizing {

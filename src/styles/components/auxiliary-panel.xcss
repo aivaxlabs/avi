@@ -51,7 +51,7 @@
   display: grid;
   grid-template-rows: 44px minmax(0, 1fr);
   overflow: hidden;
-  background: --background-1;
+  background: var(--background-transparent-1, --background-1);
   border-left: 1px solid --border-color;
   animation: auxiliary-panel-in var(--duration-slow) var(--ease-smooth-out);
 

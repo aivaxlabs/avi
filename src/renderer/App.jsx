@@ -310,6 +310,13 @@ export default function App() {
   }, [appearance, appearanceReady]);
 
   useEffect(() => {
+    document.documentElement.dataset.transparencyMode = appState?.desktop?.sidebarTransparency
+      && appState?.platform !== 'linux'
+      ? 'transparent'
+      : 'opaque';
+  }, [appState?.desktop?.sidebarTransparency, appState?.platform]);
+
+  useEffect(() => {
     let active = true;
     if (!appearance.backgroundFile) {
       setChatBackgroundUrl(null);

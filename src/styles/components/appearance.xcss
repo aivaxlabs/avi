@@ -56,41 +56,6 @@
     }
   }
 
-  .appearance-scheme-switch {
-    display: inline-flex;
-    gap: 2px;
-    padding: 3px;
-    background: --background-2;
-    border: 1px solid --border-color;
-    border-radius: 10px;
-  }
-
-  .appearance-scheme-option {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    color: --text-3;
-    font-size: 12px;
-    background: transparent;
-    border: none;
-    border-radius: 7px;
-    cursor: pointer;
-    transition: color 140ms --base-transition,
-      background 140ms --base-transition,
-      box-shadow 140ms --base-transition;
-
-    &:hover {
-      color: --text-1;
-    }
-
-    &.active {
-      color: --text-1;
-      background: --background-0;
-      box-shadow: 0 1px 3px rgb(0 0 0 / 14%);
-    }
-  }
-
   .appearance-theme-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));

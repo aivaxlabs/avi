@@ -27,6 +27,12 @@ export default {
             --background-3: #101311;
             --background-4: #1b201e;
             --background-5: #f5f7f6;
+            --background-transparent-0: color-mix(in srgb, var(--background-0) 72%, transparent);
+            --background-transparent-1: color-mix(in srgb, var(--background-1) 72%, transparent);
+            --background-transparent-2: color-mix(in srgb, var(--background-2) 72%, transparent);
+            --background-transparent-3: color-mix(in srgb, var(--background-3) 72%, transparent);
+            --background-transparent-4: color-mix(in srgb, var(--background-4) 72%, transparent);
+            --background-transparent-5: color-mix(in srgb, var(--background-5) 72%, transparent);
             --highlight-color: #145c4c;
             --success-color: #55d69e;
             --warn-color: #e0ad4f;
