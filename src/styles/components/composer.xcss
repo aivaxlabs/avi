@@ -738,6 +738,7 @@
   .model-input-holder {
     grid-area: model;
     justify-self: end;
+    align-self: center;
     position: relative;
     min-width: 0;
     width: fit-content;
@@ -957,6 +958,7 @@
     }
 
     &:has(.intelligence-slider-input:active) {
+
       .intelligence-slider-track::before,
       .intelligence-slider-track::after,
       .intelligence-slider-thumb {
@@ -995,25 +997,19 @@
     }
 
     &::before {
-      background: linear-gradient(
-        90deg,
-        var(--primary-color) 0%,
-        var(--primary-color) 42%,
-        #7567ee 70%,
-        #b85cf1 100%
-      );
-      clip-path: inset(
-        0 calc(100% - var(--intelligence-fill, 50%) - var(--intelligence-thumb-offset, 0px)) 0 0
-      );
+      background: linear-gradient(90deg,
+          var(--primary-color) 0%,
+          var(--primary-color) 42%,
+          #7567ee 70%,
+          #b85cf1 100%);
+      clip-path: inset(0 calc(100% - var(--intelligence-fill, 50%) - var(--intelligence-thumb-offset, 0px)) 0 0);
       transition: clip-path 180ms var(--base-transition);
     }
 
     &::after {
       background:
-        radial-gradient(circle, rgba(255, 255, 255, 0.95) 0 1px, transparent 1.5px)
-          3px 2px / 29px 13px,
-        radial-gradient(circle, rgba(234, 221, 255, 0.8) 0 0.8px, transparent 1.4px)
-          16px 9px / 37px 15px;
+        radial-gradient(circle, rgba(255, 255, 255, 0.95) 0 1px, transparent 1.5px) 3px 2px / 29px 13px,
+        radial-gradient(circle, rgba(234, 221, 255, 0.8) 0 0.8px, transparent 1.4px) 16px 9px / 37px 15px;
       opacity: var(--intelligence-shimmer-opacity, 0);
       -webkit-mask-image: linear-gradient(90deg, transparent 40%, #000 68%);
       mask-image: linear-gradient(90deg, transparent 40%, #000 68%);

@@ -40,6 +40,7 @@
     "test:bots": "bun scripts/test-bot-scheduling.mjs && bun scripts/test-bot-work-state.mjs && bun scripts/test-bot-overview.mjs && electron --no-sandbox scripts/test-bot-folders.mjs && electron --no-sandbox scripts/test-bot-enabled-database.mjs && electron --no-sandbox scripts/test-bot-thread-context.mjs && electron --no-sandbox scripts/test-bot-management-tools.mjs",
     "test:routers": "bun scripts/test-model-router.mjs",
     "test:files": "bun scripts/test-files-panel.mjs",
+    "test:mentions": "bun scripts/test-composer-invocation.mjs && bun scripts/test-workspace-mentions.mjs",
     "test:side-chat": "bun scripts/test-side-chat-database.mjs",
     "test:rubber-duck": "electron --no-sandbox scripts/test-rubber-duck.mjs",
     "test:archive": "electron --no-sandbox scripts/test-archive-database.mjs",

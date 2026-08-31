@@ -38,9 +38,11 @@ The model picker has two modes. When **Settings → Default models → Intellige
 
 Choose the default behavior in **Settings → General → Message delivery mode**. `Enter` uses the configured behavior and `Ctrl+Enter` uses the opposite. Pending messages can be reordered or canceled.
 
-### Commands
+### Commands and mentions
 
-Type `/` to open Avi actions and workflows, or `$` to open skills. Selecting a skill or workflow attaches a context marker to the next message; the accompanying message supplies the actual task.
+Type `/` to open Avi actions and workflows, or `$` to open skills. These selectors open only at the start of the message or after whitespace, so paths and other inline `/` characters do not interrupt writing. Selecting a skill or workflow attaches a context marker to the next message; the accompanying message supplies the actual task.
+
+Type `@` at the start of the message or after whitespace to mention an enabled global or project MCP server, a file or directory under the current project, or optional `@thread` and `@memory` context. Workspace paths are fuzzy-matched from an asynchronous in-memory index that refreshes after five minutes; selecting a result adds a removable context chip without changing the surrounding message text.
 
 ## Work and orchestration modes
 

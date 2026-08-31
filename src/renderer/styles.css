@@ -4913,6 +4913,52 @@ body.panel-resizing * {
         flex-wrap: wrap;
     }
 }
+/* components\button.xcss */
+button {
+    border: 0;
+    border-radius: 9999px;
+    padding: 4px 10px;
+}
+
+button svg {
+    display: inline-block;
+    margin: 0 4px;
+}
+
+.icon-button, .round-button, .recent-filter-button, .user-message-action, .favorite-button, .sidebar-toggle, .attachment-chip button {
+    border-radius: 9999px;
+    padding: 0;
+}
+
+.icon-button, .round-button {
+    display: inline-grid;
+    place-items: center;
+    color: var(--text-2);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+}
+
+.icon-button {
+    width: 34px;
+    height: 34px;
+}
+
+.icon-button.tiny {
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    border: 0;
+}
+
+.icon-button:hover, .round-button:hover, .model-pill:hover, .message-actions button:hover, .continuations button:hover {
+    background: var(--item-hover);
+}
+
+.primary-mini {
+    color: var(--text-5) !important;
+    background: var(--background-5) !important;
+}
 /* components\markdown.xcss */
 .markdown-body {
     min-width: 0;
@@ -5117,52 +5163,6 @@ body.panel-resizing * {
     .markdown-body .file-reference-link {
         transition: none;
     }
-}
-/* components\button.xcss */
-button {
-    border: 0;
-    border-radius: 9999px;
-    padding: 4px 10px;
-}
-
-button svg {
-    display: inline-block;
-    margin: 0 4px;
-}
-
-.icon-button, .round-button, .recent-filter-button, .user-message-action, .favorite-button, .sidebar-toggle, .attachment-chip button {
-    border-radius: 9999px;
-    padding: 0;
-}
-
-.icon-button, .round-button {
-    display: inline-grid;
-    place-items: center;
-    color: var(--text-2);
-    background: var(--background-2);
-    border: 1px solid var(--border-color);
-    border-radius: 999px;
-}
-
-.icon-button {
-    width: 34px;
-    height: 34px;
-}
-
-.icon-button.tiny {
-    width: 26px;
-    height: 26px;
-    background: transparent;
-    border: 0;
-}
-
-.icon-button:hover, .round-button:hover, .model-pill:hover, .message-actions button:hover, .continuations button:hover {
-    background: var(--item-hover);
-}
-
-.primary-mini {
-    color: var(--text-5) !important;
-    background: var(--background-5) !important;
 }
 /* components\bots.xcss */
 .bots-label {
@@ -14229,6 +14229,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 .composer-wrap .model-input-holder {
     grid-area: model;
     justify-self: end;
+    align-self: center;
     position: relative;
     min-width: 0;
     width: fit-content;
@@ -14473,24 +14474,18 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .composer-wrap .intelligence-slider-track::before {
-    background: linear-gradient(
-        90deg,
-        var(--primary-color) 0%,
-        var(--primary-color) 42%,
-        #7567ee 70%,
-        #b85cf1 100%
-      );
-    clip-path: inset(
-        0 calc(100% - var(--intelligence-fill, 50%) - var(--intelligence-thumb-offset, 0px)) 0 0
-      );
+    background: linear-gradient(90deg,
+          var(--primary-color) 0%,
+          var(--primary-color) 42%,
+          #7567ee 70%,
+          #b85cf1 100%);
+    clip-path: inset(0 calc(100% - var(--intelligence-fill, 50%) - var(--intelligence-thumb-offset, 0px)) 0 0);
     transition: clip-path 180ms var(--base-transition);
 }
 
 .composer-wrap .intelligence-slider-track::after {
-    background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0 1px, transparent 1.5px)
-          3px 2px / 29px 13px,
-        radial-gradient(circle, rgba(234, 221, 255, 0.8) 0 0.8px, transparent 1.4px)
-          16px 9px / 37px 15px;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0 1px, transparent 1.5px) 3px 2px / 29px 13px,
+        radial-gradient(circle, rgba(234, 221, 255, 0.8) 0 0.8px, transparent 1.4px) 16px 9px / 37px 15px;
     opacity: var(--intelligence-shimmer-opacity, 0);
     -webkit-mask-image: linear-gradient(90deg, transparent 40%, #000 68%);
     mask-image: linear-gradient(90deg, transparent 40%, #000 68%);

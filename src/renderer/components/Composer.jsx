@@ -46,6 +46,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { createMp3Attachment } from '../lib/audio.js';
+import { findComposerInvocation } from '../lib/composer-invocation.js';
 import { fileToAttachment, formatBytes, textToAttachment } from '../lib/files.js';
 import {
   intelligenceLevelLimits,
@@ -59,6 +60,7 @@ import { ModelPicker } from './ModelPicker.jsx';
 import { ProviderUsages } from './ProviderUsages.jsx';
 
 const composerDraftKey = 'aivax.composer.draft';
+const commandResultLimit = 30;
 const emptyIntelligenceLevels = Object.freeze([]);
 const composerReasoningEffortsKey = 'aivax.composer.reasoning-efforts';
 
@@ -263,8 +265,12 @@ export function Composer({
   const [commandStage, setCommandStage] = useState(null);
   const [commandDraft, setCommandDraft] = useState(null);
   const [commandIndex, setCommandIndex] = useState(0);
+  const [debouncedCommand, setDebouncedCommand] = useState({ mode: null, query: '' });
   const [cursorPosition, setCursorPosition] = useState(text.length);
   const [contextCommands, setContextCommands] = useState([]);
+  const [mentionCandidates, setMentionCandidates] = useState({ paths: [], servers: [] });
+  const [mentionsLoading, setMentionsLoading] = useState(false);
+  const [mentionsError, setMentionsError] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState(() => initialState?.reasoningEffort ?? readPersistedReasoningEffort(initialModel) ?? null);
   const [recording, setRecording] = useState(null);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -311,17 +317,21 @@ export function Composer({
 
   const commandInvocation = commandStage
     ? null
-    : text.slice(0, cursorPosition).match(/(?:^|\s)([/$])([^\s]*)$/);
-  const commandStart = commandInvocation
-    ? cursorPosition - commandInvocation[1].length - commandInvocation[2].length
-    : -1;
-  const commandMode = commandStage ?? (commandInvocation ? 'commands' : null);
-  const commandPrefix = commandInvocation?.[1] ?? '/';
-  const commandQuery = commandMode === 'commands'
-    ? commandInvocation?.[2] ?? ''
+    : findComposerInvocation(text, cursorPosition);
+  const commandStart = commandInvocation?.start ?? -1;
+  const commandMode = commandStage
+    ?? (commandInvocation ? commandInvocation.prefix === '@' ? 'mentions' : 'commands' : null);
+  const commandPrefix = commandInvocation?.prefix ?? '/';
+  const commandQuery = ['commands', 'mentions'].includes(commandMode)
+    ? commandInvocation?.query ?? ''
     : commandMode
       ? text
       : '';
+  const debouncedCommandQuery = debouncedCommand.mode === commandMode
+    ? debouncedCommand.query
+    : '';
+  const commandQueryReady = debouncedCommand.mode === commandMode
+    && debouncedCommand.query === commandQuery;
   const { currentModelConfig, favoriteModels } = useMemo(() => {
     const modelsById = new Map(models.map((model) => [model.id, model]));
     const nextFavoriteModels = favorites
@@ -383,7 +393,7 @@ export function Composer({
   ) || null;
   const activePermissionMode = permissionModes.find((mode) => mode.id === permissionMode);
   const commandOptions = useMemo(() => {
-    const normalized = commandQuery.trim().toLowerCase();
+    const normalized = debouncedCommandQuery.trim().toLowerCase();
 
     if (commandMode === 'commands') {
       const builtInCommands = commandPrefix === '/'
@@ -421,6 +431,44 @@ export function Composer({
         });
     }
 
+    if (commandMode === 'mentions') {
+      const optionalContexts = [
+        {
+          id: 'context:thread',
+          kind: 'optional_context',
+          contextType: 'thread',
+          label: '@thread',
+          description: 'Current thread and related conversation context',
+        },
+        {
+          id: 'context:memory',
+          kind: 'optional_context',
+          contextType: 'memory',
+          label: '@memory',
+          description: 'Relevant persistent memory',
+        },
+      ].filter((option) => option.label.slice(1).includes(normalized));
+      const servers = mentionCandidates.servers
+        .filter((server) => `${server.name} ${server.scope}`.toLowerCase().includes(normalized))
+        .map((server) => ({
+          id: `mcp:${server.key}`,
+          kind: 'mcp_server',
+          label: `@${server.name}`,
+          description: `${server.scope === 'folder' ? 'Project' : 'Global'} MCP server`,
+          server,
+        }));
+      const paths = mentionCandidates.paths.map((item) => ({
+        id: `${item.type}:${item.path}`,
+        kind: item.type,
+        label: `@${item.path}`,
+        description: item.type === 'directory'
+          ? 'Directory'
+          : item.text ? 'Text file' : 'File',
+        path: item.path,
+      }));
+      return [...optionalContexts, ...servers, ...paths];
+    }
+
     if (commandMode === 'models') {
       return models
         .filter((model) => (
@@ -455,16 +503,20 @@ export function Composer({
     botMode,
     commandMode,
     commandPrefix,
-    commandQuery,
     contextCommands,
+    debouncedCommandQuery,
     currentModel,
     currentModelConfig,
+    mentionCandidates,
     models,
     onCreateSideChat,
     projectLocked,
     providerUsageProviders.length,
   ]);
-  const activeCommandOption = commandOptions[commandIndex] ?? commandOptions[0] ?? null;
+  const visibleCommandOptions = commandOptions.slice(0, commandResultLimit);
+  const activeCommandOption = commandQueryReady
+    ? visibleCommandOptions[commandIndex] ?? visibleCommandOptions[0] ?? null
+    : null;
   const activeGoal = goal && ['active', 'paused'].includes(goal.status) ? goal : null;
   const finishedGoal = goal && ['completed', 'blocked', 'cancelled'].includes(goal.status) ? goal : null;
   const visibleGoal = activeGoal ?? finishedGoal;
@@ -629,8 +681,19 @@ export function Composer({
   }, [activeGoal?.id, activeGoal?.status, activeGoal?.resumedAt]);
 
   useEffect(() => {
+    if (!commandMode) {
+      setDebouncedCommand({ mode: null, query: '' });
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      setDebouncedCommand({ mode: commandMode, query: commandQuery });
+    }, 100);
+    return () => window.clearTimeout(timer);
+  }, [commandMode, commandQuery]);
+
+  useEffect(() => {
     setCommandIndex(0);
-  }, [commandMode, commandQuery, currentModel]);
+  }, [commandMode, currentModel, debouncedCommandQuery]);
 
   useEffect(() => {
     let active = true;
@@ -658,6 +721,41 @@ export function Composer({
       active = false;
     };
   }, [project?.path]);
+
+  useEffect(() => {
+    if (commandMode !== 'mentions' || !project?.path) {
+      setMentionsLoading(false);
+      setMentionsError(false);
+      if (commandMode !== 'mentions') setMentionCandidates({ paths: [], servers: [] });
+      return undefined;
+    }
+    if (!commandQueryReady) {
+      setMentionCandidates({ paths: [], servers: [] });
+      setMentionsLoading(true);
+      setMentionsError(false);
+      return undefined;
+    }
+
+    let active = true;
+    setMentionsLoading(true);
+    setMentionsError(false);
+    window.chatApp.mentions.list({ folderPath: project.path, query: debouncedCommandQuery })
+      .then((candidates) => {
+        if (!active) return;
+        setMentionCandidates(candidates);
+        setMentionsLoading(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setMentionCandidates({ paths: [], servers: [] });
+        setMentionsLoading(false);
+        setMentionsError(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [commandMode, commandQueryReady, debouncedCommandQuery, project?.path]);
 
   useEffect(() => {
     if (!droppedFiles?.files.length) return;
@@ -1017,6 +1115,49 @@ export function Composer({
       return;
     }
 
+    if (commandMode === 'mentions') {
+      const nextText = `${text.slice(0, commandStart)}${text.slice(cursorPosition)}`;
+      const markerType = option.kind === 'optional_context'
+        ? option.contextType
+        : option.kind === 'mcp_server'
+          ? 'mcp_server'
+          : option.type === 'directory' || option.kind === 'directory'
+            ? 'directory_reference'
+            : 'file_reference';
+      const markerKey = option.server?.key ?? option.path ?? option.contextType;
+      const markerText = option.kind === 'optional_context'
+        ? option.contextType === 'thread'
+          ? 'The user explicitly mentioned @thread. Inspect the current thread context and related work threads when relevant to this request.'
+          : 'The user explicitly mentioned @memory. Search persistent memory for context relevant to this request before answering.'
+        : option.kind === 'mcp_server'
+          ? `The user explicitly mentioned the ${option.server.name} MCP server (${option.server.scope} scope, key: ${option.server.key}). Prefer this server when its tools are relevant to the request.`
+          : option.kind === 'directory'
+            ? `The user mentioned workspace directory "${option.path}". Inspect relevant files under this directory before acting.`
+            : `The user mentioned workspace file "${option.path}". Read it before acting when its contents are relevant.`;
+      setAttachments((items) => (
+        items.some((item) => item.kind === 'context_marker' && item.markerKey === markerKey)
+          ? items
+          : [...items, {
+              id: crypto.randomUUID(),
+              kind: 'context_marker',
+              markerType,
+              markerKey,
+              name: option.label,
+              path: option.path,
+              size: 0,
+              text: markerText,
+            }]
+      ));
+      setText(nextText);
+      setCursorPosition(commandStart);
+      setCommandIndex(0);
+      queueMicrotask(() => {
+        textAreaRef.current?.focus();
+        textAreaRef.current?.setSelectionRange(commandStart, commandStart);
+      });
+      return;
+    }
+
     if (commandMode === 'models') {
       chooseModel(option.value);
     } else if (commandMode === 'efforts') {
@@ -1052,11 +1193,11 @@ export function Composer({
     if (commandMode) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
-        if (commandOptions.length === 0) return;
+        if (visibleCommandOptions.length === 0) return;
         setCommandIndex((current) => (
           event.key === 'ArrowDown'
-            ? (current + 1) % commandOptions.length
-            : (current - 1 + commandOptions.length) % commandOptions.length
+            ? (current + 1) % visibleCommandOptions.length
+            : (current - 1 + visibleCommandOptions.length) % visibleCommandOptions.length
         ));
         return;
       }
@@ -1538,20 +1679,23 @@ export function Composer({
               ? commandPrefix === '/'
                 ? 'Action commands'
                 : 'Skills'
-              : 'Composer options'}
+              : commandMode === 'mentions'
+                ? 'Mentions'
+                : 'Composer options'}
           >
             <header className="command-picker-header">
               <span>
                 {commandMode === 'commands' && (
                   commandPrefix === '/' ? 'Action commands' : 'Skills'
                 )}
+                {commandMode === 'mentions' && 'Mentions'}
                 {commandMode === 'models' && 'Choose model'}
                 {commandMode === 'efforts' && `Reasoning · ${currentModelConfig?.name ?? 'No model'}`}
               </span>
               <small><kbd>↑↓</kbd> Navigate <kbd>Tab</kbd> Select</small>
             </header>
             <div id="composer-command-list" className="command-picker-list" role="listbox">
-              {commandOptions.map((option, index) => (
+              {visibleCommandOptions.map((option, index) => (
                 <button
                   id={`composer-command-option-${index}`}
                   key={option.id}
@@ -1571,6 +1715,17 @@ export function Composer({
                           : <Sparkles size={16} />
                         : <SquareTerminal size={16} />
                     )}
+                    {commandMode === 'mentions' && (
+                      option.kind === 'mcp_server'
+                        ? <Network size={16} />
+                        : option.kind === 'directory'
+                          ? <FolderOpen size={16} />
+                          : option.kind === 'file'
+                            ? <FileText size={16} />
+                            : option.contextType === 'thread'
+                              ? <GitBranch size={16} />
+                              : <Brain size={16} />
+                    )}
                     {commandMode === 'models' && <Bot size={16} />}
                     {commandMode === 'efforts' && <Brain size={16} />}
                   </span>
@@ -1581,11 +1736,15 @@ export function Composer({
                   {option.selected && <Check size={15} aria-label="Selected" />}
                 </button>
               ))}
-              {commandOptions.length === 0 && (
-                <div className="command-picker-empty">
-                  {commandMode === 'efforts'
-                    ? 'The selected model has no matching reasoning effort.'
-                    : 'No matching results.'}
+              {visibleCommandOptions.length === 0 && (
+                <div className="command-picker-empty" role={mentionsError ? 'alert' : 'status'}>
+                  {commandMode === 'mentions' && mentionsLoading
+                    ? 'Indexing workspace files...'
+                    : commandMode === 'mentions' && mentionsError
+                      ? 'Could not load workspace mentions.'
+                      : commandMode === 'efforts'
+                        ? 'The selected model has no matching reasoning effort.'
+                        : 'No matching results.'}
                 </div>
               )}
             </div>
