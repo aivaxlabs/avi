@@ -19,10 +19,10 @@ Do not use instructions for a one-off task, a long tutorial, static copies of ex
 | Scope | Path |
 |---|---|
 | User-global | `$HOME/.agents/AGENTS.md` |
-| Entire project | `$PWD/AGENTS.md` |
-| One project subtree | `<subdirectory>/AGENTS.md` |
+| Entire project | `$PWD/AGENTS.md` or `$PWD/.agents/AGENTS.<subject>.md` |
+| One project subtree | `<subdirectory>/AGENTS.md` or an explicitly scoped `$PWD/.agents/AGENTS.<subject>.md` |
 
-A deeper `AGENTS.md` conventionally applies to that directory and its descendants. Avi catalogs nested instruction files with their paths; the agent must read and apply the relevant file. Use this hierarchy instead of an `applyTo` glob, which Avi does not implement.
+A deeper `AGENTS.md` conventionally applies to that directory and its descendants. Avi catalogs nested instruction files with their paths; the agent must read and apply the relevant file. A centralized `.agents/AGENTS.<subject>.md` must state its scope explicitly because its path no longer provides subtree scope. Use directory hierarchy or explicit scope instead of an `applyTo` glob, which Avi does not implement.
 
 ## Template
 

@@ -31,13 +31,14 @@ These compatibility names do not gain VS Code or other editor semantics. In part
 ## How scope works
 
 - An instruction file at the root of a context source is injected in full by default.
+- For a workspace source, instruction files directly under `$PWD/.agents` follow the same embedding rule.
 - A root instruction file with `embeddable: false` in its front matter is cataloged with its path and description instead of having its body injected.
-- A nested instruction file is cataloged with its path and description.
+- Other nested instruction files are cataloged with their paths and descriptions.
 - The agent must read applicable nested instructions before modifying files in their scope.
 - Directory hierarchy communicates intended scope to the agent: a deeper instruction file should refine or override broader guidance for its descendants. The Avi loader catalogs nested files but does not itself evaluate directory applicability or merge their bodies.
 - Ordinary Markdown files are not instructions merely because they contain imperative text.
 
-For predictable behavior, keep project-wide general guidance in `$PWD/AGENTS.md`, bot-only guidance in `$PWD/BOTS.md`, and place specialized guidance in the relevant subdirectory's matching file.
+For predictable behavior, keep project-wide general guidance in `$PWD/AGENTS.md`, bot-only guidance in `$PWD/BOTS.md`, and place specialized guidance in the relevant subdirectory's matching file. A project may instead centralize explicitly scoped files as `$PWD/.agents/AGENTS.<subject>.md`; files directly under this directory follow root embedding rules, so add `embeddable: false` to specialized files that should remain catalog-only.
 
 ## Descriptions for nested files
 

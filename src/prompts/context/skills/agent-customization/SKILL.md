@@ -28,8 +28,8 @@ Use instructions for behavior that should apply repeatedly. Use a workflow or sk
 | Scope | Instructions | Workflows | Skills | MCP | Plugins |
 |---|---|---|---|---|---|
 | User-global | `$HOME/.agents/AGENTS.md` or bot-only `BOTS.md` | `$HOME/.agents/workflows/*.md` | `$HOME/.agents/skills/<name>/SKILL.md` | `$HOME/.agents/mcpconfig.json` | — |
-| Project | `$PWD/AGENTS.md` or bot-only `BOTS.md` | `$PWD/.agents/workflows/*.md` | `$PWD/.agents/skills/<name>/SKILL.md` | `$PWD/.agents/mcpconfig.json` | — |
-| Project subdirectory | `<dir>/AGENTS.md` or bot-only `BOTS.md` | `<dir>/.agents/workflows/*.md` | `<dir>/.agents/skills/<name>/SKILL.md` | Configure the project scope | — |
+| Project | `$PWD/AGENTS.md`, `$PWD/.agents/AGENTS.<subject>.md`, or bot-only `BOTS.md` | `$PWD/.agents/workflows/*.md` | `$PWD/.agents/skills/<name>/SKILL.md` | `$PWD/.agents/mcpconfig.json` | — |
+| Project subdirectory | `<dir>/AGENTS.md`, an explicitly scoped `$PWD/.agents/AGENTS.<subject>.md`, or bot-only `BOTS.md` | `<dir>/.agents/workflows/*.md` | `<dir>/.agents/skills/<name>/SKILL.md` | Configure the project scope | — |
 | Avi installation | Built-in context | Built-in context | Built-in context | — | `$INSTALL_DIR/plugins/*.js` |
 
 A bare `$PWD/context/` directory is not a context root; project skills and workflows belong under `$PWD/.agents/`.
@@ -43,7 +43,7 @@ Avi assembles context from two user-manageable sources:
 
 Use the narrowest suitable scope. A project item can override a global command with the same type and normalized name. Avoid accidental name collisions.
 
-Root instruction files are injected directly. Nested instruction files are listed with their paths and descriptions so the agent can read the applicable file before working in its scope. `BOTS.md` uses these same rules only in bot threads; normal threads, side chats, sub-agents, and Quick Chat receive neither its contents nor its catalog entry. Skill and workflow catalogs likewise include metadata, not the full file body; the agent must read a relevant or explicitly selected item before following it.
+Instruction files at the workspace root or directly under `$PWD/.agents` are injected directly by default. Other nested instruction files are listed with their paths and descriptions so the agent can read the applicable file before working in its scope. Centralized subject files must state their scope explicitly and may use `embeddable: false` to remain catalog-only. `BOTS.md` uses these same rules only in bot threads; normal threads, side chats, sub-agents, and Quick Chat receive neither its contents nor its catalog entry. Skill and workflow catalogs likewise include metadata, not the full file body; the agent must read a relevant or explicitly selected item before following it.
 
 The Settings → Context management screen shows the items Avi discovered for each scope. Use it to verify paths, names, descriptions, and approximate context size.
 

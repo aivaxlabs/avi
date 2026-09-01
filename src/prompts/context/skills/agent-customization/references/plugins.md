@@ -58,7 +58,7 @@ Use runtime registration for dynamic scope or deterministic cleanup.
 
 ## Declarative settings
 
-The optional top-level `settings` array adds Avi-rendered configuration sections to the plugin's card. Each option declares `title`, optional `description`, a supported JSON `valueSchema`, and main-process `getValue`, optional `validate`, and `setValue` handlers. Prefer standard JSON Schema `enum` and `items`; legacy authoring aliases `enums` and `itemsSchema` are normalized. Persist ordinary values with `avi.storage` and never use settings for credentials. Read `docs/api/settings.md` for the complete contract.
+The optional top-level `settings` array adds Avi-rendered configuration sections to the plugin's card. Each option declares `title`, optional `description`, a supported JSON `valueSchema`, and main-process `getValue`, optional `validate`, and `setValue` handlers. Prefer standard JSON Schema `enum` and `items`; legacy authoring aliases `enums` and `itemsSchema` are normalized. Persist ordinary values with `avi.storage` and never use settings for credentials. Read `docs/api/core/settings.md` for the complete contract.
 
 ## Security and installation
 

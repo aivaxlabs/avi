@@ -6,12 +6,12 @@
 - Start architecture discovery at `src/main/main.js`, `src/main/runtime.js`, `src/preload/preload.cjs`, and `src/renderer/main.jsx`. User-facing behavior is documented under `docs/`.
 
 ## Architecture and boundaries
-- `src/main/` owns Electron lifecycle, persistence, providers, chat execution, tools, MCP, plugins, filesystem operations, and IPC handlers. Read `src/main/AGENTS.md` before changing this boundary.
+- `src/main/` owns Electron lifecycle, persistence, providers, chat execution, tools, MCP, plugins, filesystem operations, and IPC handlers. Read `.agents/AGENTS.MainProcess.md` before changing this boundary.
 - `src/preload/preload.cjs` is the only renderer privilege bridge. Renderer code consumes `window.chatApp`; it must not import Electron or Node APIs.
-- `src/renderer/` contains the main and Quick Chat React applications. Styles are authored under `src/styles/`; read `src/renderer/AGENTS.md` before UI or style work.
+- `src/renderer/` contains the main and Quick Chat React applications. Styles are authored under `src/styles/`; read `.agents/AGENTS.Renderer.md` before UI or style work.
 - `src/providers/` contains built-in provider implementations registered by `src/providers/index.js`. Keep provider-specific protocol/authentication behavior there; shared selection, retries, and stream handling belong in `src/main/model-provider.js`.
-- `src/prompts/` contains base/personality prompts and the authoring source for context shipped with Avi. Read `src/prompts/AGENTS.md` before changing prompts or bundled context.
-- `plugins/` contains trusted install-wide plugin sources and managed materialized context. Read `plugins/AGENTS.md` before plugin work.
+- `src/prompts/` contains base/personality prompts and the authoring source for context shipped with Avi. Read `.agents/AGENTS.Prompts.md` before changing prompts or bundled context.
+- `plugins/` contains trusted install-wide plugin sources and managed materialized context. Read `.agents/AGENTS.Plugins.md` before plugin work.
 - `src/shared/` is code shared across runtime boundaries. `scripts/` contains builds and focused executable tests. `dist/`, `artifacts/`, and `plugins/.avi/` are generated or managed output.
 
 ## Commands
@@ -29,6 +29,8 @@ Do not run provider/network/AI-consuming tests unless the changed behavior requi
 
 ## Project-wide conventions
 - Make the smallest coherent change and preserve the existing cross-process separation.
+- Every Avi change must be reflected in the applicable public API surface: Core, MCP, or RPC. Update the corresponding implementation, contracts, tests, and API reference in the same change.
+- Every Avi change must also update the relevant user or developer documentation and the applicable changelog in the same change. Do not consider implementation complete while API, documentation, or changelog coverage is pending.
 - Keep the IPC API synchronized across `src/preload/preload.cjs`, the logical handlers in `src/main/runtime.js`, and renderer callers.
 - Treat `src/renderer/styles.css` as tracked generated output. Edit `src/styles/**/*.xcss` and regenerate it with `bun run styles`.
 - Do not edit `dist/`, `artifacts/`, or `plugins/.avi/` as source.
@@ -52,7 +54,9 @@ Do not run provider/network/AI-consuming tests unless the changed behavior requi
 6. Review the final diff and report unrelated failures separately.
 
 ## Instruction map
-- `src/main/AGENTS.md`: Electron runtime, IPC, providers, chat/tools, persistence, and main-process validation.
-- `src/renderer/AGENTS.md`: React UI, preload API consumption, XCSS sources, accessibility, and renderer validation.
-- `src/prompts/AGENTS.md`: base/personality prompts plus shipped Avi instructions, workflows, skills, discovery conventions, and packaging.
-- `plugins/AGENTS.md`: trusted Plugin API v2, contribution contracts, materialized context, and plugin tests.
+- `.agents/AGENTS.Project.md`: project-wide architecture, commands, conventions, changelog rules, and validation.
+- `.agents/AGENTS.MainProcess.md`: applies to `src/main/`, `src/providers/`, `src/preload/`, and related runtime scripts and tests.
+- `.agents/AGENTS.Renderer.md`: applies to `src/renderer/`, `src/styles/`, and renderer-facing assets and tests.
+- `.agents/AGENTS.Design.md`: optional design guidance for workspace, panels, navigation, settings, composer, and visual philosophy.
+- `.agents/AGENTS.Prompts.md`: applies to `src/prompts/` and bundled context sources.
+- `.agents/AGENTS.Plugins.md`: applies to `plugins/`, the public plugin contract, and plugin host integration.

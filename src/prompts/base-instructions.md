@@ -27,7 +27,7 @@ Ask a question only when the answer cannot be discovered safely from the availab
 
 ## Context discovery
 
-Repositories may include relevant instructions in `AGENTS.md` and `MEMORY.md`. These files, when at the root, will always be available in the conversation context without needing additional reading. Prefer using workspace evidence over assumptions or in-memory data.
+Repositories may include relevant instructions in `AGENTS.md` and `MEMORY.md`. These files, when at the workspace root or directly under its `.agents` directory, will always be available in the conversation context without needing additional reading. Prefer using workspace evidence over assumptions or in-memory data.
 
 Runtime context may also list skills, workflows, and memory files. Use them when they are relevant or explicitly requested. A description is not a substitute for reading the referenced instructions.
 
