@@ -115,7 +115,9 @@ contextBridge.exposeInMainWorld('chatApp', {
     list: () => invoke('conversations:list'),
     create: (payload) => invoke('conversations:create', payload),
     update: (payload) => invoke('conversations:update', payload),
-    messages: (conversationId) => invoke('conversations:messages', conversationId),
+    messages: (payload) => invoke('conversations:messages', payload),
+    toolCallDetails: (payload) => invoke('conversations:tool-call-details', payload),
+    context: (conversationId) => invoke('conversations:context', conversationId),
     archive: (conversationId) => invoke('conversations:archive', conversationId),
     delete: (conversationId) => invoke('conversations:delete', conversationId),
     fork: (payload) => invoke('conversations:fork', payload),
@@ -126,6 +128,8 @@ contextBridge.exposeInMainWorld('chatApp', {
     save: (tags) => invoke('tags:save', tags),
   },
   folders: {
+    list: () => invoke('folders:list'),
+    threads: (folderPath) => invoke('folders:threads', folderPath),
     saveColor: (payload) => invoke('folders:save-color', payload),
   },
   composerState: {
@@ -216,9 +220,9 @@ contextBridge.exposeInMainWorld('chatApp', {
   remote: {
     state: () => invoke('remote:state'),
     save: (settings) => invoke('remote:save', settings),
-    regenerateKey: () => invoke('remote:regenerate-key'),
-    copyKey: () => invoke('remote:copy-key'),
-    removeKey: () => invoke('remote:remove-key'),
+    createKey: (payload) => invoke('remote:create-key', payload),
+    copyKey: (id) => invoke('remote:copy-key', id),
+    removeKey: (id) => invoke('remote:remove-key', id),
   },
   chat: {
     state: () => invoke('chat:state'),

@@ -304,7 +304,12 @@ export const dynamicContextInjectors = new Map([
       const applicableInstructionFiles = bot
         ? [...instructionFiles, ...botInstructionFiles]
         : instructionFiles;
-      const rootInstructionDirectories = new Set([root.path.toLowerCase()]);
+      const rootInstructionDirectories = new Set([
+        root.path.toLowerCase(),
+        ...(root.id === 'workspace'
+          ? [path.join(root.path, CONTEXT_DIRECTORY_NAME).toLowerCase()]
+          : []),
+      ]);
       const rootContextFiles = applicableInstructionFiles.filter((filePath) => (
         rootInstructionDirectories.has(path.dirname(filePath).toLowerCase())
       ));

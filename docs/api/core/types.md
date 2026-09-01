@@ -164,6 +164,7 @@ interface MessageSnapshot {
   fromAgent: boolean;
   queuePriority: boolean;
   queuePosition: number | null;
+  stoppedByUser: boolean;
   status: string;
   content: string;
   segments: JsonValue[];

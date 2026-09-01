@@ -36,7 +36,7 @@ try {
       contributions: {
         context: [{ path: 'skills/demo/SKILL.md', content: '# Demo' }],
         mcps: [{ id: 'demo-mcp', name: 'Demo MCP', config: { type: 'stdio', command: 'demo' } }],
-        tools: [{ name: 'demo_tool', description: 'Demo', inputSchema: { type: 'object' }, execute: async () => ({ ok: true }) }],
+        tools: [{ name: 'demo_tool', description: 'Demo', inputSchema: { type: 'object' }, forcedTruncationLength: 5000, execute: async () => ({ ok: true }) }],
         auxiliaryPanels: [{ id: 'demo-panel', title: 'Demo', load: async () => ({ sections: [] }) }],
         themes: [{ id: 'demo-theme', name: 'Demo', tagline: 'Demo theme', css: ':root {}' }],
         personalities: [{ id: 'demo-personality', name: 'Demo', description: 'Demo personality', instructions: 'Be helpful.' }],
@@ -108,6 +108,10 @@ try {
     apiVersion: 2, id: 'atomic', name: 'Atomic', version: '1.0.0',
     contributions: { tools: [{ name: 'atomic_tool', description: 'Atomic', inputSchema: {} }] }
   };`);
+  await writePlugin('invalid-tool-limit', `export default {
+    apiVersion: 2, id: 'invalid-tool-limit', name: 'Invalid Tool Limit', version: '1.0.0',
+    contributions: { tools: [{ name: 'invalid_limit', description: 'Invalid', inputSchema: {}, forcedTruncationLength: 0, execute() {} }] }
+  };`);
   await writePlugin('malformed', `export default {
     apiVersion: 2, id: 'malformed', name: 'Malformed', version: '1.0.0',
     contributions: { themes: [{ id: 'bad-theme', name: 'Bad' }] }
@@ -161,13 +165,14 @@ try {
   });
   const status = await manager.initialize();
   assert.deepEqual(manager.list().filter((plugin) => plugin.status === 'loaded').map((plugin) => plugin.id), ['success', 'z-after-failure']);
-  assert.equal(status.failures.length, 16);
+  assert.equal(status.failures.length, 17);
   assert.match(status.failures.find((failure) => failure.pluginId === 'import-error').error, /import exploded/);
   assert.match(status.failures.find((failure) => failure.pluginId === 'factory-error').error, /factory exploded/);
   assert.match(status.failures.find((failure) => failure.pluginId === 'invalid').error, /apiVersion/);
   assert.match(status.failures.find((failure) => failure.pluginId === 'collision').error, /Duplicate tool ID/);
   assert.match(status.failures.find((failure) => failure.pluginId === 'traversal').error, /escapes/);
   assert.match(status.failures.find((failure) => failure.pluginId === 'atomic').error, /requires an execute function/);
+  assert.match(status.failures.find((failure) => failure.pluginId === 'invalid-tool-limit').error, /forcedTruncationLength must be a positive integer/);
   assert.match(status.failures.find((failure) => failure.pluginId === 'malformed').error, /tagline/);
   assert.equal(status.failures.filter((failure) => failure.error.includes('does not match directory')).length, 2);
   assert.match(status.failures.find((failure) => failure.pluginId === 'invalid-mcp').error, /MCP transport/);
@@ -235,6 +240,7 @@ try {
 
   const tool = manager.getContributions('tools').find((entry) => entry.name === 'demo_tool');
   assert.equal(tool.pluginId, 'success');
+  assert.equal(tool.forcedTruncationLength, 5_000);
   assert.equal('execute' in tool, false);
   assert.deepEqual(await manager.getHandlers('tools', 'demo_tool').execute(), { ok: true });
   assert.equal(manager.getProviderTypes()[0].descriptor.id, 'demo-provider');

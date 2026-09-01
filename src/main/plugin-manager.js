@@ -49,7 +49,7 @@ const DEFINITION_FIELDS = new Set([
 const CONTRIBUTION_FIELDS = Object.freeze({
   context: new Set(['path', 'content']),
   mcps: new Set(['id', 'name', 'config']),
-  tools: new Set(['name', 'description', 'inputSchema', 'execute']),
+  tools: new Set(['name', 'description', 'inputSchema', 'forcedTruncationLength', 'execute']),
   auxiliaryPanels: new Set(['id', 'title', 'load', 'invokeAction']),
   themes: new Set(['id', 'name', 'tagline', 'css', 'emptyChatBackground']),
   personalities: new Set(['id', 'name', 'description', 'instructions']),
@@ -945,6 +945,12 @@ export class PluginManager {
         this.#requireText(descriptor.name, `Tool "${identity}" name`);
         this.#requireText(descriptor.description, `Tool "${identity}" description`);
         this.#requireObject(descriptor.inputSchema, `Tool "${identity}" inputSchema`);
+        if (
+          descriptor.forcedTruncationLength !== undefined
+          && (!Number.isInteger(descriptor.forcedTruncationLength) || descriptor.forcedTruncationLength <= 0)
+        ) {
+          throw new Error(`Tool "${identity}" forcedTruncationLength must be a positive integer.`);
+        }
         if (typeof handlers.execute !== 'function') throw new Error(`Tool "${identity}" requires an execute function.`);
       }
       if (type === 'auxiliaryPanels') {

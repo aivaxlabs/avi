@@ -2346,10 +2346,20 @@ try {
   );
 
   const compactionFallbackRequests = [];
+  const compactionFallbackBodies = [];
   const compactionFallbackProvider = {
     getContributions: () => ({ tools: [] }),
     stream: async ({ messages }) => {
       compactionFallbackRequests.push(structuredClone(messages));
+      compactionFallbackBodies.push(await responsesApi.createBody({
+        provider: {},
+        model,
+        messages,
+        reasoningEffort: null,
+        tools: [],
+        toolHistory: [],
+        invocationContext: {},
+      }));
       if (compactionFallbackRequests.length < 4) {
         const error = new Error('Input exceeds the context window.');
         error.status = 400;
@@ -2382,11 +2392,33 @@ try {
   });
   const compactionFallbackMessages = [
     { role: 'user', content: 'First turn.' },
-    { role: 'assistant', content: 'First intermediate assistant.' },
+    {
+      role: 'assistant',
+      content: 'First intermediate assistant.',
+      tool_calls: [{
+        id: 'removed-paired-call',
+        type: 'function',
+        function: { name: 'fallback_tool', arguments: '{}' },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'removed-paired-call', content: 'Removed paired output.' },
     { role: 'assistant', content: 'First final assistant.' },
     { role: 'user', content: 'Second turn.' },
     { role: 'assistant', content: 'Second intermediate assistant.' },
-    { role: 'assistant', content: 'Second final assistant.' },
+    {
+      role: 'assistant',
+      content: 'Second final assistant.',
+      tool_calls: [{
+        id: 'retained-paired-call',
+        type: 'function',
+        function: { name: 'fallback_tool', arguments: '{}' },
+      }, {
+        id: 'removed-orphan-call',
+        type: 'function',
+        function: { name: 'fallback_tool', arguments: '{}' },
+      }],
+    },
+    { role: 'tool', tool_call_id: 'retained-paired-call', content: 'Retained paired output.' },
   ];
   const compactionFallbackToolHistory = Array.from({ length: 10 }, (_, index) => ({
     assistantContent: `Tool assistant ${index}.`,
@@ -2441,6 +2473,14 @@ try {
   assert.doesNotMatch(JSON.stringify(compactionFallbackRequests[3]), /Second intermediate assistant/);
   assert.match(JSON.stringify(compactionFallbackRequests[3]), /First final assistant/);
   assert.match(JSON.stringify(compactionFallbackRequests[3]), /Second final assistant/);
+  const aggressiveFallbackCalls = compactionFallbackBodies[3].input
+    .filter((item) => item.type === 'function_call')
+    .map((item) => item.call_id);
+  const aggressiveFallbackOutputs = compactionFallbackBodies[3].input
+    .filter((item) => item.type === 'function_call_output')
+    .map((item) => item.call_id);
+  assert.deepEqual(aggressiveFallbackCalls, ['retained-paired-call']);
+  assert.deepEqual(aggressiveFallbackOutputs, aggressiveFallbackCalls);
 
   let exhaustedCompactionAttempts = 0;
   const exhaustedCompactionRunner = new ChatRunner({

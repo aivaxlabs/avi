@@ -1,115 +1,28 @@
-# Plugin API v2
+# Avi API reference
 
-Avi plugins are trusted ECMAScript modules loaded in the Electron main process. The public API is version 2; older API versions are rejected.
+Avi exposes three distinct integration surfaces. Choose the section that matches how your integration runs and communicates with Avi.
 
-## Entrypoint
+## Core API
 
-Every package exposes `plugin.js` with a default definition or a factory receiving the authoring helper:
+The [Core API](core/overview.md) is the trusted Plugin API available to ECMAScript modules running in Avi's Electron main process. It provides typed namespaces for threads, bots, tools, events, providers, context, storage, panels, settings, and lifecycle management.
 
-```js
-export default ({ apiVersion, definePlugin }) => definePlugin({
-  apiVersion,
-  id: 'acme-integration',
-  name: 'Acme integration',
-  version: '1.0.0',
-  capabilities: [
-    'tools.register',
-    'events.subscribe',
-    'storage',
-  ],
-  async activate(avi) {
-    // Register runtime resources here.
-  },
-  async deactivate(reason) {
-    // Optional final flush.
-  },
-});
-```
+Use Core when building an installed Avi plugin that needs direct, in-process access to application capabilities.
 
-The definition supports `apiVersion`, `id`, `name`, `version`, optional `description`, `capabilities`, `activate`, `deactivate`, `contributions`, and declarative `settings`.
+## MCP API
 
-## Runtime namespaces
+The [Remote MCP API](mcp/overview.md) is a stateless Streamable HTTP interface for agent-oriented orchestration tools. It exposes selected bot and chat operations through `/mcp` and `/mcp/:key`.
 
-`activate(avi)` receives:
+Use MCP when an external agent or MCP client needs Avi orchestration tools rather than the complete application request surface.
 
-- `avi.app`
-- `avi.threads`
-- `avi.semaphores`
-- `avi.bots`
-- `avi.tools`
-- `avi.interceptors`
-- `avi.events`
-- `avi.panels`
-- `avi.providers`
-- `avi.providers.usages`
-- `avi.context`
-- `avi.storage`
-- `avi.lifecycle`
+## RPC API
 
-All domain operations are asynchronous unless documented otherwise. Reads return detached JSON-like snapshots. Entity handles contain IDs and validated methods, not database rows or main-process service objects.
+The [Remote JSON-RPC API](rpc/overview.md) exposes selected Electron-equivalent application requests over authenticated WebSockets:
 
-## Capabilities
+- `/rpc` for global and administrative operations;
+- `/rpc/conversations/streams/:thread-id` for isolated bidirectional conversation control and events.
 
-Plugins must declare every privileged namespace they use:
+Use RPC when an external application needs structured request/response access, live conversation events, or complete control of a specific thread. Call `rpc:discover` after connecting to verify the exact RPC v1 methods, capabilities, Avi version, and Core/MCP protocol versions advertised by that socket.
 
-```text
-threads.read
-threads.readMessages
-threads.create
-threads.update
-threads.run
-threads.delete
-bots.read
-bots.manage
-bots.run
-bots.readState
-bots.approvals.resolve
-tools.register
-tools.intercept
-events.subscribe
-events.readContent
-events.readReasoning
-panels.register
-panels.manage
-providers.read
-providers.manage
-providers.types.register
-providers.usages.register
-providers.credentials.write
-context.read
-context.readContents
-context.register
-storage
-```
+## Related guide
 
-Unknown or duplicate capabilities reject the plugin. Calling an API without its capability throws `AviError` with code `CAPABILITY_REQUIRED`.
-
-Capabilities provide a stable contract, auditability, and UI transparency. They are not an operating-system sandbox: plugin code still runs with Avi main-process privileges.
-
-## Existing contributions
-
-The v2 definition still accepts the validated contribution arrays `context`, `mcps`, `tools`, `auxiliaryPanels`, `themes`, `personalities`, and `providers`. Runtime registration in `activate()` is preferred when the resource needs dynamic scope or cleanup.
-
-## Declarative settings
-
-The optional top-level `settings` array adds application-rendered sections to the plugin's card under **Settings → Plugins**. Options declare JSON Schemas while `getValue`, `validate`, and `setValue` handlers remain in the main process. This is a backward-compatible Plugin API v2 extension and requires no capability. See [Plugin settings](./settings.md).
-
-## Security boundary
-
-Plugins are not sandboxed. They can use Node.js, access files and network resources available to Avi, and inspect process data. Install only reviewed code. Panels remain declarative and cannot inject renderer JavaScript. Provider credentials exposed through `avi.providers` are write-only.
-
-## Related documents
-
-- [Shared types](./types.md)
-- [Lifecycle](./lifecycle.md)
-- [Threads](./threads.md)
-- [Bots](./bots.md)
-- [Tools](./tools.md)
-- [Events](./events.md)
-- [Tool interceptors](./interceptors.md)
-- [Panels](./panels.md)
-- [Plugin settings](./settings.md)
-- [Providers](./providers.md)
-- [Context](./context.md)
-- [Storage](./storage.md)
-- [Errors](./errors.md)
+See [Remote Control](../Remote%20control.md) for server setup, API key management, endpoints, and the local security boundary shared by MCP and RPC.

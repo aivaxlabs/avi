@@ -13,13 +13,14 @@ import {
   shell,
   Tray,
 } from 'electron';
-import { spawn, spawnSync } from 'node:child_process';
+import { execFile, spawn, spawnSync } from 'node:child_process';
 import {
   access,
   appendFile,
   copyFile,
   lstat,
   mkdir,
+  open,
   readFile,
   realpath,
   rm,
@@ -36,6 +37,7 @@ import {
   resolve,
 } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 import { Worker } from 'node:worker_threads';
 import {
   abortInterruptedMessages,
@@ -43,6 +45,7 @@ import {
   closeDatabase,
   countArchivedConversations,
   createConversation,
+  createRemoteApiKey,
   deleteAivaxAccessToken,
   deleteConversation,
   deleteProviderCredentials,
@@ -55,10 +58,14 @@ import {
   getAivaxSettings,
   getComposerState,
   getConversation,
+  getFolderColors,
+  getMessage,
+  getMessagePage,
   getMessages,
+  getPendingMessages,
   getPreferences,
   getProviderCredentials,
-  getRemoteApiKey,
+  getRemoteApiKeys,
   getRemoteSettings,
   getThreadSearchManifest,
   initializeSecureStorage,
@@ -70,6 +77,7 @@ import {
   listInferenceUsage,
   listModelRouters,
   listProviders,
+  listRemoteApiKeys,
   listRubberDucks,
   listSideChats,
   listSubagents,
@@ -80,6 +88,7 @@ import {
   setArchiveSettings,
   setAivaxAccessToken,
   setAivaxSettings,
+  getChatTags,
   setChatTags,
   setComposerState,
   setConversationTags,
@@ -90,7 +99,6 @@ import {
   setModelRouters,
   setProviderCredentials,
   setProviders,
-  setRemoteApiKey,
   setRemoteSettings,
   setThreadSearchManifest,
   setTuningSettings,
@@ -98,6 +106,10 @@ import {
   updateMessage,
 } from './database.js';
 import { indexAivaxDocuments, loginToAivax, requestAivax } from './aivax-client.js';
+import {
+  projectChatEventForClient,
+  projectMessageForClient,
+} from './client-message-projection.js';
 import { listAivaxUsageProviders } from './aivax-usage-provider.js';
 import { ChatRunner } from './chat-runner.js';
 import { BotManager } from './bot-manager.js';
@@ -209,6 +221,7 @@ let threadSearchSyncInterval;
 let threadSearchSyncPromise = null;
 const botInitialization = Promise.withResolvers();
 const ipcHandlers = new Map();
+const remoteChatEventListeners = new Set();
 const attachmentPreviews = new Map();
 const legacyVideoMigrations = new Map();
 const attachmentPreviewLifetimeMs = 60 * 60 * 1_000;
@@ -228,6 +241,7 @@ const attachmentPreviewExtensions = new Set([
   '.webp',
 ]);
 const applicationIpc = { handle: (channel, handler) => ipcHandlers.set(channel, handler) };
+const execFileAsync = promisify(execFile);
 
 function deleteAttachmentPreview(token) {
   const preview = attachmentPreviews.get(token);
@@ -544,6 +558,12 @@ async function synchronizeThreadSearchIndex() {
   return threadSearchSyncPromise;
 }
 
+async function invokeRemoteApplicationRequest(channel, payload) {
+  const handler = ipcHandlers.get(channel);
+  if (!handler) throw new Error(`Unknown application request: ${channel}`);
+  return handler(null, payload);
+}
+
 async function invokeApplicationRequest(event, { channel, payload } = {}) {
   if (!event.senderFrame?.url || !isTrustedRendererUrl(event.senderFrame.url)) {
     return { ok: false, error: { name: 'Error', message: 'Untrusted renderer request.' } };
@@ -607,6 +627,13 @@ function isTrustedRendererUrl(url) {
 
 function sendRendererEvent(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+}
+
+function sendChatEvent(payload) {
+  pluginManager.runtime.emitChatEvent(payload);
+  const clientEvent = projectChatEventForClient(payload);
+  sendRendererEvent('chat:event', clientEvent);
+  for (const listener of remoteChatEventListeners) listener(clientEvent);
 }
 
 function openMainView(payload) {
@@ -783,8 +810,7 @@ function initializeServices() {
       afterToolExecute: (invocation) => pluginManager.runtime.afterTool(invocation),
       sendPluginEvent: (type, payload) => pluginManager.runtime.emit(type, payload),
       sendEvent: (payload) => {
-        pluginManager.runtime.emitChatEvent(payload);
-        sendRendererEvent('chat:event', payload);
+        sendChatEvent(payload);
         if (
           ['conversation', 'run-state', 'semaphore-state', 'question-request', 'question-cancelled', 'permission-request', 'permission-cancelled', 'permission-resolved']
             .includes(payload.type)
@@ -901,9 +927,23 @@ function initializeServices() {
     },
   });
   if (!remoteMcpServer) {
-    remoteMcpServer = new RemoteMcpServer({ chatRunner, botManager, providerRegistry, getPreferences, getApiKey: getRemoteApiKey });
+    remoteMcpServer = new RemoteMcpServer({
+      chatRunner,
+      botManager,
+      providerRegistry,
+      getPreferences,
+      getApiKeys: getRemoteApiKeys,
+      invokeApplicationRequest: invokeRemoteApplicationRequest,
+      resolveConversationProjectPath: (conversationId) => (
+        getConversation(conversationId)?.projectPath ?? null
+      ),
+      subscribeChatEvents: (listener) => {
+        remoteChatEventListeners.add(listener);
+        return () => remoteChatEventListeners.delete(listener);
+      },
+    });
     const settings = getRemoteSettings();
-    if (settings.enabled && !getRemoteApiKey()) setRemoteSettings({ ...settings, enabled: false });
+    if (settings.enabled && getRemoteApiKeys().length === 0) setRemoteSettings({ ...settings, enabled: false });
     else if (settings.enabled) remoteMcpServer.start(settings.port).catch((error) => {
       if (error?.code === 'EADDRINUSE') {
         remoteStartError = `Remote control could not start in this Avi instance because port ${settings.port} is already in use.`;
@@ -1136,7 +1176,7 @@ function registerIpc() {
   ));
 
 
-  applicationIpc.handle('app:state', () => ({
+  applicationIpc.handle('app:state', async () => ({
     ...runtimePreferences(),
     defaultModelWarnings: validateDefaultModels(
       getPreferences().defaultModels,
@@ -1151,7 +1191,7 @@ function registerIpc() {
       id: pluginId,
     })),
     platform: process.platform,
-    defaultProject: inspectProjectFolder(homedir()),
+    defaultProject: await inspectProjectFolder(homedir()),
     windowMaterial: getNativeWindowOptions().backgroundMaterial ?? null,
   }));
   applicationIpc.handle('app:open-external', (_event, url) => {
@@ -1346,16 +1386,15 @@ function registerIpc() {
     };
   });
 
-  const remoteState = () => {
-    const settings = getRemoteSettings();
-    return {
-      ...settings,
-      hasApiKey: Boolean(getRemoteApiKey()),
-      running: Boolean(remoteMcpServer?.running),
-      startError: remoteStartError,
-      endpoint: `http://127.0.0.1:${settings.port}/mcp${getRemoteApiKey() ? `/${getRemoteApiKey()}` : ''}`,
-    };
-  };
+  const remoteState = () => ({
+    ...getRemoteSettings(),
+    apiKeys: listRemoteApiKeys().map((key) => ({
+      ...key,
+      expired: Boolean(key.expiresAt && new Date(key.expiresAt).getTime() <= Date.now()),
+    })),
+    running: Boolean(remoteMcpServer?.running),
+    startError: remoteStartError,
+  });
   applicationIpc.handle('remote:state', remoteState);
   applicationIpc.handle('remote:save', async (_event, value) => {
     const current = getRemoteSettings();
@@ -1367,7 +1406,7 @@ function registerIpc() {
       setRemoteSettings(validated);
       return remoteState();
     }
-    if (!getRemoteApiKey()) await setRemoteApiKey();
+    if (getRemoteApiKeys().length === 0) createRemoteApiKey({ label: 'Default' });
     try {
       await remoteMcpServer.start(validated.port);
       remoteStartError = '';
@@ -1383,25 +1422,27 @@ function registerIpc() {
       throw error;
     }
   });
-  applicationIpc.handle('remote:regenerate-key', async () => {
-    await setRemoteApiKey();
+  applicationIpc.handle('remote:create-key', (_event, payload = {}) => {
+    createRemoteApiKey(payload);
     return remoteState();
   });
-  applicationIpc.handle('remote:copy-key', () => {
-    const apiKey = getRemoteApiKey();
-    if (!apiKey) throw new Error('No Remote API key is configured.');
-    clipboard.writeText(apiKey);
+  applicationIpc.handle('remote:copy-key', (_event, id) => {
+    const apiKey = getRemoteApiKeys().find((key) => key.id === id);
+    if (!apiKey) throw new Error('Remote API key not found.');
+    clipboard.writeText(apiKey.value);
     return { copied: true };
   });
-  applicationIpc.handle('remote:remove-key', async () => {
-    await remoteMcpServer?.close();
-    remoteStartError = '';
-    setRemoteSettings({ ...getRemoteSettings(), enabled: false });
-    await deleteRemoteApiKey();
+  applicationIpc.handle('remote:remove-key', async (_event, id) => {
+    if (!deleteRemoteApiKey(id)) throw new Error('Remote API key not found.');
+    if (getRemoteApiKeys().length === 0) {
+      await remoteMcpServer?.close();
+      remoteStartError = '';
+      setRemoteSettings({ ...getRemoteSettings(), enabled: false });
+    }
     return remoteState();
   });
 
-  const archiveState = (options = {}) => {
+  const archiveState = async (options = {}) => {
     const query = typeof options === 'string' ? options : String(options?.query ?? '');
     const pageSize = Math.min(100, Math.max(1, Math.trunc(Number(options?.pageSize)) || 20));
     const total = countArchivedConversations(query);
@@ -1409,17 +1450,17 @@ function registerIpc() {
     const page = Math.min(totalPages, Math.max(1, Math.trunc(Number(options?.page)) || 1));
     return {
       settings: getArchiveSettings(),
-      conversations: listArchivedConversations(query, {
+      conversations: await Promise.all(listArchivedConversations(query, {
         limit: pageSize,
         offset: (page - 1) * pageSize,
-      }).map(refreshConversationProject),
+      }).map(refreshConversationProject)),
       pagination: { page, pageSize, total, totalPages },
       stats: getArchiveStats(),
     };
   };
   applicationIpc.handle('archive:state', (_event, options = {}) => archiveState(options));
-  applicationIpc.handle('archive:save', (_event, settings, options = {}) => ({
-    ...archiveState(options),
+  applicationIpc.handle('archive:save', async (_event, settings, options = {}) => ({
+    ...await archiveState(options),
     settings: setArchiveSettings(settings),
   }));
   applicationIpc.handle('archive:restore', (_event, conversationId, options = {}) => {
@@ -1487,16 +1528,8 @@ function registerIpc() {
     return { ...result, semaphores: semaphoreState() };
   });
 
-  applicationIpc.handle('conversations:list', () => listConversationsWithProjects());
-  applicationIpc.handle('conversations:create', (_event, payload = {}) => (
-    refreshConversationProject(createConversation(payload))
-  ));
-  applicationIpc.handle('conversations:update', (_event, payload = {}) => (
-    refreshConversationProject(updateConversation(payload.id, payload))
-  ));
-  applicationIpc.handle('conversations:messages', async (_event, conversationId) => {
-    const messages = getMessages(conversationId);
-    return Promise.all(messages.map(async (message) => {
+  const hydrateConversationMessages = async (messages) => {
+    const hydratedMessages = await Promise.all(messages.map(async (message) => {
       if (!message.attachments.some((attachment) => (
         attachment?.kind === 'video_url' && typeof attachment.dataUrl === 'string'
       ))) return message;
@@ -1509,25 +1542,178 @@ function registerIpc() {
       }
       return legacyVideoMigrations.get(message.id);
     }));
-  });
-  applicationIpc.handle('conversations:set-tags', (_event, payload = {}) => (
-    refreshConversationProject(setConversationTags(payload.conversationId, payload.tags))
-  ));
-  applicationIpc.handle('tags:save', (_event, tags) => ({
-    tags: setChatTags(tags),
-    conversations: listConversationsWithProjects(),
-  }));
-  applicationIpc.handle('folders:save-color', (_event, payload = {}) => (
-    setFolderColor(payload.path, payload.color)
-  ));
-  applicationIpc.handle('composer-state:get', async (_event, conversationId) => {
+    return hydratedMessages.map(projectMessageForClient);
+  };
+  const loadConversationMessages = (conversationId) => (
+    hydrateConversationMessages(getMessages(conversationId))
+  );
+  const loadConversationMessagePage = async (payload) => {
+    const limit = payload.limit === undefined ? 100 : payload.limit;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+      throw new TypeError('limit must be an integer between 1 and 500.');
+    }
+    let beforeMessageId = null;
+    if (payload.cursor !== undefined && payload.cursor !== null) {
+      if (typeof payload.cursor !== 'string') throw new TypeError('cursor must be a string.');
+      let anchor;
+      try {
+        anchor = JSON.parse(Buffer.from(payload.cursor, 'base64url').toString('utf8'));
+      } catch {
+        throw new TypeError('Invalid message cursor.');
+      }
+      if (anchor?.conversationId !== payload.conversationId || typeof anchor?.messageId !== 'string') {
+        throw new TypeError('Invalid message cursor.');
+      }
+      beforeMessageId = anchor.messageId;
+    }
+    const page = getMessagePage(payload.conversationId, { beforeMessageId, limit });
+    return {
+      messages: await hydrateConversationMessages(page.messages),
+      cursor: page.beforeMessageId
+        ? Buffer.from(JSON.stringify({
+            conversationId: payload.conversationId,
+            messageId: page.beforeMessageId,
+          })).toString('base64url')
+        : null,
+      hasMore: page.hasMore,
+    };
+  };
+  const loadComposerState = async (conversationId) => {
     const state = getComposerState(conversationId);
     if (!state) return null;
     const attachments = await materializeLegacyVideoAttachments(state.attachments);
     return attachments.some((attachment, index) => attachment !== state.attachments[index])
       ? setComposerState(conversationId, { ...state, attachments })
       : state;
+  };
+  applicationIpc.handle('conversations:list', () => listConversationsWithProjects());
+  applicationIpc.handle('conversations:create', (_event, payload = {}) => (
+    refreshConversationProject(createConversation(payload))
+  ));
+  applicationIpc.handle('conversations:update', (_event, payload = {}) => (
+    refreshConversationProject(updateConversation(payload.id, payload))
+  ));
+  applicationIpc.handle('conversations:messages', async (_event, payload) => {
+    const conversationId = typeof payload === 'string' ? payload : payload?.conversationId;
+    return typeof payload === 'string'
+      ? loadConversationMessages(conversationId)
+      : loadConversationMessagePage({ ...payload, conversationId });
   });
+  applicationIpc.handle('conversations:tool-call-details', (_event, payload = {}) => {
+    if (
+      typeof payload.conversationId !== 'string'
+      || typeof payload.messageId !== 'string'
+      || typeof payload.segmentId !== 'string'
+    ) {
+      throw new TypeError('conversationId, messageId, and segmentId must be strings.');
+    }
+    const message = getMessage(payload.messageId);
+    if (!message || message.conversationId !== payload.conversationId) {
+      throw new Error('Message not found in conversation.');
+    }
+    const segment = message.segments.find((item) => (
+      item.type === 'tool-call' && item.id === payload.segmentId
+    ));
+    if (!segment) throw new Error('Tool call not found.');
+    const hasResult = Object.hasOwn(segment, 'resultText');
+    return {
+      conversationId: message.conversationId,
+      messageId: message.id,
+      segmentId: segment.id,
+      argumentsText: String(segment.argumentsText ?? ''),
+      hasResult,
+      resultText: hasResult ? String(segment.resultText ?? '') : null,
+      mediaContent: Array.isArray(segment.mediaContent) ? segment.mediaContent : [],
+    };
+  });
+  applicationIpc.handle('conversations:context', async (_event, payload) => {
+    const conversationId = typeof payload === 'string' ? payload : payload?.conversationId;
+    const conversation = await refreshConversationProject(getConversation(conversationId));
+    if (!conversation) throw new Error('Conversation not found.');
+    const messagePage = typeof payload === 'string'
+      ? null
+      : await loadConversationMessagePage({ ...payload, conversationId });
+    const messages = messagePage ? messagePage.messages : await loadConversationMessages(conversationId);
+    const pendingMessages = messagePage
+      ? (await hydrateConversationMessages(getPendingMessages(conversationId)))
+      : messages;
+    const chatState = chatRunner.reloadSnapshot();
+    const goalContinues = Boolean(
+      conversation.goal
+      && ['active', 'paused'].includes(conversation.goal.status),
+    );
+    const composer = await loadComposerState(conversationId) ?? {
+      conversationId,
+      permissionMode: getPreferences().tuning.defaultPermissionMode ?? 'approve_for_me',
+      model: conversation.model,
+      reasoningEffort: conversation.lastReasoningEffort,
+      workMode: conversation.orchestrationMode === 'plan'
+        ? 'plan'
+        : goalContinues ? 'goal' : null,
+      ultraMode: conversation.orchestrationMode === 'ultra',
+      draftText: '',
+      attachments: [],
+    };
+    const modelSelection = providerRegistry.resolve(composer.model || conversation.model);
+    return {
+      conversation,
+      messages: messagePage?.messages ?? messages,
+      ...(messagePage ? {
+        messagePage: {
+          cursor: messagePage.cursor,
+          hasMore: messagePage.hasMore,
+        },
+      } : {}),
+      model: conversation.model,
+      reasoningEffort: conversation.lastReasoningEffort,
+      queue: {
+        steer: pendingMessages.filter((message) => message.status === 'steered'),
+        queued: pendingMessages.filter((message) => message.status === 'queued'),
+      },
+      run: {
+        active: chatState.conversationIds.includes(conversationId),
+        startedAt: chatState.runsStartedAt[conversationId] ?? null,
+      },
+      approvals: chatState.approvals.filter((item) => item.conversationId === conversationId),
+      questions: chatState.questions.filter((item) => item.conversationId === conversationId),
+      semaphoreWaits: chatState.semaphoreWaits.filter((item) => item.conversationId === conversationId),
+      tasks: listTasks(conversationId),
+      sideChats: listSideChats(conversationId),
+      subagents: listSubagents(conversationId),
+      rubberDucks: listRubberDucks(conversationId),
+      composer,
+      contextUsage: {
+        tokens: conversation.contextTokens,
+        limit: modelSelection?.model?.context?.input ?? null,
+      },
+    };
+  });
+  applicationIpc.handle('conversations:set-tags', (_event, payload = {}) => (
+    refreshConversationProject(setConversationTags(payload.conversationId, payload.tags))
+  ));
+  applicationIpc.handle('tags:list', () => ({ tags: getChatTags() }));
+  applicationIpc.handle('tags:save', (_event, tags) => ({
+    tags: setChatTags(tags),
+  }));
+  applicationIpc.handle('folders:list', async () => {
+    const colors = getFolderColors();
+    const conversations = await listConversationsWithProjects();
+    const paths = new Set(conversations.map((conversation) => resolve(conversation.projectPath)));
+    paths.add(resolve(homedir()));
+    return Promise.all([...paths].map(async (path) => ({
+      ...await inspectProjectFolder(path),
+      color: colors[path] ?? null,
+    })));
+  });
+  applicationIpc.handle('folders:threads', async (_event, folderPath) => {
+    const path = resolve(folderPath || homedir());
+    return (await listConversationsWithProjects())
+      .filter((conversation) => resolve(conversation.projectPath) === path);
+  });
+  applicationIpc.handle('folders:save-color', (_event, payload = {}) => (
+    setFolderColor(payload.path, payload.color)
+  ));
+  applicationIpc.handle('composer-state:get', (_event, conversationId) => loadComposerState(conversationId));
   applicationIpc.handle('composer-state:save', (_event, payload = {}) => (
     setComposerState(payload.conversationId, payload)
   ));
@@ -1588,13 +1774,13 @@ function registerIpc() {
     chatRunner.semaphores.cleanMissingConversations();
     return listConversationsWithProjects();
   });
-  applicationIpc.handle('conversations:fork', (_event, payload) => {
+  applicationIpc.handle('conversations:fork', async (_event, payload) => {
     const conversationId = typeof payload === 'string' ? payload : payload?.conversationId;
     const result = forkConversation(conversationId, {
       throughMessageId: payload?.throughMessageId ?? null,
     });
     return result
-      ? { ...result, conversation: refreshConversationProject(result.conversation) }
+      ? { conversation: await refreshConversationProject(result.conversation) }
       : null;
   });
   let searchWorker = null;
@@ -1946,16 +2132,14 @@ function registerIpc() {
     };
   });
   applicationIpc.handle('side-chats:list', (_event, parentConversationId) => (
-    listSideChats(parentConversationId).map(refreshConversationProject)
+    listSideChats(parentConversationId)
   ));
   applicationIpc.handle('side-chats:create', (_event, { parentConversationId } = {}) => {
     if (forcedCleanupRunning) throw new Error('Side chats cannot be created during forced cleanup.');
     const parent = getConversation(parentConversationId);
     if (!parent || parent.isSideChat || parent.isSubagent) return null;
     const result = forkConversation(parent.id, { sideChat: true });
-    return result
-      ? { ...result, conversation: refreshConversationProject(result.conversation) }
-      : null;
+    return result ? { conversation: result.conversation } : null;
   });
   applicationIpc.handle('side-chats:close', (_event, sideChatId) => {
     const sideChat = getConversation(sideChatId);
@@ -1966,10 +2150,10 @@ function registerIpc() {
     return true;
   });
   applicationIpc.handle('subagents:list', (_event, parentConversationId) => (
-    listSubagents(parentConversationId).map(refreshConversationProject)
+    listSubagents(parentConversationId)
   ));
   applicationIpc.handle('rubber-ducks:list', (_event, parentConversationId) => (
-    listRubberDucks(parentConversationId).map(refreshConversationProject)
+    listRubberDucks(parentConversationId)
   ));
 
   applicationIpc.handle('providers:list', () => listProviders());
@@ -2212,10 +2396,10 @@ function registerIpc() {
       semaphoreWaits: current.semaphoreWaits,
     };
   });
-  applicationIpc.handle('plugins:create', () => {
+  applicationIpc.handle('plugins:create', async () => {
     openMainView({
       view: 'new-conversation',
-      project: inspectProjectFolder(homedir()),
+      project: await inspectProjectFolder(homedir()),
       draftText: '/create-plugin Create a plugin that does...',
     });
     return true;
@@ -2228,15 +2412,15 @@ function registerIpc() {
     try {
       const folderPaths = listConversations().map((conversation) => conversation.projectPath);
       const folders = await mcpManager.listFolders(folderPaths);
-      const result = folders.map((folder) => {
-        const project = inspectProjectFolder(folder.path);
+      const result = await Promise.all(folders.map(async (folder) => {
+        const project = await inspectProjectFolder(folder.path);
         const global = resolve(folder.path) === resolve(homedir());
         return {
           ...folder,
           name: global ? 'Global' : project.name,
           displayPath: global ? '~/.agents' : project.displayPath,
         };
-      });
+      }));
       traceVerbose('mcp.page-loaded', {
         operation: 'mcp:folders',
         duration_ms: Date.now() - startedAt,
@@ -2311,14 +2495,14 @@ function registerIpc() {
     });
     return {
       ...result,
-      conversation: refreshConversationProject(result.conversation),
+      conversation: await refreshConversationProject(result.conversation),
     };
   });
   applicationIpc.handle('chat:replace-user-message', async (_event, payload) => {
     const result = await chatRunner.replaceUserMessage(payload);
     return {
       ...result,
-      conversation: refreshConversationProject(result.conversation),
+      conversation: await refreshConversationProject(result.conversation),
     };
   });
   applicationIpc.handle('chat:retry', (_event, payload) => chatRunner.retry(payload));
@@ -2394,14 +2578,14 @@ function registerIpc() {
     });
     return {
       ...result,
-      conversation: refreshConversationProject(result.conversation),
+      conversation: await refreshConversationProject(result.conversation),
     };
   });
   applicationIpc.handle('goals:change', async (_event, payload = {}) => {
     const result = await chatRunner.changeGoal(payload);
     return {
       result,
-      conversation: refreshConversationProject(getConversation(payload.conversationId)),
+      conversation: await refreshConversationProject(getConversation(payload.conversationId)),
     };
   });
   applicationIpc.handle('goals:resume', async () => {
@@ -2451,6 +2635,58 @@ function registerIpc() {
     const preview = attachmentPreviews.get(token);
     if (preview?.ownerId === event.sender.id) deleteAttachmentPreview(token);
     return true;
+  });
+  applicationIpc.handle('attachments:read', async (_event, payload = {}) => {
+    if (Object.hasOwn(payload, 'path')) throw new TypeError('Attachment paths are not accepted.');
+    if (typeof payload.messageId !== 'string' || typeof payload.attachmentId !== 'string') {
+      throw new TypeError('messageId and attachmentId are required.');
+    }
+    const message = (await loadConversationMessages(payload.conversationId))
+      .find((item) => item.id === payload.messageId);
+    const attachment = message?.attachments.find((item) => item.id === payload.attachmentId);
+    if (!attachment) throw new Error('Attachment not found in the WebSocket conversation.');
+    const offset = payload.offset === undefined ? 0 : payload.offset;
+    const limit = payload.limit === undefined ? 256 * 1024 : payload.limit;
+    if (!Number.isInteger(offset) || offset < 0) throw new TypeError('offset must be a non-negative integer.');
+    if (!Number.isInteger(limit) || limit < 1 || limit > 512 * 1024) {
+      throw new TypeError('limit must be an integer between 1 and 524288.');
+    }
+
+    let bytes;
+    let size;
+    if (typeof attachment.path === 'string') {
+      const handle = await open(attachment.path, 'r');
+      try {
+        size = (await handle.stat()).size;
+        bytes = Buffer.alloc(Math.min(limit, Math.max(0, size - offset)));
+        const { bytesRead } = await handle.read(bytes, 0, bytes.length, offset);
+        bytes = bytes.subarray(0, bytesRead);
+      } finally {
+        await handle.close();
+      }
+    } else {
+      const embedded = typeof attachment.dataUrl === 'string'
+        ? Buffer.from(attachment.dataUrl.split(',').at(-1) ?? '', 'base64')
+        : typeof attachment.base64 === 'string'
+          ? Buffer.from(attachment.base64, 'base64')
+          : typeof attachment.text === 'string'
+            ? Buffer.from(attachment.text)
+            : null;
+      if (!embedded) throw new Error('Attachment has no readable content.');
+      size = embedded.length;
+      bytes = embedded.subarray(offset, offset + limit);
+    }
+    return {
+      messageId: message.id,
+      attachmentId: attachment.id,
+      name: attachment.name,
+      mime: attachment.mime,
+      size,
+      offset,
+      data: bytes.toString('base64'),
+      cursor: offset + bytes.length < size ? offset + bytes.length : null,
+      hasMore: offset + bytes.length < size,
+    };
   });
   applicationIpc.handle('files:workspace', (_event, folderPath) => (
     inspectWorkspaceFiles(folderPath)
@@ -2747,14 +2983,9 @@ function openTerminalAt(folderPath) {
   });
 }
 
-function inspectProjectFolder(folderPath) {
+function describeProjectFolder(folderPath) {
   const path = resolve(folderPath || homedir());
   const relativePath = relative(homedir(), path);
-  const gitResult = spawnSync('git', ['-C', path, 'branch', '--show-current'], {
-    encoding: 'utf8',
-    windowsHide: true,
-  });
-
   return {
     path,
     name: relativePath === '' ? '~/' : basename(path),
@@ -2763,27 +2994,43 @@ function inspectProjectFolder(folderPath) {
       : !relativePath.startsWith('..') && !isAbsolute(relativePath)
         ? `~/${relativePath.replaceAll('\\', '/')}`
         : path,
-    gitBranch: gitResult.status === 0 ? gitResult.stdout.trim() || null : null,
   };
 }
 
-function listConversationsWithProjects() {
-  const projects = new Map();
-
-  return listConversations().map((conversation) => {
-    const project = projects.get(conversation.projectPath)
-      ?? inspectProjectFolder(conversation.projectPath);
-    projects.set(conversation.projectPath, project);
-    return {
-      ...conversation,
-      gitBranch: project.gitBranch,
-      workStatus: chatRunner?.isConversationBlocked(conversation.id) ? 'blocked' : null,
-    };
-  });
+async function inspectProjectFolder(folderPath) {
+  const project = describeProjectFolder(folderPath);
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-C', project.path, 'branch', '--show-current'],
+      { encoding: 'utf8', windowsHide: true },
+    );
+    return { ...project, gitBranch: stdout.trim() || null };
+  } catch {
+    return { ...project, gitBranch: null };
+  }
 }
 
-function refreshConversationProject(conversation) {
-  if (!conversation) return conversation;
-  const project = inspectProjectFolder(conversation.projectPath);
+async function listConversationsWithProjects() {
+  const conversations = listConversations();
+  const projects = new Map(await Promise.all(
+    [...new Set(conversations.map((conversation) => conversation.projectPath))]
+      .map(async (projectPath) => [projectPath, await inspectProjectFolder(projectPath)]),
+  ));
+  return conversations.map((conversation) => ({
+    ...conversation,
+    gitBranch: projects.get(conversation.projectPath)?.gitBranch ?? null,
+    workStatus: chatRunner?.isConversationBlocked(conversation.id) ? 'blocked' : null,
+  }));
+}
+
+async function refreshConversationProject(conversation) {
+  if (
+    !conversation
+    || conversation.isSideChat
+    || conversation.isSubagent
+    || conversation.isRubberDuck
+  ) return conversation;
+  const project = await inspectProjectFolder(conversation.projectPath);
   return { ...conversation, gitBranch: project.gitBranch };
 }

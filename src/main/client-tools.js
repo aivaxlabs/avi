@@ -1660,6 +1660,7 @@ export const CLIENT_TOOLS = Object.freeze([
   {
     name: 'memory_search',
     description: 'Search persistent AIVAX memory for files matching one or more terms.',
+    forcedTruncationLength: 5_000,
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
@@ -2454,6 +2455,12 @@ export function decorateToolsForInvocation(
     const name = String(tool?.name ?? '');
     if (!name) throw new Error('Every chat tool requires a name.');
     if (toolNames.has(name)) throw new Error(`Chat tool name "${name}" is duplicated.`);
+    if (
+      tool.forcedTruncationLength !== undefined
+      && (!Number.isInteger(tool.forcedTruncationLength) || tool.forcedTruncationLength <= 0)
+    ) {
+      throw new Error(`Chat tool "${name}" forcedTruncationLength must be a positive integer.`);
+    }
     toolNames.add(name);
   }
 

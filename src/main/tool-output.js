@@ -11,6 +11,7 @@ import { join } from 'node:path';
 const RECENT_ASSISTANT_TURN_COUNT = 4;
 const OLDER_TOOL_OUTPUT_LIMIT_RATIO = 0.8;
 const INSPECT_THREAD_TOOL_OUTPUT_LIMIT_RATIO = 0.2;
+const ESTIMATED_CHARACTERS_PER_TOKEN = 4;
 const MIN_JSON_PARSE_LENGTH = 32_768;
 const TRUNCATION_MARKER_PATTERN = /\n\n\[\.\.\. (\d+) chars truncated, (\d+) lines total, full result available at (.+)\](?:\n\n([\s\S]*))?$/;
 
@@ -27,8 +28,11 @@ export function minifyToolOutputJson(output, toolOutputLimit) {
   }
 }
 
-export function toolOutputLimitForTool(toolName, toolOutputLimit) {
-  return toolName === 'chat_inspect_thread' && toolOutputLimit !== null
+export function toolOutputLimitForTool(tool, toolOutputLimit) {
+  if (tool?.forcedTruncationLength !== undefined) {
+    return tool.forcedTruncationLength * ESTIMATED_CHARACTERS_PER_TOKEN;
+  }
+  return tool?.name === 'chat_inspect_thread' && toolOutputLimit !== null
     ? Math.floor(toolOutputLimit * INSPECT_THREAD_TOOL_OUTPUT_LIMIT_RATIO)
     : toolOutputLimit;
 }
@@ -76,7 +80,8 @@ export function truncateToolOutput(output, limit, reuseExistingResult = false) {
   return `${source.slice(0, startLength)}\n\n${marker}\n\n${source.slice(-endLength)}`;
 }
 
-export function limitToolHistoryResults(toolHistory, toolOutputLimit) {
+export function limitToolHistoryResults(toolHistory, tools, toolOutputLimit) {
+  const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
   const fullLimitStartIndex = Math.max(
     0,
     toolHistory.length - (RECENT_ASSISTANT_TURN_COUNT - 1),
@@ -91,8 +96,9 @@ export function limitToolHistoryResults(toolHistory, toolOutputLimit) {
       const toolName = round.toolCalls.find((toolCall) => (
         toolCall.callId === result.callId
       ))?.name;
-      const outputLimit = toolName === 'chat_inspect_thread'
-        ? toolOutputLimitForTool(toolName, toolOutputLimit)
+      const tool = toolsByName.get(toolName);
+      const outputLimit = tool?.forcedTruncationLength !== undefined || toolName === 'chat_inspect_thread'
+        ? toolOutputLimitForTool(tool ?? { name: toolName }, toolOutputLimit)
         : roundIndex < fullLimitStartIndex ? olderLimit : toolOutputLimit;
       return {
         ...result,

@@ -40,7 +40,7 @@ The dialog offers two manual modes:
 
 ## Tuning → Tool execution
 
-- **Tool output length** — 4,096, 8,192 (default), 32,768 characters, or Disabled/No limit. The UI estimates tokens as characters divided by four. Disabling truncation can exhaust the model context window.
+- **Tool output length** — 4,096, 8,192 (default), 32,768 characters, or Disabled/No limit. The UI estimates tokens as characters divided by four. A tool definition can set `forcedTruncationLength` in estimated tokens to override this setting for its own output, including when global truncation is disabled. Disabling truncation can exhaust the model context window.
 - **Terminal timeout** — 5–300 seconds, default 30. An individual tool call can supply its own timeout.
 
 ## Tuning → Orchestration

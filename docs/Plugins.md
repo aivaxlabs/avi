@@ -50,7 +50,7 @@ export default ({ definePlugin }) => definePlugin({
 });
 ```
 
-See [Plugin API v2](./api/overview.md) for the complete runtime contract.
+See [Core API — Plugin API v2](./api/core/overview.md) for the complete runtime contract.
 
 ## Included plugins
 
@@ -82,7 +82,7 @@ contributions: {
 
 Use static contributions for resources known at load time. Use runtime registration in `activate(avi)` for per-thread resources, dynamic tools, event subscriptions, storage, interceptors, or deterministic cleanup.
 
-A definition can also declare a top-level `settings` array. Avi renders its sections and JSON Schema-backed editors under **Settings → Plugins** while the plugin retains its `getValue`, `validate`, and `setValue` handlers in the main process. Plugins cannot inject HTML or renderer JavaScript. See [Plugin settings](./api/settings.md).
+A definition can also declare a top-level `settings` array. Avi renders its sections and JSON Schema-backed editors under **Settings → Plugins** while the plugin retains its `getValue`, `validate`, and `setValue` handlers in the main process. Plugins cannot inject HTML or renderer JavaScript. See [Plugin settings](./api/core/settings.md).
 
 Contribution descriptors remain JSON-like, and functions are accepted only in documented top-level handlers. IDs use this ASCII pattern:
 
@@ -102,11 +102,11 @@ An MCP item is `{ id, name, config }`. Config uses Avi's existing `stdio`, `stre
 
 ### Chat tools
 
-A static tool is `{ name, description, inputSchema, execute }`. Runtime tools add scoping, annotations, handles, and cleanup; see [Tools](./api/tools.md).
+A static tool is `{ name, description, inputSchema, forcedTruncationLength?, execute }`. `forcedTruncationLength` is a positive estimated-token limit that overrides the global tool-output setting for that tool. Runtime tools add scoping, annotations, handles, and cleanup; see [Tools](./api/core/tools.md).
 
 ### Auxiliary panels
 
-A static panel is `{ id, title, load, invokeAction? }`. Panels return declarative sections, items, and actions. They cannot inject React, HTML scripts, or renderer JavaScript. See [Panels](./api/panels.md).
+A static panel is `{ id, title, load, invokeAction? }`. Panels return declarative sections, items, and actions. They cannot inject React, HTML scripts, or renderer JavaScript. See [Panels](./api/core/panels.md).
 
 ### Themes
 
@@ -120,7 +120,7 @@ A personality is `{ id, name, description, instructions }`. Instructions become 
 
 A provider contribution uses `{ descriptor, createBody, request, eventsFrom }` with optional `getContributions`, `getState`, `invokeAction`, `refresh`, and `remove`. Avi awaits `refresh` after provider configuration is saved, enabling asynchronous discovery before the synchronous model catalog is read. Its `getContributions` result can include `usageProviders` alongside models, tools, and auxiliary panels.
 
-Plugins can also register standalone account usage with `avi.providers.usages.register()` and the `providers.usages.register` capability. Usage providers expose limits, formatted counters, and confirmed reset callbacks in the composer without adding user-manageable settings. Dynamic provider registration, usage providers, and write-only credential management are documented in [Providers](./api/providers.md).
+Plugins can also register standalone account usage with `avi.providers.usages.register()` and the `providers.usages.register` capability. Usage providers expose limits, formatted counters, and confirmed reset callbacks in the composer without adding user-manageable settings. Dynamic provider registration, usage providers, and write-only credential management are documented in [Providers](./api/core/providers.md).
 
 ## Loading and installation
 
@@ -140,16 +140,17 @@ ZIP packages are bounded by entry count and uncompressed size and reject symboli
 
 ## API reference
 
-- [Overview and capabilities](./api/overview.md)
-- [Lifecycle](./api/lifecycle.md)
-- [Threads and runs](./api/threads.md)
-- [Bots](./api/bots.md)
-- [Tools](./api/tools.md)
-- [Events](./api/events.md)
-- [Tool interceptors](./api/interceptors.md)
-- [Panels](./api/panels.md)
-- [Plugin settings](./api/settings.md)
-- [Providers](./api/providers.md)
-- [Context](./api/context.md)
-- [Storage](./api/storage.md)
-- [Errors](./api/errors.md)
+- [All API surfaces](./api/overview.md)
+- [Core API overview and capabilities](./api/core/overview.md)
+- [Lifecycle](./api/core/lifecycle.md)
+- [Threads and runs](./api/core/threads.md)
+- [Bots](./api/core/bots.md)
+- [Tools](./api/core/tools.md)
+- [Events](./api/core/events.md)
+- [Tool interceptors](./api/core/interceptors.md)
+- [Panels](./api/core/panels.md)
+- [Plugin settings](./api/core/settings.md)
+- [Providers](./api/core/providers.md)
+- [Context](./api/core/context.md)
+- [Storage](./api/core/storage.md)
+- [Errors](./api/core/errors.md)

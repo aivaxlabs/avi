@@ -18,7 +18,7 @@ Plan, Goal, Ultra, and sub-agents are runtime features, not context file types. 
 - Global user context: `$HOME/.agents`;
 - Workspace context: `$PWD` and supported nested `.agents` directories.
 
-Use `AGENTS.md` for instructions shared by every full chat, `BOTS.md` for instructions exclusive to bot threads, `.agents/workflows/*.md` for workflows, `.agents/skills/<name>/SKILL.md` for skills, and `.agents/mcpconfig.json` for global or exact-folder MCP configuration.
+Use `AGENTS.md` for instructions shared by every full chat, `BOTS.md` for instructions exclusive to bot threads, `.agents/workflows/*.md` for workflows, `.agents/skills/<name>/SKILL.md` for skills, and `.agents/mcpconfig.json` for global or exact-folder MCP configuration. Projects may centralize qualified instruction files as `.agents/AGENTS.<subject>.md`.
 
 Runtime authority is ordered as: Avi system/runtime instructions, the direct user request, applicable project instructions, then repository conventions. Dynamic prompt roots are assembled installation → global → workspace. For duplicate skill or workflow command names, command lookup gives workspace precedence over global, installation, and registered plugin context.
 
@@ -26,7 +26,7 @@ Runtime authority is ordered as: Avi system/runtime instructions, the direct use
 
 Avi recommends `AGENTS.md` for general instructions and also recognizes compatible AGENTS/MEMORY variants, `CLAUDE.md`, `GEMINI.md`, `*.instructions.md`, and `*.agents.md`. `BOTS.md` follows the same root and nested discovery rules, but is only included in bot-thread context. Its body, path, and description are excluded from ordinary threads, side chats, sub-agents, and Quick Chat.
 
-Root instructions are injected by default. `embeddable: false` keeps a root instruction in the catalog without injecting its body. Nested instructions appear by path and description and must be read by the agent when relevant. Context management can list `BOTS.md` for administration even though normal conversation prompts cannot see it.
+Instructions at the workspace root or directly under its `.agents` directory are injected by default. `embeddable: false` keeps one of these root instructions in the catalog without injecting its body. Other nested instructions appear by path and description and must be read by the agent when relevant. Context management can list `BOTS.md` for administration even though normal conversation prompts cannot see it.
 
 Avi does not implement `applyTo` matching or automatic semantic merging of nested instructions.
 
@@ -53,6 +53,10 @@ Quick Chat uses reduced instructions and does not receive the full ordinary-thre
 ## Context management UI
 
 **Settings → Context** lists Global and known project folders. Each scope groups Instructions, Skills, and Workflows with a title, description, and approximate token count. Selecting an item opens the file in its system-associated application; Avi does not include an internal Markdown editor.
+
+## Conversation compaction
+
+When automatic or manual checkpoint compaction exceeds the selected model's context window, Avi progressively reduces older in-flight tool history. Its final fallback also removes intermediate assistant messages, retaining only complete function-call/output pairs so Responses providers do not receive orphaned protocol items.
 
 ## Troubleshooting discovery
 

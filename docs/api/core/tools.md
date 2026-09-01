@@ -24,6 +24,7 @@ const registration = avi.tools.register({
     required: ['id'],
     additionalProperties: false,
   },
+  forcedTruncationLength: 5_000,
   annotations: {
     readOnly: true,
     destructive: false,
@@ -40,6 +41,8 @@ const registration = avi.tools.register({
 ```
 
 Dispose the registration to remove it immediately. Avi also removes it on plugin deactivation.
+
+`forcedTruncationLength` is an optional positive integer measured in estimated tokens. Avi converts it to the existing output-character budget at four characters per token and uses it instead of the global **Tool output length**, including when global truncation is disabled. The field controls host-side result truncation only; it is not part of `inputSchema` or sent to the model as a tool argument.
 
 ## Scope and precedence
 

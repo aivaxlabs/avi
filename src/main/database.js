@@ -35,7 +35,7 @@ const secureStorage = {
   aivaxAccessToken: null,
   mcpOAuthSessions: {},
   providerCredentials: {},
-  remoteApiKey: null,
+  remoteApiKeys: [],
 };
 const secureWrites = new Set();
 let providerCredentialsKey = null;
@@ -364,6 +364,7 @@ db.exec(`
     from_agent INTEGER NOT NULL DEFAULT 0,
     queue_priority INTEGER NOT NULL DEFAULT 0,
     queue_position INTEGER,
+    stopped_by_user INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
     segments TEXT NOT NULL DEFAULT '[]',
@@ -465,6 +466,9 @@ if (!messageColumns.some((column) => column.name === 'queue_priority')) {
 if (!messageColumns.some((column) => column.name === 'queue_position')) {
   db.exec('ALTER TABLE messages ADD COLUMN queue_position INTEGER');
 }
+if (!messageColumns.some((column) => column.name === 'stopped_by_user')) {
+  db.exec('ALTER TABLE messages ADD COLUMN stopped_by_user INTEGER NOT NULL DEFAULT 0');
+}
 if (!messageColumns.some((column) => column.name === 'edits')) {
   db.exec("ALTER TABLE messages ADD COLUMN edits TEXT NOT NULL DEFAULT '[]'");
 }
@@ -487,6 +491,7 @@ if (db.prepare("PRAGMA table_info('messages')").all().find((column) => column.na
       from_agent INTEGER NOT NULL DEFAULT 0,
       queue_priority INTEGER NOT NULL DEFAULT 0,
       queue_position INTEGER,
+      stopped_by_user INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL,
       content TEXT NOT NULL DEFAULT '',
       segments TEXT NOT NULL DEFAULT '[]',
@@ -501,12 +506,12 @@ if (db.prepare("PRAGMA table_info('messages')").all().find((column) => column.na
     INSERT INTO messages (
       id, conversation_id, role, model, reasoning_effort, permission_mode,
       work_mode, ultra_mode, goal_id, hidden, from_agent, queue_priority, queue_position,
-      status, content, segments, edits, attachments, continuations, usage,
+      stopped_by_user, status, content, segments, edits, attachments, continuations, usage,
       created_at, updated_at
     ) SELECT
       id, conversation_id, role, model, reasoning_effort, permission_mode,
       work_mode, ultra_mode, goal_id, hidden, from_agent, queue_priority, queue_position,
-      status, content, segments, edits, attachments, continuations, usage,
+      stopped_by_user, status, content, segments, edits, attachments, continuations, usage,
       created_at, updated_at
     FROM messages_with_required_created_at;
     DROP TABLE messages_with_required_created_at;
@@ -1208,19 +1213,20 @@ const statements = {
     INSERT INTO messages (
       id, conversation_id, role, model, reasoning_effort, permission_mode,
       work_mode, ultra_mode, goal_id, hidden, from_agent, queue_priority, queue_position,
-      status, content, segments, edits, attachments,
+      stopped_by_user, status, content, segments, edits, attachments,
       continuations, usage, created_at, updated_at
     )
     VALUES (
       @id, @conversationId, @role, @model, @reasoningEffort, @permissionMode,
       @workMode, @ultraMode, @goalId, @hidden, @fromAgent, @queuePriority, @queuePosition,
-      @status, @content, @segments, @edits, @attachments,
+      @stoppedByUser, @status, @content, @segments, @edits, @attachments,
       @continuations, @usage, @createdAt, @updatedAt
     )
   `),
   updateMessage: db.prepare(`
     UPDATE messages
     SET status = COALESCE(@status, status),
+        stopped_by_user = COALESCE(@stoppedByUser, stopped_by_user),
         content = COALESCE(@content, content),
         segments = COALESCE(@segments, segments),
         edits = COALESCE(@edits, edits),
@@ -1268,6 +1274,28 @@ const statements = {
     SELECT * FROM messages
     WHERE conversation_id = ?
     ORDER BY created_at ASC
+  `),
+  getMessagePage: db.prepare(`
+    SELECT * FROM messages
+    WHERE conversation_id = @conversationId
+      AND (
+        @beforeMessageId IS NULL
+        OR rowid < (
+          SELECT rowid FROM messages
+          WHERE id = @beforeMessageId AND conversation_id = @conversationId
+        )
+      )
+    ORDER BY rowid DESC
+    LIMIT @limit
+  `),
+  getMessagePageAnchor: db.prepare(`
+    SELECT 1 FROM messages
+    WHERE id = ? AND conversation_id = ?
+  `),
+  getPendingMessages: db.prepare(`
+    SELECT * FROM messages
+    WHERE conversation_id = ? AND status IN ('queued', 'steered')
+    ORDER BY queue_position ASC, rowid ASC
   `),
   listThreadSearchMessages: db.prepare(`
     SELECT
@@ -1495,19 +1523,55 @@ export function deleteAivaxAccessToken() {
   secureStorage.aivaxAccessToken = null;
 }
 
-export function getRemoteApiKey() {
-  return secureStorage.remoteApiKey;
+function readStoredRemoteApiKeys(stored) {
+  const keys = parse(stored, []);
+  if (!Array.isArray(keys)) return [];
+  return keys.filter((key) => Boolean(key) && typeof key === 'object'
+    && typeof key.id === 'string'
+    && typeof key.label === 'string'
+    && typeof key.createdAt === 'string'
+    && typeof key.value === 'string'
+    && key.value.length > 0
+    && (key.expiresAt === null || typeof key.expiresAt === 'string'));
 }
 
-export async function setRemoteApiKey(value = randomBytes(32).toString('base64url')) {
-  writeSecureFileValue('remote-api-key', value);
-  secureStorage.remoteApiKey = value;
-  return value;
+function writeRemoteApiKeys(keys) {
+  writeSecureFileValue('remote-api-keys', JSON.stringify(keys));
+  secureStorage.remoteApiKeys = keys;
 }
 
-export async function deleteRemoteApiKey() {
-  deleteSecureFileValue('remote-api-key');
-  secureStorage.remoteApiKey = null;
+export function listRemoteApiKeys() {
+  return secureStorage.remoteApiKeys.map(({ id, label, expiresAt, createdAt }) => ({ id, label, expiresAt, createdAt }));
+}
+
+export function getRemoteApiKeys() {
+  return secureStorage.remoteApiKeys;
+}
+
+export function createRemoteApiKey({ label, expiresAt = null } = {}) {
+  const normalizedLabel = typeof label === 'string' ? label.trim() : '';
+  if (!normalizedLabel) {
+    throw new Error('The remote API key label is required.');
+  }
+  const expiration = expiresAt ? new Date(expiresAt) : null;
+  if (expiration && (Number.isNaN(expiration.getTime()) || expiration.getTime() <= Date.now())) {
+    throw new Error('The remote API key expiration must be a future date.');
+  }
+  const key = {
+    id: crypto.randomUUID(),
+    label: normalizedLabel,
+    expiresAt: expiration ? expiration.toISOString() : null,
+    createdAt: timestamp(),
+    value: randomBytes(32).toString('base64url'),
+  };
+  writeRemoteApiKeys([...secureStorage.remoteApiKeys, key]);
+  return key;
+}
+
+export function deleteRemoteApiKey(id) {
+  if (!secureStorage.remoteApiKeys.some((key) => key.id === id)) return false;
+  writeRemoteApiKeys(secureStorage.remoteApiKeys.filter((key) => key.id !== id));
+  return true;
 }
 
 export function listProviders() {
@@ -1587,11 +1651,23 @@ export async function initializeSecureStorage() {
   const mcpOAuthSessions = readSecureFileValue('mcp-oauth-sessions');
   const storedKey = readSecureFileValue('provider-credentials-key');
   const legacyProviderCredentials = readSecureFileValue('provider-credentials');
-  const remoteApiKey = readSecureFileValue('remote-api-key');
+  const storedRemoteApiKeys = readSecureFileValue('remote-api-keys');
+  const legacyRemoteApiKey = readSecureFileValue('remote-api-key');
   const aivaxAccessToken = readSecureFileValue('aivax-access-token');
   secureStorage.mcpOAuthSessions = mcpOAuthSessions ? parse(mcpOAuthSessions, {}) : {};
-  secureStorage.remoteApiKey = remoteApiKey || null;
+  secureStorage.remoteApiKeys = readStoredRemoteApiKeys(storedRemoteApiKeys);
   secureStorage.aivaxAccessToken = aivaxAccessToken || null;
+  // The legacy key is removed only after the new store is written so a crash
+  // in between cannot lose it; re-runs deduplicate by value.
+  if (legacyRemoteApiKey && !secureStorage.remoteApiKeys.some((key) => key.value === legacyRemoteApiKey)) {
+    writeRemoteApiKeys([
+      ...secureStorage.remoteApiKeys,
+      { id: crypto.randomUUID(), label: 'Default', expiresAt: null, createdAt: timestamp(), value: legacyRemoteApiKey },
+    ]);
+  }
+  if (legacyRemoteApiKey) {
+    deleteSecureFileValue('remote-api-key');
+  }
   const encryptedCredentials = readJson('providerCredentialsV2');
 
   let currentEncryptedCredentials = encryptedCredentials;
@@ -2275,6 +2351,7 @@ export function insertMessage(message) {
     fromAgent: message.fromAgent ? 1 : 0,
     queuePriority: message.queuePriority ? 1 : 0,
     queuePosition: Number.isInteger(message.queuePosition) ? message.queuePosition : null,
+    stoppedByUser: message.stoppedByUser ? 1 : 0,
     status: message.status ?? 'completed',
     content: message.content ?? '',
     segments: stringify(persistedMedia.segments),
@@ -2295,6 +2372,9 @@ export function updateMessage(id, patch, { touch = true } = {}) {
   statements.updateMessage.run({
     id,
     status: patch.status ?? null,
+    stoppedByUser: Object.hasOwn(patch, 'stoppedByUser')
+      ? patch.stoppedByUser ? 1 : 0
+      : null,
     content: patch.content ?? null,
     segments: patch.segments === undefined ? null : stringify(persistedMedia.segments),
     edits: patch.edits === undefined ? null : stringify(patch.edits),
@@ -2382,6 +2462,31 @@ export function deleteMessagesFrom(conversationId, messageId) {
 
 export function getMessages(conversationId) {
   return statements.getMessages.all(conversationId).map(mapMessage);
+}
+
+export function getPendingMessages(conversationId) {
+  return statements.getPendingMessages.all(conversationId).map(mapMessage);
+}
+
+export function getMessagePage(conversationId, { beforeMessageId = null, limit = 100 } = {}) {
+  if (
+    beforeMessageId !== null
+    && !statements.getMessagePageAnchor.get(beforeMessageId, conversationId)
+  ) {
+    throw new TypeError('Message cursor is no longer available.');
+  }
+  const rows = statements.getMessagePage.all({
+    conversationId,
+    beforeMessageId,
+    limit: limit + 1,
+  });
+  const hasMore = rows.length > limit;
+  const page = rows.slice(0, limit).reverse().map(mapMessage);
+  return {
+    messages: page,
+    beforeMessageId: hasMore ? page[0]?.id ?? null : null,
+    hasMore,
+  };
 }
 
 export function listThreadSearchMessages() {
@@ -3317,6 +3422,7 @@ function mapMessage(row) {
     fromAgent: Boolean(row.from_agent),
     queuePriority: Boolean(row.queue_priority),
     queuePosition: Number.isInteger(row.queue_position) ? row.queue_position : null,
+    stoppedByUser: Boolean(row.stopped_by_user),
     status: row.status,
     content: row.content,
     segments: parse(row.segments, []),

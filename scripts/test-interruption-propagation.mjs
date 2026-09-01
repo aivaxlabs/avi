@@ -805,6 +805,14 @@ try {
   });
   fullStopRunner.stop(parent.id, { includeSubagents: true, stoppedByUser: true });
   assert.equal(fullStopSignals.every((signal) => signal.aborted), true);
+  assert.equal(
+    getMessages(parent.id).findLast((message) => message.role === 'assistant')?.stoppedByUser,
+    true,
+  );
+  assert.equal(
+    getMessages(subagent.id).findLast((message) => message.role === 'assistant')?.stoppedByUser,
+    true,
+  );
   assert.deepEqual(new Set(stoppedBackgroundTasks), new Set([parent.id, subagent.id]));
   await waitFor(() => fullStopRunner.runs.size === 0);
   assert.equal(

@@ -140,6 +140,19 @@ try {
       path.join(testHome, '.claude', 'skills', 'ignored-global-skill', 'SKILL.md'),
       '# Ignored global Claude skill',
     ),
+    writeFile(path.join(root, '.agents', 'AGENTS.Project.md'), [
+      '---',
+      'description: Centralized project instructions',
+      '---',
+      '# Centralized project instruction body',
+    ].join('\n')),
+    writeFile(path.join(root, '.agents', 'AGENTS.Renderer.md'), [
+      '---',
+      'description: Centralized renderer instructions',
+      'embeddable: false',
+      '---',
+      '# Centralized renderer instruction body',
+    ].join('\n')),
     writeFile(path.join(root, '.agents', 'skills', 'workspace-skill', 'SKILL.md'), [
       '---',
       'description: Workspace skill from frontmatter',
@@ -193,6 +206,8 @@ try {
     .map((item) => path.relative(root, item.path).replaceAll('\\', '/'))
     .sort();
   const expectedInstructionPaths = [
+    '.agents/AGENTS.Project.md',
+    '.agents/AGENTS.Renderer.md',
     'AGENTS.foobar.md',
     'AGENTS.md',
     'AGENTS.outracoisa.md',
@@ -227,6 +242,14 @@ try {
   assert.equal(
     instructionItems.find((item) => item.title === 'AGENTS.md').embeddable,
     true,
+  );
+  assert.equal(
+    instructionItems.find((item) => item.title === 'AGENTS.Project.md').embeddable,
+    true,
+  );
+  assert.equal(
+    instructionItems.find((item) => item.title === 'AGENTS.Renderer.md').embeddable,
+    false,
   );
   assert.equal(
     instructionItems.find((item) => item.title === 'BOTS.md').description,
@@ -421,7 +444,11 @@ try {
     || !injected.includes('# Global test instructions')
     || !injected.includes('<workspace_instructions>')
     || !injected.includes('--- BEGIN AGENTS.foobar.md ---')
+    || !injected.includes('--- BEGIN .agents/AGENTS.Project.md ---')
+    || !injected.includes('# Centralized project instruction body')
     || !injected.includes('Instructions:')
+    || !injected.includes('.agents/AGENTS.Renderer.md — Centralized renderer instructions')
+    || injected.includes('# Centralized renderer instruction body')
     || !injected.includes('optional.instructions.md — Optional workspace instructions')
     || injected.includes('# Optional instruction body')
     || !injected.includes('nested/MEMORY.child.md')

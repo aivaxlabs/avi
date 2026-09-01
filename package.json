@@ -60,6 +60,7 @@
     "mermaid": "^11.17.2",
     "remark-directive": "^4.0.0",
     "semver": "^7.8.5",
+    "ws": "^8.21.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {

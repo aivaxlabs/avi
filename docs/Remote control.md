@@ -1,59 +1,57 @@
 # Remote control
 
-Remote control exposes Avi orchestration as an authenticated local MCP server. It is an experimental integration surface, not remote desktop control.
+Remote Control exposes Avi orchestration through authenticated local MCP and JSON-RPC APIs. It is an experimental integration surface, not remote desktop control.
 
 ## Enable the server
 
 1. Open **Settings → Remote control**.
 2. Choose a port. The default is `18992`; a change is applied when the field loses focus.
-3. Turn the server on.
-4. Copy the endpoint or access key into a local MCP client.
+3. Create at least one API key. Give it a label and, optionally, an expiration.
+4. Turn the server on.
+5. Copy a key into your MCP or RPC client.
 
-The UI shows **Listening** or **Not listening** and displays startup errors such as a port already being in use.
+The UI shows **Listening** or **Not listening** and startup errors such as a port already being in use. There is no Endpoint settings section; the stable routes are listed below.
+
+## Endpoints
+
+- HTTP MCP: `/mcp`
+- HTTP MCP with path credential: `/mcp/:key`
+- global JSON-RPC WebSocket: `/rpc`
+- isolated conversation JSON-RPC WebSocket: `/rpc/conversations/streams/:thread-id`
+
+Use `Authorization: Bearer <api-key>` with `/mcp` and native WebSocket clients. Browser RPC clients offer `avi-rpc-v1` and `avi-api-key.<base64url UTF-8 key>` as WebSocket subprotocols; Avi authenticates the credential but echoes only `avi-rpc-v1`. Never place an RPC key in a URL or query string. `/mcp/:key` remains available only for MCP clients that cannot set an Authorization header.
+
+## API keys
+
+Remote Control supports multiple keys. Each key has a label, creation time, optional expiration, and Copy/Delete actions. Expired keys remain visible for diagnosis but cannot authenticate. Deleting the last key turns Remote Control off.
+
+Secret values are encrypted through Electron secure storage and copied by the main process; they are not displayed or returned to the renderer. Existing single-key installations migrate to a non-expiring key labelled `Default` without changing the secret.
 
 ## Security boundary
 
-The server:
+The server binds only to `127.0.0.1`, accepts only localhost and 127.0.0.1 Host values, compares credentials with timing-safe equality, rejects expired keys, limits HTTP and WebSocket messages to 1 MiB, and enables DNS-rebinding protection for MCP.
 
-- binds only to `127.0.0.1`;
-- accepts only localhost and 127.0.0.1 host values;
-- uses Streamable HTTP;
-- requires the key in the endpoint URL or as a Bearer token;
-- compares credentials with a timing-safe check;
-- limits request bodies to 1 MiB;
-- enables DNS-rebinding protection;
-- stores the access key through Avi secure storage.
+Despite its name, Remote Control is not directly exposed to the LAN or Internet. Any external tunnel or proxy is a separate system and security responsibility.
 
-Despite its name, Remote control is not directly exposed to the LAN or Internet. Any external tunnel or proxy would be a separate system and security responsibility.
+## MCP
 
-## Exposed tools
+The stateless Streamable HTTP MCP server exposes bot and chat orchestration tools. See [Remote MCP API](api/mcp/overview.md).
 
-Remote control exposes:
+## JSON-RPC WebSockets
 
-- `bots_list`;
-- `bots_create`;
-- `bots_update`;
-- `bots_delete`;
-- `bots_activate`;
-- `chat_list_folders`;
-- `chat_list_threads`;
-- `chat_create_thread`;
-- `chat_send_prompt`;
-- `chat_interrupt_thread`;
-- `chat_inspect_thread`.
+`WS /rpc` handles administrative/global folder, thread, search, and bot operations. It does not receive detailed conversation events.
 
-`chat_list_threads` includes each configured bot's main thread. Bot threads use the bot name as the conversation name and `~avi-bot/<bot name>` as the model so MCP clients can identify them without a separate lookup.
+`WS /rpc/conversations/streams/:thread-id` is bidirectional and isolated to one conversation. It accepts prompt, attachment, Goal/Plan/Ultra, queue/steer, interruption, retry/edit, question, and approval operations and emits sequenced JSON-RPC notifications for that conversation's chat events.
 
-The create-thread schema follows [Default models](Default%20models.md): model levels when enabled, or explicit model and reasoning fields when disabled. Text results are returned directly as MCP text content. Structured tool results, including `bots_*` responses, are returned as MCP `structuredContent` without an additional JSON-encoded text envelope.
+See:
 
-During MCP initialization, Avi provides complementary operational instructions for orchestrators. They explain how to choose persistent bots versus bounded threads, discover and reuse existing ownership, follow asynchronous work without tight polling, verify mutations, and reserve interruption or deletion for intentional lifecycle decisions. Tool descriptions remain the source for individual inputs and immediate behavior.
-
-## Manage the access key
-
-- **Copy key** copies the current credential.
-- **Regenerate** invalidates clients configured with the previous key.
-- **Remove key** disables Remote control. A new key is created the next time it is enabled.
-
-## Limitations
-
-Remote control does not synchronize files, control the desktop UI, or expose every Avi tool. The selected port must be available, and Avi must remain running for clients to connect.
+- [API reference](api/overview.md)
+- [RPC overview](api/rpc/overview.md)
+- [Shared RPC types](api/rpc/types.md)
+- [Authentication](api/rpc/authentication.md)
+- [Working folders](api/rpc/folders.md)
+- [Threads, messages, composer state, and tasks](api/rpc/conversations.md)
+- [Child conversations](api/rpc/child-threads.md)
+- [Bots](api/rpc/bots.md)
+- [Chat, queue, semaphores, and Goals](api/rpc/chat.md)
+- [Conversation notifications](api/rpc/streaming.md)

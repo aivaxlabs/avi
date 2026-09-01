@@ -105,7 +105,7 @@ avi.providers.usages.register({
 
 A limit's resets are not rendered in the main usage list. Avi shows a dedicated resets dialog for that usage provider and requires confirmation before invoking `onReset`. Reset callbacks stay in the Electron main process; the renderer receives only short-lived opaque reset IDs. Refreshing a usage snapshot invalidates its previous reset IDs.
 
-Provider type implementations can contribute the same shape from `getContributions()`:
+Provider type implementations can contribute the same shape from `getContributions()`. Tool entries use the [tool descriptor](tools.md), including optional `forcedTruncationLength` for a per-tool estimated-token output limit.
 
 ```js
 getContributions({ provider, services }) {

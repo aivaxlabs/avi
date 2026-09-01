@@ -22,6 +22,7 @@ try {
   const {
     closeDatabase,
     createConversation,
+    getMessages,
     replaceTasks,
     setSemaphoreState,
   } = database;
@@ -459,6 +460,11 @@ try {
   assert.equal(externalPrompt.queued, true);
   assert.equal(providerRequests.length, 1);
   assert.equal(runner.reloadSnapshot().semaphoreWaits[0].conversationId, waiter.id);
+  assert.equal(runner.cancelQueuedMessage({
+    conversationId: holder.id,
+    messageId: externalPrompt.message.id,
+  }).cancelled, false);
+  assert.equal(getMessages(waiter.id).some((message) => message.id === externalPrompt.message.id), true);
   runner.cancelQueuedMessage({
     conversationId: waiter.id,
     messageId: externalPrompt.message.id,

@@ -76,6 +76,12 @@ export function registerPluginTool({ runtime, record, tool, threadId = null, sto
   if (!tool.inputSchema || typeof tool.inputSchema !== 'object' || Array.isArray(tool.inputSchema)) {
     throw new AviError('VALIDATION_FAILED', 'Tool inputSchema must be an object.');
   }
+  if (
+    tool.forcedTruncationLength !== undefined
+    && (!Number.isInteger(tool.forcedTruncationLength) || tool.forcedTruncationLength <= 0)
+  ) {
+    throw new AviError('VALIDATION_FAILED', 'Tool forcedTruncationLength must be a positive integer.');
+  }
   if (typeof tool.execute !== 'function') throw new AviError('VALIDATION_FAILED', 'Tool execute must be a function.');
   const key = `${threadId ?? '*'}\0${name.toLowerCase()}`;
   if (runtime.tools.has(key) || runtime.services.reservedToolNames?.has(name.toLowerCase())) {
@@ -86,6 +92,9 @@ export function registerPluginTool({ runtime, record, tool, threadId = null, sto
     name,
     description: tool.description.trim(),
     inputSchema: clonePluginValue(tool.inputSchema),
+    ...(tool.forcedTruncationLength === undefined
+      ? {}
+      : { forcedTruncationLength: tool.forcedTruncationLength }),
     approval: annotations.destructive === true ? 'required' : undefined,
     forceApproval: annotations.destructive === true,
     async execute(input, context) {

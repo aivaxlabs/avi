@@ -1352,8 +1352,13 @@ export class ChatRunner {
           this.emitConversation(id);
         }
         run.queuePaused = true;
-        run.stoppedByUser = stoppedByUser;
-        if (stoppedByUser) {
+        const newlyStoppedByUser = stoppedByUser && !run.stoppedByUser;
+        if (stoppedByUser) run.stoppedByUser = true;
+        if (newlyStoppedByUser) {
+          const stoppedMessage = updateMessage(run.assistantMessageId, { stoppedByUser: true });
+          if (stoppedMessage) {
+            this.emit(id, { type: 'message', message: stoppedMessage });
+          }
           try {
             this.noteBotRunStopped(id);
           } catch (error) {
@@ -1510,7 +1515,11 @@ export class ChatRunner {
     }
 
     const message = getMessage(messageId);
-    if (!message || !['queued', 'steered'].includes(message.status)) {
+    if (
+      !message
+      || message.conversationId !== conversationId
+      || !['queued', 'steered'].includes(message.status)
+    ) {
       const order = pendingOrder(
         run?.queue ?? this.getQueuedItems(conversationId, getConversation(conversationId)?.model),
       );
@@ -2011,6 +2020,7 @@ export class ChatRunner {
     controller: activeController = null,
     contextMessages = null,
     contextToolHistory = [],
+    contextTools = CLIENT_TOOLS,
     streamingSegments = [],
   }) {
     const conversation = ensureConversation(conversationId, model);
@@ -2053,6 +2063,7 @@ export class ChatRunner {
 
     const limitedToolHistory = limitToolHistoryResults(
       contextToolHistory,
+      contextTools,
       this.getPreferences().tuning.toolOutputLimit,
     );
     const inFlightContext = limitedToolHistory.length > 0 || streamingSegments.length > 0
@@ -2174,21 +2185,59 @@ export class ChatRunner {
                 ].join('\n'),
               }]
             : [];
+          let attemptContextMessages = messages;
+          if (attempt === fallbackToolHistories.length - 1) {
+            attemptContextMessages = messages.filter((message, messageIndex) => {
+              if (message.role !== 'assistant') return true;
+              const nextUserOffset = messages
+                .slice(messageIndex + 1)
+                .findIndex((laterMessage) => laterMessage.role === 'user');
+              const turnEnd = nextUserOffset < 0
+                ? messages.length
+                : messageIndex + 1 + nextUserOffset;
+              return !messages
+                .slice(messageIndex + 1, turnEnd)
+                .some((laterMessage) => laterMessage.role === 'assistant');
+            });
+            const outputCallIds = new Set(attemptContextMessages
+              .filter((message) => message.role === 'tool' && message.tool_call_id)
+              .map((message) => message.tool_call_id));
+            const retainedCallIds = new Set();
+            attemptContextMessages = attemptContextMessages.map((message) => {
+              if (message.role !== 'assistant') return message;
+              const toolCalls = message.tool_calls?.filter((toolCall) => {
+                const retained = outputCallIds.has(toolCall.id);
+                if (retained) retainedCallIds.add(toolCall.id);
+                return retained;
+              });
+              const providerContinuation = message[Symbol.for('avi.providerContinuation')];
+              const continuationItems = providerContinuation?.items?.filter((item) => {
+                if (item.type !== 'function_call') return true;
+                const retained = outputCallIds.has(item.call_id);
+                if (retained) retainedCallIds.add(item.call_id);
+                return retained;
+              });
+              if (
+                toolCalls?.length === message.tool_calls?.length
+                && continuationItems?.length === providerContinuation?.items?.length
+              ) return message;
+              const filteredMessage = {
+                ...message,
+                ...(toolCalls?.length ? { tool_calls: toolCalls } : {}),
+              };
+              if (!toolCalls?.length) delete filteredMessage.tool_calls;
+              if (providerContinuation) {
+                Object.defineProperty(filteredMessage, Symbol.for('avi.providerContinuation'), {
+                  value: { ...providerContinuation, items: continuationItems },
+                });
+              }
+              return filteredMessage;
+            }).filter((message) => (
+              message.role !== 'tool' || retainedCallIds.has(message.tool_call_id)
+            ));
+          }
           const attemptMessages = [
-            ...(attempt === fallbackToolHistories.length - 1
-              ? messages.filter((message, messageIndex) => {
-                  if (message.role !== 'assistant') return true;
-                  const nextUserOffset = messages
-                    .slice(messageIndex + 1)
-                    .findIndex((laterMessage) => laterMessage.role === 'user');
-                  const turnEnd = nextUserOffset < 0
-                    ? messages.length
-                    : messageIndex + 1 + nextUserOffset;
-                  return !messages
-                    .slice(messageIndex + 1, turnEnd)
-                    .some((laterMessage) => laterMessage.role === 'assistant');
-                })
-              : messages),
+            ...attemptContextMessages,
             ...attemptInFlightContext,
             { role: 'user', content: COMPACTION_PROMPT },
           ];
@@ -2492,9 +2541,10 @@ export class ChatRunner {
     const assistantMessage = resumeAssistantMessageId
       ? resumeAssistantMessage?.id === resumeAssistantMessageId
         && resumeAssistantMessage.status === 'streaming'
-        ? resumeAssistantMessage
+        ? updateMessage(resumeAssistantMessage.id, { stoppedByUser: false })
         : updateMessage(resumeAssistantMessageId, {
             status: 'streaming',
+            stoppedByUser: false,
             content: accumulator.content,
             segments: accumulator.segments,
             edits: initialEdits,
@@ -2554,6 +2604,7 @@ export class ChatRunner {
         edits: run.fileEdits,
         attachments: run.attachments,
         usage: accumulator.usage,
+        ...(status === 'aborted' ? { stoppedByUser: Boolean(run.stoppedByUser) } : {}),
       });
       if (
         message
@@ -2564,12 +2615,7 @@ export class ChatRunner {
         )
       ) {
         lastRenderedAt = now;
-        this.emit(conversationId, {
-          type: 'message',
-          message: run.stoppedByUser && status === 'aborted'
-            ? { ...message, stoppedByUser: true }
-            : message,
-        });
+        this.emit(conversationId, { type: 'message', message });
       }
       return message;
     };
@@ -3118,6 +3164,7 @@ export class ChatRunner {
             controller,
             contextMessages: messages,
             contextToolHistory: toolHistory,
+            contextTools: availableTools,
             streamingSegments: accumulator.segments.slice(roundSegmentStart),
           });
           retriedAfterContextCompaction = true;
@@ -3524,7 +3571,7 @@ export class ChatRunner {
           }
 
           const outputLimit = toolOutputLimitForTool(
-            toolCall.name,
+            tool,
             tuning.toolOutputLimit,
           );
           output = truncateToolOutput(
@@ -3576,6 +3623,7 @@ export class ChatRunner {
               controller,
               contextMessages: messages,
               contextToolHistory: toolHistory,
+              contextTools: availableTools,
             });
             applyCompactionCheckpoint(compressedConversation);
           } catch (error) {
@@ -3713,6 +3761,7 @@ export class ChatRunner {
                 : []),
             ],
             contextToolHistory: toolHistory,
+            contextTools: availableTools,
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -3755,14 +3804,10 @@ export class ChatRunner {
         if (aborted && getMessage(failedUserMessageId)?.status !== 'waiting_mcp') continue;
         const failedUserMessage = updateMessage(failedUserMessageId, {
           status: aborted ? 'aborted' : 'error',
+          ...(aborted ? { stoppedByUser: Boolean(run.stoppedByUser) } : {}),
         });
         if (failedUserMessage) {
-          this.emit(conversationId, {
-            type: 'message',
-            message: run.stoppedByUser && aborted
-              ? { ...failedUserMessage, stoppedByUser: true }
-              : failedUserMessage,
-          });
+          this.emit(conversationId, { type: 'message', message: failedUserMessage });
         }
       }
       this.sendPluginEvent('inference.request.failed', {
@@ -4094,9 +4139,9 @@ export class ChatRunner {
       }));
   }
 
-  answerQuestion({ questionId, cancelled = false, answers = [] }) {
+  answerQuestion({ questionId, conversationId = null, cancelled = false, answers = [] }) {
     const pending = this.pendingQuestions.get(questionId);
-    if (!pending) return false;
+    if (!pending || (conversationId && pending.conversationId !== conversationId)) return false;
 
     if (cancelled) {
       this.pendingQuestions.delete(questionId);
@@ -4155,9 +4200,13 @@ export class ChatRunner {
     return true;
   }
 
-  async resolveApproval({ approvalId, decision }) {
+  async resolveApproval({ approvalId, conversationId = null, decision }) {
     const pending = this.pendingApprovals.get(approvalId);
-    if (!pending || !['allow', 'allow_all', 'disallow'].includes(decision)) return false;
+    if (
+      !pending
+      || (conversationId && pending.conversationId !== conversationId)
+      || !['allow', 'allow_all', 'disallow'].includes(decision)
+    ) return false;
 
     if (decision === 'allow_all') {
       await this.savePermissionGuidance?.({

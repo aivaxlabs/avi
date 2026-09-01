@@ -164,7 +164,16 @@ try {
     'waiting_for_input',
   );
   assert.match(inspectedQuestion, /status: waiting_for_input/);
-  assert.equal(runner.answerQuestion({ questionId: 'question-one', cancelled: true }), true);
+  assert.equal(runner.answerQuestion({
+    questionId: 'question-one',
+    conversationId: parent.id,
+    cancelled: true,
+  }), false);
+  assert.equal(runner.answerQuestion({
+    questionId: 'question-one',
+    conversationId: questionTarget.id,
+    cancelled: true,
+  }), true);
   runner.runs.delete(questionTarget.id);
   assert.deepEqual(questionResult, { cancelled: true, answers: [] });
 
@@ -286,6 +295,12 @@ try {
   );
   assert.equal(await runner.resolveApproval({
     approvalId: disallowedRequest.approvalId,
+    conversationId: parent.id,
+    decision: 'disallow',
+  }), false);
+  assert.equal(await runner.resolveApproval({
+    approvalId: disallowedRequest.approvalId,
+    conversationId: target.id,
     decision: 'disallow',
   }), true);
   assert.equal(await runner.resolveApproval({

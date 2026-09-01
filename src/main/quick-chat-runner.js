@@ -354,7 +354,7 @@ export class QuickChatRunner {
             });
           }
           const outputLimit = toolOutputLimitForTool(
-            toolCall.name,
+            tool,
             preferences.tuning.toolOutputLimit,
           );
           output = truncateToolOutput(
