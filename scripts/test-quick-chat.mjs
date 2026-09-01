@@ -1,6 +1,60 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { CLIENT_TOOLS, decorateToolsForInvocation } from '../src/main/client-tools.js';
+import { registerPluginTool } from '../src/main/plugin-domain-api.js';
 import { QuickChatRunner } from '../src/main/quick-chat-runner.js';
+import {
+  limitToolHistoryResults,
+  toolOutputLimitForTool,
+} from '../src/main/tool-output.js';
+
+const memorySearchTool = CLIENT_TOOLS.find((tool) => tool.name === 'memory_search');
+assert.equal(memorySearchTool.forcedTruncationLength, 5_000);
+assert.equal(toolOutputLimitForTool(memorySearchTool, 8_192), 20_000);
+assert.equal(toolOutputLimitForTool(memorySearchTool, null), 20_000);
+const limitedMemoryHistory = limitToolHistoryResults([{
+  toolCalls: [{ callId: 'memory-search-call', name: 'memory_search' }],
+  results: [{ callId: 'memory-search-call', output: 'm'.repeat(20_001) }],
+}], CLIENT_TOOLS, 8_192);
+assert.match(limitedMemoryHistory[0].results[0].output, /\[\.\.\. 1 chars truncated,/);
+assert.throws(() => decorateToolsForInvocation([{
+  name: 'invalid_limit',
+  description: 'Invalid limit.',
+  inputSchema: { type: 'object', properties: {} },
+  forcedTruncationLength: 0,
+}]), /forcedTruncationLength must be a positive integer/);
+const pluginToolRuntime = {
+  tools: new Map(),
+  services: { reservedToolNames: new Set() },
+  assertActive() {},
+  track(_record, disposable) { return disposable; },
+};
+const pluginToolRecord = { id: 'test-plugin' };
+registerPluginTool({
+  runtime: pluginToolRuntime,
+  record: pluginToolRecord,
+  tool: {
+    name: 'plugin_limit',
+    description: 'Plugin limit.',
+    inputSchema: { type: 'object', properties: {} },
+    forcedTruncationLength: 750,
+    execute: async () => 'ok',
+  },
+  storage: {},
+});
+assert.equal(pluginToolRuntime.tools.get('*\0plugin_limit').tool.forcedTruncationLength, 750);
+assert.throws(() => registerPluginTool({
+  runtime: pluginToolRuntime,
+  record: pluginToolRecord,
+  tool: {
+    name: 'invalid_plugin_limit',
+    description: 'Invalid plugin limit.',
+    inputSchema: { type: 'object', properties: {} },
+    forcedTruncationLength: 0,
+    execute: async () => 'ok',
+  },
+  storage: {},
+}), /forcedTruncationLength must be a positive integer/);
 
 const model = {
   id: 'test:quick',
@@ -144,6 +198,7 @@ provider.getContributions = () => ({
   tools: [{
     name: 'long_output',
     description: 'Return output longer than the configured limit.',
+    forcedTruncationLength: 640,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     execute: async () => longOutput,
   }],
@@ -178,10 +233,10 @@ while (runner.state(truncationSession.id).running) {
 }
 const truncationMatch = /^([\s\S]*)\n\n\[\.\.\. (\d+) chars truncated, (\d+) lines total, full result available at (.+)\]\n\n([\s\S]*)$/.exec(truncatedOutput);
 assert.ok(truncationMatch);
-assert.equal(truncationMatch[1], 'a'.repeat(512));
-assert.equal(Number(truncationMatch[2]), 1024);
+assert.equal(truncationMatch[1], 'a'.repeat(640));
+assert.equal(Number(truncationMatch[2]), 512);
 assert.equal(Number(truncationMatch[3]), 1);
-assert.equal(truncationMatch[5], `${'b'.repeat(512)}${'c'.repeat(1024)}`);
+assert.equal(truncationMatch[5], `${'b'.repeat(896)}${'c'.repeat(1024)}`);
 assert.equal(readFileSync(truncationMatch[4], 'utf8'), longOutput);
 runner.close(truncationSession.id);
 

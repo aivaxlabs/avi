@@ -59,7 +59,7 @@ See [Default models](Default%20models.md) for model inheritance and Small/Medium
 
 ## UI and persistence
 
-The **Sub-agents** auxiliary tab shows working, finished, failed, or waiting status. Sub-agent conversations are persisted as child threads in SQLite and appear in team context, but not in the normal Sidebar conversation list.
+The **Sub-agents** auxiliary tab shows working, finished, failed, or waiting status. Opening a parent lists its sub-agents and Rubber Ducks without loading their histories; selecting one loads its recent messages and fetches older pages as you scroll upward. Compact child-thread composers omit workspace and Git branch controls. These operational indicators continue updating while the panel is closed without re-rendering the main conversation for text-only sub-agent streaming updates. Sub-agent conversations are persisted as child threads in SQLite and appear in team context, but not in the normal Sidebar conversation list.
 
 Archiving or restoring a parent includes its descendants. Permanent parent deletion cascades to child threads. The default disposable-conversation retention policy deletes eligible sub-agent threads after one day.
 

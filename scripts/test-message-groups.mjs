@@ -7,6 +7,10 @@ import {
 } from '../src/renderer/lib/message-groups.js';
 import { areComposerPropsEqual } from '../src/renderer/lib/composer-props.js';
 import { areMessageRowPropsEqual } from '../src/renderer/lib/message-row-props.js';
+import {
+  canResumeAssistantMessage,
+  canRetryAssistantMessage,
+} from '../src/renderer/lib/message-actions.js';
 
 const message = (id, role, content, createdAt = `2026-01-01T00:00:0${id}.000Z`) => ({
   id,
@@ -175,6 +179,44 @@ assert.equal(areMessageRowPropsEqual(historicalRowProps, {
   onRetry: () => {},
 }), false);
 
+const completedAssistant = { ...assistantOne, status: 'completed' };
+assert.equal(
+  canRetryAssistantMessage(completedAssistant, completedAssistant, false),
+  true,
+);
+assert.equal(
+  canRetryAssistantMessage(completedAssistant, completedAssistant, true),
+  false,
+);
+
+for (const status of ['error', 'aborted', 'streaming']) {
+  const incompleteAssistant = { ...assistantOne, status };
+  assert.equal(
+    canResumeAssistantMessage(incompleteAssistant, incompleteAssistant, false),
+    true,
+    `${status} responses should remain resumable when the current thread is idle`,
+  );
+}
+const userStoppedAssistant = {
+  ...assistantOne,
+  status: 'aborted',
+  stoppedByUser: true,
+};
+assert.equal(
+  canResumeAssistantMessage(userStoppedAssistant, userStoppedAssistant, false),
+  false,
+  'An explicit user Stop should not offer Try again.',
+);
+assert.equal(
+  canResumeAssistantMessage(
+    { ...assistantOne, status: 'error' },
+    { ...assistantTwo, status: 'error' },
+    false,
+  ),
+  false,
+  'Only the latest assistant response should offer Try again.',
+);
+
 const composerProps = {
   subagents: [
     { id: 'agent-1', status: 'working' },
@@ -201,5 +243,14 @@ assert.equal(areComposerPropsEqual(composerProps, {
   ...composerProps,
   onSend: () => {},
 }), false);
+assert.equal(
+  canResumeAssistantMessage(
+    { ...assistantOne, status: 'error' },
+    { ...assistantOne, status: 'error' },
+    false,
+  ),
+  true,
+  'Child-thread activity must not affect recovery for the visible thread.',
+);
 
 console.log('Message grouping tests passed.');

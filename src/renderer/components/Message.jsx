@@ -78,6 +78,7 @@ const compactTokenFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 1,
 });
 const STANDARD_MARKDOWN_PLUGINS = Object.freeze([remarkGfm]);
+const toolCallDetailsCache = new Map();
 const MARKDOWN_PLUGINS = Object.freeze([
   remarkDirective,
   remarkAviDirectives,
@@ -1489,26 +1490,65 @@ function ThinkingGroup({ items, streaming, trailing }) {
 
 function MutedSegment({ segment }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const formattedDetails = useMemo(() => {
-    if (
-      !detailsOpen
-      || !['tool', 'server-tool', 'tool-call'].includes(segment.type)
-    ) {
-      return null;
-    }
+  const [loadedDetails, setLoadedDetails] = useState(null);
+  const [detailsError, setDetailsError] = useState('');
 
-    const rawInput = String(segment.argumentsText ?? '');
-    const rawOutput = segment.resultText === undefined ? '' : String(segment.resultText);
-    let input = rawInput;
-    let output = rawOutput;
-    try {
-      input = JSON.stringify(JSON.parse(rawInput), null, 2);
-    } catch { }
-    try {
-      output = JSON.stringify(JSON.parse(rawOutput), null, 2);
-    } catch { }
-    return { input, output };
-  }, [detailsOpen, segment.argumentsText, segment.resultText, segment.type]);
+  useEffect(() => {
+    if (!detailsOpen || !segment.detailsAvailable) return undefined;
+    const cacheKey = [
+      segment.conversationId,
+      segment.messageId,
+      segment.id,
+      segment.hasResult ? 'completed' : 'pending',
+    ].join(':');
+    let request = toolCallDetailsCache.get(cacheKey);
+    if (!request) {
+      request = window.chatApp.conversations.toolCallDetails({
+        conversationId: segment.conversationId,
+        messageId: segment.messageId,
+        segmentId: segment.id,
+      });
+      toolCallDetailsCache.set(cacheKey, request);
+    }
+    let active = true;
+    setLoadedDetails(null);
+    setDetailsError('');
+    request.then((details) => {
+      if (active) setLoadedDetails(details);
+    }).catch((error) => {
+      toolCallDetailsCache.delete(cacheKey);
+      if (active) setDetailsError(error instanceof Error ? error.message : String(error));
+    });
+    return () => {
+      active = false;
+    };
+  }, [detailsOpen, segment.conversationId, segment.detailsAvailable, segment.hasResult, segment.id, segment.messageId]);
+
+  let formattedDetails = null;
+  if (detailsOpen && ['tool', 'server-tool', 'tool-call'].includes(segment.type)) {
+    if (detailsError) {
+      formattedDetails = { error: detailsError };
+    } else if (segment.detailsAvailable && !loadedDetails) {
+      formattedDetails = { loading: true };
+    } else {
+      const rawInput = String(loadedDetails?.argumentsText ?? segment.argumentsText ?? '');
+      const hasResult = loadedDetails?.hasResult
+        ?? segment.hasResult
+        ?? Object.hasOwn(segment, 'resultText');
+      const rawOutput = hasResult
+        ? String(loadedDetails?.resultText ?? segment.resultText ?? '')
+        : '';
+      let input = rawInput;
+      let output = rawOutput;
+      try {
+        input = JSON.stringify(JSON.parse(rawInput), null, 2);
+      } catch { }
+      try {
+        output = JSON.stringify(JSON.parse(rawOutput), null, 2);
+      } catch { }
+      formattedDetails = { input, output, hasResult };
+    }
+  }
 
   if (segment.type === 'reasoning') {
     return (
@@ -1531,6 +1571,7 @@ function MutedSegment({ segment }) {
       ? SquareFunction
       : TOOL_ICONS[name] ?? Wrench;
     const reason = toolReason(segment);
+    const hasResult = segment.hasResult ?? Object.hasOwn(segment, 'resultText');
 
     return (
       <div className={classNames('tool-entry', detailsOpen && 'open')}>
@@ -1540,7 +1581,7 @@ function MutedSegment({ segment }) {
           aria-expanded={detailsOpen}
           onClick={() => setDetailsOpen(!detailsOpen)}
         >
-          {segment.resultText === undefined && (
+          {!hasResult && (
             <LoaderCircle
               className="tool-line-spinner"
               size={12}
@@ -1551,7 +1592,7 @@ function MutedSegment({ segment }) {
           <span>
             <strong>{name}</strong>
             {reason && (
-              <span className={segment.resultText === undefined ? 'tool-line-pending-text' : undefined}>
+              <span className={!hasResult ? 'tool-line-pending-text' : undefined}>
                 {' '}{reason}
               </span>
             )}
@@ -1560,20 +1601,28 @@ function MutedSegment({ segment }) {
         </button>
         {formattedDetails && (
           <div className="tool-details">
-            <section>
-              <span>Input</span>
-              <pre><code>{formattedDetails.input || '(empty input)'}</code></pre>
-            </section>
-            <section>
-              <span>Output</span>
-              <pre>
-                <code>
-                  {segment.resultText === undefined
-                    ? '(waiting for output)'
-                    : formattedDetails.output || '(empty output)'}
-                </code>
-              </pre>
-            </section>
+            {formattedDetails.loading ? (
+              <span role="status">Loading tool details...</span>
+            ) : formattedDetails.error ? (
+              <span role="alert">Could not load tool details: {formattedDetails.error}</span>
+            ) : (
+              <>
+                <section>
+                  <span>Input</span>
+                  <pre><code>{formattedDetails.input || '(empty input)'}</code></pre>
+                </section>
+                <section>
+                  <span>Output</span>
+                  <pre>
+                    <code>
+                      {formattedDetails.hasResult
+                        ? formattedDetails.output || '(empty output)'
+                        : '(waiting for output)'}
+                    </code>
+                  </pre>
+                </section>
+              </>
+            )}
           </div>
         )}
       </div>

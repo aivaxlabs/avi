@@ -4500,17 +4500,6 @@ body.panel-resizing * {
     opacity: .55;
 }
 
-.settings-page .remote-endpoint-row code {
-    min-width: 0;
-    padding: 6px 9px;
-    color: var(--text-2);
-    font-size: 11px;
-    overflow-wrap: anywhere;
-    background: var(--background-2);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-}
-
 .settings-page .remote-status i {
     width: 6px;
     height: 6px;
@@ -4526,21 +4515,57 @@ body.panel-resizing * {
     background: var(--success-color);
 }
 
-.settings-page .remote-key-controls {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-}
-
-.settings-page .remote-key-status {
+.settings-page .remote-keys-empty {
+    padding: 14px 18px;
     color: var(--text-3);
-    font-size: 11px;
-    white-space: nowrap;
+    font-size: .9rem;
 }
 
-.settings-page .remote-key-status.configured {
-    color: var(--success-color);
+.settings-page .remote-key-expired {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 7px;
+    color: var(--danger-color);
+    font-size: 10px;
+    font-weight: 500;
+    vertical-align: 2px;
+    border: 1px solid color-mix(in srgb, var(--danger-color) 45%, transparent);
+    border-radius: 999px;
+}
+
+.settings-page .remote-create-inputs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-page .remote-create-input {
+    min-width: 0;
+    padding: 7px 9px;
+    color: var(--text-1);
+    font: inherit;
+    background: var(--background-0);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+}
+
+.settings-page .remote-create-input:focus {
+    border-color: var(--text-3);
+    outline: none;
+}
+
+.settings-page .remote-create-input:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 2px;
+}
+
+.settings-page .remote-create-input:disabled {
+    opacity: .55;
+}
+
+.settings-page .remote-create-input[type='text'] {
+    flex: 1 1 150px;
 }
 
 .settings-page .remote-key-actions {
@@ -4899,14 +4924,8 @@ body.panel-resizing * {
         align-items: center;
     }
 
-    .settings-page .remote-endpoint-row code, .settings-page .remote-key-controls {
+    .settings-page .remote-create-inputs {
         width: 100%;
-    }
-
-    .settings-page .remote-key-controls {
-        align-items: flex-start;
-        flex-direction: column;
-        gap: 8px;
     }
 
     .settings-page .remote-key-actions {

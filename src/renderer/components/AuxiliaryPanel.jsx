@@ -297,6 +297,8 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   activeTab,
   activeSubagentId,
   visibleMessagesByConversation,
+  historyPagesByConversation,
+  onLoadOlderHistory,
   visibleRunning,
   semaphoreWaits = emptyList,
   models,
@@ -990,7 +992,10 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
               compact
               currentConversation={activeThread}
               currentMessages={visibleMessagesByConversation[activeThread.id] ?? emptyList}
-              messagesLoaded={Object.hasOwn(visibleMessagesByConversation, activeThread.id)}
+              messagesLoaded={historyPagesByConversation[activeThread.id]?.loaded ?? false}
+              historyHasMore={historyPagesByConversation[activeThread.id]?.hasMore ?? false}
+              historyLoading={historyPagesByConversation[activeThread.id]?.loading ?? false}
+              onLoadOlderHistory={() => onLoadOlderHistory(activeThread.id)}
               currentModel={currentModel}
               currentProject={currentProject}
               contextUsage={{

@@ -2761,17 +2761,6 @@
     }
   }
 
-  .remote-endpoint-row code {
-    min-width: 0;
-    padding: 6px 9px;
-    color: var(--text-2);
-    font-size: 11px;
-    overflow-wrap: anywhere;
-    background: var(--background-2);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-  }
-
   .remote-status i {
     width: 6px;
     height: 6px;
@@ -2787,23 +2776,58 @@
     background: var(--success-color);
   }
 
-  .remote-key-controls {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-
-  .remote-key-status {
+  .remote-keys-empty {
+    padding: 14px 18px;
     color: var(--text-3);
-    font-size: 11px;
-    white-space: nowrap;
+    font-size: .9rem;
   }
 
-  .remote-key-status.configured {
-    color: var(--success-color);
+  .remote-key-expired {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 7px;
+    color: var(--danger-color);
+    font-size: 10px;
+    font-weight: 500;
+    vertical-align: 2px;
+    border: 1px solid color-mix(in srgb, var(--danger-color) 45%, transparent);
+    border-radius: 999px;
   }
 
+  .remote-create-inputs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .remote-create-input {
+    min-width: 0;
+    padding: 7px 9px;
+    color: var(--text-1);
+    font: inherit;
+    background: var(--background-0);
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+
+    &:focus {
+      border-color: var(--text-3);
+      outline: none;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      opacity: .55;
+    }
+
+    &[type='text'] {
+      flex: 1 1 150px;
+    }
+  }
   .remote-key-actions {
     display: flex;
     align-items: center;
@@ -2876,15 +2900,8 @@
       align-items: center;
     }
 
-    .remote-endpoint-row code,
-    .remote-key-controls {
+    .remote-create-inputs {
       width: 100%;
-    }
-
-    .remote-key-controls {
-      align-items: flex-start;
-      flex-direction: column;
-      gap: 8px;
     }
 
     .remote-key-actions {

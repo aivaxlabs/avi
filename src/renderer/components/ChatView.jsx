@@ -19,6 +19,10 @@ import {
   startIndexForRecentHumanMessages,
 } from '../lib/message-groups.js';
 import { areMessageRowPropsEqual } from '../lib/message-row-props.js';
+import {
+  canResumeAssistantMessage,
+  canRetryAssistantMessage,
+} from '../lib/message-actions.js';
 import { useStreamingAutoScroll } from '../lib/use-streaming-auto-scroll.js';
 import { Message } from './Message.jsx';
 
@@ -173,6 +177,9 @@ export const ChatView = memo(function ChatView({
   currentConversation,
   currentMessages,
   messagesLoaded = true,
+  historyHasMore = false,
+  historyLoading = false,
+  onLoadOlderHistory,
   currentModel,
   currentProject,
   contextUsage,
@@ -332,7 +339,10 @@ export const ChatView = memo(function ChatView({
     prependKey: groupedMessages[0]?.message.id ?? null,
   });
   const loadOlderMessages = useCallback(() => {
-    if (!hasOlderMessages || !prepareForPrepend()) return;
+    if (
+      (!hasOlderMessages && (!historyHasMore || historyLoading || !onLoadOlderHistory))
+      || !prepareForPrepend()
+    ) return;
     setHistoryWindow((current) => ({
       conversationId: currentConversation?.id ?? null,
       humanMessageCount: (
@@ -341,7 +351,15 @@ export const ChatView = memo(function ChatView({
           : HISTORY_BATCH_SIZE
       ) + HISTORY_BATCH_SIZE,
     }));
-  }, [currentConversation?.id, hasOlderMessages, prepareForPrepend]);
+    if (!hasOlderMessages) void onLoadOlderHistory();
+  }, [
+    currentConversation?.id,
+    hasOlderMessages,
+    historyHasMore,
+    historyLoading,
+    onLoadOlderHistory,
+    prepareForPrepend,
+  ]);
   const handleChatScroll = useCallback((event) => {
     const { scrollTop } = event.currentTarget;
     const scrollingUp = scrollTop < previousChatScrollTopRef.current - 1;
@@ -792,8 +810,13 @@ export const ChatView = memo(function ChatView({
         onMouseUp={updateSelectionAction}
         onKeyUp={updateSelectionAction}
         onScroll={handleChatScroll}
+        onWheel={handleChatWheel}
       >
-        {isEmptyChat ? (
+        {!messagesLoaded ? (
+          <div className="empty-chat">
+            <p>Loading messages...</p>
+          </div>
+        ) : isEmptyChat ? (
           <div className="empty-chat">
             <h1>How can I help you today?</h1>
           </div>
@@ -825,6 +848,7 @@ export const ChatView = memo(function ChatView({
                     onChooseModel={onChooseModel}
                     project={currentProject}
                     projectLocked
+                    showProject={!compact}
                     onChooseProject={onChooseProject}
                     onUseHome={onUseHome}
                     onToggleFavorite={onToggleFavorite}
@@ -880,22 +904,16 @@ export const ChatView = memo(function ChatView({
                     ['waiting', 'working'].includes(subagent.status)
                   ))
                 }
-                canRetry={
-                  message.id === lastAssistantMessage?.id
-                  && message.status === 'completed'
-                  && !isRunning
-                  && !subagents?.some((subagent) => (
-                    ['waiting', 'working'].includes(subagent.status)
-                  ))
-                }
-                canResume={
-                  message.id === lastAssistantMessage?.id
-                  && ['error', 'aborted', 'streaming'].includes(message.status)
-                  && !isRunning
-                  && !subagents?.some((subagent) => (
-                    ['waiting', 'working'].includes(subagent.status)
-                  ))
-                }
+                canRetry={canRetryAssistantMessage(
+                  message,
+                  lastAssistantMessage,
+                  isRunning,
+                )}
+                canResume={canResumeAssistantMessage(
+                  message,
+                  lastAssistantMessage,
+                  isRunning,
+                )}
               />
             ))}
             {semaphoreWait && (
@@ -1182,6 +1200,7 @@ export const ChatView = memo(function ChatView({
         onChooseModel={onChooseModel}
         project={currentProject}
         projectLocked={Boolean(currentConversation)}
+        showProject={!compact}
         onChooseProject={onChooseProject}
         onUseHome={onUseHome}
         onToggleFavorite={onToggleFavorite}

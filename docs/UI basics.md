@@ -10,11 +10,11 @@ Folder menus can open the project or terminal, copy the path, open context manag
 
 ## Conversation area
 
-The center area displays messages, reasoning, and tool traces when **Chat reasoning traces** is set to **Visible**. File, image, audio, and PDF support depends on the capabilities declared by the selected model.
+The center area displays messages, reasoning, and tool traces when **Chat reasoning traces** is set to **Visible**. File, image, audio, and PDF support depends on the capabilities declared by the selected model. Avi loads recent history first and fetches older pages as you scroll upward, including in an opened auxiliary thread.
 
 The built-in `get_chat_attachments` tool returns local paths and stable `attachmentIndex` values for images, audio, and videos attached by the user in the current chat. When an attachment exists only in the model inference payload, Avi first materializes it under managed temporary storage. The returned `temporary` and `materialized` fields identify temporary files and copies created by the current call. Temporary copies can be removed from **Settings → Maintenance → Archive → Delete temporary storage**.
 
-Message actions may retry or resume a response, fork from a point in history, undo recorded file edits, open `:fileref{path="./path"}` references, or implement a completed Plan.
+Message actions may retry or resume a response, fork from a point in history, undo recorded file edits, open `:fileref{path="./path"}` references, or implement a completed Plan. **Try again** remains available on the current thread when generation fails or Avi closes before it finishes, regardless of side chats or sub-agents; explicitly clicking **Stop** does not offer that recovery action.
 
 ## Auxiliary panel
 

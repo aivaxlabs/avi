@@ -30,8 +30,8 @@ Use **Home**, select a recent folder, or choose **Choose folder** in the compose
 
 ```text
 project/
-├── AGENTS.md
 └── .agents/
+    ├── AGENTS.Project.md
     ├── mcpconfig.json
     ├── skills/example/SKILL.md
     └── workflows/example.md

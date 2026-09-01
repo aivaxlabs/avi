@@ -220,6 +220,7 @@ export function Composer({
   onChooseModel,
   project,
   projectLocked,
+  showProject = true,
   onChooseProject,
   onUseHome,
   onToggleFavorite,
@@ -2406,7 +2407,7 @@ export function Composer({
         </div>
       </div>
       <div className="project-picker-row">
-        <div className="project-picker-holder" ref={projectMenuRef}>
+        {showProject && <div className="project-picker-holder" ref={projectMenuRef}>
           <button
           className="project-picker"
           type="button"
@@ -2512,7 +2513,7 @@ export function Composer({
               </button>
             </div>
           )}
-        </div>
+        </div>}
         <div className="composer-usage-indicators">
           <ProviderUsages
             providers={providerUsageProviders}

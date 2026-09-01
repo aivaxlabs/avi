@@ -24,6 +24,11 @@ import {
   saveAppearance,
 } from './lib/apply-theme.js';
 import { getTheme, setPluginThemes, themes } from './lib/themes.js';
+import {
+  deriveAuxiliaryThreadStatuses,
+  deriveAuxiliaryThreadStatusList,
+  updateAuxiliaryMessageStates,
+} from './lib/auxiliary-thread-status.js';
 
 const api = window.chatApp;
 const sidebarWidthStorageKey = 'aivax.layout.sidebar-width';
@@ -36,6 +41,7 @@ window.localStorage.removeItem('aivax.composer.work-mode');
 window.localStorage.removeItem('aivax.composer.ultra-mode');
 const minimumAuxiliaryPanelWidth = 280;
 const minimumMainContentWidth = 320;
+const MESSAGE_PAGE_SIZE = 100;
 const emptyList = Object.freeze([]);
 const emptyObject = Object.freeze({});
 const initialSidebarWidth = Number.isFinite(savedSidebarWidth) && savedSidebarWidth > 0
@@ -121,6 +127,8 @@ export default function App() {
   const [conversations, setConversations] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [messagesByConversation, setMessagesByConversation] = useState({});
+  const [messagePagesByConversation, setMessagePagesByConversation] = useState({});
+  const [auxiliaryMessageStates, setAuxiliaryMessageStates] = useState({});
   const [providers, setProviders] = useState([]);
   const [providerTypes, setProviderTypes] = useState([]);
   const [models, setModels] = useState([]);
@@ -182,11 +190,99 @@ export default function App() {
   const [workMode, setWorkMode] = useState(null);
   const [ultraMode, setUltraMode] = useState(false);
   const approvalDialogRef = useRef(null);
+  const messagePageLoadsRef = useRef(new Set());
+  const auxiliaryConversationIdsRef = useRef(new Set());
   const inspectedConversationIdRef = useRef(null);
   const selectedConversationIdRef = useRef(null);
 
   inspectedConversationIdRef.current = settingsOpen || orchestrationOpen ? null : selectedId;
   selectedConversationIdRef.current = selectedId;
+
+  const deleteMessageCache = useStableCallback((conversationIds) => {
+    setMessagesByConversation((state) => {
+      const next = { ...state };
+      for (const conversationId of conversationIds) delete next[conversationId];
+      return next;
+    });
+    setMessagePagesByConversation((state) => {
+      const next = { ...state };
+      for (const conversationId of conversationIds) delete next[conversationId];
+      return next;
+    });
+  });
+  const loadMessagePage = useStableCallback(async (conversationId, cursor = null) => {
+    if (!conversationId || messagePageLoadsRef.current.has(conversationId)) return;
+    messagePageLoadsRef.current.add(conversationId);
+    setMessagePagesByConversation((state) => ({
+      ...state,
+      [conversationId]: {
+        cursor: state[conversationId]?.cursor ?? null,
+        hasMore: state[conversationId]?.hasMore ?? false,
+        loaded: state[conversationId]?.loaded ?? false,
+        loading: true,
+      },
+    }));
+    setMessagesByConversation((state) => (
+      Object.hasOwn(state, conversationId) ? state : { ...state, [conversationId]: [] }
+    ));
+    let retryWithoutCursor = false;
+    try {
+      const page = await api.conversations.messages({
+        conversationId,
+        limit: MESSAGE_PAGE_SIZE,
+        cursor,
+      });
+      setMessagesByConversation((state) => ({
+        ...state,
+        [conversationId]: page.messages.reduce(
+          (messages, message) => upsertMessage(messages, message),
+          state[conversationId] ?? [],
+        ),
+      }));
+      setMessagePagesByConversation((state) => ({
+        ...state,
+        [conversationId]: {
+          cursor: page.cursor,
+          hasMore: page.hasMore,
+          loaded: true,
+          loading: false,
+        },
+      }));
+    } catch (nextError) {
+      const message = nextError instanceof Error ? nextError.message : String(nextError);
+      if (cursor && /cursor is no longer available/i.test(message)) {
+        deleteMessageCache([conversationId]);
+        retryWithoutCursor = true;
+      } else {
+        setMessagePagesByConversation((state) => ({
+          ...state,
+          [conversationId]: {
+            ...state[conversationId],
+            loading: false,
+          },
+        }));
+        setError(message);
+      }
+    } finally {
+      messagePageLoadsRef.current.delete(conversationId);
+    }
+    if (retryWithoutCursor) return loadMessagePage(conversationId);
+  });
+  const loadInitialMessagePage = useStableCallback((conversationId) => {
+    const page = messagePagesByConversation[conversationId];
+    if (
+      !conversationId
+      || page?.loaded
+      || page?.loading
+      || (!page && Object.hasOwn(messagesByConversation, conversationId))
+    ) return;
+    return loadMessagePage(conversationId);
+  });
+  const loadOlderMessagePage = useStableCallback((conversationId) => {
+    const page = messagePagesByConversation[conversationId];
+    if (!page?.hasMore || page.loading || !page.cursor) return;
+    return loadMessagePage(conversationId, page.cursor);
+  });
 
   const selectedBot = bots.find((bot) => bot.conversationId === selectedId) ?? null;
   const currentConversation = conversations.find((item) => item.id === selectedId)
@@ -256,6 +352,9 @@ export default function App() {
     ...sideChats.map((sideChat) => sideChat.id),
     ...visibleSubagents.map((subagent) => subagent.id),
   ], [sideChats, visibleSubagents]);
+  useEffect(() => {
+    auxiliaryConversationIdsRef.current = new Set(auxiliaryConversationIds);
+  }, [auxiliaryConversationIds]);
   const auxiliaryMessagesByConversation = useVisibleConversationRecord(
     auxiliaryConversationIds,
     messagesByConversation,
@@ -274,29 +373,36 @@ export default function App() {
     auxiliaryConversationIds,
     semaphoreWaits,
   );
-  const subagentsWithStatus = useMemo(() => visibleSubagents.map((subagent) => {
-    const messages = auxiliaryMessagesByConversation[subagent.id] ?? emptyList;
-    const lastUserIndex = messages.findLastIndex((message) => message.role === 'user');
-    const lastAssistant = messages
-      .slice(lastUserIndex + 1)
-      .findLast((message) => message.role === 'assistant');
-    let status = 'waiting';
-    if (auxiliarySemaphoreWaits.some((wait) => wait.conversationId === subagent.id)) {
-      status = 'sleeping';
-    } else if (auxiliaryRunning[subagent.id]) {
-      status = 'working';
-    } else if (lastAssistant?.status === 'completed') {
-      status = 'finished';
-    } else if (['error', 'aborted', 'streaming'].includes(lastAssistant?.status)) {
-      status = 'failed';
-    }
-    return { ...subagent, status };
-  }), [
-    auxiliaryMessagesByConversation,
+  const previousAuxiliaryStatusesRef = useRef(emptyObject);
+  const auxiliaryStatuses = useMemo(() => deriveAuxiliaryThreadStatuses(
+    previousAuxiliaryStatusesRef.current,
+    [...sideChats, ...visibleSubagents],
     auxiliaryRunning,
     auxiliarySemaphoreWaits,
+    auxiliaryMessageStates,
+  ), [
+    auxiliaryMessageStates,
+    auxiliaryRunning,
+    auxiliarySemaphoreWaits,
+    sideChats,
     visibleSubagents,
   ]);
+  useEffect(() => {
+    previousAuxiliaryStatusesRef.current = auxiliaryStatuses;
+  }, [auxiliaryStatuses]);
+  const subagentsWithStatus = useMemo(() => visibleSubagents.map((subagent) => ({
+    ...subagent,
+    status: auxiliaryStatuses[subagent.id] ?? 'waiting',
+  })), [auxiliaryStatuses, visibleSubagents]);
+  const previousSubagentStatusListRef = useRef(emptyList);
+  const subagentStatusList = useMemo(() => deriveAuxiliaryThreadStatusList(
+    previousSubagentStatusListRef.current,
+    visibleSubagents,
+    auxiliaryStatuses,
+  ), [auxiliaryStatuses, visibleSubagents]);
+  useEffect(() => {
+    previousSubagentStatusListRef.current = subagentStatusList;
+  }, [subagentStatusList]);
   const openProviderPanels = useMemo(() => providerPanels.filter(
     (panel) => openProviderPanelIds.includes(panel.id),
   ), [openProviderPanelIds, providerPanels]);
@@ -382,20 +488,8 @@ export default function App() {
         setMcpState(nextMcpState);
         setSemaphoreWaits(nextChatState.semaphoreWaits ?? []);
         if (restoredReload) {
-          const restoredMessages = await Promise.all(restoredReload.conversationIds.map(async (id) => (
-            [id, await api.conversations.messages(id)]
-          )));
+          await Promise.all(restoredReload.conversationIds.map((id) => loadMessagePage(id)));
           if (!active) return;
-          setMessagesByConversation((current) => Object.fromEntries([
-            ...Object.entries(current),
-            ...restoredMessages.map(([id, messages]) => [
-              id,
-              (current[id] ?? []).reduce(
-                (items, message) => upsertMessage(items, message),
-                messages,
-              ),
-            ]),
-          ]));
           const completedReload = await api.plugins.completeReload();
           if (!active || !completedReload) return;
           setRunning(Object.fromEntries(
@@ -432,15 +526,8 @@ export default function App() {
             selectedConversationIdRef.current = initialConversation.id;
             setSelectedId(initialConversation.id);
           }
-          const messages = await api.conversations.messages(initialConversation.id);
+          await loadInitialMessagePage(initialConversation.id);
           if (!active) return;
-          setMessagesByConversation((state) => ({
-            ...state,
-            [initialConversation.id]: (state[initialConversation.id] ?? []).reduce(
-              (items, message) => upsertMessage(items, message),
-              messages,
-            ),
-          }));
         }
         await api.goals.resume();
       })
@@ -534,17 +621,28 @@ export default function App() {
     inspectedConversationIdRef.current = conversationId;
     selectedConversationIdRef.current = conversationId;
     setSelectedId(conversationId);
-    const messages = await api.conversations.messages(conversationId);
-    setMessagesByConversation((state) => ({ ...state, [conversationId]: messages }));
+    await loadInitialMessagePage(conversationId);
   }), []);
 
   useEffect(() => (
     api.onChatEvent((event) => {
       if (event.type === 'message') {
-        setMessagesByConversation((state) => ({
-          ...state,
-          [event.conversationId]: upsertMessage(state[event.conversationId] ?? [], event.message),
-        }));
+        setMessagesByConversation((state) => (
+          Object.hasOwn(state, event.conversationId)
+            ? {
+                ...state,
+                [event.conversationId]: upsertMessage(
+                  state[event.conversationId],
+                  event.message,
+                ),
+              }
+            : state
+        ));
+        setAuxiliaryMessageStates((state) => updateAuxiliaryMessageStates(
+          state,
+          event.message,
+          auxiliaryConversationIdsRef.current,
+        ));
         if (event.message.role === 'assistant') {
           const isRunning = event.message.status === 'streaming';
           setRunning((state) => (
@@ -636,19 +734,27 @@ export default function App() {
           setTasksTabOpen(event.tasks.length > 0);
         }
       } else if (event.type === 'message-delete') {
-        setMessagesByConversation((state) => ({
-          ...state,
-          [event.conversationId]: (state[event.conversationId] ?? [])
-            .filter((message) => message.id !== event.messageId),
-        }));
+        setMessagesByConversation((state) => (
+          Object.hasOwn(state, event.conversationId)
+            ? {
+                ...state,
+                [event.conversationId]: state[event.conversationId]
+                  .filter((message) => message.id !== event.messageId),
+              }
+            : state
+        ));
       } else if (event.type === 'queue-order') {
-        setMessagesByConversation((state) => ({
-          ...state,
-          [event.conversationId]: applyPendingOrder(
-            state[event.conversationId] ?? [],
-            event,
-          ),
-        }));
+        setMessagesByConversation((state) => (
+          Object.hasOwn(state, event.conversationId)
+            ? {
+                ...state,
+                [event.conversationId]: applyPendingOrder(
+                  state[event.conversationId],
+                  event,
+                ),
+              }
+            : state
+        ));
       } else if (event.type === 'run-state') {
         setRunning((state) => (
           state[event.conversationId] === event.running
@@ -859,12 +965,7 @@ export default function App() {
       api.rubberDucks.list(selectedId),
       api.tasks.list(selectedId),
     ])
-      .then(async ([nextSideChats, nextSubagents, nextRubberDucks, nextTasks]) => {
-        const entries = await Promise.all(
-          [...nextSideChats, ...nextSubagents, ...nextRubberDucks].map(async (childThread) => (
-            [childThread.id, await api.conversations.messages(childThread.id)]
-          )),
-        );
+      .then(([nextSideChats, nextSubagents, nextRubberDucks, nextTasks]) => {
         if (!active) return;
         setSideChats(nextSideChats);
         setSubagents(nextSubagents);
@@ -872,10 +973,6 @@ export default function App() {
         setSubagentsTabOpen(nextSubagents.length > 0 || nextRubberDucks.length > 0);
         setTasksByConversation((state) => ({ ...state, [selectedId]: nextTasks }));
         setTasksTabOpen(nextTasks.length > 0);
-        setMessagesByConversation((state) => ({
-          ...state,
-          ...Object.fromEntries(entries),
-        }));
         setActiveSubagentId((current) => (
           [...nextSubagents, ...nextRubberDucks].some((thread) => thread.id === current)
             ? current
@@ -947,10 +1044,7 @@ export default function App() {
     });
     selectedConversationIdRef.current = id;
     setSelectedId(id);
-    if (!messagesByConversation[id]) {
-      const messages = await api.conversations.messages(id);
-      setMessagesByConversation((state) => ({ ...state, [id]: messages }));
-    }
+    await loadInitialMessagePage(id);
   }
 
   async function createBot(preset = {}) {
@@ -990,12 +1084,7 @@ export default function App() {
     try {
       await api.bots.fullReset(botId);
       setConversations(await api.conversations.list());
-      setMessagesByConversation((state) => {
-        if (!(bot.conversationId in state)) return state;
-        const next = { ...state };
-        delete next[bot.conversationId];
-        return next;
-      });
+      deleteMessageCache([bot.conversationId]);
       await refreshBots();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -1548,10 +1637,10 @@ export default function App() {
     const result = await api.conversations.fork({ conversationId: id, throughMessageId });
     if (!result) return;
     setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
-    setMessagesByConversation((state) => ({ ...state, [result.conversation.id]: result.messages }));
     setDraftModel(result.conversation.model);
     selectedConversationIdRef.current = result.conversation.id;
     setSelectedId(result.conversation.id);
+    await loadInitialMessagePage(result.conversation.id);
   }
 
   async function createSideChat(initialAttachment = null) {
@@ -1560,15 +1649,12 @@ export default function App() {
     const result = await api.sideChats.create({ parentConversationId: selectedId });
     if (!result) return;
     setSideChats((state) => [...state, result.conversation]);
-    setMessagesByConversation((state) => ({
-      ...state,
-      [result.conversation.id]: result.messages,
-    }));
     setPendingSideChatAttachment(attachment
       ? { conversationId: result.conversation.id, attachment }
       : null);
     setAuxiliaryPanelVisible(true);
     setActiveAuxiliaryTab(result.conversation.id);
+    await loadInitialMessagePage(result.conversation.id);
   }
 
   async function closeSideChat(id) {
@@ -1576,11 +1662,7 @@ export default function App() {
     if (index < 0 || !await api.sideChats.close(id)) return;
     const remaining = sideChats.filter((sideChat) => sideChat.id !== id);
     setSideChats(remaining);
-    setMessagesByConversation((state) => {
-      const next = { ...state };
-      delete next[id];
-      return next;
-    });
+    deleteMessageCache([id]);
     window.localStorage.removeItem(`aivax.composer.side.${id}`);
     setRunning((state) => ({ ...state, [id]: false }));
     if (activeAuxiliaryTab === id) {
@@ -1610,7 +1692,7 @@ export default function App() {
     try {
       const result = await api.tags.save(tags);
       setAppState((current) => (current ? { ...current, chatTags: result.tags } : current));
-      setConversations(result.conversations);
+      setConversations(await api.conversations.list());
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       throw nextError;
@@ -1625,16 +1707,13 @@ export default function App() {
   async function archiveConversation(id) {
     const next = await api.conversations.archive(id);
     setConversations(next);
-    setMessagesByConversation((state) => {
-      const copy = { ...state };
-      delete copy[id];
-      if (selectedId === id) {
-        for (const sideChat of sideChats) delete copy[sideChat.id];
-        for (const subagent of subagents) delete copy[subagent.id];
-        for (const rubberDuck of rubberDucks) delete copy[rubberDuck.id];
-      }
-      return copy;
-    });
+    const removedIds = [
+      id,
+      ...(selectedId === id
+        ? [...sideChats, ...subagents, ...rubberDucks].map((thread) => thread.id)
+        : []),
+    ];
+    deleteMessageCache(removedIds);
     if (selectedId === id) {
       setSideChats([]);
       setSubagents([]);
@@ -1646,10 +1725,7 @@ export default function App() {
       selectedConversationIdRef.current = fallback;
       setSelectedId(fallback);
       if (!fallback) setDraftProject(appState.defaultProject);
-      if (fallback && !messagesByConversation[fallback]) {
-        const messages = await api.conversations.messages(fallback);
-        setMessagesByConversation((state) => ({ ...state, [fallback]: messages }));
-      }
+      await loadInitialMessagePage(fallback);
     }
   }
 
@@ -2004,12 +2080,8 @@ export default function App() {
     setActiveAuxiliaryTab(tabId);
     if (['subagents', 'files', 'git-review'].includes(tabId)) {
       setActiveSubagentId(null);
-    } else if (
-      !providerPanels.some((panel) => panel.id === tabId)
-      && !messagesByConversation[tabId]
-    ) {
-      const messages = await api.conversations.messages(tabId);
-      setMessagesByConversation((state) => ({ ...state, [tabId]: messages }));
+    } else if (!providerPanels.some((panel) => panel.id === tabId)) {
+      await loadInitialMessagePage(tabId);
     }
   });
   const auxiliaryOnCloseSideChat = useStableCallback(closeSideChat);
@@ -2111,10 +2183,7 @@ export default function App() {
   const auxiliaryOnFileNavigationConsumed = useStableCallback(() => setFileNavigation(null));
   const auxiliaryOnSelectSubagent = useStableCallback(async (id) => {
     setActiveSubagentId(id);
-    if (id && !messagesByConversation[id]) {
-      const messages = await api.conversations.messages(id);
-      setMessagesByConversation((state) => ({ ...state, [id]: messages }));
-    }
+    await loadInitialMessagePage(id);
   });
   const auxiliaryOnSend = useStableCallback((thread, model, payload) => sendMessage({
     ...payload,
@@ -2194,10 +2263,14 @@ export default function App() {
     }
     return ids.map((modelId) => modelsById.get(modelId));
   }, [conversations, currentModel, models]);
+  const messagesLoaded = !selectedId || (
+    messagePagesByConversation[selectedId]?.loaded
+    ?? Object.hasOwn(messagesByConversation, selectedId)
+  );
   const shell = useMemo(() => ({
     currentConversation,
     currentMessages,
-    messagesLoaded: !selectedId || Object.hasOwn(messagesByConversation, selectedId),
+    messagesLoaded,
     currentModel,
     contextUsage,
     isRunning: Boolean(selectedId && running[selectedId]),
@@ -2209,7 +2282,7 @@ export default function App() {
     currentMessages,
     currentModel,
     contextUsage,
-    messagesByConversation,
+    messagesLoaded,
     recentModels,
     recentProjects,
     running,
@@ -2374,6 +2447,9 @@ export default function App() {
             ) : (
               <ChatView
               {...shell}
+              historyHasMore={messagePagesByConversation[selectedId]?.hasMore ?? false}
+              historyLoading={messagePagesByConversation[selectedId]?.loading ?? false}
+              onLoadOlderHistory={() => loadOlderMessagePage(selectedId)}
               botMode={Boolean(selectedBot)}
               onShowBotInPanel={selectedBot ? chatOnShowBotInPanel : undefined}
               emptyBackgroundEnabled={getTheme(appearance.themeId).emptyChatBackground !== false}
@@ -2402,7 +2478,7 @@ export default function App() {
               onCreateSideChat={currentConversation ? chatOnCreateSideChat : undefined}
               onMentionSelection={setPendingComposerAttachment}
               onAskSelection={currentConversation ? chatOnCreateSideChat : undefined}
-              subagents={subagentsWithStatus}
+              subagents={subagentStatusList}
               tasks={tasksByConversation[selectedId] ?? emptyList}
               onOpenTasks={chatOnOpenTasks}
               onOpenSubagents={chatOnOpenSubagents}
@@ -2504,6 +2580,8 @@ export default function App() {
                 activeTab={activeAuxiliaryTab}
                 activeSubagentId={activeSubagentId}
                 visibleMessagesByConversation={auxiliaryMessagesByConversation}
+                historyPagesByConversation={messagePagesByConversation}
+                onLoadOlderHistory={loadOlderMessagePage}
                 visibleRunning={auxiliaryRunning}
                 semaphoreWaits={auxiliarySemaphoreWaits}
                 models={models}
@@ -2593,14 +2671,7 @@ export default function App() {
           onClearThread={async (botId) => {
             const bot = bots.find((item) => item.id === botId);
             await api.bots.clearThread(botId);
-            if (bot) {
-              setMessagesByConversation((state) => {
-                if (!(bot.conversationId in state)) return state;
-                const next = { ...state };
-                delete next[bot.conversationId];
-                return next;
-              });
-            }
+            if (bot) deleteMessageCache([bot.conversationId]);
             await refreshBots();
           }}
           onFullReset={fullResetBot}

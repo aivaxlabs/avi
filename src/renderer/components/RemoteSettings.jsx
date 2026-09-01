@@ -2,7 +2,7 @@ import {
   AlertTriangle,
   Check,
   Copy,
-  RefreshCw,
+  Plus,
   Trash2,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -11,7 +11,9 @@ export function RemoteSettings() {
   const [state, setState] = useState(null);
   const [port, setPort] = useState('18992');
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedId, setCopiedId] = useState(null);
+  const [newKeyLabel, setNewKeyLabel] = useState('');
+  const [newKeyExpires, setNewKeyExpires] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -32,14 +34,13 @@ export function RemoteSettings() {
 
   async function mutate(action) {
     setBusy(true);
-    setCopied(false);
+    setCopiedId(null);
     setError('');
     try {
       const value = await action();
-      if (value?.port) {
-        setState(value);
-        setPort(String(value.port));
-      }
+      const next = await window.chatApp.remote.state();
+      setState(next);
+      setPort(String(next.port));
       return value;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -113,68 +114,117 @@ export function RemoteSettings() {
           />
         </div>
 
-        <div className="settings-card-row remote-endpoint-row">
+        <div className="settings-card-row">
           <div className="remote-row-copy">
-            <strong>Endpoint</strong>
+            <strong>Server status</strong>
             <span className={state.running ? 'remote-status running' : 'remote-status'}>
               <i aria-hidden="true" />
               {state.running ? 'Listening' : 'Not listening'}
             </span>
           </div>
-          <code>{state.endpoint}</code>
         </div>
+      </div>
 
+      <div className="settings-section-card settings-row-card">
         <div className="settings-card-row">
           <div className="remote-row-copy">
-            <strong>Access key</strong>
-            <span>
-              {state.hasApiKey
-                ? 'Included in the endpoint URL and accepted as a Bearer token.'
-                : 'No API key is configured.'}
-            </span>
+            <strong>API keys</strong>
+            <span>Authenticate local MCP clients.</span>
           </div>
-          <div className="remote-key-controls">
-            <span className={state.hasApiKey ? 'remote-key-status configured' : 'remote-key-status'}>
-              {state.hasApiKey ? 'Configured' : 'Not configured'}
-            </span>
+        </div>
+
+        {state.apiKeys.map((key) => (
+          <div className="settings-card-row" key={key.id}>
+            <div className="remote-row-copy">
+              <strong>
+                {key.label || 'API key'}
+                {key.expired && <span className="remote-key-expired">Expired</span>}
+              </strong>
+              <span>
+                Created {new Date(key.createdAt).toLocaleString()}
+                {' · '}
+                {key.expiresAt ? `Expires ${new Date(key.expiresAt).toLocaleString()}` : 'No expiration'}
+              </span>
+            </div>
             <div className="remote-key-actions">
-              <button
-                className="remote-action primary"
-                type="button"
-                disabled={busy || !state.hasApiKey}
-                onClick={async () => {
-                  const result = await mutate(() => window.chatApp.remote.copyKey());
-                  if (result?.copied) setCopied(true);
-                }}
-              >
-                {copied ? <Check size={14} /> : <Copy size={14} />}
-                {copied ? 'Copied' : 'Copy key'}
-              </button>
               <button
                 className="remote-action"
                 type="button"
                 disabled={busy}
-                onClick={() => mutate(() => window.chatApp.remote.regenerateKey())}
+                onClick={async () => {
+                  const result = await mutate(() => window.chatApp.remote.copyKey(key.id));
+                  if (result?.copied) setCopiedId(key.id);
+                }}
               >
-                <RefreshCw size={14} />
-                Regenerate
+                {copiedId === key.id ? <Check size={14} /> : <Copy size={14} />}
+                {copiedId === key.id ? 'Copied' : 'Copy'}
               </button>
               <button
                 className="remote-action danger"
                 type="button"
-                disabled={busy || !state.hasApiKey}
-                onClick={() => mutate(() => window.chatApp.remote.removeKey())}
+                disabled={busy}
+                onClick={() => mutate(() => window.chatApp.remote.removeKey(key.id))}
               >
                 <Trash2 size={14} />
-                Remove
+                Delete
               </button>
             </div>
           </div>
-        </div>
+        ))}
+
+        {state.apiKeys.length === 0 && (
+          <div className="remote-keys-empty">No API keys yet.</div>
+        )}
+
+        <form
+          className="settings-card-row remote-key-create"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            const label = newKeyLabel.trim();
+            if (!label) {
+              setError('Enter a name for the new API key.');
+              return;
+            }
+            const expiresAt = newKeyExpires ? new Date(newKeyExpires).toISOString() : null;
+            const created = await mutate(() => window.chatApp.remote.createKey({ label, expiresAt }));
+            if (created !== null) {
+              setNewKeyLabel('');
+              setNewKeyExpires('');
+            }
+          }}
+        >
+          <div className="remote-row-copy">
+            <strong>New API key</strong>
+            <span>Expiration is optional.</span>
+          </div>
+          <div className="remote-create-inputs">
+            <input
+              className="remote-create-input"
+              type="text"
+              placeholder="Key name"
+              aria-label="API key name"
+              value={newKeyLabel}
+              disabled={busy}
+              onChange={(event) => setNewKeyLabel(event.target.value)}
+            />
+            <input
+              className="remote-create-input"
+              type="datetime-local"
+              aria-label="API key expiration (optional)"
+              value={newKeyExpires}
+              disabled={busy}
+              onChange={(event) => setNewKeyExpires(event.target.value)}
+            />
+            <button className="remote-action primary" type="submit" disabled={busy}>
+              <Plus size={14} />
+              Create API key
+            </button>
+          </div>
+        </form>
       </div>
 
       <p className="remote-footnote">
-        Removing the key turns Remote mode off. A new key is created the next time you enable it.
+        API key secrets are never displayed. Use Copy to place a key on the clipboard for your MCP client.
       </p>
       {error && <div className="settings-context-error" role="alert">{error}</div>}
     </section>
