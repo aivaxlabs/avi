@@ -111,6 +111,20 @@ const reasoningFormatField = {
     { value: 'qwen', label: 'Qwen ($.enable_thinking + $.thinking_budget)' },
   ],
 };
+const inferenceParameterFields = [
+  {
+    id: 'temperature',
+    label: 'Temperature',
+    placeholder: 'Optional, for example 0.7',
+    description: 'Sent as temperature only when set.',
+  },
+  {
+    id: 'topK',
+    label: 'Top K',
+    placeholder: 'Optional, for example 40',
+    description: 'Sent as top_k only when set.',
+  },
+];
 const reasoningBudgets = {
   none: 0,
   minimal: 0,
@@ -145,6 +159,7 @@ export const responsesApi = {
 
     return {
       model: model.modelId,
+      ...inferenceRequestFields(provider),
       ...(prepared.dynamicContext ? { instructions: prepared.dynamicContext } : {}),
       input: [
         ...messages.flatMap((message) => toResponsesInput(message, model)),
@@ -324,6 +339,7 @@ export const chatCompletionsApi = {
 
     return {
       model: model.modelId,
+      ...inferenceRequestFields(provider),
       messages: [
         ...(prepared.dynamicContext
           ? [{ role: 'system', content: prepared.dynamicContext }]
@@ -462,7 +478,7 @@ export const openAiCompatibleProviderTypes = [
       icon: 'server',
       connection: 'custom',
       models: 'custom',
-      fields: [reasoningFormatField],
+      fields: [reasoningFormatField, ...inferenceParameterFields],
     },
     ...responsesApi,
     request: (context) => requestOpenAiCompatible(context, '/v1/responses'),
@@ -476,12 +492,29 @@ export const openAiCompatibleProviderTypes = [
       icon: 'server',
       connection: 'custom',
       models: 'custom',
-      fields: [reasoningFormatField],
+      fields: [reasoningFormatField, ...inferenceParameterFields],
     },
     ...chatCompletionsApi,
     request: (context) => requestOpenAiCompatible(context, '/v1/chat/completions'),
   }),
 ];
+
+function inferenceRequestFields(provider) {
+  return [
+    ['temperature', provider.temperature],
+    ['top_k', provider.topK],
+  ].reduce((fields, [requestKey, value]) => {
+    const input = String(value ?? '').trim();
+    if (!input) return fields;
+
+    const numericValue = Number(input);
+    if (!Number.isFinite(numericValue)) {
+      throw new Error(`${requestKey === 'top_k' ? 'Top K' : 'Temperature'} must be a valid number.`);
+    }
+    fields[requestKey] = numericValue;
+    return fields;
+  }, {});
+}
 
 function reasoningRequestFields(reasoningEffort, format = 'default') {
   if (!reasoningEffort) return {};
@@ -498,7 +531,7 @@ function reasoningRequestFields(reasoningEffort, format = 'default') {
   }[format];
 }
 
-function requestOpenAiCompatible({ provider, body, signal }, interfacePath) {
+function requestOpenAiCompatible({ provider, model, body, signal }, interfacePath) {
   const baseUrl = provider.baseUrl.replace(/\/+$/, '');
   const endpoint = baseUrl.endsWith(interfacePath)
     ? baseUrl
@@ -514,6 +547,7 @@ function requestOpenAiCompatible({ provider, body, signal }, interfacePath) {
     },
     value: body,
     signal,
+    logContext: { model: model?.modelId, providerId: provider.id },
   });
 }
 

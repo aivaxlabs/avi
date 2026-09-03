@@ -21,7 +21,10 @@ Choose **OpenAI Compatible · Responses API** or **OpenAI Compatible · Chat com
 - an HTTP or HTTPS **Base URL**;
 - **API key**, optional for unauthenticated local endpoints;
 - **Reasoning format**;
+- optional **Temperature** and **Top K** inference hyperparameters;
 - **Enabled**.
+
+Temperature and Top K are sent as numeric `temperature` and `top_k` request fields. Leave either value empty to omit that field from inference requests.
 
 Avi appends `/v1/responses` or `/v1/chat/completions` when the endpoint path is not already present.
 

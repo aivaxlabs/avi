@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { ModelProviderRegistry } from '../src/main/model-provider.js';
-import { openAiCompatibleProviderTypes } from '../src/providers/openai-compatible.js';
+import {
+  chatCompletionsApi,
+  openAiCompatibleProviderTypes,
+  responsesApi,
+} from '../src/providers/openai-compatible.js';
 
 const providerType = openAiCompatibleProviderTypes.find(
   (type) => type.descriptor.id === 'chat-completions',
@@ -15,6 +19,8 @@ const providerInput = {
   name: 'OpenAI Compatible',
   baseUrl: 'https://example.com',
   interface: 'chat-completions',
+  temperature: '0.7',
+  topK: '40',
   enabled: true,
   models: [
     {
@@ -69,6 +75,38 @@ const body = await provider.implementation.createBody({
   invocationContext: { auxiliary: true },
 });
 assert.equal(body.model, 'gpt-5.6-sol');
+assert.equal(body.temperature, 0.7);
+assert.equal(body.top_k, 40);
+
+for (const api of [chatCompletionsApi, responsesApi]) {
+  const emptyBody = await api.createBody({
+    provider: {
+      ...provider.config,
+      temperature: '',
+      topK: '',
+    },
+    model: models[0],
+    messages: [{ role: 'user', content: 'Hello' }],
+    reasoningEffort: null,
+    tools: [],
+    toolHistory: [],
+    invocationContext: { auxiliary: true },
+  });
+  assert.equal(Object.hasOwn(emptyBody, 'temperature'), false);
+  assert.equal(Object.hasOwn(emptyBody, 'top_k'), false);
+
+  const configuredBody = await api.createBody({
+    provider: provider.config,
+    model: models[0],
+    messages: [{ role: 'user', content: 'Hello' }],
+    reasoningEffort: null,
+    tools: [],
+    toolHistory: [],
+    invocationContext: { auxiliary: true },
+  });
+  assert.equal(configuredBody.temperature, 0.7);
+  assert.equal(configuredBody.top_k, 40);
+}
 
 assert.throws(
   () => registry.normalizeConfig({
