@@ -2,6 +2,10 @@
 
 ## [Canary]
 
+---
+
+## [0.6.0] — 2026-09-03
+
 ### Added
 - **Remote JSON-RPC API** — exposes administrative Electron-equivalent handlers over a global WebSocket and complete bidirectional, sequenced, isolated conversation control and events over per-thread WebSockets.
 - **Browser RPC clients** — authenticate without URL secrets by offering `avi-rpc-v1` and a base64url API-key subprotocol; RPC discovery now reports exact v1 methods, capabilities, Avi/Core/MCP versions, and the global model catalog with last-used/default model preferences and the authoritative Queue/Steer message delivery mode.
@@ -58,6 +62,9 @@
 - Improved the `/create-plugin` workflow description to highlight hooks, providers, themes, and advanced customizations.
 - Documented `sidebar:status`, `sidebar:mark-seen`, `tags:list`, and `tags:save` with shared `SidebarStatus` and `Tag` types and the per-instance ephemerality of completed-unseen state.
 - Documented projected tool-call segments and deferred detail retrieval across conversation RPC methods, shared types, and streaming notifications.
+
+### Chores
+- Version bumped to 0.6.0.
 
 ### Tests
 - Added regression coverage for start-only `<think>` reasoning blocks, literal inline tags, and context-compression boundaries.

@@ -114,7 +114,7 @@ const MAX_WEBSOCKET_PAYLOAD_BYTES = 1024 * 1024;
 const RPC_PROTOCOL = 'avi-rpc-v1';
 const RPC_API_KEY_PROTOCOL_PREFIX = 'avi-api-key.';
 const RPC_API_VERSION = 1;
-const APP_VERSION = '0.5.0';
+const APP_VERSION = '0.6.0';
 
 const rpcError = (id, code, message, data) => ({
   jsonrpc: '2.0',
