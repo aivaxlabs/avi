@@ -365,6 +365,7 @@ async function signOutOpenAiSubscription(providerId, services) {
 
 async function requestOpenAiSubscription({
   provider,
+  model,
   body,
   signal,
   invocationContext,
@@ -397,6 +398,7 @@ async function requestOpenAiSubscription({
       },
       value: requestBody,
       signal,
+      logContext: { model: model?.modelId, providerId: provider.id },
     });
   };
 

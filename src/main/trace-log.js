@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   appendFileSync,
   createReadStream,
@@ -13,6 +14,7 @@ import { createGzip } from 'node:zlib';
 
 const traceDirectory = join(homedir(), '.aivax');
 const tracePath = join(traceDirectory, 'trace.log');
+const requestLogDirectory = join(tmpdir(), '.avi', 'debug', 'request-logs');
 const maxTraceSize = 64 * 1024 * 1024;
 const allowedDetails = new Set([
   'abort_duration_ms',
@@ -125,7 +127,7 @@ export async function rotateTraceLog() {
 }
 
 export function setTraceLevel(level) {
-  traceLevel = ['verbose', 'minimal', 'disabled'].includes(level) ? level : 'minimal';
+  traceLevel = ['verbose', 'minimal', 'disabled', 'requests'].includes(level) ? level : 'minimal';
   return traceLevel;
 }
 
@@ -144,8 +146,80 @@ export function traceInfo(event, details = {}) {
 }
 
 export function traceVerbose(event, details = {}) {
-  if (traceLevel !== 'verbose') return;
+  if (traceLevel !== 'verbose' && traceLevel !== 'requests') return;
   writeTrace('INFO', event, details);
+}
+
+export function logApiRequest({
+  model,
+  providerId,
+  method,
+  url,
+  headers,
+  body,
+  response,
+  error,
+}) {
+  if (traceLevel !== 'requests') return;
+  try {
+    const lines = [
+      '# API request log',
+      `# timestamp: ${new Date().toISOString()}`,
+      `# model: ${model ?? 'unknown'}`,
+      `# provider: ${providerId ?? 'unknown'}`,
+      '',
+      '## Request',
+      `${method} ${redactSecrets(String(url ?? ''))} HTTP/1.1`,
+      ...formatHeaderLines(headers),
+      '',
+      redactSecrets(String(body ?? '')),
+      '',
+      '## Response',
+      response ? `${response.status} ${response.statusText ?? ''}`.trim() : '(no response)',
+      ...(response ? formatHeaderLines(response.headers) : []),
+      '',
+      response ? redactSecrets(String(response.body ?? '')) : '',
+      ...(error ? ['', '## Error', redactSecrets(String(error))] : []),
+      '',
+    ];
+    mkdirSync(requestLogDirectory, { recursive: true });
+    appendFileSync(requestLogPath(model), lines.join('\n'), 'utf8');
+  } catch {
+    // Logging must never interrupt application execution.
+  }
+}
+
+function requestLogPath(model) {
+  const now = new Date();
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const safeModel = String(model ?? 'unknown').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80) || 'unknown';
+  const randomId = randomUUID().replace(/-/g, '').slice(0, 8);
+  return join(requestLogDirectory, `${date}-${safeModel}-${randomId}.log`);
+}
+
+function formatHeaderLines(headers) {
+  return (Array.isArray(headers) ? headers : Object.entries(headers ?? {})).map(([name, value]) => (
+    `${name}: ${String(name).toLowerCase() === 'authorization' ? '[REDACTED]' : redactSecrets(String(value))}`
+  ));
+}
+
+function redactSecrets(text) {
+  return text
+    .replace(/\b(Bearer|Basic)\s+[^\s,;]+/gi, '$1 [REDACTED]')
+    .replace(
+      /((?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|client[_-]?secret|password)["']?\s*[:=]\s*["']?)[^\s,"'}]+/gi,
+      '$1[REDACTED]',
+    )
+    .replace(
+      /([?&](?:api[_-]?key|key|token|access[_-]?token|refresh[_-]?token|client[_-]?secret)=)[^&\s]+/gi,
+      '$1[REDACTED]',
+    )
+    .replace(/\b(?:sk|rk|pk)-(?:proj-)?[A-Za-z0-9_-]{8,}\b/gi, '[REDACTED]')
+    .replace(/\b(?:gh[pousr]|github_pat)_[A-Za-z0-9_]{20,}\b/gi, '[REDACTED]')
+    .replace(/\bAIza[A-Za-z0-9_-]{20,}\b/g, '[REDACTED]')
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[REDACTED]')
+    .replace(/\b[A-Za-z]:\\[^\r\n"']+/g, '[REDACTED_PATH]')
+    .replace(/(?:file:\/\/\/|\/Users\/|\/home\/)[^\r\n"']+/g, '[REDACTED_PATH]');
 }
 
 function writeTrace(level, event, details) {

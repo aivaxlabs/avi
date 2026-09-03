@@ -2098,6 +2098,7 @@ export function SettingsPage({
                           }));
                         }}
                       >
+                        <option value="requests">Trace + Requests · Verbose trace and raw HTTP on API errors</option>
                         <option value="verbose">Verbose · Detailed timings and errors</option>
                         <option value="minimal">Minimal · Errors only</option>
                         <option value="disabled">Disabled · Fatal errors only</option>

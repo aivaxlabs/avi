@@ -3335,7 +3335,7 @@ function normalizeTuningSettings(value, strict = false) {
       && rubberDuckMaxTurns <= 500
       ? rubberDuckMaxTurns
       : defaultTuningSettings.rubberDuckMaxTurns,
-    logLevel: ['verbose', 'minimal', 'disabled'].includes(tuning.logLevel)
+    logLevel: ['verbose', 'minimal', 'disabled', 'requests'].includes(tuning.logLevel)
       ? tuning.logLevel
       : defaultTuningSettings.logLevel,
   };

@@ -51,11 +51,14 @@ The dialog offers two manual modes:
 
 ## Tuning → Diagnostics
 
+- **Trace + Requests** — Verbose trace plus the raw HTTP request and response written on API errors;
 - **Verbose** — detailed timings and errors;
 - **Minimal** — default; errors only;
 - **Disabled** — fatal errors only; operational trace logging is disabled.
 
 Uncaught main-process and renderer errors, unhandled rejections, renderer/preload failures, and abnormal renderer or child-process termination are recorded as `FATAL` at every level. The log is `~/.aivax/trace.log`. Logs do not include prompts, messages, tool inputs, attachments, API keys, or user file paths.
+
+In **Trace + Requests** mode, a failed provider API request (HTTP status `>= 400` or a transport error) writes the raw HTTP request and response to `$TEMP/.avi/debug/request-logs/yyyy-MM-dd-model-randomid.log`. The request body is the full inference payload, so unlike the trace log it does contain prompts and messages; `Authorization`/`Bearer` tokens, API keys, and user file paths are redacted.
 
 For isolated startup diagnostics, launch Avi with these command-line flags:
 

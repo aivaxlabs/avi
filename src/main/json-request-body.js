@@ -4,6 +4,7 @@ import { request as requestHttp } from 'node:http';
 import { request as requestHttps } from 'node:https';
 import { isAbsolute } from 'node:path';
 import { Readable } from 'node:stream';
+import { logApiRequest } from './trace-log.js';
 
 const fileBase64Values = new WeakSet();
 const base64ChunkSize = 192 * 1024;
@@ -32,7 +33,20 @@ export function createJsonRequestBody(value, signal) {
   };
 }
 
-export async function sendJsonRequest(url, { headers = {}, value, signal } = {}) {
+function serializeRequestBody(value) {
+  if (value === undefined) return '';
+  try {
+    return JSON.stringify(value, (key, item) => (
+      item && typeof item === 'object' && fileBase64Values.has(item)
+        ? '[base64 file attachment]'
+        : item
+    ), 2) ?? '';
+  } catch {
+    return String(value);
+  }
+}
+
+export async function sendJsonRequest(url, { headers = {}, value, signal, logContext } = {}) {
   const serialized = createJsonRequestBody(value, signal);
   const target = new URL(url);
   const requestTransport = target.protocol === 'https:' ? requestHttps : requestHttp;
@@ -43,27 +57,66 @@ export async function sendJsonRequest(url, { headers = {}, value, signal } = {})
     rejectResponse = reject;
   });
   void responsePromise.catch(() => {});
+  const requestHeaders = {
+    ...headers,
+    'Content-Length': String(serialized.contentLength),
+  };
   const request = requestTransport(target, {
     method: 'POST',
-    headers: {
-      ...headers,
-      'Content-Length': String(serialized.contentLength),
-    },
+    headers: requestHeaders,
     signal,
-  }, (response) => {
+  }, async (response) => {
     const responseHeaders = new Headers();
     for (const [name, headerValue] of Object.entries(response.headers)) {
       for (const value of Array.isArray(headerValue) ? headerValue : [headerValue]) {
         if (value !== undefined) responseHeaders.append(name, String(value));
       }
     }
-    resolveResponse(new Response(Readable.toWeb(response), {
+    const httpResponse = new Response(Readable.toWeb(response), {
       status: response.statusCode,
       statusText: response.statusMessage,
       headers: responseHeaders,
-    }));
+    });
+    if (response.statusCode >= 400) {
+      let bodyText = '';
+      try {
+        bodyText = await httpResponse.text();
+      } catch {
+        bodyText = '';
+      }
+      logApiRequest({
+        ...logContext,
+        method: 'POST',
+        url: target.href,
+        headers: Object.entries(requestHeaders),
+        body: serializeRequestBody(value),
+        response: {
+          status: response.statusCode,
+          statusText: response.statusMessage,
+          headers: [...responseHeaders.entries()],
+          body: bodyText,
+        },
+      });
+      resolveResponse(new Response(bodyText, {
+        status: response.statusCode,
+        statusText: response.statusMessage,
+        headers: responseHeaders,
+      }));
+      return;
+    }
+    resolveResponse(httpResponse);
   });
-  request.once('error', (error) => rejectResponse(new TypeError(error.message, { cause: error })));
+  request.once('error', (error) => {
+    logApiRequest({
+      ...logContext,
+      method: 'POST',
+      url: target.href,
+      headers: Object.entries(requestHeaders),
+      body: serializeRequestBody(value),
+      error: error.message,
+    });
+    rejectResponse(new TypeError(error.message, { cause: error }));
+  });
 
   try {
     for await (const chunk of serialized.body) {
