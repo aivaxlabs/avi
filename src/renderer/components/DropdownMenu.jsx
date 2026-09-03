@@ -1,8 +1,10 @@
+import { forwardRef } from 'react';
 import { classNames } from '../lib/format.js';
 
-export function DropdownMenu({ children, className, style, fixed = false, ...props }) {
+export const DropdownMenu = forwardRef(function DropdownMenu({ children, className, style, fixed = false, ...props }, ref) {
   return (
     <div
+      ref={ref}
       {...props}
       className={classNames('dropdown-menu', fixed && 'fixed', className)}
       style={style}
@@ -10,7 +12,7 @@ export function DropdownMenu({ children, className, style, fixed = false, ...pro
       {children}
     </div>
   );
-}
+});
 
 export function DropdownMenuItem({ active = false, children, icon, className, ...props }) {
   return (

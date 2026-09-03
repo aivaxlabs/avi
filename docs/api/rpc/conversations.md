@@ -144,8 +144,7 @@ The scalar form uses `params.payload` with the source conversation ID. To fork t
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `conversation` | [`Conversation`](types.md#conversation) | New copied conversation. |
-| `messages` | [`Message[]`](types.md#message) | Copied messages with new IDs. `checkpointMessageId` is remapped when its source message was copied. |
+| `conversation` | [`Conversation`](types.md#conversation) | New copied conversation. Load its copied history through `conversations:messages`. |
 
 ```json
 {

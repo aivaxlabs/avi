@@ -1283,13 +1283,14 @@ export default function App() {
         setSelectedId(result.conversation.id);
       }
     }
-    setMessagesByConversation((state) => ({
-      ...state,
-      [result.conversation.id]: applyPendingOrder(
-        upsertMessage(state[result.conversation.id] ?? [], result.message),
-        result,
-      ),
-    }));
+    setMessagesByConversation((state) => {
+      let messages = upsertMessage(state[result.conversation.id] ?? [], result.message);
+      if (result.assistantMessage) messages = upsertMessage(messages, result.assistantMessage);
+      return {
+        ...state,
+        [result.conversation.id]: applyPendingOrder(messages, result),
+      };
+    });
     if (!result.queued) {
       setRunning((state) => ({
         ...state,

@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -88,6 +89,20 @@ function writePersistedReasoningEffort(modelId, effort) {
   try {
     window.localStorage.setItem(composerReasoningEffortsKey, JSON.stringify(map));
   } catch {}
+}
+
+function useSubmenuFlip(ref, open) {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!open || !el) return;
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      el.classList.toggle('flip-left', rect.right > window.innerWidth - 8);
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [ref, open]);
 }
 const permissionModes = [
   {
@@ -261,6 +276,10 @@ export function Composer({
   const [advancedPickerOpen, setAdvancedPickerOpen] = useState(false);
   const [advancedModelSubmenuOpen, setAdvancedModelSubmenuOpen] = useState(false);
   const [advancedEffortSubmenuOpen, setAdvancedEffortSubmenuOpen] = useState(false);
+  const modelSubmenuRef = useRef(null);
+  const effortSubmenuRef = useRef(null);
+  useSubmenuFlip(modelSubmenuRef, advancedModelSubmenuOpen);
+  useSubmenuFlip(effortSubmenuRef, advancedEffortSubmenuOpen);
   const [intelligencePreviewIndex, setIntelligencePreviewIndex] = useState(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [commandStage, setCommandStage] = useState(null);
@@ -2123,14 +2142,14 @@ export function Composer({
                     <>
                       <span>Model</span>
                       <span>
-                        {chipModel.name || 'Choose model'}
+                        <span className="model-reasoning-name">{chipModel.name || 'Choose model'}</span>
                         {chipModel.isFast && <Zap size={12} fill="currentColor" aria-hidden="true" />}
                         <ChevronRight size={13} />
                       </span>
                     </>
                   </DropdownMenuItem>
                   {advancedModelSubmenuOpen && (
-                    <DropdownMenu className="model-reasoning-submenu">
+                    <DropdownMenu ref={modelSubmenuRef} className="model-reasoning-submenu">
                       {favoriteModels.slice(0, 5).map((model) => {
                         const { name, isFast } = splitFastModelName(model.name || model.id);
                         return (
@@ -2140,8 +2159,10 @@ export function Composer({
                             aria-label={`${model.name || model.id}, ${model.providerName}`}
                             onClick={() => chooseModel(model.id)}
                           >
-                            {name}
-                            {isFast && <Zap size={12} fill="currentColor" aria-hidden="true" />}
+                            <span className="model-reasoning-model">
+                              <span>{name}</span>
+                              {isFast && <Zap size={12} fill="currentColor" aria-hidden="true" />}
+                            </span>
                           </DropdownMenuItem>
                         );
                       })}
@@ -2215,7 +2236,7 @@ export function Composer({
                       </>
                     </DropdownMenuItem>
                     {advancedEffortSubmenuOpen && (
-                      <DropdownMenu className="model-reasoning-submenu">
+                      <DropdownMenu ref={effortSubmenuRef} className="model-reasoning-submenu">
                         {currentModelConfig.reasoning.map((effort) => (
                           <DropdownMenuItem
                             key={effort}

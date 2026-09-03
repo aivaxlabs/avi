@@ -905,6 +905,7 @@
         align-items: center;
         justify-content: flex-end;
         gap: 5px;
+        min-width: 0;
         color: var(--text-2);
         overflow: visible;
 
@@ -920,9 +921,38 @@
     }
   }
 
+  .model-reasoning-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .model-reasoning-submenu {
     top: -4px;
     left: calc(100% + 6px);
+
+    &.flip-left {
+      left: auto;
+      right: calc(100% + 6px);
+      transform-origin: top right;
+    }
+
+    .model-reasoning-model {
+      width: 100%;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      overflow: visible;
+
+      > span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
   }
 
   .model-reasoning-submenu .dropdown-menu-item,

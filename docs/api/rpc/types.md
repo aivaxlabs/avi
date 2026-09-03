@@ -185,6 +185,7 @@ Avi can normalize or materialize attachments before persistence. Clients must us
 |---|---|---|
 | `conversation` | `Conversation` | Updated conversation. |
 | `message` | `Message` | Created user message. |
+| `assistantMessage` | `Message` \| null | Initial streaming assistant message when the send started a run immediately; `null` when queued or steered. |
 | `queued` | boolean | `true` when queued/steered instead of starting immediately. |
 | `queueOrder` | string[], optional | Present when `queued` is true. |
 | `steerMessageIds` | string[], optional | Present when `queued` is true. |
