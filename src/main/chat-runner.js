@@ -1318,7 +1318,15 @@ export class ChatRunner {
       ultraMode,
       goalId,
     });
-    return { conversation: getConversation(conversation.id), message: userMessage, queued: false };
+    // start() registers the run and its streaming assistant message before its first await,
+    // so the placeholder message is available here without waiting for a streamed delta event.
+    const startedRun = this.runs.get(conversation.id);
+    return {
+      conversation: getConversation(conversation.id),
+      message: userMessage,
+      assistantMessage: startedRun ? getMessage(startedRun.assistantMessageId) : null,
+      queued: false,
+    };
   }
 
   stop(conversationId, {
@@ -3790,7 +3798,7 @@ export class ChatRunner {
       if (!aborted && !accumulator.error) {
         accumulator.apply({
           type: 'error',
-          code: 'provider_error',
+          code: typeof error?.code === 'string' && error.code ? error.code : 'provider_error',
           message,
         });
       }

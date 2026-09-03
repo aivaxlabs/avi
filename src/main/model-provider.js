@@ -210,6 +210,7 @@ export class ModelProvider {
         const decoder = new TextDecoder();
         let buffer = '';
         let receivedOutput = false;
+        let receivedReasoning = false;
         let activeItemType = null;
         const abortReader = () => {
           reader.cancel(signal.reason).catch(() => {});
@@ -365,6 +366,7 @@ export class ModelProvider {
                   };
                 }
                 receivedOutput ||= ['content', 'reasoning', 'tool-call'].includes(event.type);
+                receivedReasoning ||= event.type === 'reasoning';
                 if (retryVisible && receivedOutput) {
                   onEvent({ type: 'retry-clear' });
                   retryVisible = false;
@@ -443,6 +445,37 @@ export class ModelProvider {
         }
 
         if (!retryError) {
+          // A clean stream end must still be complete: reasoning with no final
+          // content or tool call means the generation was cut short mid-thought.
+          if (
+            receivedReasoning
+            && assistantContent === ''
+            && toolCalls.size === 0
+          ) {
+            const error = new Error(
+              'The generation ended in the middle of reasoning without producing an answer.',
+            );
+            error.code = 'generation_truncated';
+            throw error;
+          }
+          const incompleteToolCall = [...toolCalls.values()].find((toolCall) => {
+            if (!toolCall.name || toolCall.argumentsText.trim() === '') return true;
+            try {
+              JSON.parse(toolCall.argumentsText);
+            } catch {
+              return true;
+            }
+            return false;
+          });
+          if (incompleteToolCall) {
+            const error = new Error(
+              `The generation ended with an incomplete tool call${
+                incompleteToolCall.name ? ` (${incompleteToolCall.name})` : ''
+              }. The stream stopped before the call was finished.`,
+            );
+            error.code = 'incomplete_tool_call';
+            throw error;
+          }
           if (retryVisible) onEvent({ type: 'retry-clear' });
           return {
             assistantContent,
