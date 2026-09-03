@@ -23,15 +23,17 @@ export function answerTextFromTextualBlocks(content) {
 
   const turns = [];
   let cursor = 0;
+  let acceptsLeadingThink = true;
 
   while (cursor < source.length) {
-    const marker = findNextTextualBlockMarker(normalizedSource, cursor);
+    const marker = findNextTextualBlockMarker(normalizedSource, cursor, acceptsLeadingThink);
     if (!marker) {
       turns.push(source.slice(cursor));
       break;
     }
 
     turns.push(source.slice(cursor, marker.start));
+    acceptsLeadingThink = false;
     cursor = skipTextualBlockMarker(normalizedSource, marker);
   }
 
@@ -41,11 +43,13 @@ export function answerTextFromTextualBlocks(content) {
 function collectAssistantAnswers(source, normalizedSource) {
   const answers = [];
   let cursor = 0;
+  let acceptsLeadingThink = true;
 
   while (cursor < source.length) {
-    const marker = findNextTextualBlockMarker(normalizedSource, cursor);
+    const marker = findNextTextualBlockMarker(normalizedSource, cursor, acceptsLeadingThink);
     if (!marker) break;
 
+    acceptsLeadingThink = false;
     if (marker.type === 'assistant-answer') {
       const valueStart = marker.start + marker.openTag.length;
       const valueEnd = findTag(normalizedSource, marker.closeTag, valueStart);
@@ -58,12 +62,18 @@ function collectAssistantAnswers(source, normalizedSource) {
   return answers;
 }
 
-function findNextTextualBlockMarker(normalizedSource, start) {
+function findNextTextualBlockMarker(normalizedSource, start, acceptsLeadingThink) {
   return textualBlockMarkers
-    .map((marker) => ({
-      ...marker,
-      start: findTag(normalizedSource, marker.openTag, start),
-    }))
+    .map((marker) => {
+      const markerStart = findTag(normalizedSource, marker.openTag, start);
+      return {
+        ...marker,
+        start: marker.openTag !== '<think>'
+          || (acceptsLeadingThink && !normalizedSource.slice(start, markerStart).trim())
+          ? markerStart
+          : -1,
+      };
+    })
     .filter((marker) => marker.start >= 0)
     .sort((a, b) => a.start - b.start)[0] ?? null;
 }

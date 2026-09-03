@@ -10,7 +10,7 @@ Folder menus can open the project or terminal, copy the path, open context manag
 
 ## Conversation area
 
-The center area displays messages, reasoning, and tool traces when **Chat reasoning traces** is set to **Visible**. File, image, audio, and PDF support depends on the capabilities declared by the selected model. Avi loads recent history first and fetches older pages as you scroll upward, including in an opened auxiliary thread.
+The center area displays messages, reasoning, and tool traces when **Chat reasoning traces** is set to **Visible**. A `<think>...</think>` block is treated as a reasoning trace only at the absolute start of an assistant message, with optional whitespace before it; tags elsewhere remain visible response text. File, image, audio, and PDF support depends on the capabilities declared by the selected model. Avi loads recent history first and fetches older pages as you scroll upward, including in an opened auxiliary thread.
 
 The built-in `get_chat_attachments` tool returns local paths and stable `attachmentIndex` values for images, audio, and videos attached by the user in the current chat. When an attachment exists only in the model inference payload, Avi first materializes it under managed temporary storage. The returned `temporary` and `materialized` fields identify temporary files and copies created by the current call. Temporary copies can be removed from **Settings → Maintenance → Archive → Delete temporary storage**.
 
@@ -29,7 +29,7 @@ Side chats open as separate private conversation panels.
 
 ## Composer
 
-The model picker has two modes. When **Settings → Default models → Intelligence levels** defines at least three levels, the picker opens as an intelligence slider: each level applies a configured model and reasoning effort, and **Advanced** switches to direct selection. In advanced mode, **Model** lists favorite models plus **Explore models**, and **Effort** lists the reasoning levels supported by the selected model. Changing models clears an incompatible reasoning effort. Model names containing `(Fast)` or `- Fast` show that text as a lightning icon after the name instead. The project folder can be changed only before the thread is created.
+The model picker has two modes. When **Settings → Default models → Intelligence levels** defines at least three levels, the picker opens as an intelligence slider: each level applies a configured model and reasoning effort, and **Advanced** switches to direct selection. In advanced mode, **Model** lists favorite models plus **Explore models**, and **Effort** lists the reasoning levels supported by the selected model. Changing models clears an incompatible reasoning effort. Model names containing `(Fast)` or `- Fast` show that text as a lightning icon after the name instead; long labels truncate without separating the icon, and nested menus flip inward when the viewport edge is too close. The project folder can be changed only before the thread is created.
 
 ### Sending while work is running
 

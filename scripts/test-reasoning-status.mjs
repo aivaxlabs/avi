@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Message } from '../src/renderer/components/Message.jsx';
+import { answerTextFromTextualBlocks } from '../src/shared/textual-blocks.js';
 
 const renderMessage = (
   reasoning = [],
@@ -25,7 +26,9 @@ const renderMessage = (
       id: 'assistant-message',
       role: 'assistant',
       status,
-      content: segments.map((segment) => `<think>${segment.text}</think>`).join(''),
+      content: segments.length > 0
+        ? `<think>${segments.map((segment) => segment.text).join('\n')}</think>`
+        : '',
       segments,
       attachments: [],
       edits: [],
@@ -43,6 +46,29 @@ const renderMessage = (
     canResume,
   }));
 };
+
+const renderContent = (content, segments = []) => renderToStaticMarkup(createElement(Message, {
+  message: {
+    id: 'assistant-message',
+    role: 'assistant',
+    status: 'completed',
+    content,
+    segments,
+    attachments: [],
+    edits: [],
+    continuations: [],
+    usage: {},
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:01.000Z',
+  },
+  modelName: 'Test model',
+  workedMessages: [],
+  runActive: false,
+  questionPending: false,
+  showContinuations: false,
+  canRetry: false,
+  canResume: false,
+}));
 
 const statusOnly = renderMessage(['**Inspecting the renderer flow**']);
 assert.match(statusOnly, /Inspecting the renderer flow/);
@@ -85,6 +111,41 @@ const statusSequenceWithReasoning = renderMessage([
 assert.match(statusSequenceWithReasoning, /Defining constructor logic/);
 assert.match(statusSequenceWithReasoning, /Keep this reasoning visible\./);
 assert.match(statusSequenceWithReasoning, /class="reasoning-text"/);
+
+const leadingWhitespace = renderContent(' \n\t<think>Private reasoning</think>Final answer');
+assert.match(leadingWhitespace, /class="worked-block"/);
+assert.match(leadingWhitespace, /Final answer/);
+assert.equal(answerTextFromTextualBlocks(' \n\t<think>Private reasoning</think>Final answer'), 'Final answer');
+
+for (const content of [
+  'Final answer <think>literal tag</think> remains visible.',
+  'Final answer\n<think>literal tag</think> remains visible.',
+]) {
+  const inlineThink = renderContent(content);
+  assert.doesNotMatch(inlineThink, /class="worked-block"/);
+  assert.doesNotMatch(inlineThink, /class="reasoning-text"/);
+  assert.match(inlineThink, /&lt;think&gt;literal tag&lt;\/think&gt;/);
+  assert.equal(answerTextFromTextualBlocks(content), content);
+}
+
+const adjacentThink = renderContent('<think>Private reasoning</think><think>literal tag</think>Final answer');
+assert.match(adjacentThink, /class="worked-block"/);
+assert.match(adjacentThink, /&lt;think&gt;literal tag&lt;\/think&gt;Final answer/);
+assert.equal(
+  answerTextFromTextualBlocks('<think>Private reasoning</think><think>literal tag</think>Final answer'),
+  '<think>literal tag</think>Final answer',
+);
+
+const afterCompression = renderContent('Answer<think>literal tag</think>', [{
+  id: 'compression',
+  type: 'context-compression',
+  contentOffset: 6,
+  status: 'completed',
+  inputTokens: 100,
+  outputTokens: 50,
+}]);
+assert.doesNotMatch(afterCompression, /class="reasoning-text"/);
+assert.match(afterCompression, /&lt;think&gt;literal tag&lt;\/think&gt;/);
 
 const nextResponse = renderMessage();
 assert.match(nextResponse, />Thinking</);
