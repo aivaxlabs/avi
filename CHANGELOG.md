@@ -17,9 +17,12 @@
 - **Declarative plugin settings** — backward-compatible Plugin API v2 definitions can add Avi-rendered settings sections backed by JSON Schema and main-process read, validation, and write handlers.
 - **Startup diagnostics** — `--inactive-bots` prevents automatic bot initialization, while `--memory-trace` records process CPU, memory, and I/O samples every 250 ms.
 - **Sidebar status and tags over RPC** — `sidebar:status` returns the authoritative Working/Review grouping snapshot (running, approval, input, semaphore, and completed-unseen conversation IDs), `sidebar:mark-seen` acknowledges completed conversations with an explicit ephemeral per-instance state, and `tags:list`/`tags:save` expose the persisted tag catalog.
+- **OpenAI-compatible hyperparameters** — Responses and Chat Completions providers can optionally send Temperature and Top K with each inference request.
 - **Lazy tool-call details** — Desktop and conversation RPC clients now receive lightweight tool-call segments and hydrate arguments, results, and media on demand through the conversation-scoped `conversations:tool-call-details` method.
+- **Trace + Requests log mode** — a new Diagnostics level that writes the raw HTTP request and response of failed provider API calls (status `>= 400` or transport errors) to `$TEMP/.avi/debug/request-logs/yyyy-MM-dd-model-randomid.log`, with credentials and file paths redacted.
 
 ### Changed
+- Base agent instructions now explicitly require `__invocation_goal` and `__requires_human_approval` in every tool call.
 - Tool definitions can set `forcedTruncationLength` as an estimated-token output limit that overrides global truncation; `memory_search` now uses a 5,000-token limit.
 - Project instructions can be centralized under `.agents/AGENTS.<subject>.md`, with direct children of `.agents` preserving root embedding and `embeddable: false` catalog behavior.
 - Removed the Remote Control Endpoint settings section; stable MCP and RPC routes are now documented separately, and secret keys are no longer included in renderer state.
@@ -31,6 +34,11 @@
 - `tags:save` now returns only the normalized `tags` catalog; the previous `conversations` array was removed from the response and the renderer refreshes threads through `conversations:list`.
 
 ### Fixed
+- Kept inline `<think>...</think>` tags visible as response text, interpreting only a block at the absolute message start after optional whitespace as reasoning.
+- Treated a generation that ends mid-reasoning or with an incomplete tool call as an error, surfacing a clear message instead of completing the turn silently.
+- Kept Fast-model lightning icons inline in the advanced picker and flipped nested model or effort menus inward when they would overflow the viewport.
+- Corrected the documented `conversations:fork` result to match the runtime `{ conversation }` envelope; copied history is loaded through `conversations:messages`.
+- Restored the immediate assistant Thinking placeholder when sending a message into an empty or brand-new chat; the send result now carries the created streaming assistant message so it renders before the first token arrives.
 - Completed tool calls no longer retain the animated running state after their details are moved to lazy hydration.
 - Preserved valid function-call pairs during aggressive context compaction while removing orphaned calls and outputs that Responses providers reject.
 - Command and mention selectors now open only at the start of a message or after whitespace, avoiding false positives in inline paths and similar text.
@@ -52,6 +60,9 @@
 - Documented projected tool-call segments and deferred detail retrieval across conversation RPC methods, shared types, and streaming notifications.
 
 ### Tests
+- Added regression coverage for start-only `<think>` reasoning blocks, literal inline tags, and context-compression boundaries.
+- Added regression coverage for forwarding configured OpenAI-compatible Temperature and Top K values while omitting empty values from both inference APIs.
+- Added regression coverage for the mandatory tool-call metaparameter instruction in assembled context.
 - Added regression coverage for stable sub-agent and side-chat operational summaries across text-only streaming chunks and status transitions.
 - Added regression coverage for per-tool forced truncation, including `memory_search` and Plugin API descriptors.
 - Added regression coverage for embedded and catalog-only project instructions centralized directly under `.agents`.

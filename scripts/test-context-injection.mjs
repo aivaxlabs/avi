@@ -365,6 +365,9 @@ try {
       text: 'MCP ordering test instructions',
     }],
   });
+  assert.ok(injected.includes(
+    'Every tool call must include both `__invocation_goal` as a non-empty string and `__requires_human_approval` as a boolean.',
+  ));
   for (const botOnlyMarker of [
     'BOTS.md',
     'Frontend bot-only instructions',
