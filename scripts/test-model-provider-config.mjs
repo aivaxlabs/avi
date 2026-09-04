@@ -5,6 +5,7 @@ import {
   openAiCompatibleProviderTypes,
   responsesApi,
 } from '../src/providers/openai-compatible.js';
+import { openAiSubscriptionProviderType } from '../src/providers/openai-subscription.js';
 
 const providerType = openAiCompatibleProviderTypes.find(
   (type) => type.descriptor.id === 'chat-completions',
@@ -77,6 +78,67 @@ const body = await provider.implementation.createBody({
 assert.equal(body.model, 'gpt-5.6-sol');
 assert.equal(body.temperature, 0.7);
 assert.equal(body.top_k, 40);
+
+const subscriptionRegistry = new ModelProviderRegistry({
+  getProviders: () => [],
+  providerTypes: [openAiSubscriptionProviderType],
+  services: {},
+});
+const subscriptionProvider = subscriptionRegistry.createProvider(
+  subscriptionRegistry.normalizeConfig({
+    id: 'subscription',
+    name: 'OpenAI Subscription',
+    interface: 'openai-subscription',
+  }),
+);
+const [astra, astraFast] = subscriptionProvider.listModels();
+assert.deepEqual(
+  {
+    id: astra.id,
+    modelId: astra.modelId,
+    name: astra.name,
+    context: astra.context,
+    reasoning: astra.reasoning,
+    capabilities: astra.capabilities,
+    serviceTier: astra.serviceTier,
+  },
+  {
+    id: 'subscription:gpt-6-astra',
+    modelId: 'gpt-6-astra',
+    name: 'GPT-6 Astra',
+    context: { input: 922_000, output: 128_000 },
+    reasoning: ['low', 'medium', 'high', 'xhigh', 'max'],
+    capabilities: { images: true, audio: false, pdfFiles: true },
+    serviceTier: undefined,
+  },
+);
+assert.deepEqual(
+  {
+    id: astraFast.id,
+    modelId: astraFast.modelId,
+    name: astraFast.name,
+    serviceTier: astraFast.serviceTier,
+  },
+  {
+    id: 'subscription:gpt-6-astra-fast',
+    modelId: 'gpt-6-astra',
+    name: 'GPT-6 Astra (Fast)',
+    serviceTier: 'priority',
+  },
+);
+
+const astraFastBody = await responsesApi.createBody({
+  provider: subscriptionProvider.config,
+  model: astraFast,
+  messages: [{ role: 'user', content: 'Hello' }],
+  reasoningEffort: 'max',
+  tools: [],
+  toolHistory: [],
+  invocationContext: { auxiliary: true },
+});
+assert.equal(astraFastBody.model, 'gpt-6-astra');
+assert.equal(astraFastBody.reasoning.effort, 'max');
+assert.equal(astraFastBody.service_tier, 'priority');
 
 for (const api of [chatCompletionsApi, responsesApi]) {
   const emptyBody = await api.createBody({

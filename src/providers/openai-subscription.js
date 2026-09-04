@@ -42,6 +42,16 @@ const THROUGH_XHIGH_REASONING = ['low', 'medium', 'high', 'xhigh'];
 
 const modelDefinitions = [
   {
+    id: 'gpt-6-astra',
+    modelId: 'gpt-6-astra',
+    name: 'GPT-6 Astra',
+    description: 'Most capable model for the hardest end-to-end work.',
+    context: { input: 922_000, output: 128_000 },
+    reasoning: THROUGH_MAX_REASONING,
+    imageInput: true,
+    fast: true,
+  },
+  {
     id: 'gpt-5.6-sol',
     modelId: 'gpt-5.6-sol',
     name: 'GPT-5.6 Sol',
@@ -124,7 +134,7 @@ export const openAiSubscriptionProviderType = defineProvider({
     connection: 'managed',
     models: 'managed',
     modelsDescription:
-      'GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; '
+      'GPT-6 Astra; GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; '
       + 'GPT-5.3 Codex Spark. Supported models also include Fast variants.',
     fields: [{
       id: 'imageTool',

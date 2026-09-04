@@ -2,6 +2,15 @@
 
 ## [Canary]
 
+### Added
+- **GPT-6 Astra for OpenAI Subscription** — adds the managed standard and Fast variants with image input and reasoning efforts through Max.
+
+### Docs
+- Updated the OpenAI Subscription model catalog documentation for GPT-6 Astra.
+
+### Tests
+- Added managed-catalog and Responses request coverage for GPT-6 Astra and its Fast service tier.
+
 ---
 
 ## [0.6.0] — 2026-09-03
