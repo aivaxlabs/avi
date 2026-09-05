@@ -79,12 +79,39 @@ Failure:
 
 A JSON array executes as a batch. Responses are returned as an array and may complete in a different order internally. An empty batch is invalid. Requests without `id` are notifications and are omitted from the response, including when their handler fails. A batch containing only notifications receives no message.
 
+## Remote server and relay status
+
+Authenticated global `/rpc` clients can invoke `remote:state` with no payload. It is also advertised by `rpc:discover`; it is not a conversation-stream method. The existing Desktop `window.chatApp.remote.state()` returns the same contract:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `enabled` | boolean | Saved Remote preference |
+| `port` | number | Configured local MCP/RPC port |
+| `relayEnabled` | boolean | Saved RPC WAN bridge preference, default `false`; independent of `enabled` |
+| `relayDeviceId` | string | Stable per-install relay device id |
+| `running` | boolean | Local server is listening |
+| `startError` | string | Local startup error, or empty |
+| `apiKeys` | array | Key metadata (`id`, `label`, `createdAt`, `expiresAt`, `expired`), never key values |
+| `relay.status` | string | `stopped`, `connecting`, `connected`, `reconnecting`, `unauthorized`, or `error` |
+| `relay.serverUrl` | string | `https://avi-relay.projpw.workers.dev` |
+| `relay.deviceId` | string | Device id presented to the relay (same value as `relayDeviceId`) |
+| `relay.localPort` | number or null | Legacy field; always null — the bridge no longer targets a local listener port |
+| `relay.error` | string | Credential-free diagnostic, or empty |
+
+`running` describes local availability, not bridge reachability. `connected` means Avi holds an authenticated publisher connection to the relay; it does not certify that any consumer is connected or that the deployed relay matches this contract. `unauthorized` means relay ticket issuance failed authorization, such as HTTP 401/403, and the bridge stops retrying until the toggle or the AIVAX connection changes. The state never contains API key values or relay ticket secrets. Remote/bridge mutations remain Desktop-only; this method is read-only. See [relay setup and security](../../Remote%20control.md#rpc-wan-bridge) and the [public relay protocol](relay-protocol.md).
+
+## Overview dashboard
+
+`orchestration:overview` retains its method name despite the UI rename to **Overview**. Its `ongoing`, `requiresAttention`, and `recentlyCompleted` arrays contain only conversations with `conversationType: "thread"` and `createdBy: "user"`. Agent-created threads are excluded before task-history classification. The `metrics` aggregation continues to include all conversation types; the task filter does not change model usage totals.
+
 ## Reference
 
 - [Shared types](types.md)
 - [Authentication and API keys](authentication.md)
+- [Public relay protocol](relay-protocol.md)
 - [Working folders](folders.md)
 - [Sidebar status and tags](sidebar.md)
+- [Application updates](updates.md)
 - [Threads, messages, composer state, tasks, and recovery](conversations.md)
 - [Child conversations](child-threads.md)
 - [Bots](bots.md)

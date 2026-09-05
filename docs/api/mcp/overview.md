@@ -21,6 +21,8 @@ Schemas are generated from Avi's client-tool definitions and current model catal
 
 The MCP endpoint is stateless and returns JSON responses while accepting the SDK's Streamable HTTP negotiation headers. It binds to loopback, validates Host, enables DNS-rebinding protection, limits bodies to 1 MiB, and uses timing-safe key comparison.
 
+The MCP endpoint is not available through the public RPC WAN bridge: the relay carries only the JSON-RPC WebSockets (`/rpc` and `/rpc/conversations/streams/:thread-id`), so MCP stays reachable on the loopback interface exclusively. The local endpoint keeps requiring Remote API keys; the bridge's AIVAX authentication applies only to the relayed RPC WebSockets and never relaxes local MCP authentication. See [relay security and lifecycle](../../Remote%20control.md#rpc-wan-bridge).
+
 ## Related documents
 
 - [All API surfaces](../overview.md)

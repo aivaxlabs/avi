@@ -32,6 +32,24 @@ export function RemoteSettings() {
     };
   }, []);
 
+  useEffect(() => {
+    if (busy) return undefined;
+    let active = true;
+    const timer = setInterval(() => {
+      window.chatApp.remote.state()
+        .then((value) => {
+          if (active) setState(value);
+        })
+        .catch((nextError) => {
+          if (active) setError(nextError instanceof Error ? nextError.message : String(nextError));
+        });
+    }, 2_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [busy]);
+
   async function mutate(action) {
     setBusy(true);
     setCopiedId(null);
@@ -64,8 +82,8 @@ export function RemoteSettings() {
       <div className="settings-section-card settings-row-card">
         <div className="settings-card-row remote-header">
           <div className="remote-heading">
-            <h3>Remote MCP server</h3>
-            <p>Allow local MCP clients to use Avi orchestration tools.</p>
+            <h3>Local MCP and RPC</h3>
+            <p>Expose MCP and RPC locally, with an optional RPC-only WAN bridge.</p>
           </div>
           <label className="remote-switch">
             <input
@@ -99,7 +117,7 @@ export function RemoteSettings() {
             type="number"
             min="1"
             max="65535"
-            aria-label="Remote MCP server port"
+            aria-label="Remote MCP and RPC port"
             value={port}
             disabled={busy}
             onChange={(event) => setPort(event.target.value)}
@@ -123,13 +141,46 @@ export function RemoteSettings() {
             </span>
           </div>
         </div>
+
+        <div className="settings-card-row">
+          <div className="remote-row-copy">
+            <strong>RPC WAN bridge</strong>
+            <span>Uses your connected AIVAX account. MCP remains local.</span>
+            <span>Device: {state.relayDeviceId}</span>
+            <span role="status">
+              {{
+                stopped: 'Inactive — enable the bridge and connect an AIVAX account.',
+                unauthorized: 'Authorization required — reconnect your AIVAX account.',
+                connecting: 'Connecting...',
+                connected: 'Published — available to your AIVAX account.',
+                reconnecting: 'Reconnecting...',
+                error: 'Unavailable',
+              }[state.relay?.status ?? 'stopped']}
+            </span>
+            {state.relay?.error && <span role="alert">{state.relay.error}</span>}
+            <span>AIVAX authentication grants WAN access. No Desktop API key is needed. Cloudflare terminates TLS.</span>
+          </div>
+          <label className="remote-switch">
+            <input
+              type="checkbox"
+              aria-label="RPC WAN bridge"
+              checked={state.relayEnabled}
+              disabled={busy}
+              onChange={(event) => mutate(() => window.chatApp.remote.save({
+                relayEnabled: event.target.checked,
+              }))}
+            />
+            <span className="remote-switch-track" aria-hidden="true" />
+            <strong>{state.relayEnabled ? 'On' : 'Off'}</strong>
+          </label>
+        </div>
       </div>
 
       <div className="settings-section-card settings-row-card">
         <div className="settings-card-row">
           <div className="remote-row-copy">
             <strong>API keys</strong>
-            <span>Authenticate local MCP clients.</span>
+            <span>Authenticate local MCP and RPC clients only. WAN uses your AIVAX account.</span>
           </div>
         </div>
 
