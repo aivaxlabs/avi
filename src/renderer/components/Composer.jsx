@@ -58,6 +58,7 @@ import { AttachmentVideo } from './AttachmentVideo.jsx';
 import { ContextUsageDialog } from './ContextUsageDialog.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { ModelPicker } from './ModelPicker.jsx';
+import { WorkspaceDialog } from './WorkspaceDialog.jsx';
 import { ProviderUsages } from './ProviderUsages.jsx';
 
 const composerDraftKey = 'aivax.composer.draft';
@@ -294,6 +295,7 @@ export function Composer({
   const [reasoningEffort, setReasoningEffort] = useState(() => initialState?.reasoningEffort ?? readPersistedReasoningEffort(initialModel) ?? null);
   const [recording, setRecording] = useState(null);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [workspaceCreating, setWorkspaceCreating] = useState(false);
   const [projectSelecting, setProjectSelecting] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [projectQuery, setProjectQuery] = useState('');
@@ -1311,6 +1313,7 @@ export function Composer({
       ref={containerRef}
       className={`composer-wrap${inline ? ' inline-composer-wrap' : ''}`}
     >
+      {workspaceCreating && <WorkspaceDialog onClose={() => setWorkspaceCreating(false)} onSave={onChooseProject} />}
       {botMode && onShowBotInPanel && (
         <ComposerChip
           as="button"
@@ -2519,6 +2522,13 @@ export function Composer({
               >
                 <Plus size={14} aria-hidden="true" />
                 <span>Select a folder</span>
+              </button>
+              <button className="project-picker-action" type="button" onClick={() => {
+                setProjectMenuOpen(false);
+                setWorkspaceCreating(true);
+              }}>
+                <Network size={14} aria-hidden="true" />
+                <span>Create workspace</span>
               </button>
               <button
                 className={`project-picker-action${project?.displayPath === '~/' ? ' active' : ''}`}

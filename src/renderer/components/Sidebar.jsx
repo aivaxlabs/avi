@@ -17,6 +17,7 @@ import {
   MessageSquarePlus,
   Moon,
   MoreHorizontal,
+  Network,
   PanelLeftClose,
   PanelLeftOpen,
   Palette,
@@ -40,6 +41,7 @@ import { classNames } from '../lib/format.js';
 import { presetColors } from '../lib/palette.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { TagsManagerDialog } from './TagsManagerDialog.jsx';
+import { WorkspaceDialog } from './WorkspaceDialog.jsx';
 
 const GROUP_LIMIT = 5;
 const emptyList = Object.freeze([]);
@@ -63,6 +65,7 @@ export const Sidebar = memo(function Sidebar({
   approvalPending = emptyObject,
   inputPending = emptyObject,
   semaphoreWaiting = emptyObject,
+  updateState = null,
   onNewChat,
   onQuickChat,
   onSelect,
@@ -104,10 +107,12 @@ export const Sidebar = memo(function Sidebar({
   const [showAgentCreatedThreads, setShowAgentCreatedThreads] = useState(false);
   const [activeTagIds, setActiveTagIds] = useState(() => new Set());
   const [folderMenu, setFolderMenu] = useState(null);
+  const [editingWorkspace, setEditingWorkspace] = useState(null);
   const [tagsManagerOpen, setTagsManagerOpen] = useState(false);
   const [tagsSaving, setTagsSaving] = useState(false);
   const [stickyScrollActive, setStickyScrollActive] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const updateAvailable = updateState?.available === true;
   const filterButtonRef = useRef(null);
   const snoozeButtonRef = useRef(null);
   const folderMenuButtonRef = useRef(null);
@@ -163,6 +168,7 @@ export const Sidebar = memo(function Sidebar({
                 name: conversation.projectName,
                 displayPath: conversation.projectDisplayPath,
                 gitBranch: conversation.gitBranch,
+                isWorkspace: conversation.isWorkspace,
               },
             },
           items: [],
@@ -431,7 +437,7 @@ export const Sidebar = memo(function Sidebar({
             onClick={onOpenOrchestration}
           >
             <LayoutDashboard size={17} />
-            <span>Orchestration</span>
+            <span>Overview</span>
           </button>
           <button type="button" onClick={onSearch}>
             <Search size={17} />
@@ -658,11 +664,9 @@ export const Sidebar = memo(function Sidebar({
               >
                 <span className="conversation-group-title" title={groupLabel}>
                   {conversationGrouping === 'folder' && !group.isHome && !group.isTaskGroup && (
-                    <Folder
-                      size={13}
-                      aria-hidden="true"
-                      style={folderColor ? { color: folderColor } : undefined}
-                    />
+                    group.preset.project?.isWorkspace
+                      ? <Network size={13} aria-hidden="true" style={folderColor ? { color: folderColor } : undefined} />
+                      : <Folder size={13} aria-hidden="true" style={folderColor ? { color: folderColor } : undefined} />
                   )}
                   <span>{groupLabel}</span>
                 </span>
@@ -762,6 +766,12 @@ export const Sidebar = memo(function Sidebar({
                   >
                     Manage MCP Servers
                   </DropdownMenuItem>
+                  {group.preset.project?.isWorkspace && (
+                    <DropdownMenuItem icon={<Network size={14} />} role="menuitem" onClick={() => {
+                      setFolderMenu(null);
+                      setEditingWorkspace(group.preset.project);
+                    }}>Edit workspace</DropdownMenuItem>
+                  )}
                   <div className="dropdown-menu-divider" role="separator" />
                   <DropdownMenuItem
                     icon={folderColor
@@ -879,10 +889,17 @@ export const Sidebar = memo(function Sidebar({
         })}
       </div>
       </div>
-      <button className="settings-button" type="button" onClick={() => onSettings()}>
+      <button
+        className="settings-button"
+        type="button"
+        onClick={() => onSettings()}
+        aria-label={updateAvailable ? 'Settings, update available' : undefined}
+      >
         <Settings size={17} />
         <span>Settings</span>
+        {updateAvailable && <i className="settings-update-badge" aria-hidden="true" />}
       </button>
+      {editingWorkspace && <WorkspaceDialog project={editingWorkspace} onClose={() => setEditingWorkspace(null)} />}
       {tagsManagerOpen && createPortal(
         <TagsManagerDialog
           tags={chatTags}
@@ -907,6 +924,7 @@ const BotItem = memo(function BotItem({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState(null);
+  const [activateMenuOpen, setActivateMenuOpen] = useState(false);
   const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const itemRef = useRef(null);
@@ -920,7 +938,9 @@ const BotItem = memo(function BotItem({
     };
     const closeOnEscape = (event) => {
       if (event.key !== 'Escape') return;
-      if (snoozeMenuOpen) {
+      if (activateMenuOpen) {
+        setActivateMenuOpen(false);
+      } else if (snoozeMenuOpen) {
         setSnoozeMenuOpen(false);
       } else {
         setMenuOpen(false);
@@ -936,7 +956,7 @@ const BotItem = memo(function BotItem({
       window.removeEventListener('pointerdown', close);
       window.removeEventListener('keydown', closeOnEscape);
     };
-  }, [bot.snooze?.mode, menuOpen, snoozeMenuOpen]);
+  }, [activateMenuOpen, bot.snooze?.mode, menuOpen, snoozeMenuOpen]);
 
   function toggleMenu(sourceEvent) {
     const rect = sourceEvent?.currentTarget?.getBoundingClientRect?.();
@@ -944,6 +964,7 @@ const BotItem = memo(function BotItem({
       top: Math.min(rect.bottom + 4, window.innerHeight - 150),
       left: Math.min(rect.right - 150, window.innerWidth - 160),
     } : { top: 100, left: 100 });
+    setActivateMenuOpen(false);
     setSnoozeMenuOpen(false);
     setMenuOpen((value) => !value);
   }
@@ -984,6 +1005,7 @@ const BotItem = memo(function BotItem({
           top: Math.max(8, Math.min(event.clientY, window.innerHeight - 150)),
           left: Math.max(8, Math.min(event.clientX, window.innerWidth - 160)),
         });
+        setActivateMenuOpen(false);
         setSnoozeMenuOpen(false);
         setMenuOpen(true);
       }}
@@ -1008,8 +1030,8 @@ const BotItem = memo(function BotItem({
         {bot.attentionCount > 0 ? (
           <span
             className="bot-queue-badge"
-            title="Action required"
-            aria-label={`${bot.attentionCount} action${bot.attentionCount === 1 ? '' : 's'} required`}
+            title="Inbox needs your attention"
+            aria-label={`${bot.attentionCount} pendenc${bot.attentionCount === 1 ? 'y' : 'ies'} awaiting your response`}
           >
             {bot.attentionCount}
           </span>
@@ -1041,24 +1063,74 @@ const BotItem = memo(function BotItem({
           }}>
             Bot settings
           </DropdownMenuItem>
-          <DropdownMenuItem
-            icon={<Play size={14} />}
-            disabled={bot.enabled === false}
-            title={bot.enabled === false ? 'Enable this bot in Schedule first' : undefined}
-            onClick={() => {
-              setMenuOpen(false);
-              onActivate(bot.id);
-            }}
-          >
-            Activate now
-          </DropdownMenuItem>
-          <div className="bot-snooze-submenu-holder">
+          {bot.workQueue?.length > 0 ? (
+            <div className="bot-submenu-holder">
+              <DropdownMenuItem
+                className="bot-submenu-trigger"
+                icon={<Play size={14} />}
+                disabled={bot.enabled === false}
+                title={bot.enabled === false ? 'Enable this bot in Schedule first' : undefined}
+                aria-haspopup="menu"
+                aria-expanded={activateMenuOpen}
+                onClick={() => {
+                  setSnoozeMenuOpen(false);
+                  setActivateMenuOpen((open) => !open);
+                }}
+              >
+                <>
+                  <span>Activate now</span>
+                  <ChevronRight size={13} />
+                </>
+              </DropdownMenuItem>
+              {activateMenuOpen && (
+                <DropdownMenu className="bot-submenu bot-work-queue-menu" role="menu" aria-label={`Activate ${bot.name}`}>
+                  <DropdownMenuItem role="menuitem" onClick={() => {
+                    setMenuOpen(false);
+                    onActivate(bot.id);
+                  }}>
+                    Next work item
+                  </DropdownMenuItem>
+                  <hr className="dropdown-menu-divider" />
+                  {bot.workQueue.map((workItem, index) => (
+                    <DropdownMenuItem
+                      key={workItem}
+                      active={index === bot.workQueueIndex}
+                      role="menuitem"
+                      title={workItem}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onActivate(bot.id, index);
+                      }}
+                    >
+                      {workItem}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenu>
+              )}
+            </div>
+          ) : (
             <DropdownMenuItem
-              className="bot-snooze-trigger"
+              icon={<Play size={14} />}
+              disabled={bot.enabled === false}
+              title={bot.enabled === false ? 'Enable this bot in Schedule first' : undefined}
+              onClick={() => {
+                setMenuOpen(false);
+                onActivate(bot.id);
+              }}
+            >
+              Activate now
+            </DropdownMenuItem>
+          )}
+          <div className="bot-submenu-holder">
+            <DropdownMenuItem
+              className="bot-submenu-trigger"
               icon={<Moon size={14} />}
               aria-haspopup="menu"
               aria-expanded={snoozeMenuOpen}
-              onClick={() => setSnoozeMenuOpen((open) => !open)}
+              onClick={() => {
+                setActivateMenuOpen(false);
+                setSnoozeMenuOpen((open) => !open);
+              }}
             >
               <>
                 <span>Snooze</span>
@@ -1066,7 +1138,7 @@ const BotItem = memo(function BotItem({
               </>
             </DropdownMenuItem>
             {snoozeMenuOpen && (
-              <DropdownMenu className="bot-snooze-submenu" role="menu" aria-label={`Snooze ${bot.name}`}>
+              <DropdownMenu className="bot-submenu" role="menu" aria-label={`Snooze ${bot.name}`}>
                 <DropdownMenuItem icon={<Clock size={14} />} role="menuitem" onClick={() => {
                   setMenuOpen(false);
                   onSnooze(bot.id, { durationMinutes: 60 });
@@ -1165,9 +1237,7 @@ const ConversationItem = memo(function ConversationItem({
               : null;
   const StatusIcon = status?.icon ?? Clock;
   const statusLabel = status?.label ?? 'Idle';
-  const folderLabel = conversation.projectDisplayPath
-    || conversation.projectName
-    || '~/';
+  const folderLabel = conversation.projectName || '~/';
   const tagIds = new Set(optimisticTags ?? conversation.tags ?? []);
   const tagChips = chatTags.filter((tag) => tagIds.has(tag.id));
 

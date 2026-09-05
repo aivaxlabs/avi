@@ -24,6 +24,7 @@ Returned by conversation, folder, child-thread, bot-thread, queue, compaction, a
 | `projectPath` | string | Absolute working-folder path. |
 | `projectName` | string | Folder basename, or `~/` for the home directory. |
 | `projectDisplayPath` | string | User-facing absolute or home-relative path. |
+| `isWorkspace` | boolean, optional | Identifies a direct child of `~/.aivax/workspaces`. Included in refreshed regular-thread metadata and live `conversation` events; recalculated from `projectPath` on each event. |
 | `gitBranch` | string or `null` | Current Git branch when detectable. RPC list results refresh this value from Git. |
 | `conversationType` | `ConversationType` | Thread category. |
 | `isSideChat` | boolean | Whether `conversationType` is `side`. |
@@ -310,6 +311,7 @@ Each `ContextUsageSegment` has:
 | `displayPath` | string | User-facing path. |
 | `gitBranch` | string or `null` | Current Git branch. |
 | `color` | string or `null`, optional | Lowercase `#rrggbb` folder color. Present in `folders:list`. |
+| `isWorkspace` | boolean | Whether the folder is a direct child of `~/.aivax/workspaces`. |
 
 ### `ConversationSearchResult`
 

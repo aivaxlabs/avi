@@ -110,7 +110,7 @@
     border: 0;
     outline: 0;
     background: transparent;
-    font-size: 13px;
+    font-size: 1rem;
   }
 }
 
@@ -128,7 +128,7 @@
     min-width: 0;
     height: 100%;
     color: --text-1;
-    font-size: 15px;
+    font-size: 1.1rem;
     caret-color: --text-1;
 
     &::placeholder {
@@ -143,7 +143,7 @@
     border: 1px solid --border-color;
     border-radius: 6px;
     font-family: inherit;
-    font-size: 10px;
+    font-size: .9rem;
   }
 
   .search-spinner {
@@ -159,7 +159,7 @@
   gap: 12px;
   margin-top: 12px;
   color: --text-3;
-  font-size: 12px;
+  font-size: .9rem;
 }
 
 .permission-dialog-backdrop {
@@ -184,6 +184,198 @@
   box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
 }
 
+.workspace-dialog {
+  width: min(480px, calc(100vw - 32px));
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  color: --text-1;
+  background: --background-2;
+  border: 1px solid --border-color;
+  border-radius: 12px;
+  box-shadow: 0 16px 56px rgb(0 0 0 / 22%);
+
+  &::backdrop {
+    background: rgb(0 0 0 / 32%);
+  }
+
+  > form {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    max-height: min(720px, calc(100dvh - 48px));
+    min-height: 0;
+    overflow: hidden;
+
+    > .dialog-header {
+      margin: 0;
+      padding: 18px 20px 14px;
+
+      > h2 {
+        margin: 0;
+        font-size: --font-md;
+        font-weight: 600;
+      }
+    }
+
+    > .workspace-dialog-body {
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+      padding: 0 20px;
+
+      label {
+        display: grid;
+        gap: 7px;
+        min-width: 0;
+        font-size: --font-sm;
+
+        > input {
+          box-sizing: border-box;
+          width: 100%;
+          padding: 8px 10px;
+          color: --text-1;
+          background: --background-0;
+          border: 1px solid --border-color;
+          border-radius: 6px;
+          font: inherit;
+
+          &:focus-visible {
+            outline: 2px solid --text-3;
+            outline-offset: 2px;
+          }
+        }
+
+        > span {
+          overflow-wrap: anywhere;
+          color: --text-3;
+          font-size: --font-xs;
+        }
+      }
+
+      > .workspace-location {
+        margin: 7px 0 20px;
+        color: --text-3;
+        font: --font-xs --font-code;
+        overflow-wrap: anywhere;
+      }
+
+      > .workspace-folders-heading {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: --font-sm;
+        font-weight: 500;
+
+        > span {
+          color: --text-3;
+          font-weight: 400;
+        }
+      }
+
+      > .workspace-empty {
+        margin: 10px 0 0;
+        padding: 16px 12px;
+        border: 1px dashed --border-color;
+        border-radius: 6px;
+        color: --text-3;
+        font-size: --font-sm;
+      }
+
+      > .workspace-folder-row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 0;
+        border-bottom: 1px solid --border-color;
+
+        > svg {
+          color: --text-3;
+        }
+
+        > label {
+          gap: 2px;
+
+          > input {
+            padding: 4px 6px;
+            margin-left: -7px;
+            background: transparent;
+            border-color: transparent;
+            font-weight: 500;
+
+            &:hover, &:focus {
+              border-color: --border-color;
+              background: --background-0;
+            }
+          }
+
+          > span {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+        }
+      }
+    }
+
+    > .workspace-note {
+      margin: 12px 20px 16px;
+      color: --text-3;
+      font-size: --font-xs;
+      line-height: 1.5;
+    }
+
+    > .workspace-dialog-footer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 20px;
+      border-top: 1px solid --border-color;
+
+      > button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 32px;
+        padding: 6px 10px;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        color: --text-2;
+        background: transparent;
+        font: inherit;
+        font-size: --font-sm;
+        cursor: pointer;
+
+        &:hover:not(:disabled) {
+          background: --item-hover;
+        }
+
+        &:disabled {
+          opacity: .5;
+          cursor: default;
+        }
+
+        &.workspace-add {
+          margin-right: auto;
+          border-color: --border-color;
+        }
+
+        &.workspace-submit {
+          background: --text-1;
+          color: --background-0;
+          font-weight: 500;
+
+          &:hover:not(:disabled) {
+            background: --text-2;
+          }
+        }
+      }
+    }
+  }
+}
+
 .tags-dialog-list {
   min-height: 60px;
   overflow-y: auto;
@@ -196,7 +388,7 @@
   margin: 0;
   padding: 14px 4px;
   color: --text-3;
-  font-size: 13px;
+  font-size: 1rem;
   text-align: center;
 }
 
@@ -223,7 +415,7 @@
     border: 1px solid --border-color;
     border-radius: 6px;
     font: inherit;
-    font-size: 13px;
+    font-size: 1rem;
 
     &:focus-visible {
       outline: 2px solid --text-3;
@@ -276,7 +468,7 @@
   background: transparent;
   border: 1px dashed --border-color;
   border-radius: 8px;
-  font-size: 13px;
+  font-size: 1rem;
   transition: color 180ms var(--base-transition),
     background 180ms var(--base-transition);
 
@@ -334,7 +526,7 @@
   > label {
     margin-bottom: -7px;
     color: --text-1;
-    font-size: 12px;
+    font-size: .9rem;
     font-weight: 500;
   }
 
@@ -348,7 +540,7 @@
     border: 1px solid --border-color;
     border-radius: 8px;
     font: inherit;
-    font-size: 13px;
+    font-size: 1rem;
     line-height: 1.5;
 
     &:focus-visible {
@@ -432,13 +624,13 @@
 
   h2 {
     color: --text-1;
-    font-size: 16px;
+    font-size: 1.15rem;
   }
 
   p {
     margin-top: 5px;
     color: --text-3;
-    font-size: 12px;
+    font-size: .9rem;
     line-height: 1.55;
   }
 
@@ -459,7 +651,7 @@
 
   dt {
     color: --text-3;
-    font-size: 11px;
+    font-size: .9rem;
   }
 
   dd {
@@ -467,7 +659,7 @@
     margin: 0;
     overflow-wrap: anywhere;
     color: --text-1;
-    font-size: 11px;
+    font-size: .9rem;
   }
 
   pre {
@@ -479,7 +671,7 @@
     background: --background-2;
     border: 1px solid --border-color;
     border-radius: 8px;
-    font-size: 11px;
+    font-size: .9rem;
     line-height: 1.45;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -514,7 +706,7 @@
     background: --background-3;
     border: 1px solid --border-color;
     border-radius: 7px;
-    font-size: 12px;
+    font-size: .9rem;
 
     &:hover {
       background: --item-hover;
@@ -552,7 +744,7 @@
     justify-content: space-between;
     padding: 8px 8px 5px;
     color: --text-3;
-    font-size: 11px;
+    font-size: .9rem;
     font-weight: 500;
 
     span {
@@ -561,7 +753,7 @@
       background: --background-3;
       border-radius: 999px;
       text-align: center;
-      font-size: 10px;
+      font-size: .9rem;
     }
   }
 
@@ -612,7 +804,7 @@
       strong {
         min-width: 0;
         overflow: hidden;
-        font-size: 13px;
+        font-size: 1rem;
         font-weight: 600;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -626,7 +818,7 @@
         color: --text-3;
         background: --background-3;
         border-radius: 999px;
-        font-size: 9px;
+        font-size: .9rem;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
@@ -635,7 +827,7 @@
         margin-left: auto;
         flex: none;
         color: --text-3;
-        font-size: 10px;
+        font-size: .9rem;
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
       }
@@ -645,7 +837,7 @@
       min-width: 0;
       overflow: hidden;
       color: --text-3;
-      font-size: 12px;
+      font-size: .9rem;
       line-height: 1.35;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -670,7 +862,7 @@
   padding: 22px;
   color: --text-3;
   text-align: center;
-  font-size: 12px;
+  font-size: .9rem;
 }
 
 .provider-usages-backdrop,
@@ -701,13 +893,13 @@
   .dialog-header {
     h2 {
       margin: 0;
-      font-size: 15px;
+      font-size: 1.1rem;
     }
 
     p {
       margin: 4px 0 0;
       color: --text-3;
-      font-size: 11px;
+      font-size: .9rem;
     }
   }
 }
@@ -919,7 +1111,7 @@
   padding: 12px;
   color: --text-3;
   text-align: center;
-  font-size: 11px;
+  font-size: .9rem;
 }
 
 .provider-usages-state {

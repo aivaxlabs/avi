@@ -26,7 +26,7 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
-import { homedir, release } from 'node:os';
+import { homedir, hostname, release } from 'node:os';
 import {
   basename,
   dirname,
@@ -39,6 +39,10 @@ import {
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { Worker } from 'node:worker_threads';
+import { AppUpdater } from './app-updater.js';
+import { WorkspaceManager } from './workspaces.js';
+
+const workspaceManager = new WorkspaceManager();
 import {
   abortInterruptedMessages,
   archiveConversation,
@@ -144,10 +148,11 @@ import { ProviderUsageService } from './provider-usage-service.js';
 import { ModelRouterService } from './model-router.js';
 import { rankAivaxPricingModels } from './model-pricing.js';
 import { McpManager } from './mcp-manager.js';
-import { searchWorkspaceMentions } from './workspace-mentions.js';
+import { clearWorkspaceMentionCache, searchWorkspaceMentions } from './workspace-mentions.js';
 import { PluginManager } from './plugin-manager.js';
 import { createPluginDomainApi, registerPluginTool } from './plugin-domain-api.js';
 import { RemoteMcpServer } from './remote-mcp-server.js';
+import { RemoteRelay } from './remote-relay.js';
 import {
   listInstalledTerminalShells,
   resolveTerminalShell,
@@ -203,6 +208,17 @@ let quickChatRunner;
 let mcpManager;
 let remoteMcpServer;
 let remoteStartError = '';
+const remoteRelay = new RemoteRelay({
+  deviceId: getRemoteSettings().relayDeviceId,
+  name: hostname().slice(0, 128),
+  createLocalSocket: (path) => remoteMcpServer.createRelaySocket(path),
+});
+
+function synchronizeRemoteRelay() {
+  return remoteRelay.update({
+    accessToken: remoteMcpServer && getRemoteSettings().relayEnabled && !isQuitting ? getAivaxAccessToken() : null,
+  });
+}
 let reloadSnapshot = null;
 let forcedCleanupRunning = false;
 const quickChatWindows = new Map();
@@ -213,6 +229,8 @@ let lastCpuUsage = process.cpuUsage();
 let lastResourceUsage = process.resourceUsage();
 let lastResourceSampleAt = Date.now();
 let resourceSnapshotInterval;
+let updateCheckInterval;
+let appUpdater;
 let memoryTraceProcess;
 let aivaxModelCatalog = [];
 let aivaxModelCatalogExpiresAt = 0;
@@ -287,12 +305,14 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (shutdownStarted) return;
   shutdownStarted = true;
+  clearInterval(updateCheckInterval);
   clearInterval(resourceSnapshotInterval);
   memoryTraceProcess?.kill();
   clearInterval(threadSearchSyncInterval);
   botManager?.stop();
   for (const sessionId of quickChatWindows.keys()) quickChatRunner?.close(sessionId);
-  Promise.resolve(pluginManager.deactivateAll('shutdown'))
+  remoteRelay.update()
+    .then(() => pluginManager.deactivateAll('shutdown'))
     .then(() => chatRunner?.shutdown())
     .then(() => mcpManager?.closeAll())
     .then(() => remoteMcpServer?.close())
@@ -475,6 +495,11 @@ protocol.handle('avi-attachment', async (request) => {
     return new Response(null, { status: 404 });
   }
 });
+appUpdater = new AppUpdater({
+  app,
+  onChange: (state) => sendRendererEvent('app:update', state),
+  requestQuit: () => setTimeout(() => app.quit(), 250),
+});
 registerIpc();
 ipcMain.handle('avi:invoke', invokeApplicationRequest);
 await applyLoginSettings();
@@ -489,6 +514,11 @@ if (abortedInterruptedMessages > 0) {
 }
 createTray();
 createWindow();
+if (app.isPackaged && process.env.CHAT_APP_SMOKE_TEST !== '1') {
+  void appUpdater.check();
+  updateCheckInterval = setInterval(() => void appUpdater.check(), 6 * 60 * 60 * 1_000);
+  updateCheckInterval.unref();
+}
 await pluginManager.activateAll();
 mcpManager.setManagedServers(pluginManager.getContributions('mcps').map((server) => ({
   name: `plugin-${server.pluginId}-${server.id}`,
@@ -631,6 +661,15 @@ function sendRendererEvent(channel, payload) {
 
 function sendChatEvent(payload) {
   pluginManager.runtime.emitChatEvent(payload);
+  if (payload.type === 'conversation' && payload.conversation) {
+    payload = {
+      ...payload,
+      conversation: {
+        ...payload.conversation,
+        isWorkspace: workspaceManager.isWorkspace(payload.conversation.projectPath),
+      },
+    };
+  }
   const clientEvent = projectChatEventForClient(payload);
   sendRendererEvent('chat:event', clientEvent);
   for (const listener of remoteChatEventListeners) listener(clientEvent);
@@ -952,6 +991,7 @@ function initializeServices() {
       }
       traceError('remote.start-error', { error: error instanceof Error ? error.message : String(error) });
     });
+    void synchronizeRemoteRelay();
   }
 }
 
@@ -1168,6 +1208,12 @@ function registerIpc() {
   applicationIpc.handle('quick-chat:stop', (event, sessionId) => (
     quickChatRunner.stop(ownedQuickChatSession(event, sessionId))
   ));
+  applicationIpc.handle('quick-chat:question-activity', (event, payload) => (
+    quickChatRunner.questionActivity({
+      ...payload,
+      sessionId: ownedQuickChatSession(event, payload?.sessionId),
+    })
+  ));
   applicationIpc.handle('quick-chat:answer-question', (event, payload) => (
     quickChatRunner.answerQuestion({
       ...payload,
@@ -1194,6 +1240,9 @@ function registerIpc() {
     defaultProject: await inspectProjectFolder(homedir()),
     windowMaterial: getNativeWindowOptions().backgroundMaterial ?? null,
   }));
+  applicationIpc.handle('app:update-state', () => appUpdater.snapshot());
+  applicationIpc.handle('app:check-for-updates', () => appUpdater.check());
+  applicationIpc.handle('app:install-update', () => appUpdater.install());
   applicationIpc.handle('app:open-external', (_event, url) => {
     const target = new URL(url);
     if (!['http:', 'https:'].includes(target.protocol)) {
@@ -1324,6 +1373,7 @@ function registerIpc() {
     } catch (error) {
       if (error?.status !== 401) throw error;
       deleteAivaxAccessToken();
+      await synchronizeRemoteRelay();
       const settings = setAivaxSettings({
         ...getAivaxSettings(),
         memoryEnabled: false,
@@ -1345,11 +1395,13 @@ function registerIpc() {
       responseType: 'object',
     });
     setAivaxAccessToken(login.accessToken);
+    await synchronizeRemoteRelay();
     void synchronizeThreadSearchIndex();
     return { connected: true, account, settings: getAivaxSettings() };
   });
-  applicationIpc.handle('aivax:disconnect', () => {
+  applicationIpc.handle('aivax:disconnect', async () => {
     deleteAivaxAccessToken();
+    await synchronizeRemoteRelay();
     const settings = setAivaxSettings({
       ...getAivaxSettings(),
       memoryEnabled: false,
@@ -1394,16 +1446,23 @@ function registerIpc() {
     })),
     running: Boolean(remoteMcpServer?.running),
     startError: remoteStartError,
+    relay: remoteRelay.snapshot(),
   });
   applicationIpc.handle('remote:state', remoteState);
   applicationIpc.handle('remote:save', async (_event, value) => {
     const current = getRemoteSettings();
     const next = { ...current, ...value };
     const validated = setRemoteSettings({ ...next, enabled: false });
+    if (next.enabled && current.enabled && remoteMcpServer?.running && validated.port === remoteMcpServer.port) {
+      setRemoteSettings({ ...validated, enabled: true });
+      await synchronizeRemoteRelay();
+      return remoteState();
+    }
     if (!next.enabled) {
       await remoteMcpServer?.close();
       remoteStartError = '';
       setRemoteSettings(validated);
+      await synchronizeRemoteRelay();
       return remoteState();
     }
     if (getRemoteApiKeys().length === 0) createRemoteApiKey({ label: 'Default' });
@@ -1411,14 +1470,17 @@ function registerIpc() {
       await remoteMcpServer.start(validated.port);
       remoteStartError = '';
       setRemoteSettings({ ...validated, enabled: true });
+      await synchronizeRemoteRelay();
       return remoteState();
     } catch (error) {
       if (error?.code === 'EADDRINUSE' && !remoteMcpServer.running) {
         remoteStartError = `Remote control could not start in this Avi instance because port ${validated.port} is already in use.`;
         setRemoteSettings({ ...validated, enabled: true });
+        await synchronizeRemoteRelay();
         return remoteState();
       }
       setRemoteSettings(current);
+      await synchronizeRemoteRelay();
       throw error;
     }
   });
@@ -1719,13 +1781,13 @@ function registerIpc() {
   ));
   applicationIpc.handle('tasks:list', (_event, conversationId) => listTasks(conversationId));
   applicationIpc.handle('bots:list', async () => {
-    const workStateByBot = await botManager.listWorkStateByBot();
+    const botDataByBot = await botManager.listBotDataByBot();
     return {
       bots: botManager.describeBots().map((bot) => ({
         ...bot,
-        attentionCount: (workStateByBot[bot.id]?.items ?? []).filter(hasOpenBotUserAction).length,
+        attentionCount: (botDataByBot[bot.id]?.inbox ?? []).filter(hasOpenBotUserAction).length,
       })),
-      workStateByBot,
+      botDataByBot,
       schedulerSnooze: botManager.getSchedulerSnooze(),
     };
   });
@@ -1752,8 +1814,14 @@ function registerIpc() {
   applicationIpc.handle('bots:resolve-approval', (_event, payload = {}) => (
     botManager.resolveApproval(payload.approvalId, payload.decision)
   ));
-  applicationIpc.handle('bots:update-work-item', (_event, payload = {}) => (
-    botManager.setBotWorkItemState(String(payload.botId ?? ''), String(payload.workItemId ?? ''), payload.state)
+  applicationIpc.handle('bots:reply-pendency', (_event, payload = {}) => (
+    botManager.replyToPendency(String(payload.botId ?? ''), String(payload.pendencyId ?? ''), {
+      content: payload.content,
+      attachments: payload.attachments,
+    })
+  ));
+  applicationIpc.handle('bots:complete-pendency', (_event, payload = {}) => (
+    botManager.completePendency(String(payload.botId ?? ''), String(payload.pendencyId ?? ''))
   ));
   applicationIpc.handle('bots:choose-folder', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
@@ -1886,7 +1954,7 @@ function registerIpc() {
     );
     const allConversations = listAllConversations();
     const conversations = allConversations
-      .filter((conversation) => conversation.conversationType === 'thread');
+      .filter((conversation) => conversation.conversationType === 'thread' && conversation.createdBy === 'user');
     const now = Date.now();
     const defaultFrom = new Date();
     defaultFrom.setDate(1);
@@ -2512,6 +2580,7 @@ function registerIpc() {
     refreshTrayMenu();
     return result;
   });
+  applicationIpc.handle('chat:question-activity', (_event, payload) => chatRunner.questionActivity(payload));
   applicationIpc.handle('chat:answer-question', (_event, payload) => {
     const result = chatRunner.answerQuestion(payload);
     refreshTrayMenu();
@@ -2776,6 +2845,12 @@ function registerIpc() {
         throw new TypeError('Unsupported image action.');
     }
   });
+  applicationIpc.handle('workspaces:get', async (_event, payload = {}) => workspaceManager.inspect(payload.path));
+  applicationIpc.handle('workspaces:save', async (_event, payload = {}) => {
+    const workspace = await workspaceManager.save(payload);
+    clearWorkspaceMentionCache();
+    return { ...await inspectProjectFolder(workspace.path), folders: workspace.folders };
+  });
   applicationIpc.handle('projects:select', async (_event, payload = {}) => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
       defaultPath: payload.defaultPath || homedir(),
@@ -2998,7 +3073,7 @@ function describeProjectFolder(folderPath) {
 }
 
 async function inspectProjectFolder(folderPath) {
-  const project = describeProjectFolder(folderPath);
+  const project = { ...describeProjectFolder(folderPath), isWorkspace: workspaceManager.isWorkspace(folderPath) };
   try {
     const { stdout } = await execFileAsync(
       'git',
@@ -3020,6 +3095,7 @@ async function listConversationsWithProjects() {
   return conversations.map((conversation) => ({
     ...conversation,
     gitBranch: projects.get(conversation.projectPath)?.gitBranch ?? null,
+    isWorkspace: projects.get(conversation.projectPath)?.isWorkspace ?? false,
     workStatus: chatRunner?.isConversationBlocked(conversation.id) ? 'blocked' : null,
   }));
 }
@@ -3032,5 +3108,5 @@ async function refreshConversationProject(conversation) {
     || conversation.isRubberDuck
   ) return conversation;
   const project = await inspectProjectFolder(conversation.projectPath);
-  return { ...conversation, gitBranch: project.gitBranch };
+  return { ...conversation, gitBranch: project.gitBranch, isWorkspace: project.isWorkspace };
 }

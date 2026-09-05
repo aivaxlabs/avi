@@ -439,6 +439,7 @@ export async function searchWorkspaceFiles(folderPath, searchText) {
     runRipgrep(root, [
       '--files',
       '--hidden',
+      '--follow',
       '--glob',
       '!**/.git/**',
     ], (line) => {
@@ -458,6 +459,7 @@ export async function searchWorkspaceFiles(folderPath, searchText) {
     runRipgrep(root, [
       '--json',
       '--hidden',
+      '--follow',
       '--glob',
       '!**/.git/**',
       '--fixed-strings',
@@ -507,7 +509,7 @@ export async function searchWorkspaceFiles(folderPath, searchText) {
 
 export async function readWorkspaceFileDiff(folderPath, filePath) {
   const root = resolve(folderPath);
-  const targetPath = resolveWorkspacePath(root, filePath);
+  const targetPath = resolveWorkspacePath(root, filePath, { allowExternalSymlinks: true });
   const state = workspaceStates.get(root.toLowerCase());
   const repository = (state?.repositoryPaths ?? [])
     .filter((path) => {

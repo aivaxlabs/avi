@@ -86,8 +86,12 @@ async function buildIndex(root) {
     const childDirectories = [];
     const fileEntries = [];
 
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
+    const entryStats = await Promise.all(entries.map((entry) => entry.isSymbolicLink()
+      ? stat(resolve(directory.path, entry.name)).catch(() => null)
+      : entry));
+    for (const [index, entry] of entries.entries()) {
+      const info = entryStats[index];
+      if (info?.isDirectory()) {
         if (
           directory.depth < MAX_RECURSION_DEPTH
           && !ignoredDirectories.has(entry.name.toLowerCase())
@@ -101,7 +105,7 @@ async function buildIndex(root) {
             depth: directory.depth + 1,
           });
         }
-      } else if (entry.isFile()) {
+      } else if (info?.isFile()) {
         fileEntries.push(entry);
       }
     }
