@@ -1474,11 +1474,18 @@ export function setTuningSettings(value) {
 }
 
 export function getRemoteSettings() {
-  return normalizeRemoteSettings(readJson('remoteSettings'));
+  const stored = readJson('remoteSettings');
+  const settings = normalizeRemoteSettings(stored);
+  if (!settings.relayDeviceId) {
+    settings.relayDeviceId = crypto.randomUUID();
+    writeJson('remoteSettings', settings);
+  }
+  return settings;
 }
 
 export function setRemoteSettings(value) {
-  const settings = normalizeRemoteSettings(value, true);
+  const current = getRemoteSettings();
+  const settings = normalizeRemoteSettings({ ...current, ...value, relayDeviceId: current.relayDeviceId }, true);
   writeJson('remoteSettings', settings);
   return settings;
 }
@@ -2593,7 +2600,7 @@ export function forkConversation(id, {
           || !['queued', 'steered'].includes(message.status)
             && (!rubberDuck || message.status !== 'streaming')
         ))
-    ).filter((message) => !message.hidden);
+    ).filter((message) => !message.hidden || message.id === source.checkpointMessageId);
     const now = Date.now();
     const copiedMessageIds = new Map();
     for (let index = 0; index < messages.length; index += 1) {
@@ -2604,16 +2611,17 @@ export function forkConversation(id, {
         id: messageId,
         conversationId: target.id,
         goalId: null,
-        status: (sideChat || rubberDuck) && messages[index].status === 'streaming'
+        status: messages[index].status === 'streaming'
           ? 'completed'
           : messages[index].status,
         createdAt: new Date(now + index).toISOString(),
       });
     }
+    const checkpointMessageId = copiedMessageIds.get(source.checkpointMessageId) ?? null;
     updateConversation(target.id, {
-      contextCheckpoint: source.contextCheckpoint,
-      checkpointMessageId: copiedMessageIds.get(source.checkpointMessageId) ?? null,
-      contextTokens: source.contextTokens,
+      contextCheckpoint: checkpointMessageId ? source.contextCheckpoint : '',
+      checkpointMessageId,
+      contextTokens: source.checkpointMessageId && !checkpointMessageId ? 0 : source.contextTokens,
     });
     if (sideChat || rubberDuck) {
       insertMessage({
@@ -2754,7 +2762,8 @@ export function toModelMessages(
   const checkpointIndex = conversation?.checkpoint_message_id
     ? messages.findIndex((message) => message.id === conversation.checkpoint_message_id)
     : -1;
-  const hasCheckpoint = Boolean(conversation?.context_checkpoint) && checkpointIndex >= 0;
+  const hasCheckpointBoundary = checkpointIndex >= 0;
+  const hasCheckpoint = Boolean(conversation?.context_checkpoint) && hasCheckpointBoundary;
   const checkpoint = hasCheckpoint
     ? [{
       role: 'system',
@@ -2766,7 +2775,7 @@ export function toModelMessages(
     ...childThreadContext(conversation),
     ...checkpoint,
     ...messages
-      .slice(hasCheckpoint ? checkpointIndex + 1 : 0)
+      .slice(hasCheckpointBoundary ? checkpointIndex + 1 : 0)
       .filter((message) => message.id !== excludeMessageId)
       .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
       .filter((message) => message.role === 'user' || message.role === 'assistant')
@@ -2789,7 +2798,7 @@ export function toModelMessagesThroughUser(
       message.role === 'user'
       && (
         ['sent', 'completed'].includes(message.status)
-        || (includeFailedUser && message.status === 'error')
+        || (includeFailedUser && ['error', 'aborted', 'waiting_mcp'].includes(message.status))
       )
     ));
 
@@ -2799,9 +2808,8 @@ export function toModelMessagesThroughUser(
   const checkpointIndex = conversation?.checkpoint_message_id
     ? messages.findIndex((message) => message.id === conversation.checkpoint_message_id)
     : -1;
-  const useCheckpoint = Boolean(conversation?.context_checkpoint)
-    && checkpointIndex >= 0
-    && checkpointIndex < lastUserIndex;
+  const checkpointBoundary = checkpointIndex >= 0 && checkpointIndex <= lastUserIndex;
+  const useCheckpoint = Boolean(conversation?.context_checkpoint) && checkpointBoundary;
   return [
     ...childThreadContext(conversation),
     ...(useCheckpoint
@@ -2811,7 +2819,7 @@ export function toModelMessagesThroughUser(
       }]
       : []),
     ...messages
-      .slice(useCheckpoint ? checkpointIndex + 1 : 0, lastUserIndex + 1)
+      .slice(checkpointBoundary ? checkpointIndex + 1 : 0, lastUserIndex + 1)
       .filter((message) => (
         ['completed', 'sent', 'aborted'].includes(message.status)
         || message.id === lastUserMessageId
@@ -3225,12 +3233,17 @@ function normalizeRemoteSettings(value, strict = false) {
   const port = Number(settings.port ?? defaultRemoteSettings.port);
   const normalized = {
     enabled: settings.enabled === true,
+    relayEnabled: settings.relayEnabled === true,
+    relayDeviceId: typeof settings.relayDeviceId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(settings.relayDeviceId)
+      ? settings.relayDeviceId
+      : null,
     port: Number.isInteger(port) && port >= 1 && port <= 65_535
       ? port
       : defaultRemoteSettings.port,
   };
   if (strict && (
     typeof settings.enabled !== 'boolean'
+    || typeof settings.relayEnabled !== 'boolean'
     || !Number.isInteger(port)
     || port < 1
     || port > 65_535

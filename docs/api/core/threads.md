@@ -52,6 +52,10 @@ thread.events.on(type, listener): Disposable
 
 Supported update fields are `title`, `model`, `orchestrationMode`, and `projectPath`.
 
+`fork()` returns a handle whose `id` identifies the new conversation. It preserves the source context checkpoint and remaps its boundary to the copied message, including a hidden boundary. Other hidden messages are not copied. Copied streaming messages become completed snapshots of the partial response; the source run is not changed or resumed in the copy. A fork ending before the checkpoint does not inherit that checkpoint or its token counter.
+
+`retry()` restarts from the latest eligible prompt, using its context checkpoint when compaction already covered it. It rejects if no prompt or checkpoint is available, rather than returning an idle handle after a successful no-op. If the thread already has a live run, it returns that run's handle without enqueueing another retry. Track the returned run and its events; persisted message status is not proof that execution is active.
+
 `thread.tasks.replace()` replaces the complete task list and uses the same limits and normalization as Avi's internal task tool. Use `inconclusive` only for a concrete blocker and provide a non-empty `result`.
 
 `thread.semaphores` can inspect or mutate permits owned by that thread only. `release()` releases the requested owned permits. `setStatus()` accepts `active` or `blocked`; a blocked status requires a concrete summary. Global administrative reset is intentionally not exposed to plugins.

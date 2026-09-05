@@ -111,6 +111,172 @@ Include:
 
 Make the checkpoint structured, exhaustive, precise, and optimized for seamless continuation by another LLM.`;
 
+function compactionContextMessage(message) {
+  const continuation = message[Symbol.for('avi.providerContinuation')]?.items ?? [];
+  const content = message.content || continuation
+    .filter((item) => item.type === 'message')
+    .flatMap((item) => item.content ?? [])
+    .filter((part) => part.type === 'output_text' || part.type === 'text')
+    .map((part) => part.text ?? '')
+    .join('');
+  const toolCalls = new Map((message.tool_calls ?? []).map((call) => [call.id, call]));
+  for (const item of continuation) {
+    if (item.type === 'function_call' && !toolCalls.has(item.call_id)) {
+      toolCalls.set(item.call_id, {
+        id: item.call_id,
+        function: { name: item.name, arguments: item.arguments ?? '' },
+      });
+    }
+  }
+  return {
+    role: message.role,
+    content: Array.isArray(content) ? content.flatMap((part) => {
+      if (part.type === 'text') return [{ type: 'text', text: part.text }];
+      if (part.type === 'image_url' || part.type === 'video_url') {
+        const media = part[part.type];
+        return [{ type: part.type, [part.type]: {
+          ...(media.url !== undefined ? { url: media.url } : {}),
+          ...(media.path !== undefined ? { path: media.path, mime: media.mime } : {}),
+          ...(media.detail !== undefined ? { detail: media.detail } : {}),
+        } }];
+      }
+      if (part.type === 'input_audio') return [{ type: 'input_audio', input_audio: {
+        data: part.input_audio.data,
+        format: part.input_audio.format,
+        ...(part.input_audio.path !== undefined ? { path: part.input_audio.path, mime: part.input_audio.mime } : {}),
+      } }];
+      if (part.type === 'file') return [{ type: 'file', file: {
+        ...(part.file.filename !== undefined ? { filename: part.file.filename } : {}),
+        ...(part.file.file_data !== undefined ? { file_data: part.file.file_data } : {}),
+        ...(part.file.file_id !== undefined ? { file_id: part.file.file_id } : {}),
+        ...(part.file.path !== undefined ? { path: part.file.path, mime: part.file.mime } : {}),
+      } }];
+      return [];
+    }) : content ?? null,
+    ...(message.role === 'tool' ? { tool_call_id: message.tool_call_id } : {}),
+    ...(message.role === 'assistant' && toolCalls.size > 0 ? {
+      tool_calls: [...toolCalls.values()].map((call) => ({
+        id: call.id,
+        type: 'function',
+        function: { name: call.function.name, arguments: call.function.arguments ?? '' },
+      })),
+    } : {}),
+  };
+}
+
+function modelMessagesToToolHistory(messages, sourceMessages, model) {
+  const rounds = [];
+  for (const message of messages) {
+    if (message.role === 'assistant') {
+      const callIds = new Set((message.tool_calls ?? []).map((call) => call.id));
+      const sourceMessage = sourceMessages.find((candidate) => (
+        candidate.role === 'assistant'
+        && candidate.segments.some((segment) => (
+          segment.type === 'tool-call' && callIds.has(segment.callId)
+        ))
+      ));
+      const continuation = message[Symbol.for('avi.providerContinuation')];
+      rounds.push({
+        assistantContent: message.content ?? '',
+        reasoningContent: message.reasoning_content ?? '',
+        continuation: continuation?.model === model.id
+          && continuation.interface === model.interface
+          && Array.isArray(continuation.items)
+          ? continuation.items
+          : [],
+        toolCalls: (message.tool_calls ?? []).map((call) => ({
+          key: sourceMessage?.segments.find((segment) => (
+            segment.type === 'tool-call' && segment.callId === call.id
+          ))?.key,
+          callId: call.id,
+          name: call.function.name,
+          argumentsText: call.function.arguments ?? '',
+        })),
+        results: [],
+        messages: [],
+        sourceMessageId: sourceMessage?.id ?? null,
+      });
+    } else {
+      const round = rounds.at(-1);
+      if (message.role === 'tool' && round?.toolCalls.some((call) => (
+        call.callId === message.tool_call_id
+      ))) {
+        round.results.push({
+          callId: message.tool_call_id,
+          output: message.content,
+          isError: sourceMessages.some((source) => source.segments?.some((segment) => (
+            segment.type === 'tool-call'
+            && segment.callId === message.tool_call_id
+            && segment.status === 'error'
+          ))),
+        });
+      } else if (round) {
+        round.messages.push(message);
+      }
+    }
+  }
+  return rounds;
+}
+
+function compactionInFlightMessages(toolHistory, streamingSegments) {
+  const streamingRound = { assistantContent: '', toolCalls: [], results: [], continuation: [] };
+  for (const segment of streamingSegments) {
+    if (segment.type === 'content') streamingRound.assistantContent += segment.text ?? '';
+    if (segment.type === 'provider-continuation') streamingRound.continuation.push(...(segment.items ?? []));
+    if (segment.type === 'tool-call' && segment.callId && segment.name) {
+      streamingRound.toolCalls.push(segment);
+      if (segment.resultText !== undefined) {
+        streamingRound.results.push({
+          callId: segment.callId,
+          output: segment.resultText ?? '',
+          ...(segment.mediaContent?.length ? { mediaContent: segment.mediaContent } : {}),
+        });
+      }
+    }
+  }
+  const rounds = [...toolHistory, ...(streamingSegments.length > 0 ? [streamingRound] : [])];
+  const messages = [];
+  const emittedCallIds = new Set();
+  for (const round of rounds) {
+    const resultCallIds = new Set(round.results.map((result) => result.callId));
+    const assistantMessage = compactionContextMessage({
+      role: 'assistant',
+      content: round.assistantContent,
+      tool_calls: round.toolCalls.map((call) => ({
+        id: call.callId,
+        function: { name: call.name, arguments: call.argumentsText ?? '' },
+      })),
+      [Symbol.for('avi.providerContinuation')]: { items: round.continuation ?? [] },
+    });
+    const toolCalls = (assistantMessage.tool_calls ?? []).filter((call) => {
+      if (!call.id || !resultCallIds.has(call.id) || emittedCallIds.has(call.id)) return false;
+      emittedCallIds.add(call.id);
+      return true;
+    });
+    const roundCallIds = new Set(toolCalls.map((call) => call.id));
+    if (toolCalls.length > 0) assistantMessage.tool_calls = toolCalls;
+    else delete assistantMessage.tool_calls;
+    if (assistantMessage.content || toolCalls.length > 0) messages.push(assistantMessage);
+    const mediaMessages = [];
+    for (const result of round.results) {
+      if (!roundCallIds.delete(result.callId)) continue;
+      messages.push({
+        role: 'tool',
+        tool_call_id: result.callId,
+        content: result.output ?? '',
+      });
+      if (result.mediaContent?.length) {
+        mediaMessages.push(compactionContextMessage({ role: 'user', content: result.mediaContent }));
+      }
+    }
+    messages.push(...mediaMessages);
+    for (const extraMessage of round.messages ?? []) {
+      messages.push(compactionContextMessage(extraMessage));
+    }
+  }
+  return messages;
+}
+
 function partitionPendingItems(items) {
   const steer = [];
   const queue = [];
@@ -1661,6 +1827,11 @@ export class ChatRunner {
     setLastModel(model);
 
     if (this.runs.has(conversation.id)) {
+      traceVerbose('chat.retry-skipped', traceContext(conversation.id, selectedModel, {
+        operation: 'retry',
+        phase: 'run-active',
+        message_id: assistantMessageId,
+      }));
       return { conversation: getConversation(conversation.id), message: null, queued: true };
     }
 
@@ -1675,7 +1846,13 @@ export class ChatRunner {
         || failedAssistant.role !== 'assistant'
         || failedAssistant.status === 'completed'
       ) {
-        return { conversation: getConversation(conversation.id), message: null, queued: false };
+        traceVerbose('chat.retry-skipped', traceContext(conversation.id, selectedModel, {
+          operation: 'retry',
+          phase: 'invalid-target',
+          message_id: assistantMessageId,
+          status: failedAssistant?.status ?? null,
+        }));
+        throw new Error('This response is no longer available for recovery. Reload the thread and try again.');
       }
 
       const assistantIndex = conversationMessages.findIndex(
@@ -1697,74 +1874,25 @@ export class ChatRunner {
         },
       );
       if (!sourceUser || messages.length === 0) {
-        return { conversation: getConversation(conversation.id), message: null, queued: false };
+        traceVerbose('chat.retry-skipped', traceContext(conversation.id, selectedModel, {
+          operation: 'retry',
+          phase: 'missing-source-prompt',
+          message_id: assistantMessageId,
+          message_count: messages.length,
+        }));
+        throw new Error('The prompt or checkpoint for this response is unavailable. Send a new message to continue.');
       }
 
       const resumeSegments = (failedAssistant.segments ?? [])
-        .filter((segment) => segment.type !== 'error')
-        .filter((segment) => (
-          segment.type !== 'tool-call'
-          || (
-            segment.callId
-            && segment.name
-            && segment.resultText !== undefined
-          )
-        ));
-      const roundsByIndex = new Map();
-      let pendingAssistantContent = '';
-      let pendingReasoningContent = '';
-      for (const segment of resumeSegments) {
-        if (segment.type === 'content') {
-          pendingAssistantContent += segment.text ?? '';
-          continue;
-        }
-        if (segment.type === 'reasoning') {
-          pendingReasoningContent += segment.text ?? '';
-          continue;
-        }
-        if (segment.type !== 'tool-call') continue;
-
-        const roundIndex = Number(segment.key?.match(/^round:(\d+):/)?.[1]);
-        if (!Number.isInteger(roundIndex)) continue;
-        const round = roundsByIndex.get(roundIndex) ?? {
-          assistantContent: '',
-          reasoningContent: '',
-          toolCalls: [],
-          results: [],
-        };
-        if (pendingAssistantContent) {
-          round.assistantContent += pendingAssistantContent;
-          pendingAssistantContent = '';
-        }
-        if (pendingReasoningContent) {
-          round.reasoningContent += pendingReasoningContent;
-          pendingReasoningContent = '';
-        }
-        round.toolCalls.push({
-          key: segment.key,
-          callId: segment.callId,
-          name: segment.name,
-          argumentsText: segment.argumentsText ?? '',
-        });
-        round.results.push({
-          callId: segment.callId,
-          output: segment.resultText ?? '',
-          isError: segment.status === 'error',
-        });
-        roundsByIndex.set(roundIndex, round);
-      }
-
-      const initialToolHistory = [...roundsByIndex.entries()]
-        .sort(([left], [right]) => left - right)
-        .map(([, round]) => round);
-      if (pendingAssistantContent || pendingReasoningContent) {
-        initialToolHistory.push({
-          assistantContent: pendingAssistantContent,
-          reasoningContent: pendingReasoningContent,
-          toolCalls: [],
-          results: [],
-        });
-      }
+        .filter((segment) => segment.type !== 'error');
+      const initialToolHistory = modelMessagesToToolHistory(
+        messageToApiBlocks(
+          { ...failedAssistant, segments: resumeSegments },
+          selectedModel.model.capabilities,
+        ),
+        conversationMessages,
+        selectedModel.model,
+      );
 
       if (sourceUser.status !== 'sent') updateMessage(sourceUser.id, { status: 'sent' });
       const queue = this.getQueuedItems(conversation.id, model);
@@ -1799,7 +1927,7 @@ export class ChatRunner {
       { capabilities: selectedModel.model.capabilities },
     );
     if (messages.length === 0) {
-      return { conversation: getConversation(conversation.id), message: null, queued: false };
+      throw new Error('There is no prompt or checkpoint to retry. Send a new message to continue.');
     }
 
     const conversationMessages = getMessages(conversation.id);
@@ -2054,9 +2182,9 @@ export class ChatRunner {
       : [{ selection: chatSelection, reasoningEffort: null }];
     let selection = compactionSelections[0].selection;
 
-    const messages = contextMessages ?? toModelMessages(conversation.id, {
+    const messages = (contextMessages ?? toModelMessages(conversation.id, {
       capabilities: chatSelection.model.capabilities,
-    });
+    })).map(compactionContextMessage);
     if (
       messages.length === 0
       && contextToolHistory.length === 0
@@ -2074,22 +2202,10 @@ export class ChatRunner {
       contextTools,
       this.getPreferences().tuning.toolOutputLimit,
     );
-    const inFlightContext = limitedToolHistory.length > 0 || streamingSegments.length > 0
-      ? [{
-          role: 'assistant',
-          content: [
-            '<in_flight_context>',
-            JSON.stringify({
-              toolHistory: limitedToolHistory,
-              streamingSegments,
-            }),
-            '</in_flight_context>',
-          ].join('\n'),
-        }]
-      : [];
+    const inFlightMessages = compactionInFlightMessages(limitedToolHistory, streamingSegments);
     const compressionMessages = [
       ...messages,
-      ...inFlightContext,
+      ...inFlightMessages,
       { role: 'user', content: COMPACTION_PROMPT },
     ];
     traceVerbose('chat.context-compaction-started', traceContext(conversation.id, selection, {
@@ -2157,9 +2273,9 @@ export class ChatRunner {
       if (run) run.phase = 'inference';
       const fallbackToolHistories = [
         limitedToolHistory,
-        limitedToolHistory.slice(Math.ceil(limitedToolHistory.length * 0.1)),
-        limitedToolHistory.slice(Math.ceil(limitedToolHistory.length * 0.2)),
-        limitedToolHistory.slice(Math.ceil(limitedToolHistory.length * 0.2)),
+        limitedToolHistory.slice(Math.ceil(limitedToolHistory.length * 0.3)),
+        limitedToolHistory.slice(Math.ceil(limitedToolHistory.length * 0.6)),
+        limitedToolHistory.slice(Math.ceil(limitedToolHistory.length * 0.6)),
       ];
       let successfulCompressionMessages = compressionMessages;
       let turn;
@@ -2180,19 +2296,7 @@ export class ChatRunner {
         }
         for (let attempt = 0; attempt < fallbackToolHistories.length; attempt += 1) {
           const attemptToolHistory = fallbackToolHistories[attempt];
-          const attemptInFlightContext = attemptToolHistory.length > 0 || streamingSegments.length > 0
-            ? [{
-                role: 'assistant',
-                content: [
-                  '<in_flight_context>',
-                  JSON.stringify({
-                    toolHistory: attemptToolHistory,
-                    streamingSegments,
-                  }),
-                  '</in_flight_context>',
-                ].join('\n'),
-              }]
-            : [];
+          const attemptInFlightMessages = compactionInFlightMessages(attemptToolHistory, streamingSegments);
           let attemptContextMessages = messages;
           if (attempt === fallbackToolHistories.length - 1) {
             attemptContextMessages = messages.filter((message, messageIndex) => {
@@ -2218,27 +2322,12 @@ export class ChatRunner {
                 if (retained) retainedCallIds.add(toolCall.id);
                 return retained;
               });
-              const providerContinuation = message[Symbol.for('avi.providerContinuation')];
-              const continuationItems = providerContinuation?.items?.filter((item) => {
-                if (item.type !== 'function_call') return true;
-                const retained = outputCallIds.has(item.call_id);
-                if (retained) retainedCallIds.add(item.call_id);
-                return retained;
-              });
-              if (
-                toolCalls?.length === message.tool_calls?.length
-                && continuationItems?.length === providerContinuation?.items?.length
-              ) return message;
+              if (toolCalls?.length === message.tool_calls?.length) return message;
               const filteredMessage = {
                 ...message,
                 ...(toolCalls?.length ? { tool_calls: toolCalls } : {}),
               };
               if (!toolCalls?.length) delete filteredMessage.tool_calls;
-              if (providerContinuation) {
-                Object.defineProperty(filteredMessage, Symbol.for('avi.providerContinuation'), {
-                  value: { ...providerContinuation, items: continuationItems },
-                });
-              }
               return filteredMessage;
             }).filter((message) => (
               message.role !== 'tool' || retainedCallIds.has(message.tool_call_id)
@@ -2246,7 +2335,7 @@ export class ChatRunner {
           }
           const attemptMessages = [
             ...attemptContextMessages,
-            ...attemptInFlightContext,
+            ...attemptInFlightMessages,
             { role: 'user', content: COMPACTION_PROMPT },
           ];
           traceVerbose('chat.context-compaction-attempt', traceContext(conversation.id, selection, {
@@ -2819,54 +2908,11 @@ export class ChatRunner {
       if (firstPersistedToolRound >= 0) {
         const persistedMessages = messages.slice(firstPersistedToolRound);
         messages = messages.slice(0, firstPersistedToolRound);
-        let persistedRound = null;
-        for (const message of persistedMessages) {
-          if (message.role === 'assistant' && message.tool_calls?.length > 0) {
-            if (persistedRound) toolHistory.push(persistedRound);
-            const callIds = new Set(message.tool_calls.map((toolCall) => toolCall.id));
-            const sourceMessage = getMessages(conversationId).find((candidate) => (
-              candidate.role === 'assistant'
-              && candidate.segments.some((segment) => (
-                segment.type === 'tool-call' && callIds.has(segment.callId)
-              ))
-            ));
-            const providerContinuation = message[Symbol.for('avi.providerContinuation')];
-            persistedRound = {
-              assistantContent: message.content ?? '',
-              reasoningContent: message.reasoning_content ?? '',
-              continuation: (
-                providerContinuation?.model === selection.model.id
-                && providerContinuation.interface === selection.model.interface
-                && Array.isArray(providerContinuation.items)
-              ) ? providerContinuation.items : [],
-              toolCalls: message.tool_calls.map((toolCall) => ({
-                key: sourceMessage?.segments.find((segment) => (
-                  segment.type === 'tool-call' && segment.callId === toolCall.id
-                ))?.key,
-                callId: toolCall.id,
-                name: toolCall.function.name,
-                argumentsText: toolCall.function.arguments ?? '',
-              })),
-              results: [],
-              messages: [],
-              sourceMessageId: sourceMessage?.id ?? null,
-            };
-          } else if (
-            message.role === 'tool'
-            && persistedRound?.toolCalls.some((toolCall) => toolCall.callId === message.tool_call_id)
-          ) {
-            persistedRound.results.push({
-              callId: message.tool_call_id,
-              output: message.content,
-              isError: false,
-            });
-          } else if (persistedRound) {
-            persistedRound.messages.push(message);
-          } else {
-            messages.push(message);
-          }
-        }
-        if (persistedRound) toolHistory.push(persistedRound);
+        toolHistory.push(...modelMessagesToToolHistory(
+          persistedMessages,
+          persistedMessagesAtStart,
+          selection.model,
+        ));
       }
       const knownToolCallIds = new Set(toolHistory.flatMap((round) => (
         round.toolCalls.map((toolCall) => toolCall.callId)
@@ -3370,7 +3416,7 @@ export class ChatRunner {
                 input,
               });
               if (queuedApproval) {
-                output = `Queued for user approval (id: ${queuedApproval.id}). Do not retry this tool until the user decides. Continue with other independent work items.`;
+                output = `Queued in the Inbox for user approval (id: ${queuedApproval.id}, pendency: ${queuedApproval.pendencyId}). Do not retry this tool until the user decides. Continue with other independent work and answer in this pendency after the decision.`;
                 tool = { ...tool, execute: () => output };
               }
             } else if (needsApproval) {
@@ -4100,9 +4146,16 @@ export class ChatRunner {
           answers: [],
         });
       };
+      const resetAfkTimer = () => {
+        clearAfkTimer();
+        if (!enableAfkTimeout) return;
+        afkTimer = setTimeout(finishAfk, ASK_QUESTION_AFK_TIMEOUT_MS);
+        if (typeof afkTimer.unref === 'function') afkTimer.unref();
+      };
       this.pendingQuestions.set(questionId, {
         conversationId,
         questions,
+        resetAfkTimer,
         finish: (result) => {
           clearAfkTimer();
           signal.removeEventListener('abort', abortQuestion);
@@ -4113,10 +4166,7 @@ export class ChatRunner {
         },
       });
       signal.addEventListener('abort', abortQuestion, { once: true });
-      if (enableAfkTimeout) {
-        afkTimer = setTimeout(finishAfk, ASK_QUESTION_AFK_TIMEOUT_MS);
-        if (typeof afkTimer.unref === 'function') afkTimer.unref();
-      }
+      resetAfkTimer();
       this.emit(conversationId, {
         type: 'question-request',
         questionId,
@@ -4145,6 +4195,13 @@ export class ChatRunner {
         toolName: pending.toolName,
         invocationSummary: pending.invocationSummary,
       }));
+  }
+
+  questionActivity({ questionId, conversationId = null }) {
+    const pending = this.pendingQuestions.get(questionId);
+    if (!pending || (conversationId && pending.conversationId !== conversationId)) return false;
+    pending.resetAfkTimer();
+    return true;
   }
 
   answerQuestion({ questionId, conversationId = null, cancelled = false, answers = [] }) {

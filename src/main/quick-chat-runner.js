@@ -117,6 +117,13 @@ export class QuickChatRunner {
     }
   }
 
+  questionActivity({ sessionId, questionId }) {
+    const pending = this.pendingQuestions.get(questionId);
+    if (!pending || pending.sessionId !== sessionId) return false;
+    pending.resetAfkTimer();
+    return true;
+  }
+
   answerQuestion({ sessionId, questionId, answers, cancelled = false }) {
     const pending = this.pendingQuestions.get(questionId);
     if (!pending || pending.sessionId !== sessionId) return false;
@@ -553,9 +560,15 @@ export class QuickChatRunner {
         });
         resolve({ cancelled: true, afk: true, answers: [] });
       };
+      const resetAfkTimer = () => {
+        clearAfkTimer();
+        afkTimer = setTimeout(finishAfk, ASK_QUESTION_AFK_TIMEOUT_MS);
+        if (typeof afkTimer.unref === 'function') afkTimer.unref();
+      };
       signal.addEventListener('abort', abort, { once: true });
       this.pendingQuestions.set(questionId, {
         sessionId,
+        resetAfkTimer,
         resolve: (value) => {
           clearAfkTimer();
           signal.removeEventListener('abort', abort);
@@ -563,9 +576,8 @@ export class QuickChatRunner {
         },
         reject,
       });
+      resetAfkTimer();
       this.emit(sessionId, { type: 'question-request', questionId, questions });
-      afkTimer = setTimeout(finishAfk, ASK_QUESTION_AFK_TIMEOUT_MS);
-      if (typeof afkTimer.unref === 'function') afkTimer.unref();
     });
   }
 

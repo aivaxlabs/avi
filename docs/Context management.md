@@ -22,6 +22,8 @@ Use `AGENTS.md` for instructions shared by every full chat, `BOTS.md` for instru
 
 Runtime authority is ordered as: Avi system/runtime instructions, the direct user request, applicable project instructions, then repository conventions. Dynamic prompt roots are assembled installation → global → workspace. For duplicate skill or workflow command names, command lookup gives workspace precedence over global, installation, and registered plugin context.
 
+Full-chat instructions bias agents toward completing clear action requests, making reasonable scoped assumptions, and finishing safe preparatory work before asking for input or approval. If an applicable skill or project instruction causes a pause, confirmation request, incomplete result, or change of direction, the agent must identify the exact file and rule and distinguish that requirement from its own interpretation.
+
 ## Instructions
 
 Avi recommends `AGENTS.md` for general instructions and also recognizes compatible AGENTS/MEMORY variants, `CLAUDE.md`, `GEMINI.md`, `*.instructions.md`, and `*.agents.md`. `BOTS.md` follows the same root and nested discovery rules, but is only included in bot-thread context. Its body, path, and description are excluded from ordinary threads, side chats, sub-agents, and Quick Chat.
@@ -56,7 +58,11 @@ Quick Chat uses reduced instructions and does not receive the full ordinary-thre
 
 ## Conversation compaction
 
-When automatic or manual checkpoint compaction exceeds the selected model's context window, Avi progressively reduces older in-flight tool history. Its final fallback also removes intermediate assistant messages, retaining only complete function-call/output pairs so Responses providers do not receive orphaned protocol items.
+Regular copies, side chats, and Rubber Duck forks preserve the source checkpoint and its history boundary, even when that boundary is a hidden runtime message. Older history stays visible in the conversation but is not replayed to the model. Forks ending before the boundary do not inherit the later checkpoint or its token counter. Sub-agents start with fresh context rather than a copy of the parent history.
+
+Automatic and manual checkpoint compaction send regular conversation messages followed by a final user request for a checkpoint. In-flight tool calls and results remain structured messages, not a JSON transcript. Provider-specific reasoning and continuation metadata are removed; assistant text, tool calls, results, and supported media are retained, including content recovered from continuation items.
+
+For context-window errors, Avi tries the full in-flight tool history, then removes its oldest 30%, then its oldest 60%. The fourth attempt keeps that 60% reduction and also removes intermediate assistant messages from the earlier conversation, retaining complete function-call/output pairs. If the configured compactation model fails, Avi retries with the chat model using the same sequence. These percentages apply to in-flight tool-history rounds, not all conversation messages. Three consecutive failed automatic compactions stop the chat.
 
 ## Troubleshooting discovery
 

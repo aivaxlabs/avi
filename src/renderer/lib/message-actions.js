@@ -7,6 +7,5 @@ export function canRetryAssistantMessage(message, lastAssistantMessage, isRunnin
 export function canResumeAssistantMessage(message, lastAssistantMessage, isRunning) {
   return message.id === lastAssistantMessage?.id
     && ['error', 'aborted', 'streaming'].includes(message.status)
-    && !message.stoppedByUser
     && !isRunning;
 }

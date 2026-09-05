@@ -68,7 +68,7 @@ Every event includes `type` and `conversationId`; the table lists its additional
 | `message` | `message`: [`Message`](types.md#message) | New or updated persisted message. An explicit user Stop persists `stoppedByUser: true` on the aborted message. Streamed text, reasoning, tool calls, and tool results arrive through message segment updates. Tool-call segments are lightweight projections; retrieve omitted arguments, result, and media through [`conversations:tool-call-details`](conversations.md#conversationstool-call-details). |
 | `conversation` | `conversation`: [`Conversation`](types.md#conversation) | Updated conversation metadata or state. |
 | `message-delete` | `messageId`: string | A persisted or queued message was deleted. |
-| `run-state` | `running`: boolean; `startedAt`?: number | Active-run state. `startedAt` is Unix time in milliseconds and is present only when `running` is true. |
+| `run-state` | `running`: boolean; `startedAt`?: number | Authoritative active-run state, including tool execution and finalization. `startedAt` is Unix time in milliseconds and is present only when `running` is true. Persisted message status does not replace this state: a message may finish before the run does or remain `streaming` after a crash. |
 | `block-state` | `blocked`: boolean | Whether the conversation is currently blocked. |
 | `queue-order` | `steerMessageIds`: string[]; `queuedMessageIds`: string[]; `messageIds`: string[] | Current steer, ordinary queue, and combined message order. |
 | `mcp-waiting` | `waiting`: boolean | Whether startup is waiting for MCP configuration or connection. |

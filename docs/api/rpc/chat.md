@@ -23,6 +23,8 @@ Sends a user message, steers or queues it behind an active run, or waits for an 
 
 `userInitiated` is always forced to `true`. Supplying a non-null `goalId` is rejected; start a Goal with `goals:start` or continue it with `workMode: "goal"`.
 
+The base prompt keeps the main implementation with the agent and encourages parallel delegation of independent exploration, research, analysis, and tests. It prefers multiple bounded assignments when several independent tasks exist, prohibits duplicating delegated work, and requires inspecting, guiding, and integrating sub-agent work. Session-specific instructions define any different division of work or scope restrictions. The effective Ultra mode additionally requires the orchestrator to retain the main and most demanding implementation, using sub-agents for bounded, less demanding supporting tasks and independent critique; Plan delegation remains read-only. Mode-specific responsibilities are injected only for the active mode. This is an instruction policy, not a tool-availability restriction; the request schema is unchanged.
+
 ### Result
 
 [`SendResult`](types.md#sendresult). Use `queued` and `message.status` to distinguish immediate, steered, queued, and semaphore-waiting messages.
@@ -78,7 +80,7 @@ Replaces an editable user message, deletes subsequent run history, reconciles ac
 
 ## `chat:retry`
 
-Retries an assistant response. With `resumeFromFailure`, Avi reconstructs tool history from the failed response segments before continuing.
+Retries an assistant response. With `resumeFromFailure`, Avi uses the same persisted-message serialization as ordinary continuation: confirmed tool results, media, and model/interface-compatible provider continuation are preserved, and only tools without recorded results execute again. Recovery includes the source user prompt when it has status `error`, `aborted`, or `waiting_mcp`, including an interruption before MCP initialization finished. If compaction already covered that prompt, recovery uses the checkpoint instead of replaying discarded history.
 
 ### Params
 
@@ -94,8 +96,10 @@ Retries an assistant response. With `resumeFromFailure`, Avi reconstructs tool h
 | Field | Type | Description |
 | --- | --- | --- |
 | `conversation` | [`Conversation`](types.md#conversation) | Updated conversation. |
-| `message` | [`Message`](types.md#message) \| null | New assistant message, or `null` when the retry was queued. |
-| `queued` | boolean | Whether the retry was queued behind an active run. |
+| `message` | [`Message`](types.md#message) \| null | Target assistant message when recovery starts. `null` for a full restart or an already-active run. |
+| `queued` | boolean | `true` when a run is already active; this call does not enqueue another retry. `false` when starting recovery or a full restart. |
+
+An invalid recovery target or missing eligible prompt/checkpoint rejects the request through the normal RPC error envelope; it no longer returns a successful no-op. Use the conversation's `run-state` events to track execution, because a run can finish before the reply arrives. The returned recovery message is the pre-resume snapshot; message events carry its updated status.
 
 ## `chat:expand-prompt`
 
@@ -136,6 +140,19 @@ Resolves a pending tool approval for this conversation. `allow_all` also persist
 Boolean: `true` when a matching pending approval was resolved; `false` when it does not exist, belongs to another conversation, or the decision is invalid.
 
 Successful resolution can emit a [`permission-resolved`](streaming.md#conversation-event-types) event.
+
+## `chat:question-activity`
+
+Restarts the 60-second inactivity timeout of a pending structured question without submitting answers. Plan-mode questions remain exempt from expiration.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `conversationId` | string | Yes | Conversation owning the request (injected by conversation-scoped RPC). |
+| `questionId` | string | Yes | Pending question request ID. |
+
+Returns `true` for a matching pending request, including Plan mode; `false` for a missing or differently scoped request. Resolved or expired questions are never reopened. Clients should report pointer movement, clicks, keyboard input, and scrolling inside the question UI, not unrelated page activity.
+
+Desktop bridge: `window.chatApp.chat.questionActivity({ conversationId, questionId })`. Quick Chat uses `window.chatApp.quickChat.questionActivity({ sessionId, questionId })` through the local-only `quick-chat:question-activity` channel, which enforces window ownership of the session and returns the same boolean result.
 
 ## `chat:answer-question`
 
@@ -201,7 +218,9 @@ Omit `params`; the URL supplies `conversationId`.
 
 ## `chat:compress`
 
-Uses the selected model to create and persist a context checkpoint. A compression message records a `context-compression` segment with `inputTokens` and `outputTokens`.
+Creates and persists a context checkpoint using the configured compactation model, falling back to the chat model. A compression message records a `context-compression` segment with `inputTokens` and `outputTokens`.
+
+The request contains normalized conversation and in-flight tool messages followed by a final user checkpoint instruction. Provider-specific reasoning/continuation metadata is excluded while semantic content and paired tool calls/results are retained. Context-window retries use full in-flight tool history, then remove the oldest 30%, then 60%, then retain the 60% cut while also pruning intermediate assistant messages. The chat-model fallback uses the same sequence. The request and response schema is unchanged.
 
 ### Params
 

@@ -127,7 +127,7 @@ Fresh visible [`Conversation[]`](types.md#conversation), using the same filterin
 
 ## `conversations:fork`
 
-Copies the visible message history and context checkpoint into a new thread titled `<source title> - Copy`.
+Copies the visible message history and context checkpoint into a new thread titled `<source title> - Copy`. Streaming messages are copied as completed partial-response snapshots; the source execution is unchanged and no execution is started in the copy.
 
 ### Params
 
@@ -136,7 +136,7 @@ The scalar form uses `params.payload` with the source conversation ID. To fork t
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `conversationId` | string | Yes | Source conversation ID. |
-| `throughMessageId` | string | No | Copies messages through this message when it exists. If omitted, all non-hidden messages are copied. |
+| `throughMessageId` | string | No | Copies messages through this message when it exists. If omitted, all non-hidden messages and the context-checkpoint boundary (even when hidden) are copied. |
 
 ### Result
 

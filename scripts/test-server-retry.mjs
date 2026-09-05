@@ -1727,26 +1727,12 @@ try {
     })),
     streamingSegments: [{ type: 'content', text: 'Current streaming turn.' }],
   });
-  const adaptiveInFlightMessage = adaptiveCompressionRequest.at(-2).content;
-  const adaptiveInFlightContext = JSON.parse(
-    adaptiveInFlightMessage
-      .replace('<in_flight_context>\n', '')
-      .replace('\n</in_flight_context>', ''),
-  );
-  assert.equal(
-    parseToolOutput(adaptiveInFlightContext.toolHistory[0].results[0].output).preview.length,
-    20,
-  );
-  assert.equal(
-    parseToolOutput(adaptiveInFlightContext.toolHistory[1].results[0].output).preview.length,
-    80,
-  );
-  assert.deepEqual(
-    adaptiveInFlightContext.toolHistory
-      .slice(2)
-      .map((round) => parseToolOutput(round.results[0].output).preview.length),
-    [100, 100, 100],
-  );
+  const adaptiveToolResultPreviews = adaptiveCompressionRequest
+    .filter((message) => message.role === 'tool')
+    .map((message) => parseToolOutput(message.content).preview.length);
+  assert.deepEqual(adaptiveToolResultPreviews, [20, 80, 100, 100, 100]);
+  assert.match(JSON.stringify(adaptiveCompressionRequest), /Current streaming turn\./);
+  assert.doesNotMatch(JSON.stringify(adaptiveCompressionRequest), /in_flight_context/);
 
   const immutableFileRequests = [];
   const immutableSource = Array.from({ length: 4 }, () => 's'.repeat(50)).join('\n');
@@ -2446,27 +2432,26 @@ try {
     contextToolHistory: compactionFallbackToolHistory,
   });
   assert.equal(compactionFallbackRequests.length, 4);
-  const fallbackContexts = compactionFallbackRequests.map((request) => JSON.parse(
-    request.at(-2).content
-      .replace('<in_flight_context>\n', '')
-      .replace('\n</in_flight_context>', ''),
-  ));
-  assert.deepEqual(
-    fallbackContexts.map(({ toolHistory }) => toolHistory.map((round) => round.results[0].callId)),
-    [
-      Array.from({ length: 10 }, (_, index) => `fallback-tool-${index}`),
-      Array.from({ length: 9 }, (_, index) => `fallback-tool-${index + 1}`),
-      Array.from({ length: 8 }, (_, index) => `fallback-tool-${index + 2}`),
-      Array.from({ length: 8 }, (_, index) => `fallback-tool-${index + 2}`),
-    ],
-  );
-  for (const { toolHistory } of fallbackContexts) {
-    for (const round of toolHistory) {
-      assert.deepEqual(
-        round.toolCalls.map((toolCall) => toolCall.callId),
-        round.results.map((result) => result.callId),
-      );
-    }
+  const fallbackInFlightCallIds = compactionFallbackRequests.map((request) => request
+    .filter((message) => message.role === 'tool')
+    .map((message) => message.tool_call_id)
+    .filter((callId) => callId.startsWith('fallback-tool-')));
+  assert.deepEqual(fallbackInFlightCallIds, [
+    Array.from({ length: 10 }, (_, index) => `fallback-tool-${index}`),
+    Array.from({ length: 7 }, (_, index) => `fallback-tool-${index + 3}`),
+    Array.from({ length: 4 }, (_, index) => `fallback-tool-${index + 6}`),
+    Array.from({ length: 4 }, (_, index) => `fallback-tool-${index + 6}`),
+  ]);
+  for (const request of compactionFallbackRequests) {
+    const assistantCallIds = request
+      .filter((message) => message.role === 'assistant')
+      .flatMap((message) => (message.tool_calls ?? []).map((toolCall) => toolCall.id))
+      .sort();
+    const resultCallIds = request
+      .filter((message) => message.role === 'tool')
+      .map((message) => message.tool_call_id)
+      .sort();
+    assert.deepEqual(assistantCallIds, resultCallIds);
   }
   assert.match(JSON.stringify(compactionFallbackRequests[2]), /First intermediate assistant/);
   assert.doesNotMatch(JSON.stringify(compactionFallbackRequests[3]), /First intermediate assistant/);
@@ -2479,7 +2464,10 @@ try {
   const aggressiveFallbackOutputs = compactionFallbackBodies[3].input
     .filter((item) => item.type === 'function_call_output')
     .map((item) => item.call_id);
-  assert.deepEqual(aggressiveFallbackCalls, ['retained-paired-call']);
+  assert.deepEqual(aggressiveFallbackCalls, [
+    'retained-paired-call',
+    ...Array.from({ length: 4 }, (_, index) => `fallback-tool-${index + 6}`),
+  ]);
   assert.deepEqual(aggressiveFallbackOutputs, aggressiveFallbackCalls);
 
   let exhaustedCompactionAttempts = 0;
