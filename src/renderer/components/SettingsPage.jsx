@@ -330,6 +330,7 @@ export function SettingsPage({
   backgroundUrl,
   pluginCatalog = {},
   desktop,
+  updateState = null,
   onAppearanceChange,
   onBackgroundSelect,
   onBackgroundRemove,
@@ -353,6 +354,9 @@ export function SettingsPage({
   const [modelDraft, setModelDraft] = useState(null);
   const [modelIndex, setModelIndex] = useState(-1);
   const [busy, setBusy] = useState(false);
+  const [updateAction, setUpdateAction] = useState(null);
+  const [updateError, setUpdateError] = useState('');
+  const updateBusy = Boolean(updateAction) || ['checking', 'downloading', 'installing'].includes(updateState?.status);
   const [error, setError] = useState('');
   const [providerListMessage, setProviderListMessage] = useState('');
   const [providerImportOpen, setProviderImportOpen] = useState(false);
@@ -1772,6 +1776,47 @@ export function SettingsPage({
 
             {view === 'general' && tuningDraft && (
               <div className="settings-tuning">
+                <section className={`settings-section-card settings-update${updateState?.available ? ' available' : ''}`} aria-label="Application updates">
+                  <div role="status">
+                    <h3>{updateState?.available ? `Avi ${updateState.latestVersion} is available` : 'Application updates'}</h3>
+                    <p>{updateState?.unsupportedReason || (updateState?.available
+                      ? 'Finish active work before installing. Avi will close and reopen after the update.'
+                      : updateState?.latestVersion && updateState.status === 'idle' ? `Avi ${updateState.currentVersion} is up to date.`
+                        : 'Avi checks GitHub for stable releases at startup and every six hours.')}</p>
+                    {updateState?.status === 'checking' && <p>Checking for updates...</p>}
+                    {updateState?.status === 'downloading' && (
+                      <label>Downloading update: {updateState.progress ?? 0}%
+                        <progress max="100" value={updateState.progress ?? 0} />
+                      </label>
+                    )}
+                    {updateState?.status === 'installing' && <p>Starting installation. Avi will close shortly...</p>}
+                  </div>
+                  {(updateError || updateState?.error) && <p role="alert">{updateError || updateState.error}</p>}
+                  <div className="settings-update-actions">
+                    <button className="button button-secondary" type="button" disabled={updateBusy || updateState?.supported === false}
+                      onClick={async () => {
+                        setUpdateAction('check');
+                        setUpdateError('');
+                        try { await window.chatApp.app.checkForUpdates(); }
+                        catch (error) { setUpdateError(error.message); }
+                        finally { setUpdateAction(null); }
+                      }}>
+                      {updateState?.status === 'checking' || updateAction === 'check' ? 'Checking...' : 'Check for updates'}
+                    </button>
+                    {updateState?.available && (
+                      <button className="button" type="button" disabled={updateBusy || updateState.supported === false}
+                        onClick={async () => {
+                          setUpdateAction('install');
+                          setUpdateError('');
+                          try { await window.chatApp.app.installUpdate(); }
+                          catch (error) { setUpdateError(error.message); }
+                          finally { setUpdateAction(null); }
+                        }}>
+                        {updateState.status === 'downloading' ? 'Downloading...' : updateState.status === 'installing' ? 'Installing...' : 'Install update'}
+                      </button>
+                    )}
+                  </div>
+                </section>
                 <section className="settings-section">
                   <div className="settings-section-heading">
                     <h3>Chat</h3>

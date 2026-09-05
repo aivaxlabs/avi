@@ -75,6 +75,14 @@ const BOT_CONFIG_PROPERTIES = Object.freeze({
   },
   enabled: { type: 'boolean', description: 'Whether automatic scheduling may activate the bot.' },
 });
+const BOT_UPDATE_PROPERTIES = Object.freeze({
+  ...BOT_CONFIG_PROPERTIES,
+  workQueueIndex: {
+    type: 'integer',
+    minimum: 0,
+    description: 'Zero-based queue item to run on the next activation.',
+  },
+});
 const terminals = new Map();
 
 function appendTerminalOutput(terminal, chunk) {
@@ -724,7 +732,7 @@ export const CLIENT_TOOLS = Object.freeze([
         id: { type: 'string', minLength: 1, description: 'Bot ID returned by bots_list or bots_create.' },
         changes: {
           type: 'object',
-          properties: BOT_CONFIG_PROPERTIES,
+          properties: BOT_UPDATE_PROPERTIES,
           minProperties: 1,
           additionalProperties: false,
         },
