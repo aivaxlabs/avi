@@ -151,7 +151,7 @@
     background: rgb(255 255 255 / 12%);
     border: 1px solid rgb(255 255 255 / 20%);
     border-radius: 999px;
-    font-size: 26px;
+    font-size: 1.85rem;
     line-height: 1;
 
     &:hover,
@@ -190,7 +190,7 @@
 .plain-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 14px;
+  font-size: 1rem;
   line-height: 1.55;
 }
 
@@ -226,7 +226,7 @@
     color: var(--text-3);
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 10px;
+    font-size: .9rem;
   }
 
   > button {
@@ -283,12 +283,12 @@
 
   small {
     color: var(--text-3);
-    font-size: 10px;
+    font-size: .9rem;
   }
 
   strong {
     color: var(--text-1);
-    font-size: 12px;
+    font-size: .9rem;
     font-weight: 500;
   }
 }
@@ -325,7 +325,7 @@
   align-items: center;
   gap: 8px;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: .9rem;
 
   &::before {
     content: '';
@@ -376,7 +376,7 @@
     flex: 1;
     min-width: 0;
     gap: 3px;
-    font-size: 13px;
+    font-size: 1rem;
     line-height: 1.45;
 
     span {
@@ -401,7 +401,7 @@
       color: var(--background-1);
       background: var(--primary-color);
       border-radius: 32px;
-      font-size: 12px;
+      font-size: .9rem;
       font-weight: 600;
 
       &:hover:not(:disabled) {
@@ -453,7 +453,7 @@
 
 .question-card-progress {
   color: var(--text-3);
-  font-size: 10px;
+  font-size: .9rem;
   font-weight: 600;
   letter-spacing: .06em;
   text-transform: uppercase;
@@ -462,7 +462,7 @@
 .question-card-prompt {
   min-width: 0;
   color: var(--text-1);
-  font-size: 14px;
+  font-size: 1rem;
   font-weight: 500;
   line-height: 1.55;
   overflow-wrap: anywhere;
@@ -486,7 +486,7 @@
     margin: 7px 0 0;
     padding-left: 20px;
     color: var(--text-1);
-    font-size: 13px;
+    font-size: 1rem;
     font-weight: 400;
   }
 
@@ -502,7 +502,7 @@
     padding: 1px 4px;
     background: var(--background-3);
     border-radius: 4px;
-    font-size: .9em;
+    font-size: .9rem;
   }
 }
 
@@ -535,7 +535,7 @@
     border: 1px solid var(--border-color);
     border-radius: 9px;
     font: inherit;
-    font-size: 13px;
+    font-size: 1rem;
     line-height: 1.5;
     transition: border-color 160ms var(--base-transition),
       box-shadow 160ms var(--base-transition);
@@ -619,7 +619,7 @@
   border: 1px solid var(--border-color);
   border-radius: 9px;
   font: inherit;
-  font-size: 12px;
+  font-size: .9rem;
 
   &:focus-visible {
     border-color: var(--text-3);
@@ -636,7 +636,7 @@
 .question-card-option-copy {
   min-width: 0;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: .9rem;
   line-height: 1.45;
 
   > :first-child {
@@ -652,7 +652,7 @@
   }
 
   code {
-    font-size: .92em;
+    font-size: .9rem;
   }
 }
 
@@ -678,7 +678,7 @@
   background: transparent;
   border: 1px solid transparent;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: .9rem;
   transition: color 160ms var(--base-transition),
     background 160ms var(--base-transition),
     border-color 160ms var(--base-transition),
@@ -894,7 +894,7 @@
   background-clip: text;
   -webkit-background-clip: text;
   animation: thinking-gradient 2s linear infinite;
-  font-size: 14px;
+  font-size: 1rem;
   font-weight: 400;
 }
 
@@ -925,7 +925,7 @@
 
   strong {
     color: var(--text-3);
-    font-size: 1em;
+    font-size: 1rem;
     font-weight: 400;
   }
 }
@@ -1021,7 +1021,7 @@
   padding: 7px 12px;
   color: var(--text-3);
   background: transparent;
-  font-size: 12px;
+  font-size: .9rem;
 
   &:hover,
   &:focus-visible {
@@ -1152,7 +1152,7 @@
   gap: 5px;
   border: 1px solid var(--border-color);
   opacity: .72;
-  font-size: 12px;
+  font-size: .9rem;
 
   &:hover,
   &:focus-visible {
@@ -1215,7 +1215,7 @@
     color: var(--text-2);
     background: var(--background-2);
     border-radius: 999px;
-    font-size: .78em;
+    font-size: .9rem;
     font-variant-numeric: tabular-nums;
   }
 
@@ -1235,7 +1235,7 @@
   gap: 4px;
   overflow: hidden;
   color: var(--text-3);
-  font-size: 11px;
+  font-size: .9rem;
   font-variant-numeric: tabular-nums;
   opacity: 0;
   pointer-events: none;
@@ -1369,7 +1369,7 @@
     color: var(--text-3);
     background: transparent;
     border-radius: 6px;
-    font-size: 11px;
+    font-size: .9rem;
     transition: background 140ms var(--base-transition), color 140ms var(--base-transition);
 
     &:hover,
@@ -1429,7 +1429,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font: 11px var(--font-code);
+    font: .9rem var(--font-code);
   }
 }
 
@@ -1441,7 +1441,7 @@
   background: var(--background-1);
 
   code {
-    font: 12px/1.55 var(--font-code);
+    font: .9rem/1.55 var(--font-code);
   }
 }
 
@@ -1538,7 +1538,7 @@
   justify-content: space-between;
   gap: 8px;
   color: var(--text-3);
-  font-size: 10px;
+  font-size: .9rem;
 
   span {
     min-width: 0;

@@ -44,7 +44,7 @@
 
 .worked-summary {
   color: var(--text-4);
-  font-size: 13px;
+  font-size: 1rem;
   font-weight: 400;
 }
 
@@ -100,7 +100,7 @@
   h3 {
     margin: 10px 0 6px;
     color: var(--text-3);
-    font-size: 13px;
+    font-size: 1rem;
     line-height: 1.35;
   }
 
@@ -218,7 +218,7 @@
       display: block;
       margin-bottom: 4px;
       color: var(--text-3);
-      font-size: 11px;
+      font-size: .9rem;
     }
   }
 
@@ -231,7 +231,7 @@
     border-radius: 8px;
     background: var(--background-2);
     color: var(--text-1);
-    font: 11.5px/1.45 var(--font-code);
+    font: .9rem/1.45 var(--font-code);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }

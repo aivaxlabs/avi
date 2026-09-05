@@ -27,7 +27,7 @@
     padding: 4px 8px;
     color: var(--text-3);
     border-radius: 7px;
-    font-size: 11px;
+    font-size: .9rem;
     background: transparent;
     transition: color 180ms var(--base-transition),
       background 180ms var(--base-transition),
@@ -97,7 +97,7 @@
       border: 0;
       border-radius: 0;
       outline: 0;
-      font-size: 12px !important;
+      font-size: .9rem !important;
     }
   }
 
@@ -119,7 +119,7 @@
     color: var(--text-1);
     background: transparent;
     text-align: left;
-    font-size: 12px;
+    font-size: .9rem;
   }
 
   .project-picker-list button:hover,
@@ -148,7 +148,7 @@
   .project-picker-list button > small {
     max-width: 82px;
     color: var(--text-3);
-    font-size: 10px;
+    font-size: .9rem;
   }
 
   .project-picker-list button > svg:last-child {
@@ -160,7 +160,7 @@
     display: block;
     padding: 10px 8px;
     color: var(--text-3);
-    font-size: 11px;
+    font-size: .9rem;
   }
 
   .project-picker-divider {
@@ -197,7 +197,7 @@
     padding-block: 4px;
     gap: 5px;
     color: var(--text-3);
-    font-size: 11px;
+    font-size: .9rem;
     font-variant-numeric: tabular-nums;
   }
 

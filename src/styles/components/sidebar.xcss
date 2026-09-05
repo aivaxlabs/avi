@@ -1,5 +1,5 @@
 .sidebar {
-  --sidebar-font-size: 13px;
+  --sidebar-font-size: 1rem;
   --sidebar-text-muted-opacity: .62;
   --sidebar-background: transparent;
   --sidebar-background-hover: var(--background-3);
@@ -92,7 +92,7 @@
     display: flex;
     align-items: center;
     gap: 7px;
-    font-size: 13px;
+    font-size: 1rem;
     text-transform: uppercase;
     letter-spacing: 1px;
     font-weight: 600;
@@ -238,7 +238,7 @@
     justify-items: center;
     padding: 18px 12px;
     color: var(--text-1);
-    font-size: .85rem;
+    font-size: .9rem;
     text-align: center;
     opacity: var(--sidebar-text-muted-opacity);
 
@@ -248,7 +248,7 @@
       background: var(--sidebar-background-hover);
       border: none;
       border-radius: 8px;
-      font-size: .8rem;
+      font-size: .9rem;
     }
   }
 
@@ -350,7 +350,7 @@
   .conversation-item {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 28px;
+    grid-template-columns: minmax(0, 1fr) 32px;
     align-items: center;
     width: 100%;
     border-radius: 6px;
@@ -396,7 +396,7 @@
     justify-self: center;
     flex: 0 0 auto;
     color: var(--text-1);
-    font-size: 12px;
+    font-size: .9rem;
     opacity: var(--sidebar-text-muted-opacity);
     white-space: nowrap;
     pointer-events: none;
@@ -410,7 +410,7 @@
     color: var(--text-1);
     background: transparent;
     border-radius: 5px;
-    font-size: 12px;
+    font-size: .9rem;
     text-align: left;
     opacity: var(--sidebar-text-muted-opacity);
 
@@ -465,6 +465,16 @@
   }
 
   .settings-button {
+    position: relative;
+    .settings-update-badge {
+      position: absolute;
+      top: 4px;
+      right: 6px;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success-color);
+    }
     flex: 0 0 auto;
     margin: 4px;
     border-radius: 6px;
@@ -495,7 +505,7 @@
   border-radius: 12px;
   box-shadow: 0 4px 12px #00000022;
   pointer-events: none;
-  font-size: 12px;
+  font-size: .9rem;
 
   .conversation-tooltip-title {
     max-width: 100%;
@@ -592,7 +602,7 @@
 
 .folder-color-picker-label {
   color: var(--text-3);
-  font-size: 11px;
+  font-size: .9rem;
   letter-spacing: .04em;
   text-transform: uppercase;
 }
@@ -610,6 +620,10 @@
   border-right-color: transparent;
   opacity: .4;
   transition: .3s --base-transition;
+
+  > .sidebar-sticky-scroll {
+    scrollbar-gutter: auto;
+  }
 
   & :hover {
     opacity: 1;

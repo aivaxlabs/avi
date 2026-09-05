@@ -1,7 +1,7 @@
 .inline-error,
 .toast {
   color: var(--text-1);
-  font-size: 12px;
+  font-size: .9rem;
 }
 
 .toast {

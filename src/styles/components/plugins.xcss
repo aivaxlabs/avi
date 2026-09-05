@@ -14,8 +14,8 @@
     border-radius: 12px;
 
     svg { flex: 0 0 auto; color: var(--warn-color); }
-    strong { display: block; font-size: 12px; }
-    p { margin-top: 3px; color: var(--text-2); font-size: 11px; line-height: 1.5; }
+    strong { display: block; font-size: .9rem; }
+    p { margin-top: 3px; color: var(--text-2); font-size: .9rem; line-height: 1.5; }
   }
 
   .plugins-actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -28,7 +28,7 @@
     .dropdown-menu-item { border-radius: 7px; }
   }
 
-  .plugins-restart { align-items: center; padding: 10px 12px; font-size: 11px; }
+  .plugins-restart { align-items: center; padding: 10px 12px; font-size: .9rem; }
   .plugins-list { display: grid; gap: 10px; }
 
   .plugin-card {
@@ -64,12 +64,12 @@
     flex-wrap: wrap;
     gap: 8px;
 
-    strong { font-size: 13px; font-weight: 550; }
-    > span { color: var(--text-3); font-size: 10px; }
+    strong { font-size: 1rem; font-weight: 550; }
+    > span { color: var(--text-3); font-size: .9rem; }
   }
 
   .plugin-card {
-    p { margin-top: 5px; color: var(--text-2); font-size: 11px; line-height: 1.5; }
+    p { margin-top: 5px; color: var(--text-2); font-size: .9rem; line-height: 1.5; }
     small { display: block; margin-top: 5px; color: var(--text-3); overflow-wrap: anywhere; }
   }
 
@@ -95,10 +95,10 @@
     gap: 5px;
     margin-top: 9px;
 
-    span { color: var(--text-2); font-size: 9px; }
+    span { color: var(--text-2); font-size: .9rem; }
   }
-  .plugin-error { margin-top: 9px; color: var(--danger-color); font-size: 11px; overflow-wrap: anywhere; }
-  .plugins-empty { display: flex; align-items: center; gap: 9px; color: var(--text-3); font-size: 11px; }
+  .plugin-error { margin-top: 9px; color: var(--danger-color); font-size: .9rem; overflow-wrap: anywhere; }
+  .plugins-empty { display: flex; align-items: center; gap: 9px; color: var(--text-3); font-size: .9rem; }
 
   @media (max-width: 680px) {
     .plugin-card { flex-wrap: wrap; }
@@ -118,8 +118,8 @@
     justify-content: space-between;
     gap: 18px;
 
-    h3 { color: var(--text-1); font-size: 16px; font-weight: 550; }
-    p { margin-top: 4px; color: var(--text-3); font-size: 11px; line-height: 1.5; }
+    h3 { color: var(--text-1); font-size: 1.15rem; font-weight: 550; }
+    p { margin-top: 4px; color: var(--text-3); font-size: .9rem; line-height: 1.5; }
   }
 
   .plugin-settings-loading {
@@ -127,7 +127,7 @@
     align-items: center;
     gap: 8px;
     color: var(--text-3);
-    font-size: 11px;
+    font-size: .9rem;
   }
 
   .plugin-setting-option {
@@ -145,8 +145,8 @@
     align-content: start;
     gap: 4px;
 
-    strong { color: var(--text-1); font-size: 12px; font-weight: 500; }
-    small { color: var(--text-3); font-size: 10px; line-height: 1.45; }
+    strong { color: var(--text-1); font-size: .9rem; font-weight: 500; }
+    small { color: var(--text-3); font-size: .9rem; line-height: 1.45; }
   }
 
   .plugin-setting-control {
@@ -183,7 +183,7 @@
     border: 1px solid var(--border-color);
     border-radius: 10px;
 
-    > small { color: var(--text-3); font-size: 10px; }
+    > small { color: var(--text-3); font-size: .9rem; }
   }
 
   .plugin-setting-array-item-heading {
@@ -192,7 +192,7 @@
     justify-content: space-between;
     gap: 8px;
 
-    strong { font-size: 11px; font-weight: 500; }
+    strong { font-size: .9rem; font-weight: 500; }
     .danger { color: var(--danger-color); }
   }
 
@@ -210,22 +210,22 @@
     align-content: start;
     gap: 5px;
 
-    > span { color: var(--text-2); font-size: 10px; }
-    > small { color: var(--text-3); font-size: 9px; }
+    > span { color: var(--text-2); font-size: .9rem; }
+    > small { color: var(--text-3); font-size: .9rem; }
   }
 
   .plugin-setting-json-field textarea {
     min-height: 120px;
     resize: vertical;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: .9rem;
     line-height: 1.5;
   }
 
   .plugin-setting-field-error,
   .plugin-setting-option-error {
     color: var(--danger-color) !important;
-    font-size: 10px;
+    font-size: .9rem;
     overflow-wrap: anywhere;
   }
 

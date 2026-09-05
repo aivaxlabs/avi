@@ -11,7 +11,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: .9rem;
 
   &::before {
     content: "";

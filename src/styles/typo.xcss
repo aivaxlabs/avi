@@ -1,9 +1,10 @@
 :root {
-  --font-xl: 1.125rem;
-  --font-lg: 1.05rem;
+  --font-xxl: 1.3rem;
+  --font-xl: 1.2rem;
+  --font-lg: 1.1rem;
   --font-md: 1rem;
   --font-sm: .9rem;
-  --font-xs: .81rem;
+  --font-xs: .9rem;
 }
 
 button,

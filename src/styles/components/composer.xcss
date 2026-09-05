@@ -165,7 +165,7 @@
       color: var(--text-1);
       text-overflow: ellipsis;
       white-space: nowrap;
-      font-size: 12px;
+      font-size: .9rem;
       font-weight: 500;
     }
 
@@ -174,7 +174,7 @@
       align-items: center;
       gap: 5px;
       color: var(--text-3);
-      font-size: 10px;
+      font-size: .9rem;
       font-variant-numeric: tabular-nums;
     }
   }
@@ -227,7 +227,7 @@
     padding: 6px 12px;
     color: var(--text-2);
     text-align: left;
-    font-size: 12px;
+    font-size: .9rem;
     transition: color 180ms var(--base-transition),
       background 180ms var(--base-transition);
 
@@ -251,7 +251,7 @@
     padding: 6px 12px;
     color: var(--text-2);
     text-align: left;
-    font-size: 12px;
+    font-size: .9rem;
     transition: color 180ms var(--base-transition), background 180ms var(--base-transition);
 
     &:hover,
@@ -286,7 +286,7 @@
     padding: 6px 12px;
     color: var(--text-4);
     border-bottom: 1px solid var(--border-color);
-    font-size: 10px;
+    font-size: .9rem;
 
     > span:last-child {
       display: none;
@@ -298,7 +298,7 @@
     align-items: center;
     gap: 9px;
     color: var(--text-2);
-    font-size: 11px;
+    font-size: .9rem;
 
     strong {
       font-weight: 400;
@@ -401,7 +401,7 @@
 
   .queued-message-position {
     color: var(--text-4);
-    font-size: 11px;
+    font-size: .9rem;
     font-variant-numeric: tabular-nums;
     text-align: center;
   }
@@ -412,7 +412,7 @@
     color: var(--text-1);
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: .9rem;
   }
 
   .message-delivery-indicator {
@@ -420,7 +420,7 @@
     align-items: center;
     gap: 4px;
     color: var(--text-3);
-    font-size: 10px;
+    font-size: .9rem;
     font-weight: 500;
     white-space: nowrap;
   }
@@ -454,7 +454,7 @@
       color: var(--text-3);
       background: transparent;
       border-radius: 9999px;
-      font-size: 11px;
+      font-size: .9rem;
       transition: color 180ms var(--base-transition),
         background 180ms var(--base-transition),
         transform 180ms var(--base-transition);
@@ -519,7 +519,7 @@
     gap: 6px;
     margin: 1px 6px 5px;
     color: var(--link-color);
-    font-size: 12px;
+    font-size: .9rem;
     font-weight: 500;
 
     svg {
@@ -590,7 +590,7 @@
     overflow-y: auto;
     color: var(--text-1);
     background: transparent;
-    font-size: 14px;
+    font-size: 1rem;
     line-height: 1.35;
   }
 
@@ -623,7 +623,7 @@
     color: var(--text-1);
     background: transparent;
     border-radius: 999px;
-    font-size: 12px;
+    font-size: .9rem;
 
     span {
       overflow: hidden;
@@ -657,7 +657,7 @@
     background: var(--background-3);
     border: 1px solid var(--border-color);
     border-radius: 999px;
-    font-size: 12px;
+    font-size: .9rem;
     transition: color 180ms var(--base-transition),
       background 180ms var(--base-transition),
       transform 180ms var(--base-transition);
@@ -718,7 +718,7 @@
 
     small {
       color: var(--text-3);
-      font-size: .88rem;
+      font-size: .9rem;
       line-height: 1.35;
     }
   }
@@ -756,7 +756,7 @@
     color: var(--text-1);
     background: transparent;
     border-radius: 999px;
-    font-size: 12px;
+    font-size: .9rem;
     text-align: left;
 
     span {
@@ -835,7 +835,7 @@
     align-items: center;
     gap: 6px;
     color: var(--text-3);
-    font-size: 10px;
+    font-size: .9rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -873,7 +873,7 @@
 
     small {
       color: var(--text-3);
-      font-size: .88rem;
+      font-size: .9rem;
       font-weight: 400;
     }
   }

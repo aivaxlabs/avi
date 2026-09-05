@@ -79,13 +79,13 @@
   .dropdown-menu-label {
     padding: 6px 12px 2px;
     color: var(--text-4);
-    font-size: 11px;
+    font-size: .9rem;
   }
 
   .dropdown-menu-empty {
     padding: 7px 9px;
     color: --text-3;
-    font-size: 12px;
+    font-size: .9rem;
   }
 }
 

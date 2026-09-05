@@ -38,17 +38,20 @@
     "test:semaphores": "electron --no-sandbox scripts/test-semaphores.mjs",
     "test:mcp": "bun scripts/test-mcp-manager.mjs",
     "test:remote": "electron --no-sandbox scripts/test-remote-mcp.mjs",
+    "test:remote-relay": "node scripts/test-remote-relay.mjs && electron --no-sandbox scripts/test-remote-relay-rpc.mjs",
     "test:default-models": "bun scripts/test-default-models.mjs",
-    "test:bots": "bun scripts/test-bot-scheduling.mjs && bun scripts/test-bot-work-state.mjs && bun scripts/test-bot-overview.mjs && electron --no-sandbox scripts/test-bot-folders.mjs && electron --no-sandbox scripts/test-bot-enabled-database.mjs && electron --no-sandbox scripts/test-bot-thread-context.mjs && electron --no-sandbox scripts/test-bot-management-tools.mjs",
+    "test:bots": "bun scripts/test-bot-scheduling.mjs && bun scripts/test-bot-work-state.mjs && bun scripts/test-bot-overview.mjs && electron --no-sandbox scripts/test-bot-folders.mjs && electron --no-sandbox scripts/test-bot-enabled-database.mjs && electron --no-sandbox scripts/test-bot-thread-context.mjs && electron --no-sandbox scripts/test-bot-management-tools.mjs && electron --no-sandbox scripts/test-bot-core-api.mjs",
     "test:routers": "bun scripts/test-model-router.mjs",
     "test:files": "bun scripts/test-files-panel.mjs",
     "test:mentions": "bun scripts/test-composer-invocation.mjs && bun scripts/test-workspace-mentions.mjs",
+    "test:fork-checkpoints": "electron --no-sandbox scripts/test-fork-checkpoints.mjs",
     "test:side-chat": "bun scripts/test-side-chat-database.mjs",
     "test:rubber-duck": "electron --no-sandbox scripts/test-rubber-duck.mjs",
     "test:archive": "electron --no-sandbox scripts/test-archive-database.mjs",
     "test:temporary-storage": "bun scripts/test-temporary-storage.mjs",
     "test:search": "electron --no-sandbox scripts/test-search-core.mjs",
     "test:fatal-errors": "bun scripts/test-trace-fatal.mjs && electron --no-sandbox scripts/test-fatal-errors.mjs",
+    "test:package": "bun scripts/test-package-contract.mjs",
     "package": "bun run build && bun scripts/package.mjs"
   },
   "dependencies": {
@@ -126,6 +129,7 @@
       "installerHeaderIcon": "assets/icon/avi-bg.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
+      "runAfterFinish": true,
       "shortcutName": "Avi"
     },
     "mac": {

@@ -31,7 +31,7 @@
       border: 0;
       outline: 0;
       background: transparent;
-      font-size: 12px;
+      font-size: .9rem;
     }
   }
 
@@ -46,7 +46,7 @@
       color: var(--text-2);
       background: transparent;
       border-right: 1px solid var(--border-color);
-      font-size: 12px;
+      font-size: .9rem;
       font-weight: 500;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -84,13 +84,13 @@
       align-items: center;
       gap: 6px;
       color: var(--text-2);
-      font-size: 12px;
+      font-size: .9rem;
       font-weight: 500;
 
       small {
         margin-left: auto;
         color: var(--text-3);
-        font-size: 10px;
+        font-size: .9rem;
         font-weight: 500;
       }
     }
@@ -185,7 +185,7 @@
     color: var(--text-1);
     background: transparent;
     text-align: left;
-    font-size: 12px;
+    font-size: .9rem;
     transition: transform 180ms var(--base-transition);
 
     &:active {
@@ -272,7 +272,7 @@
 
     span {
       color: var(--text-3);
-      font-size: 12px;
+      font-size: .9rem;
     }
 
     strong {
@@ -280,7 +280,7 @@
       color: var(--text-1);
       text-overflow: ellipsis;
       white-space: nowrap;
-      font-size: 15px;
+      font-size: 1.1rem;
     }
 
     small {
@@ -309,14 +309,14 @@
 
     dt {
       color: var(--text-3);
-      font-size: 11px;
+      font-size: .9rem;
       font-weight: 500;
     }
 
     dd {
       margin: 0;
       color: var(--text-1);
-      font-size: 11px;
+      font-size: .9rem;
       font-weight: 500;
       text-align: right;
       white-space: nowrap;

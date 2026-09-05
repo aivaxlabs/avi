@@ -178,7 +178,7 @@
     gap: 6px;
     padding: 0 8px;
     color: var(--text-1);
-    font-size: 11px;
+    font-size: .9rem;
     font-weight: 600;
 
     span {
@@ -281,7 +281,7 @@
   .files-status {
     min-width: 12px;
     color: var(--text-3);
-    font-size: 10px;
+    font-size: .9rem;
     font-weight: 600;
     text-align: right;
   }
@@ -292,7 +292,7 @@
     align-items: center;
     padding-left: calc(41px + var(--files-depth) * 14px);
     color: var(--text-3);
-    font-size: 10px;
+    font-size: .9rem;
   }
 
   .files-search-results {
@@ -309,7 +309,7 @@
       margin: 0;
       padding: 3px 8px 5px;
       color: var(--text-3);
-      font-size: 9px;
+      font-size: .9rem;
       font-weight: 600;
       letter-spacing: .04em;
       text-transform: uppercase;
@@ -365,7 +365,7 @@
 
     small {
       color: var(--text-3);
-      font-size: .85rem;
+      font-size: .9rem;
     }
 
     &.status-untracked strong,
@@ -403,7 +403,7 @@
     color: var(--text-3);
     background: var(--background-3);
     border-radius: 6px;
-    font-size: 9px;
+    font-size: .9rem;
     line-height: 1.45;
   }
 
@@ -442,7 +442,7 @@
     color: var(--text-1);
     background: var(--background-0);
     font-family: var(--font-code);
-    font-size: 11px;
+    font-size: .9rem;
     line-height: 1.55;
     tab-size: 2;
 
@@ -541,7 +541,7 @@
       color: var(--text-3);
       background: var(--background-2);
       border-radius: 5px;
-      font-size: 9px;
+      font-size: .9rem;
     }
   }
 }
@@ -616,13 +616,13 @@
 
   strong {
     color: var(--text-1);
-    font-size: 12px;
+    font-size: .9rem;
     font-weight: 500;
   }
 
   span {
     max-width: 260px;
-    font-size: 10px;
+    font-size: .9rem;
     line-height: 1.5;
   }
 }
@@ -633,7 +633,7 @@
   color: var(--text-1);
   background: var(--background-3);
   border-radius: 7px;
-  font-size: 10px;
+  font-size: .9rem;
   line-height: 1.45;
 }
 

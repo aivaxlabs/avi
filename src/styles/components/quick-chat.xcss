@@ -84,7 +84,7 @@ html.quick-chat-window #root {
   background: color-mix(in srgb, var(--danger-color) 9%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger-color) 28%, transparent);
   border-radius: 8px;
-  font-size: 12px;
+  font-size: .9rem;
 }
 
 .quick-composer {
@@ -214,7 +214,7 @@ html.quick-chat-window #root {
     color: var(--text-2);
     background: var(--background-3);
     border-radius: 7px;
-    font-size: 11px;
+    font-size: .9rem;
   }
 
   small {

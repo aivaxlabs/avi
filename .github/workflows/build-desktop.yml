@@ -18,23 +18,28 @@ jobs:
           - name: Windows x64
             os: windows-latest
             package-args: --x64
-            artifact-name: avi-windows-x64
+            artifact-name: avi-build-windows-x64
+            output-name: Avi-windows-${arch}.${ext}
           - name: Windows arm64
             os: windows-latest
             package-args: --arm64
-            artifact-name: avi-windows-arm64
+            artifact-name: avi-build-windows-arm64
+            output-name: Avi-windows-${arch}.${ext}
           - name: Linux x64
             os: ubuntu-latest
             package-args: --x64
-            artifact-name: avi-linux-x64
+            artifact-name: avi-build-linux-x64
+            output-name: Avi-linux-${arch}.${ext}
           - name: Linux arm64
             os: ubuntu-latest
             package-args: --arm64
-            artifact-name: avi-linux-arm64
+            artifact-name: avi-build-linux-arm64
+            output-name: Avi-linux-${arch}.${ext}
           - name: macOS x64 and arm64
             os: macos-latest
             package-args: --x64 --arm64
-            artifact-name: avi-macos
+            artifact-name: avi-build-macos
+            output-name: Avi-macos-${arch}.${ext}
 
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
@@ -56,7 +61,7 @@ jobs:
         run: chmod +x node_modules/@cypherpotato/cascadium/dist/*/cascadium
 
       - name: Build installers
-        run: bun run package -- ${{ matrix.package-args }} --publish never
+        run: bun run package -- ${{ matrix.package-args }} --publish never --config.artifactName='${{ matrix.output-name }}'
 
       - name: Upload installers
         uses: actions/upload-artifact@v4
@@ -64,4 +69,18 @@ jobs:
           name: ${{ matrix.artifact-name }}
           path: artifacts/*
           if-no-files-found: error
+          retention-days: 14
+
+  merge:
+    name: Create release bundle
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Merge installers into one flat ZIP
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: avi-release
+          pattern: avi-build-*
+          separate-directories: false
+          delete-merged: true
           retention-days: 14

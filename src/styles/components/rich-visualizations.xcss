@@ -6,7 +6,7 @@
     gap: 8px;
     margin: 1.75em 0 .65em;
     color: var(--text-1);
-    font-size: 1em;
+    font-size: 1rem;
     font-weight: 600;
 
     > svg {
@@ -44,7 +44,7 @@
         background: color-mix(in srgb, currentColor 9%, transparent);
         border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
         border-radius: 4px;
-        font: 700 .82em var(--font-code);
+        font: 700 .9rem var(--font-code);
         text-align: center;
       }
     }
@@ -59,7 +59,7 @@
     max-height: min(520px, 60vh);
     margin: 0;
     border-radius: 0;
-    font: 12px/1.55 var(--font-code);
+    font: .9rem/1.55 var(--font-code);
   }
 
   .rich-chart-progress {

@@ -12,7 +12,7 @@
   border: 1px solid var(--border-color);
   border-radius: 9px;
   box-shadow: 0 10px 30px rgb(0 0 0 / 28%);
-  font-size: 12px;
+  font-size: .9rem;
   transform: translateX(-50%);
   z-index: 65;
 
@@ -50,13 +50,13 @@
 
   h2 {
     color: var(--text-1);
-    font-size: 16px;
+    font-size: 1.15rem;
   }
 
   p {
     margin-top: 5px;
     color: var(--text-3);
-    font-size: 12px;
+    font-size: .9rem;
     line-height: 1.55;
   }
 
@@ -77,12 +77,12 @@
 
     strong {
       color: var(--text-1);
-      font-size: 12px;
+      font-size: .9rem;
     }
 
     span {
       color: var(--text-3);
-      font-size: 11px;
+      font-size: .9rem;
       overflow-wrap: anywhere;
     }
   }
@@ -180,7 +180,7 @@
 
     span.settings-status {
       font-weight: 500;
-      font-size: .85rem;
+      font-size: .9rem;
       border-radius: 99px;
       padding: 4px 8px;
 
@@ -237,7 +237,7 @@
     border: 1px solid var(--border-color);
     border-radius: 7px;
     outline: 0;
-    font: 12px/1.5 var(--font-code);
+    font: .9rem/1.5 var(--font-code);
 
     &:focus {
       border-color: var(--text-3);
@@ -287,7 +287,7 @@
     grid-column: 1 / -1;
     margin: -4px 12px 10px 58px;
     color: var(--text-3);
-    font-size: 10px;
+    font-size: .9rem;
     overflow-wrap: anywhere;
   }
 
@@ -326,7 +326,7 @@
 
     h4 {
       color: var(--text-1);
-      font-size: 12px;
+      font-size: .9rem;
     }
 
     details {
@@ -347,12 +347,12 @@
 
       strong {
         color: var(--text-1);
-        font-size: 12px;
+        font-size: .9rem;
       }
 
       code {
         color: var(--text-3);
-        font-size: 10px;
+        font-size: .9rem;
         overflow-wrap: anywhere;
       }
     }
@@ -365,7 +365,7 @@
       color: var(--text-1);
       background: var(--background-2);
       border-radius: 7px;
-      font: 10px/1.55 var(--font-code);
+      font: .9rem/1.55 var(--font-code);
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }
@@ -407,7 +407,7 @@
   display: none;
   margin-top: 5px;
   color: var(--text-3);
-  font-size: 10px;
+  font-size: .9rem;
 }
 
 .mcp-dialog button:focus-visible,

@@ -105,7 +105,7 @@
     align-items: center;
     gap: 6px;
     color: --text-1;
-    font-size: 13px;
+    font-size: 1rem;
     font-weight: 500;
 
     svg {
@@ -115,7 +115,7 @@
 
   .appearance-theme-tagline {
     color: --text-3;
-    font-size: 11px;
+    font-size: .9rem;
     line-height: 1.45;
   }
 
@@ -164,7 +164,7 @@
   .theme-preview-bar-title {
     margin-left: 3px;
     color: --text-3;
-    font-size: 8.5px;
+    font-size: .9rem;
     font-weight: 600;
     letter-spacing: 0.4px;
   }
@@ -172,7 +172,7 @@
   .theme-preview-body {
     display: grid;
     grid-template-columns: 44px minmax(0, 1fr);
-    height: 122px;
+    min-height: 122px;
   }
 
   .theme-preview-sidebar {
@@ -227,7 +227,7 @@
     padding: 6px 8px;
     overflow: hidden;
     font-family: --font-code;
-    font-size: 8.5px;
+    font-size: .9rem;
     line-height: 1.4;
     white-space: nowrap;
     background: --background-2;
@@ -335,7 +335,7 @@
     gap: 8px;
     padding: 12px 0 16px;
     color: --text-2;
-    font-size: 12px;
+    font-size: .9rem;
 
     & + & {
       border-top: 1px solid --border-color;
@@ -394,7 +394,7 @@
       justify-content: center;
       gap: 5px;
       min-height: 32px;
-      font-size: 12px;
+      font-size: .9rem;
       cursor: pointer;
 
       &:disabled {
@@ -434,6 +434,6 @@
   .appearance-background-error {
     margin: 10px 0 0;
     color: --danger-color;
-    font-size: 12px;
+    font-size: .9rem;
   }
 }

@@ -37,6 +37,9 @@ Thumbs.db
 *.rpm
 *.zip
 
+# Local tool binaries and other packager leftovers
+/.avi-bin/
+
 # Tests
 /coverage
 /artifacts
