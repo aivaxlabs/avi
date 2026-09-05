@@ -124,6 +124,7 @@ function applyPendingOrder(messages, order) {
 
 export default function App() {
   const [appState, setAppState] = useState(null);
+  const [updateState, setUpdateState] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [messagesByConversation, setMessagesByConversation] = useState({});
@@ -135,6 +136,22 @@ export default function App() {
   const [favorites, setFavorites] = useState([]);
   const [running, setRunning] = useState({});
   const [runStartedAt, setRunStartedAt] = useState({});
+  const liveRunEventsRef = useRef({});
+
+  function hydrateLiveRuns(snapshot) {
+    setRunning(() => ({
+      ...Object.fromEntries((snapshot.conversationIds ?? []).map((id) => [id, true])),
+      ...Object.fromEntries(Object.entries(liveRunEventsRef.current).map(([id, event]) => [id, event.running])),
+    }));
+    setRunStartedAt(() => {
+      const startedAt = { ...snapshot.runsStartedAt };
+      for (const [id, event] of Object.entries(liveRunEventsRef.current)) {
+        if (event.running && Number.isFinite(event.startedAt)) startedAt[id] = event.startedAt;
+        else delete startedAt[id];
+      }
+      return startedAt;
+    });
+  }
   const [completedUnseen, setCompletedUnseen] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
@@ -155,7 +172,8 @@ export default function App() {
   const [subagents, setSubagents] = useState([]);
   const [rubberDucks, setRubberDucks] = useState([]);
   const [bots, setBots] = useState([]);
-  const [botWorkStateByBot, setBotWorkStateByBot] = useState({});
+  const [botDataByBot, setBotDataByBot] = useState({});
+  const [botsLoading, setBotsLoading] = useState(true);
   const [botSchedulerSnooze, setBotSchedulerSnooze] = useState({
     active: false,
     mode: null,
@@ -164,6 +182,7 @@ export default function App() {
   const [botSettingsTarget, setBotSettingsTarget] = useState(null);
   const [botQueueTabOpen, setBotQueueTabOpen] = useState(false);
   const [selectedBotLogId, setSelectedBotLogId] = useState('');
+  const [botInboxNavigation, setBotInboxNavigation] = useState(null);
   const [tasksByConversation, setTasksByConversation] = useState({});
   const [providerPanels, setProviderPanels] = useState([]);
   const [openProviderPanelIds, setOpenProviderPanelIds] = useState([]);
@@ -486,16 +505,16 @@ export default function App() {
         setModels(nextModels);
         setFavorites(nextFavorites);
         setMcpState(nextMcpState);
+        hydrateLiveRuns(nextChatState);
+        setApprovalRequests(nextChatState.approvals ?? []);
+        setQuestionRequests(nextChatState.questions ?? []);
         setSemaphoreWaits(nextChatState.semaphoreWaits ?? []);
         if (restoredReload) {
           await Promise.all(restoredReload.conversationIds.map((id) => loadMessagePage(id)));
           if (!active) return;
           const completedReload = await api.plugins.completeReload();
           if (!active || !completedReload) return;
-          setRunning(Object.fromEntries(
-            completedReload.conversationIds.map((conversationId) => [conversationId, true]),
-          ));
-          setRunStartedAt(completedReload.runsStartedAt ?? {});
+          hydrateLiveRuns(completedReload);
           setApprovalRequests(completedReload.approvals);
           setQuestionRequests(completedReload.questions);
           setSemaphoreWaits(completedReload.semaphoreWaits ?? restoredReload.semaphoreWaits ?? []);
@@ -542,11 +561,36 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    let receivedEvent = false;
+    const unsubscribe = api.app.onUpdate((state) => {
+      receivedEvent = true;
+      setUpdateState(state);
+    });
+    api.app.updateState()
+      .then((state) => {
+        if (active && !receivedEvent && state) setUpdateState(state);
+      })
+      .catch((snapshotError) => {
+        if (active && !receivedEvent) {
+          setUpdateState({
+            status: 'error',
+            error: snapshotError instanceof Error ? snapshotError.message : String(snapshotError),
+          });
+        }
+      });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
   const refreshBots = useCallback(async () => {
     try {
       const state = await api.bots.list();
       setBots(state.bots ?? []);
-      setBotWorkStateByBot(state.workStateByBot ?? {});
+      setBotDataByBot(state.botDataByBot ?? {});
       setBotSchedulerSnooze(state.schedulerSnooze ?? {
         active: false,
         mode: null,
@@ -554,6 +598,8 @@ export default function App() {
       });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setBotsLoading(false);
     }
   }, []);
 
@@ -643,14 +689,6 @@ export default function App() {
           event.message,
           auxiliaryConversationIdsRef.current,
         ));
-        if (event.message.role === 'assistant') {
-          const isRunning = event.message.status === 'streaming';
-          setRunning((state) => (
-            state[event.conversationId] === isRunning
-              ? state
-              : { ...state, [event.conversationId]: isRunning }
-          ));
-        }
         if (
           ['assistant', 'user'].includes(event.message.role)
           && !['queued', 'steered'].includes(event.message.status)
@@ -756,6 +794,10 @@ export default function App() {
             : state
         ));
       } else if (event.type === 'run-state') {
+        liveRunEventsRef.current[event.conversationId] = {
+          running: event.running,
+          startedAt: event.startedAt,
+        };
         setRunning((state) => (
           state[event.conversationId] === event.running
             ? state
@@ -1091,8 +1133,12 @@ export default function App() {
     }
   }
 
-  async function activateBot(botId) {
+  async function activateBot(botId, workQueueIndex = null) {
     try {
+      if (workQueueIndex !== null) {
+        await api.bots.update({ id: botId, changes: { workQueueIndex } });
+        await refreshBots();
+      }
       await api.bots.activate(botId);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -1117,14 +1163,13 @@ export default function App() {
   }
 
   async function resolveBotApproval(approvalId, decision) {
-    try {
-      await api.bots.resolveApproval({ approvalId, decision });
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-    }
+    const result = await api.bots.resolveApproval({ approvalId, decision });
+    await refreshBots();
+    return result;
   }
 
   function openBotQueueTab(botId = null) {
+    setBotInboxNavigation(null);
     if (botId) setSelectedBotLogId(botId);
     setBotQueueTabOpen(true);
     setActiveSubagentId(null);
@@ -1291,18 +1336,11 @@ export default function App() {
         [result.conversation.id]: applyPendingOrder(messages, result),
       };
     });
-    if (!result.queued) {
-      setRunning((state) => ({
-        ...state,
-        [result.conversation.id]: true,
-      }));
-    }
   }
 
   async function stopConversation(conversationId = selectedId) {
     if (conversationId) {
       await api.chat.stop(conversationId);
-      setRunning((state) => ({ ...state, [conversationId]: false }));
     }
   }
 
@@ -1315,15 +1353,21 @@ export default function App() {
     } = {},
   ) {
     if (!conversationId || !messageId || !model) return;
-    const result = await api.chat.retry({
-      conversationId,
-      model,
-      assistantMessageId: messageId,
-      resumeFromFailure,
-      permissionMode: window.localStorage.getItem('aivax.composer.permission-mode')
-        || appState?.tuning?.defaultPermissionMode
-        || 'approve_for_me',
-    });
+    let result;
+    try {
+      result = await api.chat.retry({
+        conversationId,
+        model,
+        assistantMessageId: messageId,
+        resumeFromFailure,
+        permissionMode: window.localStorage.getItem('aivax.composer.permission-mode')
+          || appState?.tuning?.defaultPermissionMode
+          || 'approve_for_me',
+      });
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return;
+    }
     if (!result?.conversation) return;
     if (result.conversation.isBot) {
       void refreshBots();
@@ -1335,12 +1379,6 @@ export default function App() {
       setSideChats((state) => upsertById(state, result.conversation));
     } else {
       setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
-    }
-    if (!result.queued) {
-      setRunning((state) => ({
-        ...state,
-        [result.conversation.id]: true,
-      }));
     }
   }
 
@@ -1506,12 +1544,6 @@ export default function App() {
           setSelectedId(result.conversation.id);
         }
       }
-      if (!result.queued) {
-        setRunning((state) => ({
-          ...state,
-          [result.conversation.id]: true,
-        }));
-      }
       return true;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -1544,9 +1576,6 @@ export default function App() {
         setConversations((state) => (
           upsertById(state, result.conversation).sort(sortByUpdatedAt)
         ));
-      }
-      if (action === 'stop') {
-        setRunning((state) => ({ ...state, [conversationId]: false }));
       }
       return true;
     } catch (nextError) {
@@ -1870,10 +1899,6 @@ export default function App() {
           result.message,
         ),
       }));
-      setRunning((state) => ({
-        ...state,
-        [result.conversation.id]: !result.queued,
-      }));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       throw nextError;
@@ -2054,27 +2079,16 @@ export default function App() {
     setSidebarCollapsed((value) => !value)
   ));
   const auxiliaryOnResolveBotApproval = useStableCallback(resolveBotApproval);
-  const auxiliaryOnMentionBotWork = useStableCallback((item) => {
-    const bot = bots.find((entry) => entry.id === selectedBotLogId);
-    if (!bot?.conversationId) return;
-    sidebarOnSelect(bot.conversationId);
-    setPendingComposerAttachment({
-      id: crypto.randomUUID(),
-      kind: 'context_marker',
-      markerType: 'work_item',
-      name: item.title,
-      size: 0,
-      text: [
-        `<bot-work-mention id="${item.id}" state="${item.state}" priority="${item.priority}">`,
-        `The user mentioned this work item in chat: "${item.title}".`,
-        'Read the full work item with bot_work_read before acting on it.',
-        '</bot-work-mention>',
-      ].join('\n'),
-    });
+  const auxiliaryOnReplyBotPendency = useStableCallback(async (payload) => {
+    const result = await api.bots.replyPendency(payload);
+    await refreshBots();
+    return result;
   });
-  const auxiliaryOnSetBotWorkState = useStableCallback((item, state) => (
-    api.bots.updateWorkItem({ botId: selectedBotLogId, workItemId: item.id, state })
-  ));
+  const auxiliaryOnCompleteBotPendency = useStableCallback(async (payload) => {
+    const result = await api.bots.completePendency(payload);
+    await refreshBots();
+    return result;
+  });
   const auxiliaryOnOpenBotQueueTab = useStableCallback(openBotQueueTab);
   const auxiliaryOnCloseBotQueueTab = useStableCallback(closeBotQueueTab);
   const auxiliaryOnSelectTab = useStableCallback(async (tabId) => {
@@ -2320,6 +2334,7 @@ export default function App() {
           appearance={appearance}
           backgroundUrl={chatBackgroundUrl}
           desktop={appState.desktop}
+          updateState={updateState}
           onAppearanceChange={setAppearance}
           onBackgroundSelect={async () => {
             const backgroundFile = await api.appearance.selectBackground();
@@ -2387,6 +2402,7 @@ export default function App() {
             approvalPending={approvalPending}
             inputPending={inputPending}
             semaphoreWaiting={sidebarSemaphoreWaiting}
+            updateState={updateState}
             homePath={appState.defaultProject.path}
             chatTags={appState.chatTags ?? emptyList}
             folderColors={appState.folderColors ?? emptyObject}
@@ -2439,6 +2455,15 @@ export default function App() {
           >
             {orchestrationOpen ? (
               <OrchestrationPage
+                bots={bots}
+                botDataByBot={botDataByBot}
+                botsLoading={botsLoading}
+                onRefreshBots={refreshBots}
+                onOpenBotPendency={(botId, pendencyId) => {
+                  setOrchestrationOpen(false);
+                  openBotQueueTab(botId);
+                  setBotInboxNavigation({ botId, pendencyId });
+                }}
                 models={models}
                 onOpenThread={(id) => {
                   setOrchestrationOpen(false);
@@ -2567,12 +2592,14 @@ export default function App() {
               <AuxiliaryPanel
                 sideChats={sideChats}
                 bots={bots}
-                botWorkStateByBot={botWorkStateByBot}
+                botDataByBot={botDataByBot}
+                botsLoading={botsLoading}
                 onResolveBotApproval={auxiliaryOnResolveBotApproval}
-                onMentionBotWork={auxiliaryOnMentionBotWork}
-                onSetBotWorkState={auxiliaryOnSetBotWorkState}
+                onReplyBotPendency={auxiliaryOnReplyBotPendency}
+                onCompleteBotPendency={auxiliaryOnCompleteBotPendency}
                 botQueueTabOpen={botQueueTabOpen}
                 selectedBotId={selectedBotLogId}
+                inboxNavigation={botInboxNavigation}
                 onSelectBot={setSelectedBotLogId}
                 onOpenBotQueueTab={auxiliaryOnOpenBotQueueTab}
                 onCloseBotQueueTab={auxiliaryOnCloseBotQueueTab}

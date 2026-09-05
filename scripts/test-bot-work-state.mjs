@@ -1,25 +1,25 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import {
-  BOT_WORK_ITEM_STATES,
-  BOT_WORK_PRIORITIES,
-  BOT_ATTENTION_TYPES,
-  BOT_EVIDENCE_TYPES,
-  BOT_ACTIVITY_TYPES,
+  BOT_ACTIVITY_CATEGORIES,
+  BOT_MESSAGE_ROLES,
+  BOT_PENDENCY_STATUSES,
   BOT_WORK_STATE_FILES,
-  ensureBotWorkStateFiles,
-  readBotWorkState,
-  mutateBotWorkState,
-  createBotWorkItem,
-  updateBotWorkItem,
   appendBotActivity,
-  createBotWorkApproval,
-  consumeBotWorkApproval,
+  appendBotPendencyMessage,
+  attachBotPendencyApproval,
+  completeBotPendency,
+  consumeBotPendencyApproval,
+  createBotPendency,
+  ensureBotWorkStateFiles,
+  mutateBotWorkState,
+  readBotWorkState,
 } from '../src/main/bot-work-state.js';
+import { hasOpenBotUserAction } from '../src/shared/bot-work-items.js';
 
 const root = mkdtempSync(join(tmpdir(), 'bot-ws-test-'));
 let passed = 0;
@@ -48,50 +48,98 @@ function sub(name) {
 
 const T = '2026-01-01T00:00:00.000Z';
 const T2 = '2026-01-02T00:00:00.000Z';
-const OBJ = 'Deliver the requested feature end-to-end';
+
+const attachment = (id, overrides = {}) => ({
+  id,
+  kind: 'file_reference',
+  name: `${id}.bin`,
+  path: `/tmp/attachments/${id}.bin`,
+  ...overrides,
+});
 
 // --- Constants ---
 await run([
   test('constants: BOT_WORK_STATE_FILES', async () => {
-    assert.equal(BOT_WORK_STATE_FILES.workItems, 'work-items.json');
-    assert.equal(BOT_WORK_STATE_FILES.activity, 'activity.json');
+    assert.equal(BOT_WORK_STATE_FILES.inbox, 'inbox.json');
+    assert.equal(BOT_WORK_STATE_FILES.activity, 'diary.json');
   }),
-  test('constants: BOT_WORK_ITEM_STATES', async () => {
-    assert.deepEqual(BOT_WORK_ITEM_STATES, new Set(['planned', 'active', 'waiting', 'completed', 'cancelled']));
+  test('constants: statuses, roles, categories', async () => {
+    assert.deepEqual(BOT_PENDENCY_STATUSES, new Set(['open', 'completed']));
+    assert.deepEqual(BOT_MESSAGE_ROLES, new Set(['bot', 'user']));
+    assert.deepEqual(BOT_ACTIVITY_CATEGORIES, new Set(['progress', 'discovery', 'decision', 'completed', 'failure']));
   }),
-  test('constants: BOT_WORK_PRIORITIES', async () => {
-    assert.deepEqual(BOT_WORK_PRIORITIES, new Set(['critical', 'high', 'normal', 'low']));
+]);
+
+// --- Badge helper ---
+await run([
+  test('badge: open with pending approval regardless of last role', async () => {
+    assert.equal(hasOpenBotUserAction({
+      status: 'open',
+      approval: { id: 'a1' },
+      messages: [{ role: 'user' }],
+    }), true);
   }),
-  test('constants: BOT_ATTENTION_TYPES', async () => {
-    assert.deepEqual(BOT_ATTENTION_TYPES, new Set(['approval', 'review', 'answer']));
+  test('badge: open with latest bot message', async () => {
+    assert.equal(hasOpenBotUserAction({
+      status: 'open',
+      approval: null,
+      messages: [{ role: 'bot' }, { role: 'user' }, { role: 'bot' }],
+    }), true);
   }),
-  test('constants: BOT_EVIDENCE_TYPES', async () => {
-    assert.deepEqual(BOT_EVIDENCE_TYPES, new Set(['file_reference', 'external_reference', 'text']));
+  test('badge: open with latest user message and no approval', async () => {
+    assert.equal(hasOpenBotUserAction({
+      status: 'open',
+      approval: null,
+      messages: [{ role: 'bot' }, { role: 'user' }],
+    }), false);
   }),
-  test('constants: BOT_ACTIVITY_TYPES', async () => {
-    assert.ok(BOT_ACTIVITY_TYPES.has('created'));
-    assert.ok(BOT_ACTIVITY_TYPES.has('approval'));
-    assert.equal(BOT_ACTIVITY_TYPES.size, 11);
+  test('badge: completed pendencies never need user action', async () => {
+    assert.equal(hasOpenBotUserAction({
+      status: 'completed',
+      approval: null,
+      messages: [{ role: 'bot' }],
+    }), false);
+    assert.equal(hasOpenBotUserAction(null), false);
   }),
 ]);
 
 // --- ensureBotWorkStateFiles ---
 await run([
-  test('ensure: creates default files on empty folder', async () => {
+  test('ensure: creates inbox.json and diary.json on empty folder', async () => {
     const d = sub('ensure-create');
     await ensureBotWorkStateFiles(d);
-    const wi = await readFile(join(d, 'work-items.json'), 'utf8');
-    const act = await readFile(join(d, 'activity.json'), 'utf8');
-    assert.equal(wi.trim(), '[]');
-    assert.equal(act.trim(), '[]');
+    const inbox = await readFile(join(d, 'inbox.json'), 'utf8');
+    const activity = await readFile(join(d, 'diary.json'), 'utf8');
+    assert.equal(inbox.trim(), '[]');
+    assert.equal(activity.trim(), '[]');
   }),
-  test('ensure: does not overwrite existing files', async () => {
+  test('ensure: does not overwrite existing files nor legacy files', async () => {
     const d = sub('ensure-nooverwrite');
     await mkdir(d, { recursive: true });
-    await writeFile(join(d, 'work-items.json'), '[1]\n', 'utf8');
+    await writeFile(join(d, 'inbox.json'), '[{"legacy":true}]\n', 'utf8');
+    await writeFile(join(d, 'work-items.json'), '[{"legacyWorkItem":true}]\n', 'utf8');
     await ensureBotWorkStateFiles(d);
-    const wi = await readFile(join(d, 'work-items.json'), 'utf8');
-    assert.equal(wi.trim(), '[1]');
+    assert.equal((await readFile(join(d, 'inbox.json'), 'utf8')).trim(), '[{"legacy":true}]');
+    assert.equal(
+      (await readFile(join(d, 'work-items.json'), 'utf8')).trim(),
+      '[{"legacyWorkItem":true}]',
+      'legacy files must be preserved on disk, not deleted',
+    );
+  }),
+]);
+
+await run([
+  test('read: ignores and preserves legacy activity while validating new diary', async () => {
+    const d = sub('legacy-activity');
+    await mkdir(d, { recursive: true });
+    const legacy = '[{"old":"format"}]';
+    await writeFile(join(d, 'activity.json'), legacy);
+    await ensureBotWorkStateFiles(d);
+    assert.deepEqual(await readBotWorkState(d), { inbox: [], activity: [] });
+    assert.equal(await readFile(join(d, 'activity.json'), 'utf8'), legacy);
+    await writeFile(join(d, 'diary.json'), '{}');
+    await assert.rejects(readBotWorkState(d), /Invalid diary.json/);
+    await assert.rejects(appendBotActivity(d, { title: 'A result', description: '', category: 'progress' }), /Invalid diary.json/);
   }),
 ]);
 
@@ -100,406 +148,413 @@ await run([
   test('read: returns defaults for missing files', async () => {
     const d = sub('read-defaults');
     const state = await readBotWorkState(d);
-    assert.deepEqual(state.workItems, []);
+    assert.deepEqual(state.inbox, []);
     assert.deepEqual(state.activity, []);
-  }),
-  test('read: normalizes legacy string evidence', async () => {
-    const d = sub('read-legacy-evidence');
-    await mkdir(d, { recursive: true });
-    await writeFile(join(d, 'work-items.json'), `${JSON.stringify([{
-      id: 'legacy', title: 'Legacy', objective: OBJ, state: 'active', summary: '',
-      lastProgress: '', nextStep: '', attention: null, blocker: null, priority: 'normal',
-      workerThreadIds: [], evidence: ['https://example.com/pr/1', 'validated locally'],
-      createdAt: T, updatedAt: T, completedAt: null,
-    }])}\n`, 'utf8');
-    const state = await readBotWorkState(d);
-    assert.deepEqual(state.workItems[0].evidence, [
-      { type: 'external_reference', value: 'https://example.com/pr/1' },
-      { type: 'text', value: 'validated locally' },
-    ]);
   }),
 ]);
 
-// --- CRUD create ---
+// --- createBotPendency ---
 await run([
-  test('create: produces valid item with defaults', async () => {
+  test('create: produces valid pendency with first bot message', async () => {
     const d = sub('create-ok');
-    const item = await createBotWorkItem(d, { title: 'My item', objective: OBJ }, T);
-    assert.equal(item.title, 'My item');
-    assert.equal(item.objective, OBJ);
-    assert.equal(item.state, 'planned');
-    assert.equal(item.priority, 'normal');
-    assert.deepEqual(item.workerThreadIds, []);
-    assert.deepEqual(item.evidence, []);
-    assert.equal(item.attention, null);
-    assert.equal(item.blocker, null);
-    assert.equal(item.approval, undefined);
+    const item = await createBotPendency(d, {
+      title: 'My pendency',
+      content: 'Please review the plan.',
+      attachments: [attachment('a1')],
+    }, T);
+    assert.equal(item.title, 'My pendency');
+    assert.equal(item.status, 'open');
+    assert.equal(item.messages.length, 1);
+    assert.equal(item.messages[0].role, 'bot');
+    assert.equal(item.messages[0].content, 'Please review the plan.');
+    assert.deepEqual(item.messages[0].attachments, [attachment('a1')]);
+    assert.equal(item.approval, null);
     assert.equal(item.completedAt, null);
     assert.equal(item.createdAt, T);
     assert.equal(item.updatedAt, T);
     assert.equal(typeof item.id, 'string');
+    assert.equal(typeof item.messages[0].id, 'string');
   }),
-  test('create: with explicit next step, priority, and workerThreadIds', async () => {
-    const d = sub('create-explicit');
-    const item = await createBotWorkItem(d, {
-      title: 'T', objective: OBJ, nextStep: 'Inspect the current implementation.', priority: 'high', workerThreadIds: ['w1', 'w2'],
+  test('create: requires non-whitespace title and text', async () => {
+    const d = sub('create-required');
+    await assert.rejects(() => createBotPendency(d, { title: '   ', content: 'x' }, T), /Invalid title/);
+    await assert.rejects(() => createBotPendency(d, { title: 'T', content: '  ' }, T), /Invalid content/);
+    await assert.rejects(() => createBotPendency(d, { title: 'T' }, T), /content/);
+  }),
+  test('create: ignores an injected approval field', async () => {
+    const d = sub('create-approval-injected');
+    const item = await createBotPendency(d, {
+      title: 'T',
+      content: 'C',
+      approval: { id: 'injected', botId: 'b', kind: 'work', context: 'c', prompt: 'p', status: 'pending' },
     }, T);
-    assert.equal(item.nextStep, 'Inspect the current implementation.');
-    assert.equal(item.priority, 'high');
-    assert.deepEqual(item.workerThreadIds, ['w1', 'w2']);
+    assert.equal(item.approval, null, 'approvals must only be created through attachBotPendencyApproval');
   }),
-  test('create: generates activity entry', async () => {
-    const d = sub('create-activity');
-    await createBotWorkItem(d, { title: 'Foo', objective: OBJ }, T);
-    const state = await readBotWorkState(d);
-    assert.equal(state.activity.length, 1);
-    assert.equal(state.activity[0].type, 'created');
-    assert.equal(state.activity[0].createdAt, T);
-  }),
-  test('create: invalid priority throws', async () => {
-    const d = sub('create-badprio');
-    await assert.rejects(
-      () => createBotWorkItem(d, { title: 'T', objective: OBJ, priority: 'mega' }, T),
-      /Invalid priority/,
-    );
-  }),
-  test('create: duplicate workerThreadIds throws', async () => {
-    const d = sub('create-dupworkers');
-    await assert.rejects(
-      () => createBotWorkItem(d, { title: 'T', objective: OBJ, workerThreadIds: ['a', 'a'] }, T),
-      /Duplicate workerThreadIds entry/,
-    );
-  }),
-  test('create: missing objective rejects', async () => {
-    const d = sub('create-no-obj');
-    await assert.rejects(
-      () => createBotWorkItem(d, { title: 'T' }, T),
-      /objective/,
-    );
-  }),
-]);
-
-// --- CRUD update ---
-await run([
-  test('update: patches fields and preserves completedAt=null for active', async () => {
-    const d = sub('update-patch');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    const updated = await updateBotWorkItem(d, { id: item.id, state: 'active', summary: 'S' }, T2);
-    assert.equal(updated.state, 'active');
-    assert.equal(updated.summary, 'S');
-    assert.equal(updated.completedAt, null);
-    assert.equal(updated.updatedAt, T2);
-  }),
-  test('update: completed work requires a final summary and clears open state', async () => {
-    const d = sub('update-completed');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ, nextStep: 'Run validation.' }, T);
-    await assert.rejects(
-      () => updateBotWorkItem(d, { id: item.id, state: 'completed' }, T2),
-      /summary for completed work/,
-    );
-    await updateBotWorkItem(d, {
-      id: item.id,
-      state: 'waiting',
-      attention: { type: 'review', summary: 'Review the result.' },
-      blocker: { reason: 'Review is pending.', waitingOn: 'user' },
+  test('create: keeps full attachment descriptors with inline content', async () => {
+    const d = sub('create-inline-attachment');
+    const inline = attachment('pasted-1', {
+      kind: 'text_inline',
+      path: undefined,
+      text: 'pasted text body',
+    });
+    const dataUrl = attachment('image-1', {
+      kind: 'image_url',
+      path: undefined,
+      dataUrl: 'data:image/png;base64,AAAA',
+      mime: 'image/png',
+    });
+    const item = await createBotPendency(d, {
+      title: 'T',
+      content: 'C',
+      attachments: [inline, dataUrl],
     }, T);
-    const updated = await updateBotWorkItem(d, {
-      id: item.id,
-      state: 'completed',
-      summary: 'Implemented the requested behavior to remove duplicated reporting, using the existing work-item fields.',
-      nextStep: 'This must be cleared.',
-    }, T2);
-    assert.equal(updated.completedAt, T2);
-    assert.equal(updated.nextStep, '');
-    assert.equal(updated.attention, null);
-    assert.equal(updated.blocker, null);
+    assert.deepEqual(item.messages[0].attachments, [inline, dataUrl]);
   }),
-  test('update: cancelled work fills completedAt and clears open state', async () => {
-    const d = sub('update-cancelled');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    await updateBotWorkItem(d, {
-      id: item.id,
-      state: 'waiting',
-      attention: { type: 'answer', summary: 'Answer a question.' },
-      blocker: { reason: 'An answer is pending.', waitingOn: 'user' },
-    }, T);
-    const updated = await updateBotWorkItem(d, { id: item.id, state: 'cancelled' }, T2);
-    assert.equal(updated.completedAt, T2);
-    assert.equal(updated.attention, null);
-    assert.equal(updated.blocker, null);
-  }),
-  test('update: clears completedAt when transitioning from completed to active', async () => {
-    const d = sub('update-clear-completed');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    await updateBotWorkItem(d, { id: item.id, state: 'completed', summary: 'Completed the first item for the transition test.' }, T2);
-    const item2 = await createBotWorkItem(d, { title: 'T2', objective: OBJ }, T);
-    const active = await updateBotWorkItem(d, { id: item2.id, state: 'active' }, T2);
-    assert.equal(active.completedAt, null);
-  }),
-  test('update: throws on missing id', async () => {
-    const d = sub('update-missing');
+  test('create: rejects malformed attachments', async () => {
+    const d = sub('create-bad-attachments');
     await assert.rejects(
-      () => updateBotWorkItem(d, { id: 'nonexistent', title: 'x' }, T),
-      /not found/,
-    );
-  }),
-  test('update: waiting without attention/blocker throws', async () => {
-    const d = sub('update-waiting-needs');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    await assert.rejects(
-      () => updateBotWorkItem(d, { id: item.id, state: 'waiting' }, T),
-      /attention or blocker/,
-    );
-  }),
-  test('update: waiting with attention is valid', async () => {
-    const d = sub('update-waiting-att');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    const updated = await updateBotWorkItem(d, {
-      id: item.id,
-      state: 'waiting',
-      attention: { type: 'review', summary: 'Needs review' },
-    }, T);
-    assert.equal(updated.state, 'waiting');
-  }),
-  test('update: waiting with blocker is valid', async () => {
-    const d = sub('update-waiting-block');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    const updated = await updateBotWorkItem(d, {
-      id: item.id,
-      state: 'waiting',
-      blocker: { reason: 'Missing dep', waitingOn: 'other' },
-    }, T);
-    assert.equal(updated.state, 'waiting');
-  }),
-  test('update: accepts typed evidence', async () => {
-    const d = sub('update-evidence');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    const evidence = [
-      { type: 'file_reference', value: './src/main/bot-work-state.js' },
-      { type: 'external_reference', value: 'https://example.com/pr/1' },
-      { type: 'text', value: 'Focused tests passed.' },
-    ];
-    const updated = await updateBotWorkItem(d, { id: item.id, evidence }, T);
-    assert.deepEqual(updated.evidence, evidence);
-  }),
-  test('update: rejects invalid evidence types and references', async () => {
-    const d = sub('update-invalid-evidence');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    await assert.rejects(
-      () => updateBotWorkItem(d, { id: item.id, evidence: [{ type: 'unknown', value: 'x' }] }, T),
-      /Invalid evidence type/,
+      () => createBotPendency(d, { title: 'T', content: 'C', attachments: ['/tmp/file.txt'] }, T),
+      /Invalid attachment: expected object/,
     );
     await assert.rejects(
-      () => updateBotWorkItem(d, { id: item.id, evidence: [{ type: 'external_reference', value: 'file:///tmp/report' }] }, T),
-      /Invalid external_reference/,
+      () => createBotPendency(d, { title: 'T', content: 'C', attachments: [{ id: 'x', kind: 'file' }] }, T),
+      /expected a file path or inline content/,
     );
     await assert.rejects(
-      () => updateBotWorkItem(d, { id: item.id, evidence: [{ type: 'file_reference', value: 'src/main/bot-work-state.js' }] }, T),
-      /Invalid file_reference/,
+      () => createBotPendency(d, { title: 'T', content: 'C', attachments: [{ kind: 'file', path: '/tmp/x' }] }, T),
+      /attachment.id/,
     );
     await assert.rejects(
-      () => updateBotWorkItem(d, { id: item.id, evidence: ['legacy text'] }, T),
-      /Invalid evidence entry/,
-    );
-  }),
-  test('update: duplicate evidence throws', async () => {
-    const d = sub('update-dupev');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    await assert.rejects(
-      () => updateBotWorkItem(d, {
-        id: item.id,
-        evidence: [
-          { type: 'text', value: 'e1' },
-          { type: 'text', value: 'e1' },
-        ],
+      () => createBotPendency(d, {
+        title: 'T',
+        content: 'C',
+        attachments: [attachment('dup'), attachment('dup')],
       }, T),
-      /Duplicate evidence entry/,
+      /Duplicate attachments entry/,
     );
   }),
-]);
-
-// --- Approval protection ---
-await run([
-  test('approval: create forces waiting + attention, returns updated item', async () => {
-    const d = sub('approval-create');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    const updated = await createBotWorkApproval(d, {
-      botId: 'bot-1', workItemId: item.id, kind: 'work', context: 'Need approval', prompt: 'Approve?',
-    }, T2);
-    assert.equal(updated.state, 'waiting');
-    assert.deepEqual(updated.attention, { type: 'approval', summary: 'Need approval' });
-    assert.ok(updated.approval);
-    assert.equal(updated.approval.status, 'pending');
-    assert.equal(updated.approval.kind, 'work');
-    assert.equal(updated.completedAt, null);
-    assert.equal(updated.updatedAt, T2);
-  }),
-  test('approval: optional fields forwarded', async () => {
-    const d = sub('approval-optional');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    const updated = await createBotWorkApproval(d, {
-      botId: 'b', workItemId: item.id, kind: 'tool', context: 'c', prompt: 'p',
-      toolName: 'browser', workspacePath: '/ws', input: 'do it',
+  test('create: writes no automatic activity entries', async () => {
+    const d = sub('create-no-activity');
+    await createBotPendency(d, { title: 'T', content: 'C' }, T);
+    await attachBotPendencyApproval(d, {
+      botId: 'b', kind: 'work', title: 'A', context: 'c', prompt: 'p',
     }, T);
-    assert.equal(updated.approval.toolName, 'browser');
-    assert.equal(updated.approval.workspacePath, '/ws');
-    assert.equal(updated.approval.input, 'do it');
-  }),
-  test('approval: duplicate approval on same item throws', async () => {
-    const d = sub('approval-dup');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    await createBotWorkApproval(d, { botId: 'b', workItemId: item.id, kind: 'work', context: 'c', prompt: 'p' }, T);
-    await assert.rejects(
-      () => createBotWorkApproval(d, { botId: 'b', workItemId: item.id, kind: 'work', context: 'c2', prompt: 'p2' }, T),
-      /already has a pending approval/,
-    );
-  }),
-  test('approval: throws on nonexistent workItemId', async () => {
-    const d = sub('approval-noexist');
-    await assert.rejects(
-      () => createBotWorkApproval(d, { botId: 'b', workItemId: 'nope', kind: 'work', context: 'c', prompt: 'p' }, T),
-      /not found/,
-    );
-  }),
-  test('approval: update cannot change state/attention/blocker while pending', async () => {
-    const d = sub('approval-protect');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    await createBotWorkApproval(d, { botId: 'b', workItemId: item.id, kind: 'work', context: 'c', prompt: 'p' }, T);
-
-    await assert.rejects(
-      () => updateBotWorkItem(d, { id: item.id, state: 'active' }, T), /Cannot change state/,
-    );
-    await assert.rejects(
-      () => updateBotWorkItem(d, { id: item.id, attention: { type: 'review', summary: 's' } }, T), /Cannot change attention/,
-    );
-    await assert.rejects(
-      () => updateBotWorkItem(d, { id: item.id, blocker: { reason: 'r', waitingOn: 'w' } }, T), /Cannot change blocker/,
-    );
-    await assert.rejects(
-      () => updateBotWorkItem(d, { id: item.id, approval: null }, T), /Cannot modify approval/,
-    );
-  }),
-  test('approval: safe fields can be updated while approval pending', async () => {
-    const d = sub('approval-safeupd');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    await createBotWorkApproval(d, { botId: 'b', workItemId: item.id, kind: 'work', context: 'c', prompt: 'p' }, T);
-    const updated = await updateBotWorkItem(d, { id: item.id, summary: 'still ok' }, T);
-    assert.equal(updated.summary, 'still ok');
+    const state = await readBotWorkState(d);
+    assert.deepEqual(state.activity, []);
   }),
 ]);
 
-// --- Consume ---
+// --- appendBotPendencyMessage ---
 await run([
-  test('consume: returns { item, approval }, clears fields, sets active', async () => {
-    const d = sub('consume-ok');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    const withApproval = await createBotWorkApproval(d, {
-      botId: 'b', workItemId: item.id, kind: 'tool', context: 'c', prompt: 'p',
-      toolName: 'read_media_file',
+  test('message: user keeps open and lowers the badge', async () => {
+    const d = sub('message-user');
+    const item = await createBotPendency(d, { title: 'T', content: 'C' }, T);
+    assert.equal(hasOpenBotUserAction(item), true);
+    const updated = await appendBotPendencyMessage(d, {
+      pendencyId: item.id,
+      role: 'user',
+      content: 'Done, thanks.',
     }, T2);
-    const result = await consumeBotWorkApproval(d, withApproval.approval.id, T2);
-
-    assert.ok(result.item);
-    assert.ok(result.approval);
-    assert.equal(result.item.approval, null);
-    assert.equal(result.item.attention, null);
-    assert.equal(result.item.blocker, null);
-    assert.equal(result.item.state, 'active');
-    assert.equal(result.item.completedAt, null);
-    assert.equal(result.approval.status, 'pending');
-    assert.equal(result.approval.kind, 'tool');
-    assert.equal(result.approval.toolName, 'read_media_file');
+    assert.equal(updated.status, 'open');
+    assert.equal(updated.completedAt, null);
+    assert.equal(updated.messages.at(-1).role, 'user');
+    assert.equal(hasOpenBotUserAction(updated), false);
   }),
-  test('consume: activity is appended', async () => {
-    const d = sub('consume-activity');
-    const item = await createBotWorkItem(d, { title: 'T', objective: OBJ }, T);
-    const wa = await createBotWorkApproval(d, { botId: 'b', workItemId: item.id, kind: 'work', context: 'c', prompt: 'p' }, T);
-    await consumeBotWorkApproval(d, wa.approval.id, T2);
-    const state = await readBotWorkState(d);
-    const approvalActs = state.activity.filter((a) => a.type === 'approval');
-    assert.equal(approvalActs.length, 2);
-    assert.equal(approvalActs[1].summary, 'Approval consumed');
+  test('message: bot message reopens a completed pendency', async () => {
+    const d = sub('message-reopen');
+    const item = await createBotPendency(d, { title: 'T', content: 'C' }, T);
+    await completeBotPendency(d, item.id, T2);
+    const reopened = await appendBotPendencyMessage(d, {
+      pendencyId: item.id,
+      role: 'bot',
+      content: 'Follow-up: one more thing.',
+    }, T2);
+    assert.equal(reopened.status, 'open');
+    assert.equal(reopened.completedAt, null);
+    assert.equal(hasOpenBotUserAction(reopened), true);
   }),
-  test('consume: throws on unknown id', async () => {
-    const d = sub('consume-missing');
+  test('message: user cannot reply to a completed pendency', async () => {
+    const d = sub('message-user-completed');
+    const item = await createBotPendency(d, { title: 'T', content: 'C' }, T);
+    await completeBotPendency(d, item.id, T2);
     await assert.rejects(
-      () => consumeBotWorkApproval(d, 'nonexistent', T),
-      /not found/,
+      () => appendBotPendencyMessage(d, { pendencyId: item.id, role: 'user', content: 'late reply' }, T2),
+      /Pendency is completed/,
     );
+  }),
+  test('message: content-only and attachments-only are accepted', async () => {
+    const d = sub('message-empty-variants');
+    const item = await createBotPendency(d, { title: 'T', content: 'C' }, T);
+    const contentOnly = await appendBotPendencyMessage(d, {
+      pendencyId: item.id,
+      role: 'user',
+      content: 'text only',
+      attachments: [],
+    }, T2);
+    assert.deepEqual(contentOnly.messages.at(-1).attachments, []);
+    const attachmentsOnly = await appendBotPendencyMessage(d, {
+      pendencyId: item.id,
+      role: 'user',
+      content: '',
+      attachments: [attachment('solo')],
+    }, T2);
+    assert.equal(attachmentsOnly.messages.at(-1).content, '');
+    assert.equal(attachmentsOnly.messages.at(-1).attachments.length, 1);
+  }),
+  test('message: rejects empty content without attachments and unknown pendency', async () => {
+    const d = sub('message-invalid');
+    const item = await createBotPendency(d, { title: 'T', content: 'C' }, T);
+    await assert.rejects(
+      () => appendBotPendencyMessage(d, { pendencyId: item.id, role: 'user', content: '   ' }, T2),
+      /write a content or attach/,
+    );
+    await assert.rejects(
+      () => appendBotPendencyMessage(d, { pendencyId: item.id, role: 'user', content: 'x', attachments: 'nope' }, T2),
+      /Invalid attachments: expected array/,
+    );
+    await assert.rejects(
+      () => appendBotPendencyMessage(d, { pendencyId: 'missing', role: 'user', content: 'x' }, T2),
+      /Pendency not found/,
+    );
+    await assert.rejects(
+      () => appendBotPendencyMessage(d, { pendencyId: item.id, role: 'assistant', content: 'x' }, T2),
+      /Invalid message role/,
+    );
+  }),
+]);
+
+// --- completeBotPendency ---
+await run([
+  test('complete: fills completedAt and is idempotent', async () => {
+    const d = sub('complete-ok');
+    const item = await createBotPendency(d, { title: 'T', content: 'C' }, T);
+    const completed = await completeBotPendency(d, item.id, T2);
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.completedAt, T2);
+    assert.equal(completed.updatedAt, T2);
+    const again = await completeBotPendency(d, item.id, T2);
+    assert.equal(again.status, 'completed');
+    assert.equal(again.completedAt, T2);
+  }),
+  test('complete: blocked while approval is pending', async () => {
+    const d = sub('complete-approval');
+    const item = await attachBotPendencyApproval(d, {
+      botId: 'b', kind: 'work', title: 'T', context: 'c', prompt: 'p',
+    }, T);
+    await assert.rejects(
+      () => completeBotPendency(d, item.id, T2),
+      /Resolve the pending approval/,
+    );
+  }),
+  test('complete: unknown pendency throws', async () => {
+    const d = sub('complete-missing');
+    await assert.rejects(() => completeBotPendency(d, 'missing', T), /Pendency not found/);
+  }),
+]);
+
+// --- attachBotPendencyApproval ---
+await run([
+  test('approval: creates protected pendency with pending approval', async () => {
+    const d = sub('approval-create');
+    const item = await attachBotPendencyApproval(d, {
+      botId: 'bot-1',
+      kind: 'work',
+      title: 'Approval title',
+      context: 'Need approval because X',
+      prompt: 'Approve?',
+    }, T2);
+    assert.equal(item.status, 'open');
+    assert.equal(item.completedAt, null);
+    assert.equal(item.messages[0].role, 'bot');
+    assert.equal(item.messages[0].content, 'Need approval because X');
+    assert.equal(item.approval.botId, 'bot-1');
+    assert.equal(item.approval.pendencyId, item.id);
+    assert.equal(item.approval.kind, 'work');
+    assert.equal(item.approval.status, 'pending');
+    assert.equal(item.approval.createdAt, T2);
+    assert.equal(hasOpenBotUserAction(item), true);
+  }),
+  test('approval: tool kind forwards toolName, workspacePath, and input', async () => {
+    const d = sub('approval-tool');
+    const item = await attachBotPendencyApproval(d, {
+      botId: 'b',
+      kind: 'tool',
+      title: 'Run browser',
+      context: 'Approve running browser: open page',
+      prompt: 'Run browser with the approved arguments.',
+      toolName: 'browser',
+      workspacePath: '/ws',
+      input: { url: 'https://example.com' },
+    }, T);
+    assert.equal(item.approval.kind, 'tool');
+    assert.equal(item.approval.toolName, 'browser');
+    assert.equal(item.approval.workspacePath, '/ws');
+    assert.deepEqual(item.approval.input, { url: 'https://example.com' });
+  }),
+  test('approval: rejects invalid kind and whitespace fields', async () => {
+    const d = sub('approval-invalid');
+    await assert.rejects(
+      () => attachBotPendencyApproval(d, { botId: 'b', kind: 'other', title: 'T', context: 'c', prompt: 'p' }, T),
+      /Invalid approval kind/,
+    );
+    await assert.rejects(
+      () => attachBotPendencyApproval(d, { botId: 'b', kind: 'work', title: 'T', context: 'c', prompt: '  ' }, T),
+      /Invalid prompt/,
+    );
+    await assert.rejects(
+      () => attachBotPendencyApproval(d, { botId: 'b', kind: 'work', title: ' ', context: 'c', prompt: 'p' }, T),
+      /Invalid title/,
+    );
+  }),
+]);
+
+// --- consumeBotPendencyApproval ---
+await run([
+  test('consume: requires an explicit boolean decision', async () => {
+    const d = sub('consume-strict');
+    const item = await attachBotPendencyApproval(d, {
+      botId: 'b', kind: 'work', title: 'T', context: 'c', prompt: 'p',
+    }, T);
+    await assert.rejects(() => consumeBotPendencyApproval(d, item.approval.id, 'yes'), /explicit boolean/);
+    await assert.rejects(() => consumeBotPendencyApproval(d, item.approval.id, 1), /explicit boolean/);
+    await assert.rejects(() => consumeBotPendencyApproval(d, item.approval.id, null), /explicit boolean/);
+  }),
+  test('consume: clears approval and appends the user decision atomically', async () => {
+    const d = sub('consume-approved');
+    const item = await attachBotPendencyApproval(d, {
+      botId: 'b', kind: 'work', title: 'T', context: 'c', prompt: 'p',
+    }, T);
+    const { item: updated, approval } = await consumeBotPendencyApproval(d, item.approval.id, true, T2);
+    assert.equal(approval.status, 'pending');
+    assert.equal(approval.prompt, 'p');
+    assert.equal(updated.approval, null);
+    assert.equal(updated.messages.at(-1).role, 'user');
+    assert.match(updated.messages.at(-1).content, /approved this request/);
+    assert.equal(updated.messages.at(-1).createdAt, T2);
+    assert.equal(hasOpenBotUserAction(updated), false);
+    const state = await readBotWorkState(d);
+    const stored = state.inbox.find((entry) => entry.id === item.id);
+    assert.equal(stored.approval, null);
+    assert.equal(stored.messages.at(-1).role, 'user');
+  }),
+  test('consume: denied decision records the denial', async () => {
+    const d = sub('consume-denied');
+    const item = await attachBotPendencyApproval(d, {
+      botId: 'b', kind: 'work', title: 'T', context: 'c', prompt: 'p',
+    }, T);
+    const { item: updated } = await consumeBotPendencyApproval(d, item.approval.id, false, T2);
+    assert.match(updated.messages.at(-1).content, /denied this request/);
+    assert.equal(updated.status, 'open', 'a denied pendency stays open for the bot to react');
+  }),
+  test('consume: unknown approval throws', async () => {
+    const d = sub('consume-missing');
+    await assert.rejects(() => consumeBotPendencyApproval(d, 'nonexistent', true, T), /Approval not found/);
   }),
 ]);
 
 // --- appendBotActivity ---
 await run([
-  test('activity: append works', async () => {
+  test('activity: explicit entries only, with categories', async () => {
     const d = sub('activity-append');
-    const entry = await appendBotActivity(d, { type: 'discovery', summary: 'Found', details: 'details' }, T);
-    assert.equal(entry.type, 'discovery');
-    assert.equal(entry.workItemId, null);
+    const entry = await appendBotActivity(d, {
+      title: 'Found root cause',
+      description: 'Cache invalidation skipped on rename.',
+      category: 'discovery',
+    }, T);
+    assert.equal(entry.title, 'Found root cause');
+    assert.equal(entry.category, 'discovery');
     assert.equal(entry.createdAt, T);
+    const empty = await appendBotActivity(d, { title: 'T', category: 'progress' }, T);
+    assert.equal(empty.description, '');
   }),
-  test('activity: invalid type throws', async () => {
-    const d = sub('activity-badtype');
+  test('activity: rejects invalid category and whitespace title', async () => {
+    const d = sub('activity-invalid');
     await assert.rejects(
-      () => appendBotActivity(d, { type: 'bad', summary: 's' }, T),
-      /Invalid activity type/,
+      () => appendBotActivity(d, { title: 'T', category: 'material' }, T),
+      /Invalid activity category/,
+    );
+    await assert.rejects(
+      () => appendBotActivity(d, { title: '  ', category: 'progress' }, T),
+      /Invalid title/,
     );
   }),
-  test('activity: duplicate id in file throws', async () => {
-    const d = sub('activity-dup-id');
+  test('activity: legacy activity format is rejected without migration', async () => {
+    const d = sub('activity-legacy');
     await mkdir(d, { recursive: true });
-    const dupEntry = {
-      id: 'dup-act-id',
+    await writeFile(join(d, BOT_WORK_STATE_FILES.activity), JSON.stringify([{
+      id: 'legacy-1',
       workItemId: null,
       type: 'progress',
-      summary: 'First',
+      summary: 'Old format entry',
       details: '',
       createdAt: T,
-    };
-    await writeFile(
-      join(d, BOT_WORK_STATE_FILES.activity),
-      JSON.stringify([dupEntry, { ...dupEntry, summary: 'Second' }]),
-      'utf8',
-    );
-    await assert.rejects(() => readBotWorkState(d), /activity/);
+    }]), 'utf8');
+    await assert.rejects(() => readBotWorkState(d), /Invalid activity/);
   }),
 ]);
 
 // --- Validation ---
 await run([
-  test('validation: invalid JSON throws', async () => {
+  test('validation: invalid inbox JSON throws', async () => {
     const d = sub('val-json');
     await mkdir(d, { recursive: true });
-    await writeFile(join(d, BOT_WORK_STATE_FILES.workItems), '{broken', 'utf8');
+    await writeFile(join(d, BOT_WORK_STATE_FILES.inbox), '{broken', 'utf8');
     await assert.rejects(() => readBotWorkState(d), /Invalid JSON/);
   }),
-  test('validation: invalid schema throws', async () => {
+  test('validation: invalid inbox schema throws', async () => {
     const d = sub('val-schema');
     await mkdir(d, { recursive: true });
-    await writeFile(join(d, BOT_WORK_STATE_FILES.workItems), JSON.stringify([{ id: 123 }]), 'utf8');
+    await writeFile(join(d, BOT_WORK_STATE_FILES.inbox), JSON.stringify([{ id: 123 }]), 'utf8');
     await assert.rejects(() => readBotWorkState(d), /Invalid/);
   }),
-  test('validation: duplicate IDs in file throws', async () => {
+  test('validation: completedAt must match the status', async () => {
+    const d = sub('val-completedat');
+    await mkdir(d, { recursive: true });
+    await writeFile(join(d, BOT_WORK_STATE_FILES.inbox), JSON.stringify([{
+      id: 'p1',
+      title: 'T',
+      status: 'open',
+      messages: [{ id: 'm1', role: 'bot', content: 'C', attachments: [], createdAt: T }],
+      approval: null,
+      createdAt: T,
+      updatedAt: T,
+      completedAt: T,
+    }]), 'utf8');
+    await assert.rejects(() => readBotWorkState(d), /completedAt/);
+  }),
+  test('validation: duplicate pendency ids throw', async () => {
     const d = sub('val-dupids');
     await mkdir(d, { recursive: true });
-    const item = {
-      id: 'dup-id', title: 'T', objective: OBJ, state: 'planned', summary: '',
-      lastProgress: '', nextStep: '', attention: null, blocker: null, priority: 'normal',
-      workerThreadIds: [], evidence: [], createdAt: T, updatedAt: T, completedAt: null,
+    const pendency = {
+      id: 'dup-id',
+      title: 'T',
+      status: 'open',
+      messages: [{ id: 'm1', role: 'bot', content: 'C', attachments: [], createdAt: T }],
+      approval: null,
+      createdAt: T,
+      updatedAt: T,
+      completedAt: null,
     };
-    await writeFile(join(d, BOT_WORK_STATE_FILES.workItems), JSON.stringify([item, { ...item }]), 'utf8');
-    await assert.rejects(() => readBotWorkState(d), /Duplicate work item id/);
+    await writeFile(join(d, BOT_WORK_STATE_FILES.inbox), JSON.stringify([pendency, { ...pendency }]), 'utf8');
+    await assert.rejects(() => readBotWorkState(d), /Duplicate pendency id/);
   }),
-]);
-
-// --- Arrays únicos ---
-await run([
-  test('unique: createWorkItem with duplicate workerThreadIds throws', async () => {
-    const d = sub('unique-workers');
-    await assert.rejects(
-      () => createBotWorkItem(d, { title: 'T', objective: OBJ, workerThreadIds: ['a', 'a'] }, T),
-      /Duplicate workerThreadIds entry/,
-    );
+  test('validation: pending approval must belong to an open pendency', async () => {
+    const d = sub('val-approval-link');
+    await mkdir(d, { recursive: true });
+    await writeFile(join(d, BOT_WORK_STATE_FILES.inbox), JSON.stringify([{
+      id: 'p1',
+      title: 'T',
+      status: 'completed',
+      messages: [{ id: 'm1', role: 'bot', content: 'C', attachments: [], createdAt: T }],
+      approval: {
+        id: 'a1', botId: 'b', pendencyId: 'p1', kind: 'work',
+        context: 'c', prompt: 'p', status: 'pending', createdAt: T, updatedAt: T,
+      },
+      createdAt: T,
+      updatedAt: T,
+      completedAt: T,
+    }]), 'utf8');
+    await assert.rejects(() => readBotWorkState(d), /pending approval must belong to an open pendency/);
   }),
 ]);
 
@@ -521,18 +576,34 @@ await run([
     ]);
     assert.deepEqual(order, [1, 2, 3]);
   }),
-  test('lock: concurrent createBotWorkItem produces all items with unique ids', async () => {
-    const d = sub('lock-concurrent');
+  test('lock: concurrent creates produce all pendencies with unique ids', async () => {
+    const d = sub('lock-concurrent-create');
     const results = await Promise.all(
       Array.from({ length: 10 }, (_, i) =>
-        createBotWorkItem(d, { title: `Item ${i}`, objective: `Objective ${i}` }, T),
-      ),
+        createBotPendency(d, { title: `Pendency ${i}`, content: `Content ${i}` }, T)),
     );
     const state = await readBotWorkState(d);
-    assert.equal(state.workItems.length, 10);
-    const ids = new Set(state.workItems.map((i) => i.id));
-    assert.equal(ids.size, 10);
-    assert.equal(state.activity.length, 10);
+    assert.equal(state.inbox.length, 10);
+    assert.equal(new Set(state.inbox.map((item) => item.id)).size, 10);
+    assert.equal(new Set(results.map((item) => item.id)).size, 10);
+  }),
+  test('lock: concurrent messages are all persisted in order', async () => {
+    const d = sub('lock-concurrent-messages');
+    const item = await createBotPendency(d, { title: 'T', content: 'C' }, T);
+    await Promise.all(
+      ['first', 'second', 'third', 'fourth', 'fifth'].map((suffix) =>
+        appendBotPendencyMessage(d, {
+          pendencyId: item.id,
+          role: 'user',
+          content: `Reply ${suffix}.`,
+        }, T2)),
+    );
+    const state = await readBotWorkState(d);
+    const stored = state.inbox.find((entry) => entry.id === item.id);
+    assert.deepEqual(
+      stored.messages.slice(-5).map((message) => message.content),
+      ['Reply first.', 'Reply second.', 'Reply third.', 'Reply fourth.', 'Reply fifth.'],
+    );
   }),
 ]);
 
@@ -546,5 +617,3 @@ if (failures.length > 0) {
 }
 
 try { rmSync(root, { recursive: true, force: true }); } catch {}
-
-process.exit(failed > 0 ? 1 : 0);

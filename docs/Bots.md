@@ -25,7 +25,7 @@ Settings are organized by the decisions they control:
 **Work — what it does and where**
 
 - **Instructions** — free-form guidance injected into every activation describing responsibilities, priorities, and boundaries.
-- **Work queue** — an optional ordered list of recurring tasks configured by the user. Each successful activation receives the next task as its primary focus, then advances to the following task and wraps to the beginning after the last one. If **Current work** contains an active item or one with a running worker, the activation focuses that item instead and leaves the recurring queue at its current position. Editing or reordering the list restarts the cycle from the first task. With an empty queue, scheduled, sidebar, tool, and plugin activations still run and review the bot's full instructions, work state, and available scope without a specific recurring focus.
+- **Work queue** — an optional ordered list of recurring tasks configured by the user. Each successful activation receives the next task as its primary focus, then advances to the following task and wraps to the beginning after the last one. Editing or reordering the list restarts the cycle from the first task; selecting a specific task under **Activate now** moves the cycle to that task before activation. With an empty queue, scheduled, sidebar, tool, and plugin activations still run and review the bot's full instructions, Inbox, memory, and available scope without a specific recurring focus.
 - **Working folder** — where the bot lives. Leave empty to use a dedicated folder in `~/.aivax/bots/<bot id>`. The bot shares the general instructions, context discovery, and workspace MCP servers of this folder, plus global context and MCP servers. It also receives root and nested `BOTS.md` instructions discovered there and in `$HOME/.agents`; those bot-only instructions are never exposed to normal threads.
 
 **MCP servers — external tools**
@@ -50,34 +50,46 @@ Settings are organized by the decisions they control:
 
 **Data — storage and conversation maintenance**
 
-- Shows the isolated `<working folder>/.avi-bots/<bot id>/` folder where the bot's memory and work state live.
-- **Clear conversation** — removes conversation messages without touching memory, work items, activity, or pending approvals.
-- **Full reset** — keeps the bot and all of its configuration, including its identity, instructions, model, schedule, working folder, and MCP settings. It permanently removes the bot's conversation history, work threads, tasks, Goals, memory, activity, work items, pending approvals, and bot-owned files. For a custom working folder, only the isolated `.avi-bots/<bot id>/` data folder is removed; other project files are never deleted. For Avi's dedicated default working folder, operational files are removed while MCP configuration is preserved.
+- Shows the isolated `<working folder>/.avi-bots/<bot id>/` folder where the bot's memory, Inbox, and Activity live.
+- **Clear conversation** — removes main-thread messages without touching memory, Inbox conversations, Activity, or pending approvals.
+- **Full reset** — keeps the bot and all of its configuration, including its identity, instructions, model, schedule, working folder, and MCP settings. It permanently removes the bot's conversation history, work threads, tasks, Goals, memory, Activity, Inbox, pending approvals, and bot-owned files. For a custom working folder, only the isolated `.avi-bots/<bot id>/` data folder is removed; other project files are never deleted. For Avi's dedicated default working folder, operational files are removed while MCP configuration is preserved.
 
-## Work state
+## Inbox and Activity
 
-Each bot keeps its durable state in `<working folder>/.avi-bots/<bot id>/`:
+Open **Bots** in the auxiliary panel and select a bot in the header. The compact search and filter controls adapt to the panel width. The panel has two tabs:
 
-- `MEMORY.md` — durable knowledge across activations.
-- `work-items.json` — the current, user-visible work inventory.
-- `activity.json` — an append-only timeline of material events.
+- **Inbox** — conversations where the bot asks for your input. Open a pendency to read its messages and reply there, with text, images, or files. Messages appear from newest at the top to oldest at the bottom, and every message shows its date and time. Filter the list by status to find open or completed conversations.
+- **Activity** — the bot's first-person diary of important work. Each entry has a title, description, category, and date; category filtering narrows the timeline. Entries explain the subject and result without requiring previous entries or the main chat.
 
-A work item records its objective, current summary, latest material progress, next step, priority, linked worker thread IDs, evidence, blocker, and any user attention it needs. Evidence entries are typed as `file_reference` for project-relative file links, `external_reference` for HTTP(S) links, or `text` for arbitrary non-link text. Its state is `planned`, `active`, `waiting`, `completed`, or `cancelled`. Attention is separate from execution state and can request an `approval`, `review`, or `answer`. A waiting item must identify either the attention needed or a concrete blocker and who it is waiting on. When work is completed or cancelled, Avi clears its attention and blocker. Completed work also requires a concise final summary explaining what the bot did, why, and how, and Avi clears its next step.
+A pendency has only two states: `open` or `completed`. Open items awaiting your response contribute to the sidebar notification count. Reading a pendency does not clear it. Replying transfers attention to the bot and removes it from the count, unless a protected approval still needs an explicit decision. The bot can continue the conversation or mark it completed. A new bot message reopens a completed pendency; a final response should be followed by completion when no user action remains.
 
-The bot never edits these JSON files directly. It uses bot-only tools:
+The bot continues all work in its main thread. When you reply, Avi saves your message and sends a `<bot-pendency-update>` with the pendency ID, reply, and attachments to that thread. An active bot receives it in its priority queue; an idle bot starts a continuation. It can use tools and worker threads to prepare a response, but is instructed to answer inside the same pendency. If delivery fails, the Inbox keeps your message and reports the failure; do not send it again just to retry delivery and duplicate the conversation.
 
-- `bot_work_create` — creates a durable item with a clear title and objective.
-- `bot_work_update` — keeps status, progress, next step, blockers, attention, workers, and evidence accurate.
-- `bot_activity_append` — records only material discoveries, decisions, delegations, blockers, failures, approvals, and outcomes.
-- `bot_work_read` — reads all durable work and activity at activation start and whenever reconciliation is needed.
+Inbox and Activity load independently. If one file is invalid, only that tab shows a loading error; the other remains usable. Expand **Technical details** to inspect the cause. Invalid legacy files are preserved, not silently migrated or replaced.
 
-Routine reads and tool calls do not belong in the timeline. A delegated thread is referenced by its real thread ID; Avi reconciles that reference with runtime state and shows whether the worker is running, idle, missing, or needs attention. Workers created by the bot but not attached to a work item are shown as untracked.
+Activity is deliberately quiet: no routine reads, tool calls, repeated waiting, or checks with no change. It records meaningful progress, discoveries, decisions, completed outcomes, and failures. Creating or replying to a pendency does not automatically produce a diary entry.
 
-Approvals are runtime-owned fields embedded in their work item. While an approval is pending, regular work updates cannot replace it or change the protected state, attention, or blocker fields. Approval returns the item to active work; denial leaves a visible waiting item so the bot can choose a safe alternative or cancel it.
+### Storage and bot tools
 
-Avi always creates a `.gitignore` inside the isolated bot folder so internal state is not committed accidentally. If `MEMORY.md` exists at the working-folder root when a bot folder is first created, Avi copies it without overwriting later isolated changes. The work-state files are not imported from any previous report format.
+Each view has its own JSON file under `<working folder>/.avi-bots/<bot id>/`:
 
-At the beginning of an activation, the bot reads the work state and receives a primary task in `<focus-task>` when **Current work** has an active item, a worker is running, or the Work queue has a current recurring task. With an empty queue and no active work, Avi omits `<focus-task>` so the bot reviews its full instructions, state, and available scope. Avi leaves the recurring queue at its current position while active work has priority; otherwise a configured queue advances after a successful activation. The bot reconciles linked workers and advances any focus before using remaining capacity for other actionable items. It keeps the report oriented to outcomes instead of execution mechanics so the user can understand current work, recent results, next steps, and required decisions without reading the chat history.
+- `MEMORY.md` — durable knowledge and unfinished-work context across activations.
+- `inbox.json` — pendencies, messages, attachments, and protected approvals.
+- `diary.json` — self-contained Activity diary entries.
+
+The bot manages JSON data only through its bot-only tools:
+
+- `bot_pendencies_list` — reads existing pendencies and their message history.
+- `bot_pendency_create` — opens a conversation with a title and a self-contained message asking for a concrete action.
+- `bot_pendency_message` — sends another message to an existing pendency.
+- `bot_pendency_complete` — closes a pendency when no action remains.
+- `bot_activity_append` — writes one important diary entry.
+
+Legacy `work-items.json` and `activity.json` are never read or imported. They remain untouched on disk; the new Activity starts in `diary.json`. An incompatible or corrupt JSON file is reported as a load error, not silently discarded. **Full reset** starts clean but permanently removes the bot's operational data, so preserve anything you still need before using it.
+
+Avi creates a `.gitignore` inside the isolated bot folder so internal state is not committed accidentally. If `MEMORY.md` exists at the working-folder root when a bot folder is first created, Avi copies it without overwriting later isolated changes.
+
+At each activation the bot reads its Inbox and reconciles replies with its instructions, memory, and recurring `<focus-task>`, when one exists. A successful recurring activation advances the Work queue. With an empty queue, Avi omits `<focus-task>` and the bot reviews its full scope. Each activation marks a checkpoint in the main conversation: earlier messages remain stored but are excluded from that activation's model context. Starting a new activation clears the previous compaction summary and token counter when advancing that boundary. Compaction within an activation still carries its condensed summary. The Inbox and memory keep the context needed to continue across these boundaries.
 
 Bots do not get the memory tools; `MEMORY.md` is their memory. Bots perform bounded work directly with their available tools, including exploration, research, data gathering, read-only audits, status checks, and short diagnostics. They cannot ask you questions mid-run. For genuinely long work such as feature implementation, substantial migrations, full articles, or extensive validation, they have advanced delegation tools to create, steer, inspect, interrupt, and reconcile regular worker threads. Threads created by a bot are linked to its main conversation, appear under that bot's `workThreads` in `bots_list`, and get a robot icon in the sidebar.
 
@@ -90,15 +102,11 @@ Bot permission handling is a special "approve for me" mode based on the authorit
 - The user's current request and the bot's recurring owner instructions authorize the stated outcome and its ordinary local completion steps. Editing, rewriting, implementing, building, testing, regenerating, and validating within that scope do not require another approval.
 - The bot queues approval only for a materially new decision or action outside that authority with meaningful external, irreversible, financial, credential, privacy, production, or destructive impact, such as an unrequested publish, deploy, push, merge, external message, secret access, purchase, production mutation, or broad deletion.
 - If the user explicitly requested the sensitive action itself, that is the approval. The bot must not ask the user to repeat the same decision.
-- The bot may attach a genuinely new work approval to an existing item with `queue_user_approval` and continue other independent work while it is pending.
+- The bot may create a protected Inbox pendency with `queue_user_approval` for a genuinely new decision and continue independent work while it is pending.
 
 Threads the bot creates or messages always run in **Full access**: unattended threads have no one to answer a permission prompt, so only the bot's own conversation uses the approval queue above.
 
-Open **Bots** from the auxiliary panel. The default **Overview** shows current work, items needing your attention, recently completed items, planned work up next, and recent activity. Work-item previews contain only the title and one summary line; open an item to see its objective, detailed progress, evidence, workers, blockers, and approval controls. Items requiring you to review, approve, or answer say so directly in the preview. These open user actions are the only items included in the bot's sidebar badge: external blockers and completed or cancelled work do not count. Actionable items are kept out of **Current work** and **Up next**, which otherwise contains only planned work, so the same item is not repeated across those sections. **All work** provides the complete state-filterable inventory, while **Activity** shows the material timeline.
-
-Tool approvals show the exact tool name, workspace path, and formatted input before **Approve** or **Deny**. Approve sends the resume prompt back to the bot; deny keeps the outcome visible and tells the bot to choose a safe alternative or cancel the item.
-
-Opening a work item shows its full detail dialog with an **Actions** menu. **Mention in chat** opens the bot's conversation with the work item attached as a context marker, so whatever you type next refers to that work. **Set status** opens a sub-dialog to move the item between `planned`, `active`, `waiting`, `completed`, and `cancelled`; it is unavailable while a pending approval owns the item.
+Protected approvals appear inside Inbox conversations. Tool approvals show the exact tool name, workspace path, and formatted input before **Approve** or **Deny**. The decision is recorded as a user message and sent to the main thread; denial tells the bot not to retry the denied action. Replying with ordinary text does not grant permission, and completion is unavailable until that explicit decision is resolved.
 
 ## Bot chats
 
@@ -109,5 +117,5 @@ If Avi closes or restarts while a bot is working, its current activation resumes
 ## Sidebar
 
 - The moon beside **+** opens the global Snooze menu for scheduled activations. The button remains highlighted while Snooze is active; open the menu to see the remaining time or reset it.
-- The bot's context menu offers **Bot settings**, **Activate now**, **Snooze**, and **Delete bot...**. Per-bot Snooze uses the same 1h, 6h, 24h, until-restart, and Reset options as global Snooze, but blocks scheduled activations only for that bot. Manual activation remains available. Delete removes the conversation and pending approvals; memory and work-state files stay on disk.
+- The bot's context menu offers **Bot settings**, **Activate now**, **Snooze**, and **Delete bot...**. When the bot has a Work queue, **Activate now** opens a submenu: **Next work item** keeps the current round-robin position, while selecting a listed item makes it the next task and then activates the bot. Long task names are truncated in the menu. Per-bot Snooze uses the same 1h, 6h, 24h, until-restart, and Reset options as global Snooze, but blocks scheduled activations only for that bot. Manual activation remains available. Delete removes the conversation and pending approvals; memory, Inbox, and Activity files stay on disk.
 - The sidebar indicator reflects the bot state: a spinner while working, a green dot while active and waiting for its next activation, or a gray moon while sleeping because of Snooze, smart idle, a repeated-activation pause, a manual pause, or the schedule window. Disabled bots use a gray dot and appear dimmed.

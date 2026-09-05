@@ -6,178 +6,69 @@ import { createServer } from 'vite';
 import { hasOpenBotUserAction } from '../src/shared/bot-work-items.js';
 
 const vite = await createServer({ appType: 'custom', server: { middlewareMode: true } });
-const { AuxiliaryPanel } = await vite.ssrLoadModule('/src/renderer/components/AuxiliaryPanel.jsx');
-
-const item = (id, state, overrides = {}) => ({
-  id,
-  title: `${id} title`,
-  objective: `${id} objective`,
-  state,
-  summary: `${id} summary`,
-  lastProgress: `${id} latest progress`,
-  nextStep: '',
-  attention: null,
-  blocker: null,
-  priority: 'normal',
-  workerThreadIds: [],
-  workers: [],
-  evidence: [{ type: 'text', value: `${id} evidence` }],
-  approval: null,
-  createdAt: '2026-08-24T12:00:00.000Z',
-  updatedAt: '2026-08-24T12:00:00.000Z',
-  completedAt: state === 'completed' ? '2026-08-24T12:00:00.000Z' : null,
-  ...overrides,
-});
-
-const workItems = [
-  item('active-progress', 'active', {
-    lastProgress: 'Validated the active change.',
-    evidence: [
-      { type: 'file_reference', value: './src/main/bot-work-state.js' },
-      { type: 'external_reference', value: 'https://example.com/pr/1' },
-      { type: 'text', value: 'Focused tests passed.' },
-    ],
-  }),
-  item('review-action', 'waiting', {
-    attention: { type: 'review', summary: 'Review PR #1.' },
-    blocker: { reason: 'Review is pending.', waitingOn: 'user' },
-  }),
-  item('answer-action', 'waiting', {
-    attention: { type: 'answer', summary: 'Choose the release target.' },
-  }),
-  item('approval-action', 'waiting', {
-    attention: { type: 'approval', summary: 'Approve the release.' },
-    approval: { id: 'approval-1', kind: 'work', prompt: 'Approve the release?' },
-  }),
-  item('planned-review-action', 'planned', {
-    attention: { type: 'review', summary: 'Review the plan.' },
-    nextStep: 'Start the reviewed plan.',
-  }),
-  item('external-blocker', 'waiting', {
-    blocker: { reason: 'CI is unavailable.', waitingOn: 'CI' },
-  }),
-  item('planned-action', 'planned', {
-    priority: 'high',
-    nextStep: 'Implement the planned change.',
-  }),
-  item('planned-no-action', 'planned'),
-  item('completed', 'completed', {
-    summary: 'Implemented the fix to remove duplicate reporting.',
-    nextStep: 'Legacy completed next step must stay hidden.',
-  }),
-  item('completed-stale-attention', 'completed', {
-    attention: { type: 'review', summary: 'Stale review request.' },
-    summary: 'Completed despite legacy attention data.',
-  }),
-  item('cancelled', 'cancelled', {
-    attention: { type: 'answer', summary: 'Stale answer request.' },
-    nextStep: 'Cancelled next step must stay hidden.',
-  }),
-];
-
-const bot = { id: 'bot-1', name: 'Test bot' };
-const markup = renderToStaticMarkup(React.createElement(AuxiliaryPanel, {
-  sideChats: [],
-  subagents: [],
-  bots: [bot],
-  botWorkStateByBot: {
-    [bot.id]: {
-      items: workItems,
-      activity: [],
-      untrackedWorkers: [],
-      error: null,
-    },
-  },
-  botQueueTabOpen: true,
-  selectedBotId: bot.id,
-  activeTab: 'bot-queue',
-  visibleMessagesByConversation: {},
-  visibleRunning: {},
-  models: [{ id: 'test-model', context: { input: 1000 } }],
-  favorites: [],
-  recentModels: [],
-  recentProjects: [],
-  fallbackModel: 'test-model',
-  onSelectBot: () => {},
-  onOpenBotQueueTab: () => {},
-  onCloseBotQueueTab: () => {},
-  onSelectTab: () => {},
-  onClosePanel: () => {},
-  onCreateSideChat: () => {},
-}));
-
-const section = (title, nextTitle) => {
-  const start = markup.indexOf(`<strong>${title}</strong>`);
-  const end = nextTitle ? markup.indexOf(`<strong>${nextTitle}</strong>`, start) : markup.length;
-  assert.ok(start >= 0, `${title} section must exist.`);
-  assert.ok(end > start, `${title} section must end after it starts.`);
-  return markup.slice(start, end);
-};
-
-const current = section('Current work', 'Needs your attention');
-assert.match(current, /active-progress title/);
-assert.match(current, /Validated the active change\./);
-for (const detail of ['active-progress objective', 'active-progress summary', 'active-progress evidence', 'Evidence']) {
-  assert.doesNotMatch(current, new RegExp(detail));
+try {
+  const { AuxiliaryPanel } = await vite.ssrLoadModule('/src/renderer/components/AuxiliaryPanel.jsx');
+  const inbox = [
+    { id: 'new', title: 'Choose Acme export format', status: 'open', messages: [{ id: 'new-1', role: 'bot', content: 'Should I use CSV or JSON?', attachments: [], createdAt: '2026-09-04T14:00:00Z' }], updatedAt: '2026-09-04T14:00:00Z', approval: null },
+    { id: 'replied', title: 'Review Acme invoice', status: 'open', messages: [{ id: 'reply-1', role: 'user', content: 'The totals are correct.', attachments: [], createdAt: '2026-09-04T15:00:00Z' }], updatedAt: '2026-09-04T15:00:00Z', approval: null },
+    { id: 'completed', title: 'Acme export received', status: 'completed', messages: [{ id: 'complete-1', role: 'bot', content: 'I verified the delivered export.', attachments: [], createdAt: '2026-09-04T16:00:00Z' }], updatedAt: '2026-09-04T16:00:00Z', approval: null },
+    { id: 'approval', title: 'Publish Acme report', status: 'open', messages: [{ id: 'approval-1', role: 'user', content: 'Where will you publish it?', attachments: [], createdAt: '2026-09-04T13:00:00Z' }], updatedAt: '2026-09-04T13:00:00Z', approval: { id: 'approval-id', status: 'pending' } },
+  ];
+  const props = {
+    sideChats: [], subagents: [], bots: [{ id: 'bot-1', name: 'Acme bot' }],
+    botDataByBot: { 'bot-1': { inbox, activity: [], error: null } },
+    botQueueTabOpen: true, selectedBotId: 'bot-1', activeTab: 'bot-queue',
+    visibleMessagesByConversation: {}, visibleRunning: {}, models: [], favorites: [], recentModels: [], recentProjects: [],
+  };
+  const render = (overrides = {}) => renderToStaticMarkup(React.createElement(AuxiliaryPanel, { ...props, ...overrides }));
+  const { OrchestrationPage } = await vite.ssrLoadModule('/src/renderer/components/OrchestrationPage.jsx');
+  const dashboard = renderToStaticMarkup(React.createElement(OrchestrationPage, { models: [], bots: props.bots, botDataByBot: props.botDataByBot }));
+  assert.match(dashboard, /<h1>Overview<\/h1>/);
+  assert.match(dashboard, /role="tab"[^>]*aria-selected="true"[^>]*>Inbox · 2/);
+  assert.match(dashboard, /All bots Inbox/);
+  assert.match(dashboard, /Choose Acme export format/);
+  const navigated = render({ inboxNavigation: { botId: 'bot-1', pendencyId: 'new' } });
+  assert.match(navigated, /id="bot-pendency-title"[^>]*>Choose Acme export format/);
+  assert.doesNotMatch(navigated, /Review Acme invoice/);
+  assert.match(render({ inboxNavigation: { botId: 'another-bot', pendencyId: 'new' } }), /Review Acme invoice/);
+  const markup = render();
+  assert.match(markup, /role="tab"[^>]*aria-selected="true"[^>]*>[\s\S]*?Inbox[\s\S]*?<\/button>/);
+  assert.match(markup, /id="bot-work-tab-activity"[\s\S]*?Activity[\s\S]*?<\/button>/);
+  assert.doesNotMatch(markup, /Overview|All work|Current work|Up next|bot-work-dialog|Untracked workers/);
+  assert.match(markup, /Choose Acme export format/);
+  assert.match(markup, /Should I use CSV or JSON/);
+  assert.match(markup, /Waiting for bot/);
+  assert.match(markup, /Needs you/);
+  assert.match(markup, /Completed/);
+  assert.ok(markup.indexOf('Acme export received') < markup.indexOf('Choose Acme export format'));
+  assert.ok(markup.indexOf('Review Acme invoice') < markup.indexOf('Choose Acme export format'));
+  assert.deepEqual(inbox.filter(hasOpenBotUserAction).map((item) => item.id), ['new', 'approval']);
+  assert.equal(hasOpenBotUserAction({ ...inbox[3], status: 'completed' }), false);
+  assert.equal(hasOpenBotUserAction({ status: 'open', messages: [] }), false);
+  assert.match(render({ botsLoading: true }), /Loading bots/);
+  assert.doesNotMatch(render({ botsLoading: true, bots: [] }), /No bots/);
+  assert.match(render({ bots: [] }), /No bots/);
+  assert.match(render({ botDataByBot: { 'bot-1': { inbox: [], activity: [], error: null } } }), /Your Inbox is empty/);
+  assert.match(render({ botDataByBot: { 'bot-1': { inbox: [], activity: [], error: 'Invalid inbox.json' } } }), /role="alert"[\s\S]*Invalid inbox\.json/);
+  const isolated = render({ botDataByBot: { 'bot-1': { inbox, activity: [], error: 'Invalid activity.title', errors: { inbox: null, activity: 'Invalid activity.title' } } } });
+  assert.match(isolated, /Choose Acme export format/);
+  assert.doesNotMatch(isolated, /Invalid activity.title/);
+  const failed = render({ botDataByBot: { 'bot-1': { inbox: [], activity: [], error: 'Invalid inbox.json', errors: { inbox: 'Invalid inbox.json', activity: null } } } });
+  assert.doesNotMatch(failed, /Your Inbox is empty/);
+  assert.match(failed, /<details[\s\S]*Invalid inbox.json/);
+  const runtime = readFileSync(new URL('../src/main/runtime.js', import.meta.url), 'utf8');
+  assert.match(runtime, /botDataByBot\[bot\.id\]\?\.inbox[\s\S]*?filter\(hasOpenBotUserAction\)\.length/);
+  const taskFilter = runtime.match(/const conversations = allConversations\s*\.filter\((\(conversation\) => [^;]+)\);/);
+  assert.ok(taskFilter, 'Overview filters task histories before classification');
+  const includeTask = new Function(`return ${taskFilter[1]}`)();
+  assert.deepEqual([
+    { id: 'user', conversationType: 'thread', createdBy: 'user' },
+    { id: 'agent', conversationType: 'thread', createdBy: 'agent' },
+    { id: 'bot', conversationType: 'bot', createdBy: 'user' },
+    { id: 'subagent', conversationType: 'subagent', createdBy: 'agent' },
+    { id: 'side', conversationType: 'side', createdBy: 'user' },
+  ].filter(includeTask).map((conversation) => conversation.id), ['user']);
+  console.log('Bot Inbox rendering and notification tests passed.');
+} finally {
+  await vite.close();
 }
-assert.match(current, /class="bot-work-card bot-work-preview state-active summary"/);
-
-const attention = section('Needs your attention', 'Recently completed');
-assert.match(attention, /review-action title/);
-assert.match(attention, /You need to review this\./);
-assert.match(attention, /approval-action title/);
-assert.match(attention, /You need to approve this\./);
-assert.match(attention, /answer-action title/);
-assert.match(attention, /You need to answer this\./);
-assert.match(attention, /planned-review-action title/);
-for (const hidden of [
-  'Review PR #1',
-  'Approve the release',
-  'Choose the release target',
-  'external-blocker title',
-  'completed-stale-attention title',
-  'cancelled title',
-  'Objective',
-  'Evidence',
-]) {
-  assert.doesNotMatch(attention, new RegExp(hidden));
-}
-
-const completed = section('Recently completed', 'Up next');
-assert.match(completed, /completed title/);
-assert.match(completed, /Implemented the fix to remove duplicate reporting/);
-assert.match(completed, /completed-stale-attention title/);
-assert.match(completed, /Completed despite legacy attention data/);
-for (const hidden of ['completed objective', 'completed latest progress', 'completed evidence', 'Legacy completed next step']) {
-  assert.doesNotMatch(completed, new RegExp(hidden));
-}
-assert.doesNotMatch(completed, /Objective|Latest progress|Next step|Evidence/);
-
-const upNext = section('Up next', 'Recent activity');
-assert.match(upNext, /planned-action title/);
-assert.match(upNext, /Implement the planned change\./);
-for (const hidden of ['planned-no-action title', 'planned-review-action title', 'active-progress title', 'completed title', 'cancelled title']) {
-  assert.doesNotMatch(upNext, new RegExp(hidden));
-}
-
-assert.deepEqual(
-  workItems.filter(hasOpenBotUserAction).map((entry) => entry.id),
-  ['review-action', 'answer-action', 'approval-action', 'planned-review-action'],
-  'Only open review, answer, and approval items count as user actions.',
-);
-
-const runtimeSource = readFileSync(new URL('../src/main/runtime.js', import.meta.url), 'utf8');
-const orchestrationSource = readFileSync(
-  new URL('../src/renderer/components/OrchestrationPage.jsx', import.meta.url),
-  'utf8',
-);
-assert.match(runtimeSource, /filter\(hasOpenBotUserAction\)\.length/);
-assert.match(
-  runtimeSource,
-  /conversation\.isSubagent\s*\? 'subagent'\s*:\s*conversation\.isBot\s*\? 'bot'\s*:\s*'inference'/,
-);
-assert.match(runtimeSource, /\['bot', \{ id: 'bot', responses: 0, tokens: 0 \}\]/);
-assert.match(orchestrationSource, /bot: 'Bot'/);
-
-await vite.close();
-console.log('Bot Overview tests passed.');

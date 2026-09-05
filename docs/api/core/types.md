@@ -24,7 +24,7 @@ interface ThreadSnapshot {
   model: string;
   titleStatus: string;
   projectPath: string;
-  projectName: string;
+  projectName: string; // Folder name (or ~/ for home); used in Sidebar conversation tooltips.
   projectDisplayPath: string;
   gitBranch: string | null;
   conversationType: 'thread' | 'side' | 'subagent' | 'bot';
@@ -227,17 +227,17 @@ interface BotSnapshot {
 }
 ```
 
-`activationWindow.days` uses `0` (Sunday) through `6` (Saturday); minutes are counted from midnight. `workQueue` is processed round-robin in array order. Empty queues do not activate, and updating the queue resets `workQueueIndex` to `0`.
+`activationWindow.days` uses `0` (Sunday) through `6` (Saturday); minutes are counted from midnight. `workQueue` is processed round-robin in array order. Empty queues activate without a recurring focus task. Updating the queue resets `workQueueIndex` to `0`, while updating `workQueueIndex` selects the item used by the next activation.
 
 ### BotApproval
 
-Returned by `bot.approvals.list()` and embedded in its protected work item while a bot waits for a human decision.
+Returned by `bot.approvals.list()` and embedded in its protected Inbox pendency while a bot waits for an explicit human decision.
 
 ```ts
 interface BotApproval {
   id: string;
   botId: string;
-  workItemId: string;
+  pendencyId: string;
   kind: 'work' | 'tool';
   context: string;
   prompt: string;
@@ -250,82 +250,56 @@ interface BotApproval {
 }
 ```
 
-### BotWorkItem
+### BotPendencyMessage
 
 ```ts
-type BotEvidence =
-  | { type: 'file_reference'; value: string }
-  | { type: 'external_reference'; value: string }
-  | { type: 'text'; value: string };
+interface BotPendencyMessage {
+  id: string;
+  role: 'bot' | 'user';
+  content: string;
+  attachments: Attachment[];
+  createdAt: string;
+}
+```
 
-interface BotWorkItem {
+`createdAt` is an ISO 8601 timestamp including the date and time. Attachments use the existing [Attachment](../rpc/types.md#attachment) descriptor. A message requires non-empty content or an attachment.
+
+### BotPendency
+
+```ts
+interface BotPendency {
   id: string;
   title: string;
-  objective: string;
-  state: 'planned' | 'active' | 'waiting' | 'completed' | 'cancelled';
-  /** Current situation, or a final what/why/how account when completed. */
-  summary: string;
-  lastProgress: string;
-  /** Next action for planned or active work; empty when completed. */
-  nextStep: string;
-  attention: null | {
-    type: 'approval' | 'review' | 'answer';
-    summary: string;
-  };
-  blocker: null | {
-    reason: string;
-    waitingOn: string;
-  };
-  priority: 'critical' | 'high' | 'normal' | 'low';
-  workerThreadIds: string[];
-  workers: BotWorkerSnapshot[];
-  evidence: BotEvidence[];
-  approval?: BotApproval | null;
+  status: 'open' | 'completed';
+  messages: BotPendencyMessage[];
+  approval: BotApproval | null;
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
 }
-```
 
-### BotWorkerSnapshot
-
-```ts
-interface BotWorkerSnapshot {
-  id: string;
-  title: string;
-  status: 'running' | 'needs-attention' | 'idle' | 'missing';
-  running: boolean;
-  needsAttention: boolean;
-  updatedAt: string | null;
+interface BotPendencyReply {
+  item: BotPendency;
+  delivered: boolean;
+  error?: string;
 }
 ```
+
+A new bot message reopens the pendency. A user reply leaves it open, waiting for the bot, except that protected approvals still need an explicit decision. Completion sets `completedAt`; it cannot bypass a pending approval.
 
 ### BotActivityEntry
 
 ```ts
 interface BotActivityEntry {
   id: string;
-  workItemId: string | null;
-  type: 'created' | 'progress' | 'discovery' | 'decision' | 'delegated'
-    | 'blocked' | 'attention' | 'completed' | 'cancelled' | 'failure' | 'approval';
-  summary: string;
-  details: string;
+  title: string;
+  description: string;
+  category: 'progress' | 'discovery' | 'decision' | 'completed' | 'failure';
   createdAt: string;
 }
 ```
 
-### BotWorkState
-
-Returned by `bot.workState.get()`.
-
-```ts
-interface BotWorkState {
-  items: BotWorkItem[];
-  activity: BotActivityEntry[];
-  untrackedWorkers: BotWorkerSnapshot[];
-  error: string | null;
-}
-```
+Activity is an explicitly written, self-contained diary. Creating, replying to, or completing a pendency does not automatically add an activity entry.
 
 ## Providers
 

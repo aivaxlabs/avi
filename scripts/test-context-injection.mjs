@@ -385,7 +385,7 @@ try {
       name: 'Context test bot',
       workingFolder: root,
       dataFolder: path.join(root, '.avi-bots', 'bot-context-test'),
-      workFiles: ['MEMORY.md', 'work-items.json', 'activity.json'],
+      workFiles: ['MEMORY.md', 'inbox.json', 'diary.json'],
       activationMode: 'scheduled',
       activationPeriodMinutes: 10,
       pendingApprovals: 0,
@@ -403,32 +403,46 @@ try {
     assert.ok(botInjected.includes(botOnlyMarker), `Bot context is missing: ${botOnlyMarker}`);
   }
   for (const statusPolicyMarker of [
-    'understand within seconds',
-    '`planned`, `active`, `waiting`, `completed`, or `cancelled`',
-    'A good update answers “where are we now?”',
-    'concise GitHub-flavored Markdown that is easy to scan in the Bots panel',
-    'Use short bullet lists when reporting multiple results',
-    'Do not produce a dense wall of prose',
-    'Keep URLs, commit hashes, commands, logs, and other proof in separate `evidence` entries',
-    'Continue with other independent items',
-    'Execute work directly by default',
-    'Never delegate simple exploration, listing, searching, data collection, status checks, read-only audits, research, triage, short diagnostics',
-    'A difficult task is not automatically a delegated task',
-    'When the activation message contains `<focus-task>`',
-    'After `bot_work_read`, consider whether the current activation needs an execution checklist',
-    'advancing two or more work items or recurring responsibilities',
-    'performing several distinct checks whose outcomes must all be reported',
-    'completing one substantial outcome through meaningful stages',
-    'Tasks represent meaningful checks or outcomes, not individual tool calls',
-    '`update_tasks` is the execution checklist for the current activation',
-    'Do not ask the user to approve work they already explicitly requested',
-    'ordinary completion steps inside the authorized scope as already approved',
-    'Never use approval merely to reconfirm an editorial direction, correction, implementation, or validation',
-    'The Bots panel is the durable overview',
+    'use `bot_pendencies_list` to read your Inbox',
+    'When the activation contains `<focus-task>`',
+    'Use `update_tasks` for a substantial multi-step execution checklist',
+    'The checklist tracks your work; the Inbox is not a task board',
+    'Execute bounded work directly',
+    'Continue with independent work when a pendency waits for the user',
+    'Never read or edit `inbox.json` or `diary.json` through filesystem tools',
+    'Create a pendency with `bot_pendency_create` only when',
+    'A `<bot-pendency-update>` message contains a user\'s reply',
+    'send the answer to the same pendency with `bot_pendency_message`',
+    'Use `bot_pendency_complete` when no user action remains',
+    'Write in the first person',
+    'Every entry must stand alone',
+    'Do not log routine checks with no change',
+    'Do not ask again for already authorized editing, implementation, testing, or validation',
+    'only an explicit Approve/Deny decision does',
   ]) {
     assert.ok(
       botInjected.includes(statusPolicyMarker),
       `Bot context is missing status policy: ${statusPolicyMarker}`,
+    );
+  }
+  assert.ok(!/\bUltra\b/i.test(baseInstructions), 'Base instructions must not depend on Ultra mode terminology');
+  for (const basePolicyMarker of [
+    'treat conversational wording such as “can you,” “I want to,” or “help me” as an instruction to do the work',
+    'complete all safe, authorized, independent work that can make the decision concrete and reviewable',
+    'name the exact file, quote the relevant rule, and briefly explain how it applies',
+    "By default, execute the user's requested task directly",
+    'retain the main implementation yourself',
+    'Use sub-agents for exploration, research, analysis, and tests',
+    'independent of your main task and can proceed in parallel without waiting for it',
+    'When several independent tasks exist, prefer multiple sub-agents with distinct, bounded assignments',
+    'Do not duplicate work assigned to sub-agents',
+    'inspect their progress and results, and guide them when needed',
+    'do not add tests for reversible, low-impact changes when those tests would only mirror the implementation',
+    'Default to concise paragraphs that each develop one main idea',
+  ]) {
+    assert.ok(
+      injected.includes(basePolicyMarker),
+      `Base context is missing Astra-aligned policy: ${basePolicyMarker}`,
     );
   }
   if (
@@ -651,6 +665,10 @@ try {
   for (const requirement of [
     '<work_mode mode="ultra" role="orchestrator">',
     'deliberately selected Ultra for complex work',
+    'Personally implement the main, most important, and most demanding work',
+    'do not act only as a coordinator or delegate the core implementation',
+    'bounded, less demanding supporting tasks',
+    'do not split the primary implementation among sub-agents merely to parallelize it',
     'must run a model-driven production, independent critique, correction, and fresh validation loop',
     'Do not limit the result to the literal wording of the request',
     'do not expand speculatively',

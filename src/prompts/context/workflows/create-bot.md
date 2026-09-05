@@ -20,7 +20,7 @@ Create the smallest bot configuration that can reliably own the requested respon
 
 ## Safety
 
-- `bots_delete` removes the bot conversation and requires the normal destructive-action approval path. Bot memory and work-state files remain on disk.
+- `bots_delete` removes the bot conversation and requires the normal destructive-action approval path. Bot memory, Inbox, and Activity files remain on disk.
 - Do not let one autonomous bot create, edit, delete, or activate other bots. Bot-management tools are for normal and Quick Chat coordination.
 - Do not claim a first activation succeeded unless `bots_activate` returned `started`.
 

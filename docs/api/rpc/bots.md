@@ -43,6 +43,8 @@ The stored bot record returned by `bots:create` and `bots:update`.
 | `createdAt` | ISO 8601 string | Creation time. |
 | `updatedAt` | ISO 8601 string | Last update time. |
 
+The **Overview** page opens on **Inbox** by default. This view aggregates `botDataByBot[bot.id].inbox` from the existing `bots:list` snapshot. Clients can join each entry with its bot's name and avatar, sort by `updatedAt` descending, and group by local date without a separate aggregation endpoint. Use the existing reply, completion, and approval operations for the selected bot and pendency; section-level Inbox errors must not hide healthy bots.
+
 ### `BotSnapshot`
 
 `bots:list` returns every [`BotRecord`](#botrecord) field plus:
@@ -53,22 +55,11 @@ The stored bot record returned by `bots:create` and `bots:update`.
 | `resolvedDataFolder` | string | Effective bot data folder. |
 | `conversation` | [`Conversation`](types.md#conversation) \| null | Bot's current main conversation. |
 | `running` | boolean | Whether the bot currently has an active run. |
-| `pendingApprovals` | number | Count of pending approval work items. |
+| `pendingApprovals` | number | Count of protected pending Inbox approvals. |
 | `snooze` | [`SnoozeState`](#snoozestate) | Per-bot snooze state. |
 | `scheduleState` | `"working"` \| `"disabled"` \| `"sleep"` \| `"active"` | Derived scheduler state. |
 | `activationWindowDescription` | string | Human-readable activation-window summary. |
-| `attentionCount` | number | Number of work items currently requiring attention. Present in list results. |
-
-### `WorkerRef`
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `id` | string | Worker conversation ID. |
-| `title` | string | Worker title. |
-| `status` | `"running"` \| `"needs-attention"` \| `"idle"` \| `"missing"` | Derived worker status. |
-| `running` | boolean | Whether the worker has an active run. |
-| `needsAttention` | boolean | Whether the worker requires user attention. |
-| `updatedAt` | ISO 8601 string \| null | Last known update time. |
+| `attentionCount` | number | Open pendencies whose last message is from the bot, or whose protected approval is still pending. Present in list results. |
 
 ### `Approval`
 
@@ -76,58 +67,60 @@ The stored bot record returned by `bots:create` and `bots:update`.
 | --- | --- | --- |
 | `id` | string | Approval ID. |
 | `botId` | string | Owning bot ID. |
-| `workItemId` | string | Owning work-item ID. |
+| `pendencyId` | string | Owning Inbox pendency ID. |
 | `kind` | `"work"` \| `"tool"` | Approval category. |
 | `context` | string | Context for the decision. |
 | `prompt` | string | User-facing approval prompt. |
-| `status` | `"pending"` | Approval state exposed in work state. |
+| `status` | `"pending"` | Protected approval state. |
 | `createdAt` | ISO 8601 string | Creation time. |
 | `updatedAt` | ISO 8601 string | Last update time. |
 | `toolName` | string | Tool name. Present only for tool approvals. |
 | `workspacePath` | string | Tool workspace. Present only for tool approvals. |
 | `input` | any JSON value | Tool input. Present only for tool approvals. |
 
-### `WorkItem`
+### `PendencyMessage`
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `id` | string | Work-item ID. |
-| `title` | string | Non-empty title. |
-| `objective` | string | Intended outcome. |
-| `state` | `"planned"` \| `"active"` \| `"waiting"` \| `"completed"` \| `"cancelled"` | Lifecycle state. |
-| `summary` | string | Current or final summary. |
-| `lastProgress` | string | Most recent progress description. |
-| `nextStep` | string | Next intended action. |
-| `attention` | object \| null | Required user attention: `{ type, summary }`, where `type` is `"approval"`, `"review"`, or `"answer"`. |
-| `blocker` | object \| null | Blocker details: `{ reason, waitingOn }`. |
-| `priority` | `"critical"` \| `"high"` \| `"normal"` \| `"low"` | Work priority. |
-| `workerThreadIds` | string[] | Associated worker conversation IDs. |
-| `evidence` | object[] | Evidence entries `{ type, value }`; `type` is `"file_reference"`, `"external_reference"`, or `"text"`. |
-| `approval` | [`Approval`](#approval) \| null | Pending approval associated with the item. |
+| `id` | string | Message ID. |
+| `role` | `"bot"` \| `"user"` | Sender. |
+| `content` | string | Message text. |
+| `attachments` | [`Attachment[]`](types.md#attachment) | Files, images, and inline content using the chat attachment format. |
+| `createdAt` | ISO 8601 string | Date and time the message was sent. |
+
+### `Pendency`
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | string | Pendency ID. |
+| `title` | string | Subject of the conversation. |
+| `status` | `"open"` \| `"completed"` | Conversation state. |
+| `messages` | [`PendencyMessage[]`](#pendencymessage) | Messages in send order. |
+| `approval` | [`Approval`](#approval) \| null | Protected approval that ordinary replies/completion cannot bypass. |
 | `createdAt` | ISO 8601 string | Creation time. |
-| `updatedAt` | ISO 8601 string | Last update time. |
-| `completedAt` | ISO 8601 string \| null | Completion time. |
-| `workers` | [`WorkerRef[]`](#workerref) | Resolved workers. Present in list results. |
+| `updatedAt` | ISO 8601 string | Last message or completion time. |
+| `completedAt` | ISO 8601 string \| null | Completion time; cleared by a new bot message. |
 
 ### `ActivityEntry`
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `id` | string | Activity ID. |
-| `workItemId` | string \| null | Related work-item ID. |
-| `type` | string | One of `created`, `progress`, `discovery`, `decision`, `delegated`, `blocked`, `attention`, `completed`, `cancelled`, `failure`, or `approval`. |
-| `summary` | string | Short activity description. |
-| `details` | string | Additional details. |
+| `title` | string | First-person account of an important result. |
+| `description` | string | Self-contained description of the subject, work, and result. |
+| `category` | string | One of `progress`, `discovery`, `decision`, `completed`, or `failure`. |
 | `createdAt` | ISO 8601 string | Creation time. |
 
-### `WorkState`
+### `BotData`
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `items` | [`WorkItem[]`](#workitem) | Tracked bot work. |
-| `activity` | [`ActivityEntry[]`](#activityentry) | Activity timeline. |
-| `untrackedWorkers` | [`WorkerRef[]`](#workerref) | Bot workers not associated with a work item. |
-| `error` | string \| null | Work-state loading or parsing error. |
+| `inbox` | [`Pendency[]`](#pendency) | User-facing conversations, persisted in `inbox.json`. |
+| `activity` | [`ActivityEntry[]`](#activityentry) | Explicit diary entries, persisted in `diary.json`. |
+| `errors` | `{ inbox: string \| null, activity: string \| null }` | Independent read/validation errors for each section. A failed section returns `[]`; the healthy section remains available. |
+| `error` | string \| null | Aggregated load error (`Inbox: ...; Activity: ...`), or `null` when both sections load successfully. |
+
+Missing files represent empty sections with no error. Legacy `work-items.json` and `activity.json` are never read or imported and remain untouched. Invalid new files produce section errors, not successful empty results. Direct reads and mutations still fail on invalid data rather than replacing it.
 
 ## `bots:list`
 
@@ -140,7 +133,7 @@ Omit `params`.
 | Field | Type | Description |
 | --- | --- | --- |
 | `bots` | [`BotSnapshot[]`](#botsnapshot) | Configured bots with derived runtime and schedule state. |
-| `workStateByBot` | `Record<string, WorkState>` | Work state keyed by bot ID. |
+| `botDataByBot` | `Record<string, BotData>` | Inbox and Activity keyed by bot ID. |
 | `schedulerSnooze` | [`SnoozeState`](#snoozestate) | Global scheduler snooze state. |
 
 The method returns an empty collection/state rather than throwing when no bots exist.
@@ -237,7 +230,7 @@ Partially updates a bot. Changes to `workingFolder`, `model`, or `name` are sync
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | string | Yes | Bot ID. |
-| `changes` | object | Yes | Partial object using `bots:create` configuration fields. It may also contain `status` and `enabled`. |
+| `changes` | object | Yes | Partial object using `bots:create` configuration fields. It may also contain `status`, `enabled`, and `workQueueIndex`, the zero-based queue item to run next. |
 
 ### Result
 
@@ -246,6 +239,7 @@ Updated [`BotRecord`](#botrecord).
 ### Errors
 
 - `Bot not found.`
+- `Work queue index is out of range.` when `workQueueIndex` does not identify an item in the effective queue.
 
 ## `bots:delete`
 
@@ -321,22 +315,22 @@ Requests immediate activation, bypassing enabled, schedule-window, period, idle,
 
 ## `bots:resolve-approval`
 
-Resolves a pending bot work approval.
+Resolves a protected Inbox approval and records the explicit decision as a user message.
 
 ### Params
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `approvalId` | string | Yes | Approval ID. |
-| `decision` | any JSON value | No | Only the literal boolean `false` denies. Every other value, including omitted, `null`, and `0`, approves. Clients should send an explicit boolean. |
+| `decision` | boolean | Yes | `true` approves; `false` denies. Omitted and non-boolean values are rejected. |
 
 ### Result
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `resolved` | `true` | Confirms persistence of the decision. |
-| `delivered` | boolean | Whether the decision was delivered to an active waiting run. |
-| `workItemId` | string | Resolved work-item ID. |
+| `delivered` | boolean | Whether the decision was submitted to the bot's main thread. |
+| `pendencyId` | string | Resolved pendency ID. |
 
 ### Errors
 
@@ -344,29 +338,44 @@ Resolves a pending bot work approval.
 - `Bot not found.`
 - `Approval ownership mismatch.`
 
-## `bots:update-work-item`
+## `bots:reply-pendency`
 
-Changes the lifecycle state of one work item.
+Saves a user message in a pendency and sends a `<bot-pendency-update>` to the bot's main thread, including the pendency ID, text, and attachments. The update enters the priority queue if the bot is already working; otherwise it starts a continuation.
 
 ### Params
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `botId` | stringifiable value | Yes | Bot ID; converted with `String()`. |
-| `workItemId` | stringifiable value | Yes | Work-item ID; converted with `String()`. |
-| `state` | `"planned"` \| `"active"` \| `"waiting"` \| `"completed"` \| `"cancelled"` | Yes | New state. |
-
-When completing an item with an empty summary, Avi inserts `"Marked as completed by the user."` and clears its attention, blocker, and next-step fields.
+| `botId` | string | Yes | Bot ID. |
+| `pendencyId` | string | Yes | Existing pendency ID. |
+| `content` | string | Conditional | Reply text; may be empty when attachments are present. |
+| `attachments` | [`Attachment[]`](types.md#attachment) | No | Chat-format attachments. Defaults to `[]`. |
 
 ### Result
 
-Updated [`WorkItem`](#workitem).
+| Field | Type | Description |
+| --- | --- | --- |
+| `item` | [`Pendency`](#pendency) | Updated conversation, including the saved reply. |
+| `delivered` | boolean | Whether the update was submitted to the main thread. |
+| `error` | string | Optional delivery failure detail. |
 
-### Errors
+`delivered: false` does not undo the saved reply. Clients must show that distinction and must not blindly resend the message. An ordinary reply never grants a protected approval.
 
-- `Bot not found.`
-- `Invalid state: <value>`
-- `Work item not found: <id>`
-- `Resolve the pending approval before changing the status.`
+## `bots:complete-pendency`
+
+Closes a pendency with no remaining action. A protected approval must first be explicitly resolved.
+
+### Params
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `botId` | string | Yes | Bot ID. |
+| `pendencyId` | string | Yes | Existing pendency ID. |
+
+### Result
+
+Updated [`Pendency`](#pendency) with `status: "completed"` and a completion timestamp.
+
+The former `bots:update-work-item` operation has been removed. Clients must also replace `workStateByBot` and old work-item types with `botDataByBot` and the Inbox types above.
 
 Bot scheduler broadcasts such as `bots:updated`, `bots:snooze`, and `bots:work-state` are internal Electron events and are not remote RPC notifications.

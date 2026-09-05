@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { homedir } from 'node:os';
@@ -30,6 +31,10 @@ const REMOTE_TOOL_NAMES = new Set([
 ]);
 const GLOBAL_RPC_METHODS = new Set([
   'rpc:discover',
+  'remote:state',
+  'app:update-state',
+  'app:check-for-updates',
+  'app:install-update',
   'models:list',
   'bots:list',
   'bots:snooze',
@@ -41,7 +46,8 @@ const GLOBAL_RPC_METHODS = new Set([
   'bots:full-reset',
   'bots:activate',
   'bots:resolve-approval',
-  'bots:update-work-item',
+  'bots:reply-pendency',
+  'bots:complete-pendency',
   'conversations:list',
   'conversations:create',
   'conversations:update',
@@ -53,6 +59,8 @@ const GLOBAL_RPC_METHODS = new Set([
   'folders:list',
   'folders:threads',
   'folders:save-color',
+  'workspaces:get',
+  'workspaces:save',
   'side-chats:list',
   'side-chats:create',
   'side-chats:close',
@@ -85,6 +93,7 @@ const CONVERSATION_RPC_METHODS = new Set([
   'chat:expand-prompt',
   'chat:resolve-approval',
   'chat:answer-question',
+  'chat:question-activity',
   'chat:context-usage',
   'chat:compress-quick',
   'chat:compress',
@@ -310,6 +319,42 @@ export class RemoteMcpServer {
     return match ? { type: 'conversation', conversationId: decodeURIComponent(match[1]) } : null;
   }
 
+  createRelaySocket(path) {
+    const route = this.resolveWebSocketRoute(path);
+    if (!route) throw new Error('Invalid relay RPC route.');
+    const client = new EventEmitter();
+    const server = new EventEmitter();
+    for (const [source, target] of [[client, server], [server, client]]) {
+      source.readyState = WebSocket.CONNECTING;
+      source.bufferedAmount = 0;
+      source.send = (data) => {
+        if (source.readyState !== WebSocket.OPEN || target.readyState !== WebSocket.OPEN) return;
+        if (Buffer.byteLength(data) > MAX_WEBSOCKET_PAYLOAD_BYTES) {
+          source.terminate();
+          return;
+        }
+        target.emit('message', data, typeof data !== 'string');
+      };
+      source.terminate = () => {
+        if (source.readyState === WebSocket.CLOSED) return;
+        source.readyState = WebSocket.CLOSED;
+        target.readyState = WebSocket.CLOSED;
+        source.emit('close');
+        target.emit('close');
+      };
+    }
+    queueMicrotask(() => {
+      if (client.readyState === WebSocket.CLOSED) return;
+      client.readyState = WebSocket.OPEN;
+      server.readyState = WebSocket.OPEN;
+      client.emit('open');
+      if (client.readyState !== WebSocket.OPEN) return;
+      if (route.type === 'global') this.attachGlobalSocket(server);
+      else this.attachConversationSocket(server, route.conversationId);
+    });
+    return client;
+  }
+
   attachGlobalSocket(socket) {
     this.attachRpcSocket(socket, {
       scope: 'global',
@@ -457,7 +502,7 @@ export class RemoteMcpServer {
       scope,
       methods: [...methods].sort(),
       capabilities: scope === 'global'
-        ? ['batch', 'notifications', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags']
+        ? ['batch', 'notifications', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags', 'app-updates']
         : [
             'batch',
             'notifications',

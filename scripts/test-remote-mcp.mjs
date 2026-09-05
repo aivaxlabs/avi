@@ -104,6 +104,9 @@ const server = new RemoteMcpServer({
   ],
   invokeApplicationRequest: async (channel, payload) => {
     rpcOperations.push({ channel, payload });
+    if (['app:update-state', 'app:check-for-updates', 'app:install-update'].includes(channel)) {
+      return { status: channel === 'app:install-update' ? 'installing' : 'available', available: true };
+    }
     if (channel === 'conversations:list') return [{ id: 'rpc-thread' }];
     if (channel === 'conversations:messages') {
       const messages = [1, 2, 3].map((number) => ({ id: `message-${number}`, conversationId: 'rpc-thread' }));
@@ -408,16 +411,18 @@ try {
   });
   assert.equal(globalDiscovery.result.scope, 'global');
   assert.deepEqual(globalDiscovery.result.capabilities, [
-    'batch', 'notifications', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags',
+    'batch', 'notifications', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags', 'app-updates',
   ]);
   assert.deepEqual(globalDiscovery.result.methods, [
-    'bots:activate', 'bots:clear-thread', 'bots:create', 'bots:delete', 'bots:full-reset',
-    'bots:list', 'bots:resolve-approval', 'bots:snooze', 'bots:snooze-one', 'bots:update',
-    'bots:update-work-item', 'conversations:archive', 'conversations:create', 'conversations:delete',
+    'app:check-for-updates', 'app:install-update', 'app:update-state',
+    'bots:activate', 'bots:clear-thread', 'bots:complete-pendency', 'bots:create', 'bots:delete', 'bots:full-reset',
+    'bots:list', 'bots:reply-pendency', 'bots:resolve-approval', 'bots:snooze', 'bots:snooze-one', 'bots:update',
+    'conversations:archive', 'conversations:create', 'conversations:delete',
     'conversations:fork', 'conversations:list', 'conversations:search', 'conversations:set-tags',
     'conversations:update', 'folders:list', 'folders:save-color', 'folders:threads', 'models:list',
-    'rpc:discover', 'rubber-ducks:list', 'side-chats:close', 'side-chats:create', 'side-chats:list',
+    'remote:state', 'rpc:discover', 'rubber-ducks:list', 'side-chats:close', 'side-chats:create', 'side-chats:list',
     'sidebar:mark-seen', 'sidebar:status', 'subagents:list', 'tags:list', 'tags:save',
+    'workspaces:get', 'workspaces:save',
   ]);
   globalSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'models:list' }));
   assert.deepEqual((await nextSocketMessage(globalSocket)).result, {
@@ -765,6 +770,15 @@ try {
     },
     { channel: 'chat:stop', payload: 'rpc-thread' },
   ]);
+  for (const method of ['app:update-state', 'app:check-for-updates', 'app:install-update']) {
+    globalSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 90, method }));
+    assert.deepEqual((await nextSocketMessage(globalSocket)).result, {
+      status: method === 'app:install-update' ? 'installing' : 'available', available: true,
+    });
+    assert.deepEqual(rpcOperations.at(-1), { channel: method, payload: undefined });
+    streamSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 91, method }));
+    assert.equal((await nextSocketMessage(streamSocket)).error.code, -32601);
+  }
   globalSocket.close();
   streamSocket.close();
 

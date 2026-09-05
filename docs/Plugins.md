@@ -52,6 +52,8 @@ export default ({ definePlugin }) => definePlugin({
 
 See [Core API — Plugin API v2](./api/core/overview.md) for the complete runtime contract.
 
+Bot integrations use `bot.inbox.list/reply/complete` and `bot.activity.list`. These replace the former `bot.workState.get()` and work-item types; older bot data is not migrated. This bot-domain change is breaking for existing plugins using work state, while the runtime still accepts Plugin API v2. See [Bots](./api/core/bots.md) for capabilities, messages, attachments, and protected approvals.
+
 ## Included plugins
 
 ### Child Processes

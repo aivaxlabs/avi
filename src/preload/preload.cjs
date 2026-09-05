@@ -62,6 +62,10 @@ contextBridge.exposeInMainWorld('chatApp', {
   },
   app: {
     state: () => invoke('app:state'),
+    updateState: () => invoke('app:update-state'),
+    checkForUpdates: () => invoke('app:check-for-updates'),
+    installUpdate: () => invoke('app:install-update'),
+    onUpdate: (callback) => subscribe('app:update', callback),
     openExternal: (url) => invoke('app:open-external', url),
     favicon: (url) => invoke('app:favicon', url),
     onNavigate: (callback) => subscribe('app:navigate', callback),
@@ -71,6 +75,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     state: (sessionId) => invoke('quick-chat:state', sessionId),
     send: (payload) => invoke('quick-chat:send', payload),
     stop: (sessionId) => invoke('quick-chat:stop', sessionId),
+    questionActivity: (payload) => invoke('quick-chat:question-activity', payload),
     answerQuestion: (payload) => invoke('quick-chat:answer-question', payload),
     onEvent: (callback) => subscribe('quick-chat:event', callback),
   },
@@ -161,7 +166,8 @@ contextBridge.exposeInMainWorld('chatApp', {
     fullReset: (botId) => invoke('bots:full-reset', botId),
     activate: (botId) => invoke('bots:activate', botId),
     resolveApproval: (payload) => invoke('bots:resolve-approval', payload),
-    updateWorkItem: (payload) => invoke('bots:update-work-item', payload),
+    replyPendency: (payload) => invoke('bots:reply-pendency', payload),
+    completePendency: (payload) => invoke('bots:complete-pendency', payload),
     chooseFolder: () => invoke('bots:choose-folder'),
   },
   providers: {
@@ -231,6 +237,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     retry: (payload) => invoke('chat:retry', payload),
     expandPrompt: (payload) => invoke('chat:expand-prompt', payload),
     resolveApproval: (payload) => invoke('chat:resolve-approval', payload),
+    questionActivity: (payload) => invoke('chat:question-activity', payload),
     answerQuestion: (payload) => invoke('chat:answer-question', payload),
     contextUsage: (payload) => invoke('chat:context-usage', payload),
     compressQuick: (payload) => invoke('chat:compress-quick', payload),
@@ -275,6 +282,10 @@ contextBridge.exposeInMainWorld('chatApp', {
   },
   projects: {
     select: (payload) => invoke('projects:select', payload),
+  },
+  workspaces: {
+    get: (payload) => invoke('workspaces:get', payload),
+    save: (payload) => invoke('workspaces:save', payload),
   },
   context: {
     folders: () => invoke('context:folders'),

@@ -80,8 +80,8 @@ try {
   for (const dataFolder of [firstDataFolder, secondDataFolder]) {
     assert.equal(await readFile(join(dataFolder, '.gitignore'), 'utf8'), '*\n');
     assert.equal(await readFile(join(dataFolder, 'MEMORY.md'), 'utf8'), '# Existing memory\n');
-    assert.deepEqual(JSON.parse(await readFile(join(dataFolder, 'work-items.json'), 'utf8')), []);
-    assert.deepEqual(JSON.parse(await readFile(join(dataFolder, 'activity.json'), 'utf8')), []);
+    assert.deepEqual(JSON.parse(await readFile(join(dataFolder, 'inbox.json'), 'utf8')), []);
+    assert.deepEqual(JSON.parse(await readFile(join(dataFolder, 'diary.json'), 'utf8')), []);
     assert.equal(existsSync(join(dataFolder, 'backlog.json')), false);
   }
 
@@ -98,19 +98,19 @@ try {
   const firstRuntime = manager.getBotRuntimeContext(firstConversation.id);
   assert.equal(firstRuntime.workingFolder, workingFolder);
   assert.equal(firstRuntime.dataFolder, firstDataFolder);
-  const createWork = firstRuntime.tools.find((tool) => tool.name === 'bot_work_create');
-  assert.ok(createWork);
-  await createWork.execute({
+  const createPendency = firstRuntime.tools.find((tool) => tool.name === 'bot_pendency_create');
+  assert.ok(createPendency);
+  await createPendency.execute({
     title: 'Stored in the isolated folder',
-    objective: 'Prove work state remains isolated per bot.',
+    content: 'Prove work state remains isolated per bot.',
   });
-  assert.equal(existsSync(join(workingFolder, 'work-items.json')), false);
+  assert.equal(existsSync(join(workingFolder, 'inbox.json')), false);
   assert.equal(
-    JSON.parse(await readFile(join(firstDataFolder, 'work-items.json'), 'utf8'))[0].title,
+    JSON.parse(await readFile(join(firstDataFolder, 'inbox.json'), 'utf8'))[0].title,
     'Stored in the isolated folder',
   );
   assert.equal(
-    JSON.parse(await readFile(join(secondDataFolder, 'work-items.json'), 'utf8')).length,
+    JSON.parse(await readFile(join(secondDataFolder, 'inbox.json'), 'utf8')).length,
     0,
   );
 
@@ -121,6 +121,23 @@ try {
 
   let activationRequest = null;
   const stoppedConversationIds = [];
+  const priorUserMessage = insertMessage({
+    conversationId: firstConversation.id,
+    role: 'user',
+    content: 'Work completed before this activation.',
+    status: 'completed',
+  });
+  const priorAssistantMessage = insertMessage({
+    conversationId: firstConversation.id,
+    role: 'assistant',
+    content: 'Prior activation outcome.',
+    status: 'completed',
+  });
+  database.updateConversation(firstConversation.id, {
+    checkpointMessageId: priorUserMessage.id,
+    contextCheckpoint: 'STALE_COMPACTION_SUMMARY',
+    contextTokens: 12345,
+  });
   manager.attachChatRunner({
     runs: new Map(),
     stop: (conversationId) => stoppedConversationIds.push(conversationId),
@@ -131,6 +148,21 @@ try {
   });
   assert.equal(await manager.activateBot(firstBot.id, { trigger: 'manual' }), true);
   assert.equal(activationRequest.project.path, workingFolder);
+  assert.equal(getConversation(firstConversation.id).contextCheckpoint, '');
+  assert.equal(getConversation(firstConversation.id).contextTokens, 0);
+  assert.ok(!JSON.stringify(database.toModelMessages(firstConversation.id)).includes('STALE_COMPACTION_SUMMARY'));
+  assert.equal(
+    getConversation(firstConversation.id).checkpointMessageId,
+    priorAssistantMessage.id,
+    'bot activation marks the previous history as the checkpoint boundary',
+  );
+  assert.ok(
+    !database.toModelMessages(firstConversation.id).some((message) => (
+      message.content === priorUserMessage.content
+      || message.content === priorAssistantMessage.content
+    )),
+    'bot activation checkpoint excludes earlier history from model context',
+  );
 
   insertMessage({ conversationId: firstConversation.id, role: 'user', content: 'Reset me.' });
   replaceTasks(firstConversation.id, [{ title: 'Reset tracking', done: false }]);

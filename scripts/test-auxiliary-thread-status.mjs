@@ -168,5 +168,27 @@ assert.match(
   /\[\.\.\.sideChats, \.\.\.visibleSubagents\][\s\S]*?auxiliaryMessageStates/,
   'Side chats and subagents should share the minimal operational summary path.',
 );
+assert.match(appSource, /hydrateLiveRuns\(nextChatState\)/);
+assert.match(appSource, /hydrateLiveRuns\(completedReload\)/);
+const hydrateStart = appSource.indexOf('  function hydrateLiveRuns(snapshot) {');
+const hydrateEnd = appSource.indexOf('\n  const [completedUnseen', hydrateStart);
+const liveRunEventsRef = { current: {} };
+let running;
+let startedAt;
+const hydrate = new Function('setRunning', 'setRunStartedAt', 'liveRunEventsRef',
+  `${appSource.slice(hydrateStart, hydrateEnd)}; return hydrateLiveRuns;`)(
+  (update) => { running = update(); },
+  (update) => { startedAt = update(); },
+  liveRunEventsRef,
+);
+hydrate({ conversationIds: ['bot'], runsStartedAt: { bot: 10 } });
+assert.deepEqual(running, { bot: true }, 'already-active bot must be running after hydration');
+liveRunEventsRef.current = { bot: { running: false }, newRun: { running: true, startedAt: 20 } };
+hydrate({ conversationIds: ['bot'], runsStartedAt: { bot: 10 } });
+assert.deepEqual(running, { bot: false, newRun: true }, 'events must win over a delayed snapshot');
+assert.deepEqual(startedAt, { newRun: 20 });
+const messageEvent = appSource.slice(appSource.indexOf("if (event.type === 'message')"), appSource.indexOf("} else if (event.type === 'block-state')"));
+assert.doesNotMatch(messageEvent, /setRunning/, 'persisted message status must not change live execution');
+assert.match(appSource, /liveRunEventsRef\.current\[event\.conversationId\] =/);
 
 console.log('Auxiliary thread operational status stability tests passed.');

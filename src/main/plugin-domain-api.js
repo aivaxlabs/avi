@@ -292,7 +292,7 @@ function createThreadHandle({ runtime, record, threadId, storage }) {
       runtime.require(record, 'threads.create');
       const forked = forkConversation(threadId, { throughMessageId: options.throughMessageId ?? null });
       if (!forked) throw new AviError('CONFLICT', 'Thread could not be forked.');
-      return createThreadHandle({ runtime, record, threadId: forked.id, storage });
+      return createThreadHandle({ runtime, record, threadId: forked.conversation.id, storage });
     },
     async archive() {
       runtime.require(record, 'threads.delete');
@@ -378,11 +378,34 @@ function createBotHandle({ runtime, record, botId, storage }) {
       runtime.require(record, 'bots.manage');
       return runtime.services.botManager.deleteBotById(botId);
     },
-    workState: Object.freeze({
-      async get() {
+    inbox: Object.freeze({
+      async list() {
         runtime.require(record, 'bots.readState');
-        const states = await runtime.services.botManager.listWorkStateByBot();
-        return clonePluginValue(states[botId] ?? { items: [], activity: [], untrackedWorkers: [] });
+        read();
+        const states = await runtime.services.botManager.listBotDataByBot();
+        if (states[botId]?.error) throw new AviError('CONFLICT', states[botId].error);
+        return clonePluginValue(states[botId]?.inbox ?? []);
+      },
+      async reply(pendencyId, message) {
+        runtime.require(record, 'bots.manage');
+        read();
+        return clonePluginValue(await runtime.services.botManager.replyToPendency(
+          botId, pendencyId, clonePluginValue(message),
+        ));
+      },
+      async complete(pendencyId) {
+        runtime.require(record, 'bots.manage');
+        read();
+        return clonePluginValue(await runtime.services.botManager.completePendency(botId, pendencyId));
+      },
+    }),
+    activity: Object.freeze({
+      async list() {
+        runtime.require(record, 'bots.readState');
+        read();
+        const states = await runtime.services.botManager.listBotDataByBot();
+        if (states[botId]?.error) throw new AviError('CONFLICT', states[botId].error);
+        return clonePluginValue(states[botId]?.activity ?? []);
       },
     }),
     approvals: Object.freeze({

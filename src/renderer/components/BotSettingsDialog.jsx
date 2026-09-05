@@ -190,7 +190,7 @@ export function BotSettingsDialog({
   }
 
   function clearThread() {
-    if (!window.confirm('Clear this bot conversation? Messages are removed. Memory, work state, and approvals are kept.')) return;
+    if (!window.confirm('Clear this bot conversation? Main-thread messages are removed. Memory, Inbox, Activity, and approvals are kept.')) return;
     onClearThread?.(bot?.id);
   }
 
@@ -198,7 +198,7 @@ export function BotSettingsDialog({
     const fileScope = bot?.workingFolder
       ? 'Only its isolated .avi-bots data folder will be deleted; project files stay untouched.'
       : 'Its dedicated working folder and all files inside it will be deleted.';
-    if (!window.confirm(`Full reset "${bot?.name ?? 'this bot'}"? Conversation history, work threads, tasks, goals, memory, activity, work items, approvals, and bot-owned files are permanently deleted. ${fileScope} All bot and MCP settings are kept.`)) return;
+    if (!window.confirm(`Full reset "${bot?.name ?? 'this bot'}"? Conversation history, work threads, tasks, goals, memory, Activity, Inbox, approvals, and bot-owned files are permanently deleted. ${fileScope} All bot and MCP settings are kept.`)) return;
     onFullReset?.(bot?.id);
   }
 
@@ -771,7 +771,7 @@ export function BotSettingsDialog({
                 <section className="bot-settings-section bot-settings-danger-zone">
                   <header>
                     <h3>What can be reset?</h3>
-                    <p>Clear conversation history without deleting memory, work state, or approvals.</p>
+                    <p>Clear main-thread history without deleting memory, Inbox, Activity, or approvals.</p>
                   </header>
                   <div className="bot-settings-danger-action">
                     <span>

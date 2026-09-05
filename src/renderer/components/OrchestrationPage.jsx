@@ -9,10 +9,14 @@ import {
   Clock3,
   FolderClock,
   Layers3,
+  Inbox,
+  Paperclip,
   RefreshCw,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatPrice } from '../lib/format.js';
+import Avatar from 'boring-avatars';
+import { hasOpenBotUserAction } from '../../shared/bot-work-items.js';
 
 const compactNumber = new Intl.NumberFormat('en-US', {
   notation: 'compact',
@@ -66,11 +70,25 @@ const toLocalInput = (date) => {
   return local.toISOString().slice(0, 16);
 };
 
-export function OrchestrationPage({ models, onOpenThread }) {
+export function OrchestrationPage({ models, onOpenThread, bots = [], botDataByBot = {}, botsLoading = false, onRefreshBots, onOpenBotPendency }) {
   const initialFrom = new Date();
   initialFrom.setDate(1);
   initialFrom.setHours(0, 0, 0, 0);
-  const [activeTab, setActiveTab] = useState('tasks');
+  const [activeTab, setActiveTab] = useState('inbox');
+  const [inboxQuery, setInboxQuery] = useState('');
+  const [inboxFilter, setInboxFilter] = useState('all');
+  const inboxRows = bots.flatMap((bot) => (botDataByBot[bot.id]?.inbox ?? []).map((pendency) => ({ bot, pendency })))
+    .sort((left, right) => new Date(right.pendency.updatedAt) - new Date(left.pendency.updatedAt));
+  const query = inboxQuery.trim().toLowerCase();
+  const filteredInbox = inboxRows.filter(({ bot, pendency }) => (
+    (inboxFilter === 'all' || (inboxFilter === 'needs-user' ? hasOpenBotUserAction(pendency) : pendency.status === inboxFilter))
+    && (!query || `${bot.name} ${pendency.title} ${pendency.messages.map((message) => message.content).join(' ')}`.toLowerCase().includes(query))
+  ));
+  const inboxErrors = bots.flatMap((bot) => {
+    const state = botDataByBot[bot.id];
+    const message = state?.errors ? state.errors.inbox : state?.error;
+    return message ? [{ bot, message }] : [];
+  });
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -367,7 +385,7 @@ export function OrchestrationPage({ models, onOpenThread }) {
       <header className="orchestration-header" ref={rangePickerRef}>
         <div>
           <span className="orchestration-eyebrow">Operational overview</span>
-          <h1>Orchestration</h1>
+          <h1>Overview</h1>
           <p>Track thread activity and consumption over time.</p>
         </div>
         {activeTab === 'models' && (
@@ -447,15 +465,15 @@ export function OrchestrationPage({ models, onOpenThread }) {
         <button
           className="orchestration-refresh"
           type="button"
-          disabled={loading}
-          onClick={() => loadOverview()}
+          disabled={activeTab === 'inbox' ? botsLoading : loading}
+          onClick={() => activeTab === 'inbox' ? onRefreshBots?.() : loadOverview()}
         >
-          <RefreshCw size={15} className={loading ? 'spinning' : undefined} />
+          <RefreshCw size={15} className={(activeTab === 'inbox' ? botsLoading : loading) ? 'spinning' : undefined} />
           Refresh
         </button>
       </header>
 
-      <div className="orchestration-tabs" role="tablist" aria-label="Orchestration views">
+      <div className="orchestration-tabs" role="tablist" aria-label="Overview views">
         <button
           type="button"
           role="tab"
@@ -475,9 +493,50 @@ export function OrchestrationPage({ models, onOpenThread }) {
         >
           Models summary
         </button>
+        <button type="button" role="tab" aria-selected={activeTab === 'inbox'} onClick={() => { setActiveTab('inbox'); setRangeOpen(false); }}>
+          Inbox · {inboxRows.filter(({ pendency }) => hasOpenBotUserAction(pendency)).length}
+        </button>
       </div>
 
-      {error ? (
+      {activeTab === 'inbox' ? (
+        <section className="orchestration-inbox" aria-label="All bots Inbox">
+          <div className="orchestration-inbox-filters">
+            <label><span>Search Inbox</span><input type="search" placeholder="Search bots and messages" value={inboxQuery} onChange={(event) => setInboxQuery(event.target.value)} /></label>
+            <label><span>Status</span><select value={inboxFilter} onChange={(event) => setInboxFilter(event.target.value)}><option value="all">All messages</option><option value="needs-user">Needs you</option><option value="open">Open</option><option value="completed">Completed</option></select></label>
+          </div>
+          {inboxErrors.map(({ bot, message }) => (
+            <div className="orchestration-error" role="alert" key={bot.id}>Couldn't load Inbox for {bot.name}.<details><summary>Technical details</summary>{message}</details></div>
+          ))}
+          {botsLoading && <p role="status">Loading bots...</p>}
+          <div className="orchestration-inbox-list">
+            {filteredInbox.map(({ bot, pendency }, index) => {
+              const updated = new Date(pendency.updatedAt);
+              const day = updated.toLocaleDateString();
+              const previousDay = index ? new Date(filteredInbox[index - 1].pendency.updatedAt).toLocaleDateString() : null;
+              const today = new Date();
+              const yesterday = new Date();
+              yesterday.setDate(yesterday.getDate() - 1);
+              const latest = pendency.messages.at(-1);
+              const needsUser = hasOpenBotUserAction(pendency);
+              const status = pendency.status === 'completed' ? 'Completed' : needsUser ? 'Needs you' : 'Waiting for bot';
+              return (
+                <div key={`${bot.id}:${pendency.id}`}>
+                  {day !== previousDay && <h2>{day === today.toLocaleDateString() ? 'Today' : day === yesterday.toLocaleDateString() ? 'Yesterday' : updated.toLocaleDateString(undefined, { dateStyle: 'long' })}</h2>}
+                  <button type="button" className={`orchestration-inbox-row${needsUser ? ' needs-user' : ''}`} onClick={() => onOpenBotPendency(bot.id, pendency.id)}>
+                    <span className="orchestration-inbox-dot" aria-label={status} title={status} />
+                    <Avatar size={30} name={bot.iconSeed || bot.id} variant="beam" />
+                    <strong className="orchestration-inbox-sender">{bot.name}</strong>
+                    <span className="orchestration-inbox-copy"><strong>{pendency.title}</strong><span>{latest?.role === 'user' ? 'You: ' : ''}{latest?.content || 'Attachment'}</span></span>
+                    {pendency.messages.some((message) => message.attachments?.length) && <Paperclip size={14} aria-label="Has attachments" />}
+                    <time dateTime={pendency.updatedAt} title={`${updated.toLocaleString()} · ${status}`}>{day === today.toLocaleDateString() ? updated.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : dateLabel.format(updated)}</time>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {!botsLoading && !filteredInbox.length && <EmptyState icon={<Inbox size={20} />} text={inboxRows.length ? 'No messages match your search.' : inboxErrors.length ? 'No messages available from the other bots.' : 'Your Inbox is empty. Messages from all bots will appear here.'} />}
+        </section>
+      ) : error ? (
         <section className="orchestration-error" role="alert">
           Couldn't load the dashboard. {error}
         </section>

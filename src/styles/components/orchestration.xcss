@@ -8,6 +8,100 @@
   scrollbar-width: thin;
   scrollbar-color: var(--text-4) transparent;
 
+  .orchestration-inbox {
+    max-width: 1180px;
+    margin: 0 auto;
+
+    > .orchestration-inbox-filters {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+      > label {
+        display: grid;
+        gap: 6px;
+        color: var(--text-3);
+        font-size: .9rem;
+        &:first-child { flex: 1; min-width: 180px; }
+        > input, > select {
+          min-height: 34px;
+          padding: 6px 10px;
+          border: 1px solid var(--border-color);
+          border-radius: 6px;
+          background: var(--background-2);
+          color: var(--text-1);
+        }
+      }
+    }
+
+    .orchestration-inbox-list > div > h2 {
+      margin: 24px 0 10px 12px;
+      color: var(--text-3);
+      font-size: .9rem;
+      font-weight: 500;
+    }
+
+    .orchestration-inbox-row {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      min-width: 0;
+      gap: 12px;
+      padding: 12px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-2);
+      text-align: left;
+      cursor: pointer;
+      &:hover { background: var(--background-2); }
+      &:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
+      > svg { flex-shrink: 0; }
+      > .orchestration-inbox-dot {
+        width: 6px;
+        height: 6px;
+        flex-shrink: 0;
+        border-radius: 50%;
+      }
+      &.needs-user > .orchestration-inbox-dot { background: var(--primary-color); }
+      > .orchestration-inbox-sender {
+        width: 160px;
+        flex-shrink: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      > .orchestration-inbox-copy {
+        display: flex;
+        gap: 10px;
+        min-width: 0;
+        flex: 1;
+        > strong, > span {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        > strong { max-width: 55%; color: var(--text-1); font-weight: 500; }
+        > span { flex: 1; color: var(--text-3); }
+      }
+      &.needs-user > .orchestration-inbox-copy > strong { font-weight: 650; }
+      > time { margin-left: auto; flex-shrink: 0; color: var(--text-3); font-size: .9rem; }
+      @media (max-width: 800px) {
+        gap: 8px;
+        flex-wrap: wrap;
+        > .orchestration-inbox-sender { width: auto; flex: 1; }
+        > .orchestration-inbox-copy {
+          order: 1;
+          flex-basis: 100%;
+          padding-left: 44px;
+          flex-direction: column;
+          gap: 4px;
+          > strong { max-width: 100%; }
+        }
+      }
+    }
+  }
+
   .orchestration-header {
     max-width: 1180px;
     position: relative;
@@ -20,7 +114,7 @@
 
   .orchestration-eyebrow {
     color: var(--text-3);
-    font-size: 12px;
+    font-size: .9rem;
     font-weight: 600;
     letter-spacing: .08em;
     text-transform: uppercase;
@@ -29,7 +123,7 @@
   h1 {
     margin: 6px 0 4px;
     color: var(--text-1);
-    font-size: clamp(28px, 3.2vw, 40px);
+    font-size: clamp(2rem, 3.2vw, 2.85rem);
     font-weight: 620;
     letter-spacing: -.035em;
   }
@@ -37,7 +131,7 @@
   .orchestration-header p {
     margin: 0;
     color: var(--text-3);
-    font-size: 14px;
+    font-size: 1rem;
   }
 
   .orchestration-range-trigger,
@@ -108,7 +202,7 @@
 
     label > span {
       color: var(--text-3);
-      font-size: 11px;
+      font-size: .9rem;
       font-weight: 600;
     }
 
@@ -123,7 +217,7 @@
       border: 1px solid var(--border-color);
       border-radius: 7px;
       font: inherit;
-      font-size: 12px;
+      font-size: .9rem;
 
       &:focus-visible {
         outline: 2px solid var(--text-3);
@@ -145,7 +239,7 @@
       background: transparent;
       border: 1px solid var(--border-color);
       border-radius: 7px;
-      font-size: 12px;
+      font-size: .9rem;
       font-weight: 520;
       text-align: left;
       transition: background 140ms var(--base-transition),
@@ -210,7 +304,7 @@
       padding: 6px 12px;
       color: var(--text-3);
       background: transparent;
-      font-size: 13px;
+      font-size: 1rem;
       font-weight: 570;
       transition: color 160ms var(--base-transition),
         background 160ms var(--base-transition);
@@ -252,7 +346,7 @@
     > span,
     small {
       color: var(--text-3);
-      font-size: 12px;
+      font-size: .9rem;
     }
 
     > span {
@@ -264,7 +358,7 @@
     strong {
       overflow: hidden;
       color: var(--text-1);
-      font-size: clamp(36px, 5vw, 54px);
+      font-size: clamp(2.6rem, 5vw, 3.85rem);
       font-weight: 600;
       letter-spacing: -.045em;
       line-height: 1;
@@ -280,7 +374,7 @@
 
     > span {
       color: var(--text-3);
-      font-size: 12px;
+      font-size: .9rem;
       font-weight: 620;
       letter-spacing: .04em;
       text-transform: uppercase;
@@ -288,7 +382,7 @@
 
     > strong {
       color: var(--text-1);
-      font-size: 18px;
+      font-size: 1.3rem;
       font-weight: 620;
       letter-spacing: -.02em;
     }
@@ -315,7 +409,7 @@
     dt {
       overflow: hidden;
       color: var(--text-3);
-      font-size: 12px;
+      font-size: .9rem;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
@@ -324,7 +418,7 @@
       margin: 0;
       overflow: hidden;
       color: var(--text-1);
-      font-size: clamp(20px, 2.4vw, 28px);
+      font-size: clamp(1.4rem, 2.4vw, 2rem);
       font-weight: 590;
       font-variant-numeric: tabular-nums;
       letter-spacing: -.025em;
@@ -365,7 +459,7 @@
     h2 {
       margin: 0;
       color: var(--text-1);
-      font-size: 14px;
+      font-size: 1rem;
       font-weight: 620;
     }
 
@@ -394,7 +488,7 @@
   .section-count,
   .section-caption {
     color: var(--text-3);
-    font-size: 12px;
+    font-size: .9rem;
   }
 
   .section-count {
@@ -496,7 +590,7 @@
 
     span {
       color: var(--text-4);
-      font-size: .85rem;
+      font-size: .9rem;
     }
   }
 
@@ -568,13 +662,13 @@
 
     strong {
       color: var(--text-1);
-      font-size: 14px;
+      font-size: 1rem;
       font-weight: 580;
     }
 
     span {
       color: var(--text-3);
-      font-size: 12px;
+      font-size: .9rem;
     }
   }
 
@@ -584,14 +678,14 @@
 
     strong {
       color: var(--text-1);
-      font-size: 16px;
+      font-size: 1.15rem;
       font-weight: 620;
       font-variant-numeric: tabular-nums;
     }
 
     span {
       color: var(--text-3);
-      font-size: 12px;
+      font-size: .9rem;
     }
   }
 
@@ -607,7 +701,7 @@
 
     > span {
       color: var(--text-3);
-      font-size: 12px;
+      font-size: .9rem;
     }
   }
 
@@ -626,7 +720,7 @@
     align-items: center;
     gap: 7px;
     color: var(--text-3);
-    font-size: 12px;
+    font-size: .9rem;
 
     > span {
       overflow: hidden;
@@ -664,7 +758,7 @@
       position: absolute;
       right: 0;
       color: var(--text-4);
-      font-size: 11px;
+      font-size: .9rem;
       font-variant-numeric: tabular-nums;
       line-height: 1;
       transform: translateY(-50%);
@@ -703,7 +797,7 @@
       position: absolute;
       top: 0;
       color: var(--text-4);
-      font-size: 11px;
+      font-size: .9rem;
       white-space: nowrap;
       transform: translateX(-50%);
 
@@ -738,7 +832,7 @@
       position: absolute;
       right: 0;
       color: var(--text-4);
-      font-size: 11px;
+      font-size: .9rem;
       font-variant-numeric: tabular-nums;
       line-height: 1;
       transform: translateY(-50%);
@@ -781,7 +875,7 @@
       position: absolute;
       top: 0;
       color: var(--text-4);
-      font-size: 11px;
+      font-size: .9rem;
       white-space: nowrap;
       transform: translateX(-50%);
 
@@ -811,7 +905,7 @@
     align-items: center;
     gap: 7px;
     color: var(--text-3);
-    font-size: 12px;
+    font-size: .9rem;
 
     > span {
       overflow: hidden;
@@ -867,7 +961,7 @@
       margin: 0;
       overflow: hidden;
       color: var(--text-1);
-      font-size: 16px;
+      font-size: 1.15rem;
       font-weight: 620;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -875,7 +969,7 @@
 
     span {
       color: var(--text-3);
-      font-size: 12px;
+      font-size: .9rem;
     }
   }
 
@@ -888,7 +982,7 @@
     color: var(--background-1);
     background: var(--text-1);
     border-radius: 50%;
-    font-size: 13px;
+    font-size: 1rem;
     font-weight: 700;
   }
 
@@ -900,7 +994,7 @@
 
     strong {
       color: var(--text-1);
-      font-size: 18px;
+      font-size: 1.3rem;
       font-weight: 620;
       font-variant-numeric: tabular-nums;
     }
@@ -953,13 +1047,13 @@
 
     strong {
       color: var(--text-1);
-      font-size: 14px;
+      font-size: 1rem;
       font-weight: 570;
     }
 
     span {
       color: var(--text-3);
-      font-size: 12px;
+      font-size: .9rem;
     }
   }
 
@@ -985,7 +1079,7 @@
     dt {
       overflow: hidden;
       color: var(--text-4);
-      font-size: 11px;
+      font-size: .9rem;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
@@ -994,7 +1088,7 @@
       margin: 0;
       overflow: hidden;
       color: var(--text-2);
-      font-size: 13px;
+      font-size: 1rem;
       font-weight: 570;
       font-variant-numeric: tabular-nums;
       text-overflow: ellipsis;
@@ -1013,7 +1107,7 @@
     justify-items: center;
     gap: 9px;
     color: var(--text-3);
-    font-size: 12px;
+    font-size: .9rem;
   }
 
   .orchestration-error {

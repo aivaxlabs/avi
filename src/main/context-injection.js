@@ -102,7 +102,7 @@ export const dynamicContextInjectors = new Map([
       `Bot id: ${bot.id}`,
       `Working folder: ${bot.workingFolder}`,
       `Bot data folder: ${bot.dataFolder}`,
-      `Memory and work-state files: ${bot.workFiles.join(', ')} (in the bot data folder; manage JSON state only through bot_work_* tools)`,
+      `Memory, Inbox, and Activity files: ${bot.workFiles.join(', ')} (in the bot data folder; manage JSON state only through bot_pendency_*, bot_pendencies_list, and bot_activity_append tools)`,
       `Activation mode: ${bot.activationMode} (every ${bot.activationPeriodMinutes} minutes)`,
       `Pending user approvals: ${bot.pendingApprovals}`,
       ...(String(bot.instructions ?? '').trim()
@@ -150,7 +150,8 @@ export const dynamicContextInjectors = new Map([
         'Perform adjacent work only when evidence shows that it is necessary to satisfy an acceptance criterion, necessary for the requested result to function in its established environment, required to correct a material defect or regression introduced by the current work or directly blocking its acceptance criteria, the smallest direct protection against a concrete, reproducible failure introduced by the current work, or required to resolve an immediate, observable consequence that would otherwise leave the delivery incomplete, broken, or in need of obvious corrective work.',
         'For every expansion, identify the criterion, dependency, failure, or observed consequence that justifies it, and choose the smallest coherent change within the authority already granted. Do not invent requirements, integrations, users, risks, infrastructure, or future needs to justify more work.',
         'If additional work requires a product decision, new public contract, dependency, deployment, external mutation, destructive action, or broader authority, ask the user. If it is useful but not necessary for completion, report it as an optional recommendation instead of implementing it.',
-        'Assemble a focused team early with chat_spawn_subagent. Assign distinct investigation, production, testing, and review responsibilities when they improve coverage, independence, or speed; use parallel or competing approaches when material uncertainty justifies them.',
+        'Personally implement the main, most important, and most demanding work; do not act only as a coordinator or delegate the core implementation. Keep the central decisions, integration, and correction of core defects with the orchestrator.',
+        'Use chat_spawn_subagent for bounded, less demanding supporting tasks such as targeted investigation, secondary implementation, focused tests, and independent critique. Keep assignments non-overlapping and subordinate to the core work you perform yourself; do not split the primary implementation among sub-agents merely to parallelize it.',
         'Give every sub-agent a self-contained prompt with its role, objective, acceptance criteria, relevant context, file or system scope, available tools and permissions, dependencies, expected evidence, and concise reporting format.',
         'Maintain active coordination. Track the listed sub-agents, inspect their threads when needed, send follow-up instructions with chat_send_prompt, respond to blockers, and share discoveries that materially affect other assignments.',
         'Avoid orchestration thrashing. When multiple delegated results are expected, gather relevant completed reports when practical, do not repeatedly revise the solution or announce completion after each individual report, and reconcile conflicts before choosing the next action. Do not finalize while relevant delegated work is still expected.',

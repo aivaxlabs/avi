@@ -1,6 +1,5 @@
 import Avatar from 'boring-avatars';
 import { memo, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -8,20 +7,25 @@ import {
   ArrowLeft,
   Bot,
   Check,
-  ChevronDown,
   ChevronRight,
   Files,
   Gauge,
   GitPullRequest,
+  Inbox,
+  BookOpen,
   MessageSquarePlus,
   ListChecks,
   Moon,
   Network,
+  Paperclip,
   Plus,
+  Send,
   Shield,
   X,
 } from 'lucide-react';
 import { hasOpenBotUserAction } from '../../shared/bot-work-items.js';
+import { fileToAttachment, formatBytes } from '../lib/files.js';
+import { AttachmentImage, AttachmentVideo } from './AttachmentVideo.jsx';
 import { ChatView } from './ChatView.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { FilesPanel } from './FilesPanel.jsx';
@@ -36,8 +40,7 @@ const gitReviewTabId = 'git-review';
 const tasksTabId = 'tasks';
 const botQueueTabId = 'bot-queue';
 const botPanelTabs = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'all-work', label: 'All work' },
+  { id: 'inbox', label: 'Inbox' },
   { id: 'activity', label: 'Activity' },
 ];
 const subagentAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
@@ -55,164 +58,28 @@ const botWorkMarkdownComponents = {
     </a>
   ),
 };
-const botPriorityOrder = Object.freeze({ critical: 0, high: 1, normal: 2, low: 3 });
-const botWorkStatusOptions = Object.freeze([
-  { value: 'planned', label: 'Planned' },
-  { value: 'active', label: 'Active' },
-  { value: 'waiting', label: 'Waiting' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'cancelled', label: 'Cancelled' },
-]);
-
-const botUserActionCopy = Object.freeze({
-  approval: 'You need to approve this.',
-  review: 'You need to review this.',
-  answer: 'You need to answer this.',
-});
-
-function BotWorkCard({ item, expanded = false, onOpen, onOpenFileReference, onResolveApproval, variant = 'summary' }) {
-  const actionType = item.approval ? 'approval' : item.attention?.type;
-  const previewText = hasOpenBotUserAction(item)
-    ? botUserActionCopy[actionType]
-    : item.state === 'completed'
-      ? item.summary || item.lastProgress || 'Work completed.'
-      : item.state === 'planned'
-        ? item.nextStep || 'No next step reported yet.'
-        : item.lastProgress || item.summary || 'No progress reported yet.';
-
-  if (!expanded) {
-    return (
-      <button
-        className={`bot-work-card bot-work-preview state-${item.state} ${variant}${hasOpenBotUserAction(item) ? ' needs-attention' : ''}`}
-        type="button"
-        aria-label={`Open work item: ${item.title}`}
-        onClick={onOpen}
-      >
-        <span className="bot-work-preview-heading">
-          <strong>{item.title}</strong>
-          <ChevronRight size={14} aria-hidden="true" />
-        </span>
-        <span className="bot-work-preview-summary">{previewText}</span>
-      </button>
-    );
-  }
-
-  return (
-    <article className={`bot-work-card state-${item.state} expanded${hasOpenBotUserAction(item) ? ' needs-attention' : ''}`}>
-      <header>
-        <div className="bot-work-card-heading">
-          <strong>{item.title}</strong>
-          <span className={`bot-work-state ${item.state}`}>{item.state}</span>
-          {item.priority !== 'normal' && (
-            <span className={`bot-work-priority ${item.priority}`}>{item.priority}</span>
-          )}
-        </div>
-        <small>{new Date(item.updatedAt).toLocaleString()}</small>
-      </header>
-      <div className="bot-work-card-body">
-        <div className="bot-markdown-body bot-work-objective">
-          <h2>Objective</h2>
-          <div className="markdown-body">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>
-              {item.objective || ''}
-            </ReactMarkdown>
-          </div>
-        </div>
-        {item.summary && (
-          <div className="bot-markdown-body bot-work-summary">
-            <h2>Summary</h2>
-            <div className="markdown-body">
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>
-                {item.summary}
-              </ReactMarkdown>
-            </div>
-          </div>
-        )}
-        {item.lastProgress && (
-          <dl className="bot-work-fields">
-            <dt>Latest progress</dt>
-            <dd>
-              <div className="markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>
-                  {item.lastProgress}
-                </ReactMarkdown>
-              </div>
-            </dd>
-          </dl>
-        )}
-      </div>
-      {item.attention && (
-        <div className="bot-work-notice attention">
-          <Shield size={14} aria-hidden="true" />
-          <span><strong>{item.attention.type}</strong>{item.attention.summary}</span>
-        </div>
-      )}
-      {item.blocker && (
-        <div className="bot-work-notice blocker">
-          <AlertTriangle size={14} aria-hidden="true" />
-          <span><strong>Blocked by {item.blocker.waitingOn}</strong>{item.blocker.reason}</span>
-        </div>
-      )}
-      {item.workers?.length > 0 && (
-        <div className="bot-work-chips" aria-label="Workers">
-          {item.workers.map((worker) => (
-            <span className={`bot-worker-chip ${worker.status}`} key={worker.id}>
-              <span aria-hidden="true" />{worker.title || worker.id} · {worker.status}
-            </span>
-          ))}
-        </div>
-      )}
-      {item.evidence?.length > 0 && (
-        <dl className="bot-work-fields">
-          <dt>Evidence</dt>
-          <dd>
-            <ul className="bot-evidence-list">
-              {item.evidence.map((entry) => {
-                const evidence = typeof entry === 'string'
-                  ? { type: /^https?:\/\//i.test(entry) ? 'external_reference' : 'text', value: entry }
-                  : entry;
-                const key = `${evidence.type}:${evidence.value}`;
-                return (
-                  <li key={key}>
-                    {evidence.type === 'file_reference' ? (
-                      <button type="button" onClick={() => onOpenFileReference?.({ path: evidence.value, lineFrom: null, lineTo: null })}>
-                        {evidence.value}
-                      </button>
-                    ) : evidence.type === 'external_reference' ? (
-                      <a href={evidence.value} target="_blank" rel="noreferrer">
-                        {evidence.value}
-                      </a>
-                    ) : evidence.value}
-                  </li>
-                );
-              })}
-            </ul>
-          </dd>
-        </dl>
-      )}
-      {item.approval && (
-        <div className="bot-approval-details">
-          {item.approval.kind === 'tool' && (
-            <>
-              <dl>
-                <dt>Tool</dt><dd><code>{item.approval.toolName}</code></dd>
-                <dt>Workspace</dt><dd><code>{item.approval.workspacePath || 'Not specified'}</code></dd>
-              </dl>
-              <pre>{JSON.stringify(item.approval.input ?? null, null, 2)}</pre>
-            </>
-          )}
-          <p>{item.approval.prompt}</p>
-          <div className="bot-queue-actions">
-            <button className="bot-queue-approve" type="button" onClick={() => onResolveApproval?.(item.approval.id, true)}>
-              <Check size={14} aria-hidden="true" /><span>Approve</span>
+function BotAttachments({ attachments, onRemove }) {
+  return attachments.length > 0 && (
+    <ul className="bot-inbox-attachments" aria-label="Attachments">
+      {attachments.map((attachment) => (
+        <li key={attachment.id}>
+          {attachment.kind === 'image_url' ? (
+            <AttachmentImage attachment={attachment} alt={attachment.name} />
+          ) : attachment.kind === 'video_url' ? (
+            <AttachmentVideo attachment={attachment} controls preload="metadata" />
+          ) : null}
+          {typeof attachment.text === 'string' ? (
+            <details><summary>{attachment.name}</summary><pre>{attachment.text}</pre></details>
+          ) : <span title={attachment.path || attachment.name}>{attachment.name}</span>}
+          <small>{formatBytes(attachment.size)}</small>
+          {onRemove && (
+            <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => onRemove(attachment.id)}>
+              <X size={13} aria-hidden="true" />
             </button>
-            <button className="bot-queue-deny" type="button" onClick={() => onResolveApproval?.(item.approval.id, false)}>
-              <X size={14} aria-hidden="true" /><span>Deny</span>
-            </button>
-          </div>
-        </div>
-      )}
-    </article>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -284,12 +151,14 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   sideChats,
   subagents,
   bots = emptyList,
-  botWorkStateByBot = emptyObject,
+  botDataByBot = emptyObject,
+  botsLoading = false,
   onResolveBotApproval,
-  onMentionBotWork,
-  onSetBotWorkState,
+  onReplyBotPendency,
+  onCompleteBotPendency,
   botQueueTabOpen = false,
   selectedBotId,
+  inboxNavigation,
   onSelectBot,
   onOpenBotQueueTab,
   onCloseBotQueueTab,
@@ -364,112 +233,94 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   defaultPermissionMode = 'approve_for_me',
   continuationRepliesEnabled = true,
 }) {
-  const [botPanelTab, setBotPanelTab] = useState('overview');
-  const [botWorkFilter, setBotWorkFilter] = useState('all');
-  const [expandedBotItem, setExpandedBotItem] = useState(null);
-  const botWorkDialogRef = useRef(null);
-  const botWorkOpenerRef = useRef(null);
-  const [workActionsMenu, setWorkActionsMenu] = useState(null);
-  const workActionsButtonRef = useRef(null);
-  const [workStatusDialogOpen, setWorkStatusDialogOpen] = useState(false);
-  const workStatusDialogRef = useRef(null);
-  const [workStatusError, setWorkStatusError] = useState(null);
-  const [workStatusUpdating, setWorkStatusUpdating] = useState(false);
+  const [botPanelTab, setBotPanelTab] = useState('inbox');
+  const [inboxFilter, setInboxFilter] = useState('all');
+  const [activityFilter, setActivityFilter] = useState('all');
+  const [botQuery, setBotQuery] = useState('');
+  const [selectedPendencyId, setSelectedPendencyId] = useState(() => inboxNavigation?.botId === selectedBotId ? inboxNavigation.pendencyId : null);
+  const [pendencyDrafts, setPendencyDrafts] = useState({});
+  const [pendencyFeedback, setPendencyFeedback] = useState({});
+  const [pendencyBusy, setPendencyBusy] = useState(false);
+  const pendencyBusyRef = useRef(false);
+  const pendencyHeadingRef = useRef(null);
+  const pendencyOpenerIdRef = useRef(null);
+  const selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? bots[0] ?? null;
+  const selectedBotState = botDataByBot[selectedBot?.id] ?? { inbox: emptyList, activity: emptyList, error: null };
+  const selectedBotError = selectedBotState.errors ? selectedBotState.errors[botPanelTab] : selectedBotState.error;
+  const selectedPendency = selectedBotState.inbox.find((item) => item.id === selectedPendencyId) ?? null;
+  const draftKey = `${selectedBot?.id}:${selectedPendency?.id}`;
+  const draft = pendencyDrafts[draftKey] ?? { content: '', attachments: emptyList };
+  const feedback = pendencyFeedback[draftKey];
+  const query = botQuery.trim().toLowerCase();
+  const filteredInbox = selectedBotState.inbox.filter((item) => (
+    (inboxFilter === 'all' || (inboxFilter === 'needs-user' ? hasOpenBotUserAction(item) : item.status === inboxFilter))
+    && (!query || `${item.title} ${item.messages.map((message) => message.content).join(' ')}`.toLowerCase().includes(query))
+  )).toSorted((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt));
+  const recentBotActivity = selectedBotState.activity.filter((entry) => (
+    (activityFilter === 'all' || entry.category === activityFilter)
+    && (!query || `${entry.title} ${entry.description}`.toLowerCase().includes(query))
+  )).toSorted((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
 
   useEffect(() => {
-    if (!expandedBotItem || !botWorkDialogRef.current) return undefined;
-    const dialog = botWorkDialogRef.current;
-    dialog.showModal();
-    queueMicrotask(() => dialog.querySelector('button')?.focus());
-    return () => {
-      if (dialog.open) dialog.close();
-    };
-  }, [expandedBotItem]);
+    if (selectedPendency?.id && botPanelTab === 'inbox') pendencyHeadingRef.current?.focus();
+  }, [selectedPendency?.id, botPanelTab]);
 
-  useEffect(() => {
-    if (!workActionsMenu) return undefined;
-    const close = (event) => {
-      if (workActionsButtonRef.current?.contains(event.target)) return;
-      if (event.target.closest?.('.dropdown-menu')) return;
-      setWorkActionsMenu(null);
-    };
-    const closeOnEscape = (event) => {
-      if (event.key === 'Escape') setWorkActionsMenu(null);
-    };
-    window.addEventListener('pointerdown', close);
-    window.addEventListener('keydown', closeOnEscape);
-    return () => {
-      window.removeEventListener('pointerdown', close);
-      window.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [workActionsMenu]);
-
-  useEffect(() => {
-    if (!workStatusDialogOpen || !workStatusDialogRef.current) return undefined;
-    const dialog = workStatusDialogRef.current;
-    dialog.showModal();
-    queueMicrotask(() => dialog.querySelector('button:not([disabled])')?.focus());
-    return () => {
-      if (dialog.open) dialog.close();
-    };
-  }, [workStatusDialogOpen]);
-
-  useEffect(() => {
-    setWorkActionsMenu(null);
-    setWorkStatusDialogOpen(false);
-    setWorkStatusError(null);
-    setWorkStatusUpdating(false);
-  }, [expandedBotItem?.id]);
-
-  function toggleWorkActionsMenu(event) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    setWorkActionsMenu((open) => (open ? null : {
-      top: Math.min(rect.bottom + 4, window.innerHeight - 150),
-      left: Math.min(rect.right - 180, window.innerWidth - 200),
+  function updatePendencyDraft(patch) {
+    setPendencyDrafts((current) => ({
+      ...current,
+      [draftKey]: { content: '', attachments: [], ...current[draftKey], ...patch },
     }));
   }
 
-  async function handleSetWorkStatus(state) {
-    if (!expandedBotItem || workStatusUpdating) return;
-    setWorkStatusUpdating(true);
-    setWorkStatusError(null);
+  async function attachToPendency(files) {
+    if (pendencyBusyRef.current) return;
+    pendencyBusyRef.current = true;
+    setPendencyBusy(true);
     try {
-      const updated = await onSetBotWorkState(expandedBotItem, state);
-      setExpandedBotItem((current) => (
-        current?.id === updated.id ? { ...updated, workers: current.workers } : current
-      ));
-      workStatusDialogRef.current?.close();
+      const attachments = files
+        ? await Promise.all(files.map((file) => fileToAttachment(file, 'clipboard')))
+        : await window.chatApp.files.select();
+      setPendencyDrafts((current) => ({
+        ...current,
+        [draftKey]: {
+          content: current[draftKey]?.content ?? '',
+          attachments: [...(current[draftKey]?.attachments ?? []), ...attachments],
+        },
+      }));
     } catch (error) {
-      setWorkStatusError(error instanceof Error ? error.message : String(error));
+      setPendencyFeedback((current) => ({ ...current, [draftKey]: { error: true, text: error.message || String(error) } }));
     } finally {
-      setWorkStatusUpdating(false);
+      pendencyBusyRef.current = false;
+      setPendencyBusy(false);
     }
   }
 
-  const selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? bots[0] ?? null;
-  const selectedBotState = selectedBot
-    ? botWorkStateByBot[selectedBot.id] ?? { items: emptyList, activity: emptyList, untrackedWorkers: emptyList, error: null }
-    : { items: emptyList, activity: emptyList, untrackedWorkers: emptyList, error: null };
-  const currentBotWork = selectedBotState.items.filter((item) => (
-    !hasOpenBotUserAction(item)
-    && (item.state === 'active' || item.workers?.some((worker) => worker.running))
-  ));
-  const botWorkNeedingAttention = selectedBotState.items.filter(hasOpenBotUserAction);
-  const recentlyCompletedBotWork = selectedBotState.items
-    .filter((item) => item.state === 'completed')
-    .sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt))
-    .slice(0, 5);
-  const upcomingBotWork = selectedBotState.items
-    .filter((item) => item.nextStep && item.state === 'planned' && !hasOpenBotUserAction(item))
-    .sort((left, right) => (
-      botPriorityOrder[left.priority] - botPriorityOrder[right.priority]
-      || new Date(right.updatedAt) - new Date(left.updatedAt)
-    ));
-  const filteredBotWork = selectedBotState.items
-    .filter((item) => botWorkFilter === 'all' || item.state === botWorkFilter)
-    .sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt));
-  const recentBotActivity = selectedBotState.activity
-    .toSorted((left, right) => new Date(right.createdAt) - new Date(left.createdAt));
+  async function actOnPendency(action) {
+    if (!selectedPendency || pendencyBusyRef.current) return;
+    if (action === 'reply' && !draft.content.trim() && !draft.attachments.length) return;
+    pendencyBusyRef.current = true;
+    setPendencyBusy(true);
+    setPendencyFeedback((current) => ({ ...current, [draftKey]: null }));
+    try {
+      const result = action === 'reply'
+        ? await onReplyBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id, ...draft })
+        : action === 'complete'
+          ? await onCompleteBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id })
+          : await onResolveBotApproval(selectedPendency.approval.id, action === 'approve');
+      if (action === 'reply') updatePendencyDraft({ content: '', attachments: [] });
+      setPendencyFeedback((current) => ({ ...current, [draftKey]: {
+        error: result?.delivered === false,
+        text: result?.delivered === false
+          ? `Saved in Inbox, but not delivered to the bot: ${result.error || 'Delivery unavailable.'} Do not resend this message; open the main thread to resume it.`
+          : action === 'reply' ? 'Reply sent to the bot.' : action === 'complete' ? 'Pendency completed.' : 'Decision sent to the bot.',
+      } }));
+    } catch (error) {
+      setPendencyFeedback((current) => ({ ...current, [draftKey]: { error: true, text: error.message || String(error) } }));
+    } finally {
+      pendencyBusyRef.current = false;
+      setPendencyBusy(false);
+    }
+  }
   const availablePanels = [
     {
       id: 'side-chat',
@@ -743,17 +594,18 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
           )}
           {showingBotQueue ? (
             <div className="bot-queue">
-              {bots.length === 0 ? (
+              {botsLoading ? <p role="status">Loading bots...</p> : bots.length === 0 ? (
                 <div className="bot-queue-empty">
                   <Bot size={20} aria-hidden="true" />
                   <strong>No bots</strong>
-                  <span>Create a bot to see its current work and recent outcomes.</span>
+                  <span>Create a bot to receive messages and follow its activity.</span>
                 </div>
               ) : (
                 <>
                   <label className="bot-work-selector">
-                    <span className="sr-only">Bot</span>
-                    <select value={selectedBot?.id ?? ''} onChange={(event) => onSelectBot(event.target.value)}>
+                    <Bot size={18} aria-hidden="true" />
+                    <span>Bot</span>
+                    <select value={selectedBot?.id ?? ''} onChange={(event) => { setSelectedPendencyId(null); onSelectBot(event.target.value); }}>
                       {bots.map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
                     </select>
                   </label>
@@ -783,95 +635,85 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                           queueMicrotask(() => document.getElementById(`bot-work-tab-${next.id}`)?.focus());
                         }}
                       >
-                        {tab.label}
+                        {tab.id === 'inbox' ? <Inbox size={16} aria-hidden="true" /> : <BookOpen size={16} aria-hidden="true" />}<span>{tab.label}</span>
                       </button>
                     ))}
                   </div>
                   <div id="bot-work-view" className="bot-work-view" role="tabpanel" aria-labelledby={`bot-work-tab-${botPanelTab}`}>
-                    {selectedBotState.error && (
-                      <div className="bot-work-warning"><AlertTriangle size={15} aria-hidden="true" /><span>{selectedBotState.error}</span></div>
+                    {selectedBotError && (
+                      <div className="bot-work-warning" role="alert"><AlertTriangle size={17} aria-hidden="true" /><div><strong>Unable to load {botPanelTab === 'inbox' ? 'Inbox' : 'Activity'}</strong><p>The file could not be read. Your data has not been changed.</p><details><summary>Technical details</summary><p>{selectedBotError}</p></details></div></div>
                     )}
-                    {botPanelTab === 'overview' && (
-                      <div className="bot-work-overview">
-                        {selectedBotState.untrackedWorkers.length > 0 && (
-                          <section className="bot-work-section">
-                            <header><div><AlertTriangle size={14} aria-hidden="true" /><strong>Untracked workers</strong></div><small>{selectedBotState.untrackedWorkers.length}</small></header>
-                            <div className="bot-work-warning">
-                              <span>{selectedBotState.untrackedWorkers.map((worker) => worker.title || worker.id).join(', ')} must be attached to a work item or explained.</span>
-                            </div>
-                          </section>
+                    {!selectedBotError && (botPanelTab === 'activity' || !selectedPendency) && (
+                      <div className="bot-inbox-filters">
+                        <label><span>Search {botPanelTab === 'inbox' ? 'Inbox' : 'Activity'}</span><input type="search" placeholder="Search" value={botQuery} onChange={(event) => setBotQuery(event.target.value)} /></label>
+                        {botPanelTab === 'inbox' ? (
+                          <label><span>Status</span><select value={inboxFilter} onChange={(event) => setInboxFilter(event.target.value)}><option value="all">All messages</option><option value="needs-user">Needs you</option><option value="open">Open</option><option value="completed">Completed</option></select></label>
+                        ) : (
+                          <label><span>Category</span><select value={activityFilter} onChange={(event) => setActivityFilter(event.target.value)}><option value="all">All categories</option>{['progress', 'discovery', 'decision', 'completed', 'failure'].map((category) => <option key={category} value={category}>{category[0].toUpperCase() + category.slice(1)}</option>)}</select></label>
                         )}
-                        {[
-                          ['Current work', currentBotWork, 'summary'],
-                          ['Needs your attention', botWorkNeedingAttention, 'attention'],
-                          ['Recently completed', recentlyCompletedBotWork, 'completed'],
-                          ['Up next', upcomingBotWork, 'up-next'],
-                        ].map(([title, items, variant]) => (
-                          <section className="bot-work-section" key={title}>
-                            <header><strong>{title}</strong><small>{items.length}</small></header>
-                            {items.length === 0 ? <p className="bot-work-section-empty">Nothing here right now.</p> : items.map((item) => (
-                              <BotWorkCard
-                                item={item}
-                                key={`${title}-${item.id}`}
-                                variant={variant}
-                                onResolveApproval={onResolveBotApproval}
-                                onOpenFileReference={onOpenFileReference}
-                                onOpen={(event) => {
-                                  botWorkOpenerRef.current = event.currentTarget;
-                                  setExpandedBotItem(item);
-                                }}
-                              />
-                            ))}
-                          </section>
-                        ))}
-                        <section className="bot-work-section">
-                          <header><strong>Recent activity</strong><small>{Math.min(recentBotActivity.length, 8)}</small></header>
-                          {recentBotActivity.length === 0 ? <p className="bot-work-section-empty">No material activity yet.</p> : (
-                            <ol className="bot-activity-list">
-                              {recentBotActivity.slice(0, 8).map((entry) => (
-                                <li key={entry.id}><span className={`bot-activity-dot ${entry.type}`} /><div><strong>{entry.summary}</strong>{entry.details && <p>{entry.details}</p>}<small>{entry.type} · {new Date(entry.createdAt).toLocaleString()}</small></div></li>
-                              ))}
-                            </ol>
-                          )}
-                        </section>
                       </div>
                     )}
-                    {botPanelTab === 'all-work' && (
-                      <div className="bot-all-work">
-                        <label className="bot-work-filter">
-                          <span>State</span>
-                          <select value={botWorkFilter} onChange={(event) => setBotWorkFilter(event.target.value)}>
-                            <option value="all">All</option>
-                            <option value="planned">Planned</option>
-                            <option value="active">Active</option>
-                            <option value="waiting">Waiting</option>
-                            <option value="completed">Completed</option>
-                            <option value="cancelled">Cancelled</option>
-                          </select>
-                        </label>
-                        {filteredBotWork.length === 0 ? <div className="bot-queue-empty"><Bot size={20} aria-hidden="true" /><strong>No work items</strong><span>No items match this state.</span></div> : filteredBotWork.map((item) => (
-                          <BotWorkCard
-                            item={item}
-                            key={item.id}
-                            onResolveApproval={onResolveBotApproval}
-                            onOpenFileReference={onOpenFileReference}
-                            onOpen={(event) => {
-                              botWorkOpenerRef.current = event.currentTarget;
-                              setExpandedBotItem(item);
-                            }}
-                          />
-                        ))}
-                      </div>
-                    )}
-                    {botPanelTab === 'activity' && (
-                      recentBotActivity.length === 0 ? <div className="bot-queue-empty"><Bot size={20} aria-hidden="true" /><strong>No activity</strong><span>Material progress will appear here.</span></div> : (
-                        <ol className="bot-activity-list standalone">
-                          {recentBotActivity.map((entry) => (
-                            <li key={entry.id}><span className={`bot-activity-dot ${entry.type}`} /><div><strong>{entry.summary}</strong>{entry.details && <p>{entry.details}</p>}<small>{entry.type} · {new Date(entry.createdAt).toLocaleString()}</small></div></li>
+                    {!selectedBotError && botPanelTab === 'inbox' && (selectedPendency ? (
+                      <section className="bot-inbox-detail" aria-labelledby="bot-pendency-title">
+                        <header>
+                          <button type="button" onClick={() => {
+                            setSelectedPendencyId(null);
+                            queueMicrotask(() => document.getElementById(pendencyOpenerIdRef.current)?.focus());
+                          }}><ArrowLeft size={15} aria-hidden="true" />Inbox</button>
+                          <span>{selectedPendency.status === 'completed' ? 'Completed' : hasOpenBotUserAction(selectedPendency) ? 'Needs you' : 'Waiting for bot'}</span>
+                          {selectedPendency.status === 'open' && <button type="button" disabled={pendencyBusy || Boolean(selectedPendency.approval)} title={selectedPendency.approval ? 'Resolve the approval first.' : undefined} onClick={() => actOnPendency('complete')}><Check size={14} aria-hidden="true" />Complete</button>}
+                        </header>
+                        <h2 id="bot-pendency-title" ref={pendencyHeadingRef} tabIndex={-1}>{selectedPendency.title}</h2>
+                        <ol className="bot-inbox-messages">
+                          {selectedPendency.messages.toSorted((left, right) => new Date(right.createdAt) - new Date(left.createdAt)).map((message) => (
+                            <li key={message.id} className={`from-${message.role}`}>
+                              <header><strong>{message.role === 'user' ? 'You' : selectedBot.name}</strong><time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleString()}</time></header>
+                              <div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>{message.content}</ReactMarkdown></div>
+                              <BotAttachments attachments={message.attachments} />
+                            </li>
                           ))}
                         </ol>
-                      )
-                    )}
+                        {selectedPendency.approval && (
+                          <section className="bot-inbox-approval" aria-label="Pending approval">
+                            <strong><Shield size={15} aria-hidden="true" />Approval required</strong>
+                            <p>{selectedPendency.approval.prompt}</p>
+                            {selectedPendency.approval.kind === 'tool' && <><p><strong>Tool:</strong> {selectedPendency.approval.toolName}</p><p><strong>Workspace:</strong> {selectedPendency.approval.workspacePath || 'Not specified'}</p><pre>{JSON.stringify(selectedPendency.approval.input ?? null, null, 2)}</pre></>}
+                            <div><button type="button" disabled={pendencyBusy} onClick={() => actOnPendency('approve')}>Approve</button><button type="button" disabled={pendencyBusy} onClick={() => actOnPendency('deny')}>Deny</button></div>
+                          </section>
+                        )}
+                        {selectedPendency.status === 'open' && (
+                          <form className="bot-inbox-composer" onSubmit={(event) => { event.preventDefault(); void actOnPendency('reply'); }}>
+                            <label className="sr-only" htmlFor="bot-pendency-reply">Reply to {selectedBot.name}</label>
+                            <textarea id="bot-pendency-reply" value={draft.content} disabled={pendencyBusy} placeholder={`Reply to ${selectedBot.name}...`} rows={3} onChange={(event) => updatePendencyDraft({ content: event.target.value })} onPaste={(event) => {
+                              const files = Array.from(event.clipboardData.files ?? []);
+                              if (files.length) { event.preventDefault(); void attachToPendency(files); }
+                            }} onKeyDown={(event) => {
+                              if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.metaKey && !event.isComposing) { event.preventDefault(); void actOnPendency('reply'); }
+                            }} />
+                            <BotAttachments attachments={draft.attachments} onRemove={pendencyBusy ? undefined : (id) => updatePendencyDraft({ attachments: draft.attachments.filter((attachment) => attachment.id !== id) })} />
+                            <footer><button type="button" disabled={pendencyBusy} onClick={() => attachToPendency()}><Paperclip size={15} aria-hidden="true" />Attach</button><button type="submit" disabled={pendencyBusy || (!draft.content.trim() && !draft.attachments.length)}><Send size={14} aria-hidden="true" />{pendencyBusy ? 'Sending...' : 'Send reply'}</button></footer>
+                          </form>
+                        )}
+                        {feedback && <p className={`bot-inbox-feedback${feedback.error ? ' error' : ''}`} role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
+                      </section>
+                    ) : filteredInbox.length === 0 ? (
+                      <div className="bot-queue-empty"><Inbox size={28} strokeWidth={1.4} aria-hidden="true" /><strong>{selectedBotState.inbox.length ? 'No matching pendencies' : 'Your Inbox is empty'}</strong><span>{selectedBotState.inbox.length ? 'Try another filter or search.' : 'Messages that need your input will appear here.'}</span></div>
+                    ) : (
+                      <ul className="bot-inbox-list">
+                        {filteredInbox.map((item) => (
+                          <li key={item.id}><button id={`bot-pendency-${item.id}`} type="button" className={hasOpenBotUserAction(item) ? 'needs-user' : ''} onClick={(event) => { pendencyOpenerIdRef.current = event.currentTarget.id; setSelectedPendencyId(item.id); }}>
+                            <strong>{item.title}</strong><span className="bot-inbox-preview">{item.messages.at(-1)?.content || 'Attachment'}</span><span className="bot-inbox-meta"><span>{item.status === 'completed' ? 'Completed' : hasOpenBotUserAction(item) ? 'Needs you' : 'Waiting for bot'}</span><time dateTime={item.updatedAt}>{new Date(item.updatedAt).toLocaleString()}</time></span>
+                          </button></li>
+                        ))}
+                      </ul>
+                    ))}
+                    {!selectedBotError && botPanelTab === 'activity' && (recentBotActivity.length === 0 ? (
+                      <div className="bot-queue-empty"><BookOpen size={28} strokeWidth={1.4} aria-hidden="true" /><strong>{selectedBotState.activity.length ? 'No matching activity' : 'No activity yet'}</strong><span>Important results will appear here.</span></div>
+                    ) : (
+                      <ol className="bot-diary-list">{recentBotActivity.map((entry) => (
+                        <li key={entry.id}><h3>{entry.title}</h3><div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>{entry.description}</ReactMarkdown></div><small>{entry.category} · <time dateTime={entry.createdAt}>{new Date(entry.createdAt).toLocaleString()}</time></small></li>
+                      ))}</ol>
+                    ))}
                   </div>
                 </>
               )}
@@ -1079,134 +921,6 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
           ) : null}
         </div>
       </aside>
-      {expandedBotItem && createPortal(
-        <dialog
-          ref={botWorkDialogRef}
-          className="bot-work-dialog"
-          aria-labelledby="bot-work-dialog-title"
-          onClose={() => {
-            setExpandedBotItem(null);
-            queueMicrotask(() => botWorkOpenerRef.current?.focus());
-          }}
-        >
-          <header className="dialog-header">
-            <div>
-              <h2 id="bot-work-dialog-title">{expandedBotItem.title}</h2>
-              <p>{expandedBotItem.state} · updated {new Date(expandedBotItem.updatedAt).toLocaleString()}</p>
-            </div>
-            <div className="dialog-header-actions">
-              <button
-                ref={workActionsButtonRef}
-                className="bot-work-actions-trigger"
-                type="button"
-                aria-haspopup="menu"
-                aria-expanded={Boolean(workActionsMenu)}
-                onClick={toggleWorkActionsMenu}
-              >
-                Actions
-                <ChevronDown size={13} aria-hidden="true" />
-              </button>
-              <button className="icon-button tiny" type="button" aria-label="Close work item" title="Close" onClick={() => botWorkDialogRef.current?.close()}>
-                <X size={16} aria-hidden="true" />
-              </button>
-            </div>
-          </header>
-          <div className="bot-work-dialog-content">
-            <BotWorkCard item={expandedBotItem} expanded onResolveApproval={onResolveBotApproval} onOpenFileReference={onOpenFileReference} />
-            <dl className="bot-work-detail-fields">
-              <dt>Created</dt><dd>{new Date(expandedBotItem.createdAt).toLocaleString()}</dd>
-              {expandedBotItem.completedAt && <><dt>Completed</dt><dd>{new Date(expandedBotItem.completedAt).toLocaleString()}</dd></>}
-              <dt>Work item ID</dt><dd>{expandedBotItem.id}</dd>
-              {expandedBotItem.workerThreadIds?.length > 0 && <><dt>Worker thread IDs</dt><dd>{expandedBotItem.workerThreadIds.map((id) => <span key={id}>{id}</span>)}</dd></>}
-            </dl>
-          </div>
-        </dialog>,
-        document.body,
-      )}
-      {expandedBotItem && workActionsMenu && botWorkDialogRef.current && createPortal(
-        <DropdownMenu
-          fixed
-          role="menu"
-          aria-label={`Actions for ${expandedBotItem.title}`}
-          style={{ top: workActionsMenu.top, left: workActionsMenu.left }}
-        >
-          <DropdownMenuItem
-            icon={<MessageSquarePlus size={14} />}
-            role="menuitem"
-            onClick={() => {
-              setWorkActionsMenu(null);
-              onMentionBotWork(expandedBotItem);
-              botWorkDialogRef.current?.close();
-            }}
-          >
-            Mention in chat
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            icon={<ListChecks size={14} />}
-            role="menuitem"
-            disabled={Boolean(expandedBotItem.approval)}
-            title={expandedBotItem.approval ? 'Resolve the pending approval first.' : undefined}
-            onClick={() => {
-              setWorkActionsMenu(null);
-              setWorkStatusError(null);
-              setWorkStatusDialogOpen(true);
-            }}
-          >
-            Set status
-          </DropdownMenuItem>
-        </DropdownMenu>,
-        botWorkDialogRef.current,
-      )}
-      {expandedBotItem && workStatusDialogOpen && createPortal(
-        <dialog
-          ref={workStatusDialogRef}
-          className="bot-work-status-dialog"
-          aria-labelledby="bot-work-status-dialog-title"
-          onClose={() => setWorkStatusDialogOpen(false)}
-        >
-          <header className="dialog-header">
-            <div>
-              <h2 id="bot-work-status-dialog-title">Set status</h2>
-              <p>{expandedBotItem.title}</p>
-            </div>
-            <button
-              className="icon-button tiny"
-              type="button"
-              aria-label="Close status dialog"
-              title="Close"
-              onClick={() => workStatusDialogRef.current?.close()}
-            >
-              <X size={16} aria-hidden="true" />
-            </button>
-          </header>
-          <div className="bot-work-status-options">
-            {botWorkStatusOptions.map((option) => {
-              const isCurrent = option.value === expandedBotItem.state;
-              const waitingNeedsContext = option.value === 'waiting'
-                && !expandedBotItem.attention
-                && !expandedBotItem.blocker
-                && !expandedBotItem.approval;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`bot-work-status-option${isCurrent ? ' current' : ''}`}
-                  disabled={isCurrent || workStatusUpdating || waitingNeedsContext}
-                  title={waitingNeedsContext
-                    ? 'Waiting work needs an attention or blocker context, which only the bot can set.'
-                    : undefined}
-                  onClick={() => handleSetWorkStatus(option.value)}
-                >
-                  <span className={`bot-work-state ${option.value}`}>{option.label}</span>
-                  {isCurrent && <small>Current</small>}
-                </button>
-              );
-            })}
-          </div>
-          {workStatusError && <p className="bot-work-status-error" role="alert">{workStatusError}</p>}
-        </dialog>,
-        document.body,
-      )}
     </>
   );
 });

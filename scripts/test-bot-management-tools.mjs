@@ -14,6 +14,7 @@ try {
   database = await import('../src/main/database.js');
   const { BotManager, resolveBotDataFolder } = await import('../src/main/bot-manager.js');
   const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
+  const { appendBotPendencyMessage } = await import('../src/main/bot-work-state.js');
   const {
     getBot,
     getConversation,
@@ -30,6 +31,7 @@ try {
   const activationRequests = [];
   const administrativeSemaphoreCalls = [];
   let failNextActivation = false;
+  let failNextReplySends = 0;
   const externalHolder = database.createConversation({
     title: 'External holder',
     model: model.id,
@@ -65,6 +67,10 @@ try {
       if (failNextActivation) {
         failNextActivation = false;
         throw new Error('Activation failed');
+      }
+      if (failNextReplySends > 0) {
+        failNextReplySends -= 1;
+        throw new Error('Delivery failed');
       }
       activationRequests.push(request);
       return { message: { id: `message-${activationRequests.length}` } };
@@ -156,6 +162,24 @@ try {
   assert.equal(getBot(created.bot.id).workQueueIndex, 1);
   assert.equal(getBot(created.bot.id).enabled, false, 'one-time activation must not enable the bot');
 
+  await assert.rejects(
+    () => tool('bots_update').execute({
+      id: created.bot.id,
+      changes: { workQueueIndex: 2 },
+    }, context),
+    /Work queue index is out of range/,
+  );
+  assert.equal(getBot(created.bot.id).workQueueIndex, 1, 'invalid queue selection must not mutate the bot');
+  await tool('bots_update').execute({
+    id: created.bot.id,
+    changes: { workQueueIndex: 0 },
+  }, context);
+  assert.equal(getBot(created.bot.id).workQueueIndex, 0, 'queue selection must change the next task');
+  const selectedActivation = await tool('bots_activate').execute({ id: created.bot.id }, context);
+  assert.equal(selectedActivation.activated, true);
+  assert.match(activationRequests[1].text, /<focus-task>Review releases &amp; risks<\/focus-task>/);
+  assert.equal(getBot(created.bot.id).workQueueIndex, 1, 'selected task must advance normally after activation');
+
   failNextActivation = true;
   const failed = await tool('bots_activate').execute({ id: created.bot.id }, context);
   assert.equal(failed.activated, false);
@@ -163,7 +187,7 @@ try {
 
   const secondActivation = await tool('bots_activate').execute({ id: created.bot.id }, context);
   assert.equal(secondActivation.activated, true);
-  assert.match(activationRequests[1].text, /<focus-task>Triage failures<\/focus-task>/);
+  assert.match(activationRequests[2].text, /<focus-task>Triage failures<\/focus-task>/);
   assert.equal(getBot(created.bot.id).workQueueIndex, 0, 'the queue must wrap after its final task');
 
   const botRuntime = botManager.getBotRuntimeContext(created.bot.conversationId);
@@ -202,23 +226,28 @@ try {
     'utf8',
   );
   for (const instruction of [
-    'central orchestrator and may act as a supervisor',
-    'advanced delegation tools',
-    'application-wide root authority',
-    'including threads you did not create',
+    'bot_pendencies_list',
+    'bot_pendency_create',
+    'bot_pendency_message',
+    'bot_pendency_complete',
+    'bot_activity_append',
+    'queue_user_approval',
     'Never acquire semaphore permits for this bot',
   ]) assert.ok(botInstructions.includes(instruction), `Missing bot instruction: ${instruction}`);
 
-  const activeWorkItem = await botRuntime.tools
-    .find((item) => item.name === 'bot_work_create')
-    .execute({ title: 'Current release & follow-up', objective: 'Finish the active release work.' });
-  await botRuntime.tools
-    .find((item) => item.name === 'bot_work_update')
-    .execute({ id: activeWorkItem.id, state: 'active' });
+  const activePendency = await botRuntime.tools
+    .find((item) => item.name === 'bot_pendency_create')
+    .execute({ title: 'Current release & follow-up', content: 'Finish the active release work.' });
+  // A user reply makes the pendency the bot's actionable focus task.
+  await appendBotPendencyMessage(resolveBotDataFolder(created.bot), {
+    pendencyId: activePendency.id,
+    role: 'user',
+    content: 'Please proceed with the release work.',
+  });
   const activeWorkActivation = await tool('bots_activate').execute({ id: created.bot.id }, context);
   assert.equal(activeWorkActivation.activated, true);
   assert.match(
-    activationRequests[2].text,
+    activationRequests[3].text,
     /<focus-task>Current release &amp; follow-up<\/focus-task>/,
     'active Current work must replace the recurring queue task in the activation prompt',
   );
@@ -228,8 +257,8 @@ try {
     'active Current work must not advance the recurring work queue',
   );
   await botRuntime.tools
-    .find((item) => item.name === 'bot_work_update')
-    .execute({ id: activeWorkItem.id, state: 'completed', summary: 'Active release work finished.' });
+    .find((item) => item.name === 'bot_pendency_complete')
+    .execute({ id: activePendency.id });
 
   await tool('bots_update').execute({
     id: created.bot.id,
@@ -241,9 +270,9 @@ try {
     activated: true,
     status: 'started',
   });
-  assert.equal(activationRequests.length, 4, 'an empty queue must allow forced activation');
+  assert.equal(activationRequests.length, 5, 'an empty queue must allow forced activation');
   assert.doesNotMatch(
-    activationRequests[3].text,
+    activationRequests[4].text,
     /<focus-task>/,
     'an empty queue must activate without a specific focus task',
   );
@@ -257,21 +286,30 @@ try {
   const duplicate = await tool('bots_activate').execute({ id: created.bot.id }, context);
   assert.equal(duplicate.activated, false);
   assert.equal(duplicate.status, 'already_running_or_start_failed');
-  assert.equal(activationRequests.length, 4, 'explicit activation must not start duplicate runs');
+  assert.equal(activationRequests.length, 5, 'explicit activation must not start duplicate runs');
   chatRunner.runs.clear();
-  const workItem = await botRuntime.tools
-    .find((item) => item.name === 'bot_work_create')
-    .execute({ title: 'Protected work', objective: 'Verify approval ownership.' });
-  await botManager.queueUserApproval(created.bot.conversationId, {
-    workItemId: workItem.id,
+  const protectedPendency = await botRuntime.tools
+    .find((item) => item.name === 'bot_pendency_create')
+    .execute({ title: 'Protected work', content: 'Verify approval ownership.' });
+  const approvalQueueMessage = await botManager.queueUserApproval(created.bot.conversationId, {
+    title: 'Confirm the protected action',
     context: 'Confirm the protected action.',
     prompt: 'Continue the protected action.',
   });
+  assert.match(approvalQueueMessage, /approval id: /);
+  assert.match(approvalQueueMessage, /pendency id: /);
   const dataFolder = resolveBotDataFolder(created.bot);
-  const workItemsPath = join(dataFolder, 'work-items.json');
-  const persistedItems = JSON.parse(await readFile(workItemsPath, 'utf8'));
-  persistedItems.find((item) => item.id === workItem.id).approval.botId = 'different-bot';
-  await writeFile(workItemsPath, `${JSON.stringify(persistedItems, null, 2)}\n`, 'utf8');
+  const inboxPath = join(dataFolder, 'inbox.json');
+  const persistedItems = JSON.parse(await readFile(inboxPath, 'utf8'));
+  const queuedApprovalPendency = persistedItems.find((item) => item.approval);
+  assert.ok(queuedApprovalPendency, 'queue_user_approval must persist a protected pendency');
+  assert.equal(queuedApprovalPendency.approval.kind, 'work');
+  assert.equal(queuedApprovalPendency.approval.pendencyId, queuedApprovalPendency.id);
+  assert.equal(queuedApprovalPendency.approval.status, 'pending');
+  assert.notEqual(queuedApprovalPendency.id, protectedPendency.id);
+  assert.equal(queuedApprovalPendency.messages[0].content, 'Confirm the protected action.');
+  queuedApprovalPendency.approval.botId = 'different-bot';
+  await writeFile(inboxPath, `${JSON.stringify(persistedItems, null, 2)}\n`, 'utf8');
   const reloadedManager = new BotManager();
   await reloadedManager.loadPersistedApprovals();
   assert.equal(
@@ -279,6 +317,133 @@ try {
     0,
     'persisted approvals must belong to the bot that owns the data folder',
   );
+
+  // --- Pendency reply, delivery, completion, and approval resolution ---
+  const replyResult = await botManager.replyToPendency(created.bot.id, protectedPendency.id, {
+    content: 'Please proceed carefully.  ',
+  });
+  assert.equal(replyResult.delivered, true);
+  assert.equal(replyResult.error, undefined);
+  assert.equal(replyResult.item.messages.at(-1).role, 'user');
+  assert.equal(replyResult.item.messages.at(-1).content, 'Please proceed carefully.');
+  assert.deepEqual(replyResult.item.messages.at(-1).attachments, []);
+  const replyRequest = activationRequests.at(-1);
+  assert.equal(replyRequest.queuePriority, true);
+  assert.equal(replyRequest.fromAgent, true);
+  assert.match(replyRequest.text, new RegExp(`<bot-pendency-update id="${protectedPendency.id}"`));
+  assert.match(replyRequest.text, /<title>Protected work<\/title>/);
+  assert.match(replyRequest.text, /Please proceed carefully\./);
+
+  failNextReplySends = 1;
+  const failedReply = await botManager.replyToPendency(created.bot.id, protectedPendency.id, {
+    content: 'This delivery must fail.',
+  });
+  assert.equal(failedReply.delivered, false);
+  assert.equal(failedReply.error, 'Delivery failed');
+  assert.ok(failedReply.item, 'a failed delivery must still return the persisted pendency');
+  let persistedInbox = JSON.parse(await readFile(inboxPath, 'utf8'));
+  let persistedPendency = persistedInbox.find((item) => item.id === protectedPendency.id);
+  assert.equal(persistedPendency.messages.at(-1).role, 'user');
+  assert.equal(persistedPendency.messages.at(-1).content, 'This delivery must fail.');
+
+  const concurrentReplies = await Promise.all(['a', 'b', 'c'].map((suffix) => (
+    botManager.replyToPendency(created.bot.id, protectedPendency.id, { content: `Concurrent ${suffix}.` })
+  )));
+  for (const result of concurrentReplies) {
+    assert.equal(result.delivered, true);
+  }
+  persistedInbox = JSON.parse(await readFile(inboxPath, 'utf8'));
+  persistedPendency = persistedInbox.find((item) => item.id === protectedPendency.id);
+  assert.deepEqual(
+    persistedPendency.messages.slice(-3).map((message) => message.content).sort(),
+    ['Concurrent a.', 'Concurrent b.', 'Concurrent c.'],
+    'concurrent replies must all be persisted exactly once',
+  );
+  assert.equal(
+    new Set(persistedPendency.messages.map((message) => message.id)).size,
+    persistedPendency.messages.length,
+    'concurrent replies must not collide on message ids',
+  );
+
+  // Fresh approval: the earlier one was corrupted on purpose for the ownership check.
+  await botManager.queueUserApproval(created.bot.conversationId, {
+    title: 'Second protected action',
+    context: 'Confirm the second protected action.',
+    prompt: 'Continue the second protected action.',
+  });
+  persistedInbox = JSON.parse(await readFile(inboxPath, 'utf8'));
+  const approvalPendency = persistedInbox.filter((item) => item.approval).at(-1);
+  assert.ok(approvalPendency?.approval?.id);
+  const approvalId = approvalPendency.approval.id;
+
+  await assert.rejects(
+    () => botManager.completePendency(created.bot.id, approvalPendency.id),
+    /Resolve the pending approval/,
+  );
+  await assert.rejects(() => botManager.resolveApproval(approvalId, 'yes'), /explicit boolean/);
+  await assert.rejects(() => botManager.resolveApproval(approvalId, 1), /explicit boolean/);
+  await assert.rejects(() => botManager.resolveApproval(approvalId, null), /explicit boolean/);
+
+  const resolved = await botManager.resolveApproval(approvalId, true);
+  assert.equal(resolved.resolved, true);
+  assert.equal(resolved.delivered, true);
+  assert.equal(resolved.pendencyId, approvalPendency.id);
+  assert.equal(botManager.approvals.has(approvalId), false);
+  const resolveRequest = activationRequests.at(-1);
+  assert.equal(resolveRequest.queuePriority, true);
+  assert.match(
+    resolveRequest.text,
+    new RegExp(`<bot-approval-resolved pendency-id="${approvalPendency.id}" decision="approved">`),
+  );
+  assert.match(resolveRequest.text, /Continue the second protected action\./);
+  persistedInbox = JSON.parse(await readFile(inboxPath, 'utf8'));
+  persistedPendency = persistedInbox.find((item) => item.id === approvalPendency.id);
+  assert.equal(persistedPendency.approval, null);
+  assert.equal(persistedPendency.messages.at(-1).role, 'user');
+  assert.match(persistedPendency.messages.at(-1).content, /approved this request/);
+
+  const completedPendency = await botManager.completePendency(created.bot.id, approvalPendency.id);
+  assert.equal(completedPendency.status, 'completed');
+  assert.ok(completedPendency.completedAt);
+
+  await botManager.queueUserApproval(created.bot.conversationId, {
+    title: 'Denied action',
+    context: 'Confirm the denied action.',
+    prompt: 'Continue the denied action.',
+  });
+  persistedInbox = JSON.parse(await readFile(inboxPath, 'utf8'));
+  const deniedPendency = persistedInbox.filter((item) => item.approval).at(-1);
+  const denied = await botManager.resolveApproval(deniedPendency.approval.id, false);
+  assert.equal(denied.delivered, true);
+  assert.match(activationRequests.at(-1).text, /decision="denied"/);
+  persistedInbox = JSON.parse(await readFile(inboxPath, 'utf8'));
+  const deniedAfter = persistedInbox.find((item) => item.id === deniedPendency.id);
+  assert.match(deniedAfter.messages.at(-1).content, /denied this request/);
+  assert.equal(deniedAfter.status, 'open');
+
+  await assert.rejects(
+    () => botManager.completePendency(created.bot.id, 'missing-pendency'),
+    /Pendency not found/,
+  );
+
+  // Attachment descriptors: bot tools persist full attachment objects.
+  await writeFile(join(workspace, 'sample-attachment.txt'), 'attachment body\n', 'utf8');
+  const contentOnlyPendency = await botRuntime.tools
+    .find((item) => item.name === 'bot_pendency_create')
+    .execute({ title: 'Content only', content: 'No attachments here.' });
+  assert.deepEqual(contentOnlyPendency.messages[0].attachments, []);
+  const attachmentPendency = await botRuntime.tools
+    .find((item) => item.name === 'bot_pendency_create')
+    .execute({
+      title: 'With file',
+      content: 'See attached.',
+      attachmentPaths: [join(workspace, 'sample-attachment.txt')],
+    });
+  const storedAttachments = attachmentPendency.messages[0].attachments;
+  assert.equal(storedAttachments.length, 1);
+  assert.equal(storedAttachments[0].kind, 'text_inline');
+  assert.equal(storedAttachments[0].name, 'sample-attachment.txt');
+  assert.match(storedAttachments[0].text, /attachment body/);
 
   assert.equal(tool('bots_delete').forceApproval, true);
   assert.equal(await tool('bots_delete').execute({ id: created.bot.id }, context).then((result) => result.deleted), true);

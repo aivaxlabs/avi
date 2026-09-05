@@ -13,6 +13,7 @@ import {
   getBotSchedulerSnoozeUntil,
   getConversation,
   getMessage,
+  getMessages,
   listAllConversations,
   listBots,
   setBotSchedulerSnoozeUntil,
@@ -29,27 +30,28 @@ import {
   smartIdleUntil,
 } from './bot-scheduling.js';
 import {
-  BOT_ACTIVITY_TYPES,
-  BOT_ATTENTION_TYPES,
-  BOT_EVIDENCE_TYPES,
-  BOT_WORK_ITEM_STATES,
-  BOT_WORK_PRIORITIES,
+  BOT_ACTIVITY_CATEGORIES,
+  BOT_PENDENCY_STATUSES,
   BOT_WORK_STATE_FILES,
   appendBotActivity,
-  consumeBotWorkApproval,
-  createBotWorkApproval,
-  createBotWorkItem,
+  appendBotPendencyMessage,
+  attachBotPendencyApproval,
+  completeBotPendency,
+  consumeBotPendencyApproval,
+  createBotPendency,
   ensureBotWorkStateFiles,
   readBotWorkState,
-  updateBotWorkItem,
+  readInboxFile,
+  readActivityFile,
 } from './bot-work-state.js';
+import { filePathToAttachment } from './files.js';
 import { traceError, traceInfo } from './trace-log.js';
 
 const TICK_INTERVAL_MS = 30_000;
 const SNOOZE_DURATIONS_MINUTES = new Set([60, 360, 1_440]);
 const WORK_FILES = Object.freeze({
   'MEMORY.md': '# Memory\n\nDurable knowledge for this bot across activations.\n',
-  [BOT_WORK_STATE_FILES.workItems]: '[]\n',
+  [BOT_WORK_STATE_FILES.inbox]: '[]\n',
   [BOT_WORK_STATE_FILES.activity]: '[]\n',
 });
 
@@ -63,6 +65,13 @@ export function resolveBotWorkingFolder(bot) {
 
 export function resolveBotDataFolder(bot) {
   return join(resolveBotWorkingFolder(bot), '.avi-bots', bot?.id ?? 'unknown');
+}
+
+function escapeMarkupText(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 async function writeIfMissing(filePath, contents) {
@@ -293,18 +302,18 @@ export class BotManager {
     for (const bot of listBots()) {
       try {
         const { dataFolder } = await ensureBotFolders(bot);
-        const { workItems } = await readBotWorkState(dataFolder);
-        for (const item of workItems) {
-          if (!item.approval) continue;
-          if (item.approval.botId !== bot.id) {
+        const { inbox } = await readBotWorkState(dataFolder);
+        for (const pendency of inbox) {
+          if (!pendency.approval) continue;
+          if (pendency.approval.botId !== bot.id) {
             traceError('bots.approval-owner-mismatch', {
               bot_id: bot.id,
-              approval_id: item.approval.id,
-              approval_bot_id: item.approval.botId,
+              approval_id: pendency.approval.id,
+              approval_bot_id: pendency.approval.botId,
             });
             continue;
           }
-          this.approvals.set(item.approval.id, item.approval);
+          this.approvals.set(pendency.approval.id, pendency.approval);
         }
       } catch (error) {
         traceError('bots.work-state-load-error', {
@@ -322,10 +331,10 @@ export class BotManager {
     const bot = getBot(botId);
     if (!bot) return;
     const { dataFolder } = await ensureBotFolders(bot);
-    const { workItems } = await readBotWorkState(dataFolder);
-    for (const item of workItems) {
-      if (!item.approval || item.approval.botId !== bot.id) continue;
-      this.approvals.set(item.approval.id, item.approval);
+    const { inbox } = await readBotWorkState(dataFolder);
+    for (const pendency of inbox) {
+      if (!pendency.approval || pendency.approval.botId !== bot.id) continue;
+      this.approvals.set(pendency.approval.id, pendency.approval);
     }
   }
 
@@ -362,54 +371,27 @@ export class BotManager {
     });
   }
 
-  async listWorkStateByBot() {
-    const conversations = listAllConversations();
-    const byId = new Map(conversations.map((conversation) => [conversation.id, conversation]));
+  async listBotDataByBot() {
     return Object.fromEntries(await Promise.all(listBots().map(async (bot) => {
       try {
         const { dataFolder } = await ensureBotFolders(bot);
-        const { workItems, activity } = await readBotWorkState(dataFolder);
-        const trackedWorkerIds = new Set(workItems.flatMap((item) => item.workerThreadIds));
-        const enrichWorker = (threadId) => {
-          const thread = byId.get(threadId);
-          if (!thread) return {
-            id: threadId,
-            title: 'Missing worker thread',
-            status: 'missing',
-            running: false,
-            needsAttention: true,
-            updatedAt: null,
-          };
-          const running = Boolean(this.chatRunner?.runs?.has(thread.id));
-          return {
-            id: thread.id,
-            title: thread.title,
-            status: running ? 'running' : thread.needsAttention ? 'needs-attention' : 'idle',
-            running,
-            needsAttention: thread.needsAttention,
-            updatedAt: thread.updatedAt,
-          };
-        };
+        const results = await Promise.allSettled([readInboxFile(dataFolder), readActivityFile(dataFolder)]);
+        const [inboxError, activityError] = results.map((result) => result.status === 'rejected'
+          ? result.reason instanceof Error ? result.reason.message : String(result.reason)
+          : null);
         return [bot.id, {
-          items: workItems.map((item) => ({
-            ...item,
-            workers: item.workerThreadIds.map(enrichWorker),
-          })),
-          activity,
-          untrackedWorkers: conversations.flatMap((thread) => (
-            thread.parentConversationId === bot.conversationId
-            && !trackedWorkerIds.has(thread.id)
-              ? [enrichWorker(thread.id)]
-              : []
-          )),
-          error: null,
+          inbox: results[0].status === 'fulfilled' ? results[0].value : [],
+          activity: results[1].status === 'fulfilled' ? results[1].value : [],
+          errors: { inbox: inboxError, activity: activityError },
+          error: [inboxError && `Inbox: ${inboxError}`, activityError && `Activity: ${activityError}`].filter(Boolean).join('; ') || null,
         }];
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         return [bot.id, {
-          items: [],
+          inbox: [],
           activity: [],
-          untrackedWorkers: [],
-          error: error instanceof Error ? error.message : String(error),
+          errors: { inbox: message, activity: message },
+          error: `Inbox: ${message}; Activity: ${message}`,
         }];
       }
     })));
@@ -457,7 +439,23 @@ export class BotManager {
   async updateBotConfig(id, changes = {}) {
     const bot = getBot(id);
     if (!bot) throw new Error('Bot not found.');
+    if (changes.workQueueIndex !== undefined) {
+      const workQueue = changes.workQueue === undefined
+        ? bot.workQueue
+        : [...new Set(changes.workQueue.flatMap((item) => {
+          const normalized = String(item ?? '').trim();
+          return normalized ? [normalized] : [];
+        }))];
+      if (
+        !Number.isInteger(changes.workQueueIndex)
+        || changes.workQueueIndex < 0
+        || changes.workQueueIndex >= workQueue.length
+      ) throw new Error('Work queue index is out of range.');
+    }
     const updated = updateBot(id, changes);
+    if (changes.workQueueIndex !== undefined) {
+      updateBotScheduler(id, { workQueueIndex: changes.workQueueIndex });
+    }
     if (changes.workingFolder !== undefined) {
       await ensureBotFolders(updated);
       await this.refreshBotApprovalIndex(id);
@@ -613,20 +611,20 @@ export class BotManager {
     };
   }
 
-  async queueUserApproval(conversationId, { workItemId, context, prompt } = {}) {
+  async queueUserApproval(conversationId, { title, context, prompt } = {}) {
     const bot = getBotByConversation(conversationId);
     if (!bot) throw new Error('This conversation has no bot.');
     const { dataFolder } = await ensureBotFolders(bot);
-    const item = await createBotWorkApproval(dataFolder, {
+    const item = await attachBotPendencyApproval(dataFolder, {
       botId: bot.id,
-      workItemId: String(workItemId ?? '').trim(),
       kind: 'work',
+      title: String(title ?? '').trim(),
       context: String(context ?? '').trim(),
       prompt: String(prompt ?? '').trim(),
     });
     this.approvals.set(item.approval.id, item.approval);
     this.broadcast('bots:work-state');
-    return `Queued for user approval (id: ${item.approval.id}, work item: ${item.id}). Continue with other independent work and do not retry this action until the user decides.`;
+    return `Queued for user approval (approval id: ${item.approval.id}, pendency id: ${item.id}). Continue with other independent work and do not retry this action until the user decides.`;
   }
 
   async queueToolApproval({
@@ -639,119 +637,152 @@ export class BotManager {
     const bot = getBotByConversation(conversationId);
     if (!bot) return null;
     const { dataFolder } = await ensureBotFolders(bot);
-    const item = await createBotWorkItem(dataFolder, {
-      title: invocationSummary || toolName,
-      objective: `Run the approved ${toolName} action and verify its outcome.`,
-      priority: 'normal',
-    });
-    await updateBotWorkItem(dataFolder, {
-      id: item.id,
-      summary: `The next action requires approval before ${toolName} can run.`,
-      nextStep: `Wait for the user decision, then run ${toolName} or choose a safe alternative.`,
-    });
-    const withApproval = await createBotWorkApproval(dataFolder, {
+    const item = await attachBotPendencyApproval(dataFolder, {
       botId: bot.id,
-      workItemId: item.id,
       kind: 'tool',
+      title: invocationSummary || toolName,
       context: `Approve running ${toolName}: ${invocationSummary}`,
-      prompt: `Run ${toolName} with the approved arguments and continue this work item.`,
+      prompt: `Run ${toolName} with the approved arguments and continue this pendency.`,
       toolName,
       workspacePath,
       input: input ?? null,
     });
-    this.approvals.set(withApproval.approval.id, withApproval.approval);
+    this.approvals.set(item.approval.id, item.approval);
     this.broadcast('bots:work-state');
-    return withApproval.approval;
+    return item.approval;
   }
 
   async resolveApproval(approvalId, decision) {
+    if (typeof decision !== 'boolean') {
+      throw new Error('Approval decision must be an explicit boolean.');
+    }
     const entry = this.approvals.get(approvalId);
     if (!entry) throw new Error('Approval item not found.');
     const bot = getBot(entry.botId);
     if (!bot) throw new Error('Bot not found.');
     const { dataFolder } = await ensureBotFolders(bot);
-    const { workItems } = await readBotWorkState(dataFolder);
-    const persistedApproval = workItems.find((item) => item.approval?.id === approvalId)?.approval;
+    const { inbox } = await readBotWorkState(dataFolder);
+    const persistedApproval = inbox.find((pendency) => pendency.approval?.id === approvalId)?.approval;
     if (!persistedApproval || persistedApproval.botId !== bot.id) {
       this.approvals.delete(approvalId);
       throw new Error('Approval ownership mismatch.');
     }
-    const approved = decision !== false;
-    const { item } = await consumeBotWorkApproval(dataFolder, approvalId);
+    const { item, approval } = await consumeBotPendencyApproval(dataFolder, approvalId, decision);
     this.approvals.delete(approvalId);
-    if (!approved) {
-      await updateBotWorkItem(dataFolder, {
-        id: item.id,
-        state: 'waiting',
-        summary: 'The user denied the requested action. The bot must choose a safe alternative or cancel the work.',
-        lastProgress: 'The requested action was not approved.',
-        nextStep: 'Inspect the work again and either choose a non-destructive alternative or cancel it with a clear reason.',
-        blocker: {
-          reason: 'The requested action was denied by the user.',
-          waitingOn: 'The bot to choose an alternative approach or cancel the work.',
-        },
-      });
-    }
     this.noteUserInteraction(bot.conversationId);
-    const text = approved
+    const detailLines = approval.kind === 'tool'
       ? [
-          `<bot-approval-resolved id="${entry.id}" work-item-id="${entry.workItemId}" decision="approved">`,
-          entry.prompt,
-          'Read the work item again, execute only the approved action, and update its progress and next step.',
+          `<tool>${escapeMarkupText(String(approval.toolName))}</tool>`,
+          `<input>${escapeMarkupText(JSON.stringify(approval.input ?? null))}</input>`,
+        ]
+      : [];
+    const text = decision
+      ? [
+          `<bot-approval-resolved pendency-id="${escapeMarkupText(item.id)}" decision="approved">`,
+          escapeMarkupText(approval.prompt),
+          ...detailLines,
+          'Execute only the approved action and keep this pendency updated.',
           '</bot-approval-resolved>',
         ].join('\n')
       : [
-          `<bot-approval-resolved id="${entry.id}" work-item-id="${entry.workItemId}" decision="denied">`,
-          'Read the work item again. Choose a safe alternative or cancel it with a clear reason. Do not retry the denied action.',
+          `<bot-approval-resolved pendency-id="${escapeMarkupText(item.id)}" decision="denied">`,
+          ...detailLines,
+          'Choose a safe alternative or cancel this pendency with a clear reason. Do not retry the denied action.',
           '</bot-approval-resolved>',
         ].join('\n');
     let delivered = false;
+    let error = null;
     try {
-      await this.chatRunner?.send({
+      if (!this.chatRunner?.send) throw new Error('Chat runner is not available.');
+      await this.chatRunner.send({
         conversationId: bot.conversationId,
         model: bot.model,
         reasoningEffort: bot.reasoningEffort,
         permissionMode: 'approve_for_me',
         text,
         fromAgent: true,
+        queuePriority: true,
         project: { path: resolveBotWorkingFolder(bot) },
       });
       delivered = true;
-    } catch (error) {
-      await appendBotActivity(dataFolder, {
-        workItemId: item.id,
-        type: 'failure',
-        summary: 'Could not deliver the user decision to the bot.',
-        details: error instanceof Error ? error.message : String(error),
-      });
+    } catch (sendError) {
+      error = sendError instanceof Error ? sendError.message : String(sendError);
       traceError('bots.approval-delivery-error', {
         bot_id: bot.id,
-        error: error instanceof Error ? error.message : String(error),
+        pendency_id: item.id,
+        error,
       });
     }
     this.broadcast('bots:work-state');
-    return { resolved: true, delivered, workItemId: item.id };
+    return { resolved: true, delivered, pendencyId: item.id, ...(error ? { error } : {}) };
   }
 
-  async setBotWorkItemState(botId, workItemId, state) {
+  async replyToPendency(botId, pendencyId, { content, attachments = [] } = {}) {
     const bot = getBot(botId);
     if (!bot) throw new Error('Bot not found.');
-    if (!BOT_WORK_ITEM_STATES.has(state)) throw new Error(`Invalid state: ${state}`);
+    if (typeof pendencyId !== 'string' || pendencyId.length === 0) {
+      throw new Error('Invalid pendencyId: expected non-empty string');
+    }
     const { dataFolder } = await ensureBotFolders(bot);
-    const { workItems } = await readBotWorkState(dataFolder);
-    const item = workItems.find((entry) => entry.id === workItemId);
-    if (!item) throw new Error(`Work item not found: ${workItemId}`);
-    if (item.approval) throw new Error('Resolve the pending approval before changing the status.');
-    const updated = await updateBotWorkItem(dataFolder, {
-      id: item.id,
-      state,
-      // updateBotWorkItem refuses to complete work without a summary; the user action
-      // still needs a one-line note when the bot has not written one yet.
-      ...(state === 'completed' && !item.summary ? { summary: 'Marked as completed by the user.' } : {}),
+    // The user message is persisted before delivery: a failed send must not lose it.
+    const item = await appendBotPendencyMessage(dataFolder, {
+      pendencyId,
+      role: 'user',
+      content: typeof content === 'string' ? content.trim() : '',
+      attachments: attachments ?? [],
     });
     this.noteUserInteraction(bot.conversationId);
+    const message = item.messages.at(-1);
+    const payload = [
+      `<bot-pendency-update id="${escapeMarkupText(item.id)}" message-id="${escapeMarkupText(message.id)}">`,
+      `<title>${escapeMarkupText(item.title)}</title>`,
+      `<message>${escapeMarkupText(message.content)}</message>`,
+      ...(message.attachments.length > 0
+        ? [`<attachments>${message.attachments
+          .map((attachment) => escapeMarkupText(attachment.path || attachment.name || attachment.id))
+          .join('\n')}</attachments>`]
+        : []),
+      '</bot-pendency-update>',
+    ].join('\n');
+    let delivered = false;
+    let error = null;
+    try {
+      if (!this.chatRunner?.send) throw new Error('Chat runner is not available.');
+      await this.chatRunner.send({
+        conversationId: bot.conversationId,
+        model: bot.model,
+        reasoningEffort: bot.reasoningEffort,
+        permissionMode: 'approve_for_me',
+        text: payload,
+        attachments: message.attachments,
+        fromAgent: true,
+        queuePriority: true,
+        project: { path: resolveBotWorkingFolder(bot) },
+      });
+      delivered = true;
+    } catch (sendError) {
+      error = sendError instanceof Error ? sendError.message : String(sendError);
+      traceError('bots.pendency-delivery-error', {
+        bot_id: bot.id,
+        pendency_id: pendencyId,
+        error,
+      });
+    }
     this.broadcast('bots:work-state');
-    return updated;
+    return { item, delivered, ...(error ? { error } : {}) };
+  }
+
+  async completePendency(botId, pendencyId) {
+    const bot = getBot(botId);
+    if (!bot) throw new Error('Bot not found.');
+    if (typeof pendencyId !== 'string' || pendencyId.length === 0) {
+      throw new Error('Invalid pendencyId: expected non-empty string');
+    }
+    const { dataFolder } = await ensureBotFolders(bot);
+    const item = await completeBotPendency(dataFolder, pendencyId);
+    this.noteUserInteraction(bot.conversationId);
+    this.broadcast('bots:work-state');
+    return item;
   }
 
   async tick() {
@@ -834,20 +865,29 @@ export class BotManager {
     this.activating.add(bot.id);
     try {
       const folders = await ensureBotFolders(bot);
-      const { workItems } = await readBotWorkState(folders.dataFolder);
-      const activeWorkItem = workItems.find((item) => (
-        item.state === 'active'
-        || item.workerThreadIds.some((threadId) => this.chatRunner?.runs?.has(threadId))
+      const { inbox } = await readBotWorkState(folders.dataFolder);
+      const actionablePendency = inbox.find((pendency) => (
+        pendency.status === 'open'
+        && !pendency.approval
+        && pendency.messages.at(-1)?.role === 'user'
       ));
-      const focusTask = activeWorkItem?.title ?? bot.workQueue[bot.workQueueIndex];
+      const focusTask = actionablePendency?.title ?? bot.workQueue[bot.workQueueIndex];
       const activationPrompt = [`<bot-activation at="${new Date().toISOString()}">`];
       if (focusTask) {
-        activationPrompt.push(`<focus-task>${focusTask
-          .replaceAll('&', '&amp;')
-          .replaceAll('<', '&lt;')
-          .replaceAll('>', '&gt;')}</focus-task>`);
+        activationPrompt.push(`<focus-task>${escapeMarkupText(focusTask)}</focus-task>`);
       }
       activationPrompt.push('</bot-activation>');
+      const boundaryMessage = getMessages(bot.conversationId)
+        .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
+        .filter((message) => message.role === 'user' || message.role === 'assistant')
+        .at(-1);
+      if (boundaryMessage) {
+        updateConversation(bot.conversationId, {
+          checkpointMessageId: boundaryMessage.id,
+          contextCheckpoint: '',
+          contextTokens: 0,
+        });
+      }
       await this.chatRunner?.send({
         conversationId: bot.conversationId,
         model: bot.model,
@@ -860,7 +900,7 @@ export class BotManager {
       const activationCount = bot.activationCount + 1;
       const sleeping = bot.maxActivations > 0 && activationCount >= bot.maxActivations;
       const currentBot = getBot(bot.id);
-      const workQueueIndex = activeWorkItem || bot.workQueue.length === 0
+      const workQueueIndex = actionablePendency || bot.workQueue.length === 0
         ? currentBot.workQueueIndex
         : JSON.stringify(currentBot.workQueue) === JSON.stringify(bot.workQueue)
           ? (bot.workQueueIndex + 1) % bot.workQueue.length
@@ -903,24 +943,6 @@ export class BotManager {
     if (!bot) return null;
     const workingFolder = resolveBotWorkingFolder(bot);
     const dataFolder = resolveBotDataFolder(bot);
-    const attentionSchema = {
-      type: ['object', 'null'],
-      properties: {
-        type: { type: 'string', enum: [...BOT_ATTENTION_TYPES] },
-        summary: { type: 'string' },
-      },
-      required: ['type', 'summary'],
-      additionalProperties: false,
-    };
-    const blockerSchema = {
-      type: ['object', 'null'],
-      properties: {
-        reason: { type: 'string' },
-        waitingOn: { type: 'string' },
-      },
-      required: ['reason', 'waitingOn'],
-      additionalProperties: false,
-    };
     const tools = [
       {
         name: 'bot_semaphore_inspect',
@@ -991,8 +1013,30 @@ export class BotManager {
         execute: ({ name }) => this.chatRunner.releaseAllSemaphoreHolders(String(name).trim()),
       },
       {
-        name: 'bot_work_create',
-        description: 'Create one durable user-visible work item with a clear objective. Do not create items for routine reads or tool calls.',
+        name: 'bot_pendencies_list',
+        description: 'Read this bot’s user-facing pendencies and the material activity diary. Pendencies with a pending approval or a latest bot message are waiting on the user; pendencies whose latest message is from the user are waiting on you.',
+        approval: 'never',
+        canEditFile: false,
+        canPerformDestructiveActions: false,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: [...BOT_PENDENCY_STATUSES], description: 'Filter by status. Omit to list all pendencies.' },
+          },
+          additionalProperties: false,
+        },
+        execute: async (input) => {
+          await ensureBotFolders(bot);
+          const { inbox, activity } = await readBotWorkState(dataFolder);
+          const pendencies = input?.status
+            ? inbox.filter((entry) => entry.status === input.status)
+            : inbox;
+          return { pendencies, activity };
+        },
+      },
+      {
+        name: 'bot_pendency_create',
+        description: 'Create one user-facing pendency with an explanatory first message. Use it when the user must decide, approve, answer, or review something. Do not create pendencies for routine reads or tool calls.',
         approval: 'never',
         canEditFile: false,
         canPerformDestructiveActions: false,
@@ -1000,81 +1044,94 @@ export class BotManager {
           type: 'object',
           properties: {
             title: { type: 'string', description: 'Short recognizable label.' },
-            objective: { type: 'string', description: 'The concrete result that defines success, written as concise GitHub-flavored Markdown.' },
-            nextStep: { type: 'string', description: 'The next concrete action in concise GitHub-flavored Markdown. Provide it when the work should appear in Up next.' },
-            priority: { type: 'string', enum: [...BOT_WORK_PRIORITIES] },
-            workerThreadIds: { type: 'array', items: { type: 'string' }, uniqueItems: true },
+            content: { type: 'string', description: 'The first message: what this pendency needs from the user and why.' },
+            attachmentPaths: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Paths of files to attach to the first message.',
+            },
           },
-          required: ['title', 'objective'],
+          required: ['title', 'content'],
           additionalProperties: false,
         },
-        execute: async (input) => {
+        execute: async ({ title, content, attachmentPaths = [] }) => {
           await ensureBotFolders(bot);
-          const item = await createBotWorkItem(dataFolder, input);
+          const pendency = await createBotPendency(dataFolder, {
+            title,
+            content,
+            attachments: attachmentPaths.map((path) => filePathToAttachment(path)),
+          });
           this.broadcast('bots:work-state');
-          return item;
+          return pendency;
         },
       },
       {
-        name: 'bot_work_update',
-        description: 'Update the current situation of a work item. Keep objective, material progress, next step, attention, blocker, workers, and evidence accurate. Pending approval fields are runtime-owned.',
+        name: 'bot_pendency_message',
+        description: 'Append a message to an existing pendency. Messaging a completed pendency reopens it for the user.',
         approval: 'never',
         canEditFile: false,
         canPerformDestructiveActions: false,
         inputSchema: {
           type: 'object',
           properties: {
-            id: { type: 'string' },
-            title: { type: 'string' },
-            objective: { type: 'string', description: 'The result that defines success, written as concise GitHub-flavored Markdown.' },
-            state: { type: 'string', enum: [...BOT_WORK_ITEM_STATES] },
-            summary: { type: 'string', description: 'Current situation in concise GitHub-flavored Markdown. Use short bullets for multiple results. When completing work, explain what was done, why, and how without repeating structured evidence.' },
-            lastProgress: { type: 'string', description: 'Latest material result, discovery, or change in concise GitHub-flavored Markdown.' },
-            nextStep: { type: 'string', description: 'The next concrete action for planned or active work, written as concise GitHub-flavored Markdown. It is cleared automatically when work is completed.' },
-            attention: attentionSchema,
-            blocker: blockerSchema,
-            priority: { type: 'string', enum: [...BOT_WORK_PRIORITIES] },
-            workerThreadIds: { type: 'array', items: { type: 'string' }, uniqueItems: true },
-            evidence: {
+            id: { type: 'string', description: 'Pendency id returned by bot_pendencies_list or bot_pendency_create.' },
+            content: { type: 'string' },
+            attachmentPaths: {
               type: 'array',
-              description: 'Evidence supporting the report. Use file_reference for project-relative file paths, external_reference for HTTP(S) URLs, and text for non-link evidence.',
-              items: {
-                type: 'object',
-                properties: {
-                  type: { type: 'string', enum: [...BOT_EVIDENCE_TYPES] },
-                  value: { type: 'string' },
-                },
-                required: ['type', 'value'],
-                additionalProperties: false,
-              },
-              uniqueItems: true,
+              items: { type: 'string' },
+              description: 'Paths of files to attach to the message.',
             },
+          },
+          required: ['id', 'content'],
+          additionalProperties: false,
+        },
+        execute: async ({ id, content, attachmentPaths = [] }) => {
+          await ensureBotFolders(bot);
+          const pendency = await appendBotPendencyMessage(dataFolder, {
+            pendencyId: id,
+            role: 'bot',
+            content,
+            attachments: attachmentPaths.map((path) => filePathToAttachment(path)),
+          });
+          this.broadcast('bots:work-state');
+          return pendency;
+        },
+      },
+      {
+        name: 'bot_pendency_complete',
+        description: 'Mark a pendency as completed once its request is fully satisfied. A pending user approval blocks completion.',
+        approval: 'never',
+        canEditFile: false,
+        canPerformDestructiveActions: false,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: 'Pendency id returned by bot_pendencies_list or bot_pendency_create.' },
           },
           required: ['id'],
           additionalProperties: false,
         },
-        execute: async (input) => {
+        execute: async ({ id }) => {
           await ensureBotFolders(bot);
-          const item = await updateBotWorkItem(dataFolder, input);
+          const pendency = await completeBotPendency(dataFolder, id);
           this.broadcast('bots:work-state');
-          return item;
+          return pendency;
         },
       },
       {
         name: 'bot_activity_append',
-        description: 'Append one material event to the recent activity timeline. Do not record routine reads, tool calls, or duplicate item updates.',
+        description: 'Write one material event to the activity diary. The diary has no automatic entries: record progress, discoveries, decisions, completions, and failures explicitly when they are material.',
         approval: 'never',
         canEditFile: false,
         canPerformDestructiveActions: false,
         inputSchema: {
           type: 'object',
           properties: {
-            workItemId: { type: ['string', 'null'] },
-            type: { type: 'string', enum: [...BOT_ACTIVITY_TYPES] },
-            summary: { type: 'string' },
-            details: { type: 'string' },
+            title: { type: 'string', description: 'Short label for the event.' },
+            description: { type: 'string', description: 'Material detail about the event.' },
+            category: { type: 'string', enum: [...BOT_ACTIVITY_CATEGORIES] },
           },
-          required: ['type', 'summary'],
+          required: ['title', 'category'],
           additionalProperties: false,
         },
         execute: async (input) => {
@@ -1082,22 +1139,6 @@ export class BotManager {
           const entry = await appendBotActivity(dataFolder, input);
           this.broadcast('bots:work-state');
           return entry;
-        },
-      },
-      {
-        name: 'bot_work_read',
-        description: 'Read all durable work items and material activity. The Bots panel enriches referenced workers with their live runtime state.',
-        approval: 'never',
-        canEditFile: false,
-        canPerformDestructiveActions: false,
-        inputSchema: {
-          type: 'object',
-          properties: {},
-          additionalProperties: false,
-        },
-        execute: async () => {
-          await ensureBotFolders(bot);
-          return readBotWorkState(dataFolder);
         },
       },
       {
@@ -1109,11 +1150,11 @@ export class BotManager {
         inputSchema: {
           type: 'object',
           properties: {
-            workItemId: { type: 'string', description: 'Existing work item id returned by bot_work_create or bot_work_read.' },
+            title: { type: 'string', description: 'Short recognizable label for the approval request.' },
             context: { type: 'string', description: 'Why this exact action needs the user.' },
             prompt: { type: 'string', description: 'Exact instructions to resume this work after approval.' },
           },
-          required: ['workItemId', 'context', 'prompt'],
+          required: ['title', 'context', 'prompt'],
           additionalProperties: false,
         },
         execute: (input) => this.queueUserApproval(conversationId, input),
@@ -1121,7 +1162,7 @@ export class BotManager {
       ...(bot.activationMode === 'smart'
         ? [{
             name: 'set_bot_idle',
-            description: 'Put this bot to sleep for four activation periods when no work item is actionable. This ends the current inference after the tool result.',
+            description: 'Put this bot to sleep for four activation periods when no pendency is actionable. This ends the current inference after the tool result.',
             approval: 'never',
             canEditFile: false,
             canPerformDestructiveActions: false,
