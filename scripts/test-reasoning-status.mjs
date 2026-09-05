@@ -117,26 +117,24 @@ assert.match(leadingWhitespace, /class="worked-block"/);
 assert.match(leadingWhitespace, /Final answer/);
 assert.equal(answerTextFromTextualBlocks(' \n\t<think>Private reasoning</think>Final answer'), 'Final answer');
 
-for (const content of [
-  'Final answer <think>literal tag</think> remains visible.',
-  'Final answer\n<think>literal tag</think> remains visible.',
-]) {
-  const inlineThink = renderContent(content);
-  assert.doesNotMatch(inlineThink, /class="worked-block"/);
-  assert.doesNotMatch(inlineThink, /class="reasoning-text"/);
-  assert.match(inlineThink, /&lt;think&gt;literal tag&lt;\/think&gt;/);
-  assert.equal(answerTextFromTextualBlocks(content), content);
-}
-
-const adjacentThink = renderContent('<think>Private reasoning</think><think>literal tag</think>Final answer');
-assert.match(adjacentThink, /class="worked-block"/);
-assert.match(adjacentThink, /&lt;think&gt;literal tag&lt;\/think&gt;Final answer/);
+const inlineThink = renderContent('Initial answer <think>Private reasoning</think>Final answer');
+assert.match(inlineThink, /class="worked-block"/);
+assert.doesNotMatch(inlineThink, /Private reasoning/);
+assert.match(inlineThink, /Final answer/);
 assert.equal(
-  answerTextFromTextualBlocks('<think>Private reasoning</think><think>literal tag</think>Final answer'),
-  '<think>literal tag</think>Final answer',
+  answerTextFromTextualBlocks('Initial answer <think>Private reasoning</think>Final answer'),
+  'Final answer',
 );
 
-const afterCompression = renderContent('Answer<think>literal tag</think>', [{
+const adjacentThink = renderContent('<think>First reasoning</think><think>Second reasoning</think>Final answer');
+assert.equal((adjacentThink.match(/class="worked-block"/g) ?? []).length, 1);
+assert.match(adjacentThink, /Final answer/);
+assert.equal(
+  answerTextFromTextualBlocks('<think>First reasoning</think><think>Second reasoning</think>Final answer'),
+  'Final answer',
+);
+
+const afterCompression = renderContent('Answer<think>Private reasoning</think>Final answer', [{
   id: 'compression',
   type: 'context-compression',
   contentOffset: 6,
@@ -144,8 +142,8 @@ const afterCompression = renderContent('Answer<think>literal tag</think>', [{
   inputTokens: 100,
   outputTokens: 50,
 }]);
-assert.doesNotMatch(afterCompression, /class="reasoning-text"/);
-assert.match(afterCompression, /&lt;think&gt;literal tag&lt;\/think&gt;/);
+assert.match(afterCompression, /class="worked-block"/);
+assert.match(afterCompression, /Final answer/);
 
 const nextResponse = renderMessage();
 assert.match(nextResponse, />Thinking</);

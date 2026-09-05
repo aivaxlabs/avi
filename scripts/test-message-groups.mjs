@@ -204,8 +204,13 @@ const userStoppedAssistant = {
 };
 assert.equal(
   canResumeAssistantMessage(userStoppedAssistant, userStoppedAssistant, false),
+  true,
+  'An explicit user Stop should offer Try again once the thread is idle.',
+);
+assert.equal(
+  canResumeAssistantMessage(userStoppedAssistant, userStoppedAssistant, true),
   false,
-  'An explicit user Stop should not offer Try again.',
+  'Try again should remain hidden until the stopped run is idle.',
 );
 assert.equal(
   canResumeAssistantMessage(

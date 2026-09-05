@@ -745,6 +745,14 @@ export const ChatView = memo(function ChatView({
     window.getSelection()?.removeAllRanges();
   };
 
+  function reportQuestionActivity() {
+    if (!questionRequest || questionResolving) return;
+    window.chatApp.chat.questionActivity({
+      questionId: questionRequest.questionId,
+      conversationId: questionRequest.conversationId,
+    }).catch(console.error);
+  }
+
   async function resolveQuestion(cancelled) {
     if (!questionRequest || questionResolving) return;
     setQuestionResolving(true);
@@ -958,6 +966,12 @@ export const ChatView = memo(function ChatView({
                 <form
                   ref={questionCardRef}
                   className="question-card"
+                  onPointerMove={reportQuestionActivity}
+                  onPointerDown={reportQuestionActivity}
+                  onClick={reportQuestionActivity}
+                  onKeyDownCapture={reportQuestionActivity}
+                  onInput={reportQuestionActivity}
+                  onWheel={reportQuestionActivity}
                   aria-labelledby={`question-card-title-${questionRequest.questionId}`}
                   onKeyDown={(event) => {
                     if (event.key !== 'Escape') return;

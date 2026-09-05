@@ -1401,15 +1401,11 @@ function buildMessageTimeline(message) {
   for (const compression of compressionSegments) {
     parsedTimeline.push(...buildTimelineFromContent(
       (message.content || '').slice(contentOffset, compression.contentOffset),
-      contentOffset === 0,
     ));
     parsedTimeline.push(compression);
     contentOffset = compression.contentOffset;
   }
-  parsedTimeline.push(...buildTimelineFromContent(
-    (message.content || '').slice(contentOffset),
-    contentOffset === 0,
-  ));
+  parsedTimeline.push(...buildTimelineFromContent((message.content || '').slice(contentOffset)));
   parsedTimeline.forEach((item, index) => {
     item.id = `timeline-${index}-${item.id}`;
   });
@@ -1683,7 +1679,7 @@ function toolReason(segment) {
   return '';
 }
 
-function buildTimelineFromContent(content, acceptsLeadingThink = false) {
+function buildTimelineFromContent(content) {
   if (!content.trim()) return [];
 
   const timeline = [];
@@ -1691,14 +1687,13 @@ function buildTimelineFromContent(content, acceptsLeadingThink = false) {
   let markerSequence = 0;
 
   while (cursor < content.length) {
-    const marker = findNextThinkingMarker(content, cursor, acceptsLeadingThink);
+    const marker = findNextThinkingMarker(content, cursor);
     if (!marker) {
       pushContent(timeline, content.slice(cursor));
       break;
     }
 
     pushContent(timeline, content.slice(cursor, marker.start));
-    acceptsLeadingThink = false;
 
     if (marker.type === 'answer') {
       const valueStart = marker.start + marker.openTag.length;
@@ -1836,7 +1831,7 @@ function pushContent(timeline, text) {
   timeline.push({
     id: `content-${timeline.length}`,
     type: 'content',
-    text: text.replace(/<\/?think>/gi, (tag) => `\\${tag}`),
+    text,
   });
 }
 
@@ -1871,7 +1866,7 @@ function skipThinkingMarker(content, marker) {
   return valueEnd >= 0 ? valueEnd + marker.closeTag.length : content.length;
 }
 
-function findNextThinkingMarker(text, start, acceptsLeadingThink = false) {
+function findNextThinkingMarker(text, start) {
   const candidates = [
     { type: 'group', openTag: '<thinking-group>', closeTag: '</thinking-group>' },
     { type: 'group', openTag: '<thinking-blocks>', closeTag: '</thinking-blocks>' },
@@ -1882,16 +1877,10 @@ function findNextThinkingMarker(text, start, acceptsLeadingThink = false) {
   ];
 
   return candidates
-    .map((candidate) => {
-      const markerStart = findTag(text, candidate.openTag, start);
-      return {
-        ...candidate,
-        start: candidate.type !== 'think'
-          || (acceptsLeadingThink && !text.slice(start, markerStart).trim())
-          ? markerStart
-          : -1,
-      };
-    })
+    .map((candidate) => ({
+      ...candidate,
+      start: findTag(text, candidate.openTag, start),
+    }))
     .filter((candidate) => candidate.start >= 0)
     .sort((a, b) => a.start - b.start)[0] ?? null;
 }

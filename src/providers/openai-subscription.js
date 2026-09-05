@@ -46,7 +46,17 @@ const modelDefinitions = [
     modelId: 'gpt-6-astra',
     name: 'GPT-6 Astra',
     description: 'Most capable model for the hardest end-to-end work.',
-    context: { input: 922_000, output: 128_000 },
+    context: { input: 272_000, output: 128_000 },
+    reasoning: THROUGH_MAX_REASONING,
+    imageInput: true,
+    fast: true,
+  },
+  {
+    id: 'gpt-6-astra-1m',
+    modelId: 'gpt-6-astra',
+    name: 'GPT-6 Astra (1M)',
+    description: 'Most capable model for the hardest end-to-end work with extended context.',
+    context: { input: 872_000, output: 128_000 },
     reasoning: THROUGH_MAX_REASONING,
     imageInput: true,
     fast: true,
@@ -134,7 +144,7 @@ export const openAiSubscriptionProviderType = defineProvider({
     connection: 'managed',
     models: 'managed',
     modelsDescription:
-      'GPT-6 Astra; GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; '
+      'GPT-6 Astra and Astra (1M); GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; '
       + 'GPT-5.3 Codex Spark. Supported models also include Fast variants.',
     fields: [{
       id: 'imageTool',

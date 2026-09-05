@@ -9,7 +9,9 @@ Providers contribute models, tools, and auxiliary panels to Avi. Only enabled pr
 3. Open the provider and select **Sign in with ChatGPT**.
 4. Enter the displayed **Security code** on the authorization page and complete sign-in.
 
-The managed catalog currently includes GPT-6 Astra; GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; and GPT-5.3 Codex Spark. Fast variants appear when supported. The GPT Image setting controls whether the image generation and editing tool is available to every configured model, including models from other providers. Image editing accepts local file references only.
+GPT-6 Astra provides 272,000 input tokens; GPT-6 Astra (1M) provides 872,000. Both reserve 128,000 output tokens and offer Fast variants.
+
+The managed catalog currently includes GPT-6 Astra and Astra (1M); GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; and GPT-5.3 Codex Spark. Fast variants appear when supported. The GPT Image setting controls whether the image generation and editing tool is available to every configured model, including models from other providers. Image editing accepts local file references only.
 
 OAuth credentials are encrypted locally. **Disconnect** removes the provider session, and removing the provider also signs it out.
 

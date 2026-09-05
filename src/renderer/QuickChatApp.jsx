@@ -143,6 +143,12 @@ export default function QuickChatApp() {
         {questionRequest && (
           <QuickQuestion
             request={questionRequest}
+            onActivity={() => {
+              api.quickChat.questionActivity({
+                sessionId,
+                questionId: questionRequest.questionId,
+              }).catch(console.error);
+            }}
             onResolve={(answers, cancelled = false) => {
               api.quickChat.answerQuestion({
                 sessionId,
@@ -340,7 +346,7 @@ function hasFileTransfer(dataTransfer) {
   return Array.from(dataTransfer.types ?? []).includes('Files');
 }
 
-function QuickQuestion({ request, onResolve }) {
+function QuickQuestion({ request, onResolve, onActivity }) {
   const [answers, setAnswers] = useState(() => request.questions.map((question) => (
     question.type === 'multiple_choice' ? [] : ''
   )));
@@ -355,18 +361,27 @@ function QuickQuestion({ request, onResolve }) {
   }), [answers, customActive, customAnswers, request.questions]);
 
   return (
-    <form className="quick-question" onSubmit={(event) => {
-      event.preventDefault();
-      if (!complete) return;
-      onResolve(request.questions.map((question, index) => ({
-        question: question.question,
-        answer: customActive[index]
-          ? question.type === 'multiple_choice'
-            ? [...answers[index], customAnswers[index].trim()]
-            : customAnswers[index].trim()
-          : answers[index],
-      })));
-    }}>
+    <form
+      className="quick-question"
+      onPointerMove={onActivity}
+      onPointerDown={onActivity}
+      onClick={onActivity}
+      onKeyDownCapture={onActivity}
+      onInput={onActivity}
+      onWheel={onActivity}
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!complete) return;
+        onResolve(request.questions.map((question, index) => ({
+          question: question.question,
+          answer: customActive[index]
+            ? question.type === 'multiple_choice'
+              ? [...answers[index], customAnswers[index].trim()]
+              : customAnswers[index].trim()
+            : answers[index],
+        })));
+      }}
+    >
       {request.questions.map((question, index) => (
         <fieldset key={`${question.question}:${index}`}>
           <legend>{question.question}</legend>

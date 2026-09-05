@@ -91,7 +91,7 @@ const subscriptionProvider = subscriptionRegistry.createProvider(
     interface: 'openai-subscription',
   }),
 );
-const [astra, astraFast] = subscriptionProvider.listModels();
+const [astra, astraFast, astra1m, astra1mFast] = subscriptionProvider.listModels();
 assert.deepEqual(
   {
     id: astra.id,
@@ -106,7 +106,7 @@ assert.deepEqual(
     id: 'subscription:gpt-6-astra',
     modelId: 'gpt-6-astra',
     name: 'GPT-6 Astra',
-    context: { input: 922_000, output: 128_000 },
+    context: { input: 272_000, output: 128_000 },
     reasoning: ['low', 'medium', 'high', 'xhigh', 'max'],
     capabilities: { images: true, audio: false, pdfFiles: true },
     serviceTier: undefined,
@@ -126,6 +126,31 @@ assert.deepEqual(
     serviceTier: 'priority',
   },
 );
+
+assert.deepEqual(astraFast.context, astra.context);
+for (const [model, id, name, serviceTier] of [
+  [astra1m, 'gpt-6-astra-1m', 'GPT-6 Astra (1M)', undefined],
+  [astra1mFast, 'gpt-6-astra-1m-fast', 'GPT-6 Astra (1M) (Fast)', 'priority'],
+]) {
+  assert.equal(model.id, `subscription:${id}`);
+  assert.equal(model.modelId, 'gpt-6-astra');
+  assert.equal(model.name, name);
+  assert.equal(model.serviceTier, serviceTier);
+  assert.deepEqual(model.context, { input: 872_000, output: 128_000 });
+  assert.deepEqual(model.reasoning, astra.reasoning);
+  assert.deepEqual(model.capabilities, astra.capabilities);
+  const variantBody = await responsesApi.createBody({
+    provider: subscriptionProvider.config,
+    model,
+    messages: [{ role: 'user', content: 'Hello' }],
+    reasoningEffort: 'max',
+    tools: [],
+    toolHistory: [],
+    invocationContext: { auxiliary: true },
+  });
+  assert.equal(variantBody.model, 'gpt-6-astra');
+  assert.equal(variantBody.service_tier, serviceTier);
+}
 
 const astraFastBody = await responsesApi.createBody({
   provider: subscriptionProvider.config,

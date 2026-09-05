@@ -22,6 +22,8 @@ Capabilities:
 - `providers.usages.register`: contribute account usage shown beside context usage in the composer.
 - `providers.credentials.write`: set or clear credentials.
 
+The OpenAI Subscription catalog exposed by `avi.providers.models.list()` includes `gpt-6-astra` with `context: { input: 272000, output: 128000 }` and `gpt-6-astra-1m` (GPT-6 Astra (1M)) with `context: { input: 872000, output: 128000 }`. Their IDs are qualified by the provider ID. Both use the remote `modelId: 'gpt-6-astra'`; their `-fast` variants retain the same context limits and use `serviceTier: 'priority'`.
+
 ## Registering a type
 
 ```js
