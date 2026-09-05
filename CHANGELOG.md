@@ -2,60 +2,6 @@
 
 ## [Canary]
 
-### Added
-- **Linked-folder workspaces** — create workspaces under `~/.aivax/workspaces` from the folder picker, edit links from the sidebar, and identify them by a different icon. Adds global RPC `workspaces:get` / `workspaces:save`; file search, mentions, and Git diffs now follow directory symlinks outside the selected folder.
-- **Overview Inbox** — the renamed Orchestration page opens on Inbox by default and aggregates all bot conversations in a searchable, status-filtered email-style list with date groups, bot avatars, message previews, attention indicators, and direct navigation to the existing conversation controls.
-- **RPC WAN bridge** — opt-in public relay for the JSON-RPC WebSockets through `https://avi-relay.projpw.workers.dev` with AIVAX-authenticated, role-bound ticket issuance, a stable per-install device id, automatic reconnection with fresh tickets, bridge status in Settings, and read-only global RPC `remote:state`. Only `/rpc` and `/rpc/conversations/streams/:thread-id` are relayed; handshake v2 opens carry only the target route, and the connected AIVAX account substitutes the Remote API key on the WAN — local keys stay local-only and MCP HTTP is never relayed. The bridge is off by default (`relayEnabled`), runs independently of the local server toggle and keys, requires a connected AIVAX account, and the public client protocol is documented for external clients. The bridge is locally verified across the real Workspace client, Desktop relay stack, and deployed Worker implementation with AIVAX mocked; live end-to-end verification against the deployed service is still pending.
-- **Automatic update checks** — checks stable GitHub releases at startup and every six hours, marks Settings when an update is available, and adds a green General banner with platform-specific download, installation, and relaunch. Authenticated global RPC clients can inspect, check, and install updates.
-- **Bot Inbox conversations** — bots send pendencies that users answer in place with text, images, and files; dated replies are forwarded to the bot's main thread with `<bot-pendency-update>` while work and delegation continue there.
-- **Bot work-queue activation menu** — expands **Activate now** into a nested queue picker that can keep the current item or select which recurring task runs next, with long labels truncated.
-- **GPT-6 Astra for OpenAI Subscription** — adds the managed standard and Fast variants with image input and reasoning efforts through Max.'
-
-### Changed
-- Standardized desktop typography around the 14px root size, using rem-based component sizes and readable secondary text instead of sub-12px labels.
-- **Workspace editor layout** — compact folder rows, inline link names, visible storage path, and a right-aligned primary save action replace oversized tag-style cards. Long lists scroll inside a viewport-constrained body while the header and actions stay visible.
-- **Overview task scope** — task lists now include only user-created threads, excluding agent-created work before loading task histories. Model usage totals still include all agents.
-- **Bot Inbox message order** — shows the newest message at the top of each pendency conversation and the oldest at the bottom.
-- **Simpler Bots panel** — replaces Overview, All work, and work-item detail dialogs with filterable **Inbox | Activity**. The sidebar counts open pendencies awaiting the user, while Activity is a first-person diary of important, self-contained results. Each view has its own JSON file (`inbox.json` and `diary.json`); legacy `work-items.json` and `activity.json` are no longer read and remain untouched.
-- **Bot API contract** — replaces `bot_work_*`, Core `bot.workState.get()`, and RPC `bots:update-work-item` with pendency/message/completion operations and the new Inbox/Activity types. Protected approvals remain explicit and now reject missing or non-boolean decisions.
-- Restored `<think>...</think>` reasoning-block parsing anywhere in assistant output instead of requiring the block at the absolute message start.
-- Set the GPT-6 Astra managed input context to 272,000 tokens and added GPT-6 Astra (1M) with 872,000 input tokens, including Fast variants; output remains 128,000 tokens.
-- Refined full-chat agent instructions for autonomous follow-through, transparent instruction conflicts, direct execution outside Ultra, proportionate validation, and concise writing. The mode-independent base prompt retains the main implementation with the agent while encouraging parallel sub-agents for independent exploration, research, analysis, and tests, with distinct assignments, no duplicated work, and active guidance. The Ultra-specific context retains the main and most demanding implementation with the orchestrator, using sub-agents for bounded, less demanding supporting tasks and independent critique.
-- Bot activations now mark a checkpoint in the bot conversation, so each activation starts its model context from the previous boundary instead of replaying the full history.
-
-### Fixed
-- Keep the workspace icon and **Edit workspace** menu available after live conversation updates by including workspace classification in conversation events.
-- Question dialogs now restart their 60-second AFK timer on pointer, click, keyboard, input, or scroll activity inside the card, including Quick Chat; Plan mode remains timeout-free. Added the scoped `chat:question-activity` RPC operation.
-- Cleared stale compaction summaries and token counters when bot activations advance their context boundary. Regular and Core API forks now finalize copied streaming messages as partial-response snapshots rather than leaving them permanently streaming.
-- Fixed Core `ThreadHandle.fork()` returning a handle without the copied conversation ID.
-- Preserved hidden context-checkpoint boundaries in regular copies, side chats, and Rubber Duck forks, preventing replay of already compacted history and unexpected context-overflow compaction. Forks ending before a checkpoint no longer inherit its summary or token counter.
-- Aligned collapsed-sidebar navigation icons with the expand and Settings controls by removing the reserved scrollbar gutter in the icon rail.
-- Context compaction now sends structured history without provider-specific reasoning/continuation metadata or the in-flight JSON transcript, preserving semantic content and tool pairs. Context-window retries cut the oldest 30% and 60% of in-flight tool rounds before the existing aggressive and chat-model fallbacks.
-- Bot Inbox and Activity now use a responsive panel layout with readable filters, conversation rows, and empty states. File-loading failures are isolated by tab and expose technical details separately instead of presenting raw validation errors as the main message.
-- Sidebar conversation tooltips now show only the folder name instead of its full path.
-- Restored **Try again** after an explicit user Stop, matching other failed or abruptly interrupted inferences.
-- Kept the interrupted user prompt when retrying after Stop, shutdown, or a crash during MCP initialization, instead of skipping it or replaying an older prompt.
-- Made retry execution indicators follow live runtime snapshots and events, not persisted message status, so active tools and finalization keep **Try again** hidden without leaving completed runs stuck as running.
-- Fixed recovery at the exact context-checkpoint boundary and reused canonical history serialization to preserve confirmed tool results, media, and compatible provider continuation. Invalid recovery targets and missing prompts now report an error instead of silently succeeding.
-
-### Docs
-- Documented Inbox replies, attachments, notification counts, diary guidelines, delivery failures, and updated bot Core/RPC contracts; corrected the bundled bot reference for empty Work queue activation.
-- Updated the OpenAI Subscription model catalog documentation for GPT-6 Astra.
-- Documented **Try again** recovery after failed and abruptly interrupted inferences.
-- Documented how full-chat agents handle clear action requests and instruction-caused blockers.
-
-### Chores
-- Consolidated desktop release builds into one flat `avi-release.zip` artifact with stable, versionless installer names for every platform and architecture.
-
-### Tests
-- Added regression coverage for **Try again** after an explicit user Stop.
-- Added isolated Electron recovery regressions for inference failures, interrupted MCP initialization, shutdown/startup recovery, prompt boundaries, and retry renderer state.
-- Added Sidebar interaction and bot-management regressions for selecting the next Work queue item.
-- Added managed-catalog and Responses request coverage for GPT-6 Astra and its Fast service tier.
-- Added a bot activation checkpoint regression covering the boundary advance and model-context exclusion.
-
----
-
 ## [0.6.0] — 2026-09-03
 
 ### Added
@@ -76,6 +22,13 @@
 - **OpenAI-compatible hyperparameters** — Responses and Chat Completions providers can optionally send Temperature and Top K with each inference request.
 - **Lazy tool-call details** — Desktop and conversation RPC clients now receive lightweight tool-call segments and hydrate arguments, results, and media on demand through the conversation-scoped `conversations:tool-call-details` method.
 - **Trace + Requests log mode** — a new Diagnostics level that writes the raw HTTP request and response of failed provider API calls (status `>= 400` or transport errors) to `$TEMP/.avi/debug/request-logs/yyyy-MM-dd-model-randomid.log`, with credentials and file paths redacted.
+- **Linked-folder workspaces** — create workspaces under `~/.aivax/workspaces` from the folder picker, edit links from the sidebar, and identify them by a different icon. Adds global RPC `workspaces:get` / `workspaces:save`; file search, mentions, and Git diffs now follow directory symlinks outside the selected folder.
+- **Overview Inbox** — the renamed Orchestration page opens on Inbox by default and aggregates all bot conversations in a searchable, status-filtered email-style list with date groups, bot avatars, message previews, attention indicators, and direct navigation to the existing conversation controls.
+- **RPC WAN bridge** — opt-in public relay for the JSON-RPC WebSockets through `https://avi-relay.projpw.workers.dev` with AIVAX-authenticated, role-bound ticket issuance, a stable per-install device id, automatic reconnection with fresh tickets, bridge status in Settings, and read-only global RPC `remote:state`. Only `/rpc` and `/rpc/conversations/streams/:thread-id` are relayed; handshake v2 opens carry only the target route, and the connected AIVAX account substitutes the Remote API key on the WAN — local keys stay local-only and MCP HTTP is never relayed. The bridge is off by default (`relayEnabled`), runs independently of the local server toggle and keys, requires a connected AIVAX account, and the public client protocol is documented for external clients. The bridge is locally verified across the real Workspace client, Desktop relay stack, and deployed Worker implementation with AIVAX mocked; live end-to-end verification against the deployed service is still pending.
+- **Automatic update checks** — checks stable GitHub releases at startup and every six hours, marks Settings when an update is available, and adds a green General banner with platform-specific download, installation, and relaunch. Authenticated global RPC clients can inspect, check, and install updates.
+- **Bot Inbox conversations** — bots send pendencies that users answer in place with text, images, and files; dated replies are forwarded to the bot's main thread with `<bot-pendency-update>` while work and delegation continue there.
+- **Bot work-queue activation menu** — expands **Activate now** into a nested queue picker that can keep the current item or select which recurring task runs next, with long labels truncated.
+- **GPT-6 Astra for OpenAI Subscription** — adds the managed standard and Fast variants with image input and reasoning efforts through Max.
 
 ### Changed
 - Base agent instructions now explicitly require `__invocation_goal` and `__requires_human_approval` in every tool call.
@@ -88,6 +41,16 @@
 - Refined dropdown, dialog, auxiliary panel, chat message, and toast motion with consistent timing, easing, and reduced-motion behavior.
 - Removed the built-in CLIProxyAPI provider plugin.
 - `tags:save` now returns only the normalized `tags` catalog; the previous `conversations` array was removed from the response and the renderer refreshes threads through `conversations:list`.
+- Standardized desktop typography around the 14px root size, using rem-based component sizes and readable secondary text instead of sub-12px labels.
+- **Workspace editor layout** — compact folder rows, inline link names, visible storage path, and a right-aligned primary save action replace oversized tag-style cards. Long lists scroll inside a viewport-constrained body while the header and actions stay visible.
+- **Overview task scope** — task lists now include only user-created threads, excluding agent-created work before loading task histories. Model usage totals still include all agents.
+- **Bot Inbox message order** — shows the newest message at the top of each pendency conversation and the oldest at the bottom.
+- **Simpler Bots panel** — replaces Overview, All work, and work-item detail dialogs with filterable **Inbox | Activity**. The sidebar counts open pendencies awaiting the user, while Activity is a first-person diary of important, self-contained results. Each view has its own JSON file (`inbox.json` and `diary.json`); legacy `work-items.json` and `activity.json` are no longer read and remain untouched.
+- **Bot API contract** — replaces `bot_work_*`, Core `bot.workState.get()`, and RPC `bots:update-work-item` with pendency/message/completion operations and the new Inbox/Activity types. Protected approvals remain explicit and now reject missing or non-boolean decisions.
+- Restored `<think>...</think>` reasoning-block parsing anywhere in assistant output instead of requiring the block at the absolute message start.
+- Set the GPT-6 Astra managed input context to 272,000 tokens and added GPT-6 Astra (1M) with 872,000 input tokens, including Fast variants; output remains 128,000 tokens.
+- Refined full-chat agent instructions for autonomous follow-through, transparent instruction conflicts, direct execution outside Ultra, proportionate validation, and concise writing. The mode-independent base prompt retains the main implementation with the agent while encouraging parallel sub-agents for independent exploration, research, analysis, and tests, with distinct assignments, no duplicated work, and active guidance. The Ultra-specific context retains the main and most demanding implementation with the orchestrator, using sub-agents for bounded, less demanding supporting tasks and independent critique.
+- Bot activations now mark a checkpoint in the bot conversation, so each activation starts its model context from the previous boundary instead of replaying the full history.
 
 ### Fixed
 - Kept inline `<think>...</think>` tags visible as response text, interpreting only a block at the absolute message start after optional whitespace as reasoning.
@@ -106,6 +69,19 @@
 - Rendered valid `fileref` directives inside inline code while preserving literal references in code blocks.
 - Rejected prematurely closed Responses API streams before partial tool calls can execute.
 - Reduced startup I/O and memory pressure by storing and streaming local media as file references, querying only lightweight thread status and model-selection fields, failing interrupted bot tools instead of replaying uncertain side effects, deferring thread-search synchronization, sequencing automatic resumptions, and honoring bot context limits during compaction.
+- Keep the workspace icon and **Edit workspace** menu available after live conversation updates by including workspace classification in conversation events.
+- Question dialogs now restart their 60-second AFK timer on pointer, click, keyboard, input, or scroll activity inside the card, including Quick Chat; Plan mode remains timeout-free. Added the scoped `chat:question-activity` RPC operation.
+- Cleared stale compaction summaries and token counters when bot activations advance their context boundary. Regular and Core API forks now finalize copied streaming messages as partial-response snapshots rather than leaving them permanently streaming.
+- Fixed Core `ThreadHandle.fork()` returning a handle without the copied conversation ID.
+- Preserved hidden context-checkpoint boundaries in regular copies, side chats, and Rubber Duck forks, preventing replay of already compacted history and unexpected context-overflow compaction. Forks ending before a checkpoint no longer inherit its summary or token counter.
+- Aligned collapsed-sidebar navigation icons with the expand and Settings controls by removing the reserved scrollbar gutter in the icon rail.
+- Context compaction now sends structured history without provider-specific reasoning/continuation metadata or the in-flight JSON transcript, preserving semantic content and tool pairs. Context-window retries cut the oldest 30% and 60% of in-flight tool rounds before the existing aggressive and chat-model fallbacks.
+- Bot Inbox and Activity now use a responsive panel layout with readable filters, conversation rows, and empty states. File-loading failures are isolated by tab and expose technical details separately instead of presenting raw validation errors as the main message.
+- Sidebar conversation tooltips now show only the folder name instead of its full path.
+- Restored **Try again** after an explicit user Stop, matching other failed or abruptly interrupted inferences.
+- Kept the interrupted user prompt when retrying after Stop, shutdown, or a crash during MCP initialization, instead of skipping it or replaying an older prompt.
+- Made retry execution indicators follow live runtime snapshots and events, not persisted message status, so active tools and finalization keep **Try again** hidden without leaving completed runs stuck as running.
+- Fixed recovery at the exact context-checkpoint boundary and reused canonical history serialization to preserve confirmed tool results, media, and compatible provider continuation. Invalid recovery targets and missing prompts now report an error instead of silently succeeding.
 
 ### Docs
 - Organized the API reference into separate Core, MCP, and RPC sections with a shared entry point, corrected cross-navigation, and complete field-level request, response, shared-type, error, and notification references for every Remote JSON-RPC method.
@@ -114,8 +90,13 @@
 - Improved the `/create-plugin` workflow description to highlight hooks, providers, themes, and advanced customizations.
 - Documented `sidebar:status`, `sidebar:mark-seen`, `tags:list`, and `tags:save` with shared `SidebarStatus` and `Tag` types and the per-instance ephemerality of completed-unseen state.
 - Documented projected tool-call segments and deferred detail retrieval across conversation RPC methods, shared types, and streaming notifications.
+- Documented Inbox replies, attachments, notification counts, diary guidelines, delivery failures, and updated bot Core/RPC contracts; corrected the bundled bot reference for empty Work queue activation.
+- Updated the OpenAI Subscription model catalog documentation for GPT-6 Astra.
+- Documented **Try again** recovery after failed and abruptly interrupted inferences.
+- Documented how full-chat agents handle clear action requests and instruction-caused blockers.
 
 ### Chores
+- Consolidated desktop release builds into one flat `avi-release.zip` artifact with stable, versionless installer names for every platform and architecture.
 - Version bumped to 0.6.0.
 
 ### Tests
@@ -131,6 +112,11 @@
 - Added regression coverage for generated-image and tool-media persistence, interrupted bot messages and tools, Goal resumption, and lightweight thread-search projection.
 - Expanded Remote Control coverage for sidebar status, ephemeral completed-unseen tracking and acknowledgment, tags catalog methods, and per-socket method availability.
 - Added focused coverage for lightweight tool-call projection, conversation ownership, deferred detail retrieval, RPC discovery and validation, and Desktop lazy hydration states.
+- Added regression coverage for **Try again** after an explicit user Stop.
+- Added isolated Electron recovery regressions for inference failures, interrupted MCP initialization, shutdown/startup recovery, prompt boundaries, and retry renderer state.
+- Added Sidebar interaction and bot-management regressions for selecting the next Work queue item.
+- Added managed-catalog and Responses request coverage for GPT-6 Astra and its Fast service tier.
+- Added a bot activation checkpoint regression covering the boundary advance and model-context exclusion.
 
 ---
 
