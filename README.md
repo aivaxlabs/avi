@@ -28,8 +28,10 @@ Avi is a harness built from scratch which brings model conversations, cross-prov
   - Few dependencies, easy to maintain
 - **Multiple providers**: connect multiple AI providers and customize the models you’ll use for each provider.
   - OpenAI Subscription: your ChatGPT subscription – no need for Codex ACP
+  - GPT-6 Astra subscription models, including Fast variants with image input and reasoning efforts
   - OpenAI-Compatible endpoints: /v1/responses and /v1/chat/completions
   - Model-specific settings: capabilities, reasoning supported
+  - Optional hyperparameters: temperature and top-k forwarded to OpenAI-compatible Responses and Chat Completions requests
   - Model routers: fallback and round-robin routing across providers
 - **Extensible**:
   - Plugins allow providing providers, themes, auxiliary panels, commands, skills, and many features for Avi.
@@ -38,6 +40,7 @@ Avi is a harness built from scratch which brings model conversations, cross-prov
   - Trusted plugins integrate lifecycle hooks, domain APIs, storage, tools, events, interceptors, provider panels, and bot capabilities.
   - Plugins can declare settings sections rendered by Avi and backed by JSON Schema validation.
   - Plugin packages are validated before installation and loaded atomically at startup.
+  - Child Processes plugin: start supervised command lines with Avi, with per-process start, stop, and restart controls, retries, and rotating stdout/stderr logs.
 - **AIVAX Features**: optional integration for persistent memory, advanced web tools, and remote conversation-search reranking.
   - Connect an AIVAX account and choose which external capabilities to enable.
   - Agents can search, write, and delete persistent memory; fetch rich web content; and search the web with filters.
@@ -52,11 +55,17 @@ Avi is a harness built from scratch which brings model conversations, cross-prov
   - Start, inspect, and converse with parallel threads: agents can view conversations, work folders, tasks, monitor and supervise other agents.
   - Shared semaphore queues by agents to order long tasks among agents.
   - Remote MCP: persistent server that provides orchestration tools to connect to external services (Claude, ChatGPT, etc.)
-  - Orchestration panel: view ongoing tasks, newly completed tasks, consumption insights.
+  - Overview page: opens on Inbox by default with a searchable, status-filtered list of bot conversations, plus ongoing tasks and consumption insights.
+- **Remote control (ORPC RPC API)**:
+  - Global WebSocket with administrative handlers plus isolated per-thread WebSockets for bidirectional conversation control and events, over the binary ORPC Draft 1 protocol (`avi-orpc-draft1`) with UTF-8 JSON operation envelopes.
+  - Browser clients authenticate with API keys (no URL secrets); discovery reports methods, capabilities, versions, and the model catalog.
+  - Multiple labelled API keys with optional expiration, managed independently.
+  - Opt-in WAN bridge through the public relay with AIVAX-authenticated tickets and a stable per-install device id; only RPC streams are relayed.
 - **Autonomous bots**:
   - Scheduled agents that activate automatically and keep working on their own working folder.
   - Persistent work state: planned, ongoing, blocked, user-review, discarded, and completed work with typed evidence and explicit next steps.
-  - Work queues: ordered round-robin tasks, activation windows, and per-bot snoozing for 1h, 6h, 24h, or until Avi restarts.
+  - Inbox and Activity: bots ask for input through Inbox conversations you answer in place (text, images, files); Activity is the bot's first-person diary of important work.
+  - Work queues: ordered round-robin tasks, activation windows, an **Activate now** queue picker to keep or select the next task, and per-bot snoozing for 1h, 6h, 24h, or until Avi restarts.
   - Attention notifications in the sidebar, with distinct indicators for working, sleeping, active, and disabled bots.
   - Agents can create, update, and manage bots themselves with dedicated bot tools.
 - **MCP client**:
@@ -64,12 +73,16 @@ Avi is a harness built from scratch which brings model conversations, cross-prov
   - MCP control panel: view MCP tools, provided instructions
   - Isolation: separate MCP servers by folder or globally
   - Diagnostics: visually check servers that failed or are slow to start
+- **Linked-folder workspaces**:
+  - Combine multiple folders into one workspace under `~/.aivax/workspaces` using directory symlinks, with per-workspace context, skills, workflows, and MCP configuration.
+  - File search, composer mentions, and Git diffs follow symlinks; linked folders can be renamed, removed, or repaired from the sidebar without touching their targets.
 - **Context management and discovery**:
   - Advanced discovery of skills, workflows, and instructions
   - Recursive context listing: searches for skills and workflows in the current folder and globally (in $HOME/.agents) without the agent having to search
   - Automatic contextualization: injects AGENTS.md, MEMORY.md, AGENTS.foobar.md... automatically into the agent’s context.
   - Slash commands: invoke workflows with /command and skills via $skill in the composer.
   - Context panel: manage skills, workflows and instructions findable by the agent.
+  - Composer mentions: type `@` to attach project files and directories, enabled MCP servers, or `@thread` and `@memory` context.
 - **Advanced inference**:
   - Very large tool results are truncated and written to files
   - Agent can query large tool outputs with tools.
@@ -79,7 +92,11 @@ Avi is a harness built from scratch which brings model conversations, cross-prov
   - Execution permission level for potentially dangerous tools (ask for approval, allow for me, full access).
   - Structured agent questions support single-choice, multiple-choice, free-text, and custom answers.
   - Automatic context compression on provider errors (context_length_exceeded) or when reaching user‐defined threshold.
+  - Context usage details: the composer indicator opens a segmented estimate (instructions, global context, tools, messages, tool results, overhead, grouped by MCP server).
+  - Quick context compaction: drop tool results older than the latest four turns via Context usage or `/quick-compress`, alongside the `/compress` full checkpoint flow.
   - Resume button on stopped or failed chats, which continue from the last assistant turn.
+  - Configurable response verbosity: low, medium, or high verbosity for injected assistant instructions.
+  - Trace + Requests diagnostics: a log mode that records the raw HTTP request and response of failed provider calls with secrets redacted.
   - Improve your prompts and their clarity with /optimize-prompt, which also translates them to English.
 - **Rich chat content**:
   - Assistant messages can render callouts, diffs, diagrams, equations, and bar, line, and pie charts.
@@ -107,15 +124,19 @@ Avi is a harness built from scratch which brings model conversations, cross-prov
   - Quick chats: minimalist quick chat for fast questions unrelated to any thread or folder.
 - **Side panel**:
   - View files, git changes in the side panel
+  - Tag conversations and color-code folders
   - View tasks started by the agent during its threads
   - View provider limits and consumption in the side panel, or inspect usage from the composer with /usage (OpenAI Subscription, AIVAX, and plugin sources)
 - **Archive and retention**:
   - Search, restore, or permanently delete archived conversations.
   - Configure automatic retention for regular and disposable conversations.
   - Review storage usage, force cleanup, and clear temporary attachments, tool outputs, logs, and cached media.
+- **Automatic updates**:
+  - Installed builds check stable GitHub releases at startup and every six hours, flag Settings when an update is available, and install the matching platform asset from a banner in Settings → General.
 - **Customizable**:
   - Choose different personalities for the chat (friendly, candid, cynical, etc.)
   - Choose interface themes
+  - Optional sidebar transparency: Tabbed Mica on Windows 11, Acrylic on Windows 10, native vibrancy on macOS
   - Choose custom wallpapers in chat.
 
 Planned features (roadmap):
