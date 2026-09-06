@@ -7,6 +7,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import WebSocket, { WebSocketServer } from 'ws';
 import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
+import { OrpcPeer, ORPC_PROTOCOL, parseFrame, requestFrame, responseFrames } from '../src/shared/orpc.js';
+
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
 
 const timestamp = new Date().toISOString().slice(0, 16).replace('T', '-').replace(':', '-') + '-UTC';
 const temporaryRoot = join(tmpdir(), '.avi', 'visualizations', timestamp);
@@ -22,7 +26,9 @@ const { AIVAX_RELAY_URL, RemoteRelay } = await import('../src/main/remote-relay.
 
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
-const attachmentPayload = 'x'.repeat(2 * 1024 * 1024);
+// The default ORPC peer rate budget is 1 MiB/s outbound; 512 KiB keeps this fixture fast while
+// still exercising multi-frame reassembly.
+const attachmentPayload = 'x'.repeat(512 * 1024);
 const attachmentMessage = {
   id: 'large-message', conversationId: 'conv-1', role: 'user',
   attachments: [{ id: 'large-attachment', name: 'capture.png', mime: 'image/png', kind: 'image_url', dataUrl: `data:image/png;base64,${attachmentPayload}`, base64: attachmentPayload, text: attachmentPayload }],
@@ -112,24 +118,6 @@ const rejectedUpgrade = async (path, headers = {}) => {
   }
 };
 
-const collectMessage = (socket, predicate, label) => new Promise((resolvePromise, reject) => {
-  const timer = setTimeout(() => reject(new Error(`Timed out waiting for a WebSocket message: ${label}.`)), 5000);
-  const onMessage = (data) => {
-    const message = JSON.parse(data.toString());
-    if (!predicate(message)) return;
-    socket.off('message', onMessage);
-    clearTimeout(timer);
-    resolvePromise(message);
-  };
-  socket.on('message', onMessage);
-});
-
-const jsonRpc = (socket, id, method, params) => {
-  const pending = collectMessage(socket, (message) => message.id === id, `${method}#${id}`);
-  socket.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
-  return pending;
-};
-
 const initializeRequest = JSON.stringify({
   jsonrpc: '2.0',
   id: 1,
@@ -155,16 +143,27 @@ class PairChannel {
     this.messages = [];
     this.waiters = [];
     this.closeWaiters = [];
+    this.peer = new OrpcPeer({
+      send: (frame) => socket.send(Buffer.from(frame)),
+      isOpen: () => socket.readyState === WebSocket.OPEN,
+      bufferedAmount: () => 0,
+      onRequest: (method, content) => {
+        const message = { method: method.replace('.', ':'), ...JSON.parse(textDecoder.decode(content)) };
+        this.messages.push(message);
+        for (const waiter of [...this.waiters]) waiter(message);
+        return textEncoder.encode('OK');
+      },
+    });
     socket.once('open', () => {
       this.opened = true;
       for (const waiter of this.closeWaiters.splice(0)) waiter();
     });
-    socket.on('message', (data) => {
-      this.messages.push(JSON.parse(data.toString()));
-      for (const waiter of [...this.waiters]) waiter(this.messages.at(-1));
+    socket.on('message', (data, isBinary) => {
+      if (isBinary) this.peer.receive(new Uint8Array(data));
     });
     socket.once('close', () => {
       this.closed = true;
+      this.peer.terminate();
       for (const waiter of this.closeWaiters.splice(0)) waiter();
     });
   }
@@ -203,13 +202,16 @@ class PairChannel {
   }
 
   send(message) {
-    this.socket.send(typeof message === 'string' ? message : JSON.stringify(message));
+    this.socket.send(message);
   }
 
-  async json(id, method, params) {
-    const pending = this.next((message) => message.id === id, `${method}#${id}`);
-    this.send({ jsonrpc: '2.0', id, method, params });
-    return pending;
+  async call(method, params, { operationId = randomUUID(), expiresAt = Date.now() + 60_000 } = {}) {
+    const response = JSON.parse(textDecoder.decode(await this.peer.call(
+      method.replace(':', '.'),
+      textEncoder.encode(JSON.stringify({ operationId, expiresAt, params })),
+    )));
+    this.messages.push(response);
+    return response;
   }
 }
 
@@ -229,23 +231,16 @@ try {
   const forgedRemote = database.setRemoteSettings({ relayDeviceId: 'forged-device-id' });
   assert.equal(forgedRemote.relayDeviceId, initialRemote.relayDeviceId);
 
-  database.closeDatabase();
-  reopenedDatabase = await import('../src/main/database.js?remote-relay-reopen');
-  assert.notEqual(reopenedDatabase.getRemoteSettings, database.getRemoteSettings);
-  const reopenedRemote = reopenedDatabase.getRemoteSettings();
-  assert.equal(reopenedRemote.relayEnabled, true);
-  assert.equal(reopenedRemote.relayDeviceId, initialRemote.relayDeviceId);
-
   assert.equal(server.running, false);
   assert.equal(server.port, null);
   assert.deepEqual(localKeys, [], 'the WAN contract must hold with zero local keys configured');
 
   const global = new PairChannel(server.createRelaySocket('/rpc'), 'native global channel');
   await global.waitOpen();
-  const globalDiscover = await global.json(1, 'rpc:discover');
+  const globalDiscover = await global.call('rpc:discover');
   assert.equal(globalDiscover.result.scope, 'global');
   assert.ok(globalDiscover.result.methods.includes('remote:state'));
-  const globalState = await global.json(2, 'remote:state', { payload: { includeRelay: true } });
+  const globalState = await global.call('remote:state', { payload: { includeRelay: true } });
   assert.deepEqual(globalState.result, { running: true, relay: { status: 'connected' } });
   assert.deepEqual(dispatched.at(-1), { channel: 'remote:state', payload: { includeRelay: true } });
 
@@ -254,14 +249,14 @@ try {
   const streamReady = await stream.next((message) => message.method === 'conversation:ready', 'conversation:ready');
   assert.equal(streamReady.params.conversationId, 'conv-1');
   assert.equal(streamReady.params.recoveryMethod, 'conversations:context');
-  const streamDiscover = await stream.json(10, 'rpc:discover');
+  const streamDiscover = await stream.call('rpc:discover');
   assert.equal(streamDiscover.result.scope, 'conversation');
   assert.ok(!streamDiscover.result.methods.includes('remote:state'));
-  const streamDenied = await stream.json(11, 'remote:state');
+  const streamDenied = await stream.call('remote:state');
   assert.equal(streamDenied.error.code, -32601);
 
   for (const method of ['conversations:context', 'conversations:messages']) {
-    const response = await stream.json(12, method, { limit: 40 });
+    const response = await stream.call(method, { limit: 40 });
     assert.ok(Buffer.byteLength(JSON.stringify(response)) < 1024 * 1024);
     assert.deepEqual(response.result.messages[0].attachments, [attachmentMetadata]);
     if (method === 'conversations:context') {
@@ -275,9 +270,9 @@ try {
   assert.deepEqual(attachmentEvent.params.event.message.attachments, [attachmentMetadata]);
   assert.equal(attachmentMessage.attachments[0].base64, attachmentPayload, 'RPC projection must not mutate persisted/local attachments');
   assert.equal(attachmentMessage.attachments[0].text, attachmentPayload);
-  const chunk = await stream.json(13, 'attachments:read', { messageId: 'large-message', attachmentId: 'large-attachment', offset: 16 });
+  const chunk = await stream.call('attachments:read', { messageId: 'large-message', attachmentId: 'large-attachment', offset: 16 });
   assert.equal(chunk.result.data, attachmentPayload.slice(16, 32));
-  assert.equal((await stream.json(14, 'rpc:discover')).result.scope, 'conversation', 'large history must leave the relay channel usable');
+  assert.equal((await stream.call('rpc:discover')).result.scope, 'conversation', 'large history must leave the relay channel usable');
 
   assert.throws(() => server.createRelaySocket('/mcp'), /Invalid relay RPC route/);
 
@@ -308,7 +303,11 @@ try {
   const lateReply = new PairChannel(server.createRelaySocket('/rpc'), 'late reply channel');
   await lateReply.waitOpen();
   const replyCount = lateReply.messages.length;
-  lateReply.send({ jsonrpc: '2.0', id: 30, method: 'remote:state', params: {} });
+  lateReply.send(Buffer.from(requestFrame(randomUUID(), 'remote.state', textEncoder.encode(JSON.stringify({
+    operationId: randomUUID(),
+    expiresAt: Date.now() + 60_000,
+    params: {},
+  })))));
   lateReply.socket.terminate();
   await lateReply.waitClose();
   await sleep(180);
@@ -371,6 +370,18 @@ try {
       client.on('message', (data, isBinary) => {
         if (isBinary) return;
         const envelope = JSON.parse(data.toString('utf8'));
+        if (envelope.type === 'data' && envelope.encoding === 'base64' && typeof envelope.data === 'string') {
+          try {
+            const frame = parseFrame(Buffer.from(envelope.data, 'base64'));
+            envelope.frame = { type: frame.type, id: frame.id, method: frame.method?.replace('.', ':'), content: JSON.parse(textDecoder.decode(frame.content)) };
+            if (frame.type === 'REQ') {
+              const [ack] = responseFrames(frame.id, randomUUID(), textEncoder.encode('OK'));
+              sendToPublisher({ type: 'data', channelId: envelope.channelId, encoding: 'base64', data: Buffer.from(ack).toString('base64') });
+            }
+          } catch {
+            // Non-frame payloads stay undecoded for control-message handling.
+          }
+        }
         const waiterIndex = envelopeWaiters.findIndex((waiter) => waiter.predicate(envelope));
         if (waiterIndex !== -1) {
           const [waiter] = envelopeWaiters.splice(waiterIndex, 1);
@@ -415,9 +426,9 @@ try {
       await sleep(20);
     }
   };
-  const awaitChannelJson = async (channelId, predicate, label) => {
+  const awaitChannelText = async (channelId, predicate, label) => {
     const envelope = await awaitEnvelope((item) => {
-      if (item.type !== 'data' || item.channelId !== channelId || typeof item.data !== 'string') return false;
+      if (item.type !== 'data' || item.channelId !== channelId || item.encoding !== 'text' || typeof item.data !== 'string') return false;
       try {
         return predicate(JSON.parse(item.data));
       } catch {
@@ -426,6 +437,20 @@ try {
     }, label);
     return JSON.parse(envelope.data);
   };
+  const awaitChannelFrame = async (channelId, frameId, label) => {
+    const envelope = await awaitEnvelope((item) => (
+      item.type === 'data' && item.channelId === channelId && item.encoding === 'base64'
+        && item.frame?.type === 'RES' && item.frame.id === frameId
+    ), label);
+    return envelope.frame.content;
+  };
+  const awaitChannelEvent = async (channelId, predicate, label) => {
+    const envelope = await awaitEnvelope((item) => (
+      item.type === 'data' && item.channelId === channelId && item.encoding === 'base64'
+        && item.frame?.type === 'REQ' && predicate({ method: item.frame.method, ...item.frame.content })
+    ), label);
+    return { method: envelope.frame.method, ...envelope.frame.content };
+  };
   const openWanChannel = (path) => {
     const channelId = randomUUID();
     sendToPublisher({ type: 'open', channelId });
@@ -433,16 +458,24 @@ try {
       type: 'data',
       channelId,
       encoding: 'text',
-      data: JSON.stringify({ type: 'avi-remote-open', version: 2, path }),
+      data: JSON.stringify({ type: 'avi-remote-open', version: 3, protocol: ORPC_PROTOCOL, path }),
     });
     return channelId;
   };
-  const sendWanJson = (channelId, id, method, params) => sendToPublisher({
-    type: 'data',
-    channelId,
-    encoding: 'text',
-    data: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
-  });
+  const sendWanCall = (channelId, method, params) => {
+    const frameId = randomUUID();
+    sendToPublisher({
+      type: 'data',
+      channelId,
+      encoding: 'base64',
+      data: Buffer.from(requestFrame(frameId, method.replace(':', '.'), textEncoder.encode(JSON.stringify({
+        operationId: randomUUID(),
+        expiresAt: Date.now() + 60_000,
+        params,
+      })))).toString('base64'),
+    });
+    return frameId;
+  };
 
   const relay = new RemoteRelay({
     deviceId: relayDeviceId,
@@ -463,59 +496,68 @@ try {
   assert.equal(localKeys.length, 0, 'the WAN session must not require local keys');
 
   const wanGlobal = openWanChannel('/rpc');
-  const wanReady = await awaitChannelJson(wanGlobal, (message) => message.type !== undefined, 'WAN global ready');
-  assert.deepEqual(wanReady, { type: 'avi-remote-ready', version: 2 });
-  sendWanJson(wanGlobal, 20, 'rpc:discover');
-  const wanDiscover = await awaitChannelJson(wanGlobal, (message) => message.id === 20, 'WAN discover');
+  assert.deepEqual(
+    await awaitChannelText(wanGlobal, (message) => message.type === 'avi-remote-ready', 'WAN global ready'),
+    { type: 'avi-remote-ready', version: 3, protocol: ORPC_PROTOCOL },
+  );
+  const wanDiscover = await awaitChannelFrame(wanGlobal, sendWanCall(wanGlobal, 'rpc:discover'), 'WAN discover');
   assert.equal(wanDiscover.result.scope, 'global');
 
   const dispatchBeforeRejection = dispatched.length;
   for (const frame of [
     { type: 'avi-remote-open', version: 1, apiKey: 'legacy-key', path: '/rpc' },
     { type: 'avi-remote-open', version: 2, apiKey: 'smuggled-key', path: '/rpc' },
+    { type: 'avi-remote-open', version: 3, path: '/rpc' },
+    { type: 'avi-remote-open', version: 3, protocol: 'avi-rpc-v1', path: '/rpc' },
+    { type: 'avi-remote-open', version: 3, protocol: ORPC_PROTOCOL, apiKey: 'smuggled-key', path: '/rpc' },
+    { type: 'avi-remote-open', version: 3, protocol: ORPC_PROTOCOL, path: '/mcp' },
   ]) {
     const rejectedId = randomUUID();
     sendToPublisher({ type: 'open', channelId: rejectedId });
     sendToPublisher({ type: 'data', channelId: rejectedId, encoding: 'text', data: JSON.stringify(frame) });
-    const rejectedError = await awaitChannelJson(rejectedId, (message) => message.type === 'avi-remote-error', 'rejected open');
-    assert.equal(rejectedError.version, 2);
+    const rejectedError = await awaitChannelText(rejectedId, (message) => message.type === 'avi-remote-error', 'rejected open');
+    assert.equal(rejectedError.version, 3);
     assert.equal(rejectedError.code, 'invalid_open');
     await awaitEnvelope((item) => item.type === 'close' && item.channelId === rejectedId, 'rejected close');
   }
   assert.equal(dispatched.length, dispatchBeforeRejection, 'legacy or key-bearing opens must never reach RPC dispatch');
 
-  sendToPublisher({ type: 'data', channelId: wanGlobal, encoding: 'text', data: JSON.stringify({ type: 'avi-remote-ping', version: 2, id: 'wan-ping-1' }) });
-  const wanPong = await awaitChannelJson(wanGlobal, (message) => message.type === 'avi-remote-pong', 'WAN pong');
-  assert.deepEqual(wanPong, { type: 'avi-remote-pong', version: 2, id: 'wan-ping-1' });
+  sendToPublisher({ type: 'data', channelId: wanGlobal, encoding: 'text', data: JSON.stringify({ type: 'avi-remote-ping', version: 3, id: 'wan-ping-1' }) });
+  assert.deepEqual(
+    await awaitChannelText(wanGlobal, (message) => message.type === 'avi-remote-pong', 'WAN pong'),
+    { type: 'avi-remote-pong', version: 3, id: 'wan-ping-1' },
+  );
 
   const wanStream = openWanChannel('/rpc/conversations/streams/conv-1');
-  const wanStreamReady = await awaitChannelJson(wanStream, (message) => message.type !== undefined, 'WAN stream ready');
-  assert.deepEqual(wanStreamReady, { type: 'avi-remote-ready', version: 2 });
-  const bridgeReady = await awaitChannelJson(wanStream, (message) => message.method === 'conversation:ready', 'bridge conversation:ready');
+  assert.deepEqual(
+    await awaitChannelText(wanStream, (message) => message.type === 'avi-remote-ready', 'WAN stream ready'),
+    { type: 'avi-remote-ready', version: 3, protocol: ORPC_PROTOCOL },
+  );
+  const bridgeReady = await awaitChannelEvent(wanStream, (message) => message.method === 'conversation:ready', 'bridge conversation:ready');
   assert.equal(bridgeReady.params.conversationId, 'conv-1');
   emitChatEvent({ conversationId: 'conv-1', type: 'conversation', payload: { text: 'hello-wan' } });
-  const bridgeEvent = await awaitChannelJson(wanStream, (message) => message.method === 'conversation:event', 'bridge conversation:event');
+  const bridgeEvent = await awaitChannelEvent(wanStream, (message) => message.method === 'conversation:event', 'bridge conversation:event');
   assert.equal(bridgeEvent.params.conversationId, 'conv-1');
   assert.deepEqual(bridgeEvent.params.event, { conversationId: 'conv-1', type: 'conversation', payload: { text: 'hello-wan' } });
 
   sendToPublisher({ type: 'close', channelId: wanStream });
   await sleep(60);
   emitChatEvent({ conversationId: 'conv-1', type: 'conversation', payload: { text: 'late-after-close' } });
-  await expectNoEnvelope((item) => item.type === 'data' && String(item.data ?? '').includes('late-after-close'));
+  await expectNoEnvelope((item) => item.type === 'data' && item.frame && JSON.stringify(item.frame.content).includes('late-after-close'));
 
   localKeys.push({ value: 'local-key', expiresAt: null });
   await sleep(80);
-  sendWanJson(wanGlobal, 22, 'rpc:discover');
-  assert.equal((await awaitChannelJson(wanGlobal, (message) => message.id === 22, 'discover with local key')).result.scope, 'global');
+  assert.equal((await awaitChannelFrame(wanGlobal, sendWanCall(wanGlobal, 'rpc:discover'), 'discover with local key')).result.scope, 'global');
   localKeys.splice(0, localKeys.length);
   await sleep(80);
-  sendWanJson(wanGlobal, 23, 'rpc:discover');
-  assert.equal((await awaitChannelJson(wanGlobal, (message) => message.id === 23, 'discover after key deletion')).result.scope, 'global',
-    'deleting the last local key must not affect the WAN session');
+  assert.equal(
+    (await awaitChannelFrame(wanGlobal, sendWanCall(wanGlobal, 'rpc:discover'), 'discover after key deletion')).result.scope,
+    'global',
+    'deleting the last local key must not affect the WAN session',
+  );
   assert.equal(relay.snapshot().status, 'connected');
 
-  sendWanJson(wanGlobal, 24, 'remote:state', { payload: { includeRelay: true } });
-  const wanState = await awaitChannelJson(wanGlobal, (message) => message.id === 24, 'WAN state');
+  const wanState = await awaitChannelFrame(wanGlobal, sendWanCall(wanGlobal, 'remote:state', { payload: { includeRelay: true } }), 'WAN state');
   assert.deepEqual(wanState.result, { running: true, relay: { status: 'connected' } });
 
   await server.start(0);
@@ -537,22 +579,36 @@ try {
   const protocolKey = `avi-api-key.${Buffer.from('local-key').toString('base64url')}`;
   const protocolUpgrade = await upgradeRequest('/rpc', {
     ...validAuth(),
-    'sec-websocket-protocol': `${protocolKey}, avi-rpc-v1`,
+    'sec-websocket-protocol': `${protocolKey}, ${ORPC_PROTOCOL}`,
   });
   assert.equal(protocolUpgrade.status, 101);
   protocolUpgrade.socket.destroy();
 
   assert.match((await rejectedUpgrade('/rpc')).message, /: 401$/);
+  // The avi-orpc-draft1 subprotocol is mandatory even when the Authorization header carries the key.
+  assert.match((await rejectedUpgrade('/rpc', validAuth())).message, /: 401$/);
   const forgedProtocol = `avi-api-key.${Buffer.from('wrong-key').toString('base64url')}`;
-  assert.match((await rejectedUpgrade('/rpc', { 'sec-websocket-protocol': forgedProtocol })).message, /: 401$/);
+  assert.match((await rejectedUpgrade('/rpc', { 'sec-websocket-protocol': `${forgedProtocol}, ${ORPC_PROTOCOL}` })).message, /: 401$/);
 
   localKeys.splice(0, localKeys.length);
   assert.equal((await httpRequest('/mcp', { ...mcpHeaders, ...validAuth() }, initializeRequest)).status, 401,
     'a deleted local key must stop authenticating direct local requests');
 
-  sendWanJson(wanGlobal, 25, 'rpc:discover');
-  assert.equal((await awaitChannelJson(wanGlobal, (message) => message.id === 25, 'discover after listener start')).result.scope, 'global',
-    'the WAN session must ignore local listener and key state entirely');
+  const pendingDiscoverId = sendWanCall(wanGlobal, 'rpc:discover');
+  assert.equal(
+    (await awaitChannelFrame(wanGlobal, pendingDiscoverId, 'discover after listener start')).result.scope,
+    'global',
+    'the WAN session must ignore local listener and key state entirely',
+  );
+
+  // The persistence check closes the module-bound connection the server's journal still uses, so
+  // it must run only after the last RPC call of the session.
+  database.closeDatabase();
+  reopenedDatabase = await import('../src/main/database.js?remote-relay-reopen');
+  assert.notEqual(reopenedDatabase.getRemoteSettings, database.getRemoteSettings);
+  const reopenedRemote = reopenedDatabase.getRemoteSettings();
+  assert.equal(reopenedRemote.relayEnabled, true);
+  assert.equal(reopenedRemote.relayDeviceId, initialRemote.relayDeviceId);
 
   await relay.update({ accessToken: 'revoked-aivax-token' });
   await waitForState(() => relay.snapshot().status === 'unauthorized', 'relay credential loss');

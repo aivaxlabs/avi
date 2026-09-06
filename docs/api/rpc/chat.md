@@ -1,6 +1,6 @@
 # RPC chat and Goals
 
-These methods are available on `WS /rpc/conversations/streams/:thread-id`. The server infers and enforces `conversationId` from the URL, so omit it unless a method table states otherwise. Responses use the shared objects in [RPC types](types.md).
+These methods are available on `WS /rpc/conversations/streams/:thread-id`. The server infers and enforces `conversationId` from the URL, so omit it unless a method table states otherwise. Responses use the shared objects in [RPC types](types.md). Calls are ORPC `REQ` frames on the `avi-orpc-draft1` subprotocol; the wire method is the dotted form of the heading name and the JSON shown in examples is the frame content.
 
 ## `chat:send`
 
@@ -31,9 +31,8 @@ The base prompt keeps the main implementation with the agent and encourages para
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 10,
-  "method": "chat:send",
+  "operationId": "8b9c0d1e-2f3a-4be7-4cf8-6d7e8f9a0b1c",
+  "expiresAt": 1790000000000,
   "params": {
     "model": "provider:model",
     "text": "Inspect the failing tests",

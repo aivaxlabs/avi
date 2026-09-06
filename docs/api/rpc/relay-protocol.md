@@ -79,7 +79,8 @@ No RPC frame is processed before the handshake completes. Within the 10-second h
 ```json
 {
   "type": "avi-remote-open",
-  "version": 2,
+  "version": 3,
+  "protocol": "avi-orpc-draft1",
   "path": "/rpc"
 }
 ```
@@ -87,15 +88,16 @@ No RPC frame is processed before the handshake completes. Within the 10-second h
 | Field | Type | Required | Description |
 |---|---|---:|---|
 | `type` | string | yes | Must be exactly `avi-remote-open`. |
-| `version` | number | yes | Must be exactly `2`. |
+| `version` | number | yes | Must be exactly `3`. |
+| `protocol` | string | yes | Must be exactly `avi-orpc-draft1`; the application protocol used after `avi-remote-ready`. |
 | `path` | string | yes | Exactly `/rpc` or `/rpc/conversations/streams/<thread-id>` with the target conversation id. No other route is bridged. |
 
-Authorization is the AIVAX account identity carried by your ticket; there is no credential field. Handshake version 1 and any frame containing an `apiKey` property are rejected.
+Authorization is the AIVAX account identity carried by your ticket; there is no credential field. Handshake versions 1 and 2, a `version` other than 3, an unexpected `protocol` value, and any frame containing an `apiKey` property are rejected.
 
 On success the publisher sends:
 
 ```json
-{"type":"avi-remote-ready","version":2}
+{"type":"avi-remote-ready","version":3,"protocol":"avi-orpc-draft1"}
 ```
 
 `avi-remote-ready` is sent only after the Desktop establishes an in-process RPC session for the requested route — it does not dial its own loopback listener and never injects a key. It is the consumer's signal that RPC frames will now flow.
@@ -103,7 +105,7 @@ On success the publisher sends:
 On failure the publisher sends an error frame and the channel closes:
 
 ```json
-{"type":"avi-remote-error","version":2,"code":"unauthorized"}
+{"type":"avi-remote-error","version":3,"code":"unauthorized"}
 ```
 
 | Code | Meaning |
@@ -119,33 +121,32 @@ Error frames never contain secrets or credentials. Any consumer message other th
 After `avi-remote-ready`, the consumer may probe liveness with a TEXT frame:
 
 ```json
-{"type":"avi-remote-ping","version":2,"id":"<opaque string>"}
+{"type":"avi-remote-ping","version":3,"id":"<opaque string>"}
 ```
 
 The Desktop publisher answers:
 
 ```json
-{"type":"avi-remote-pong","version":2,"id":"<same id>"}
+{"type":"avi-remote-pong","version":3,"id":"<same id>"}
 ```
 
-Only the consumer initiates application-level heartbeats; the publisher answers them and relies on transport-level WebSocket ping/pong on its own leg. Heartbeats are independent of JSON-RPC traffic. Keep `id` short and opaque (at most 128 characters); it is echoed verbatim.
+Only the consumer initiates application-level heartbeats; the publisher answers them and relies on transport-level WebSocket ping/pong on its own leg. Heartbeats are independent of RPC traffic. Keep `id` short and opaque (at most 128 characters); it is echoed verbatim.
 
 ## After ready
 
-Frames are passed through opaquely to the local JSON-RPC server:
+Frames are passed through opaquely to the in-process RPC session; neither the relay nor the publisher interprets them:
 
-- Use the documented [RPC envelope](overview.md) and per-socket methods; the relay and publisher do not interpret RPC frames.
-- Payloads are bounded: a single payload must stay within 1 MiB (the local server's message limit) and the relay envelope cap is 2 MiB plus 1024 bytes of framing. Oversized frames fail closed and close the channel.
-- Binary frames are bridged like text, but the local RPC server rejects binary with JSON-RPC error `-32600`; send TEXT only.
-- Responses are correlated by JSON-RPC `id` as usual; the relay imposes no ordering or correlation of its own.
+- After `avi-remote-ready`, send only binary ORPC frames (`avi-orpc-draft1`) plus the documented `avi-remote-ping` control JSON. ORPC requires binary messages — any other text is forwarded as-is and the channel closes with a protocol error, because the local RPC session accepts only binary frames.
+- Use the documented [RPC envelope](overview.md) with dotted wire methods; responses are correlated by ORPC request id. The relay imposes no ordering or correlation of its own.
+- Payloads are bounded: a single frame must stay within 1 MiB (the local server's message limit). On the publisher leg, frames travel base64-encoded and opaque inside relay channel envelopes, capped at 2 MiB plus 1024 bytes of framing; oversized frames fail closed and close the channel.
 
 ## Limits, reconnects, and lost results
 
-- **No replay or recovery.** Nothing is persisted and nothing is ever resent automatically. If the WebSocket drops, treat every pending request as unknown: it may or may not have executed, and clients must never automatically resend commands. After reconnecting and repeating the handshake, recover state through read-only means only — `rpc:discover`, stream subscriptions, and `conversations:context` — and issue further commands only as new, user-driven work.
+- **Bounded recovery, not replay.** The relay persists nothing and nothing is ever republished across connections. The ORPC client recovers an incomplete delivery with at most one retry that keeps the same operation token under a fresh request id; the Desktop's durable operation journal deduplicates it. If the outcome is still unknown (`OUTCOME_UNKNOWN`) or the failure is not retryable, do not blindly resend: after reconnecting and repeating the handshake, recover state through read-only means — `rpc:discover`, stream subscriptions, and `conversations:context` — and only then decide whether to issue new work. Cancellation is delivery-only: a timed-out operation may still execute on the Desktop, so check state before creating a new operation token.
 - **Handshake window.** The open/ready exchange must complete within 10 seconds or the channel is closed.
 - **Channel budget.** A publisher serves a bounded number of concurrent consumer channels (32); excess opens may be refused until a channel frees.
 - **Ticket single-use; connections are time-boxed.** Tickets work for exactly one connection and expire 60 seconds after issuance; an expired ticket only fails the next upgrade and never terminates an established connection. The relay closes active connections after at most 1 hour with close code `4001`; request a fresh ticket and reconnect. The publisher does this automatically on every (re)connection attempt.
-- **Best-effort throughput.** The relay runs on Cloudflare Workers, which cap the publisher leg at roughly 128 messages and 4 MiB per second in aggregate. The bridge fails closed at those limits, and there is no end-to-end flow control between consumer and Desktop: delivery is best-effort, and clients must back off rather than stream at full rate.
+- **Best-effort throughput.** The relay runs on Cloudflare Workers, which cap the publisher leg at roughly 128 messages and 4 MiB per second in aggregate. The bridge fails closed at those limits, and there is no end-to-end flow control between consumer and Desktop: delivery is best-effort, and clients must back off rather than stream at full rate. The Desktop publisher additionally applies an aggregated per-second backpressure budget of 96 messages / 2 MiB across all consumer channels, which surfaces to ORPC peers as a full send buffer (pacing) rather than silent loss.
 - **WAN authorization and revocation.** Bridged connections carry no Remote API key: the AIVAX account substitutes it, and no local key checks run on the WAN. Revoking the AIVAX credential affects only new ticket issuance; existing sessions continue until the relay's 1-hour cap (close code `4001`) or until the Desktop stops them. Local key expiry or revocation never affects bridged connections.
 - **Publisher retries are automatic** and invisible to consumers; a transient relay outage appears to consumers as a dropped connection.
 
@@ -164,11 +165,11 @@ Workspace (consumer)                              Relay                     Avi 
    |--- POST /v1/relays/<deviceId>/tickets {role:"consumer"} --->|                           |
    |<-- 201 { ticket, expiresAt, websocketUrl, protocol } --------|                          |
    |--- WSS websocketUrl, [avi-relay-v1, avi-relay-ticket.<ticket>] --->|                    |
-   |--- {"type":"avi-remote-open","version":2,                    |                          |
+   |--- {"type":"avi-remote-open","version":3,"protocol":"avi-orpc-draft1",|                          |
    |     "path":"/rpc"} ----------------------------------------->|--- in-process session -->|
-   |<-- {"type":"avi-remote-ready","version":2} ------------------|<--- ok ------------------|
-   |--- {"type":"avi-remote-ping","version":2,"id":"a"} --------->|                          |
-   |<-- {"type":"avi-remote-pong","version":2,"id":"a"} ----------|                          |
-   |--- {"jsonrpc":"2.0","id":1,"method":"rpc:discover"} -------->|--- bridged ------------->|
-   |<-- {"jsonrpc":"2.0","id":1,"result":{...}} ------------------|<--- bridged -------------|
+   |<-- {"type":"avi-remote-ready","version":3,"protocol":...} ---|<--- ok ------------------|
+   |--- {"type":"avi-remote-ping","version":3,"id":"a"} --------->|                          |
+   |<-- {"type":"avi-remote-pong","version":3,"id":"a"} ----------|                          |
+   |--- binary ORPC REQ rpc.discover ---------------------------->|--- bridged ------------->|
+   |<-- binary ORPC RES {"result":{...}} ------------------------|<--- bridged -------------|
 ```

@@ -2,7 +2,7 @@
 
 Thread administration uses the global `WS /rpc` endpoint. Thread-local reads and composer state use `WS /rpc/conversations/streams/:thread-id`; that endpoint infers the conversation ID from the URL. Methods marked **Both** are available on both endpoints.
 
-See [shared types](types.md) for complete response object fields. Scalar parameters use `params.payload` as described in the [RPC overview](overview.md#parameters).
+See [shared types](types.md) for complete response object fields. Scalar parameters use `params.payload` as described in the [RPC overview](overview.md#request-envelope).
 
 ## Method availability
 
@@ -65,9 +65,8 @@ The created [`Conversation`](types.md#conversation).
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "conversations:create",
+  "operationId": "5e6f7a8b-9c0d-4eb4-2fc5-3a4b5c6d7e8f",
+  "expiresAt": 1790000000000,
   "params": {
     "title": "API thread",
     "model": "provider:model",
@@ -148,9 +147,8 @@ The scalar form uses `params.payload` with the source conversation ID. To fork t
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 4,
-  "method": "conversations:fork",
+  "operationId": "6f7a8b9c-0d1e-4fc5-3ad6-4b5c6d7e8f9a",
+  "expiresAt": 1790000000000,
   "params": {
     "payload": {
       "conversationId": "source-thread",

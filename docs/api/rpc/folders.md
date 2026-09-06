@@ -1,6 +1,6 @@
 # RPC working folders
 
-All methods on this page use the global `WS /rpc` socket. Shared result types are defined in [RPC shared types](types.md).
+All methods on this page use the global `WS /rpc` socket. Shared result types are defined in [RPC shared types](types.md). Calls are ORPC `REQ` frames on the `avi-orpc-draft1` subprotocol; the wire method is the dotted form of the heading name and the JSON shown in examples is the frame content. See the [RPC overview](overview.md).
 
 ## `folders:list`
 
@@ -11,7 +11,10 @@ Lists distinct working folders referenced by visible regular threads. The home d
 **Result:** `Folder[]`. Every item contains `path`, `name`, `displayPath`, `gitBranch`, and `color` as documented in [`Folder`](types.md#folder).
 
 ```json
-{"jsonrpc":"2.0","id":1,"method":"folders:list"}
+{
+  "operationId": "6c4e1f3a-9b52-4d7f-8d80-2f3e4b5c6d7e",
+  "expiresAt": 1790000000000
+}
 ```
 
 ## `workspaces:get`
@@ -42,9 +45,8 @@ Lists visible regular threads whose resolved `projectPath` exactly matches a fol
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 2,
-  "method": "folders:threads",
+  "operationId": "0b8df0a2-6c39-4ac0-9e51-5f0d0e0f0a01",
+  "expiresAt": 1790000000000,
   "params": { "payload": "C:\\Code\\project" }
 }
 ```
@@ -64,9 +66,8 @@ Sets or clears the color associated with a folder.
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 3,
-  "method": "folders:save-color",
+  "operationId": "7d9c2b4e-1a63-4e80-9f91-3a4b5c6d7e8f",
+  "expiresAt": 1790000000000,
   "params": { "path": "C:\\Code\\project", "color": "#FFAA00" }
 }
 ```

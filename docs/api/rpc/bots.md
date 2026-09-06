@@ -1,6 +1,6 @@
 # RPC bots
 
-Bot methods are available only on the global `WS /rpc` endpoint. Scalar bot IDs use `params.payload` as described in the [RPC overview](overview.md#parameters). Desktop folder pickers are not exposed; clients provide `workingFolder` directly.
+Bot methods are available only on the global `WS /rpc` endpoint. Scalar bot IDs use `params.payload` as described in the [RPC overview](overview.md#request-envelope). Desktop folder pickers are not exposed; clients provide `workingFolder` directly. Calls are ORPC `REQ` frames on the `avi-orpc-draft1` subprotocol; the wire method is the dotted form of the heading name and the JSON shown in examples is the frame content.
 
 ## Bot response types
 
@@ -209,9 +209,8 @@ The stored [`BotRecord`](#botrecord), without the derived `BotSnapshot` fields f
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "bots:create",
+  "operationId": "7a8b9c0d-1e2f-4ad6-4be7-5c6d7e8f9a0b",
+  "expiresAt": 1790000000000,
   "params": {
     "name": "Release monitor",
     "model": "provider:model",

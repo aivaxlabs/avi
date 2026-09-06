@@ -1,65 +1,78 @@
-# Avi JSON-RPC API
+# Avi RPC API
 
-Remote Control exposes selected Electron application requests through two authenticated JSON-RPC 2.0 WebSockets. Each method reference documents its complete parameter and result contract.
+Remote Control exposes selected Electron application requests through two authenticated WebSockets that speak the ORPC Draft 1 binary protocol (`avi-orpc-draft1`) carrying UTF-8 JSON application payloads. Each method reference documents its complete parameter and result contract.
 
 ## WebSockets
 
 - `ws://127.0.0.1:<port>/rpc` — global operations for folders, regular threads, child conversations, search, bots, sidebar status, and tags.
 - `ws://127.0.0.1:<port>/rpc/conversations/streams/:thread-id` — isolated control and events for one conversation.
 
-Both upgrades support `Authorization: Bearer <api-key>`. Browser clients instead offer `avi-rpc-v1` plus the base64url credential protocol described in [Authentication](authentication.md); the server echoes only `avi-rpc-v1`.
+Every upgrade must offer the `avi-orpc-draft1` WebSocket subprotocol; the server selects only that protocol and rejects upgrades without it. Authentication is separate from the subprotocol: native clients send `Authorization: Bearer <api-key>`, browsers offer the base64url credential subprotocol described in [Authentication](authentication.md). Both mechanisms are accepted, and both still require the ORPC subprotocol.
+
+## Wire frames
+
+All RPC traffic uses binary WebSocket messages; a text message closes the socket with close code `1002`. Each frame is an ASCII decimal length, a space, an ASCII header, one LF, and opaque content:
+
+```text
+<length> ORPC/1 REQ<request-id> <method>
+<content>
+```
+
+```text
+<length> ORPC/1 RES<request-id> <execution-id> <part> <final>
+<content>
+```
+
+- `<length>` counts every payload byte after the prefix — header, LF separator, and content — and excludes the prefix digits and the separating space.
+- Requests are single frames. Responses may be segmented; reassemble parts in `<part>` order until the `<final>` part before decoding. A response completes only when every part and the final marker arrived.
+- This binding carries exactly one complete frame per binary WebSocket message; the receiver validates the declared length against the message bounds and rejects short or trailing bytes. Malformed framing closes the socket (`1002` protocol, `1009` limit).
+
+The complete framing, reconstruction, and recovery rules are specified in the bundled [ORPC Draft 1 specification](orpc-spec.md). Avi content is UTF-8 JSON, decoded only after a response is fully reassembled.
+
+## Method names
+
+`rpc:discover` and the method reference pages use application names with a colon (`folders:list`). ORPC method tokens do not allow `:`, so the wire method replaces it with a dot (`folders.list`). The server maps the dotted wire name back to the application name before dispatch. Both forms name the same method; this reference shows application names in headings and the JSON request body in examples.
 
 ## Request envelope
 
+Each call carries exactly one operation; batching is not supported. The request content is UTF-8 JSON:
+
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "conversations:list",
-  "params": {}
+  "operationId": "0b8df0a2-6c39-4ac0-9e51-5f0d0e0f0a01",
+  "expiresAt": 1790000000000,
+  "params": { "payload": "C:\\Code\\project" }
 }
 ```
 
 | Field | Type | Required | Description |
 |---|---|---:|---|
-| `jsonrpc` | string | yes | Must be exactly `"2.0"`. |
-| `id` | string or number | no | Correlates a response. Omit for a notification, which never receives a response. |
-| `method` | string | yes | One of the methods documented in this section and allowed by the selected socket. |
+| `operationId` | string | yes | Operation token of 16–64 characters from `A–Z a–z 0–9 _ -`. Generate a fresh UUID per logical operation and keep it stable across transport retries of that operation. |
+| `expiresAt` | number | yes | Epoch-millisecond deadline. Clients use `now + 180 s`; the server accepts deadlines up to `now + 240 s` and rejects expired tokens. |
 | `params` | object | no | Named method parameters. Positional arrays are not supported. |
 
-For handlers whose Electron contract accepts one scalar, place it in `params.payload`:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 2,
-  "method": "folders:threads",
-  "params": { "payload": "C:\\Code\\project" }
-}
-```
+For handlers whose Electron contract accepts one scalar, place it in `params.payload` (as above).
 
 On the conversation socket, Avi infers the conversation ID from the URL. Do not repeat it. Conflicting `conversationId`, `parentConversationId`, or update `id` values are rejected.
 
-## Discovery and models
+Keyboard bindings can be inspected and edited through [Keyboard shortcuts RPC](shortcuts.md).
 
-`rpc:discover` is available on both sockets. It returns Avi `appVersion`, API versions `{ core: 2, rpc: 1, mcp: { latest, supported } }`, the selected socket `scope`, and exact sorted `methods` and `capabilities` arrays. Clients must use the advertised RPC v1 contract; there is no fallback to an earlier RPC version.
+## Cancellation is delivery-only
 
-`models:list` is available on the global socket and returns `{ models, lastModel, defaultModels, messageDeliveryMode }`: the provider model catalog used by Avi's model picker and `chat:send`, the last selected model, the current default-model preferences, and the authoritative `"queue"` or `"steer"` Message delivery mode from Avi settings. Remote composers use that mode for Enter and the opposite mode for Ctrl+Enter.
+Draft 1 has no wire cancellation. A client timeout or abort gives up on the **delivery** of the response; it does not interrupt or undo the operation's application effects, and the handler may still complete on the server. Never treat a timed-out or abandoned call as proof that nothing happened. Before issuing a **new** `operationId` for the same intent, recover through read-only means (`rpc:discover`, `conversations:context`, listing methods) and check application state; a new operation token can duplicate the effect. Draft 1 guarantees no exactly-once execution: an operation may execute more than once, and bounded recovery always ends in a completed response or an explicit failure — never a silent outcome.
 
 ## Response envelope
 
 Success:
 
 ```json
-{"jsonrpc":"2.0","id":1,"result":[]}
+{"result":[]}
 ```
 
 Failure:
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": 1,
   "error": {
     "code": -32603,
     "message": "Application request failed",
@@ -70,14 +83,46 @@ Failure:
 
 | Error code | Meaning |
 |---:|---|
-| `-32700` | The WebSocket text message is not valid JSON. |
-| `-32600` | Invalid request envelope, empty batch, unsupported binary message, or invalid `params` container. |
+| `-32700` | The content is not valid UTF-8 JSON (invalid UTF-8 bytes and invalid JSON both answer with this envelope; ORPC content is byte-opaque). |
+| `-32600` | Invalid request, invalid or expired operation token, or conflicting duplicate operation. |
 | `-32601` | The method is not available on this socket. |
 | `-32603` | The application handler or conversation-scope adapter rejected the request. `error.data` contains `name`, `message`, and optional `code` or `status`. |
+| `"LIMIT"` | An application-level cap was exceeded: journal entries or size, global in-flight operations, or a result too large for the journal. |
+| `"OUTCOME_UNKNOWN"` | The operation was reserved but its outcome is unavailable — see [Retries and idempotency](#retries-and-idempotency). |
 
-## Batch and notifications
+`code` is a number for the protocol codes above or a string for application-level conditions; both travel in the same `error.code` field. Local violations never produce envelopes: a frame that breaks ORPC framing or size limits closes the socket (`1002` protocol, `1009` limit).
 
-A JSON array executes as a batch. Responses are returned as an array and may complete in a different order internally. An empty batch is invalid. Requests without `id` are notifications and are omitted from the response, including when their handler fails. A batch containing only notifications receives no message.
+## Retries and idempotency
+
+Transport recovery is bounded and automatic: an incomplete delivery is retried at most **once**, after a short backoff, with a fresh wire request id and the same body — same method and `operationId` — under a 60-second per-attempt timeout and a 150-second overall budget. Identifiers are never reused: every attempt gets a new request id, and the server pairs every attempt with a fresh execution id. Non-`INCOMPLETE` failures are terminal and are not retried.
+
+The server journals operations durably in SQLite (`remote_operations`, pruned by `expiresAt`, capped at 4096 entries / 64 MiB). Repeating the same `(identity, scope, resource, operationId)` with the same method-and-body fingerprint returns the recorded response once the operation completes; a different body under a known `operationId` is rejected as a token conflict. If the server reserved the operation and crashed before storing a result, repeats receive `OUTCOME_UNKNOWN` instead of re-executing: a pending operation is never silently re-run. Inspect application state before issuing a new operation for the same intent.
+
+Deduplication covers only journalized operations: it is not exactly-once. An operation may execute more than once — for example, when a duplicate arrives before the first execution records its outcome, or after the journal entry expires — and every bounded attempt ends in a response or an explicit failure.
+
+## Concurrency
+
+Each socket allows at most 64 concurrent client calls, and the server executes at most 64 requests per peer at once. In addition, in-flight operations from every socket are tracked in a global map capped at 64; entries stay until their handler completes, so duplicates arriving after a client timeout cannot spawn unbounded executions. The client refuses to exceed its per-socket call budget locally; exceeding the server's per-peer execution limit closes the socket (`1009`); exceeding the global in-flight cap or the journal limits returns a `LIMIT` envelope.
+
+## Events (server to client)
+
+Conversation notifications are acknowledged ORPC calls in the server-to-client direction. Avi sends `REQ` frames with the dotted event method (`conversation.ready`, `conversation.event`) and this content:
+
+```json
+{
+  "eventId": "11e7a1a2-3c4d-4e5f-8a61-7b0c1d2e3f41",
+  "expiresAt": 1790000000000,
+  "params": { "sequence": 17, "conversationId": "thread-id", "event": { "type": "message" } }
+}
+```
+
+The client must answer with a final `RES`; Avi treats the literal bytes `OK` as acceptance. `eventId` deduplicates redelivery: the same event repeated under a new request id returns `OK` without re-emitting, and conflicting content under a known `eventId` fails. Expired events (`expiresAt` in the past) are rejected. Event payloads are documented in [Conversation notifications](streaming.md).
+
+## Discovery and models
+
+`rpc:discover` (wire `rpc.discover`) is available on both sockets. It returns Avi `appVersion`, API versions `{ core: 2, rpc: 1, mcp: { latest, supported } }`, the selected socket `scope`, the ORPC transport descriptor `{ protocol, framing, limits }`, and exact sorted `methods` (application names) and `capabilities` arrays. Clients must use the advertised RPC v1 contract; there is no fallback to an earlier RPC version.
+
+`models:list` is available on the global socket and returns `{ models, lastModel, defaultModels, messageDeliveryMode }`: the provider model catalog used by Avi's model picker and `chat:send`, the last selected model, the current default-model preferences, and the authoritative `"queue"` or `"steer"` Message delivery mode from Avi settings. Remote composers use that mode for Enter and the opposite mode for Ctrl+Enter.
 
 ## Remote server and relay status
 
@@ -106,6 +151,7 @@ Authenticated global `/rpc` clients can invoke `remote:state` with no payload. I
 
 ## Reference
 
+- [ORPC Draft 1 specification](orpc-spec.md)
 - [Shared types](types.md)
 - [Authentication and API keys](authentication.md)
 - [Public relay protocol](relay-protocol.md)

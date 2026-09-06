@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { ORPC_PROTOCOL } from '../shared/orpc.js';
 
 export const AIVAX_RELAY_URL = 'https://avi-relay.projpw.workers.dev';
 
@@ -221,6 +222,7 @@ export class RemoteRelay {
     if (ticket === 'aborted') return 'aborted';
     if (ticket === 'transient' || ticket === 'permanent') return ticket;
 
+    this.accountId = new URL(ticket.websocketUrl).pathname.split('/')[3];
     const socket = this.createRelaySocket(ticket.websocketUrl, [RELAY_PROTOCOL, `avi-relay-ticket.${ticket.secret}`], {
       handshakeTimeout: this.handshakeTimeoutMs,
       maxPayload: MAX_ENVELOPE_BYTES,
@@ -496,7 +498,7 @@ export class RemoteRelay {
       type: 'data',
       channelId: channel.id,
       encoding: 'text',
-      data: JSON.stringify({ type: 'avi-remote-error', version: 2, code }),
+      data: JSON.stringify({ type: 'avi-remote-error', version: 3, code }),
     });
   }
 
@@ -602,7 +604,7 @@ export class RemoteRelay {
       this.handleOpeningFrame(socket, generation, channel, text);
       return;
     }
-    if (text.length <= 512 && text.includes('avi-remote-ping')) {
+    if (text.startsWith('{') && text.length <= 512) {
       let frame;
       try {
         frame = JSON.parse(text);
@@ -610,12 +612,12 @@ export class RemoteRelay {
         frame = null;
       }
       if (frame?.type === 'avi-remote-ping') {
-        if (frame.version === 2 && typeof frame.id === 'string' && frame.id.length >= 1 && frame.id.length <= 128) {
+        if (frame.version === 3 && typeof frame.id === 'string' && frame.id.length >= 1 && frame.id.length <= 128) {
           this.sendEnvelope(socket, generation, {
             type: 'data',
             channelId: channel.id,
             encoding: 'text',
-            data: JSON.stringify({ type: 'avi-remote-pong', version: 2, id: frame.id }),
+            data: JSON.stringify({ type: 'avi-remote-pong', version: 3, id: frame.id }),
           });
         }
         return;
@@ -673,7 +675,8 @@ export class RemoteRelay {
     }
     const path = frame?.path;
     if (frame?.type !== 'avi-remote-open'
-      || frame?.version !== 2
+      || frame?.version !== 3
+      || frame.protocol !== ORPC_PROTOCOL
       || Object.hasOwn(frame, 'apiKey')
       || !this.isApprovedPath(path)) {
       this.closeChannel(socket, generation, channel, { errorCode: 'invalid_open' });
@@ -682,7 +685,12 @@ export class RemoteRelay {
     channel.path = path;
     let local;
     try {
-      local = this.createLocalSocket(path);
+      local = this.createLocalSocket(path, `relay:${this.accountId}`);
+      Object.defineProperty(local, 'bufferedAmount', { configurable: true, get: () => {
+        const rateBlocked = Date.now() - this.rateWindowStart < RATE_WINDOW_MS
+          && (this.rateMessages >= 96 || this.rateBytes >= 2 * 1024 * 1024);
+        return rateBlocked ? MAX_BUFFERED_BYTES : socket.bufferedAmount;
+      } });
     } catch {
       this.closeChannel(socket, generation, channel, { errorCode: 'unavailable' });
       return;
@@ -719,7 +727,7 @@ export class RemoteRelay {
         type: 'data',
         channelId: channel.id,
         encoding: 'text',
-        data: JSON.stringify({ type: 'avi-remote-ready', version: 2 }),
+        data: JSON.stringify({ type: 'avi-remote-ready', version: 3, protocol: ORPC_PROTOCOL }),
       });
       if (sent !== 'sent') {
         local.terminate();
@@ -736,8 +744,8 @@ export class RemoteRelay {
         }
         this.forwardToPublisher(socket, generation, channel, isBinary ? data : data.toString('utf8'));
       });
-      local.once('close', () => {
-        this.closeChannel(socket, generation, channel);
+      local.once('close', (code) => {
+        this.closeChannel(socket, generation, channel, { errorCode: [1002, 1008, 1009].includes(code) ? 'protocol' : 'unavailable' });
       });
     });
   }

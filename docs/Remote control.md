@@ -1,6 +1,6 @@
 # Remote control
 
-Remote Control exposes Avi orchestration through authenticated MCP and JSON-RPC APIs on a loopback-only local server. An opt-in RPC WAN bridge can publish the JSON-RPC WebSockets through a public relay; MCP always stays local. This is an experimental integration surface, not remote desktop control.
+Remote Control exposes Avi orchestration through authenticated MCP and RPC APIs on a loopback-only local server. An opt-in RPC WAN bridge can publish the RPC WebSockets through a public relay; MCP always stays local. This is an experimental integration surface, not remote desktop control.
 
 ## Enable the server
 
@@ -16,10 +16,10 @@ The UI shows **Listening** or **Not listening** and startup errors such as a por
 
 - HTTP MCP: `/mcp`
 - HTTP MCP with path credential: `/mcp/:key`
-- global JSON-RPC WebSocket: `/rpc`
-- isolated conversation JSON-RPC WebSocket: `/rpc/conversations/streams/:thread-id`
+- global RPC WebSocket (ORPC Draft 1): `/rpc`
+- isolated conversation RPC WebSocket: `/rpc/conversations/streams/:thread-id`
 
-Use `Authorization: Bearer <api-key>` with `/mcp` and native WebSocket clients. Browser RPC clients offer `avi-rpc-v1` and `avi-api-key.<base64url UTF-8 key>` as WebSocket subprotocols; Avi authenticates the credential but echoes only `avi-rpc-v1`. Never place an RPC key in a URL or query string. `/mcp/:key` remains available only for MCP clients that cannot set an Authorization header.
+Use `Authorization: Bearer <api-key>` with `/mcp` and native WebSocket clients. Browser RPC clients offer `avi-orpc-draft1` and `avi-api-key.<base64url UTF-8 key>` as WebSocket subprotocols; native clients may authenticate with the Authorization header but every client must still offer `avi-orpc-draft1`, which is the only protocol the server selects. Never place an RPC key in a URL or query string. `/mcp/:key` remains available only for MCP clients that cannot set an Authorization header.
 
 ## API keys
 
@@ -29,13 +29,13 @@ Secret values are encrypted through Electron secure storage and copied by the ma
 
 ## RPC WAN bridge
 
-The RPC WAN bridge publishes the two JSON-RPC WebSockets through a public relay so external clients such as Workspace can reach Avi without VPN or port forwarding. It is off by default and independent of the local server: the bridge runs while the **RPC WAN bridge** toggle in Settings is on and an AIVAX account is connected, regardless of the Remote server toggle, its port, and its API keys. MCP HTTP is never relayed.
+The RPC WAN bridge publishes the two RPC WebSockets through a public relay so external clients such as Workspace can reach Avi without VPN or port forwarding. It is off by default and independent of the local server: the bridge runs while the **RPC WAN bridge** toggle in Settings is on and an AIVAX account is connected, regardless of the Remote server toggle, its port, and its API keys. MCP HTTP is never relayed.
 
 Avi identifies itself to the relay with a stable per-install device id shown as **Device** in Settings, plus the machine name. Publication uses ticket-based registration: Avi authenticates to the relay with the connected AIVAX account token — the bridge stays stopped without a connected account — obtains a role-bound ticket, and holds a WebSocket connection to the relay using the `avi-relay-v1` and `avi-relay-ticket.<secret>` subprotocols. Each reconnect obtains a fresh ticket. The relay only bridges devices and consumers under the same authenticated account, and on the WAN that account substitutes the Remote API key: bridged connections authorize through the account's ticket, never through a local key.
 
 The Remote screen shows the bridge status: stopped, connecting, connected, reconnecting, unauthorized, or error. Avi retries transient failures automatically with increasing delays (1 s to 30 s, resetting after a stable period) and stops retrying after an authorization failure, such as ticket HTTP 401/403 or a relay policy close, until the toggle or the AIVAX connection changes. The relay closes active connections after at most 1 hour (close code `4001`); Avi republishes with a fresh ticket automatically. Disabling the bridge toggle, disconnecting AIVAX, or quitting Avi stops the bridge; turning the local Remote server off or deleting its API keys does not. Local access remains available regardless of relay state.
 
-The relay carries only `/rpc` and `/rpc/conversations/streams/:thread-id`. Consumers complete the documented per-connection open/ready handshake (version 2) that carries only the target route — authorization is the connected AIVAX account, and the relay passes frames opaquely afterwards. See the [public relay protocol](api/rpc/relay-protocol.md) for the exact wire contract.
+The relay carries only `/rpc` and `/rpc/conversations/streams/:thread-id`. Consumers complete the documented per-connection open/ready handshake (version 3, advertising the `avi-orpc-draft1` application protocol) that carries only the target route — authorization is the connected AIVAX account, and the relay passes frames opaquely afterwards. See the [public relay protocol](api/rpc/relay-protocol.md) for the exact wire contract.
 
 ### Distribution
 
@@ -43,10 +43,10 @@ The bridge is part of the application and needs no extra binary, download, or PA
 
 ### Limitations and trust
 
-- The relay runs on Cloudflare Workers (`avi-relay.projpw.workers.dev`). Cloudflare terminates TLS for both legs, and the relay operator can observe every relayed frame and relay API call, including the AIVAX token used for ticket issuance and the Remote API key presented in each open handshake. Use this bridge only with credentials and conversations acceptable under that trust model.
-- The bridge does not persist or replay frames. A dropped connection leaves in-flight JSON-RPC requests with unknown outcome; clients must never resend commands automatically — after reconnecting, state is recovered through discovery, stream subscriptions, and conversation context only.
+- The relay runs on Cloudflare Workers (`avi-relay.projpw.workers.dev`). Cloudflare terminates TLS for both legs, and the relay operator can observe every relayed frame and relay API call, including the AIVAX token used for ticket issuance and every relayed conversation frame. Use this bridge only with credentials and conversations acceptable under that trust model.
+- The bridge does not persist or replay frames. A dropped connection leaves in-flight ORPC calls with unknown delivery outcome; the ORPC client recovers with at most one retry that keeps the same operation token under a fresh request id, and the Desktop's durable operation journal deduplicates it. Cancellation is delivery-only — a timed-out operation may still execute — so clients check application state through discovery, stream subscriptions, and conversation context before issuing new work.
 - Bridged connections carry no Remote API key: the AIVAX account substitutes it, and no local key checks run on the WAN. Revoking the AIVAX credential affects only new tickets; existing sessions continue until the relay's 1-hour cap (close code `4001`) or until Avi stops them.
-- Relay throughput is best-effort: Cloudflare Workers cap the publisher leg at roughly 128 messages and 4 MiB per second in aggregate, the bridge fails closed at those limits, and there is no end-to-end flow guarantee between consumer and Desktop.
+- Relay throughput is best-effort: Cloudflare Workers cap the publisher leg at roughly 128 messages and 4 MiB per second in aggregate, the bridge fails closed at those limits, and there is no end-to-end flow guarantee between consumer and Desktop. The Desktop publisher additionally applies an aggregated per-second backpressure budget of 96 messages / 2 MiB across consumer channels, which paces ORPC senders instead of silently dropping frames.
 - Avi verifies the bridge locally across real components: the Workspace client stack against Avi's relay stack through the deployed Worker implementation, with AIVAX mocked (discovery, state, stream handshake and events, account isolation, no local listener or keys). **A live run against the deployed relay service is not verified**; protocol mismatches surface as connection failures reported in Settings.
 
 ## Security boundary
@@ -59,11 +59,13 @@ The AIVAX token authenticates relay ticket issuance and discovery and substitute
 
 The stateless Streamable HTTP MCP server exposes bot and chat orchestration tools. See [Remote MCP API](api/mcp/overview.md).
 
-## JSON-RPC WebSockets
+## RPC WebSockets
+
+Both RPC WebSockets speak ORPC Draft 1 (`avi-orpc-draft1`): binary length-prefixed frames carrying UTF-8 JSON operation envelopes (`operationId`, `expiresAt`, `params`) with dotted wire methods over the colon application names, and acknowledged server events. See the [RPC overview](api/rpc/overview.md) and the bundled [ORPC Draft 1 specification](api/rpc/orpc-spec.md).
 
 `WS /rpc` handles administrative/global folder, thread, search, and bot operations. It does not receive detailed conversation events.
 
-`WS /rpc/conversations/streams/:thread-id` is bidirectional and isolated to one conversation. It accepts prompt, attachment, Goal/Plan/Ultra, queue/steer, interruption, retry/edit, question, and approval operations and emits sequenced JSON-RPC notifications for that conversation's chat events.
+`WS /rpc/conversations/streams/:thread-id` is bidirectional and isolated to one conversation. It accepts prompt, attachment, Goal/Plan/Ultra, queue/steer, interruption, retry/edit, question, and approval operations and emits sequenced, acknowledged ORPC events for that conversation's chat events.
 
 See:
 

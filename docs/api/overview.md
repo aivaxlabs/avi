@@ -16,7 +16,7 @@ Use MCP when an external agent or MCP client needs Avi orchestration tools rathe
 
 ## RPC API
 
-The [Remote JSON-RPC API](rpc/overview.md) exposes selected Electron-equivalent application requests over authenticated WebSockets:
+The [Remote RPC API](rpc/overview.md) exposes selected Electron-equivalent application requests over authenticated WebSockets speaking ORPC Draft 1 (`avi-orpc-draft1`, binary frames with UTF-8 JSON payloads):
 
 - `/rpc` for global and administrative operations;
 - `/rpc/conversations/streams/:thread-id` for isolated bidirectional conversation control and events.

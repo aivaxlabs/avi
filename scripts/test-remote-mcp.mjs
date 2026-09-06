@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -6,6 +7,10 @@ import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import WebSocket from 'ws';
+import { OrpcPeer, ORPC_LIMITS, ORPC_PROTOCOL, requestFrame } from '../src/shared/orpc.js';
+
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
 
 const testProfile = mkdtempSync(join(tmpdir(), 'avi-remote-mcp-test-'));
 const resolvedProfile = resolve(testProfile);
@@ -348,18 +353,26 @@ try {
   const rpcHttpEndpoint = `http://127.0.0.1:${server.port}/rpc`;
   assert.equal((await fetch(rpcHttpEndpoint, { method: 'POST' })).status, 426);
   const socketInboxes = new WeakMap();
-  const openSocket = (path, key = apiKey, protocols = undefined) => new Promise((resolveSocket, rejectSocket) => {
+  const openSocket = (path, key = apiKey, protocols = [ORPC_PROTOCOL]) => new Promise((resolveSocket, rejectSocket) => {
     const options = key === null ? {} : { headers: { Authorization: `Bearer ${key}` } };
-    const socket = protocols
-      ? new WebSocket(`ws://127.0.0.1:${server.port}${path}`, protocols, options)
-      : new WebSocket(`ws://127.0.0.1:${server.port}${path}`, options);
-    const inbox = { messages: [], waiters: [] };
-    socketInboxes.set(socket, inbox);
-    socket.on('message', (data) => {
-      const message = JSON.parse(data.toString());
-      const waiter = inbox.waiters.shift();
-      if (waiter) waiter.resolve(message);
-      else inbox.messages.push(message);
+    const socket = new WebSocket(`ws://127.0.0.1:${server.port}${path}`, protocols, options);
+    const inbox = { events: [], waiters: [] };
+    socketInboxes.set(socket, { peer: null, inbox });
+    const peer = new OrpcPeer({
+      send: (frame) => socket.send(Buffer.from(frame)),
+      isOpen: () => socket.readyState === WebSocket.OPEN,
+      bufferedAmount: () => socket.bufferedAmount,
+      onRequest: (method, content) => {
+        const event = { method: method.replace('.', ':'), ...JSON.parse(textDecoder.decode(content)) };
+        const waiter = inbox.waiters.shift();
+        if (waiter) waiter.resolve(event);
+        else inbox.events.push(event);
+        return textEncoder.encode('OK');
+      },
+    });
+    socketInboxes.get(socket).peer = peer;
+    socket.on('message', (data, isBinary) => {
+      if (isBinary) peer.receive(new Uint8Array(data));
     });
     socket.once('open', () => resolveSocket(socket));
     socket.once('error', rejectSocket);
@@ -368,29 +381,40 @@ try {
     // silent uncaught exception under Electron and the run hangs without output.
     socket.on('error', () => {});
   });
-  const nextSocketMessage = (socket) => {
-    const inbox = socketInboxes.get(socket);
-    if (inbox.messages.length > 0) return Promise.resolve(inbox.messages.shift());
-    return new Promise((resolveMessage, rejectMessage) => {
-      inbox.waiters.push({ resolve: resolveMessage, reject: rejectMessage });
-      socket.once('error', rejectMessage);
-    });
+  const closeSocket = (socket) => new Promise((resolveClose) => {
+    socket.once('close', resolveClose);
+    socket.close();
+  });
+  const callRpcRaw = (socket, method, contentBytes) => socketInboxes.get(socket).peer
+    .call(method.replace(':', '.'), contentBytes)
+    .then((bytes) => JSON.parse(textDecoder.decode(bytes)));
+  const callRpc = (socket, method, params, { operationId = crypto.randomUUID(), expiresAt = Date.now() + 60_000 } = {}) => callRpcRaw(
+    socket,
+    method,
+    textEncoder.encode(JSON.stringify({ operationId, expiresAt, params })),
+  );
+  const nextSocketEvent = (socket) => {
+    const { inbox } = socketInboxes.get(socket);
+    if (inbox.events.length > 0) return Promise.resolve(inbox.events.shift());
+    return new Promise((resolveEvent) => inbox.waiters.push({ resolve: resolveEvent }));
   };
   await assert.rejects(openSocket('/rpc', expiredApiKey));
+  // The avi-orpc-draft1 subprotocol is mandatory even when the Authorization header carries the key.
+  await assert.rejects(openSocket('/rpc', apiKey, []));
   const browserProtocols = [
-    'avi-rpc-v1',
+    ORPC_PROTOCOL,
     `avi-api-key.${Buffer.from(apiKey).toString('base64url')}`,
   ];
   const browserSocket = await openSocket('/rpc', null, browserProtocols);
-  assert.equal(browserSocket.protocol, 'avi-rpc-v1');
+  assert.equal(browserSocket.protocol, ORPC_PROTOCOL);
   assert.equal(browserSocket.protocol.includes(Buffer.from(apiKey).toString('base64url')), false);
-  browserSocket.close();
+  await closeSocket(browserSocket);
   await assert.rejects(openSocket('/rpc', null, [
-    'avi-rpc-v1',
+    ORPC_PROTOCOL,
     `avi-api-key.${Buffer.from('invalid').toString('base64url')}`,
   ]));
   await assert.rejects(openSocket('/rpc', null, [
-    'avi-rpc-v1',
+    ORPC_PROTOCOL,
     `avi-api-key.${Buffer.from(expiredApiKey).toString('base64url')}`,
   ]));
   await assert.rejects(openSocket('/rpc', null, [
@@ -398,10 +422,9 @@ try {
   ]));
 
   const globalSocket = await openSocket('/rpc');
-  globalSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'rpc:discover' }));
-  const globalDiscovery = await nextSocketMessage(globalSocket);
-  assert.equal(globalDiscovery.result.appVersion, '0.5.0');
-  assert.deepEqual(globalDiscovery.result.versions, {
+  const globalDiscovery = (await callRpc(globalSocket, 'rpc:discover')).result;
+  assert.equal(globalDiscovery.appVersion, '0.6.0');
+  assert.deepEqual(globalDiscovery.versions, {
     core: 2,
     rpc: 1,
     mcp: {
@@ -409,23 +432,28 @@ try {
       supported: ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'],
     },
   });
-  assert.equal(globalDiscovery.result.scope, 'global');
-  assert.deepEqual(globalDiscovery.result.capabilities, [
-    'batch', 'notifications', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags', 'app-updates',
+  assert.deepEqual(globalDiscovery.transport, {
+    protocol: ORPC_PROTOCOL,
+    framing: 'complete-frame',
+    limits: ORPC_LIMITS,
+  });
+  assert.equal(globalDiscovery.scope, 'global');
+  assert.deepEqual(globalDiscovery.capabilities, [
+    'acknowledged-events', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags', 'app-updates',
   ]);
-  assert.deepEqual(globalDiscovery.result.methods, [
+  assert.deepEqual(globalDiscovery.methods, [
     'app:check-for-updates', 'app:install-update', 'app:update-state',
     'bots:activate', 'bots:clear-thread', 'bots:complete-pendency', 'bots:create', 'bots:delete', 'bots:full-reset',
     'bots:list', 'bots:reply-pendency', 'bots:resolve-approval', 'bots:snooze', 'bots:snooze-one', 'bots:update',
     'conversations:archive', 'conversations:create', 'conversations:delete',
     'conversations:fork', 'conversations:list', 'conversations:search', 'conversations:set-tags',
     'conversations:update', 'folders:list', 'folders:save-color', 'folders:threads', 'models:list',
-    'remote:state', 'rpc:discover', 'rubber-ducks:list', 'side-chats:close', 'side-chats:create', 'side-chats:list',
+    'remote:state', 'rpc:discover', 'rubber-ducks:list', 'shortcuts:list', 'shortcuts:save',
+    'side-chats:close', 'side-chats:create', 'side-chats:list',
     'sidebar:mark-seen', 'sidebar:status', 'subagents:list', 'tags:list', 'tags:save',
     'workspaces:get', 'workspaces:save',
   ]);
-  globalSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 8, method: 'models:list' }));
-  assert.deepEqual((await nextSocketMessage(globalSocket)).result, {
+  assert.deepEqual((await callRpc(globalSocket, 'models:list')).result, {
     models: [{
       id: 'test:model',
       name: 'Test model',
@@ -435,150 +463,79 @@ try {
     defaultModels: preferences.defaultModels,
     messageDeliveryMode: 'steer',
   });
-  globalSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'conversations:list' }));
-  assert.deepEqual(await nextSocketMessage(globalSocket), {
-    jsonrpc: '2.0',
-    id: 10,
-    result: [{ id: 'rpc-thread' }],
+  assert.deepEqual((await callRpc(globalSocket, 'conversations:list')).result, [{ id: 'rpc-thread' }]);
+  assert.deepEqual((await callRpc(globalSocket, 'tags:list')).result, {
+    tags: [{ id: 'review', name: 'Review', color: '#e3b341' }],
   });
-  globalSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 30, method: 'tags:list' }));
-  assert.deepEqual(await nextSocketMessage(globalSocket), {
-    jsonrpc: '2.0',
-    id: 30,
-    result: { tags: [{ id: 'review', name: 'Review', color: '#e3b341' }] },
+  assert.deepEqual((await callRpc(globalSocket, 'tags:save', { tags: [{ id: 'kept', name: 'Kept', color: '#FFAA00' }] })).result, {
+    tags: [{ id: 'kept', name: 'Kept', color: '#FFAA00' }],
   });
-  globalSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 31,
-    method: 'tags:save',
-    params: { tags: [{ id: 'kept', name: 'Kept', color: '#FFAA00' }] },
-  }));
-  assert.deepEqual(await nextSocketMessage(globalSocket), {
-    jsonrpc: '2.0',
-    id: 31,
-    result: { tags: [{ id: 'kept', name: 'Kept', color: '#FFAA00' }] },
+  assert.deepEqual((await callRpc(globalSocket, 'sidebar:status')).result, {
+    runningConversationIds: ['rpc-thread'],
+    approvalPendingConversationIds: [],
+    inputPendingConversationIds: [],
+    semaphoreWaitingConversationIds: [],
+    completedUnseenConversationIds: [],
   });
-  globalSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 32, method: 'sidebar:status' }));
-  assert.deepEqual(await nextSocketMessage(globalSocket), {
-    jsonrpc: '2.0',
-    id: 32,
-    result: {
-      runningConversationIds: ['rpc-thread'],
-      approvalPendingConversationIds: [],
-      inputPendingConversationIds: [],
-      semaphoreWaitingConversationIds: [],
-      completedUnseenConversationIds: [],
-    },
+  assert.deepEqual((await callRpc(globalSocket, 'sidebar:mark-seen', { conversationId: 'rpc-thread' })).result, {
+    completedUnseenConversationIds: [],
   });
-  globalSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 33,
-    method: 'sidebar:mark-seen',
-    params: { conversationId: 'rpc-thread' },
-  }));
-  assert.deepEqual(await nextSocketMessage(globalSocket), {
-    jsonrpc: '2.0',
-    id: 33,
-    result: { completedUnseenConversationIds: [] },
-  });
-  globalSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 34,
-    method: 'sidebar:mark-seen',
-    params: {},
-  }));
-  assert.match((await nextSocketMessage(globalSocket)).error.data.message, /^sidebar:mark-seen requires/);
+  assert.match((await callRpc(globalSocket, 'sidebar:mark-seen', {})).error.data.message, /^sidebar:mark-seen requires/);
   for (const listener of chatEventListeners) {
     listener({ type: 'run-state', conversationId: 'tracker-thread', running: false });
   }
-  globalSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 35, method: 'sidebar:status' }));
   assert.deepEqual(
-    (await nextSocketMessage(globalSocket)).result.completedUnseenConversationIds,
+    (await callRpc(globalSocket, 'sidebar:status')).result.completedUnseenConversationIds,
     ['tracker-thread'],
   );
   for (const listener of chatEventListeners) {
     listener({ type: 'run-state', conversationId: 'tracker-thread', running: true });
     listener({ type: 'run-state', conversationId: 'tracker-thread', running: false, sleeping: true });
   }
-  globalSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 36, method: 'sidebar:status' }));
-  assert.deepEqual((await nextSocketMessage(globalSocket)).result.completedUnseenConversationIds, []);
+  assert.deepEqual((await callRpc(globalSocket, 'sidebar:status')).result.completedUnseenConversationIds, []);
   for (const listener of chatEventListeners) {
     listener({ type: 'run-state', conversationId: 'tracker-thread', running: false });
   }
-  globalSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 37,
-    method: 'sidebar:mark-seen',
-    params: { conversationId: 'tracker-thread' },
-  }));
-  assert.deepEqual(await nextSocketMessage(globalSocket), {
-    jsonrpc: '2.0',
-    id: 37,
-    result: { completedUnseenConversationIds: [] },
+  assert.deepEqual((await callRpc(globalSocket, 'sidebar:mark-seen', { conversationId: 'tracker-thread' })).result, {
+    completedUnseenConversationIds: [],
   });
-  globalSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 11, method: 'chat:stop' }));
-  assert.deepEqual(await nextSocketMessage(globalSocket), {
-    jsonrpc: '2.0',
-    id: 11,
+  assert.deepEqual(await callRpc(globalSocket, 'chat:stop'), {
     error: { code: -32601, message: 'Method not found' },
   });
-  globalSocket.send(JSON.stringify([
-    { jsonrpc: '2.0', method: 'conversations:list' },
-    { jsonrpc: '2.0', id: 15, method: 'conversations:list' },
-    { jsonrpc: '2.0', id: 16, method: 'unknown:method' },
-  ]));
-  assert.deepEqual(await nextSocketMessage(globalSocket), [
-    { jsonrpc: '2.0', id: 15, result: [{ id: 'rpc-thread' }] },
-    { jsonrpc: '2.0', id: 16, error: { code: -32601, message: 'Method not found' } },
-  ]);
+
+  const textFrameSocket = await openSocket('/rpc');
+  const textFrameClose = new Promise((resolveClose) => textFrameSocket.once('close', resolveClose));
+  textFrameSocket.send('x');
+  assert.equal(await textFrameClose, 1002, 'text frames must close the socket because ORPC requires binary messages');
 
   const oversizedSocket = await openSocket('/rpc');
   const oversizedClose = new Promise((resolveClose) => oversizedSocket.once('close', resolveClose));
-  oversizedSocket.send('x'.repeat(1024 * 1024 + 1));
+  oversizedSocket.send(Buffer.alloc(1024 * 1024 + 1));
   assert.equal(await oversizedClose, 1009);
 
   const streamSocket = await openSocket('/rpc/conversations/streams/rpc-thread');
-  assert.deepEqual(await nextSocketMessage(streamSocket), {
-    jsonrpc: '2.0',
-    method: 'conversation:ready',
-    params: {
-      sequence: 0,
-      conversationId: 'rpc-thread',
-      recoveryMethod: 'conversations:context',
-    },
+  const readyEvent = await nextSocketEvent(streamSocket);
+  assert.ok(/^[A-Za-z0-9_-]{16,64}$/.test(readyEvent.eventId), 'server events must carry an event id');
+  assert.ok(Number.isSafeInteger(readyEvent.expiresAt) && readyEvent.expiresAt > Date.now(), 'server events must carry a future deadline');
+  assert.deepEqual(readyEvent.params, {
+    sequence: 0,
+    conversationId: 'rpc-thread',
+    recoveryMethod: 'conversations:context',
   });
-  streamSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 30, method: 'rpc:discover' }));
-  const conversationDiscovery = (await nextSocketMessage(streamSocket)).result;
+  const conversationDiscovery = (await callRpc(streamSocket, 'rpc:discover')).result;
   assert.equal(conversationDiscovery.scope, 'conversation');
   assert.ok(conversationDiscovery.methods.includes('conversations:tool-call-details'));
+  assert.ok(conversationDiscovery.capabilities.includes('acknowledged-events'));
   assert.ok(conversationDiscovery.capabilities.includes('tool-call-details'));
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 18,
-    method: 'conversations:messages',
-    params: { limit: 2 },
-  }));
-  const firstMessagePage = (await nextSocketMessage(streamSocket)).result;
+  const firstMessagePage = (await callRpc(streamSocket, 'conversations:messages', { limit: 2 })).result;
   assert.deepEqual(firstMessagePage.messages.map((message) => message.id), ['message-2', 'message-3']);
   assert.equal(firstMessagePage.hasMore, true);
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 19,
-    method: 'conversations:messages',
-    params: { limit: 2, cursor: firstMessagePage.cursor },
-  }));
-  assert.deepEqual((await nextSocketMessage(streamSocket)).result, {
+  assert.deepEqual((await callRpc(streamSocket, 'conversations:messages', { limit: 2, cursor: firstMessagePage.cursor })).result, {
     messages: [{ id: 'message-1', conversationId: 'rpc-thread' }],
     cursor: null,
     hasMore: false,
   });
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 26,
-    method: 'conversations:context',
-    params: { limit: 2 },
-  }));
-  assert.deepEqual((await nextSocketMessage(streamSocket)).result, {
+  assert.deepEqual((await callRpc(streamSocket, 'conversations:context', { limit: 2 })).result, {
     conversation: { id: 'rpc-thread' },
     composer: {
       conversationId: 'rpc-thread',
@@ -592,23 +549,11 @@ try {
     },
     contextUsage: { tokens: 1200, limit: 128000 },
   });
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 27,
-    method: 'conversations:messages',
-    params: { bogus: 1 },
-  }));
   assert.match(
-    (await nextSocketMessage(streamSocket)).error.data.message,
+    (await callRpc(streamSocket, 'conversations:messages', { bogus: 1 })).error.data.message,
     /^Unsupported pagination parameter: bogus\.$/,
   );
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 28,
-    method: 'conversations:tool-call-details',
-    params: { messageId: 'message-3', segmentId: 'tool-call-1' },
-  }));
-  assert.deepEqual((await nextSocketMessage(streamSocket)).result, {
+  assert.deepEqual((await callRpc(streamSocket, 'conversations:tool-call-details', { messageId: 'message-3', segmentId: 'tool-call-1' })).result, {
     conversationId: 'rpc-thread',
     messageId: 'message-3',
     segmentId: 'tool-call-1',
@@ -617,42 +562,17 @@ try {
     resultText: 'file contents',
     mediaContent: [],
   });
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 29,
-    method: 'conversations:tool-call-details',
-    params: { messageId: 'message-3', segmentId: 'tool-call-1', path: 'C:\\Windows\\win.ini' },
-  }));
   assert.match(
-    (await nextSocketMessage(streamSocket)).error.data.message,
+    (await callRpc(streamSocket, 'conversations:tool-call-details', { messageId: 'message-3', segmentId: 'tool-call-1', path: 'C:\\Windows\\win.ini' })).error.data.message,
     /^Unsupported tool-call-details parameter: path\.$/,
   );
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 20,
-    method: 'mentions:list',
-    params: { query: 'src', folderPath: 'C:\\foreign' },
-  }));
-  assert.deepEqual((await nextSocketMessage(streamSocket)).result, { paths: [], servers: [] });
-  streamSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 21, method: 'context:commands' }));
-  assert.deepEqual((await nextSocketMessage(streamSocket)).result, []);
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 22,
-    method: 'files:diff',
-    params: { filePath: 'src/main.js', folderPath: 'C:\\foreign' },
-  }));
-  assert.deepEqual((await nextSocketMessage(streamSocket)).result, {
+  assert.deepEqual((await callRpc(streamSocket, 'mentions:list', { query: 'src', folderPath: 'C:\\foreign' })).result, { paths: [], servers: [] });
+  assert.deepEqual((await callRpc(streamSocket, 'context:commands')).result, []);
+  assert.deepEqual((await callRpc(streamSocket, 'files:diff', { filePath: 'src/main.js', folderPath: 'C:\\foreign' })).result, {
     filePath: 'src/main.js',
     diff: '',
   });
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 23,
-    method: 'attachments:read',
-    params: { messageId: 'message-3', attachmentId: 'attachment-1', offset: 4 },
-  }));
-  assert.deepEqual((await nextSocketMessage(streamSocket)).result, {
+  assert.deepEqual((await callRpc(streamSocket, 'attachments:read', { messageId: 'message-3', attachmentId: 'attachment-1', offset: 4 })).result, {
     messageId: 'message-3',
     attachmentId: 'attachment-1',
     conversationId: 'rpc-thread',
@@ -660,81 +580,47 @@ try {
     data: '',
     hasMore: false,
   });
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 24,
-    method: 'attachments:read',
-    params: { messageId: 'message-3', attachmentId: 'attachment-1', path: 'C:\\Windows\\win.ini' },
-  }));
   assert.match(
-    (await nextSocketMessage(streamSocket)).error.data.message,
+    (await callRpc(streamSocket, 'attachments:read', { messageId: 'message-3', attachmentId: 'attachment-1', path: 'C:\\Windows\\win.ini' })).error.data.message,
     /^Unsupported attachments:read parameter: path\.$/,
   );
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 12,
-    method: 'chat:send',
-    params: { model: 'test:model', text: 'Plan this', workMode: 'plan', attachments: [] },
-  }));
-  assert.deepEqual(await nextSocketMessage(streamSocket), {
-    jsonrpc: '2.0',
-    id: 12,
-    result: { conversation: { id: 'rpc-thread' }, queued: false },
+  assert.deepEqual((await callRpc(streamSocket, 'chat:send', { model: 'test:model', text: 'Plan this', workMode: 'plan', attachments: [] })).result, {
+    conversation: { id: 'rpc-thread' },
+    queued: false,
   });
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 13,
-    method: 'chat:stop',
-  }));
-  assert.deepEqual(await nextSocketMessage(streamSocket), { jsonrpc: '2.0', id: 13, result: true });
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 14,
-    method: 'chat:send',
-    params: { conversationId: 'other-thread', model: 'test:model', text: 'Wrong thread' },
-  }));
-  assert.equal((await nextSocketMessage(streamSocket)).error.data.message, 'The conversationId does not match the WebSocket conversation.');
-  streamSocket.send(JSON.stringify({
-    jsonrpc: '2.0',
-    id: 17,
-    method: 'chat:send',
-    params: { model: 'test:model', text: 'Wrong goal', goalId: 'foreign-goal' },
-  }));
+  assert.deepEqual(await callRpc(streamSocket, 'chat:stop'), { result: true });
   assert.equal(
-    (await nextSocketMessage(streamSocket)).error.data.message,
+    (await callRpc(streamSocket, 'chat:send', { conversationId: 'other-thread', model: 'test:model', text: 'Wrong thread' })).error.data.message,
+    'The conversationId does not match the WebSocket conversation.',
+  );
+  assert.equal(
+    (await callRpc(streamSocket, 'chat:send', { model: 'test:model', text: 'Wrong goal', goalId: 'foreign-goal' })).error.data.message,
     'Set workMode to goal or use goals:start instead of supplying goalId.',
   );
-  for (const [index, method] of ['tags:list', 'tags:save', 'sidebar:status', 'sidebar:mark-seen'].entries()) {
-    streamSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 40 + index, method }));
-    assert.deepEqual(await nextSocketMessage(streamSocket), {
-      jsonrpc: '2.0',
-      id: 40 + index,
+  for (const method of ['tags:list', 'tags:save', 'sidebar:status', 'sidebar:mark-seen']) {
+    assert.deepEqual(await callRpc(streamSocket, method), {
       error: { code: -32601, message: 'Method not found' },
     });
   }
 
-  const streamedEvent = nextSocketMessage(streamSocket);
+  const streamedEvent = nextSocketEvent(streamSocket);
   for (const listener of chatEventListeners) {
     listener({ type: 'message', conversationId: 'other-thread', message: { id: 'ignored' } });
     listener({ type: 'message', conversationId: 'rpc-thread', message: { id: 'streamed' } });
   }
-  assert.deepEqual(await streamedEvent, {
-    jsonrpc: '2.0',
-    method: 'conversation:event',
-    params: {
-      sequence: 1,
-      conversationId: 'rpc-thread',
-      event: { type: 'message', conversationId: 'rpc-thread', message: { id: 'streamed' } },
-    },
+  const streamed = await streamedEvent;
+  assert.equal(streamed.method, 'conversation:event');
+  assert.deepEqual(streamed.params, {
+    sequence: 1,
+    conversationId: 'rpc-thread',
+    event: { type: 'message', conversationId: 'rpc-thread', message: { id: 'streamed' } },
   });
   await new Promise((resolveWait) => setTimeout(resolveWait, 20));
-  assert.deepEqual(socketInboxes.get(globalSocket).messages, []);
+  assert.equal(socketInboxes.get(globalSocket).inbox.events.length, 0, 'global sockets must not receive conversation events');
   assert.deepEqual(rpcOperations, [
     { channel: 'conversations:list', payload: undefined },
     { channel: 'tags:list', payload: undefined },
     { channel: 'tags:save', payload: { tags: [{ id: 'kept', name: 'Kept', color: '#FFAA00' }] } },
-    { channel: 'conversations:list', payload: undefined },
-    { channel: 'conversations:list', payload: undefined },
     { channel: 'conversations:messages', payload: { limit: 2, cursor: undefined, conversationId: 'rpc-thread' } },
     {
       channel: 'conversations:messages',
@@ -771,16 +657,90 @@ try {
     { channel: 'chat:stop', payload: 'rpc-thread' },
   ]);
   for (const method of ['app:update-state', 'app:check-for-updates', 'app:install-update']) {
-    globalSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 90, method }));
-    assert.deepEqual((await nextSocketMessage(globalSocket)).result, {
+    assert.deepEqual((await callRpc(globalSocket, method)).result, {
       status: method === 'app:install-update' ? 'installing' : 'available', available: true,
     });
     assert.deepEqual(rpcOperations.at(-1), { channel: method, payload: undefined });
-    streamSocket.send(JSON.stringify({ jsonrpc: '2.0', id: 91, method }));
-    assert.equal((await nextSocketMessage(streamSocket)).error.code, -32601);
+    assert.equal((await callRpc(streamSocket, method)).error.code, -32601);
   }
-  globalSocket.close();
-  streamSocket.close();
+
+  assert.equal(
+    (await callRpcRaw(globalSocket, 'rpc.discover', textEncoder.encode('{broken'))).error.code,
+    -32700,
+  );
+  const dispatchBeforeTokens = rpcOperations.length;
+  assert.equal(
+    (await callRpcRaw(globalSocket, 'rpc.discover', textEncoder.encode(JSON.stringify({ operationId: 'short-token', expiresAt: Date.now() + 60_000 })))).error.message,
+    'Invalid or expired operation token',
+  );
+  assert.equal(
+    (await callRpcRaw(globalSocket, 'rpc.discover', textEncoder.encode(JSON.stringify({ operationId: crypto.randomUUID(), expiresAt: Date.now() - 1_000 })))).error.message,
+    'Invalid or expired operation token',
+  );
+  assert.equal(
+    (await callRpcRaw(globalSocket, 'rpc.discover', textEncoder.encode(JSON.stringify({ operationId: crypto.randomUUID(), expiresAt: Date.now() + 300_000 })))).error.message,
+    'Invalid or expired operation token',
+  );
+  assert.equal(rpcOperations.length, dispatchBeforeTokens, 'requests rejected before the journal must not dispatch');
+
+  const idempotentTags = [{ id: 'idempotent', name: 'Idempotent', color: '#101010' }];
+  const idempotentOperation = crypto.randomUUID();
+  const idempotentExpiresAt = Date.now() + 60_000;
+  const dispatchBeforeIdempotency = rpcOperations.length;
+  const firstAttempt = await callRpc(globalSocket, 'tags:save', { tags: idempotentTags }, { operationId: idempotentOperation, expiresAt: idempotentExpiresAt });
+  const secondAttempt = await callRpc(globalSocket, 'tags:save', { tags: idempotentTags }, { operationId: idempotentOperation, expiresAt: idempotentExpiresAt });
+  assert.deepEqual(firstAttempt.result, { tags: idempotentTags });
+  assert.deepEqual(secondAttempt, firstAttempt);
+  assert.equal(rpcOperations.length, dispatchBeforeIdempotency + 1, 'a repeated operation token must dispatch exactly once');
+
+  const replaySocket = await openSocket('/rpc');
+  const replayAttempt = await callRpc(replaySocket, 'tags:save', { tags: idempotentTags }, { operationId: idempotentOperation, expiresAt: idempotentExpiresAt });
+  assert.deepEqual(replayAttempt, firstAttempt);
+  assert.equal(rpcOperations.length, dispatchBeforeIdempotency + 1, 'the journal must replay across connections with the same identity');
+  await closeSocket(replaySocket);
+
+  assert.deepEqual(
+    await callRpc(globalSocket, 'tags:save', { tags: [{ id: 'other' }] }, { operationId: idempotentOperation, expiresAt: idempotentExpiresAt }),
+    { error: { code: -32600, message: 'Operation token conflict' } },
+  );
+  assert.deepEqual(
+    await callRpc(globalSocket, 'tags:save', { tags: idempotentTags }, { operationId: crypto.randomUUID(), expiresAt: Date.now() - 1_000 }),
+    { error: { code: -32600, message: 'Invalid or expired operation token' } },
+  );
+
+  // Mirrors the server journal key derivation to plant a reservation that never completed, as if
+  // the process had restarted between reserve and complete.
+  const strandedOperation = crypto.randomUUID();
+  const strandedExpiresAt = Date.now() + 60_000;
+  const socketIdentity = createHash('sha256').update(apiKey).digest('hex');
+  const strandedId = createHash('sha256').update(JSON.stringify([socketIdentity, 'global', '', strandedOperation])).digest('hex');
+  const strandedFingerprint = createHash('sha256')
+    .update('tags.save')
+    .update('\n')
+    .update(JSON.stringify({ operationId: strandedOperation, expiresAt: strandedExpiresAt, params: undefined }))
+    .digest('hex');
+  database.remoteOperationStatements.reserve.run(strandedId, strandedFingerprint, strandedExpiresAt);
+  const dispatchBeforeStranded = rpcOperations.length;
+  const strandedAttempt = await callRpc(globalSocket, 'tags:save', undefined, { operationId: strandedOperation, expiresAt: strandedExpiresAt });
+  assert.equal(strandedAttempt.error.code, 'OUTCOME_UNKNOWN');
+  assert.equal(rpcOperations.length, dispatchBeforeStranded, 'a persisted reservation must not re-dispatch');
+
+  const concurrentNames = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'];
+  const dispatchBeforeConcurrent = rpcOperations.length;
+  const concurrentResults = await Promise.all(concurrentNames.map((name) => callRpc(globalSocket, 'tags:save', {
+    tags: [{ id: name, name: `Tag ${name}`, color: '#FFFFFF' }],
+  })));
+  for (const [index, name] of concurrentNames.entries()) {
+    assert.deepEqual(
+      concurrentResults[index].result,
+      { tags: [{ id: name, name: `Tag ${name}`, color: '#FFFFFF' }] },
+      `concurrent response ${index} must correlate with its own ORPC frame id`,
+    );
+  }
+  assert.equal(rpcOperations.length, dispatchBeforeConcurrent + concurrentNames.length);
+
+  await closeSocket(globalSocket);
+  await closeSocket(streamSocket);
 
   const occupied = createServer((_request, response) => response.end('occupied'));
   await new Promise((resolveListen) => occupied.listen(0, '127.0.0.1', resolveListen));

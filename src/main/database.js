@@ -30,6 +30,16 @@ mkdirSync(storageDir, { recursive: true });
 
 const db = new DatabaseSync(join(storageDir, 'aivax.sqlite'));
 const secureStoragePath = join(storageDir, 'secure-storage.json');
+db.exec(`CREATE TABLE IF NOT EXISTS remote_operations (
+  id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, expires_at INTEGER NOT NULL, response TEXT
+)`);
+export const remoteOperationStatements = {
+  prune: db.prepare('DELETE FROM remote_operations WHERE expires_at < ?'),
+  find: db.prepare('SELECT fingerprint, response FROM remote_operations WHERE id = ?'),
+  reserve: db.prepare('INSERT INTO remote_operations (id, fingerprint, expires_at) VALUES (?, ?, ?)'),
+  complete: db.prepare('UPDATE remote_operations SET response = ? WHERE id = ?'),
+  usage: db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(length(CAST(response AS BLOB))), 0) AS bytes FROM remote_operations'),
+};
 db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
 const secureStorage = {
   aivaxAccessToken: null,
@@ -1443,6 +1453,14 @@ export function setFolderColor(folderPath, color) {
   }
   writeJson('folderColors', colors);
   return colors;
+}
+
+export function getKeyboardShortcuts() {
+  return readJson('keyboardShortcuts') ?? {};
+}
+
+export function setKeyboardShortcuts(value) {
+  writeJson('keyboardShortcuts', value);
 }
 
 export function setDesktopSettings(value) {

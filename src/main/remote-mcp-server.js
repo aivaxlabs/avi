@@ -1,4 +1,6 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { OrpcPeer, utf8Text, ORPC_PROTOCOL, ORPC_LIMITS } from '../shared/orpc.js';
+import { remoteOperationStatements } from './database.js';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -31,6 +33,8 @@ const REMOTE_TOOL_NAMES = new Set([
 ]);
 const GLOBAL_RPC_METHODS = new Set([
   'rpc:discover',
+  'shortcuts:list',
+  'shortcuts:save',
   'remote:state',
   'app:update-state',
   'app:check-for-updates',
@@ -120,18 +124,17 @@ const remoteTools = CLIENT_TOOLS.filter((tool) => REMOTE_TOOL_NAMES.has(tool.nam
 const REMOTE_MCP_INSTRUCTIONS = readFileSync(new URL('../prompts/mgmt-instructions.md', import.meta.url), 'utf8');
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 const MAX_WEBSOCKET_PAYLOAD_BYTES = 1024 * 1024;
-const RPC_PROTOCOL = 'avi-rpc-v1';
+const RPC_PROTOCOL = ORPC_PROTOCOL;
 const RPC_API_KEY_PROTOCOL_PREFIX = 'avi-api-key.';
 const RPC_API_VERSION = 1;
 const APP_VERSION = '0.6.0';
 
 const rpcError = (id, code, message, data) => ({
-  jsonrpc: '2.0',
-  id: id ?? null,
   error: { code, message, ...(data === undefined ? {} : { data }) },
 });
 const socketSend = (socket, value) => {
-  if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value));
+  const content = JSON.stringify({ eventId: crypto.randomUUID(), expiresAt: Date.now() + 180_000, params: value.params });
+  socket.orpc.call(value.method.replace(':', '.'), new TextEncoder().encode(content)).catch(() => socket.close?.(1013, 'Event delivery incomplete'));
 };
 
 function projectRemoteMessage(message) {
@@ -165,6 +168,7 @@ export class RemoteMcpServer {
     this.webSocketServer = null;
     this.port = null;
     this.completedUnseenConversationIds = new Set();
+    this.rpcOperations = new Map();
     this.subscribeChatEvents((event) => {
       if (event?.type !== 'run-state' || !event.conversationId) return;
       if (event.running || event.stoppedByUser) {
@@ -264,12 +268,14 @@ export class RemoteMcpServer {
         .filter((apiKey) => apiKey !== null);
       const authorized = this.isAuthorized(request.headers.authorization)
         || protocolApiKeys.some((apiKey) => this.isAuthorized(undefined, apiKey));
-      if (!authorized || (protocolApiKeys.length > 0 && !offeredProtocols.includes(RPC_PROTOCOL))) {
+      if (!authorized || !offeredProtocols.includes(RPC_PROTOCOL)) {
         socket.write('HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Bearer\r\nConnection: close\r\n\r\n');
         socket.destroy();
         return;
       }
       webSocketServer.handleUpgrade(request, socket, head, (client) => {
+        const credential = protocolApiKeys.find((key) => this.isAuthorized(undefined, key)) ?? String(request.headers.authorization).replace(/^Bearer\s+/i, '');
+        client.rpcIdentity = createHash('sha256').update(credential).digest('hex');
         if (route.type === 'global') this.attachGlobalSocket(client);
         else this.attachConversationSocket(client, route.conversationId);
       });
@@ -327,14 +333,15 @@ export class RemoteMcpServer {
     return match ? { type: 'conversation', conversationId: decodeURIComponent(match[1]) } : null;
   }
 
-  createRelaySocket(path) {
+  createRelaySocket(path, identity = 'relay') {
     const route = this.resolveWebSocketRoute(path);
     if (!route) throw new Error('Invalid relay RPC route.');
     const client = new EventEmitter();
     const server = new EventEmitter();
+    server.rpcIdentity = identity;
     for (const [source, target] of [[client, server], [server, client]]) {
       source.readyState = WebSocket.CONNECTING;
-      source.bufferedAmount = 0;
+      Object.defineProperty(source, 'bufferedAmount', { configurable: true, get: () => source === server ? client.bufferedAmount : 0 });
       source.send = (data) => {
         if (source.readyState !== WebSocket.OPEN || target.readyState !== WebSocket.OPEN) return;
         if (Buffer.byteLength(data) > MAX_WEBSOCKET_PAYLOAD_BYTES) {
@@ -343,12 +350,13 @@ export class RemoteMcpServer {
         }
         target.emit('message', data, typeof data !== 'string');
       };
-      source.terminate = () => {
+      source.close = (code = 1000, reason = '') => source.terminate(code, reason);
+      source.terminate = (code = 1006, reason = '') => {
         if (source.readyState === WebSocket.CLOSED) return;
         source.readyState = WebSocket.CLOSED;
         target.readyState = WebSocket.CLOSED;
-        source.emit('close');
-        target.emit('close');
+        source.emit('close', code, reason);
+        target.emit('close', code, reason);
       };
     }
     queueMicrotask(() => {
@@ -372,12 +380,17 @@ export class RemoteMcpServer {
   }
 
   attachConversationSocket(socket, conversationId) {
+    this.attachRpcSocket(socket, {
+      scope: 'conversation',
+      resource: conversationId,
+      methods: CONVERSATION_RPC_METHODS,
+      preparePayload: (method, payload) => this.prepareConversationPayload(method, payload, conversationId),
+    });
     let sequence = 0;
     const unsubscribe = this.subscribeChatEvents((event) => {
       if (event?.conversationId !== conversationId) return;
       sequence += 1;
       socketSend(socket, {
-        jsonrpc: '2.0',
         method: 'conversation:event',
         params: {
           sequence,
@@ -391,66 +404,83 @@ export class RemoteMcpServer {
     socket.once('close', unsubscribe);
     socket.once('error', unsubscribe);
     socketSend(socket, {
-      jsonrpc: '2.0',
       method: 'conversation:ready',
       params: { sequence, conversationId, recoveryMethod: 'conversations:context' },
     });
-    this.attachRpcSocket(socket, {
-      scope: 'conversation',
-      methods: CONVERSATION_RPC_METHODS,
-      preparePayload: (method, payload) => this.prepareConversationPayload(method, payload, conversationId),
-    });
   }
 
-  attachRpcSocket(socket, { scope, methods, preparePayload }) {
-    socket.on('message', async (data, isBinary) => {
-      if (isBinary) {
-        socketSend(socket, rpcError(null, -32600, 'Binary JSON-RPC messages are not supported'));
-        return;
-      }
-      let document;
-      try {
-        document = JSON.parse(data.toString());
-      } catch {
-        socketSend(socket, rpcError(null, -32700, 'Parse error'));
-        return;
-      }
-      if (Array.isArray(document) && document.length === 0) {
-        socketSend(socket, rpcError(null, -32600, 'Invalid Request'));
-        return;
-      }
-      const requests = Array.isArray(document) ? document : [document];
-      const responses = (await Promise.all(requests.map((request) => (
-        this.executeRpcRequest(request, scope, methods, preparePayload)
-      )))).filter(Boolean);
-      if (responses.length > 0) socketSend(socket, Array.isArray(document) ? responses : responses[0]);
+  attachRpcSocket(socket, { scope, resource = '', methods, preparePayload }) {
+    const peer = new OrpcPeer({
+      send: (frame) => socket.send(Buffer.from(frame)),
+      isOpen: () => socket.readyState === WebSocket.OPEN,
+      bufferedAmount: () => socket.bufferedAmount ?? 0,
+      onError: (error) => socket.close?.(error.code === 'LIMIT' ? 1009 : 1002, error.code ?? 'PROTOCOL'),
+      onRequest: async (wireMethod, bytes) => {
+        let content;
+        let request;
+        try { content = utf8Text(bytes); request = JSON.parse(content); }
+        catch { return JSON.stringify(rpcError(null, -32700, 'Invalid application JSON')); }
+        if (!request || !/^[A-Za-z0-9_-]{16,64}$/.test(request.operationId)
+          || !Number.isSafeInteger(request.expiresAt) || request.expiresAt < Date.now() || request.expiresAt > Date.now() + 240_000) {
+          return JSON.stringify(rpcError(null, -32600, 'Invalid or expired operation token'));
+        }
+        const method = wireMethod.replace('.', ':');
+        const id = createHash('sha256').update(JSON.stringify([socket.rpcIdentity, scope, resource, request.operationId])).digest('hex');
+        const fingerprint = createHash('sha256').update(wireMethod).update('\n').update(content).digest('hex');
+        remoteOperationStatements.prune.run(Date.now());
+        const previous = remoteOperationStatements.find.get(id);
+        if (previous) {
+          if (previous.fingerprint !== fingerprint) return JSON.stringify(rpcError(null, -32600, 'Operation token conflict'));
+          return this.rpcOperations.get(id) ?? previous.response ?? JSON.stringify(rpcError(null, 'OUTCOME_UNKNOWN', 'Operation was reserved but its outcome is unavailable; inspect application state before issuing a new operation.'));
+        }
+        const usage = remoteOperationStatements.usage.get();
+        if (usage.count >= 4096 || usage.bytes >= ORPC_LIMITS.aggregateBytes || this.rpcOperations.size >= ORPC_LIMITS.concurrent) {
+          return JSON.stringify(rpcError(null, 'LIMIT', 'Operation journal limit exceeded'));
+        }
+        remoteOperationStatements.reserve.run(id, fingerprint, request.expiresAt);
+        const operation = this.executeRpcRequest({ method, params: request.params }, scope, methods, preparePayload)
+          .then((response) => {
+            let result = JSON.stringify(response);
+            const bytes = Buffer.byteLength(result);
+            if (bytes > ORPC_LIMITS.responseBytes || remoteOperationStatements.usage.get().bytes + bytes > ORPC_LIMITS.aggregateBytes) {
+              result = JSON.stringify(rpcError(null, 'LIMIT', 'Operation completed but its result exceeds the journal limit; inspect application state.'));
+            }
+            remoteOperationStatements.complete.run(result, id);
+            return result;
+          }).finally(() => this.rpcOperations.delete(id));
+        this.rpcOperations.set(id, operation);
+        return operation;
+      },
     });
+    const dispatch = peer.onRequest;
+    peer.onRequest = async (...args) => new TextEncoder().encode(await dispatch(...args));
+    socket.orpc = peer;
+    socket.on('message', (data, isBinary) => {
+      if (!isBinary) { socket.close?.(1002, 'ORPC requires binary messages'); return; }
+      peer.receive(data);
+    });
+    socket.once('close', () => peer.terminate());
+    socket.once('error', () => peer.channelFailed());
   }
 
   async executeRpcRequest(request, scope, methods, preparePayload) {
     const validObject = request && typeof request === 'object' && !Array.isArray(request);
-    const notification = validObject && !Object.hasOwn(request, 'id');
     if (
       !validObject
-      || request.jsonrpc !== '2.0'
       || typeof request.method !== 'string'
       || (request.params !== undefined && (request.params === null || typeof request.params !== 'object'))
     ) return rpcError(request?.id, -32600, 'Invalid Request');
     if (!methods.has(request.method)) {
-      return notification ? null : rpcError(request.id, -32601, 'Method not found');
+      return rpcError(request.id, -32601, 'Method not found');
     }
     if (request.method === 'rpc:discover') {
-      return notification ? null : {
-        jsonrpc: '2.0',
-        id: request.id,
+      return {
         result: this.rpcDiscovery(scope, methods),
       };
     }
     if (request.method === 'models:list') {
       const preferences = this.getPreferences();
-      return notification ? null : {
-        jsonrpc: '2.0',
-        id: request.id,
+      return {
         result: {
           models: this.providerRegistry.listModels(),
           lastModel: preferences.lastModel ?? null,
@@ -464,7 +494,7 @@ export class RemoteMcpServer {
       : request.params;
     try {
       if (request.method === 'sidebar:status') {
-        return notification ? null : { jsonrpc: '2.0', id: request.id, result: this.sidebarStatus() };
+        return { result: this.sidebarStatus() };
       }
       if (request.method === 'sidebar:mark-seen') {
         const conversationId = rawPayload?.conversationId;
@@ -472,9 +502,7 @@ export class RemoteMcpServer {
           throw new Error('sidebar:mark-seen requires a conversationId string.');
         }
         this.completedUnseenConversationIds.delete(conversationId);
-        return notification ? null : {
-          jsonrpc: '2.0',
-          id: request.id,
+        return {
           result: { completedUnseenConversationIds: [...this.completedUnseenConversationIds] },
         };
       }
@@ -493,9 +521,9 @@ export class RemoteMcpServer {
           } : {}),
         };
       }
-      return notification ? null : { jsonrpc: '2.0', id: request.id, result };
+      return { result };
     } catch (error) {
-      return notification ? null : rpcError(request.id, -32603, 'Application request failed', {
+      return rpcError(request.id, -32603, 'Application request failed', {
         name: error?.name ?? 'Error',
         message: error instanceof Error ? error.message : String(error),
         ...(error?.code === undefined ? {} : { code: error.code }),
@@ -527,12 +555,12 @@ export class RemoteMcpServer {
         },
       },
       scope,
+      transport: { protocol: ORPC_PROTOCOL, framing: 'complete-frame', limits: ORPC_LIMITS },
       methods: [...methods].sort(),
       capabilities: scope === 'global'
-        ? ['batch', 'notifications', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags', 'app-updates']
+        ? ['acknowledged-events', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags', 'app-updates']
         : [
-            'batch',
-            'notifications',
+            'acknowledged-events',
             'conversation-events',
             'message-pagination',
             'tool-call-details',

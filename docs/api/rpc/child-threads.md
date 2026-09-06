@@ -1,6 +1,6 @@
 # RPC child conversations
 
-This page covers side chats, sub-agent listings, and Rubber Duck listings. Shared objects use the [`Conversation`](types.md#conversation) and [`Message`](types.md#message) types.
+This page covers side chats, sub-agent listings, and Rubber Duck listings. Shared objects use the [`Conversation`](types.md#conversation) and [`Message`](types.md#message) types. Calls are ORPC `REQ` frames on the `avi-orpc-draft1` subprotocol; the wire method is the dotted form of the heading name and the JSON shown in examples is the frame content. See the [RPC overview](overview.md).
 
 ## ID behavior by socket
 
@@ -46,7 +46,10 @@ Available on both sockets. Forks the parent's visible history into a new side ch
 Conversation-socket example:
 
 ```json
-{"jsonrpc":"2.0","id":10,"method":"side-chats:create"}
+{
+  "operationId": "9c0d1e2f-3a4b-4cf8-4da9-7e8f9a0b1c2d",
+  "expiresAt": 1790000000000
+}
 ```
 
 ## `side-chats:close`

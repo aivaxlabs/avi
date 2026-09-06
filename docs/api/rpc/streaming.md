@@ -7,13 +7,26 @@ GET /rpc/conversations/streams/<thread-id> HTTP/1.1
 Upgrade: websocket
 Connection: Upgrade
 Authorization: Bearer <api-key>
+Sec-WebSocket-Protocol: avi-orpc-draft1
 ```
 
-Requests accepted by this socket are documented under [threads and messages](conversations.md), [child conversations](child-threads.md), and [chat and Goals](chat.md). This page documents server notifications.
+Requests accepted by this socket are documented under [threads and messages](conversations.md), [child conversations](child-threads.md), and [chat and Goals](chat.md). This page documents server events.
+
+## Event delivery
+
+Events are acknowledged ORPC calls in the server-to-client direction: Avi sends an `ORPC/1 REQ` frame with the dotted event method (`conversation.ready`, `conversation.event`) and an envelope that wraps the event payload:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `eventId` | string | Stable event identifier used to deduplicate redelivery. |
+| `expiresAt` | number | Epoch-millisecond acceptance deadline (`now + 180 s`); expired events are rejected. |
+| `params` | object | Event payload documented per event below. |
+
+The client must answer with a final `RES` frame; Avi treats the literal bytes `OK` as acceptance. Repeating the same event under a new request id returns `OK` without re-emitting it; conflicting content under a known `eventId` fails. See [RPC overview](overview.md#events-server-to-client).
 
 ## `conversation:ready`
 
-Avi sends this notification immediately after a successful WebSocket upgrade.
+Avi sends this event immediately after a successful WebSocket upgrade. The `params` are:
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -23,8 +36,8 @@ Avi sends this notification immediately after a successful WebSocket upgrade.
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "method": "conversation:ready",
+  "eventId": "5c0f3c2a-8a41-4c6e-9c7f-1e2d3a4b5c6d",
+  "expiresAt": 1790000000000,
   "params": {
     "sequence": 0,
     "conversationId": "thread-id",
@@ -35,7 +48,7 @@ Avi sends this notification immediately after a successful WebSocket upgrade.
 
 ## `conversation:event`
 
-Detailed chat events are wrapped in this notification.
+Detailed chat events are wrapped in this event. The `params` are:
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -45,8 +58,8 @@ Detailed chat events are wrapped in this notification.
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "method": "conversation:event",
+  "eventId": "8d1e4f3b-9b52-4d7f-8d80-2f3e4b5c6d7e",
+  "expiresAt": 1790000000000,
   "params": {
     "sequence": 17,
     "conversationId": "thread-id",
@@ -84,7 +97,7 @@ Every event includes `type` and `conversationId`; the table lists its additional
 
 `semaphore-state` is a global internal chat event without `conversationId`. It is deliberately **not** forwarded to conversation WebSockets. Recover the current owned wait and global semaphore snapshot through [`conversations:context`](conversations.md#conversationscontext).
 
-The global `WS /rpc` endpoint does not receive `conversation:ready` or `conversation:event` notifications.
+The global `WS /rpc` endpoint does not receive `conversation:ready` or `conversation:event` events.
 
 ## Reconnection and recovery
 
@@ -93,6 +106,6 @@ Sequence numbers are scoped to one socket and do not continue across reconnects.
 1. Wait for `conversation:ready` with `sequence: 0`.
 2. Call `conversations:context` on the same socket.
 3. Replace local conversation, message, queue, run, approval, question, semaphore, task, and child-thread state with that result.
-4. Process newly received `conversation:event` notifications in increasing sequence order.
+4. Process newly received `conversation:event` events in increasing sequence order.
 
 The context snapshot is authoritative; clients should not infer missed events from sequence values across different sockets.

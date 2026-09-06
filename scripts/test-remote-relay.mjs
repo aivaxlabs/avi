@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import WebSocket, { WebSocketServer } from 'ws';
 import { AIVAX_RELAY_URL, RemoteRelay } from '../src/main/remote-relay.js';
+import { ORPC_PROTOCOL } from '../src/shared/orpc.js';
 
 const TOKEN = 'secret-aivax-token';
 const DEVICE_ID = 'desktop-test-01';
@@ -147,7 +148,7 @@ class MockRelay {
       if (envelope.type !== 'data' || envelope.channelId !== channelId || envelope.encoding !== 'text') return false;
       try {
         const frame = JSON.parse(envelope.data);
-        return frame.type === 'avi-remote-error' && frame.version === 2 && frame.code === code;
+        return frame.type === 'avi-remote-error' && frame.version === 3 && frame.code === code;
       } catch {
         return false;
       }
@@ -254,11 +255,11 @@ async function openReadyChannel(relayServer, local, channelId, { path = '/rpc' }
     type: 'data',
     channelId,
     encoding: 'text',
-    data: JSON.stringify({ type: 'avi-remote-open', version: 2, path }),
+    data: JSON.stringify({ type: 'avi-remote-open', version: 3, protocol: ORPC_PROTOCOL, path }),
   });
   const ready = await relayServer.takeEnvelope((envelope) => envelope.channelId === channelId
     && envelope.encoding === 'text' && envelope.data.includes('avi-remote-ready'));
-  assert.deepEqual(JSON.parse(ready.data), { type: 'avi-remote-ready', version: 2 });
+  assert.deepEqual(JSON.parse(ready.data), { type: 'avi-remote-ready', version: 3, protocol: ORPC_PROTOCOL });
   await local.waitForSockets(expectedSockets);
   return channelId;
 }
@@ -518,7 +519,7 @@ test('rejects unapproved or unsafe opening paths without local contact', async (
         type: 'data',
         channelId,
         encoding: 'text',
-        data: JSON.stringify({ type: 'avi-remote-open', version: 2, path }),
+        data: JSON.stringify({ type: 'avi-remote-open', version: 3, protocol: ORPC_PROTOCOL, path }),
       });
       await relayServer.takeChannelError(channelId, 'invalid_open');
       await relayServer.takeChannelClose(channelId);
@@ -536,8 +537,10 @@ test('rejects legacy version-1 and apiKey-bearing opens before any local contact
     const rejectedFrames = [
       { type: 'avi-remote-open', version: 1, apiKey: 'remote-key-abc', path: '/rpc' },
       { type: 'avi-remote-open', version: 1, path: '/rpc' },
+      { type: 'avi-remote-open', version: 2, path: '/rpc' },
       { type: 'avi-remote-open', version: 2, apiKey: 'remote-key-abc', path: '/rpc' },
       { type: 'avi-remote-open', version: 3, path: '/rpc' },
+      { type: 'avi-remote-open', version: 3, protocol: 'avi-rpc-v1', path: '/rpc' },
       { type: 'avi-remote-open', path: '/rpc' },
     ];
     for (const frame of rejectedFrames) {
@@ -572,7 +575,7 @@ test('reports unavailable per channel when the local socket factory is missing a
         type: 'data',
         channelId,
         encoding: 'text',
-        data: JSON.stringify({ type: 'avi-remote-open', version: 2, path: '/rpc' }),
+        data: JSON.stringify({ type: 'avi-remote-open', version: 3, protocol: ORPC_PROTOCOL, path: '/rpc' }),
       });
       await relayServer.takeChannelError(channelId, 'unavailable');
       await relayServer.takeChannelClose(channelId);
@@ -642,31 +645,44 @@ test('keeps conversation channels isolated and cleans up independently', async (
   }
 });
 
-test('passes text and binary payloads opaquely in both directions', async () => {
+test('passes text and binary ORPC payloads opaquely in both directions', async () => {
   const { relayServer, local, relay } = await establishChannel();
   try {
     const channelId = await openReadyChannel(relayServer, local, newChannelId());
 
-    const rpcText = JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'rpc:discover', params: {} });
-    relayServer.sendToPublisher({ type: 'data', channelId, encoding: 'text', data: rpcText });
+    const wireText = (header, content) => {
+      const payload = `${header}\n${content}`;
+      return `${Buffer.byteLength(payload, 'utf8')} ${payload}`;
+    };
+    const wireBinary = (header, content) => {
+      const body = Buffer.concat([Buffer.from(`${header}\n`, 'utf8'), Buffer.from(content, 'utf8')]);
+      return Buffer.concat([Buffer.from(`${body.length} `), body]);
+    };
+
+    // Text path: an ORPC REQ frame travels as the raw text payload.
+    const req = wireText('ORPC/1 REQorpcrq01 rpc.discover', JSON.stringify({ operationId: 'd'.repeat(16), expiresAt: Date.now() + 60_000, params: {} }));
+    relayServer.sendToPublisher({ type: 'data', channelId, encoding: 'text', data: req });
     await sleep(20);
-    assert.equal(local.messages.filter((message) => !message.isBinary).at(-1).data.toString('utf8'), rpcText);
+    assert.equal(local.messages.filter((message) => !message.isBinary).at(-1).data.toString('utf8'), req);
 
-    local.sockets[0].send(JSON.stringify({ jsonrpc: '2.0', id: 7, result: { ok: true } }));
-    const reply = await relayServer.takeEnvelope((envelope) => envelope.channelId === channelId && envelope.data.includes('"id":7'));
-    assert.equal(reply.encoding, 'text');
+    // The local server answers with a text RES frame; the publisher relays it untouched.
+    const res = wireText('ORPC/1 RESorpcrq01 exec-d-1 1 1', 'resultado com acentuação ✓');
+    local.sockets[0].send(res);
+    const reply = await relayServer.takeEnvelope((envelope) => envelope.channelId === channelId && envelope.encoding === 'text' && envelope.data.includes('RESorpcrq01'));
+    assert.equal(reply.data, res);
 
-    const bytes = Buffer.from([0, 255, 1, 2, 254]);
-    relayServer.sendToPublisher({ type: 'data', channelId, encoding: 'base64', data: bytes.toString('base64') });
+    // Binary path: an ORPC frame with multi-byte UTF-8 must stay byte-identical through base64.
+    const binaryReq = wireBinary('ORPC/1 REQorpcrq02 chat.send', 'olá ✓ 日本語 🎉');
+    relayServer.sendToPublisher({ type: 'data', channelId, encoding: 'base64', data: binaryReq.toString('base64') });
     await sleep(20);
     const binaryMessage = local.messages.find((message) => message.isBinary);
     assert.ok(binaryMessage);
-    assert.ok(binaryMessage.data.equals(bytes));
+    assert.ok(binaryMessage.data.equals(binaryReq));
 
-    const replyBytes = Buffer.from([9, 8, 7]);
-    local.sockets[0].send(replyBytes);
+    const binaryRes = wireBinary('ORPC/1 RESorpcrq02 exec-d-2 1 1', '日本語 🚀');
+    local.sockets[0].send(binaryRes);
     const binaryReply = await relayServer.takeEnvelope((envelope) => envelope.channelId === channelId && envelope.encoding === 'base64');
-    assert.ok(Buffer.from(binaryReply.data, 'base64').equals(replyBytes));
+    assert.ok(Buffer.from(binaryReply.data, 'base64').equals(binaryRes));
   } finally {
     await closeAll({ relayServer, local, relay });
   }
@@ -699,22 +715,23 @@ test('closes a channel whose post-ready text payload exceeds 1 MiB', async () =>
   }
 });
 
-test('answers v2 application pings after ready without forwarding them to the local server', async () => {
+test('answers v3 application pings after ready without forwarding them to the local server', async () => {
   const { relayServer, local, relay } = await establishChannel();
   try {
     const channelId = await openReadyChannel(relayServer, local, newChannelId());
 
-    relayServer.sendToPublisher({ type: 'data', channelId, encoding: 'text', data: JSON.stringify({ type: 'avi-remote-ping', version: 2, id: 'p-1' }) });
+    relayServer.sendToPublisher({ type: 'data', channelId, encoding: 'text', data: JSON.stringify({ type: 'avi-remote-ping', version: 3, id: 'p-1' }) });
     const pong = await relayServer.takeEnvelope((envelope) => envelope.data.includes('avi-remote-pong'));
     assert.equal(pong.channelId, channelId);
-    assert.deepEqual(JSON.parse(pong.data), { type: 'avi-remote-pong', version: 2, id: 'p-1' });
+    assert.deepEqual(JSON.parse(pong.data), { type: 'avi-remote-pong', version: 3, id: 'p-1' });
     await sleep(20);
     assert.equal(local.messages.length, 0);
 
     for (const ping of [
       { type: 'avi-remote-ping', version: 1, id: 'legacy' },
+      { type: 'avi-remote-ping', version: 2, id: 'legacy' },
       { type: 'avi-remote-ping', id: 'no-version' },
-      { type: 'avi-remote-ping', version: 2, id: 'x'.repeat(200) },
+      { type: 'avi-remote-ping', version: 3, id: 'x'.repeat(200) },
     ]) {
       relayServer.sendToPublisher({ type: 'data', channelId, encoding: 'text', data: JSON.stringify(ping) });
     }
