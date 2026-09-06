@@ -2038,6 +2038,27 @@ export default function App() {
   const sidebarOnFork = useStableCallback(forkConversation);
   const sidebarOnArchive = useStableCallback(archiveConversation);
   const sidebarOnSearch = useStableCallback(() => setSearchOpen(true));
+  useEffect(() => {
+    const onShortcut = ({ detail: id }) => {
+      if (id === 'threads.search') setSearchOpen(true);
+      if (id === 'sidebar.toggle') setSidebarCollapsed((value) => !value);
+      if (id === 'panel.toggle') setAuxiliaryPanelVisible((value) => !value);
+      if (id === 'thread.new' || id === 'thread.home') {
+        setSettingsOpen(false);
+        setSearchOpen(false);
+        sidebarOnNewChat(id === 'thread.home' ? { project: appState.defaultProject } : {});
+      }
+    };
+    const onError = ({ detail }) => setError(detail);
+    const unsubscribe = api.shortcuts.onError(setError);
+    window.addEventListener('avi:shortcut', onShortcut);
+    window.addEventListener('avi:shortcut-error', onError);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('avi:shortcut', onShortcut);
+      window.removeEventListener('avi:shortcut-error', onError);
+    };
+  }, [appState?.defaultProject, sidebarOnNewChat]);
   const sidebarOnOpenOrchestration = useStableCallback(() => {
     setOrchestrationOpen(true);
     setAuxiliaryPanelVisible(false);

@@ -5,6 +5,7 @@ import {
   BrowserWindow,
   clipboard,
   dialog,
+  globalShortcut,
   ipcMain,
   Menu,
   nativeImage,
@@ -40,6 +41,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { Worker } from 'node:worker_threads';
 import { AppUpdater } from './app-updater.js';
+import { KeyboardShortcuts } from './keyboard-shortcuts.js';
 import { WorkspaceManager } from './workspaces.js';
 
 const workspaceManager = new WorkspaceManager();
@@ -63,6 +65,7 @@ import {
   getComposerState,
   getConversation,
   getFolderColors,
+  getKeyboardShortcuts,
   getMessage,
   getMessagePage,
   getMessages,
@@ -90,6 +93,7 @@ import {
   restoreConversation,
   runArchiveMaintenance,
   setArchiveSettings,
+  setKeyboardShortcuts,
   setAivaxAccessToken,
   setAivaxSettings,
   getChatTags,
@@ -211,7 +215,7 @@ let remoteStartError = '';
 const remoteRelay = new RemoteRelay({
   deviceId: getRemoteSettings().relayDeviceId,
   name: hostname().slice(0, 128),
-  createLocalSocket: (path) => remoteMcpServer.createRelaySocket(path),
+  createLocalSocket: (path, identity) => remoteMcpServer.createRelaySocket(path, identity),
 });
 
 function synchronizeRemoteRelay() {
@@ -301,6 +305,7 @@ function traceMemorySample(io = {}) {
 
 app.on('before-quit', (event) => {
   isQuitting = true;
+  globalShortcut.unregisterAll();
   if (shutdownReady) return;
   event.preventDefault();
   if (shutdownStarted) return;
@@ -500,6 +505,21 @@ appUpdater = new AppUpdater({
   onChange: (state) => sendRendererEvent('app:update', state),
   requestQuit: () => setTimeout(() => app.quit(), 250),
 });
+const keyboardShortcuts = new KeyboardShortcuts({
+  globalShortcut,
+  platform: process.platform,
+  plugins: pluginManager,
+  read: getKeyboardShortcuts,
+  write: setKeyboardShortcuts,
+  execute: executeShortcut,
+  notify: (channel, payload) => {
+    sendRendererEvent(channel, payload);
+    for (const window of quickChatWindows.values()) {
+      if (!window.isDestroyed()) window.webContents.send(channel, payload);
+    }
+  },
+});
+keyboardShortcuts.refresh();
 registerIpc();
 ipcMain.handle('avi:invoke', invokeApplicationRequest);
 await applyLoginSettings();
@@ -520,6 +540,7 @@ if (app.isPackaged && process.env.CHAT_APP_SMOKE_TEST !== '1') {
   updateCheckInterval.unref();
 }
 await pluginManager.activateAll();
+keyboardShortcuts.refresh();
 mcpManager.setManagedServers(pluginManager.getContributions('mcps').map((server) => ({
   name: `plugin-${server.pluginId}-${server.id}`,
   config: server.config,
@@ -691,6 +712,24 @@ function sendQuickChatEvent(sessionId, payload) {
   if (quickWindow && !quickWindow.isDestroyed()) {
     quickWindow.webContents.send('quick-chat:event', payload);
   }
+}
+
+async function executeShortcut(shortcut, contents = BrowserWindow.getFocusedWindow()?.webContents) {
+  if (shortcut.pluginId) {
+    await pluginManager.getHandlers('shortcuts', shortcut.contributionId).execute();
+    return;
+  }
+  if (shortcut.id === 'quick-chat') {
+    createQuickChatWindow();
+    return;
+  }
+  if (!contents || contents.isDestroyed()) return;
+  if (shortcut.id.startsWith('zoom.')) {
+    const level = contents.getZoomLevel();
+    contents.setZoomLevel(shortcut.id === 'zoom.reset' ? 0 : Math.max(-5, Math.min(5, level + (shortcut.id === 'zoom.in' ? 0.5 : -0.5))));
+    return;
+  }
+  contents.send('shortcuts:execute', { id: shortcut.id });
 }
 
 function createQuickChatWindow() {
@@ -1222,6 +1261,13 @@ function registerIpc() {
   ));
 
 
+  applicationIpc.handle('shortcuts:list', () => keyboardShortcuts.shortcuts);
+  applicationIpc.handle('shortcuts:save', (_event, payload) => keyboardShortcuts.save(payload));
+  applicationIpc.handle('shortcuts:execute', (event, id) => {
+    const shortcut = keyboardShortcuts.shortcuts.find((item) => item.id === id && item.active);
+    if (!shortcut) throw new Error('Shortcut is disabled or unavailable.');
+    return executeShortcut(shortcut, event?.sender);
+  });
   applicationIpc.handle('app:state', async () => ({
     ...runtimePreferences(),
     defaultModelWarnings: validateDefaultModels(

@@ -76,6 +76,7 @@ contributions: {
   mcps: [],
   tools: [],
   auxiliaryPanels: [],
+  shortcuts: [],
   themes: [],
   personalities: [],
   providers: [],
@@ -93,6 +94,27 @@ Contribution descriptors remain JSON-like, and functions are accepted only in do
 ```
 
 Use lowercase kebab-case IDs. Collisions are checked case-insensitively.
+
+### Keyboard shortcuts
+
+Plugin API v2 supports static `shortcuts` contributions:
+
+```js
+shortcuts: [{
+  id: 'open-status',
+  title: 'Open plugin status',
+  pattern: 'Control+Alt+P',
+  supportsGlobal: true,
+  global: false,
+  async execute() {
+    // Perform the plugin action in the main process.
+  },
+}]
+```
+
+`id`, `title`, `pattern` (including an empty string), and `execute` are required. `supportsGlobal` and `global` are optional booleans, defaulting to false. Global defaults require `supportsGlobal: true`. IDs are collision-checked case-insensitively across plugins. Only serializable descriptors reach the renderer; `execute()` receives no arguments and its return value is ignored. Rejected handlers report an error to the app. Plugins are trusted code and must bound their own work.
+
+Bindings appear in **Settings → Keyboard shortcuts** with the plugin ID and can be edited, disabled, or reset. User overrides are stored separately from plugin sources. Conflicting patterns do not prevent plugin loading: the later conflicting binding is inactive and displays an error until edited. Contribution installation, removal, and enabled-state changes follow the normal restart lifecycle. Desktop registrations are released when Avi exits. See [Keyboard shortcuts](Keyboard-shortcuts.md).
 
 ### Context
 

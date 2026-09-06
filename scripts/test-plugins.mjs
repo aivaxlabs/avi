@@ -38,6 +38,7 @@ try {
         mcps: [{ id: 'demo-mcp', name: 'Demo MCP', config: { type: 'stdio', command: 'demo' } }],
         tools: [{ name: 'demo_tool', description: 'Demo', inputSchema: { type: 'object' }, forcedTruncationLength: 5000, execute: async () => ({ ok: true }) }],
         auxiliaryPanels: [{ id: 'demo-panel', title: 'Demo', load: async () => ({ sections: [] }) }],
+        shortcuts: [{ id: 'demo-shortcut', title: 'Demo shortcut', pattern: 'Ctrl+Alt+D', supportsGlobal: true, execute: async () => 'executed' }],
         themes: [{ id: 'demo-theme', name: 'Demo', tagline: 'Demo theme', css: ':root {}' }],
         personalities: [{ id: 'demo-personality', name: 'Demo', description: 'Demo personality', instructions: 'Be helpful.' }],
         providers: [{
@@ -238,6 +239,11 @@ try {
   assert.match(invalidSettingsStatus.failures.find((failure) => failure.pluginId === 'invalid-schema').error, /type is not supported/);
   assert.equal(invalidSettingsManager.list().some((plugin) => plugin.status === 'loaded'), false);
 
+  const shortcut = manager.getContributions('shortcuts')[0];
+  assert.equal(shortcut.pluginId, 'success');
+  assert.equal(shortcut.pattern, 'Control+Alt+D');
+  assert.equal('execute' in shortcut, false);
+  assert.equal(await manager.getHandlers('shortcuts', 'demo-shortcut').execute(), 'executed');
   const tool = manager.getContributions('tools').find((entry) => entry.name === 'demo_tool');
   assert.equal(tool.pluginId, 'success');
   assert.equal(tool.forcedTruncationLength, 5_000);

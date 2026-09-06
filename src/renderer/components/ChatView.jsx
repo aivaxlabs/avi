@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { ChatFind } from './ChatFind.jsx';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Composer } from './Composer.jsx';
@@ -783,6 +784,7 @@ export const ChatView = memo(function ChatView({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      <ChatFind key={currentConversation?.id ?? 'draft'} scrollRef={scrollRef} conversationId={currentConversation?.id} compact={compact} hasMore={hasOlderMessages || historyHasMore} loading={historyLoading} onLoadMore={loadOlderMessages} />
       {!compact && backgroundUrl && (
         <div
           className="chat-background-image"

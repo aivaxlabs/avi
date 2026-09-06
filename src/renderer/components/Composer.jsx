@@ -956,6 +956,27 @@ export function Composer({
     );
   }
 
+  useEffect(() => {
+    const onShortcut = ({ detail: id }) => {
+      if (!id.startsWith('model.') && !id.startsWith('reasoning.')) return;
+      const container = textAreaRef.current?.closest('.composer-wrap');
+      const focused = document.activeElement?.closest('.composer-wrap');
+      const target = focused ?? document.querySelector('.chat-area:not(.auxiliary-chat-view) .composer-wrap, .quick-chat-window .composer-wrap');
+      if (!container || container !== target || document.querySelector('[role="dialog"], .dialog-backdrop')) return;
+      const direction = id.endsWith('.next') ? 1 : -1;
+      if (id.startsWith('model.')) {
+        if (hasIntelligenceSlider) commitIntelligencePreview(Math.max(0, Math.min(maxIntelligenceIndex, committedIntelligenceIndex + direction)));
+      } else {
+        const efforts = currentModelConfig?.reasoning ?? [];
+        const index = efforts.indexOf(activeReasoningEffort);
+        const effort = efforts[Math.max(0, Math.min(efforts.length - 1, index + direction))];
+        if (effort) setReasoningEffort(effort);
+      }
+    };
+    window.addEventListener('avi:shortcut', onShortcut);
+    return () => window.removeEventListener('avi:shortcut', onShortcut);
+  });
+
   function commitIntelligencePreview(position) {
     const snappedIndex = Math.round(position);
     const level = usableIntelligenceLevels[snappedIndex];

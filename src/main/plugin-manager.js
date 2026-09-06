@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { normalizeShortcut } from '../shared/keyboard-shortcuts.js';
 import {
   copyFile,
   lstat,
@@ -29,6 +30,7 @@ const CONTRIBUTION_TYPES = Object.freeze([
   'mcps',
   'tools',
   'auxiliaryPanels',
+  'shortcuts',
   'themes',
   'personalities',
   'providers',
@@ -51,6 +53,7 @@ const CONTRIBUTION_FIELDS = Object.freeze({
   mcps: new Set(['id', 'name', 'config']),
   tools: new Set(['name', 'description', 'inputSchema', 'forcedTruncationLength', 'execute']),
   auxiliaryPanels: new Set(['id', 'title', 'load', 'invokeAction']),
+  shortcuts: new Set(['id', 'title', 'pattern', 'supportsGlobal', 'global', 'execute']),
   themes: new Set(['id', 'name', 'tagline', 'css', 'emptyChatBackground']),
   personalities: new Set(['id', 'name', 'description', 'instructions']),
   providers: new Set([
@@ -70,6 +73,7 @@ const HANDLER_KEYS = Object.freeze({
   mcps: new Set(),
   tools: new Set(['execute']),
   auxiliaryPanels: new Set(['load', 'invokeAction']),
+  shortcuts: new Set(['execute']),
   themes: new Set(),
   personalities: new Set(),
   providers: new Set(['createBody', 'request', 'eventsFrom', 'getContributions', 'getState', 'invokeAction', 'refresh', 'remove']),
@@ -97,7 +101,7 @@ export class PluginManager {
     this.pluginsDir = resolve(pluginsDir);
     this.loadTimeoutMs = loadTimeoutMs;
     this.reservedIds = Object.fromEntries(
-      ['auxiliaryPanels', 'themes', 'personalities', 'providers'].map((type) => [
+      ['auxiliaryPanels', 'themes', 'personalities', 'providers', 'shortcuts'].map((type) => [
         type,
         new Set((reservedIds[type] ?? []).map((id) => String(id).toLowerCase())),
       ]),
@@ -172,7 +176,7 @@ export class PluginManager {
     const claimed = Object.fromEntries([
       ['plugins', new Map()],
       ['tools', new Map([...this.reservedToolNames].map((name) => [name, 'Avi']))],
-      ...['auxiliaryPanels', 'themes', 'personalities', 'providers'].map((type) => [
+      ...['auxiliaryPanels', 'themes', 'personalities', 'providers', 'shortcuts'].map((type) => [
         type,
         new Map([...this.reservedIds[type]].map((id) => [id, 'Avi'])),
       ]),
@@ -489,7 +493,7 @@ export class PluginManager {
       const claimed = Object.fromEntries([
         ['plugins', new Map()],
         ['tools', new Map([...this.reservedToolNames].map((name) => [name, 'Avi']))],
-        ...['auxiliaryPanels', 'themes', 'personalities', 'providers'].map((type) => [
+        ...['auxiliaryPanels', 'themes', 'personalities', 'providers', 'shortcuts'].map((type) => [
           type,
           new Map([...this.reservedIds[type]].map((id) => [id, 'Avi'])),
         ]),
@@ -965,6 +969,15 @@ export class PluginManager {
           throw new Error(`Theme "${identity}" emptyChatBackground must be a boolean.`);
         }
       }
+      if (type === 'shortcuts') {
+        this.#requireText(descriptor.title, `Shortcut "${identity}" title`);
+        descriptor.pattern = normalizeShortcut(descriptor.pattern);
+        for (const field of ['supportsGlobal', 'global']) {
+          if (descriptor[field] !== undefined && typeof descriptor[field] !== 'boolean') throw new Error(`Shortcut ${field} must be a boolean.`);
+        }
+        if (descriptor.global && !descriptor.supportsGlobal) throw new Error('Global shortcuts must declare supportsGlobal.');
+        if (typeof handlers.execute !== 'function') throw new Error('Shortcut requires an execute function.');
+      }
       if (type === 'personalities') {
         this.#requireText(descriptor.name, `Personality "${identity}" name`);
         this.#requireText(descriptor.description, `Personality "${identity}" description`);
@@ -1002,7 +1015,7 @@ export class PluginManager {
     for (const item of plugin.contributions.tools) {
       this.#claimId(claimed.tools, item.public.name ?? item.public.id, plugin.id, 'tool');
     }
-    for (const type of ['auxiliaryPanels', 'themes', 'personalities', 'providers']) {
+    for (const type of ['auxiliaryPanels', 'themes', 'personalities', 'providers', 'shortcuts']) {
       for (const item of plugin.contributions[type]) {
         const id = type === 'providers'
           ? item.public.descriptor.id

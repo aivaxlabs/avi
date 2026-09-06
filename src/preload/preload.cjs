@@ -70,6 +70,14 @@ contextBridge.exposeInMainWorld('chatApp', {
     favicon: (url) => invoke('app:favicon', url),
     onNavigate: (callback) => subscribe('app:navigate', callback),
   },
+  shortcuts: {
+    list: () => invoke('shortcuts:list'),
+    save: (payload) => invoke('shortcuts:save', payload),
+    execute: (id) => invoke('shortcuts:execute', id),
+    onChanged: (callback) => subscribe('shortcuts:changed', callback),
+    onExecute: (callback) => subscribe('shortcuts:execute', callback),
+    onError: (callback) => subscribe('shortcuts:error', callback),
+  },
   quickChat: {
     open: () => invoke('quick-chat:open'),
     state: (sessionId) => invoke('quick-chat:state', sessionId),

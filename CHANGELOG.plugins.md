@@ -3,6 +3,7 @@
 ## [Canary]
 
 ### Added
+- **Static keyboard shortcuts** — `contributions.shortcuts` accepts titled patterns, optional global support, and main-process `execute` handlers; user overrides and plugin provenance appear in Settings. Compatibility: Backward compatible; supports API v2.
 - **Selectable next bot queue item** — `bot.update({ workQueueIndex })` selects the zero-based Work queue item used by the next activation. Compatibility: Backward compatible; supports API v2.
 - **Per-tool forced truncation** — static and runtime tool definitions can set `forcedTruncationLength` as a positive estimated-token output limit that overrides the global tool-output setting. Compatibility: Backward compatible; supports API v2.
 - **Theme transparent surfaces** — theme CSS can define `--background-transparent-0` through `--background-transparent-5` for the native Sidebar transparency mode. Compatibility: Backward compatible; supports API v2.

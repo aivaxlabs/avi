@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { applyTheme, readAppearance } from './lib/apply-theme.js';
 import App from './App.jsx';
+import { KeyboardShortcuts } from './components/KeyboardShortcuts.jsx';
 import QuickChatApp from './QuickChatApp.jsx';
 import './styles.css';
 
@@ -21,6 +22,7 @@ createRoot(document.getElementById('root'), {
   },
 }).render(
   <React.StrictMode>
+    <KeyboardShortcuts />
     <WindowApp />
   </React.StrictMode>,
 );

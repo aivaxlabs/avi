@@ -19,6 +19,7 @@ import {
   Github,
   Globe2,
   Info,
+  Keyboard,
   Link,
   Network,
   Palette,
@@ -47,6 +48,7 @@ import { MaintenanceSettings } from './MaintenanceSettings.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { McpSettings } from './McpSettings.jsx';
 import { PluginsSettings } from './PluginsSettings.jsx';
+import { KeyboardShortcutSettings } from './KeyboardShortcuts.jsx';
 import { RemoteSettings } from './RemoteSettings.jsx';
 
 const reasoningEfforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -346,6 +348,7 @@ export function SettingsPage({
   const [view, setView] = useState(
     initialView ?? (initialContextFolder ? 'context-folder' : 'general'),
   );
+  const [shortcutFooter, setShortcutFooter] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [providerDraft, setProviderDraft] = useState(null);
   const [routers, setRouters] = useState([]);
@@ -645,6 +648,7 @@ export function SettingsPage({
     aivax: 'AIVAX Features',
     maintenance: 'Maintenance',
     'default-models': 'Default models',
+    shortcuts: 'Keyboard shortcuts',
     general: 'General',
     tuning: 'Tuning',
     personalization: 'Personalization',
@@ -668,12 +672,13 @@ export function SettingsPage({
     aivax: 'Add persistent memory, richer web tools, and semantic thread search through AIVAX.',
     maintenance: 'Manage archived conversations, storage cleanup, and semaphore permits.',
     'default-models': 'Choose models for supporting tasks, supervision, and sub-agent orchestration.',
+    shortcuts: 'Customize shortcuts, desktop access, and plugin contributions.',
     general: 'Configure chat behavior and desktop integration.',
     tuning: 'Adjust context, tool execution, parallel work, and diagnostics.',
     personalization: 'Choose Avi’s personality, response detail, theme, and color scheme.',
     about: 'Project information, version, and links.',
   }[view];
-  const showInlineBack = !['list', 'routers', 'context-folders', 'mcp', 'plugins', 'remote', 'aivax', 'maintenance', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
+  const showInlineBack = !['shortcuts', 'list', 'routers', 'context-folders', 'mcp', 'plugins', 'remote', 'aivax', 'maintenance', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
   const importedProvider = providerImportDialog?.mode === 'review'
     ? providerImportDialog.provider
@@ -745,6 +750,11 @@ export function SettingsPage({
             >
               <Palette size={16} />
               Personalization
+            </button>
+          )}
+          {(!settingsQuery || 'keyboard shortcuts hotkeys'.includes(settingsQuery)) && (
+            <button type="button" className={view === 'shortcuts' ? 'active' : undefined} aria-current={view === 'shortcuts' ? 'page' : undefined} onClick={() => setView('shortcuts')}>
+              <Keyboard size={16} /> Keyboard shortcuts
             </button>
           )}
 
@@ -1819,6 +1829,7 @@ export function SettingsPage({
                 </section>
             )}
 
+            {view === 'shortcuts' && <KeyboardShortcutSettings footer={shortcutFooter} />}
             {view === 'general' && tuningDraft && (
               <div className="settings-tuning">
                 <section className="settings-section">
@@ -2724,6 +2735,7 @@ export function SettingsPage({
           </div>
         </div>
 
+        {view === 'shortcuts' && <footer className="settings-actions" ref={setShortcutFooter} />}
         {(view === 'provider' || view === 'model' || view === 'router' || ['general', 'tuning', 'personalization'].includes(view) || view === 'default-models') && (
           <footer className="settings-actions">
             <span className="settings-error" role="alert">{error}</span>

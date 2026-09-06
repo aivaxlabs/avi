@@ -6,6 +6,34 @@
   overflow: hidden;
   isolation: isolate;
 
+  > .chat-find {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    left: 12px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px;
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: var(--font-sm);
+
+    > input {
+      flex: 1;
+      min-width: 120px;
+      color: var(--text-1);
+      background: var(--background-1);
+      border: 1px solid var(--border-color);
+      padding: 6px;
+    }
+
+    > button { padding: 6px; }
+  }
+
   .chat-background-image {
     position: absolute;
     inset: 0;

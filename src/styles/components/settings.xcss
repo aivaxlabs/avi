@@ -16,6 +16,108 @@
     grid-template-columns: 176px minmax(0, 1fr);
   }
 
+  .shortcut-settings {
+    width: 100%;
+    min-width: 0;
+
+    .shortcut-help {
+      margin: 0 0 24px;
+      color: var(--text-3);
+      font-size: var(--font-sm);
+      line-height: 1.6;
+    }
+
+    code { font-family: var(--font-code); font-size: .92em; }
+
+    .shortcut-list-heading, .shortcut-row {
+      display: grid;
+      grid-template-columns: minmax(150px, 1fr) 180px 84px 64px;
+      align-items: center;
+      column-gap: 16px;
+    }
+
+    .shortcut-list-heading {
+      padding: 0 0 10px;
+      color: var(--text-3);
+      font-size: var(--font-xs);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .shortcut-row {
+      min-height: 76px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .shortcut-description {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+
+      > label { font-size: var(--font-sm); font-weight: 500; line-height: 1.4; }
+      > small { color: var(--text-3); font-size: var(--font-xs); overflow-wrap: anywhere; }
+    }
+
+    .shortcut-pattern, .shortcut-scope {
+      width: 100%;
+      min-width: 0;
+      height: 34px;
+      padding: 0 9px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: var(--background-2);
+      color: var(--text-1);
+      font-size: var(--font-xs);
+    }
+
+    .shortcut-conflict {
+      background: color-mix(in srgb, var(--danger-color) 7%, transparent);
+      box-shadow: inset 3px 0 var(--danger-color);
+      .shortcut-description, .shortcut-error { padding-left: 10px; }
+      .shortcut-pattern { border-color: var(--danger-color); }
+    }
+
+    .shortcut-pattern { font-family: var(--font-code); }
+    .shortcut-scope-label { padding-left: 9px; color: var(--text-3); font-size: var(--font-xs); }
+
+    .shortcut-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+
+      > button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 30px;
+        min-width: 28px;
+        padding: 0 6px;
+        border-radius: 5px;
+        color: var(--text-3);
+        background: transparent;
+        font-size: var(--font-xs);
+
+        &:hover:not(:disabled) { background: var(--item-hover); color: var(--text-1); }
+        &:disabled { opacity: .4; cursor: default; }
+      }
+    }
+
+    :is(input, select, button):focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+    .shortcut-error { grid-column: 1 / -1; margin: 8px 0 0; color: var(--danger-color); font-size: var(--font-xs); }
+
+    @media (max-width: 1100px) {
+      .shortcut-list-heading { display: none; }
+      .shortcut-row { grid-template-columns: minmax(0, 1fr) 100px 64px; row-gap: 10px; }
+      .shortcut-description { grid-column: 1 / -1; }
+    }
+
+    @media (max-width: 620px) {
+      .shortcut-row { grid-template-columns: minmax(0, 1fr) 100px; }
+      .shortcut-actions { grid-column: 1 / -1; justify-content: flex-end; }
+    }
+  }
+
   .settings-sidebar {
     min-height: 0;
     padding: 0 4px;
