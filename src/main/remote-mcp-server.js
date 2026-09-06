@@ -134,6 +134,14 @@ const socketSend = (socket, value) => {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value));
 };
 
+function projectRemoteMessage(message) {
+  if (!Array.isArray(message?.attachments)) return message;
+  return {
+    ...message,
+    attachments: message.attachments.map(({ dataUrl, base64, text, ...metadata }) => metadata),
+  };
+}
+
 export class RemoteMcpServer {
   constructor({
     chatRunner,
@@ -371,7 +379,13 @@ export class RemoteMcpServer {
       socketSend(socket, {
         jsonrpc: '2.0',
         method: 'conversation:event',
-        params: { sequence, conversationId, event },
+        params: {
+          sequence,
+          conversationId,
+          event: event.type === 'message' && event.message
+            ? { ...event, message: projectRemoteMessage(event.message) }
+            : event,
+        },
       });
     });
     socket.once('close', unsubscribe);
@@ -465,7 +479,20 @@ export class RemoteMcpServer {
         };
       }
       const payload = preparePayload(request.method, rawPayload);
-      const result = await this.invokeApplicationRequest(request.method, payload);
+      let result = await this.invokeApplicationRequest(request.method, payload);
+      if (['conversations:messages', 'conversations:context'].includes(request.method)) {
+        result = {
+          ...result,
+          ...(Array.isArray(result.messages) ? { messages: result.messages.map(projectRemoteMessage) } : {}),
+          ...(result.queue ? {
+            queue: {
+              ...result.queue,
+              steer: result.queue.steer.map(projectRemoteMessage),
+              queued: result.queue.queued.map(projectRemoteMessage),
+            },
+          } : {}),
+        };
+      }
       return notification ? null : { jsonrpc: '2.0', id: request.id, result };
     } catch (error) {
       return notification ? null : rpcError(request.id, -32603, 'Application request failed', {

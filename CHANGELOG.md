@@ -31,6 +31,7 @@
 - **GPT-6 Astra for OpenAI Subscription** — adds the managed standard and Fast variants with image input and reasoning efforts through Max.
 
 ### Changed
+- Moved persistent update status and manual checks to About; General shows the compact update card only when a newer version is available.
 - Base agent instructions now explicitly require `__invocation_goal` and `__requires_human_approval` in every tool call.
 - Tool definitions can set `forcedTruncationLength` as an estimated-token output limit that overrides global truncation; `memory_search` now uses a 5,000-token limit.
 - Project instructions can be centralized under `.agents/AGENTS.<subject>.md`, with direct children of `.agents` preserving root embedding and `embeddable: false` catalog behavior.
@@ -53,6 +54,7 @@
 - Bot activations now mark a checkpoint in the bot conversation, so each activation starts its model context from the previous boundary instead of replaying the full history.
 
 ### Fixed
+- Remote RPC history and message events now send attachment metadata instead of embedded content, preventing media-heavy conversations from exceeding the relay frame limit. Attachment bytes remain available through `attachments:read`.
 - Kept inline `<think>...</think>` tags visible as response text, interpreting only a block at the absolute message start after optional whitespace as reasoning.
 - Treated a generation that ends mid-reasoning or with an incomplete tool call as an error, surfacing a clear message instead of completing the turn silently.
 - Kept Fast-model lightning icons inline in the advanced picker and flipped nested model or effort menus inward when they would overflow the viewport.

@@ -125,6 +125,8 @@ Variant fields:
 
 Avi can normalize or materialize attachments before persistence. Clients must use the returned attachment object as authoritative.
 
+Historical message attachments returned by `conversations:messages`, `conversations:context` (including its queue), and `conversation:event` message events omit `dataUrl`, `base64`, and `text`. Their metadata and IDs remain available; retrieve content using `attachments:read` with the owning message and attachment IDs. This keeps embedded media out of relay history frames. Composer draft attachments and attachment-read chunks retain their content.
+
 ## `Goal`
 
 | Field | Type | Description |

@@ -92,6 +92,6 @@ The **Overview** page is an observability surface, not an execution mode. It sum
 
 Settings contains General, Tuning, Personalization, Providers, Default models, Context, MCP servers, AIVAX Features, Maintenance, Remote control, and About Avi. Maintenance groups archived-conversation management and temporary-storage cleanup with the Semaphores inspector.
 
-Packaged installations check GitHub for updates at startup and every six hours. A Settings badge and a green banner in **General** announce a newer release. Choose **Install update** to download the matching installer; finish active work first because Avi closes and reopens during installation. General also provides a manual update check, download progress, and failure details. See [Automatic updates](Automatic%20updates.md) for platform requirements.
+Packaged installations check GitHub for updates at startup and every six hours. A Settings badge and a green banner in **General** announce a newer release. Choose **Install update** to download the matching installer; finish active work first because Avi closes and reopens during installation. **About** always provides update status and a manual update check, including download progress and failure details. General only shows the card when an update is available. See [Automatic updates](Automatic%20updates.md) for platform requirements.
 
 See [Sub-agents](Sub-agents.md), [Side and quick chats](Side%20and%20quick%20chats.md), and [Advanced settings](Advanced%20settings.md).

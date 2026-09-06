@@ -22,6 +22,12 @@ const { AIVAX_RELAY_URL, RemoteRelay } = await import('../src/main/remote-relay.
 
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
+const attachmentPayload = 'x'.repeat(2 * 1024 * 1024);
+const attachmentMessage = {
+  id: 'large-message', conversationId: 'conv-1', role: 'user',
+  attachments: [{ id: 'large-attachment', name: 'capture.png', mime: 'image/png', kind: 'image_url', dataUrl: `data:image/png;base64,${attachmentPayload}`, base64: attachmentPayload, text: attachmentPayload }],
+};
+const attachmentMetadata = { id: 'large-attachment', name: 'capture.png', mime: 'image/png', kind: 'image_url' };
 const localKeys = [];
 const dispatched = [];
 let delayNextApplicationRequest = 0;
@@ -42,6 +48,12 @@ const server = new RemoteMcpServer({
     if (delayNextApplicationRequest > 0) await sleep(delayNextApplicationRequest);
     dispatched.push({ channel, payload });
     if (channel === 'remote:state') return { running: true, relay: { status: 'connected' } };
+    if (channel === 'conversations:messages') return { messages: [attachmentMessage], cursor: null, hasMore: false };
+    if (channel === 'conversations:context') return {
+      messages: [attachmentMessage], queue: { steer: [attachmentMessage], queued: [attachmentMessage] },
+      composer: { draftText: 'Preserve draft', attachments: [{ id: 'draft', dataUrl: 'data:image/png;base64,eA==' }] },
+    };
+    if (channel === 'attachments:read') return { attachmentId: payload.attachmentId, data: attachmentPayload.slice(payload.offset, payload.offset + 16), hasMore: true };
     throw new Error(`Unexpected test channel: ${channel}`);
   },
   subscribeChatEvents: (handler) => {
@@ -247,6 +259,25 @@ try {
   assert.ok(!streamDiscover.result.methods.includes('remote:state'));
   const streamDenied = await stream.json(11, 'remote:state');
   assert.equal(streamDenied.error.code, -32601);
+
+  for (const method of ['conversations:context', 'conversations:messages']) {
+    const response = await stream.json(12, method, { limit: 40 });
+    assert.ok(Buffer.byteLength(JSON.stringify(response)) < 1024 * 1024);
+    assert.deepEqual(response.result.messages[0].attachments, [attachmentMetadata]);
+    if (method === 'conversations:context') {
+      assert.deepEqual(response.result.queue.steer[0].attachments, [attachmentMetadata]);
+      assert.deepEqual(response.result.queue.queued[0].attachments, [attachmentMetadata]);
+      assert.equal(response.result.composer.attachments[0].dataUrl, 'data:image/png;base64,eA==');
+    }
+  }
+  emitChatEvent({ conversationId: 'conv-1', type: 'message', message: attachmentMessage });
+  const attachmentEvent = await stream.next((message) => message.method === 'conversation:event', 'metadata message event');
+  assert.deepEqual(attachmentEvent.params.event.message.attachments, [attachmentMetadata]);
+  assert.equal(attachmentMessage.attachments[0].base64, attachmentPayload, 'RPC projection must not mutate persisted/local attachments');
+  assert.equal(attachmentMessage.attachments[0].text, attachmentPayload);
+  const chunk = await stream.json(13, 'attachments:read', { messageId: 'large-message', attachmentId: 'large-attachment', offset: 16 });
+  assert.equal(chunk.result.data, attachmentPayload.slice(16, 32));
+  assert.equal((await stream.json(14, 'rpc:discover')).result.scope, 'conversation', 'large history must leave the relay channel usable');
 
   assert.throws(() => server.createRelaySocket('/mcp'), /Invalid relay RPC route/);
 

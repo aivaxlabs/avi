@@ -9,14 +9,14 @@ Installed Avi builds check the latest stable [GitHub release](https://github.com
 3. Finish active work, then select **Install update**. Avi downloads the file matching its platform and architecture and shows download progress.
 4. Avi closes when installation starts. The installer or update helper reopens Avi after replacing the application.
 
-General also provides a manual update check. A failed check, download, verification, or installer handoff shows an error instead of closing Avi. Retry after resolving the reported problem. No GitHub account or token is required; GitHub's public API rate limits still apply.
+**Settings → About** always provides update status and a manual update check. General shows the update card only when a newer version is available. A failed check, download, verification, or installer handoff shows an error instead of closing Avi. Retry after resolving the reported problem. No GitHub account or token is required; GitHub's public API rate limits still apply.
 
 ## Platform requirements
 
 - **Windows:** uses the NSIS `.exe` installer in silent mode with relaunch enabled. Windows may request elevation for an installation that requires it.
 - **macOS:** uses the `.dmg` release asset to replace the installed `.app`, then opens it. Run Avi from a writable installation location, not directly from a mounted DMG. The update helper waits for Avi to exit before replacement.
 - **Linux:** updates the running `.AppImage` identified by `APPIMAGE`, then launches the replacement. The AppImage and its containing directory must be writable. Other Linux installation formats are not supported by this updater.
-- **Development builds and unsupported architectures:** in-app installation is unavailable; General explains why.
+- **Development builds and unsupported architectures:** in-app installation is unavailable; About explains why.
 
 The updater supports x64 and ARM64. On an emulated installation it follows the architecture of the running Avi process. A successful installation handoff is not proof that the external installer completed: operating-system security policy, permissions, or a subsequent installer failure can still prevent relaunch. If Avi does not reopen, launch it manually and check its version; download the installer from GitHub if recovery is necessary. Post-shutdown helper errors are recorded in `debug.log` inside the system temporary directory under `.avi/visualizations/<timestamp>/app-update-<id>/`.
 

@@ -1774,10 +1774,10 @@ export function SettingsPage({
               </div>
             )}
 
-            {view === 'general' && tuningDraft && (
-              <div className="settings-tuning">
+            {(view === 'about' || (view === 'general' && updateState?.available)) && (
                 <section className={`settings-section-card settings-update${updateState?.available ? ' available' : ''}`} aria-label="Application updates">
-                  <div role="status">
+                  <div className="settings-update-copy" role="status">
+                    <span className="settings-update-label">Software updates</span>
                     <h3>{updateState?.available ? `Avi ${updateState.latestVersion} is available` : 'Application updates'}</h3>
                     <p>{updateState?.unsupportedReason || (updateState?.available
                       ? 'Finish active work before installing. Avi will close and reopen after the update.'
@@ -1817,6 +1817,10 @@ export function SettingsPage({
                     )}
                   </div>
                 </section>
+            )}
+
+            {view === 'general' && tuningDraft && (
+              <div className="settings-tuning">
                 <section className="settings-section">
                   <div className="settings-section-heading">
                     <h3>Chat</h3>

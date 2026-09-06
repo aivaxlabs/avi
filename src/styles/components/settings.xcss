@@ -312,19 +312,29 @@
 
   .settings-update {
     display: grid;
-    gap: 14px;
-    padding: 20px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 16px 24px;
+    padding: 20px 24px;
+    margin-block: 24px;
 
     &.available {
       border: 1px solid var(--success-color);
       background: color-mix(in srgb, var(--success-color) 12%, var(--background-1));
     }
 
-    h3 { color: var(--text-1); }
-    p { margin-top: 8px; color: var(--text-2); }
-    [role="alert"] { color: var(--danger-color); }
+    .settings-update-label { display: block; margin-bottom: 6px; color: var(--text-2); font-size: 0.857rem; }
+    h3 { margin: 0; color: var(--text-1); font-size: 1.071rem; }
+    p { margin: 6px 0 0; color: var(--text-2); line-height: 1.5; }
+    [role="alert"] { grid-column: 1 / -1; color: var(--danger-color); }
     progress { display: block; width: 100%; margin-top: 8px; accent-color: var(--success-color); }
-    .settings-update-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .settings-update-actions { display: flex; flex-wrap: wrap; gap: 8px; grid-column: 2; grid-row: 1; }
+
+    @media (max-width: 760px) {
+      grid-template-columns: minmax(0, 1fr);
+      padding: 18px;
+      .settings-update-actions { grid-column: 1; grid-row: auto; }
+    }
   }
 
   .settings-tuning {

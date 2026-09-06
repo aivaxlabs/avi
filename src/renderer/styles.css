@@ -2361,8 +2361,11 @@ body.panel-resizing * {
 
 .settings-page .settings-update {
     display: grid;
-    gap: 14px;
-    padding: 20px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 16px 24px;
+    padding: 20px 24px;
+    margin-block: 24px;
 }
 
 .settings-page .settings-update.available {
@@ -2370,16 +2373,27 @@ body.panel-resizing * {
     background: color-mix(in srgb, var(--success-color) 12%, var(--background-1));
 }
 
+.settings-page .settings-update .settings-update-label {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--text-2);
+    font-size: 0.857rem;
+}
+
 .settings-page .settings-update h3 {
+    margin: 0;
     color: var(--text-1);
+    font-size: 1.071rem;
 }
 
 .settings-page .settings-update p {
-    margin-top: 8px;
+    margin: 6px 0 0;
     color: var(--text-2);
+    line-height: 1.5;
 }
 
 .settings-page .settings-update [role="alert"] {
+    grid-column: 1 / -1;
     color: var(--danger-color);
 }
 
@@ -2394,6 +2408,8 @@ body.panel-resizing * {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+    grid-column: 2;
+    grid-row: 1;
 }
 
 .settings-page .settings-tuning {
@@ -4951,6 +4967,16 @@ body.panel-resizing * {
 }
 
 @media (max-width: 760px) {
+    .settings-page .settings-update {
+        grid-template-columns: minmax(0, 1fr);
+        padding: 18px;
+    }
+
+    .settings-page .settings-update .settings-update-actions {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
     .settings-page .settings-card-row {
         align-items: flex-start;
         flex-direction: column;
@@ -4969,6 +4995,52 @@ body.panel-resizing * {
     .settings-page .remote-key-actions {
         flex-wrap: wrap;
     }
+}
+/* components\button.xcss */
+button {
+    border: 0;
+    border-radius: 9999px;
+    padding: 4px 10px;
+}
+
+button svg {
+    display: inline-block;
+    margin: 0 4px;
+}
+
+.icon-button, .round-button, .recent-filter-button, .user-message-action, .favorite-button, .sidebar-toggle, .attachment-chip button {
+    border-radius: 9999px;
+    padding: 0;
+}
+
+.icon-button, .round-button {
+    display: inline-grid;
+    place-items: center;
+    color: var(--text-2);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+}
+
+.icon-button {
+    width: 34px;
+    height: 34px;
+}
+
+.icon-button.tiny {
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    border: 0;
+}
+
+.icon-button:hover, .round-button:hover, .model-pill:hover, .message-actions button:hover, .continuations button:hover {
+    background: var(--item-hover);
+}
+
+.primary-mini {
+    color: var(--text-5) !important;
+    background: var(--background-5) !important;
 }
 /* components\markdown.xcss */
 .markdown-body {
@@ -5174,52 +5246,6 @@ body.panel-resizing * {
     .markdown-body .file-reference-link {
         transition: none;
     }
-}
-/* components\button.xcss */
-button {
-    border: 0;
-    border-radius: 9999px;
-    padding: 4px 10px;
-}
-
-button svg {
-    display: inline-block;
-    margin: 0 4px;
-}
-
-.icon-button, .round-button, .recent-filter-button, .user-message-action, .favorite-button, .sidebar-toggle, .attachment-chip button {
-    border-radius: 9999px;
-    padding: 0;
-}
-
-.icon-button, .round-button {
-    display: inline-grid;
-    place-items: center;
-    color: var(--text-2);
-    background: var(--background-2);
-    border: 1px solid var(--border-color);
-    border-radius: 999px;
-}
-
-.icon-button {
-    width: 34px;
-    height: 34px;
-}
-
-.icon-button.tiny {
-    width: 26px;
-    height: 26px;
-    background: transparent;
-    border: 0;
-}
-
-.icon-button:hover, .round-button:hover, .model-pill:hover, .message-actions button:hover, .continuations button:hover {
-    background: var(--item-hover);
-}
-
-.primary-mini {
-    color: var(--text-5) !important;
-    background: var(--background-5) !important;
 }
 /* components\bots.xcss */
 .bots-label {

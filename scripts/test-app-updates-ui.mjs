@@ -67,7 +67,14 @@ try {
     await wait(()=>window.__calls.includes('check'));
     window.renderUpdate({status:'idle',available:false,supported:false,unsupportedReason:'Development build'});
     await wait(()=>!document.querySelector('.settings-update-badge'));
+    await wait(()=>!document.querySelector('.settings-update'));
+    const about = [...document.querySelectorAll('button')].find(el=>el.textContent.trim()==='About');
+    about.click();
+    await wait(()=>button('Check for updates'));
     if(!button('Check for updates').disabled || button('Install update')) throw new Error('Unsupported install enabled');
+    window.renderUpdate({status:'idle',available:false,supported:true,latestVersion:'0.6.0',currentVersion:'0.6.0'});
+    await wait(()=>button('Check for updates') && !button('Check for updates').disabled);
+    if(!document.querySelector('.settings-update').textContent.includes('up to date')) throw new Error('About update status missing');
     return true;
   })()`);
   assert.equal(passed, true);
