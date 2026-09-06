@@ -1,25 +1,38 @@
 import { fileBase64JsonValue, sendJsonRequest } from '../main/json-request-body.js';
 import { defineProvider, prepareProviderInvocation } from '../main/provider-api.js';
 
-function mediaJsonValue(media, defaultMime) {
-  return media?.path
-    ? fileBase64JsonValue(media.path, media.mime ?? defaultMime)
-    : media?.url;
+function resolveMediaContent(item) {
+  const media = item[item.type];
+  if (!['image_url', 'video_url'].includes(item.type) || !media?.path) return item;
+  try {
+    return {
+      type: item.type,
+      [item.type]: {
+        url: fileBase64JsonValue(media.path, media.mime ?? (item.type === 'image_url' ? 'image/png' : 'video/mp4')),
+      },
+    };
+  } catch (error) {
+    if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+    return {
+      type: 'text',
+      text: `Previously referenced media is unavailable because its local file no longer exists: ${media.path}. Do not infer its contents.`,
+    };
+  }
 }
 
 function toResponsesContent(content) {
-  return content.map((item) => {
+  return content.map(resolveMediaContent).map((item) => {
     if (item.type === 'text') return { type: 'input_text', text: item.text };
     if (item.type === 'image_url') {
       return {
         type: 'input_image',
-        image_url: mediaJsonValue(item.image_url, 'image/png'),
+        image_url: item.image_url?.url,
       };
     }
     if (item.type === 'video_url') {
       return {
         type: 'input_video',
-        video_url: mediaJsonValue(item.video_url, 'video/mp4'),
+        video_url: item.video_url?.url,
       };
     }
     if (item.type === 'file') {
@@ -34,17 +47,7 @@ function toResponsesContent(content) {
 }
 
 function toChatContent(content) {
-  return content.map((item) => {
-    const media = item[item.type];
-    return ['image_url', 'video_url'].includes(item.type) && media?.path
-      ? {
-          type: item.type,
-          [item.type]: {
-            url: mediaJsonValue(media, item.type === 'image_url' ? 'image/png' : 'video/mp4'),
-          },
-        }
-      : item;
-  });
+  return content.map(resolveMediaContent);
 }
 
 function toResponsesInput(message, model) {
