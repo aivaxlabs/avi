@@ -26,11 +26,57 @@ try {
   assert.match(dashboard, /<h1>Overview<\/h1>/);
   assert.match(dashboard, /role="tab"[^>]*aria-selected="true"[^>]*>Inbox · 2/);
   assert.match(dashboard, /All bots Inbox/);
+  assert.match(dashboard, /<img src="https:\/\/orb\.aivax\.net\/bot-1" width="30" height="30" alt=""\/>/);
   assert.match(dashboard, /Choose Acme export format/);
   const navigated = render({ inboxNavigation: { botId: 'bot-1', pendencyId: 'new' } });
   assert.match(navigated, /id="bot-pendency-title"[^>]*>Choose Acme export format/);
   assert.doesNotMatch(navigated, /Review Acme invoice/);
+  assert.match(navigated, /<img src="https:\/\/orb\.aivax\.net\/bot-1" width="22" height="22" alt=""\/>/);
+  assert.doesNotMatch(render({ inboxNavigation: { botId: 'bot-1', pendencyId: 'replied' } }), /https:\/\/orb\.aivax\.net\//);
   assert.match(render({ inboxNavigation: { botId: 'another-bot', pendencyId: 'new' } }), /Review Acme invoice/);
+  const overviewProps = { inboxOnly: true, inboxNavigation: { botId: 'bot-1', pendencyId: 'new' } };
+  const overviewPanel = render(overviewProps);
+  assert.match(overviewPanel, /aria-label="Inbox conversation"/);
+  assert.match(overviewPanel, /aria-label="Close Inbox panel"/);
+  assert.match(overviewPanel, /id="bot-pendency-title"[^>]*>Choose Acme export format/);
+  assert.match(overviewPanel, /Send reply/);
+  assert.doesNotMatch(overviewPanel, /role="tablist"|role="tab"|role="tabpanel"|bot-work-selector|bot-inbox-filters|Review Acme invoice/);
+  const richContent = [
+    '::finding[Payment status]{level="P1"}',
+    '',
+    '::callout[Review required]{kind="warning"}',
+    '',
+    '::avi-chart{type="bar" title="Requests" data=\'[{"label":"GET","value":12}]\'}',
+    '',
+    '::finding[Unsupported]{level="P9"}',
+    '',
+    '<script>alert(1)</script>',
+    '',
+    '[Documentation](https://example.com)',
+  ].join('\n');
+  const richPanel = render({
+    ...overviewProps,
+    botDataByBot: { 'bot-1': { inbox: [{ ...inbox[0], messages: [{ ...inbox[0].messages[0], content: richContent }] }], activity: [], error: null } },
+  });
+  assert.match(richPanel, /finding-heading finding-p1/);
+  assert.match(richPanel, /callout-heading callout-warning/);
+  assert.match(richPanel, /rich-chart-bar/);
+  assert.match(richPanel, /::finding\[Unsupported\]/);
+  assert.doesNotMatch(richPanel, /<script>/);
+  assert.match(richPanel, /href="https:\/\/example.com"/);
+  const { MarkdownSegment } = await vite.ssrLoadModule('/src/renderer/components/Message.jsx');
+  const activityContent = renderToStaticMarkup(React.createElement(MarkdownSegment, { text: richContent, finalized: true }));
+  assert.match(activityContent, /finding-heading finding-p1/);
+  assert.match(activityContent, /rich-chart-bar/);
+  const panelSource = readFileSync(new URL('../src/renderer/components/AuxiliaryPanel.jsx', import.meta.url), 'utf8');
+  assert.match(panelSource, /<MarkdownSegment text=\{entry\.description\} finalized \/>/);
+  assert.doesNotMatch(panelSource, /ReactMarkdown|botWorkMarkdownComponents/);
+  const completedPanel = render({ ...overviewProps, inboxNavigation: { botId: 'bot-1', pendencyId: 'completed' } });
+  assert.match(completedPanel, /Acme export received/);
+  assert.doesNotMatch(completedPanel, /Send reply/);
+  assert.match(render({ ...overviewProps, inboxNavigation: { botId: 'bot-1', pendencyId: 'missing' } }), /no longer available/);
+  assert.match(render({ ...overviewProps, botsLoading: true }), /Loading bots/);
+  assert.match(render({ ...overviewProps, inboxNavigation: { botId: 'bot-1', pendencyId: 'approval' } }), /Approval required/);
   const markup = render();
   assert.match(markup, /role="tab"[^>]*aria-selected="true"[^>]*>[\s\S]*?Inbox[\s\S]*?<\/button>/);
   assert.match(markup, /id="bot-work-tab-activity"[\s\S]*?Activity[\s\S]*?<\/button>/);

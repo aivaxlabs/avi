@@ -92,7 +92,7 @@ function transformRichDirective(node, file) {
 }
 
 function transformFileReference(node) {
-  const reference = parseFileReference(node.attributes);
+  const reference = parseFileReference(node.attributes, true);
   if (!reference) return null;
   return withElement(node, 'avi-fileref', {
     path: reference.path,
@@ -214,7 +214,7 @@ function boundedTitle(value, fallback) {
   return title.length <= MAX_TITLE_LENGTH ? title : null;
 }
 
-function parseFileReference(attributes = {}) {
+function parseFileReference(attributes = {}, allowAbsolute = false) {
   const path = attributes.path?.trim().replaceAll('\\', '/');
   const lineFromText = attributes['line-from'] ?? '';
   const lineToText = attributes['line-to'] ?? '';
@@ -225,7 +225,7 @@ function parseFileReference(attributes = {}) {
     ? (/^\d+$/.test(lineToText) && Number(lineToText) > 0 ? Number(lineToText) : null)
     : lineFrom;
   if (
-    (!path?.startsWith('./') && !path?.startsWith('../'))
+    (!path || !(allowAbsolute ? /^(?:\.{1,2}\/|\/|[a-z]:\/|file:\/\/)/i : /^\.{1,2}\//).test(path))
     || (lineFromText && lineFrom === null)
     || (lineToText && (lineFrom === null || lineTo === null))
     || (lineFrom !== null && lineTo < lineFrom)

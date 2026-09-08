@@ -21,7 +21,7 @@ The stored bot record returned by `bots:create` and `bots:update`.
 | `id` | string | Bot ID. |
 | `conversationId` | string | Bot's main conversation ID. |
 | `name` | string | Display name. |
-| `iconSeed` | string | Stable avatar seed. |
+| `iconSeed` | string | Legacy avatar seed, retained for compatibility. Avi displays `https://orb.aivax.net/<bot-id>` using `id`, independently of this value. |
 | `personality` | string \| null | Personality ID, or `null` to inherit the global personality. |
 | `workingFolder` | string \| null | Configured working folder, or `null` for the bot default. |
 | `model` | string | Configured model ID. |
@@ -43,7 +43,7 @@ The stored bot record returned by `bots:create` and `bots:update`.
 | `createdAt` | ISO 8601 string | Creation time. |
 | `updatedAt` | ISO 8601 string | Last update time. |
 
-The **Overview** page opens on **Inbox** by default. This view aggregates `botDataByBot[bot.id].inbox` from the existing `bots:list` snapshot. Clients can join each entry with its bot's name and avatar, sort by `updatedAt` descending, and group by local date without a separate aggregation endpoint. Use the existing reply, completion, and approval operations for the selected bot and pendency; section-level Inbox errors must not hide healthy bots.
+The **Overview** page opens on **Inbox** by default. This view aggregates `botDataByBot[bot.id].inbox` from the existing `bots:list` snapshot. Avi also displays the bot's Orb beside its name on bot-authored messages in the work-log reader, using the existing bot ID without additional RPC fields. Clients can join each entry with its bot's name and avatar, sort by `updatedAt` descending, and group by local date without a separate aggregation endpoint. Use the existing reply, completion, and approval operations for the selected bot and pendency; section-level Inbox errors must not hide healthy bots.
 
 ### `BotSnapshot`
 
@@ -189,7 +189,7 @@ Creates a bot and its main thread.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `name` | string | No | Display name. Defaults to `"New bot"`. |
-| `iconSeed` | string | No | Stable avatar seed. |
+| `iconSeed` | string | No | Legacy avatar seed, retained for compatibility. Avi displays `https://orb.aivax.net/<bot-id>` using `id`, independently of this value. |
 | `personality` | string \| null | No | Personality ID, or `null` to inherit the global personality. |
 | `workingFolder` | string \| null | No | Absolute working folder. Defaults to the bot's dedicated folder. |
 | `model` | string | Yes | Model ID. There is no default. |

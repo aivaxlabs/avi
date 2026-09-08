@@ -4,9 +4,11 @@ Bots are autonomous AI teammates. Each bot lives in a persistent thread, is acti
 
 ## Creating a bot
 
-Use the **+** button in the sidebar's **Bots** section. Avi creates the bot with a random identity icon and opens its settings. Every bot needs a configured model before creation.
+Use the **+** button in the sidebar's **Bots** section. Avi creates the bot with an AIVAX Orb tied to its ID and opens its settings. Every bot needs a configured model before creation.
 
 Use the moon button beside **+** to snooze scheduled bot activations for 1 hour, 6 hours, 24 hours, or until Avi restarts. Repeated timed Snoozes add to the active deadline instead of replacing it. While Snooze is active, the menu shows the remaining time and a **Reset** action that removes it. Snooze does not stop bots that are already working, change the Work queue order, or block **Activate now**. Timed Snoozes keep their deadline if Avi restarts; **Snooze until restart** ends when Avi restarts.
+
+Agents can read inbox messages and activity with `bots_read_work_log`, and reply to existing work logs with `bots_send_work_log_message`. `chat_overview` summarizes active threads, recently finished turns, and open bot inbox items. `bots_list` includes `workQueueItems` with zero-based IDs; pass `workQueueId` to `bots_activate` to focus that item once without advancing the recurring cursor. Refresh IDs after queue edits. Replies do not resolve approvals, and failed delivery may still leave a persisted message.
 
 Agents in normal threads and Quick Chat can also manage bots with `bots_list`, `bots_create`, `bots_update`, `bots_delete`, and `bots_activate`. Select `/create-bot` in the composer for a guided setup that checks existing bots, defines the purpose and schedule, creates the bot, verifies its configuration, and optionally starts its first activation. Autonomous bot conversations do not receive these management tools and cannot create or control other bots.
 
@@ -19,7 +21,7 @@ Settings are organized by the decisions they control:
 **Profile — who the bot is**
 
 - **Name** shown in the sidebar and used as the thread title.
-- **Icon** — the same avatar style used by sub-agents. **New icon** rolls a random replacement.
+- **Icon** — an AIVAX Orb loaded from `https://orb.aivax.net/<bot-id>` in the sidebar, Inbox (including bot message headers when reading a work log), and settings. The circular 512×512 PNG is scaled to fit each view and requires network access when not cached. It is fixed by the bot ID; there is no randomize control.
 - **Personality** overriding the global personality for this bot.
 
 **Work — what it does and where**
@@ -56,14 +58,18 @@ Settings are organized by the decisions they control:
 
 ## Inbox and Activity
 
+In **Overview → Inbox**, clicking an item opens its conversation beside the Overview without navigating away. This panel shares the chat side panel's styles and draggable width control, but has no tabs or bot selector. Use its close button to return to the full-width Overview, or click another Inbox item to switch conversations.
+
 Open **Bots** in the auxiliary panel and select a bot in the header. The compact search and filter controls adapt to the panel width. The panel has two tabs:
 
-- **Inbox** — conversations where the bot asks for your input. Open a pendency to read its messages and reply there, with text, images, or files. Messages appear from newest at the top to oldest at the bottom, and every message shows its date and time. Filter the list by status to find open or completed conversations.
+- **Inbox** — conversations where the bot asks for your input. Open a pendency to read its messages and reply there, with text, images, or files. Messages appear from newest at the top to oldest at the bottom, and every message shows its date and time. The reply composer stays at the bottom of the panel while the conversation history scrolls independently. Filter the list by status to find open or completed conversations.
 - **Activity** — the bot's first-person diary of important work. Each entry has a title, description, category, and date; category filtering narrows the timeline. Entries explain the subject and result without requiring previous entries or the main chat.
 
 A pendency has only two states: `open` or `completed`. Open items awaiting your response contribute to the sidebar notification count. Reading a pendency does not clear it. Replying transfers attention to the bot and removes it from the count, unless a protected approval still needs an explicit decision. The bot can continue the conversation or mark it completed. A new bot message reopens a completed pendency; a final response should be followed by completion when no user action remains.
 
 The bot continues all work in its main thread. When you reply, Avi saves your message and sends a `<bot-pendency-update>` with the pendency ID, reply, and attachments to that thread. An active bot receives it in its priority queue; an idle bot starts a continuation. It can use tools and worker threads to prepare a response, but is instructed to answer inside the same pendency. If delivery fails, the Inbox keeps your message and reports the failure; do not send it again just to retry delivery and duplicate the conversation.
+
+Inbox messages and Activity descriptions render the same restricted rich Markdown as chat, including findings, callouts, charts, diffs, diagrams, equations, and copyable blocks. Unsupported or invalid directives remain visible as text; raw HTML is not executed.
 
 Inbox and Activity load independently. If one file is invalid, only that tab shows a loading error; the other remains usable. Expand **Technical details** to inspect the cause. Invalid legacy files are preserved, not silently migrated or replaced.
 

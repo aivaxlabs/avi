@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatPrice } from '../lib/format.js';
-import Avatar from 'boring-avatars';
 import { hasOpenBotUserAction } from '../../shared/bot-work-items.js';
 
 const compactNumber = new Intl.NumberFormat('en-US', {
@@ -524,7 +523,7 @@ export function OrchestrationPage({ models, onOpenThread, bots = [], botDataByBo
                   {day !== previousDay && <h2>{day === today.toLocaleDateString() ? 'Today' : day === yesterday.toLocaleDateString() ? 'Yesterday' : updated.toLocaleDateString(undefined, { dateStyle: 'long' })}</h2>}
                   <button type="button" className={`orchestration-inbox-row${needsUser ? ' needs-user' : ''}`} onClick={() => onOpenBotPendency(bot.id, pendency.id)}>
                     <span className="orchestration-inbox-dot" aria-label={status} title={status} />
-                    <Avatar size={30} name={bot.iconSeed || bot.id} variant="beam" />
+                    <img src={`https://orb.aivax.net/${encodeURIComponent(bot.id)}`} width={30} height={30} alt="" />
                     <strong className="orchestration-inbox-sender">{bot.name}</strong>
                     <span className="orchestration-inbox-copy"><strong>{pendency.title}</strong><span>{latest?.role === 'user' ? 'You: ' : ''}{latest?.content || 'Attachment'}</span></span>
                     {pendency.messages.some((message) => message.attachments?.length) && <Paperclip size={14} aria-label="Has attachments" />}

@@ -33,7 +33,6 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import Avatar from 'boring-avatars';
 import { createPortal } from 'react-dom';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import aviIconUrl from '../../../assets/icon/avi.png';
@@ -47,7 +46,6 @@ const GROUP_LIMIT = 5;
 const emptyList = Object.freeze([]);
 const emptyObject = Object.freeze({});
 const conversationGroupingKey = 'aivax.sidebar.conversation-grouping';
-const botAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
 const compactTokenFormatter = new Intl.NumberFormat(undefined, {
   notation: 'compact',
   maximumFractionDigits: 1,
@@ -1017,12 +1015,7 @@ const BotItem = memo(function BotItem({
         title={bot.name}
       >
         <span className="bot-avatar" aria-hidden="true">
-          <Avatar
-            size={22}
-            name={bot.iconSeed}
-            variant="beam"
-            colors={botAvatarColors}
-          />
+          <img src={`https://orb.aivax.net/${encodeURIComponent(bot.id)}`} width={22} height={22} alt="" />
         </span>
         <span className="conversation-title">{bot.name}</span>
       </button>

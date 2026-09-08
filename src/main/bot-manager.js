@@ -371,8 +371,9 @@ export class BotManager {
     });
   }
 
-  async listBotDataByBot() {
-    return Object.fromEntries(await Promise.all(listBots().map(async (bot) => {
+  async listBotDataByBot(botId) {
+    if (botId !== undefined && !getBot(botId)) throw new Error('Bot not found.');
+    return Object.fromEntries(await Promise.all(listBots().filter((bot) => botId === undefined || bot.id === botId).map(async (bot) => {
       try {
         const { dataFolder } = await ensureBotFolders(bot);
         const results = await Promise.allSettled([readInboxFile(dataFolder), readActivityFile(dataFolder)]);
@@ -849,9 +850,12 @@ export class BotManager {
     }
   }
 
-  async activateBot(botId, { trigger = 'scheduler', force = false } = {}) {
+  async activateBot(botId, { trigger = 'scheduler', force = false, workQueueId } = {}) {
     const bot = getBot(botId);
     if (!bot) throw new Error('Bot not found.');
+    if (workQueueId !== undefined && (!Number.isInteger(workQueueId) || workQueueId < 0 || workQueueId >= bot.workQueue.length)) {
+      throw new Error('workQueueId must identify an existing work queue item.');
+    }
     if (!bot.enabled && !force) return null;
     if (this.activating.has(bot.id)) return null;
     if (this.chatRunner?.runs?.has(bot.conversationId)) {
@@ -871,7 +875,9 @@ export class BotManager {
         && !pendency.approval
         && pendency.messages.at(-1)?.role === 'user'
       ));
-      const focusTask = actionablePendency?.title ?? bot.workQueue[bot.workQueueIndex];
+      const focusTask = workQueueId !== undefined
+        ? bot.workQueue[workQueueId]
+        : actionablePendency?.title ?? bot.workQueue[bot.workQueueIndex];
       const activationPrompt = [`<bot-activation at="${new Date().toISOString()}">`];
       if (focusTask) {
         activationPrompt.push(`<focus-task>${escapeMarkupText(focusTask)}</focus-task>`);
@@ -900,7 +906,7 @@ export class BotManager {
       const activationCount = bot.activationCount + 1;
       const sleeping = bot.maxActivations > 0 && activationCount >= bot.maxActivations;
       const currentBot = getBot(bot.id);
-      const workQueueIndex = actionablePendency || bot.workQueue.length === 0
+      const workQueueIndex = workQueueId !== undefined || actionablePendency || bot.workQueue.length === 0
         ? currentBot.workQueueIndex
         : JSON.stringify(currentBot.workQueue) === JSON.stringify(bot.workQueue)
           ? (bot.workQueueIndex + 1) % bot.workQueue.length

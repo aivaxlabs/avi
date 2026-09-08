@@ -13,7 +13,6 @@ import {
   FilePenLine,
   FileText,
   FolderOpen,
-  FolderSearch,
   FolderTree,
   GitFork,
   Globe,
@@ -49,7 +48,6 @@ import 'prismjs/components/prism-typescript';
 import {
   isValidElement,
   memo,
-  useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -57,7 +55,8 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
+import { useFileReferenceMenu } from './FileReferenceMenu.jsx';
 import remarkDirective from 'remark-directive';
 import remarkGfm from 'remark-gfm';
 import { formatBytes } from '../lib/files.js';
@@ -85,6 +84,7 @@ const MARKDOWN_PLUGINS = Object.freeze([
   ...STANDARD_MARKDOWN_PLUGINS,
 ]);
 const MemoizedMarkdown = memo(ReactMarkdown);
+const fileReferenceUrlTransform = (url) => /^file:\/\//i.test(url) ? url : defaultUrlTransform(url);
 const TOOL_ICONS = Object.freeze({
   ask_question: CircleHelp,
   chat_create_thread: MessageSquarePlus,
@@ -660,6 +660,7 @@ function AssistantMessage({
               path: edit.filePath,
               edit,
             })}
+            onFileReferenceAction={onFileReferenceAction}
             onUndo={() => onUndoEdits(createUndoPrompt(edits))}
           />
         )}
@@ -815,10 +816,12 @@ function AssistantMessage({
 }
 
 
-function EditSummary({ edits, expanded, onToggleExpanded, onOpen, onUndo }) {
+function EditSummary({ edits, expanded, onToggleExpanded, onOpen, onUndo, onFileReferenceAction }) {
+  const [openMenu, menu] = useFileReferenceMenu((reference) => onOpen(reference.edit), onFileReferenceAction);
   const visibleEdits = expanded ? edits : edits.slice(0, 3);
   return (
     <section className="edit-summary" aria-label="Edit summary">
+      {menu}
       <header className="edit-summary-header">
         <span className="edit-summary-icon" aria-hidden="true"><FileDiff size={17} /></span>
         <strong>Edited {edits.length} {edits.length === 1 ? 'file' : 'files'}</strong>
@@ -828,7 +831,9 @@ function EditSummary({ edits, expanded, onToggleExpanded, onOpen, onUndo }) {
       </header>
       <div className="edit-summary-files">
         {visibleEdits.map((edit) => (
-          <button key={edit.filePath} type="button" onClick={() => onOpen(edit)}>
+          <button key={edit.filePath} type="button" onClick={() => onOpen(edit)}
+            aria-haspopup="menu"
+            onContextMenu={(event) => openMenu(event, { path: edit.filePath, edit })}>
             <span title={edit.filePath}>{edit.filePath}</span>
             <span className="edit-summary-stats">
               <ins>+{edit.additions}</ins> <del>-{edit.deletions}</del>
@@ -894,7 +899,7 @@ function ContextCompressionIndicator({ compression, status }) {
   );
 }
 
-const MarkdownSegment = memo(function MarkdownSegment({
+export const MarkdownSegment = memo(function MarkdownSegment({
   text,
   finalized,
   onImplementPlan,
@@ -903,9 +908,8 @@ const MarkdownSegment = memo(function MarkdownSegment({
 }) {
   const [implementing, setImplementing] = useState(false);
   const [planMenuOpen, setPlanMenuOpen] = useState(false);
-  const [fileReferenceMenu, setFileReferenceMenu] = useState(null);
+  const [openFileReferenceContextMenu, fileReferenceMenu] = useFileReferenceMenu(onOpenFileReference, onFileReferenceAction);
   const planActionsRef = useRef(null);
-  const fileReferenceTargetRef = useRef(null);
   const deferredText = useDeferredValue(text);
   const renderedText = finalized ? text : deferredText;
   useEffect(() => {
@@ -920,41 +924,6 @@ const MarkdownSegment = memo(function MarkdownSegment({
     }, { signal: controller.signal });
     return () => controller.abort();
   }, [planMenuOpen]);
-  useEffect(() => {
-    if (!fileReferenceMenu) return undefined;
-    const controller = new AbortController();
-    window.addEventListener('pointerdown', (event) => {
-      if (event.target.closest?.('.file-reference-context-menu')) return;
-      setFileReferenceMenu(null);
-    }, { once: true, signal: controller.signal });
-    window.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape') return;
-      setFileReferenceMenu(null);
-      fileReferenceTargetRef.current?.focus();
-    }, { signal: controller.signal });
-    window.addEventListener('resize', () => setFileReferenceMenu(null), {
-      once: true,
-      signal: controller.signal,
-    });
-    queueMicrotask(() => (
-      document.querySelector('.file-reference-context-menu [role="menuitem"]')?.focus()
-    ));
-    return () => controller.abort();
-  }, [fileReferenceMenu]);
-  const openFileReferenceContextMenu = useCallback((event, reference) => {
-    event.preventDefault();
-    fileReferenceTargetRef.current = event.currentTarget;
-    const width = 180;
-    const height = 112;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const clientX = event.clientX || rect.left + 8;
-    const clientY = event.clientY || rect.bottom;
-    setFileReferenceMenu({
-      reference,
-      left: Math.max(8, Math.min(clientX, window.innerWidth - width - 8)),
-      top: Math.max(8, Math.min(clientY, window.innerHeight - height - 8)),
-    });
-  }, []);
   const components = useMemo(
     () => createMarkdownComponents(
       finalized,
@@ -1006,7 +975,8 @@ const MarkdownSegment = memo(function MarkdownSegment({
             value={part.text}
           >
             <div className="markdown-body execution-plan-content">
-              <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>
+              <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}
+                urlTransform={fileReferenceUrlTransform}>
                 {part.text}
               </MemoizedMarkdown>
             </div>
@@ -1079,55 +1049,14 @@ const MarkdownSegment = memo(function MarkdownSegment({
           </CopyablePanel>
         ) : part.text.trim() ? (
           <div key={`markdown:${index}`} className="markdown-body">
-            <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}>
+            <MemoizedMarkdown remarkPlugins={MARKDOWN_PLUGINS} components={components}
+              urlTransform={fileReferenceUrlTransform}>
               {part.text}
             </MemoizedMarkdown>
           </div>
         ) : null
       ))}
-      {fileReferenceMenu && createPortal(
-        <DropdownMenu
-          className="file-reference-context-menu"
-          fixed
-          role="menu"
-          aria-label={`Actions for ${fileReferenceMenu.reference.path}`}
-          style={{ left: fileReferenceMenu.left, top: fileReferenceMenu.top }}
-        >
-          <DropdownMenuItem
-            icon={<FileText size={14} />}
-            role="menuitem"
-            onClick={() => {
-              setFileReferenceMenu(null);
-              onOpenFileReference(fileReferenceMenu.reference);
-            }}
-          >
-            Open
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            icon={<FolderSearch size={14} />}
-            role="menuitem"
-            disabled={!onFileReferenceAction}
-            onClick={() => {
-              setFileReferenceMenu(null);
-              void onFileReferenceAction?.('reveal', fileReferenceMenu.reference);
-            }}
-          >
-            Open in Explorer
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            icon={<Copy size={14} />}
-            role="menuitem"
-            disabled={!onFileReferenceAction}
-            onClick={() => {
-              setFileReferenceMenu(null);
-              void onFileReferenceAction?.('copy-path', fileReferenceMenu.reference);
-            }}
-          >
-            Copy path
-          </DropdownMenuItem>
-        </DropdownMenu>,
-        document.body,
-      )}
+      {fileReferenceMenu}
     </>
   );
 });
@@ -1154,6 +1083,12 @@ function createMarkdownComponents(finalized, onOpenFileReference, onFileReferenc
         };
       }, [external, href]);
 
+      if (/^file:\/\//i.test(href ?? '')) {
+        const reference = { path: href, lineFrom: null, lineTo: null };
+        return <a {...props} href={href} className="file-reference-link" aria-haspopup="menu"
+          onClick={(event) => { event.preventDefault(); onOpenFileReference?.(reference); }}
+          onContextMenu={(event) => onFileReferenceContextMenu(event, reference)}>{children}</a>;
+      }
       if (!href?.startsWith('#file-reference=')) {
         return (
           <a
@@ -1200,6 +1135,7 @@ function createMarkdownComponents(finalized, onOpenFileReference, onFileReferenc
       return (
         <a
           className="file-reference-link"
+          aria-haspopup="menu"
           href={href}
           title={`Open ${reference.path}${lineLabel}`}
           onClick={(event) => {
@@ -1234,6 +1170,7 @@ function createMarkdownComponents(finalized, onOpenFileReference, onFileReferenc
       return (
         <a
           className="file-reference-link"
+          aria-haspopup="menu"
           href={`#file-reference=${encodeURIComponent(JSON.stringify(reference))}`}
           title={`Open ${path}${lineLabel}`}
           onClick={(event) => {

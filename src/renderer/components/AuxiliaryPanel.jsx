@@ -1,7 +1,5 @@
 import Avatar from 'boring-avatars';
 import { memo, useEffect, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -30,6 +28,7 @@ import { ChatView } from './ChatView.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { FilesPanel } from './FilesPanel.jsx';
 import { GitReviewPanel } from './GitReviewPanel.jsx';
+import { MarkdownSegment } from './Message.jsx';
 import { ProviderPanel } from './ProviderPanel.jsx';
 
 const emptyList = Object.freeze([]);
@@ -44,20 +43,6 @@ const botPanelTabs = [
   { id: 'activity', label: 'Activity' },
 ];
 const subagentAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
-const botWorkMarkdownComponents = {
-  a: ({ children, href, node: _node, ...props }) => (
-    <a
-      href={href}
-      {...props}
-      onClick={href && /^https?:\/\//i.test(href) ? (event) => {
-        event.preventDefault();
-        window.chatApp.app.openExternal(href);
-      } : undefined}
-    >
-      {children}
-    </a>
-  ),
-};
 function BotAttachments({ attachments, onRemove }) {
   return attachments.length > 0 && (
     <ul className="bot-inbox-attachments" aria-label="Attachments">
@@ -159,6 +144,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   botQueueTabOpen = false,
   selectedBotId,
   inboxNavigation,
+  inboxOnly = false,
   onSelectBot,
   onOpenBotQueueTab,
   onCloseBotQueueTab,
@@ -244,10 +230,10 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   const pendencyBusyRef = useRef(false);
   const pendencyHeadingRef = useRef(null);
   const pendencyOpenerIdRef = useRef(null);
-  const selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? bots[0] ?? null;
+  const selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? (inboxOnly ? null : bots[0]) ?? null;
   const selectedBotState = botDataByBot[selectedBot?.id] ?? { inbox: emptyList, activity: emptyList, error: null };
   const selectedBotError = selectedBotState.errors ? selectedBotState.errors[botPanelTab] : selectedBotState.error;
-  const selectedPendency = selectedBotState.inbox.find((item) => item.id === selectedPendencyId) ?? null;
+  const selectedPendency = selectedBotState.inbox.find((item) => item.id === (inboxOnly ? inboxNavigation?.pendencyId : selectedPendencyId)) ?? null;
   const draftKey = `${selectedBot?.id}:${selectedPendency?.id}`;
   const draft = pendencyDrafts[draftKey] ?? { content: '', attachments: emptyList };
   const feedback = pendencyFeedback[draftKey];
@@ -466,9 +452,16 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
 
   return (
     <>
-      <aside className="auxiliary-panel" id="auxiliary-panel" aria-label="Auxiliary panel">
+      <aside className="auxiliary-panel" id="auxiliary-panel" aria-label={inboxOnly ? 'Inbox conversation' : 'Auxiliary panel'}>
         <header className="auxiliary-panel-header">
-          {tabs.length > 0 ? (
+          {inboxOnly ? (
+            <div className="auxiliary-empty-header">
+              <span>{selectedBot?.name ?? 'Inbox'}</span>
+              <button className="auxiliary-tab-close" type="button" aria-label="Close Inbox panel" title="Close Inbox panel" onClick={onClosePanel}>
+                <X size={13} />
+              </button>
+            </div>
+          ) : tabs.length > 0 ? (
             <div className="auxiliary-tabs-row">
               <div className="auxiliary-tabs" role="tablist" aria-label="Auxiliary panel tabs">
                 {tabs.map((tab, index) => (
@@ -581,8 +574,8 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
           id={hasActiveTab ? `auxiliary-content-${activeTab}` : undefined}
           className={`auxiliary-content${activeSubagent ? ' with-toolbar' : ''}${hasActiveTab ? '' : ' is-empty'
             }`}
-          role={hasActiveTab ? 'tabpanel' : undefined}
-          aria-labelledby={hasActiveTab ? `auxiliary-tab-${activeTab}` : undefined}
+          role={!inboxOnly && hasActiveTab ? 'tabpanel' : undefined}
+          aria-labelledby={!inboxOnly && hasActiveTab ? `auxiliary-tab-${activeTab}` : undefined}
         >
           {activeSubagent && (
             <div className="subagent-chat-toolbar">
@@ -602,6 +595,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                 </div>
               ) : (
                 <>
+                  {!inboxOnly && <>
                   <label className="bot-work-selector">
                     <Bot size={18} aria-hidden="true" />
                     <span>Bot</span>
@@ -639,11 +633,12 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                       </button>
                     ))}
                   </div>
-                  <div id="bot-work-view" className="bot-work-view" role="tabpanel" aria-labelledby={`bot-work-tab-${botPanelTab}`}>
+                  </>}
+                  <div id="bot-work-view" className="bot-work-view" role={inboxOnly ? undefined : 'tabpanel'} aria-labelledby={inboxOnly ? undefined : `bot-work-tab-${botPanelTab}`}>
                     {selectedBotError && (
                       <div className="bot-work-warning" role="alert"><AlertTriangle size={17} aria-hidden="true" /><div><strong>Unable to load {botPanelTab === 'inbox' ? 'Inbox' : 'Activity'}</strong><p>The file could not be read. Your data has not been changed.</p><details><summary>Technical details</summary><p>{selectedBotError}</p></details></div></div>
                     )}
-                    {!selectedBotError && (botPanelTab === 'activity' || !selectedPendency) && (
+                    {!inboxOnly && !selectedBotError && (botPanelTab === 'activity' || !selectedPendency) && (
                       <div className="bot-inbox-filters">
                         <label><span>Search {botPanelTab === 'inbox' ? 'Inbox' : 'Activity'}</span><input type="search" placeholder="Search" value={botQuery} onChange={(event) => setBotQuery(event.target.value)} /></label>
                         {botPanelTab === 'inbox' ? (
@@ -653,13 +648,15 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                         )}
                       </div>
                     )}
-                    {!selectedBotError && botPanelTab === 'inbox' && (selectedPendency ? (
+                    {!selectedBotError && inboxOnly && !selectedPendency && <p role="status">This Inbox conversation is no longer available.</p>}
+                    {!selectedBotError && botPanelTab === 'inbox' && (!inboxOnly || selectedPendency) && (selectedPendency ? (
                       <section className="bot-inbox-detail" aria-labelledby="bot-pendency-title">
+                        <div className="bot-inbox-history">
                         <header>
-                          <button type="button" onClick={() => {
+                          {!inboxOnly && <button type="button" onClick={() => {
                             setSelectedPendencyId(null);
                             queueMicrotask(() => document.getElementById(pendencyOpenerIdRef.current)?.focus());
-                          }}><ArrowLeft size={15} aria-hidden="true" />Inbox</button>
+                          }}><ArrowLeft size={15} aria-hidden="true" />Inbox</button>}
                           <span>{selectedPendency.status === 'completed' ? 'Completed' : hasOpenBotUserAction(selectedPendency) ? 'Needs you' : 'Waiting for bot'}</span>
                           {selectedPendency.status === 'open' && <button type="button" disabled={pendencyBusy || Boolean(selectedPendency.approval)} title={selectedPendency.approval ? 'Resolve the approval first.' : undefined} onClick={() => actOnPendency('complete')}><Check size={14} aria-hidden="true" />Complete</button>}
                         </header>
@@ -667,8 +664,12 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                         <ol className="bot-inbox-messages">
                           {selectedPendency.messages.toSorted((left, right) => new Date(right.createdAt) - new Date(left.createdAt)).map((message) => (
                             <li key={message.id} className={`from-${message.role}`}>
-                              <header><strong>{message.role === 'user' ? 'You' : selectedBot.name}</strong><time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleString()}</time></header>
-                              <div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>{message.content}</ReactMarkdown></div>
+                              <header>
+                                {message.role !== 'user' && <span className="bot-avatar" aria-hidden="true"><img src={`https://orb.aivax.net/${encodeURIComponent(selectedBot.id)}`} width={22} height={22} alt="" /></span>}
+                                <strong>{message.role === 'user' ? 'You' : selectedBot.name}</strong>
+                                <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleString()}</time>
+                              </header>
+                              <MarkdownSegment text={message.content} finalized />
                               <BotAttachments attachments={message.attachments} />
                             </li>
                           ))}
@@ -681,6 +682,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                             <div><button type="button" disabled={pendencyBusy} onClick={() => actOnPendency('approve')}>Approve</button><button type="button" disabled={pendencyBusy} onClick={() => actOnPendency('deny')}>Deny</button></div>
                           </section>
                         )}
+                        </div>
                         {selectedPendency.status === 'open' && (
                           <form className="bot-inbox-composer" onSubmit={(event) => { event.preventDefault(); void actOnPendency('reply'); }}>
                             <label className="sr-only" htmlFor="bot-pendency-reply">Reply to {selectedBot.name}</label>
@@ -711,7 +713,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                       <div className="bot-queue-empty"><BookOpen size={28} strokeWidth={1.4} aria-hidden="true" /><strong>{selectedBotState.activity.length ? 'No matching activity' : 'No activity yet'}</strong><span>Important results will appear here.</span></div>
                     ) : (
                       <ol className="bot-diary-list">{recentBotActivity.map((entry) => (
-                        <li key={entry.id}><h3>{entry.title}</h3><div className="markdown-body"><ReactMarkdown remarkPlugins={[remarkGfm]} components={botWorkMarkdownComponents}>{entry.description}</ReactMarkdown></div><small>{entry.category} · <time dateTime={entry.createdAt}>{new Date(entry.createdAt).toLocaleString()}</time></small></li>
+                        <li key={entry.id}><h3>{entry.title}</h3><MarkdownSegment text={entry.description} finalized /><small>{entry.category} · <time dateTime={entry.createdAt}>{new Date(entry.createdAt).toLocaleString()}</time></small></li>
                       ))}</ol>
                     ))}
                   </div>

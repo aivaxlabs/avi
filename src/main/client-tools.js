@@ -676,6 +676,7 @@ export const CLIENT_TOOLS = Object.freeze([
           personality: bot.personality,
           instructions: bot.instructions,
           workQueue: bot.workQueue,
+          workQueueItems: bot.workQueue.map((task, id) => ({ id, task })),
           workQueueIndex: bot.workQueueIndex,
           enabled: bot.enabled,
           running: bot.running,
@@ -773,6 +774,56 @@ export const CLIENT_TOOLS = Object.freeze([
     },
   },
   {
+    name: 'bots_read_work_log',
+    description: 'Read a bot’s inbox work logs, messages, and activity diary. Optionally select one work log and filter its status.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 1, description: 'Bot ID.' },
+        workLogId: { type: 'string', minLength: 1, description: 'Optional inbox pendency ID.' },
+        status: { type: 'string', enum: ['all', 'open', 'completed'], default: 'all' },
+      },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    execute: async ({ id, workLogId, status = 'all' }, { botManager }) => {
+      if (!botManager) throw new Error('Bot management is not available.');
+      if (!['all', 'open', 'completed'].includes(status)) throw new Error('Invalid status.');
+      const data = (await botManager.listBotDataByBot(id))[id];
+      if (workLogId && !data.error && !data.inbox.some((item) => item.id === workLogId)) {
+        throw new Error('Work log not found.');
+      }
+      return {
+        id,
+        ...data,
+        inbox: data.inbox.filter((item) => (!workLogId || item.id === workLogId) && (status === 'all' || item.status === status)),
+      };
+    },
+  },
+  {
+    name: 'bots_send_work_log_message',
+    description: 'Append a message to an existing bot inbox work log and deliver it to the bot’s main thread. Returns the persisted item and delivery status; does not resolve pending approvals.',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 1, description: 'Bot ID.' },
+        workLogId: { type: 'string', minLength: 1, description: 'Inbox pendency ID from bots_read_work_log.' },
+        message: { type: 'string', minLength: 1 },
+      },
+      required: ['id', 'workLogId', 'message'],
+      additionalProperties: false,
+    },
+    execute: async ({ id, workLogId, message }, { botManager }) => {
+      if (!botManager) throw new Error('Bot management is not available.');
+      return botManager.replyToPendency(id, workLogId, { content: message });
+    },
+  },
+  {
     name: 'bots_activate',
     description: 'Activate a bot immediately, ignoring automatic enabled, period, idle, activation-window, and activation-limit rules. With an empty work queue, the bot reviews its full scope without a specific focus task. It does not start a duplicate run.',
     canEditFile: false,
@@ -781,20 +832,76 @@ export const CLIENT_TOOLS = Object.freeze([
       type: 'object',
       properties: {
         id: { type: 'string', minLength: 1, description: 'Bot ID returned by bots_list or bots_create.' },
+        workQueueId: { type: 'integer', minimum: 0, description: 'Optional zero-based ID from workQueueItems. Overrides the focus for this activation without advancing the recurring queue cursor.' },
       },
       required: ['id'],
       additionalProperties: false,
     },
-    execute: async ({ id }, { botManager }) => {
+    execute: async ({ id, workQueueId }, { botManager }) => {
       if (!botManager) throw new Error('Bot management is not available.');
-      const activated = await botManager.activateBot(id, { trigger: 'agent', force: true });
-      const bot = botManager.describeBots().find((item) => item.id === id);
+      const activated = await botManager.activateBot(id, { trigger: 'agent', force: true, workQueueId });
       return {
         id,
         activated: activated === true,
         status: activated === true
           ? 'started'
           : 'already_running_or_start_failed',
+      };
+    },
+  },
+  {
+    name: 'chat_overview',
+    description: 'Overview of running or waiting threads, recently finished turns (completed, error, or aborted), and open bot inbox work logs. Excludes hidden side chats unless called from one.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        recentMinutes: { type: 'integer', minimum: 1, maximum: 10080, default: 60 },
+        limit: { type: 'integer', minimum: 1, maximum: 100, default: 20, description: 'Maximum recent finished threads.' },
+      },
+      additionalProperties: false,
+    },
+    execute: async ({ recentMinutes = 60, limit = 20 }, { chatRunner, botManager, conversationId }) => {
+      if (!Number.isInteger(recentMinutes) || recentMinutes < 1 || recentMinutes > 10080) throw new Error('Invalid recentMinutes.');
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid limit.');
+      if (!botManager) throw new Error('Bot management is not available.');
+      const source = conversationId ? getConversation(conversationId) : null;
+      const running = [];
+      const recentlyFinished = [];
+      const cutoff = Date.now() - recentMinutes * 60_000;
+      for (const thread of listAllConversations()) {
+        if (thread.isSideChat && !source?.isSideChat) continue;
+        const summary = {
+          id: thread.id,
+          title: thread.title,
+          folderPath: thread.projectPath,
+          type: thread.createdBy,
+          threadType: thread.conversationType,
+          parentThreadId: thread.parentConversationId,
+        };
+        const waiting = isThreadWaitingForInput(chatRunner, thread.id);
+        const sleeping = chatRunner.semaphores.waitSnapshot(thread.id);
+        if (waiting || sleeping || chatRunner.runs.has(thread.id)) {
+          running.push({ ...summary, status: waiting ? 'waiting_for_input' : sleeping ? 'sleeping' : 'running' });
+          continue;
+        }
+        if (thread.lastMessageRole === 'assistant' && ['completed', 'error', 'aborted'].includes(thread.lastMessageStatus) && Date.parse(thread.lastMessageUpdatedAt) >= cutoff) {
+          recentlyFinished.push({ ...summary, status: thread.lastMessageStatus, finishedAt: thread.lastMessageUpdatedAt });
+        }
+      }
+      recentlyFinished.sort((a, b) => Date.parse(b.finishedAt) - Date.parse(a.finishedAt));
+      const data = await botManager.listBotDataByBot();
+      return {
+        running,
+        recentlyFinished: recentlyFinished.slice(0, limit),
+        botInbox: botManager.describeBots().map((bot) => ({
+          id: bot.id,
+          name: bot.name,
+          inbox: data[bot.id]?.inbox.filter((item) => item.status === 'open') ?? [],
+          error: data[bot.id]?.error ?? null,
+        })).filter((bot) => bot.inbox.length > 0 || bot.error),
       };
     },
   },
@@ -846,7 +953,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'chat_list_threads',
-    description: 'List chat threads, optionally filtered by an exact folder path.',
+    description: 'List chat threads filtered by folder, type (user or agent creator), and parent. Includes concrete thread type and root sub-thread counts.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -856,9 +963,12 @@ export const CLIENT_TOOLS = Object.freeze([
           type: 'string',
           description: 'Optional absolute folder path used to filter threads.',
         },
+        type: { type: 'string', enum: ['all', 'user', 'agent'], default: 'all', description: 'Filter by the persisted creator of the thread.' },
+        parentThreadId: { type: ['string', 'null'], minLength: 1, description: 'Exact parent ID, or null for root threads. Omit for any parent.' },
       },
     },
-    execute: async ({ folderPath }, { chatRunner, botManager, conversationId }) => {
+    execute: async ({ folderPath, type = 'all', parentThreadId }, { chatRunner, botManager, conversationId }) => {
+      if (!['all', 'user', 'agent'].includes(type)) throw new Error('Invalid thread type.');
       if (folderPath && !isAbsolute(String(folderPath))) {
         throw new Error('folderPath must be absolute.');
       }
@@ -872,8 +982,15 @@ export const CLIENT_TOOLS = Object.freeze([
       const botsByConversationId = new Map(
         (botManager?.describeBots() ?? []).map((bot) => [bot.conversationId, bot]),
       );
-      const threads = listAllConversations()
-        .filter((conversation) => sourceConversation?.isSideChat || !conversation.isSideChat)
+      const visibleThreads = listAllConversations()
+        .filter((conversation) => sourceConversation?.isSideChat || !conversation.isSideChat);
+      const childCounts = new Map();
+      for (const thread of visibleThreads) {
+        if (thread.parentConversationId) childCounts.set(thread.parentConversationId, (childCounts.get(thread.parentConversationId) ?? 0) + 1);
+      }
+      const threads = visibleThreads
+        .filter((conversation) => type === 'all' || conversation.createdBy === type)
+        .filter((conversation) => parentThreadId === undefined || (conversation.parentConversationId ?? null) === parentThreadId)
         .filter((conversation) => {
           if (!folderKey) return true;
           const conversationPath = resolve(conversation.projectPath);
@@ -885,6 +1002,10 @@ export const CLIENT_TOOLS = Object.freeze([
           return {
             id: conversation.id,
             title: bot?.name ?? conversation.title,
+            type: conversation.createdBy,
+            threadType: conversation.conversationType,
+            parentThreadId: conversation.parentConversationId ?? null,
+            subThreadCount: childCounts.get(conversation.id) ?? 0,
             folderPath: conversation.projectPath,
             model: bot ? `~avi-bot/${bot.name}` : conversation.model,
             status: isThreadWaitingForInput(chatRunner, conversation.id)
@@ -904,6 +1025,8 @@ export const CLIENT_TOOLS = Object.freeze([
         threads.map((thread) => [
           `- ${thread.title}`,
           `  ID: ${thread.id}`,
+          `  Type: ${thread.type} (${thread.threadType})`,
+          ...(thread.parentThreadId ? [`  Parent thread: ${thread.parentThreadId}`] : [`  Sub-threads: ${thread.subThreadCount}`]),
           `  Folder: ${thread.folderPath}`,
           `  Model: ${thread.model}`,
           `  Status: ${thread.status}`,

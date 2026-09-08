@@ -7,7 +7,6 @@ import {
   Clock3,
   Cpu,
   Database,
-  Dices,
   FolderOpen,
   Plus,
   RotateCcw,
@@ -17,13 +16,11 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
-import Avatar from 'boring-avatars';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { classNames } from '../lib/format.js';
 import { McpSettings } from './McpSettings.jsx';
 
-const botAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
 const builtInPersonalities = ['candid', 'cynical', 'friendly', 'pragmatic', 'quirky'];
 const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const tabs = [
@@ -202,10 +199,6 @@ export function BotSettingsDialog({
     onFullReset?.(bot?.id);
   }
 
-  function rerollIcon() {
-    update({ iconSeed: crypto.randomUUID() });
-  }
-
   return createPortal(
     <div className="dialog-backdrop bot-settings-backdrop" onMouseDown={onClose}>
       <section
@@ -282,17 +275,8 @@ export function BotSettingsDialog({
                   <div className="bot-settings-profile">
                     <div className="bot-settings-avatar">
                       <span className="bot-avatar large" aria-hidden="true">
-                        <Avatar
-                          size={48}
-                          name={draft.iconSeed}
-                          variant="beam"
-                          colors={botAvatarColors}
-                        />
+                        {bot?.id && <img src={`https://orb.aivax.net/${encodeURIComponent(bot.id)}`} width={48} height={48} alt="" />}
                       </span>
-                      <button type="button" onClick={rerollIcon}>
-                        <Dices size={14} aria-hidden="true" />
-                        New icon
-                      </button>
                     </div>
                     <label className="bot-settings-control grow">
                       <span>Name</span>

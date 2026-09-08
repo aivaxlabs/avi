@@ -4,6 +4,7 @@ import {
   createCipheriv,
   createDecipheriv,
   randomBytes,
+  randomInt,
 } from 'node:crypto';
 import {
   mkdirSync,
@@ -66,7 +67,7 @@ const defaultTuningSettings = Object.freeze({
   logLevel: 'minimal',
 });
 const defaultRemoteSettings = Object.freeze({
-  enabled: false,
+  enabled: true,
   port: 18992,
 });
 const defaultAivaxSettings = Object.freeze({
@@ -874,16 +875,22 @@ const statements = {
     ORDER BY c.created_at ASC
   `),
   listAllConversations: db.prepare(`
-    SELECT c.*,
+    SELECT c.*, latest.role AS last_message_role,
+      latest.status AS last_message_status, latest.updated_at AS last_message_updated_at,
       COALESCE((
         SELECT content FROM messages
         WHERE conversation_id = c.id AND role = 'user' AND hidden = 0
         ORDER BY created_at LIMIT 1
       ), '') AS first_prompt
     FROM conversations c
-    WHERE deleted_at IS NULL
-      AND archived_at IS NULL
-    ORDER BY updated_at DESC
+    LEFT JOIN messages latest ON latest.id = (
+      SELECT id FROM messages
+      WHERE conversation_id = c.id AND hidden = 0 AND role IN ('user', 'assistant')
+      ORDER BY created_at DESC, rowid DESC LIMIT 1
+    )
+    WHERE c.deleted_at IS NULL
+      AND c.archived_at IS NULL
+    ORDER BY c.updated_at DESC
   `),
   listAllConversationsWithLatestReasoning: db.prepare(`
     SELECT c.*,
@@ -1494,8 +1501,9 @@ export function setTuningSettings(value) {
 export function getRemoteSettings() {
   const stored = readJson('remoteSettings');
   const settings = normalizeRemoteSettings(stored);
-  if (!settings.relayDeviceId) {
-    settings.relayDeviceId = crypto.randomUUID();
+  if (!settings.relayDeviceId || !settings.instanceId) {
+    settings.relayDeviceId ||= crypto.randomUUID();
+    settings.instanceId ||= Array.from({ length: 10 }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[randomInt(36)]).join('');
     writeJson('remoteSettings', settings);
   }
   return settings;
@@ -1503,7 +1511,7 @@ export function getRemoteSettings() {
 
 export function setRemoteSettings(value) {
   const current = getRemoteSettings();
-  const settings = normalizeRemoteSettings({ ...current, ...value, relayDeviceId: current.relayDeviceId }, true);
+  const settings = normalizeRemoteSettings({ ...current, ...value, relayDeviceId: current.relayDeviceId, instanceId: current.instanceId }, true);
   writeJson('remoteSettings', settings);
   return settings;
 }
@@ -1582,12 +1590,16 @@ export function createRemoteApiKey({ label, expiresAt = null } = {}) {
   if (expiration && (Number.isNaN(expiration.getTime()) || expiration.getTime() <= Date.now())) {
     throw new Error('The remote API key expiration must be a future date.');
   }
+  let value;
+  do {
+    value = Array.from({ length: 6 }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[randomInt(36)]).join('');
+  } while (secureStorage.remoteApiKeys.some((key) => key.value === value));
   const key = {
     id: crypto.randomUUID(),
     label: normalizedLabel,
     expiresAt: expiration ? expiration.toISOString() : null,
     createdAt: timestamp(),
-    value: randomBytes(32).toString('base64url'),
+    value,
   };
   writeRemoteApiKeys([...secureStorage.remoteApiKeys, key]);
   return key;
@@ -3250,8 +3262,9 @@ function normalizeRemoteSettings(value, strict = false) {
   const settings = value && typeof value === 'object' ? value : {};
   const port = Number(settings.port ?? defaultRemoteSettings.port);
   const normalized = {
-    enabled: settings.enabled === true,
+    enabled: settings.enabled === undefined ? defaultRemoteSettings.enabled : settings.enabled === true,
     relayEnabled: settings.relayEnabled === true,
+    instanceId: typeof settings.instanceId === 'string' && /^[a-z0-9]{10}$/.test(settings.instanceId) ? settings.instanceId : null,
     relayDeviceId: typeof settings.relayDeviceId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(settings.relayDeviceId)
       ? settings.relayDeviceId
       : null,
@@ -3420,6 +3433,7 @@ function mapConversation(row) {
     firstPrompt: row.first_prompt ?? '',
     lastMessageRole: row.last_message_role ?? null,
     lastMessageStatus: row.last_message_status ?? null,
+    lastMessageUpdatedAt: row.last_message_updated_at ?? null,
     needsAttention: ['error', 'aborted', 'streaming'].includes(row.last_message_status)
       || (
         row.last_message_role === 'user'

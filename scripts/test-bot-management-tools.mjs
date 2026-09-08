@@ -445,6 +445,38 @@ try {
   assert.equal(storedAttachments[0].name, 'sample-attachment.txt');
   assert.match(storedAttachments[0].text, /attachment body/);
 
+  const workLog = await tool('bots_read_work_log').execute({ id: created.bot.id, workLogId: contentOnlyPendency.id }, context);
+  assert.equal(workLog.inbox.length, 1);
+  assert.ok(Array.isArray(workLog.activity));
+  const sentWorkLog = await tool('bots_send_work_log_message').execute({ id: created.bot.id, workLogId: contentOnlyPendency.id, message: 'Continue this task.' }, context);
+  assert.equal(sentWorkLog.delivered, true);
+  assert.equal(sentWorkLog.item.messages.at(-1).content, 'Continue this task.');
+  await assert.rejects(() => tool('bots_read_work_log').execute({ id: 'missing' }, context), /Bot not found/);
+  await assert.rejects(() => tool('bots_read_work_log').execute({ id: created.bot.id, workLogId: 'missing' }, context), /Work log not found/);
+  await tool('bots_update').execute({ id: created.bot.id, changes: { workQueue: ['Explicit queue item', 'Other item'] } }, context);
+  const cursorBefore = getBot(created.bot.id).workQueueIndex;
+  await tool('bots_activate').execute({ id: created.bot.id, workQueueId: 1 }, context);
+  assert.match(activationRequests.at(-1).text, /<focus-task>Other item<\/focus-task>/);
+  assert.equal(getBot(created.bot.id).workQueueIndex, cursorBefore);
+  await assert.rejects(() => tool('bots_activate').execute({ id: created.bot.id, workQueueId: 2 }, context), /workQueueId/);
+  chatRunner.runs.set(externalHolder.id, {});
+  database.insertMessage({ conversationId: workThreadId, role: 'assistant', status: 'completed', content: 'Done.' });
+  const overview = await tool('chat_overview').execute({}, context);
+  assert.ok(overview.running.some((thread) => thread.id === externalHolder.id));
+  assert.ok(overview.botInbox.find((bot) => bot.id === created.bot.id).inbox.every((item) => item.status === 'open'));
+  assert.equal(overview.recentlyFinished[0].id, workThreadId);
+  assert.equal(overview.recentlyFinished[0].status, 'completed');
+  database.insertMessage({ conversationId: workThreadId, role: 'user', status: 'queued', content: 'More work.' });
+  assert.ok(!(await tool('chat_overview').execute({}, context)).recentlyFinished.some((thread) => thread.id === workThreadId));
+  await assert.rejects(() => tool('chat_overview').execute({ limit: 0 }, context), /Invalid limit/);
+  const agentThreads = await tool('chat_list_threads').execute({ type: 'agent', parentThreadId: created.bot.conversationId }, context);
+  assert.match(agentThreads, new RegExp(workThreadId));
+  assert.match(agentThreads, /Type: agent/);
+  const roots = await tool('chat_list_threads').execute({ parentThreadId: null }, context);
+  assert.ok(!roots.includes(workThreadId));
+  assert.match(roots, /Sub-threads: 1/);
+  assert.deepEqual((await tool('bots_list').execute({}, context)).bots.find((bot) => bot.id === created.bot.id).workQueueItems, [{ id: 0, task: 'Explicit queue item' }, { id: 1, task: 'Other item' }]);
+
   assert.equal(tool('bots_delete').forceApproval, true);
   assert.equal(await tool('bots_delete').execute({ id: created.bot.id }, context).then((result) => result.deleted), true);
   assert.equal(getBot(created.bot.id), null);

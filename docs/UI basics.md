@@ -56,6 +56,12 @@ Type `/` to open Avi actions and workflows, or `$` to open skills. These selecto
 
 Type `@` at the start of the message or after whitespace to mention an enabled global or project MCP server, a file or directory under the current project, or optional `@thread` and `@memory` context. Workspace paths are fuzzy-matched from an asynchronous in-memory index that refreshes after five minutes; selecting a result adds a removable context chip without changing the surrounding message text.
 
+## Local files and terminals
+
+Click a `file:///` link or a file reference to preview it in Files. Absolute paths and file URLs require confirmation before access. Right-click a file reference or an item in **Edited files** for **Open**, **Copy path**, and **Open in explorer**; Open retains the file preview or edit diff. The menus support arrow keys and Escape. Explorer reveals the physical target when the workspace uses symbolic links.
+
+Use **Open in terminal** on a sidebar folder to start the configured interactive shell in that folder. The terminal stays open for commands.
+
 ## Work and orchestration modes
 
 ### Normal

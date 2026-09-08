@@ -3,7 +3,7 @@
   height: 100%;
   overflow: auto;
   padding: 72px clamp(24px, 5vw, 72px) 48px;
-    background: var(--background-1);
+  background: var(--background-1);
   color: var(--text-1);
   scrollbar-width: thin;
   scrollbar-color: var(--text-4) transparent;
@@ -17,13 +17,20 @@
       gap: 16px;
       margin-bottom: 24px;
       flex-wrap: wrap;
+
       > label {
         display: grid;
         gap: 6px;
         color: var(--text-3);
         font-size: .9rem;
-        &:first-child { flex: 1; min-width: 180px; }
-        > input, > select {
+
+        &:first-child {
+          flex: 1;
+          min-width: 180px;
+        }
+
+        > input,
+        > select {
           min-height: 34px;
           padding: 6px 10px;
           border: 1px solid var(--border-color);
@@ -54,49 +61,104 @@
       color: var(--text-2);
       text-align: left;
       cursor: pointer;
-      &:hover { background: var(--background-2); }
-      &:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
-      > svg { flex-shrink: 0; }
+
+      &:hover {
+        background: var(--background-2);
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--primary-color);
+        outline-offset: -2px;
+      }
+
+      > svg {
+        flex-shrink: 0;
+      }
+
       > .orchestration-inbox-dot {
         width: 6px;
         height: 6px;
         flex-shrink: 0;
         border-radius: 50%;
       }
-      &.needs-user > .orchestration-inbox-dot { background: var(--primary-color); }
+
+      &.needs-user > .orchestration-inbox-dot {
+        background: var(--primary-color);
+      }
+
       > .orchestration-inbox-sender {
         width: 160px;
         flex-shrink: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        font-weight: 400;
       }
+
       > .orchestration-inbox-copy {
         display: flex;
         gap: 10px;
         min-width: 0;
         flex: 1;
-        > strong, > span {
+
+        > strong,
+        > span {
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        > strong { max-width: 55%; color: var(--text-1); font-weight: 500; }
-        > span { flex: 1; color: var(--text-3); }
+
+        > strong {
+          max-width: 55%;
+          color: var(--text-2);
+          font-weight: 400;
+        }
+
+        > span {
+          flex: 1;
+          color: var(--text-3);
+        }
       }
-      &.needs-user > .orchestration-inbox-copy > strong { font-weight: 650; }
-      > time { margin-left: auto; flex-shrink: 0; color: var(--text-3); font-size: .9rem; }
+
+      & .needs-user {
+
+        > .orchestration-inbox-sender {
+          color: --text-1;
+          font-weight: 500;
+        }
+
+        > .orchestration-inbox-copy > strong {
+          font-weight: 500;
+          color: --text-1;
+        }
+      }
+
+      > time {
+        margin-left: auto;
+        flex-shrink: 0;
+        color: var(--text-3);
+        font-size: .9rem;
+      }
+
       @media (max-width: 800px) {
         gap: 8px;
         flex-wrap: wrap;
-        > .orchestration-inbox-sender { width: auto; flex: 1; }
+
+        > .orchestration-inbox-sender {
+          width: auto;
+          flex: 1;
+        }
+
         > .orchestration-inbox-copy {
           order: 1;
           flex-basis: 100%;
           padding-left: 44px;
           flex-direction: column;
           gap: 4px;
-          > strong { max-width: 100%; }
+
+          > strong {
+            max-width: 100%;
+          }
         }
       }
     }
@@ -653,6 +715,7 @@
   }
 
   .usage-breakdown-copy {
+
     strong,
     span {
       overflow: hidden;

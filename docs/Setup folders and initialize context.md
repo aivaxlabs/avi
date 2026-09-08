@@ -6,6 +6,8 @@ A conversation folder is its workspace: files, `:fileref{path="./path"}` referen
 
 Before the first message, open the folder picker in the composer and choose **Home**, a recent folder, or **Choose folder**. Avi stores the absolute path and detects the Git branch when available.
 
+The picker lists up to 30 distinct recent projects, ordered by their conversations' latest activity. Archived or deleted conversations do not contribute projects, and search filters only this recent list.
+
 After the thread is created, the folder is locked. Create a new conversation to use a different workspace.
 
 ## Initialize the project with `/init`
