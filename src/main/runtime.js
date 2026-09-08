@@ -214,8 +214,10 @@ let remoteMcpServer;
 let remoteStartError = '';
 const remoteRelay = new RemoteRelay({
   deviceId: getRemoteSettings().relayDeviceId,
+  instanceId: getRemoteSettings().instanceId,
   name: hostname().slice(0, 128),
   createLocalSocket: (path, identity) => remoteMcpServer.createRelaySocket(path, identity),
+  handleMcpRequest: (request, instanceKey) => remoteMcpServer.handleMcpRequest(request, instanceKey),
 });
 
 function synchronizeRemoteRelay() {
@@ -1006,6 +1008,7 @@ function initializeServices() {
   });
   if (!remoteMcpServer) {
     remoteMcpServer = new RemoteMcpServer({
+      getInstanceId: () => getRemoteSettings().instanceId,
       chatRunner,
       botManager,
       providerRegistry,
@@ -1021,8 +1024,8 @@ function initializeServices() {
       },
     });
     const settings = getRemoteSettings();
-    if (settings.enabled && getRemoteApiKeys().length === 0) setRemoteSettings({ ...settings, enabled: false });
-    else if (settings.enabled) remoteMcpServer.start(settings.port).catch((error) => {
+    if (settings.enabled && getRemoteApiKeys().length === 0) createRemoteApiKey({ label: 'Default' });
+    if (settings.enabled) remoteMcpServer.start(settings.port).catch((error) => {
       if (error?.code === 'EADDRINUSE') {
         remoteStartError = `Remote control could not start in this Avi instance because port ${settings.port} is already in use.`;
       } else {
@@ -1538,6 +1541,12 @@ function registerIpc() {
     const apiKey = getRemoteApiKeys().find((key) => key.id === id);
     if (!apiKey) throw new Error('Remote API key not found.');
     clipboard.writeText(apiKey.value);
+    return { copied: true };
+  });
+  applicationIpc.handle('remote:copy-instance-key', (_event, id) => {
+    const apiKey = getRemoteApiKeys().find((key) => key.id === id);
+    if (!apiKey) throw new Error('Remote API key not found.');
+    clipboard.writeText(`${getRemoteSettings().instanceId}@${apiKey.value}`);
     return { copied: true };
   });
   applicationIpc.handle('remote:remove-key', async (_event, id) => {
@@ -2833,15 +2842,16 @@ function registerIpc() {
     if (error) throw new Error(`Could not open "${payload.filePath}": ${error}`);
     return true;
   });
-  applicationIpc.handle('files:reveal', (_event, payload = {}) => {
-    shell.showItemInFolder(resolveWorkspacePath(
+  applicationIpc.handle('files:reveal', async (_event, payload = {}) => {
+    const filePath = resolveWorkspacePath(
       payload.folderPath,
       payload.filePath,
       {
         allowExternalSymlinks: true,
         allowOutsideRoot: payload.allowExternalReference === true,
       },
-    ));
+    );
+    shell.showItemInFolder(await realpath(filePath));
     return true;
   });
   applicationIpc.handle('files:copy-path', (_event, payload = {}) => {
@@ -3064,38 +3074,28 @@ function openTerminalAt(folderPath) {
     }
   }
 
-  const quotedPath = `'${folderPath.replaceAll("'", "'\\''")}'`;
   const args = shellName.includes('powershell') || shellName === 'pwsh'
-    ? ['-NoLogo', '-NoProfile', '-NoExit', '-Command', `Set-Location -LiteralPath ${quotedPath}`]
+    ? ['-NoLogo', '-NoProfile', '-NoExit']
     : shellName === 'cmd'
-      ? ['/K', 'cd', '/d', folderPath]
-      : ['-c', `cd ${quotedPath} && exec ${terminalShell.executable}`];
-  const child = process.platform === 'win32'
-    ? spawn(process.env.ComSpec || 'cmd.exe', [
-      '/d',
-      '/s',
-      '/c',
-      'start',
-      '',
-      '/D',
-      folderPath,
-      terminalShell.executable,
-      ...args,
-    ], {
-      cwd: folderPath,
-      detached: true,
-      env: process.env,
-      shell: false,
-      stdio: 'ignore',
-      windowsHide: true,
-    })
-    : spawn(terminalShell.executable, args, {
-      cwd: folderPath,
-      detached: process.platform === 'linux',
-      env: process.env,
-      shell: false,
-      windowsHide: false,
-    });
+      ? ['/d', '/K']
+      : ['-i'];
+  const launcher = process.platform === 'win32'
+    ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    : terminalShell.executable;
+  const launchArgs = process.platform === 'win32'
+    ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(
+      `Start-Process -FilePath '${terminalShell.executable.replaceAll("'", "''")}' -WorkingDirectory '${folderPath.replaceAll("'", "''")}' -ArgumentList '${args.join(' ')}'`,
+      'utf16le',
+    ).toString('base64')]
+    : args;
+  const child = spawn(launcher, launchArgs, {
+    cwd: folderPath,
+    detached: process.platform === 'win32' || process.platform === 'linux',
+    env: process.env,
+    shell: false,
+    stdio: 'ignore',
+    windowsHide: process.platform === 'win32',
+  });
   if (process.platform === 'win32' || process.platform === 'linux') child.unref();
   child.once('error', (error) => {
     traceError('shell.open-terminal-error', {

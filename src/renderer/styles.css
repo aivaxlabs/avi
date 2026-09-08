@@ -184,7 +184,7 @@ body.panel-resizing * {
     position: absolute;
     max-width: 220px;
     min-width: 110px;
-    width: fit-content;
+    width: max-content;
     padding: 4px;
     display: grid;
     gap: 2px;
@@ -4754,10 +4754,18 @@ body.panel-resizing * {
     flex: 1 1 150px;
 }
 
-.settings-page .remote-key-actions {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+.settings-page .remote-key-menu {
+    position: relative;
+}
+
+.settings-page .remote-key-menu .dropdown-menu {
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 20;
+}
+
+.settings-page .remote-key-menu .dropdown-menu-item.danger:hover:not(:disabled) {
+    color: var(--danger-color);
 }
 
 .settings-page .remote-action {
@@ -5149,10 +5157,6 @@ body.panel-resizing * {
     .settings-page .remote-create-inputs {
         width: 100%;
     }
-
-    .settings-page .remote-key-actions {
-        flex-wrap: wrap;
-    }
 }
 /* components\button.xcss */
 button {
@@ -5503,7 +5507,7 @@ button svg {
     flex: 0 0 auto;
 }
 
-.bot-avatar svg {
+.bot-avatar img {
     display: block;
     border-radius: 50%;
 }
@@ -5558,12 +5562,14 @@ button svg {
     height: 16px;
     display: grid;
     place-items: center;
+    align-content: center;
     padding: 0 4px;
     color: var(--text-5);
     background: var(--danger-color);
     border-radius: 999px;
     font-size: var(--font-xs);
     font-weight: 600;
+    line-height: 1;
 }
 
 .agent-thread-icon {
@@ -5593,6 +5599,10 @@ button svg {
     gap: 16px;
     padding: 18px;
     container-type: inline-size;
+}
+
+.bot-queue:has( > .bot-work-view:only-child) {
+    grid-template-rows: minmax(0, 1fr);
 }
 
 .bot-work-selector {
@@ -5700,6 +5710,12 @@ button svg {
     scrollbar-gutter: stable;
     scrollbar-width: thin;
     scrollbar-color: var(--text-4) transparent;
+}
+
+.bot-work-view:has( > .bot-inbox-detail) {
+    overflow: hidden;
+    grid-template-rows: minmax(0, 1fr);
+    align-content: stretch;
 }
 
 .bot-work-view::-webkit-scrollbar {
@@ -5926,12 +5942,27 @@ button svg {
 
 .bot-queue .bot-inbox-detail {
     min-width: 0;
-    display: grid;
-    align-content: start;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     gap: 8px;
 }
 
-.bot-queue .bot-inbox-detail > header {
+.bot-queue .bot-inbox-detail > .bot-inbox-composer, .bot-queue .bot-inbox-detail > .bot-inbox-feedback {
+    flex: 0 0 auto;
+}
+
+.bot-queue .bot-inbox-history {
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+    overflow: auto;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--text-4) transparent;
+}
+
+.bot-queue .bot-inbox-history > header {
     min-width: 0;
     display: flex;
     align-items: center;
@@ -5939,7 +5970,7 @@ button svg {
     gap: 6px;
 }
 
-.bot-queue .bot-inbox-detail > header > button, .bot-queue .bot-inbox-detail > header > span {
+.bot-queue .bot-inbox-history > header > button, .bot-queue .bot-inbox-history > header > span {
     min-width: 0;
     min-height: 30px;
     display: inline-flex;
@@ -5954,36 +5985,36 @@ button svg {
     font-size: var(--font-sm);
 }
 
-.bot-queue .bot-inbox-detail > header > button:hover:not(:disabled) {
+.bot-queue .bot-inbox-history > header > button:hover:not(:disabled) {
     color: var(--text-1);
     background: var(--item-hover);
 }
 
-.bot-queue .bot-inbox-detail > header > button:focus-visible {
+.bot-queue .bot-inbox-history > header > button:focus-visible {
     outline: 2px solid var(--primary-color);
     outline-offset: 1px;
 }
 
-.bot-queue .bot-inbox-detail > header > button:disabled {
+.bot-queue .bot-inbox-history > header > button:disabled {
     opacity: .55;
 }
 
-.bot-queue .bot-inbox-detail > header > button:first-child {
+.bot-queue .bot-inbox-history > header > button:first-child {
     margin-right: auto;
 }
 
-.bot-queue .bot-inbox-detail > header > span {
+.bot-queue .bot-inbox-history > header > span {
     color: var(--text-3);
     background: var(--background-2);
     overflow-wrap: anywhere;
     text-transform: capitalize;
 }
 
-.bot-queue .bot-inbox-detail > header > span + button {
+.bot-queue .bot-inbox-history > header > span + button {
     color: var(--primary-color);
 }
 
-.bot-queue .bot-inbox-detail > h2 {
+.bot-queue .bot-inbox-history > h2 {
     min-width: 0;
     margin: 10px 0 8px;
     color: var(--text-1);
@@ -6014,7 +6045,7 @@ button svg {
     padding: 10px 20px;
     min-width: 0;
     display: flex;
-    align-items: baseline;
+    align-items: center;
     flex-wrap: wrap;
     gap: 3px 8px;
     margin-bottom: 5px;
@@ -11307,6 +11338,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-weight: 400;
 }
 
 .orchestration-page .orchestration-inbox .orchestration-inbox-row > .orchestration-inbox-copy {
@@ -11324,8 +11356,8 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 
 .orchestration-page .orchestration-inbox .orchestration-inbox-row > .orchestration-inbox-copy > strong {
     max-width: 55%;
-    color: var(--text-1);
-    font-weight: 500;
+    color: var(--text-2);
+    font-weight: 400;
 }
 
 .orchestration-page .orchestration-inbox .orchestration-inbox-row > .orchestration-inbox-copy > span {
@@ -11333,8 +11365,14 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     color: var(--text-3);
 }
 
+.orchestration-page .orchestration-inbox .orchestration-inbox-row.needs-user > .orchestration-inbox-sender {
+    color: var(--text-1);
+    font-weight: 500;
+}
+
 .orchestration-page .orchestration-inbox .orchestration-inbox-row.needs-user > .orchestration-inbox-copy > strong {
-    font-weight: 650;
+    font-weight: 500;
+    color: var(--text-1);
 }
 
 .orchestration-page .orchestration-inbox .orchestration-inbox-row > time {

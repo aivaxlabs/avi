@@ -287,6 +287,7 @@ test('starts idle with the exact secret-free snapshot shape and no network activ
     status: 'stopped',
     serverUrl: AIVAX_RELAY_URL,
     deviceId: DEVICE_ID,
+    mcpUrl: `${AIVAX_RELAY_URL}/mcp/${DEVICE_ID}`,
     localPort: null,
     error: '',
   });

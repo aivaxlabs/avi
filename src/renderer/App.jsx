@@ -182,7 +182,7 @@ export default function App() {
   const [botSettingsTarget, setBotSettingsTarget] = useState(null);
   const [botQueueTabOpen, setBotQueueTabOpen] = useState(false);
   const [selectedBotLogId, setSelectedBotLogId] = useState('');
-  const [botInboxNavigation, setBotInboxNavigation] = useState(null);
+  const [overviewInboxNavigation, setOverviewInboxNavigation] = useState(null);
   const [tasksByConversation, setTasksByConversation] = useState({});
   const [providerPanels, setProviderPanels] = useState([]);
   const [openProviderPanelIds, setOpenProviderPanelIds] = useState([]);
@@ -339,7 +339,7 @@ export default function App() {
         displayPath: conversation.projectDisplayPath,
         gitBranch: conversation.gitBranch,
       });
-      if (projects.length === 8) break;
+      if (projects.length === 30) break;
     }
 
     return projects;
@@ -1169,7 +1169,6 @@ export default function App() {
   }
 
   function openBotQueueTab(botId = null) {
-    setBotInboxNavigation(null);
     if (botId) setSelectedBotLogId(botId);
     setBotQueueTabOpen(true);
     setActiveSubagentId(null);
@@ -1183,7 +1182,8 @@ export default function App() {
   }
 
   function openFileReference(reference) {
-    const outsideWorkspace = reference.path.replaceAll('\\', '/').split('/').includes('..');
+    const outsideWorkspace = /^(?:file:\/\/|[a-z]:[\\/]|[\\/])/i.test(reference.path)
+      || reference.path.replaceAll('\\', '/').split('/').includes('..');
     if (
       outsideWorkspace
       && !window.confirm(`"${reference.path}" is outside the current repository. Continue to open it?`)
@@ -1201,7 +1201,8 @@ export default function App() {
 
   async function handleFileReferenceAction(action, reference, project = currentProject) {
     if (!project?.path) return;
-    const outsideWorkspace = reference.path.replaceAll('\\', '/').split('/').includes('..');
+    const outsideWorkspace = /^(?:file:\/\/|[a-z]:[\\/]|[\\/])/i.test(reference.path)
+      || reference.path.replaceAll('\\', '/').split('/').includes('..');
     if (
       outsideWorkspace
       && !window.confirm(`"${reference.path}" is outside the current repository. Continue?`)
@@ -2258,6 +2259,8 @@ export default function App() {
     changeGoal(thread.id, action, specification)
   ));
 
+  const overviewInboxVisible = orchestrationOpen && Boolean(overviewInboxNavigation);
+  const sidePanelVisible = orchestrationOpen ? overviewInboxVisible : auxiliaryPanelVisible;
   const narrowWindow = windowWidth <= 700;
   const effectiveSidebarCollapsed = narrowWindow || sidebarCollapsed;
   const sidebarWidthMax = Math.max(
@@ -2265,7 +2268,7 @@ export default function App() {
     Math.min(
       420,
       windowWidth
-        - (auxiliaryPanelVisible ? auxiliaryPanelWidth : 0)
+        - (sidePanelVisible ? auxiliaryPanelWidth : 0)
         - minimumMainContentWidth,
     ),
   );
@@ -2470,7 +2473,7 @@ export default function App() {
             />
           )}
           <div
-            className={`chat-workspace${auxiliaryPanelVisible && !orchestrationOpen
+            className={`chat-workspace${sidePanelVisible
               ? ' with-auxiliary-panel'
               : ''}`}
           >
@@ -2481,9 +2484,7 @@ export default function App() {
                 botsLoading={botsLoading}
                 onRefreshBots={refreshBots}
                 onOpenBotPendency={(botId, pendencyId) => {
-                  setOrchestrationOpen(false);
-                  openBotQueueTab(botId);
-                  setBotInboxNavigation({ botId, pendencyId });
+                  setOverviewInboxNavigation({ botId, pendencyId });
                 }}
                 models={models}
                 onOpenThread={(id) => {
@@ -2561,9 +2562,9 @@ export default function App() {
               continuationRepliesEnabled={appState.tuning.continuationRepliesEnabled}
               />
             )}
-            {!orchestrationOpen && auxiliaryPanelVisible && (
+            {sidePanelVisible && (
               <PanelResizer
-                label="Resize auxiliary panel"
+                label={overviewInboxVisible ? 'Resize Inbox panel' : 'Resize auxiliary panel'}
                 controls="auxiliary-panel"
                 value={effectiveAuxiliaryPanelWidth}
                 min={minimumAuxiliaryPanelWidth}
@@ -2609,6 +2610,25 @@ export default function App() {
                 <PanelRightOpen size={17} />
               </button>
             )}
+            {overviewInboxVisible && (
+              <AuxiliaryPanel
+                inboxOnly
+                sideChats={emptyList}
+                subagents={emptyList}
+                models={models}
+                bots={bots}
+                botDataByBot={botDataByBot}
+                botsLoading={botsLoading}
+                selectedBotId={overviewInboxNavigation.botId}
+                inboxNavigation={overviewInboxNavigation}
+                activeTab="bot-queue"
+                botQueueTabOpen
+                onResolveBotApproval={auxiliaryOnResolveBotApproval}
+                onReplyBotPendency={auxiliaryOnReplyBotPendency}
+                onCompleteBotPendency={auxiliaryOnCompleteBotPendency}
+                onClosePanel={() => setOverviewInboxNavigation(null)}
+              />
+            )}
             {!orchestrationOpen && auxiliaryPanelVisible && (
               <AuxiliaryPanel
                 sideChats={sideChats}
@@ -2620,7 +2640,6 @@ export default function App() {
                 onCompleteBotPendency={auxiliaryOnCompleteBotPendency}
                 botQueueTabOpen={botQueueTabOpen}
                 selectedBotId={selectedBotLogId}
-                inboxNavigation={botInboxNavigation}
                 onSelectBot={setSelectedBotLogId}
                 onOpenBotQueueTab={auxiliaryOnOpenBotQueueTab}
                 onCloseBotQueueTab={auxiliaryOnCloseBotQueueTab}

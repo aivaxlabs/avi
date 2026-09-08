@@ -2957,10 +2957,18 @@
       flex: 1 1 150px;
     }
   }
-  .remote-key-actions {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+  .remote-key-menu {
+    position: relative;
+
+    .dropdown-menu {
+      top: calc(100% + 6px);
+      right: 0;
+      z-index: 20;
+    }
+
+    .dropdown-menu-item.danger:hover:not(:disabled) {
+      color: var(--danger-color);
+    }
   }
 
   .remote-action {
@@ -3031,10 +3039,6 @@
 
     .remote-create-inputs {
       width: 100%;
-    }
-
-    .remote-key-actions {
-      flex-wrap: wrap;
     }
   }
 }

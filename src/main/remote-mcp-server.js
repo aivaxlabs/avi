@@ -20,6 +20,9 @@ import { applySubagentModelSchema } from './default-models.js';
 
 const REMOTE_TOOL_NAMES = new Set([
   'bots_list',
+  'bots_read_work_log',
+  'bots_send_work_log_message',
+  'chat_overview',
   'bots_create',
   'bots_update',
   'bots_delete',
@@ -152,6 +155,7 @@ export class RemoteMcpServer {
     providerRegistry,
     getPreferences,
     getApiKeys,
+    getInstanceId = () => null,
     invokeApplicationRequest,
     subscribeChatEvents,
     resolveConversationProjectPath,
@@ -161,6 +165,7 @@ export class RemoteMcpServer {
     this.providerRegistry = providerRegistry;
     this.getPreferences = getPreferences;
     this.getApiKeys = getApiKeys;
+    this.getInstanceId = getInstanceId;
     this.invokeApplicationRequest = invokeApplicationRequest;
     this.subscribeChatEvents = subscribeChatEvents;
     this.resolveConversationProjectPath = resolveConversationProjectPath;
@@ -637,7 +642,13 @@ export class RemoteMcpServer {
     return { ...next, conversationId };
   }
 
-  async handleMcpRequest(request) {
+  async handleMcpRequest(request, instanceKey) {
+    if (instanceKey !== undefined) {
+      const instanceId = this.getInstanceId();
+      const prefix = `${instanceId}@`;
+      if (!instanceId || typeof instanceKey !== 'string' || !instanceKey.startsWith(prefix)
+        || !this.isAuthorized(`Bearer ${instanceKey.slice(prefix.length)}`)) return this.unauthorized();
+    }
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

@@ -2,7 +2,7 @@
 
 Wire contract for external clients ("consumers") that reach a published Avi instance through the RPC WAN bridge — for example, a Workspace build connecting to a user's desktop Avi. It covers only relay access; ordinary RPC behavior is documented in the [RPC overview](overview.md) and [authentication](authentication.md).
 
-The relay documented here runs at `https://avi-relay.projpw.workers.dev` on Cloudflare Workers. Avi and the Workspace client stack are verified locally across real components — Workspace RpcClient/RelaySocket against Avi's RemoteRelay/RemoteMcpServer through the deployed Worker implementation, with AIVAX authentication mocked. A live run against the deployed relay service is **not verified**.
+The relay documented here runs at `https://avi-relay.aivax.net` on Cloudflare Workers. Avi and the Workspace client stack are verified locally across real components — Workspace RpcClient/RelaySocket against Avi's RemoteRelay/RemoteMcpServer through the deployed Worker implementation, with AIVAX authentication mocked. A live run against the deployed relay service is **not verified**.
 
 ## Roles and credentials
 
@@ -10,15 +10,15 @@ Three credentials appear in this protocol, each authorizing a different thing:
 
 | Credential | Presented to | Authorizes |
 |---|---|---|
-| AIVAX account token | relay HTTP API | Ticket issuance and relay discovery. Required for both the publisher and consumer roles, and it substitutes the Remote API key for all relayed (WAN) access. |
+| AIVAX account token | relay HTTP API | Ticket issuance and relay discovery. Required for both the publisher and consumer roles, and device-specific MCP. It substitutes the Remote API key for account-authenticated WAN access. |
 | Relay ticket | relay WebSocket upgrade | Reaching the handshake stage for one bound role on one Avi device until `expiresAt`. Authorizes no RPC operation. |
-| Remote API key | Avi local listener (loopback only) | Local MCP and RPC access. It never travels the WAN and never authorizes bridged connections. |
+| Remote API key | Avi local listener, or Desktop through public MCP | Local MCP/RPC access; also used inside `<instance-id>@<api-key>` for public MCP tool calls. It is not part of RPC relay handshakes. |
 
 The relay validates the AIVAX token server-side before issuing tickets; the `relayEnabled` desktop toggle only controls whether the local Avi instance participates and is not relay authentication. The `accountId` segment of relay URLs is derived from the authenticated AIVAX account, never from client input.
 
 ## Relay HTTP API
 
-Every request requires `Authorization: Bearer <AIVAX token>`; unauthenticated requests fail.
+The account operations below require `Authorization: Bearer <AIVAX token>`. Device-specific `/mcp/<device-id>` uses the same account authentication. Public `/mcp` instead allows discovery without authentication and requires a per-tool instance key; see the [MCP API](../mcp/overview.md).
 
 ### Discover published Avi instances
 
@@ -56,7 +56,7 @@ The body selects the role: `{"role":"publisher"}` for the Avi desktop app, `{"ro
 {
   "ticket": "<64 hexadecimal characters>",
   "expiresAt": 1790003600000,
-  "websocketUrl": "wss://avi-relay.projpw.workers.dev/v1/relays/<accountId>/<deviceId>/connect",
+  "websocketUrl": "wss://avi-relay.aivax.net/v1/relays/<accountId>/<deviceId>/connect",
   "protocol": "avi-relay-v1"
 }
 ```

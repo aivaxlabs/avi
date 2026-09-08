@@ -1,17 +1,23 @@
 import {
   AlertTriangle,
-  Check,
   Copy,
+  KeyRound,
+  MoreVertical,
   Plus,
   Trash2,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
+
+const REMOTE_MCP_PUBLIC_URL = 'https://avi-relay.projpw.workers.dev/mcp';
 
 export function RemoteSettings() {
   const [state, setState] = useState(null);
   const [port, setPort] = useState('18992');
   const [busy, setBusy] = useState(false);
-  const [copiedId, setCopiedId] = useState(null);
+  const [copied, setCopied] = useState(null);
+  const [openMenuId, setOpenMenuId] = useState(null);
+  const keyMenuRef = useRef(null);
   const [newKeyLabel, setNewKeyLabel] = useState('');
   const [newKeyExpires, setNewKeyExpires] = useState('');
   const [error, setError] = useState('');
@@ -50,9 +56,26 @@ export function RemoteSettings() {
     };
   }, [busy]);
 
+  useEffect(() => {
+    if (!openMenuId) return undefined;
+    const close = (event) => {
+      if (!keyMenuRef.current?.contains(event.target)) setOpenMenuId(null);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setOpenMenuId(null);
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [openMenuId]);
+
   async function mutate(action) {
     setBusy(true);
-    setCopiedId(null);
+    setCopied(null);
+    setOpenMenuId(null);
     setError('');
     try {
       const value = await action();
@@ -83,7 +106,7 @@ export function RemoteSettings() {
         <div className="settings-card-row remote-header">
           <div className="remote-heading">
             <h3>Local MCP and RPC</h3>
-            <p>Expose MCP and RPC locally, with an optional RPC-only WAN bridge.</p>
+            <p>Connect MCP and RPC clients on this computer.</p>
           </div>
           <label className="remote-switch">
             <input
@@ -142,28 +165,18 @@ export function RemoteSettings() {
           </div>
         </div>
 
-        <div className="settings-card-row">
-          <div className="remote-row-copy">
-            <strong>RPC WAN bridge</strong>
-            <span>Uses your connected AIVAX account. MCP remains local.</span>
-            <span>Device: {state.relayDeviceId}</span>
-            <span role="status">
-              {{
-                stopped: 'Inactive — enable the bridge and connect an AIVAX account.',
-                unauthorized: 'Authorization required — reconnect your AIVAX account.',
-                connecting: 'Connecting...',
-                connected: 'Published — available to your AIVAX account.',
-                reconnecting: 'Reconnecting...',
-                error: 'Unavailable',
-              }[state.relay?.status ?? 'stopped']}
-            </span>
-            {state.relay?.error && <span role="alert">{state.relay.error}</span>}
-            <span>AIVAX authentication grants WAN access. No Desktop API key is needed. Cloudflare terminates TLS.</span>
+      </div>
+
+      <section className="settings-section-card settings-row-card" aria-labelledby="aivax-remote-heading">
+        <div className="settings-card-row remote-header">
+          <div className="remote-heading">
+            <h3 id="aivax-remote-heading">AIVAX Remote</h3>
+            <p>Access this device through your AIVAX account.</p>
           </div>
           <label className="remote-switch">
             <input
               type="checkbox"
-              aria-label="RPC WAN bridge"
+              aria-label="AIVAX Remote MCP and RPC bridge"
               checked={state.relayEnabled}
               disabled={busy}
               onChange={(event) => mutate(() => window.chatApp.remote.save({
@@ -174,13 +187,45 @@ export function RemoteSettings() {
             <strong>{state.relayEnabled ? 'On' : 'Off'}</strong>
           </label>
         </div>
-      </div>
+        <div className="settings-card-row">
+          <div className="remote-row-copy">
+            <span role="status">
+              {{
+                stopped: 'Inactive',
+                unauthorized: 'Unavailable',
+                connecting: 'Connecting...',
+                connected: 'Connected',
+                reconnecting: 'Connecting...',
+                error: 'Unavailable',
+              }[state.relay?.status ?? 'stopped']}
+            </span>
+            <span>Device ID: {state.relayDeviceId}</span>
+          </div>
+        </div>
+        <div className="settings-card-row">
+            <div className="remote-row-copy" aria-labelledby="remote-connect-heading">
+              <strong id="remote-connect-heading">How to connect</strong>
+              <div className="remote-row-copy">
+                <strong>With an AIVAX API key</strong>
+                {state.relay?.mcpUrl && <span>MCP URL: {state.relay.mcpUrl}</span>}
+                <span>Authenticate with your AIVAX bearer token.</span>
+                <strong>With an MCP instance key</strong>
+                <span>Public MCP URL: {REMOTE_MCP_PUBLIC_URL}</span>
+                <span>Copy MCP instance key from the API keys menu below.</span>
+                <span>Pass instanceKey with every tool call: instanceId@key.</span>
+                <span>Instance ID: {state.instanceId}</span>
+                {state.relay?.status === 'unauthorized' && <span>Reconnect your AIVAX account.</span>}
+                {state.relay?.error && <span>Diagnostic: {state.relay.error}</span>}
+              </div>
+            </div>
+        </div>
+      </section>
 
       <div className="settings-section-card settings-row-card">
         <div className="settings-card-row">
           <div className="remote-row-copy">
             <strong>API keys</strong>
-            <span>Authenticate local MCP and RPC clients only. WAN uses your AIVAX account.</span>
+            <span>Keys authenticate local MCP and RPC clients; the public MCP URL uses their MCP instance keys.</span>
           </div>
         </div>
 
@@ -196,29 +241,58 @@ export function RemoteSettings() {
                 {' · '}
                 {key.expiresAt ? `Expires ${new Date(key.expiresAt).toLocaleString()}` : 'No expiration'}
               </span>
+              {copied?.id === key.id && (
+                <span role="status">Copied {copied.kind === 'instance' ? 'MCP instance key' : 'API key'}</span>
+              )}
             </div>
-            <div className="remote-key-actions">
+            <div
+              className="remote-key-menu"
+              ref={openMenuId === key.id ? keyMenuRef : undefined}
+            >
               <button
                 className="remote-action"
                 type="button"
+                aria-haspopup="menu"
+                aria-expanded={openMenuId === key.id}
+                aria-label={`API key actions for ${key.label || 'API key'}`}
                 disabled={busy}
-                onClick={async () => {
-                  const result = await mutate(() => window.chatApp.remote.copyKey(key.id));
-                  if (result?.copied) setCopiedId(key.id);
-                }}
+                onClick={() => setOpenMenuId(openMenuId === key.id ? null : key.id)}
               >
-                {copiedId === key.id ? <Check size={14} /> : <Copy size={14} />}
-                {copiedId === key.id ? 'Copied' : 'Copy'}
+                <MoreVertical size={14} />
               </button>
-              <button
-                className="remote-action danger"
-                type="button"
-                disabled={busy}
-                onClick={() => mutate(() => window.chatApp.remote.removeKey(key.id))}
-              >
-                <Trash2 size={14} />
-                Delete
-              </button>
+              {openMenuId === key.id && (
+                <DropdownMenu role="menu" aria-label="API key actions">
+                  <DropdownMenuItem
+                    icon={<Copy size={14} />}
+                    role="menuitem"
+                    onClick={async () => {
+                      const result = await mutate(() => window.chatApp.remote.copyKey(key.id));
+                      if (result?.copied) setCopied({ id: key.id, kind: 'api' });
+                    }}
+                  >
+                    Copy API key
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    icon={<KeyRound size={14} />}
+                    role="menuitem"
+                    onClick={async () => {
+                      const result = await mutate(() => window.chatApp.remote.copyInstanceKey(key.id));
+                      if (result?.copied) setCopied({ id: key.id, kind: 'instance' });
+                    }}
+                  >
+                    Copy MCP instance key
+                  </DropdownMenuItem>
+                  <hr className="dropdown-menu-divider" />
+                  <DropdownMenuItem
+                    icon={<Trash2 size={14} />}
+                    role="menuitem"
+                    className="danger"
+                    onClick={() => mutate(() => window.chatApp.remote.removeKey(key.id))}
+                  >
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenu>
+              )}
             </div>
           </div>
         ))}
@@ -246,7 +320,7 @@ export function RemoteSettings() {
         >
           <div className="remote-row-copy">
             <strong>New API key</strong>
-            <span>Expiration is optional.</span>
+            <span>Expiration is optional. New keys are 6 characters (a–z, 0–9); existing keys keep working.</span>
           </div>
           <div className="remote-create-inputs">
             <input
@@ -275,7 +349,7 @@ export function RemoteSettings() {
       </div>
 
       <p className="remote-footnote">
-        API key secrets are never displayed. Use Copy to place a key on the clipboard for your MCP client.
+        API key secrets are never displayed. Use each key menu to copy the API key, or its MCP instance key for the public MCP URL.
       </p>
       {error && <div className="settings-context-error" role="alert">{error}</div>}
     </section>

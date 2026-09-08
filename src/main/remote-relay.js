@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 import { ORPC_PROTOCOL } from '../shared/orpc.js';
 
-export const AIVAX_RELAY_URL = 'https://avi-relay.projpw.workers.dev';
+export const AIVAX_RELAY_URL = 'https://avi-relay.aivax.net';
 
 const RELAY_PROTOCOL = 'avi-relay-v1';
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -34,8 +34,10 @@ const CREDENTIAL_ERROR = 'The relay rejected the AIVAX credential. Sign in to or
 export class RemoteRelay {
   constructor({
     deviceId,
+    instanceId = null,
     name = null,
     createLocalSocket = null,
+    handleMcpRequest = null,
     relayBaseUrl = AIVAX_RELAY_URL,
     fetchImpl = null,
     createRelaySocket = null,
@@ -45,8 +47,10 @@ export class RemoteRelay {
     handshakeTimeoutMs = 10_000,
   } = {}) {
     this.deviceId = typeof deviceId === 'string' ? deviceId : '';
+    this.instanceId = typeof instanceId === 'string' && /^[a-z0-9]{10}$/.test(instanceId) ? instanceId : null;
     this.name = typeof name === 'string' && name.length >= 1 && name.length <= 128 ? name : null;
     this.createLocalSocket = createLocalSocket;
+    this.handleMcpRequest = handleMcpRequest;
     this.relayBaseUrl = relayBaseUrl;
     this.fetchImpl = typeof fetchImpl === 'function' ? fetchImpl : fetch.bind(globalThis);
     this.createRelaySocket = typeof createRelaySocket === 'function'
@@ -93,6 +97,7 @@ export class RemoteRelay {
       status: this.status,
       serverUrl: AIVAX_RELAY_URL,
       deviceId: this.deviceId || null,
+      mcpUrl: this.deviceId ? `${this.relayBaseUrl}/mcp/${this.deviceId}` : null,
       localPort: this.localPort,
       error: this.error,
     };
@@ -354,7 +359,7 @@ export class RemoteRelay {
       response = await this.fetchImpl(`${this.relayBaseUrl}/v1/relays/${encodeURIComponent(this.deviceId)}/tickets`, {
         method: 'POST',
         headers: { authorization: `Bearer ${this.accessToken}`, 'content-type': 'application/json' },
-        body: JSON.stringify(this.name ? { role: 'publisher', name: this.name } : { role: 'publisher' }),
+        body: JSON.stringify({ role: 'publisher', ...(this.name ? { name: this.name } : {}), ...(this.instanceId ? { instanceId: this.instanceId } : {}) }),
         signal: controller.signal,
         redirect: 'error',
       });
@@ -371,6 +376,11 @@ export class RemoteRelay {
     if (response.status === 401 || response.status === 403) {
       this.status = 'unauthorized';
       this.error = CREDENTIAL_ERROR;
+      return 'permanent';
+    }
+    if (response.status === 409 && response.headers.get('x-avi-error') === 'instance_conflict') {
+      this.status = 'error';
+      this.error = 'This public instance ID belongs to another AIVAX account or device. Reconnect the original account; Remote stopped.';
       return 'permanent';
     }
     if (response.status !== 201) {
@@ -597,7 +607,7 @@ export class RemoteRelay {
       return;
     }
     if (!channel.ready) {
-      if (channel.local) {
+      if (channel.local || channel.mcpPending) {
         this.closeChannel(socket, generation, channel, { errorCode: 'invalid_open' });
         return;
       }
@@ -671,6 +681,47 @@ export class RemoteRelay {
       frame = JSON.parse(text);
     } catch {
       this.closeChannel(socket, generation, channel, { errorCode: 'invalid_open' });
+      return;
+    }
+    if (frame?.type === 'avi-mcp-request') {
+      if (frame.version !== 1 || !['GET', 'POST', 'DELETE'].includes(frame.method)
+        || typeof frame.body !== 'string' || Buffer.byteLength(frame.body, 'utf8') > 512 * 1024
+        || (frame.method !== 'POST' && frame.body !== '') || !this.handleMcpRequest) {
+        this.closeChannel(socket, generation, channel, { errorCode: 'invalid_open' });
+        return;
+      }
+      channel.mcpPending = true;
+      clearTimeout(channel.openTimer);
+      const controller = new AbortController();
+      channel.cancelOpening = () => controller.abort();
+      channel.openTimer = setTimeout(() => this.closeChannel(socket, generation, channel), 60_000);
+      void (async () => {
+        let responseFrame;
+        try {
+          const headers = new Headers({ host: 'localhost' });
+          for (const name of ['content-type', 'accept', 'mcp-protocol-version']) {
+            if (typeof frame.headers?.[name] === 'string') headers.set(name, frame.headers[name]);
+          }
+          const response = await this.handleMcpRequest(new Request('http://localhost/mcp', {
+            method: frame.method,
+            headers,
+            ...(frame.method === 'POST' ? { body: frame.body } : {}),
+            signal: controller.signal,
+          }), frame.instanceKey);
+          const responseHeaders = {};
+          for (const name of ['content-type', 'allow', 'mcp-protocol-version']) {
+            const value = response.headers.get(name);
+            if (value) responseHeaders[name] = value;
+          }
+          responseFrame = JSON.stringify({ type: 'avi-mcp-response', version: 1, status: response.status, headers: responseHeaders, body: await response.text() });
+          if (Buffer.byteLength(responseFrame, 'utf8') > MAX_CHANNEL_BYTES) throw new Error('MCP response too large');
+        } catch {
+          responseFrame = JSON.stringify({ type: 'avi-mcp-response', version: 1, status: 502, headers: {}, body: 'MCP request failed or response exceeded 1 MiB.' });
+        }
+        if (channel.dead || this.generation !== generation || this.socket !== socket) return;
+        this.sendChannelData(socket, generation, channel, responseFrame);
+        this.closeChannel(socket, generation, channel);
+      })();
       return;
     }
     const path = frame?.path;

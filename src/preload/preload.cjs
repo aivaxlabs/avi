@@ -236,6 +236,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     save: (settings) => invoke('remote:save', settings),
     createKey: (payload) => invoke('remote:create-key', payload),
     copyKey: (id) => invoke('remote:copy-key', id),
+    copyInstanceKey: (id) => invoke('remote:copy-instance-key', id),
     removeKey: (id) => invoke('remote:remove-key', id),
   },
   chat: {

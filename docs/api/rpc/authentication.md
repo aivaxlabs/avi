@@ -1,6 +1,6 @@
 # RPC authentication and API keys
 
-Create and manage keys in **Settings → Remote control**. Each key has a label, creation time, and optional expiration. The UI can copy or delete individual keys; secret values are never displayed or returned by `remote:state`.
+Create and manage keys in **Settings → Remote control**. Each key has a label, creation time, and optional expiration. The per-key menu copies an API key or MCP instance key, or deletes the key; secret values are never displayed or returned by `remote:state`. New keys contain 6 lowercase alphanumeric characters; existing longer keys remain valid. Public MCP uses these keys inside `<instance-id>@<api-key>` and applies per-instance attempt limits; see the [MCP API](../mcp/overview.md).
 
 HTTP and native WebSocket clients can send a Bearer token during the handshake:
 
@@ -29,4 +29,4 @@ Keys are encrypted through Electron secure storage. Existing installations migra
 
 Remote Control binds only to `127.0.0.1`, applies DNS-rebinding protection to MCP, compares secrets with timing-safe equality, and limits request bodies to 1 MiB. Host validation accepts only localhost/127.0.0.1 authorities, and the local listener never accepts an authentication bypass: local MCP and RPC clients always present a Remote API key.
 
-The opt-in RPC WAN bridge is independent of the local server toggle and its keys. Avi publishes the RPC WebSockets through `https://avi-relay.projpw.workers.dev`, and bridged connections carry no Remote API key: the connected AIVAX account substitutes it, with handshake v3 opens carrying only the target route and the advertised `avi-orpc-draft1` application protocol. Both relay legs use TLS, but Cloudflare and the relay operator terminate and observe the traffic, including the AIVAX token, tickets, and everything relayed. Only use credentials acceptable under that trust model. See [bridge lifecycle, distribution, and limitations](../../Remote%20control.md#rpc-wan-bridge) and the [public relay protocol](relay-protocol.md).
+The opt-in RPC WAN bridge is independent of the local server toggle and its keys. Avi publishes the RPC WebSockets through `https://avi-relay.aivax.net`, and bridged connections carry no Remote API key: the connected AIVAX account substitutes it, with handshake v3 opens carrying only the target route and the advertised `avi-orpc-draft1` application protocol. Both relay legs use TLS, but Cloudflare and the relay operator terminate and observe the traffic, including the AIVAX token, tickets, and everything relayed. Only use credentials acceptable under that trust model. See [bridge lifecycle, distribution, and limitations](../../Remote%20control.md#aivax-remote--mcp-and-rpc) and the [public relay protocol](relay-protocol.md).

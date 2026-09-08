@@ -126,24 +126,28 @@ The client must answer with a final `RES`; Avi treats the literal bytes `OK` as 
 
 ## Remote server and relay status
 
+Desktop-only key management uses `window.chatApp.remote.createKey(payload)`, `copyKey(id)`, `copyInstanceKey(id)`, and `removeKey(id)` (logical IPC `remote:create-key`, `remote:copy-key`, `remote:copy-instance-key`, `remote:remove-key`). Copy actions write the secret in the main process and return only `{ copied: true }`; they are not exposed on global RPC. `copyInstanceKey` formats `<instanceId>@<api-key>` for [public MCP](../mcp/overview.md).
+
 Authenticated global `/rpc` clients can invoke `remote:state` with no payload. It is also advertised by `rpc:discover`; it is not a conversation-stream method. The existing Desktop `window.chatApp.remote.state()` returns the same contract:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `enabled` | boolean | Saved Remote preference |
 | `port` | number | Configured local MCP/RPC port |
-| `relayEnabled` | boolean | Saved RPC WAN bridge preference, default `false`; independent of `enabled` |
+| `relayEnabled` | boolean | Saved AIVAX Remote MCP/RPC preference, default `false`; independent of `enabled` |
 | `relayDeviceId` | string | Stable per-install relay device id |
+| `instanceId` | string | Persistent public MCP instance ID, 10 lowercase alphanumeric characters |
 | `running` | boolean | Local server is listening |
 | `startError` | string | Local startup error, or empty |
 | `apiKeys` | array | Key metadata (`id`, `label`, `createdAt`, `expiresAt`, `expired`), never key values |
 | `relay.status` | string | `stopped`, `connecting`, `connected`, `reconnecting`, `unauthorized`, or `error` |
-| `relay.serverUrl` | string | `https://avi-relay.projpw.workers.dev` |
+| `relay.serverUrl` | string | `https://avi-relay.aivax.net` |
 | `relay.deviceId` | string | Device id presented to the relay (same value as `relayDeviceId`) |
+| `relay.mcpUrl` | string or null | Device-specific MCP URL using the configured Relay base and AIVAX bearer authentication |
 | `relay.localPort` | number or null | Legacy field; always null — the bridge no longer targets a local listener port |
 | `relay.error` | string | Credential-free diagnostic, or empty |
 
-`running` describes local availability, not bridge reachability. `connected` means Avi holds an authenticated publisher connection to the relay; it does not certify that any consumer is connected or that the deployed relay matches this contract. `unauthorized` means relay ticket issuance failed authorization, such as HTTP 401/403, and the bridge stops retrying until the toggle or the AIVAX connection changes. The state never contains API key values or relay ticket secrets. Remote/bridge mutations remain Desktop-only; this method is read-only. See [relay setup and security](../../Remote%20control.md#rpc-wan-bridge) and the [public relay protocol](relay-protocol.md).
+`running` describes local availability, not bridge reachability. `connected` means Avi holds an authenticated publisher connection to the relay; it does not certify that any consumer is connected or that the deployed relay matches this contract. `unauthorized` means relay ticket issuance failed authorization, such as HTTP 401/403, and the bridge stops retrying until the toggle or the AIVAX connection changes. The state never contains API key values or relay ticket secrets. Remote/bridge mutations remain Desktop-only; this method is read-only. See [relay setup and security](../../Remote%20control.md#aivax-remote--mcp-and-rpc) and the [public relay protocol](relay-protocol.md).
 
 ## Overview dashboard
 

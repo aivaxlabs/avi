@@ -3,14 +3,27 @@
 ## [Canary]
 
 ### Added
+- Agent/MCP overview, bot work-log reading and messaging, thread creator/parent filters with type and child counts, and queue IDs for one-time bot activation focus.
+- **Relayed MCP** — AIVAX Remote exposes `/mcp/<device-id>` with AIVAX bearer authentication and public `/mcp` discovery with per-tool `instanceKey` authentication. Remote control shows device/instance identifiers and MCP endpoints; API-key menus copy either credential format. New keys use 6 lowercase alphanumeric characters; persistent public instance IDs use 10. Existing keys and device IDs are preserved, and public calls are rate-limited per instance.
 - **Keyboard shortcuts** — configurable in-app commands for model/reasoning selection, navigation, chat search, and zoom; global Quick Chat, plugin-provided bindings, conflict detection, persistent overrides, and global RPC `shortcuts:list` / `shortcuts:save`.
 - **Find in chat** — navigate visible text occurrences and include older messages from the chat history.
 - **ORPC Draft 1 remote transport** — RPC WebSockets now speak binary ORPC (`avi-orpc-draft1`): length-prefixed frames carrying UTF-8 JSON operation envelopes (`operationId`, `expiresAt` now + 180 s, `params`), dotted wire methods over the colon application names, acknowledged server events (`eventId` with an `OK` ack), no batching, and the full specification bundled at `docs/api/rpc/orpc-spec.md`.
 
 ### Changed
+- Bot avatars now use AIVAX Orbs keyed by bot ID in the sidebar, Inbox list and work-log message headers, and settings; removed the random icon control while retaining `iconSeed` API compatibility.
+- The composer project picker now lists up to 30 recent projects instead of 8.
+- **Overview Inbox** — opens conversations in a resizable side panel without leaving the Overview, sharing chat-panel styles and width controls but showing a close button instead of tabs.
+- **Remote control** — AIVAX Remote now has a dedicated card, separate from local server settings and API keys, with its own toggle/status and a separate, always-visible How to connect guide. Local Remote Control is enabled by default with automatic Default key creation; saved disabled preferences and opt-in WAN publication are preserved.
+- **Avi Relay** — the default relay endpoint is now `https://avi-relay.aivax.net`.
 - **Shortcut batch editing** — one Save changes action in the standard settings footer, outside the scrolling list, persists all bindings atomically; live conflicts highlight every affected row and prevent saving until resolved. Global RPC `shortcuts:save` now also accepts a `changes` array.
 - **Shortcut settings layout** — compact aligned rows, key-combination capture instead of free-text pattern editing, scope selection and accessible reset/disable actions; navigation now follows Personalization.
 - **Remote RPC breaking migration** — JSON-RPC 2.0 is replaced by ORPC Draft 1: one operation per frame, at-least-once delivery deduplicated by a durable `remote_operations` journal (SQLite, 4096 entries / 64 MiB) keyed by identity, scope, resource, and `operationId`, one automatic retry with a fresh wire request id and identical body (60 s attempt / 150 s overall), delivery-only cancellation (handlers may still complete after a client timeout; reserved-but-unrecorded operations answer `OUTCOME_UNKNOWN` instead of re-executing), per-peer and global in-flight concurrency capped at 64, and `error.code` as number or string (`LIMIT`). The relay application handshake moves to v3 — `avi-remote-open`/`avi-remote-ready` v3 carry `protocol: "avi-orpc-draft1"`, heartbeat is `avi-remote-ping`/`avi-remote-pong` v3 — and bridged frames travel as opaque base64 binary over the unchanged `avi-relay-v1` transport. RPC docs, the public relay protocol, and the remote-control guide were rewritten accordingly.
+
+### Fixed
+- Sidebar bot notification badges now vertically center their count text instead of rendering it visibly offset inside the pill.
+- Local file links and absolute file references open after confirmation; file references and Edited files share Open, Copy path, and Open in explorer context actions. Explorer reveals physical paths behind workspace symlinks, and sidebar terminals launch an interactive shell in a new console without fragile command quoting.
+- Bot Inbox reply composer stays at the bottom of the panel while conversation history scrolls independently.
+- Bot Inbox messages and Activity descriptions now reuse the chat rich Markdown renderer instead of displaying visualization directives as literal text.
 
 ## [0.6.0] — 2026-09-03
 
@@ -64,6 +77,7 @@
 - Bot activations now mark a checkpoint in the bot conversation, so each activation starts its model context from the previous boundary instead of replaying the full history.
 
 ### Fixed
+- Dropdowns now size to their labels instead of shrinking to the minimum width inside narrow action anchors or nested menus.
 - Missing local images and videos in conversation context now become an explicit unavailability notice instead of aborting OpenAI-compatible and OpenAI Subscription requests.
 - Remote RPC history and message events now send attachment metadata instead of embedded content, preventing media-heavy conversations from exceeding the relay frame limit. Attachment bytes remain available through `attachments:read`.
 - Kept inline `<think>...</think>` tags visible as response text, interpreting only a block at the absolute message start after optional whitespace as reasoning.
