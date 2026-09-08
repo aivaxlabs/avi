@@ -27,6 +27,16 @@ function renderMessage(content) {
   }));
 }
 
+for (const content of [
+  '[Local file](file:///C:/My%20Files/example.txt)',
+  ':fileref{path="C:/My Files/example.txt"}',
+  ':fileref{path="./example.txt"}',
+]) {
+  assert.match(renderMessage(content), /file-reference-link/);
+}
+assert.match(renderMessage('[Local file](file:///C:/My%20Files/example.txt)'), /href="file:\/\/\/C:\/My%20Files\/example.txt"/);
+assert.doesNotMatch(renderMessage('[Unsafe](javascript:alert%281%29)'), /href="javascript:/);
+
 const charts = [
   ['bar', 'Requests', '[{"label":"GET","value":12},{"label":"POST","value":8}]'],
   ['line', 'Latency', '[{"label":"Mon","value":10},{"label":"Tue","value":15}]'],
