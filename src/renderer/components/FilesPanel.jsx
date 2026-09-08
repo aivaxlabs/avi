@@ -296,7 +296,8 @@ export function FilesPanel({
     const unresolvedPath = targetInsideRoot
       ? normalizedTarget.slice(normalizedRoot.length + 1)
       : normalizedTarget.replace(/^\.\//, '');
-    const outsideWorkspace = unresolvedPath.startsWith('/')
+    const fileUrl = /^file:\/\//i.test(navigation.path);
+    const outsideWorkspace = fileUrl || unresolvedPath.startsWith('/')
       || /^[a-z]:\//i.test(unresolvedPath)
       || unresolvedPath === '..'
       || unresolvedPath.startsWith('../');
@@ -307,7 +308,8 @@ export function FilesPanel({
     }
 
     const separator = project.path.includes('\\') ? '\\' : '/';
-    const relativePath = (outsideWorkspace ? navigation.path : unresolvedPath).replaceAll('/', separator);
+    const relativePath = fileUrl ? navigation.path
+      : (outsideWorkspace ? navigation.path : unresolvedPath).replaceAll('/', separator);
     const pathParts = relativePath.split(separator);
     const directoryPaths = outsideWorkspace ? [] : pathParts.slice(0, -1).map((_, index) => (
       pathParts.slice(0, index + 1).join(separator)

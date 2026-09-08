@@ -19,6 +19,7 @@ import {
   sep,
 } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
@@ -620,11 +621,12 @@ export function resolveWorkspacePath(
   targetPath = '',
   { allowExternalSymlinks = false, allowOutsideRoot = false } = {},
 ) {
+  if (/^file:\/\//i.test(targetPath)) targetPath = fileURLToPath(targetPath);
   const root = resolve(folderPath);
   const path = resolve(root, targetPath);
   const relativePath = relative(root, path);
   if (
-    isAbsolute(targetPath)
+    (isAbsolute(targetPath) && !allowOutsideRoot)
     || (
       !allowOutsideRoot
       && (

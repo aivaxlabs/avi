@@ -10,6 +10,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { attachmentContentSizeLimit } from '../src/shared/attachments.js';
 import { fileToAttachment } from '../src/renderer/lib/files.js';
 import {
@@ -195,10 +196,10 @@ try {
     ),
     outsidePath,
   );
-  assert.throws(
-    () => resolveWorkspacePath(testRoot, outsidePath, { allowOutsideRoot: true }),
-    /outside the current directory/,
-  );
+  assert.equal(resolveWorkspacePath(testRoot, outsidePath, { allowOutsideRoot: true }), outsidePath);
+  assert.throws(() => resolveWorkspacePath(testRoot, pathToFileURL(outsidePath).href), /outside the current directory/);
+  assert.equal(resolveWorkspacePath(testRoot, pathToFileURL(outsidePath).href, { allowOutsideRoot: true }), outsidePath);
+  assert.equal((await readWorkspaceFile(testRoot, pathToFileURL(outsidePath).href, { allowExternalReference: true })).content, 'outside\n');
   await assert.rejects(() => readWorkspaceFile(testRoot, '../outside.txt'));
   assert.equal(
     (await readWorkspaceFile(
