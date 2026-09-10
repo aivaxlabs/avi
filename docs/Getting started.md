@@ -52,7 +52,7 @@ Before sending a message, review:
 
 Start with **Approve for me**. Full access does not override higher-level runtime restrictions such as Plan mode.
 
-Type `/` for Avi actions and workflows, or `$` for skills. Built-in commands include `/plan`, `/goal`, `/ultra`, `/model`, `/effort`, `/compress`, `/side`, `/usage`, `/mcp`, and `/restart-mcp`.
+Type `/` for Avi actions and workflows, or `$` for skills. Built-in commands include `/plan`, `/goal`, `/ultra`, `/model`, `/effort`, `/compress`, `/quick-compress`, `/note`, `/optimize-prompt`, `/side`, `/usage`, `/mcp`, and `/restart-mcp`. These are desktop interceptor commands: the composer handles them locally instead of invoking a workflow. They are not sent to Avi Workspace's command picker; skills and ordinary workflows remain available there.
 
 ## Local data and external services
 

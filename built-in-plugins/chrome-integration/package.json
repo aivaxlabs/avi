@@ -1,0 +1,7 @@
+{
+  "name": "avi-built-in-chrome-integration",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": { "ws": "8.21.3" }
+}

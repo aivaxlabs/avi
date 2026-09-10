@@ -12,6 +12,7 @@ export const PLUGIN_CAPABILITIES = Object.freeze([
   'panels.register', 'panels.manage', 'providers.read', 'providers.manage',
   'providers.types.register', 'providers.usages.register', 'providers.credentials.write', 'context.read',
   'context.readContents', 'context.register', 'storage',
+  'notes.read', 'notes.manage',
 ]);
 const CAPABILITY_SET = new Set(PLUGIN_CAPABILITIES);
 const CHAT_EVENT_NAMES = Object.freeze({
@@ -510,6 +511,7 @@ export class PluginRuntime {
       threads: domain.threads ?? Object.freeze({}),
       semaphores: domain.semaphores ?? Object.freeze({}),
       bots: domain.bots ?? Object.freeze({}),
+      notes: domain.notes ?? Object.freeze({}),
       panels: domain.panels ?? Object.freeze({}),
       providers: domain.providers ?? Object.freeze({}),
       context: domain.context ?? Object.freeze({}),

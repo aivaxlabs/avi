@@ -5,6 +5,12 @@ import { fileURLToPath } from 'node:url';
 
 const cwd = fileURLToPath(new URL('..', import.meta.url));
 const args = process.argv.slice(2);
+if (args.includes('--all') || args.some((arg) =>
+  ['--win', '--mac', '--linux'].includes(arg) && arg !== { win32: '--win', darwin: '--mac', linux: '--linux' }[process.platform]
+) || args.some((arg) => ['--x64', '--arm64', '--ia32'].includes(arg) && arg !== `--${process.arch}`)) {
+  throw new Error('Computer Use includes native dependencies. Package on the target operating system and architecture.');
+}
+await import('./prepare-built-in-plugins.mjs');
 const allIndex = args.indexOf('--all');
 const buildTargets = allIndex === -1
   ? { win32: '--win', darwin: '--mac', linux: '--linux' }[process.platform]

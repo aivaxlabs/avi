@@ -3,6 +3,8 @@
 ## [Canary]
 
 ### Added
+- **Notes Core domain** — `avi.notes` provides list/note CRUD, filtering, ordering, attachments, chunked transfers and auxiliary generation with `notes.read`/`notes.manage` capabilities; generation additionally requires `threads.readMessages`. Compatibility: Backward compatible; supports API v2.
+- Built-in plugin distribution uses the ordinary plugin lifecycle with immutable bundled sources, default-disabled enablement and reserved IDs. Management inventory exposes `builtIn` and `builtInPluginsDir`; installed plugins retain their existing lifecycle. Compatibility: Backward compatible; supports API v2.
 - **Static keyboard shortcuts** — `contributions.shortcuts` accepts titled patterns, optional global support, and main-process `execute` handlers; user overrides and plugin provenance appear in Settings. Compatibility: Backward compatible; supports API v2.
 - **Selectable next bot queue item** — `bot.update({ workQueueIndex })` selects the zero-based Work queue item used by the next activation. Compatibility: Backward compatible; supports API v2.
 - **Per-tool forced truncation** — static and runtime tool definitions can set `forcedTruncationLength` as a positive estimated-token output limit that overrides the global tool-output setting. Compatibility: Backward compatible; supports API v2.

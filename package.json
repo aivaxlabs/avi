@@ -21,6 +21,8 @@
     "syntax": "bun scripts/check-syntax.mjs",
     "test:context": "bun scripts/test-context-injection.mjs",
     "test:plugins": "bun scripts/test-plugins.mjs && bun scripts/test-plugin-runtime-v2.mjs && bun scripts/test-child-processes-plugin.mjs",
+    "built-ins:prepare": "bun scripts/prepare-built-in-plugins.mjs",
+    "test:built-ins": "bun scripts/test-built-in-plugins.mjs && node scripts/test-chrome-integration.mjs",
     "test:aivax": "electron --no-sandbox scripts/test-aivax-client.mjs",
     "test:plan": "bun scripts/test-plan-mode.mjs",
     "test:goal": "bun scripts/test-goal-mode.mjs",
@@ -104,6 +106,11 @@
       "package.json"
     ],
     "extraResources": [
+      {
+        "from": "built-in-plugins",
+        "to": "built-in-plugins",
+        "filter": ["**/*", "**/.avi-plugin.json", "!**/node_modules/.cache/**/*"]
+      },
       {
         "from": "src/prompts/context",
         "to": "context"

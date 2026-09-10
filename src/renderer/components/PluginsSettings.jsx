@@ -2,6 +2,8 @@ import {
   AlertTriangle,
   BookOpen,
   ChevronDown,
+  Chrome,
+  Monitor,
   FileCode2,
   FolderOpen,
   PackagePlus,
@@ -18,6 +20,7 @@ import { PluginSettingsEditor } from './PluginSettingsEditor.jsx';
 
 export function PluginsSettings() {
   const [state, setState] = useState(null);
+  const [tab, setTab] = useState('built-in');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [pluginBusy, setPluginBusy] = useState('');
@@ -79,7 +82,7 @@ export function PluginsSettings() {
     }
   };
 
-  const plugins = state?.plugins ?? [];
+  const plugins = (state?.plugins ?? []).filter((plugin) => (plugin.builtIn === true) === (tab === 'built-in'));
   const failures = state?.failures ?? [];
   const directory = state?.directory ?? state?.pluginsDir;
 
@@ -89,14 +92,18 @@ export function PluginsSettings() {
 
   return (
     <div className="plugins-settings">
-      <div className="plugins-trust-warning" role="note">
+      <nav className="plugins-actions" aria-label="Plugin categories">
+        <button type="button" className={tab === 'built-in' ? 'primary-mini' : 'secondary-mini'} aria-pressed={tab === 'built-in'} onClick={() => setTab('built-in')}>Built-in</button>
+        <button type="button" className={tab === 'installed' ? 'primary-mini' : 'secondary-mini'} aria-pressed={tab === 'installed'} onClick={() => setTab('installed')}>Installed</button>
+      </nav>
+      {tab === 'installed' && <div className="plugins-trust-warning" role="note">
         <AlertTriangle size={18} />
         <div><strong>Plugins are trusted code</strong><p>Only install JavaScript or ZIP packages you trust. Avi validates them by executing their entrypoint with desktop permissions.</p></div>
-      </div>
+      </div>}
       <section className="settings-section">
-        <div className="settings-section-heading"><h3>Installed plugins</h3><p>{directory || 'Loading plugin directory...'}</p></div>
+        <div className="settings-section-heading"><h3>{tab === 'built-in' ? 'Built-in plugins' : 'Installed plugins'}</h3><p>{tab === 'built-in' ? 'Included with Avi and disabled by default. Enable only the integrations you want to use.' : directory || 'Loading plugin directory...'}</p></div>
         <div className="plugins-actions">
-          <button className="primary-mini" type="button" disabled={busy} onClick={sideload}><PackagePlus size={14} />{busy ? 'Selecting...' : 'Install .js or .zip'}</button>
+          {tab === 'installed' && <button className="primary-mini" type="button" disabled={busy} onClick={sideload}><PackagePlus size={14} />{busy ? 'Selecting...' : 'Install .js or .zip'}</button>}
           <div className="plugins-developer-tools" ref={developerToolsRef}>
             <button
               className="secondary-mini"
@@ -127,7 +134,11 @@ export function PluginsSettings() {
                 .map(([capability]) => capability);
             return (
               <article className={`settings-section-card plugin-card ${plugin.enabled === false ? 'disabled' : ''}`} key={plugin.id}>
-                <FileCode2 size={18} />
+                <div className={`plugin-card-icon ${plugin.builtIn ? plugin.id : ''}`} aria-hidden="true">
+                  {plugin.builtIn && plugin.id === 'chrome-integration' ? <Chrome size={23} />
+                    : plugin.builtIn && plugin.id === 'computer-use' ? <Monitor size={23} />
+                      : <FileCode2 size={23} />}
+                </div>
                 <div className="plugin-card-main">
                   <div className="plugin-card-title"><strong>{plugin.name || plugin.id || plugin.fileName}</strong>{plugin.version && <span>{plugin.version}</span>}<span className={`plugin-status ${String(plugin.status || 'loaded').replaceAll(' ', '-')}`}>{plugin.status || 'loaded'}</span></div>
                   {plugin.description && <p>{plugin.description}</p>}
@@ -137,7 +148,7 @@ export function PluginsSettings() {
                   {plugin.error && <div className="plugin-error">{plugin.error}</div>}
                 </div>
                 <div className="plugin-card-actions">
-                  {plugin.settings > 0 && plugin.enabled !== false && plugin.status === 'active' && (
+                  {(plugin.builtIn || (plugin.settings > 0 && plugin.enabled !== false && plugin.status === 'active')) && (
                     <button
                       className="secondary-mini"
                       type="button"
@@ -158,14 +169,14 @@ export function PluginsSettings() {
                       ? 'Saving...'
                       : plugin.enabled === false ? 'Enable' : 'Disable'}
                   </button>
-                  <button
+                  {!plugin.builtIn && <button
                     className="secondary-mini danger"
                     type="button"
                     disabled={!!pluginBusy}
                     onClick={() => updatePlugin(plugin, 'remove')}
                   >
                     <Trash2 size={14} />{pluginBusy === `remove:${plugin.id}` ? 'Removing...' : 'Remove'}
-                  </button>
+                  </button>}
                 </div>
               </article>
             );

@@ -1,0 +1,6 @@
+{
+  "id": "chrome-integration",
+  "name": "Chrome Integration",
+  "version": "1.0.0",
+  "description": "Control real Chrome tabs through the bundled Avi extension, with snapshots, screenshots and debugging tools."
+}

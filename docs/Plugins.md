@@ -6,6 +6,8 @@ Plugins extend Avi with trusted JavaScript executed in the Electron main process
 
 The only public contract is **Plugin API v2**. Older API versions are rejected.
 
+The [`avi.notes` Core domain](api/core/notes.md) exposes persistent user notes with `notes.read` and `notes.manage` capabilities, including list/note editing, search, ordering, attachments and auxiliary generation.
+
 ## Minimal plugin
 
 ```js
@@ -54,7 +56,29 @@ See [Core API — Plugin API v2](./api/core/overview.md) for the complete runtim
 
 Bot integrations use `bot.inbox.list/reply/complete` and `bot.activity.list`. These replace the former `bot.workState.get()` and work-item types; older bot data is not migrated. This bot-domain change is breaking for existing plugins using work state, while the runtime still accepts Plugin API v2. See [Bots](./api/core/bots.md) for capabilities, messages, attachments, and protected approvals.
 
-## Included plugins
+## Built-in and installed plugins
+
+**Settings → Plugins** separates **Built-in** plugins shipped with Avi from **Installed** JavaScript/ZIP packages. Built-ins use the same trusted Plugin API v2, tools, context and lifecycle as other plugins, but start disabled. Enable or disable them and restart Avi to apply the change. Disabling does not stop a currently loaded plugin until restart.
+
+Built-in sources are distributed in `resources/built-in-plugins/` (`built-in-plugins/` in development). Avi reads `.avi-plugin.json` metadata without importing disabled code. Enablement is stored separately in `plugins/.avi-built-in-state.json`; managed context and storage remain under the ordinary plugin directory. Updates replace bundled sources, not the saved enablement state. Built-in IDs are reserved and cannot be removed or overwritten through sideloading.
+
+### Chrome Integration
+
+Provides `chrome_get_context`, `chrome_run_actions`, a `chrome-integration` skill and a settings page with the default action timeout. Its WebSocket bridge runs only while the plugin is active, on `127.0.0.1:55334`; no external Node installation or MCP daemon is required.
+
+Open its Settings page and click **Install extension in Chrome**. This opens the bundled extension folder and copies its path. In each desired Chrome profile, open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select that folder. There is no Chrome Web Store listing or silent installation. Reload the extension after an Avi update. Chrome may display a debugger-access banner. A port conflict makes activation fail explicitly.
+
+The tools use live ephemeral tab IDs, snapshots, screenshots, JavaScript actions, console/network inspection, dialogs and responsive emulation. Browser actions require the usual Avi permissions. Cancellation stops waiting but cannot undo already dispatched browser actions.
+
+### Computer Use
+
+Provides `computer_get_context`, `computer_focus_window`, `computer_toggle_session`, `computer_use` and a `computer-use` skill. The bundled backend preserves monitor-local screenshot coordinates, a visible overlay, Escape to stop, and a five-second pause after manual input when the input monitor is available. Control sessions are owned by their initiating conversation. Cancellation ends that conversation's session; native input already dispatched cannot be rolled back.
+
+The desktop backend includes its own Electron overlay and native input/image/window dependencies; these increase installer size. macOS may require Accessibility and Screen Recording permissions; Linux focus support uses `xdotool` when available. Native behavior must be validated on each supported release platform.
+
+Run `bun run built-ins:prepare` before using enabled built-ins from a fresh development checkout. `bun run package` prepares dependencies automatically and requires packaging on the target OS and architecture. All runtime dependencies are included in the dedicated resources directory; the user's reference project paths are never used at runtime.
+
+## Other reference plugins
 
 ### Child Processes
 

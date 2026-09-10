@@ -90,6 +90,7 @@ const MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
 export class PluginManager {
   constructor({
     pluginsDir,
+    builtInPluginsDir,
     reservedIds = {},
     reservedToolNames = [],
     loadTimeoutMs = 10_000,
@@ -99,6 +100,9 @@ export class PluginManager {
       throw new Error('Plugin load timeout must be a positive number.');
     }
     this.pluginsDir = resolve(pluginsDir);
+    this.builtInPluginsDir = builtInPluginsDir ? resolve(builtInPluginsDir) : null;
+    this.builtInIds = new Set();
+    this.builtInState = {};
     this.loadTimeoutMs = loadTimeoutMs;
     this.reservedIds = Object.fromEntries(
       ['auxiliaryPanels', 'themes', 'personalities', 'providers', 'shortcuts'].map((type) => [
@@ -136,12 +140,41 @@ export class PluginManager {
     const disabled = [];
     const failures = [];
 
-    for (const directoryName of directories) {
-      const directory = join(this.pluginsDir, directoryName);
+    const sources = directories.map((name) => ({ name, builtIn: false }));
+    this.builtInIds = new Set();
+    if (this.builtInPluginsDir) {
+      try {
+        this.builtInState = JSON.parse(await readFile(join(this.pluginsDir, '.avi-built-in-state.json'), 'utf8'));
+        if (!this.builtInState || typeof this.builtInState !== 'object' || Array.isArray(this.builtInState)) {
+          throw new Error('Built-in plugin state must be an object.');
+        }
+      } catch (error) {
+        this.builtInState = {};
+        if (error.code !== 'ENOENT') failures.push({ fileName: '.avi-built-in-state.json', error: String(error) });
+      }
+      try {
+        const builtIns = (await readdir(this.builtInPluginsDir, { withFileTypes: true }))
+          .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'));
+        this.builtInIds = new Set(builtIns.map((entry) => entry.name.toLowerCase()));
+        sources.unshift(...builtIns.map((entry) => ({ name: entry.name, builtIn: true })));
+      } catch (error) {
+        failures.push({ fileName: 'built-in-plugins', error: String(error) });
+      }
+    }
+
+    for (const { name: directoryName, builtIn } of sources) {
+      const directory = join(builtIn ? this.builtInPluginsDir : this.pluginsDir, directoryName);
       const sourcePath = join(directory, ENTRYPOINT);
       const disabledPath = join(directory, DISABLED_ENTRYPOINT);
       try {
         this.#requireId(directoryName, 'Plugin directory ID');
+        if (!builtIn && this.builtInIds.has(directoryName.toLowerCase())) {
+          throw new Error(`Plugin ID "${directoryName}" is reserved by a built-in plugin.`);
+        }
+        if (builtIn && this.builtInState[directoryName.toLowerCase()] !== true) {
+          disabled.push(await this.#readDisabledRecord(directoryName, directory, true));
+          continue;
+        }
         const [sourceExists, disabledExists] = await Promise.all([
           this.#regularFileExists(sourcePath),
           this.#regularFileExists(disabledPath),
@@ -158,12 +191,15 @@ export class PluginManager {
         if (candidate.id.toLowerCase() !== directoryName.toLowerCase()) {
           throw new Error(`Plugin ID "${candidate.id}" does not match directory "${directoryName}".`);
         }
+        candidate.builtIn = builtIn;
         candidates.push(candidate);
       } catch (error) {
         failures.push({
           fileName: `${directoryName}/${ENTRYPOINT}`,
           sourcePath,
           pluginId: ID_PATTERN.test(directoryName) ? directoryName : undefined,
+          builtIn,
+          directory,
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -199,6 +235,8 @@ export class PluginManager {
           fileName: basename(candidate.sourcePath),
           sourcePath: candidate.sourcePath,
           pluginId: candidate.id,
+          builtIn: candidate.builtIn,
+          directory: dirname(candidate.sourcePath),
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -210,9 +248,11 @@ export class PluginManager {
       ...materialized.map((plugin) => this.#pluginRecord(plugin)),
       ...disabled,
       ...failures
-        .filter((failure) => failure.pluginId && !loadedIds.has(failure.pluginId.toLowerCase()))
+        .filter((failure) => failure.pluginId && !loadedIds.has(failure.pluginId.toLowerCase()) && !disabled.some((plugin) => plugin.id.toLowerCase() === failure.pluginId.toLowerCase()))
         .map((failure) => this.#disabledRecord(failure.pluginId, {
           fileName: ENTRYPOINT,
+          builtIn: failure.builtIn === true,
+          directory: failure.directory,
           enabled: true,
           status: 'error',
           error: failure.error,
@@ -237,6 +277,7 @@ export class PluginManager {
   getStatus() {
     return {
       pluginsDir: this.pluginsDir,
+      builtInPluginsDir: this.builtInPluginsDir,
       restartRequired: this.restartRequired,
       plugins: this.list(),
       failures: this.getFailures(),
@@ -392,6 +433,24 @@ export class PluginManager {
     if (typeof enabled !== 'boolean') throw new Error('Plugin enabled state must be a boolean.');
     const plugin = this.#inventoryEntry(id);
     if (plugin.enabled === enabled) return { ...plugin, restartRequired: this.restartRequired };
+    if (plugin.builtIn) {
+      const nextState = { ...this.builtInState, [plugin.id.toLowerCase()]: enabled };
+      const statePath = join(this.pluginsDir, '.avi-built-in-state.json');
+      const temporary = `${statePath}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(temporary, `${JSON.stringify(nextState, null, 2)}\n`, 'utf8');
+        await rename(temporary, statePath);
+      } finally {
+        await rm(temporary, { force: true });
+      }
+      this.builtInState = nextState;
+      Object.assign(plugin, {
+        enabled,
+        status: enabled ? 'pending enable' : (plugin.runtimeLoaded ? 'pending disable' : 'disabled'),
+      });
+      this.restartRequired = true;
+      return { ...plugin, restartRequired: true };
+    }
     const directory = plugin.directory;
     const source = join(directory, enabled ? DISABLED_ENTRYPOINT : ENTRYPOINT);
     const destination = join(directory, enabled ? ENTRYPOINT : DISABLED_ENTRYPOINT);
@@ -412,6 +471,7 @@ export class PluginManager {
 
   async remove(id) {
     const plugin = this.#inventoryEntry(id);
+    if (plugin.builtIn) throw new Error('Built-in plugins cannot be removed. Disable the plugin instead.');
     const directory = plugin.directory;
     const directoryStat = await lstat(directory);
     if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
@@ -474,6 +534,9 @@ export class PluginManager {
       const stagedEntrypoint = join(stagedPackage, ENTRYPOINT);
       await this.#assertManagedRegularFile(stagedEntrypoint);
       const candidate = await this.#loadWithTimeout(stagedEntrypoint, basename(source));
+      if (this.builtInIds.has(candidate.id.toLowerCase())) {
+        throw new Error(`Plugin ID "${candidate.id}" is reserved by a built-in plugin.`);
+      }
       const matches = this.inventory.filter((plugin) => plugin.id.toLowerCase() === candidate.id.toLowerCase());
       if (matches.length > 1) {
         throw new Error(`Plugin ID "${candidate.id}" has multiple case-insensitive installation directories. Remove the duplicates before installing.`);
@@ -588,6 +651,7 @@ export class PluginManager {
   #pluginRecord(plugin, overrides = {}) {
     return {
       id: plugin.id,
+      builtIn: plugin.builtIn === true,
       name: plugin.name,
       description: plugin.description,
       version: plugin.version,
@@ -609,6 +673,7 @@ export class PluginManager {
   #disabledRecord(id, overrides = {}) {
     return {
       id,
+      builtIn: false,
       name: id,
       description: '',
       version: '',
@@ -681,8 +746,7 @@ export class PluginManager {
     }
   }
 
-  async #readDisabledRecord(id) {
-    const directory = join(this.pluginsDir, id);
+  async #readDisabledRecord(id, directory = join(this.pluginsDir, id), builtIn = false) {
     try {
       const manifest = JSON.parse(await readFile(join(directory, MANIFEST), 'utf8'));
       if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)
@@ -690,12 +754,18 @@ export class PluginManager {
         throw new Error('manifest metadata does not match its plugin directory');
       }
       return this.#disabledRecord(id, {
+        builtIn,
+        directory,
+        fileName: builtIn ? ENTRYPOINT : DISABLED_ENTRYPOINT,
         name: this.#requireText(manifest.name, 'Plugin name'),
         description: manifest.description == null ? '' : this.#requireText(manifest.description, 'Plugin description'),
         version: this.#requireText(manifest.version, 'Plugin version'),
       });
     } catch (error) {
       return this.#disabledRecord(id, {
+        builtIn,
+        directory,
+        fileName: builtIn ? ENTRYPOINT : DISABLED_ENTRYPOINT,
         error: `Disabled plugin metadata is unavailable: ${error instanceof Error ? error.message : String(error)}`,
       });
     }

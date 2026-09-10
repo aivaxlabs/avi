@@ -1,0 +1,6 @@
+{
+  "id": "computer-use",
+  "name": "Computer Use",
+  "version": "1.0.0",
+  "description": "Inspect and control the desktop with screenshots, a visible session overlay, Escape to stop and pauses for manual input."
+}

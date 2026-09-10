@@ -240,6 +240,10 @@ export function PluginSettingsEditor({ plugin, onBack }) {
     setErrors({});
     setInvalidFields({});
     try {
+      if (plugin.builtIn && (plugin.status !== 'active' || plugin.enabled === false)) {
+        setData({ name: plugin.name, description: plugin.description, sections: [] });
+        return;
+      }
       const settings = await window.chatApp.plugins.settings({ id: plugin.id });
       setData(settings);
       setSavedValues(Object.fromEntries(settings.sections.flatMap((section, sectionIndex) => (
@@ -321,6 +325,17 @@ export function PluginSettingsEditor({ plugin, onBack }) {
         </button>
       </div>
 
+      {plugin.builtIn && plugin.id === 'chrome-integration' && <section className="settings-section-card">
+        <h3>Chrome extension</h3>
+        <p>Install the bundled extension in each Chrome profile: open chrome://extensions, turn on Developer mode, choose Load unpacked and select the extension folder opened by the button below. The folder path is copied to your clipboard.</p>
+        <button className="primary-mini" type="button" disabled={Boolean(busy)} onClick={async () => {
+          setBusy('install');
+          try { await window.chatApp.plugins.installChromeExtension(); }
+          catch (error) { setErrors((current) => ({ ...current, load: error instanceof Error ? error.message : String(error) })); }
+          finally { setBusy(''); }
+        }}>Install extension in Chrome</button>
+      </section>}
+      {plugin.builtIn && (plugin.status !== 'active' || plugin.enabled === false) && <p>Enable this plugin from the Built-in tab and restart Avi to use its tools and configuration.</p>}
       {errors.load && <div className="settings-context-error" role="alert">{errors.load}</div>}
       {!data && busy === 'load' && <div className="plugin-settings-loading"><RefreshCw className="spin" size={16} />Loading settings...</div>}
 

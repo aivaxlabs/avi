@@ -36,12 +36,30 @@
     align-items: flex-start;
     gap: 12px;
 
-    > svg { flex: 0 0 auto; color: var(--text-3); }
+    > .plugin-card-icon {
+      display: grid;
+      place-items: center;
+      flex: 0 0 46px;
+      width: 46px;
+      height: 46px;
+      border-radius: 12px;
+      color: var(--text-2);
+      background: var(--background-3);
+
+      &.chrome-integration {
+        color: var(--success-color);
+        background: color-mix(in srgb, var(--success-color) 14%, var(--background-2));
+      }
+
+      &.computer-use {
+        color: var(--primary-color);
+        background: color-mix(in srgb, var(--primary-color) 14%, var(--background-2));
+      }
+    }
 
     &.disabled {
       background: color-mix(in srgb, var(--background-1) 74%, var(--background-2));
 
-      > svg,
       .plugin-card-main { opacity: .66; }
     }
   }
