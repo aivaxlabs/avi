@@ -25,6 +25,7 @@ import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import { normalizeDefaultModels } from './default-models.js';
 import { searchChatsIn } from './search-core.js';
 import { traceError } from './trace-log.js';
+import { NotesStore } from './notes-store.js';
 
 const storageDir = join(homedir(), '.aivax');
 mkdirSync(storageDir, { recursive: true });
@@ -42,6 +43,7 @@ export const remoteOperationStatements = {
   usage: db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(length(CAST(response AS BLOB))), 0) AS bytes FROM remote_operations'),
 };
 db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
+export const notesStore = new NotesStore(db, storageDir);
 const secureStorage = {
   aivaxAccessToken: null,
   mcpOAuthSessions: {},

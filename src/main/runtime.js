@@ -41,6 +41,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { Worker } from 'node:worker_threads';
 import { AppUpdater } from './app-updater.js';
+import { notesStore } from './database.js';
 import { KeyboardShortcuts } from './keyboard-shortcuts.js';
 import { WorkspaceManager } from './workspaces.js';
 
@@ -188,6 +189,7 @@ const pluginsDirectory = app.isPackaged
   : join(app.getAppPath(), 'plugins');
 const pluginManager = new PluginManager({
   pluginsDir: pluginsDirectory,
+  builtInPluginsDir: join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'built-in-plugins'),
   reservedToolNames: [
     ...CLIENT_TOOLS.map((tool) => tool.name),
     'openai_subscription_generate_or_edit_image',
@@ -2442,6 +2444,14 @@ function registerIpc() {
       })),
     };
   });
+  applicationIpc.handle('plugins:install-chrome-extension', async () => {
+    const extensionPath = join(pluginManager.builtInPluginsDir, 'chrome-integration', 'extension');
+    await access(join(extensionPath, 'manifest.json'));
+    clipboard.writeText(extensionPath);
+    const error = await shell.openPath(extensionPath);
+    if (error) throw new Error(error);
+    return { extensionPath };
+  });
   applicationIpc.handle('plugins:sideload', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
       defaultPath: homedir(),
@@ -2630,6 +2640,32 @@ function registerIpc() {
   });
   applicationIpc.handle('chat:retry', (_event, payload) => chatRunner.retry(payload));
   applicationIpc.handle('chat:expand-prompt', (_event, payload) => chatRunner.expandPrompt(payload));
+  notesStore.on('changed', () => sendRendererEvent('notes:changed'));
+  applicationIpc.handle('notes:lists', (_event, payload) => notesStore.lists(payload));
+  applicationIpc.handle('notes:save-list', (_event, payload) => notesStore.saveList(payload));
+  applicationIpc.handle('notes:delete-list', (_event, payload) => notesStore.deleteList(payload));
+  applicationIpc.handle('notes:search', (_event, payload) => notesStore.search(payload));
+  applicationIpc.handle('notes:save', (_event, payload) => notesStore.save(payload));
+  applicationIpc.handle('notes:reorder', (_event, payload) => notesStore.reorder(payload));
+  applicationIpc.handle('notes:generate', (_event, payload) => chatRunner.createNote(payload));
+  applicationIpc.handle('notes:add-attachment', (_event, payload) => notesStore.addAttachment(payload));
+  applicationIpc.handle('notes:upload-attachment', (_event, payload) => notesStore.uploadAttachment(payload));
+  applicationIpc.handle('notes:get', (_event, payload) => notesStore.get(payload.id));
+  applicationIpc.handle('notes:read-attachment', (_event, payload) => notesStore.readAttachment(payload));
+  applicationIpc.handle('notes:pick-attachments', async (_event, payload) => {
+    notesStore.get(payload.id);
+    const selection = await dialog.showOpenDialog(mainWindow, { properties: ['openFile', 'multiSelections'] });
+    if (selection.canceled) return notesStore.get(payload.id);
+    for (const path of selection.filePaths) notesStore.addAttachment({ id: payload.id, path });
+    return notesStore.get(payload.id);
+  });
+  applicationIpc.handle('notes:export-attachment', async (_event, payload) => {
+    const attachment = notesStore.attachment(payload);
+    const selection = await dialog.showSaveDialog(mainWindow, { defaultPath: attachment.name });
+    if (selection.canceled || !selection.filePath) return { canceled: true };
+    await copyFile(attachment.path, selection.filePath);
+    return { canceled: false };
+  });
   applicationIpc.handle('chat:resolve-approval', async (_event, payload) => {
     const result = await chatRunner.resolveApproval(payload);
     refreshTrayMenu();

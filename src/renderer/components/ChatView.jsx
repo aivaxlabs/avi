@@ -12,6 +12,7 @@ import { ChatFind } from './ChatFind.jsx';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Composer } from './Composer.jsx';
+import { EmptyChatSummary } from './EmptyChatSummary.jsx';
 import { areComposerPropsEqual } from '../lib/composer-props.js';
 import { consolidateFileEdits } from '../lib/file-edits.js';
 import {
@@ -220,6 +221,12 @@ export const ChatView = memo(function ChatView({
   onAnswerQuestion,
   onChooseModel,
   botMode = false,
+  bots,
+  botDataByBot,
+  botsLoading,
+  botsError,
+  onOpenInbox,
+  onOpenNotes,
   onShowBotInPanel,
   onChooseProject,
   onUseHome,
@@ -778,7 +785,7 @@ export const ChatView = memo(function ChatView({
   return (
     <Root
       ref={chatAreaRef}
-      className={`chat-area ${compact ? 'auxiliary-chat-view' : ''} ${isEmptyChat ? 'chat-empty' : ''}`}
+      className={`chat-area ${compact ? 'auxiliary-chat-view' : ''} ${isEmptyChat ? 'chat-empty' : ''} ${isEmptyChat && !compact ? 'chat-empty-home' : ''}`}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -829,6 +836,9 @@ export const ChatView = memo(function ChatView({
         ) : isEmptyChat ? (
           <div className="empty-chat">
             <h1>How can I help you today?</h1>
+            {!compact && <EmptyChatSummary key={currentProject?.path ?? 'home'} folderPath={currentProject?.path}
+              bots={bots} botDataByBot={botDataByBot} botsLoading={botsLoading} botsError={botsError}
+              onOpenInbox={onOpenInbox} onOpenNotes={onOpenNotes} />}
           </div>
         ) : (
           <div className="messages-column">

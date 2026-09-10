@@ -46,6 +46,7 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { composerCommands } from '../../shared/composer-commands.js';
 import { createMp3Attachment } from '../lib/audio.js';
 import { findComposerInvocation } from '../lib/composer-invocation.js';
 import { fileToAttachment, formatBytes, textToAttachment } from '../lib/files.js';
@@ -120,73 +121,6 @@ const permissionModes = [
     id: 'full_access',
     label: 'Full access',
     description: 'Run tool calls without approval',
-  },
-];
-const composerCommands = [
-  {
-    id: 'ultra',
-    name: 'ultra',
-    description: 'Lead a proactive team of sub-agents for maximum quality',
-    availableInBot: false,
-  },
-  {
-    id: 'plan',
-    name: 'plan',
-    description: 'Create a detailed execution plan without changing anything',
-    availableInBot: false,
-  },
-  {
-    id: 'goal',
-    name: 'goal',
-    description: 'Work persistently until a defined objective is completed or blocked',
-    availableInBot: false,
-  },
-  {
-    id: 'efforts',
-    name: 'effort',
-    description: 'Set the reasoning effort for the selected model',
-    availableInBot: false,
-  },
-  {
-    id: 'models',
-    name: 'model',
-    description: 'Switch the active model',
-    availableInBot: false,
-  },
-  {
-    id: 'compress',
-    name: 'compress',
-    description: 'Create a detailed checkpoint and compress the conversation context',
-  },
-  {
-    id: 'quick-compress',
-    name: 'quick-compress',
-    description: 'Remove tool results before the latest four turns without calling a model',
-  },
-  {
-    id: 'optimize-prompt',
-    name: 'optimize-prompt',
-    description: 'Expand and optimize the current prompt using the auxiliary model',
-  },
-  {
-    id: 'side',
-    name: 'side',
-    description: 'Fork this chat into a temporary side panel',
-  },
-  {
-    id: 'mcp',
-    name: 'mcp',
-    description: 'Show MCP servers available in this conversation',
-  },
-  {
-    id: 'restart-mcp',
-    name: 'restart-mcp',
-    description: 'Restart all loaded MCP servers',
-  },
-  {
-    id: 'usage',
-    name: 'usage',
-    description: 'Show provider account limits and counters',
   },
 ];
 
@@ -269,6 +203,9 @@ export function Composer({
   const [ultraMode, setUltraMode] = useState(initialState?.ultraMode ?? initialUltraMode);
   const [plusOpen, setPlusOpen] = useState(false);
   const [promptExpanding, setPromptExpanding] = useState(false);
+  const [noteCreating, setNoteCreating] = useState(false);
+  const [noteFeedback, setNoteFeedback] = useState(null);
+  const noteCreatingRef = useRef(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [permissionMenuOpen, setPermissionMenuOpen] = useState(false);
   const [permissionMode, setPermissionMode] = useState(
@@ -544,7 +481,7 @@ export function Composer({
   const visibleGoal = activeGoal ?? finishedGoal;
   const effectiveWorkMode = activeGoal ? 'goal' : botMode ? null : workMode;
   const effectiveUltraMode = botMode ? false : ultraMode;
-  const canSend = !goalPreparation && !promptExpanding && !commandMode && (
+  const canSend = !goalPreparation && !promptExpanding && !noteCreating && !commandMode && (
     effectiveWorkMode === 'goal' && !activeGoal
       ? Boolean(text.trim())
       : Boolean(text.trim() || attachments.length > 0)
@@ -598,6 +535,7 @@ export function Composer({
   useEffect(() => {
     let active = true;
     hydratedConversationIdRef.current = null;
+    setNoteFeedback(null);
     if (!persistState) return () => { active = false; };
     setText(conversationId ? '' : window.localStorage.getItem(draftKey) ?? '');
     setAttachments([]);
@@ -902,6 +840,10 @@ export function Composer({
 
   async function submit({ steer = false } = {}) {
     if (!canSend) return;
+    if (/^\s*\/note(?:\s|$)/i.test(text)) {
+      await createUserNote(text.replace(/^\s*\/note\s*/i, ''), text);
+      return;
+    }
     const payload = {
       text,
       attachments,
@@ -1014,6 +956,26 @@ export function Composer({
     });
   }
 
+  async function createUserNote(prompt, sourceDraft) {
+    if (noteCreatingRef.current) return;
+    if (!prompt.trim()) { setNoteFeedback({ error: true, text: 'Write the note after /note, then send.' }); return; }
+    if (attachments.length) { setNoteFeedback({ error: true, text: 'Create the note without chat attachments, then add files in Notes.' }); return; }
+    const sourceConversationId = conversationId;
+    noteCreatingRef.current = true;
+    setNoteCreating(true);
+    setNoteFeedback(null);
+    try {
+      const note = await window.chatApp.notes.generate({ conversationId, folderPath: project?.path ?? null, prompt });
+      if (conversationIdRef.current === sourceConversationId) {
+        if (textRef.current === sourceDraft) { setText(''); setCursorPosition(0); window.localStorage.removeItem(draftKey); }
+        setNoteFeedback({ error: false, text: `Note created: ${note.title}` });
+        window.dispatchEvent(new CustomEvent('avi:note-created'));
+      }
+    } catch (failure) {
+      if (conversationIdRef.current === sourceConversationId) setNoteFeedback({ error: true, text: failure.message });
+    } finally { noteCreatingRef.current = false; setNoteCreating(false); }
+  }
+
   async function optimizePrompt(sourcePrompt, { replaceDraft = false } = {}) {
     if (promptExpandingRef.current) return;
 
@@ -1096,6 +1058,15 @@ export function Composer({
       if (option.id === 'quick-compress') {
         exitCommandMode();
         onQuickCompress();
+        return;
+      }
+      if (option.id === 'note') {
+        const prompt = `${text.slice(0, commandStart)}${text.slice(cursorPosition)}`;
+        setCommandStage(null);
+        setCommandDraft(null);
+        setCommandIndex(0);
+        if (prompt.trim()) void createUserNote(prompt, text);
+        else { setText('/note '); setCursorPosition(6); textAreaRef.current?.focus(); }
         return;
       }
       if (option.id === 'optimize-prompt') {
@@ -1860,6 +1831,8 @@ export function Composer({
             ))}
           </div>
         )}
+        {noteCreating && <div className="prompt-optimization-status" role="status">Creating note...</div>}
+        {noteFeedback && <div className="prompt-optimization-status" role={noteFeedback.error ? 'alert' : 'status'}>{noteFeedback.text}</div>}
         {promptExpanding && (
           <div className="prompt-optimization-status" role="status" aria-live="polite">
             <LoaderCircle size={14} />

@@ -30,6 +30,7 @@ import { FilesPanel } from './FilesPanel.jsx';
 import { GitReviewPanel } from './GitReviewPanel.jsx';
 import { MarkdownSegment } from './Message.jsx';
 import { ProviderPanel } from './ProviderPanel.jsx';
+import { NotesPanel } from './NotesPanel.jsx';
 
 const emptyList = Object.freeze([]);
 const emptyObject = Object.freeze({});
@@ -165,6 +166,9 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   project,
   providerPanels = emptyList,
   openProviderPanels = emptyList,
+  notesTabOpen,
+  onOpenNotesTab,
+  onCloseNotesTab,
   filesTabOpen,
   gitReviewTabOpen,
   subagentsTabOpen,
@@ -320,6 +324,15 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
       onOpen: onCreateSideChat,
     },
     {
+      id: 'notes',
+      label: 'Notes',
+      description: 'Your notes, lists and reminders',
+      icon: BookOpen,
+      disabled: false,
+      title: 'Open user notes',
+      onOpen: onOpenNotesTab,
+    },
+    {
       id: filesTabId,
       label: 'Files',
       description: 'Browse the current directory',
@@ -379,6 +392,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
     })),
   ];
   const tabs = [
+    ...(notesTabOpen ? [{ id: 'notes', label: 'Notes', running: false, type: 'notes' }] : []),
     ...sideChats.map((sideChat) => ({
       id: sideChat.id,
       label: sideChat.title,
@@ -495,6 +509,8 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                         <Network size={14} aria-hidden="true" />
                       ) : tab.type === 'bot-queue' ? (
                         <Bot size={14} aria-hidden="true" />
+                      ) : tab.type === 'notes' ? (
+                        <BookOpen size={14} aria-hidden="true" />
                       ) : tab.type === 'files' ? (
                         <Files size={14} aria-hidden="true" />
                       ) : tab.type === 'git-review' ? (
@@ -521,7 +537,9 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                         ? 'Close Sub-agents tab'
                         : `Close ${tab.label}`}
                       onClick={() => (
-                        tab.type === 'tasks'
+                        tab.type === 'notes'
+                          ? onCloseNotesTab()
+                          : tab.type === 'tasks'
                           ? onCloseTasksTab()
                           : tab.type === 'subagents'
                             ? onCloseSubagentsTab()
@@ -752,6 +770,8 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
               onAskInSideChat={canCreateSideChat ? onAskInSideChat : undefined}
               onRunAgent={onRunAgent}
             />
+          ) : activeTab === 'notes' ? (
+            <NotesPanel key={project?.path ?? 'global'} folderPath={project?.path ?? null} />
           ) : activeProviderPanel ? (
             <ProviderPanel
               panel={activeProviderPanel}

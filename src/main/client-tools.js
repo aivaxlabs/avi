@@ -23,6 +23,7 @@ import {
   getMessages,
   listAllConversations,
   listSubagents,
+  notesStore,
   updateConversation,
 } from './database.js';
 import { resolveSubagentModel } from './default-models.js';
@@ -171,7 +172,70 @@ async function waitForTerminal(terminal, { untilExit, timeout }) {
   });
 }
 
+const NOTE_PROPERTIES = {
+  title: { type: 'string', minLength: 1, maxLength: 500 },
+  listId: { type: 'string', minLength: 1 },
+  description: { type: 'string', maxLength: 200000 },
+  priority: { type: 'string', enum: ['none', 'low', 'medium', 'high', 'urgent'] },
+  dueAt: { type: ['string', 'null'], description: 'ISO 8601 deadline with timezone, or null to clear.' },
+  done: { type: 'boolean' },
+  archived: { type: 'boolean' },
+  position: { type: 'integer', minimum: 0 },
+  subtasks: { type: 'array', maxItems: 500, description: 'Full ordered replacement of the subtask list.', items: {
+    type: 'object', required: ['text', 'done'], properties: {
+      id: { type: 'string' }, text: { type: 'string', minLength: 1, maxLength: 2000 }, done: { type: 'boolean' },
+    },
+  } },
+};
+
 export const CLIENT_TOOLS = Object.freeze([
+  {
+    name: 'note_lists',
+    description: 'List user note lists, optionally by working folder and archive state. Omitting folderPath searches all folders.',
+    canEditFile: false, canPerformDestructiveActions: false,
+    inputSchema: { type: 'object', properties: { folderPath: { type: ['string', 'null'] }, archived: { type: ['boolean', 'null'], default: false } } },
+    execute: async (input) => notesStore.lists(input),
+  },
+  {
+    name: 'note_create',
+    description: 'Create a user note in an existing list. Use note_lists to discover lists first.',
+    canEditFile: true, canPerformDestructiveActions: true,
+    inputSchema: { type: 'object', required: ['title', 'listId', 'description'], properties: NOTE_PROPERTIES },
+    execute: async (input, { workMode }) => {
+      if (workMode === 'plan') throw new Error('note_create is unavailable in Plan mode.');
+      return notesStore.save({ ...input, id: undefined });
+    },
+  },
+  {
+    name: 'note_edit',
+    description: 'Edit any user note field, move lists, change status, replace ordered subtasks, add local file attachments, or remove attachments by ID. Omitted fields remain unchanged.',
+    canEditFile: true, canPerformDestructiveActions: true,
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'string', minLength: 1 }, ...NOTE_PROPERTIES,
+      addAttachmentPaths: { type: 'array', items: { type: 'string', minLength: 1 }, maxItems: 50 },
+      removeAttachmentIds: { type: 'array', items: { type: 'string', minLength: 1 } },
+    } },
+    execute: async (input, { workMode, workspacePath }) => {
+      if (workMode === 'plan') throw new Error('note_edit is unavailable in Plan mode.');
+      let note = notesStore.save(input);
+      for (const path of input.addAttachmentPaths ?? []) note = notesStore.addAttachment({ id: note.id, path: resolve(workspacePath, path) });
+      return note;
+    },
+  },
+  {
+    name: 'note_search',
+    description: 'Search and filter user notes across lists or folders. Excludes archived notes and lists by default. Returns notes and total; paginate with offset/limit.',
+    canEditFile: false, canPerformDestructiveActions: false,
+    inputSchema: { type: 'object', properties: {
+      query: { type: 'string' }, listIds: { type: 'array', items: { type: 'string' } }, folderPath: { type: ['string', 'null'] },
+      done: { type: 'boolean' }, archived: { type: ['boolean', 'null'], default: false }, priority: NOTE_PROPERTIES.priority,
+      createdAfter: { type: 'string' }, createdBefore: { type: 'string' }, updatedAfter: { type: 'string' }, updatedBefore: { type: 'string' },
+      dueAfter: { type: 'string' }, dueBefore: { type: 'string' },
+      orderBy: { type: 'string', enum: ['urgency', 'createdAt', 'updatedAt', 'priority', 'dueAt', 'manual'] },
+      limit: { type: 'integer', minimum: 1, maximum: 5000, default: 500 }, offset: { type: 'integer', minimum: 0, default: 0 },
+    } },
+    execute: async (input) => notesStore.search(input),
+  },
   {
     name: 'get_chat_attachments',
     description: 'Get local paths and stable attachment indexes for images, audio, and videos attached by the user in the current chat. Existing files are returned directly; inference-only media is copied to Avi temporary storage first.',

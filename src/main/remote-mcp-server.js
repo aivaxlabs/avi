@@ -19,6 +19,7 @@ import { CLIENT_TOOLS } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
 
 const REMOTE_TOOL_NAMES = new Set([
+  'note_lists', 'note_create', 'note_edit', 'note_search',
   'bots_list',
   'bots_read_work_log',
   'bots_send_work_log_message',
@@ -35,6 +36,9 @@ const REMOTE_TOOL_NAMES = new Set([
   'chat_inspect_thread',
 ]);
 const GLOBAL_RPC_METHODS = new Set([
+  'notes:lists', 'notes:save-list', 'notes:delete-list', 'notes:search', 'notes:save',
+  'notes:reorder', 'notes:generate', 'notes:add-attachment', 'notes:read-attachment',
+  'notes:get', 'notes:upload-attachment',
   'rpc:discover',
   'shortcuts:list',
   'shortcuts:save',
@@ -513,6 +517,9 @@ export class RemoteMcpServer {
       }
       const payload = preparePayload(request.method, rawPayload);
       let result = await this.invokeApplicationRequest(request.method, payload);
+      if (request.method === 'context:commands') {
+        result = result.filter((command) => command.type !== 'interceptor');
+      }
       if (['conversations:messages', 'conversations:context'].includes(request.method)) {
         result = {
           ...result,
@@ -563,7 +570,7 @@ export class RemoteMcpServer {
       transport: { protocol: ORPC_PROTOCOL, framing: 'complete-frame', limits: ORPC_LIMITS },
       methods: [...methods].sort(),
       capabilities: scope === 'global'
-        ? ['acknowledged-events', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags', 'app-updates']
+        ? ['acknowledged-events', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags', 'app-updates', 'notes']
         : [
             'acknowledged-events',
             'conversation-events',

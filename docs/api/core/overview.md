@@ -2,6 +2,8 @@
 
 Avi plugins are trusted ECMAScript modules loaded in the Electron main process. The public API is version 2; older API versions are rejected.
 
+Built-in plugins use the same API v2 contract. Their sources live in the installer-managed `built-in-plugins` resource directory, while enablement and managed output remain separate. They are disabled by default and cannot be removed or replaced by sideloading. See [Built-in plugins](../../Plugins.md#built-in-and-installed-plugins).
+
 ## Entrypoint
 
 Every package exposes `plugin.js` with a default definition or a factory receiving the authoring helper:
@@ -36,6 +38,7 @@ The definition supports `apiVersion`, `id`, `name`, `version`, optional `descrip
 - `avi.threads`
 - `avi.semaphores`
 - `avi.bots`
+- [`avi.notes`](notes.md)
 - `avi.tools`
 - `avi.interceptors`
 - `avi.events`
@@ -64,6 +67,8 @@ bots.manage
 bots.run
 bots.readState
 bots.approvals.resolve
+notes.read
+notes.manage
 tools.register
 tools.intercept
 events.subscribe

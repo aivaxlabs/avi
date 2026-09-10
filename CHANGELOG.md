@@ -3,6 +3,11 @@
 ## [Canary]
 
 ### Added
+- Note creation/editing uses the shared app dialog styling and tabs for Details, Sub-tasks, and Attachments, with keyboard navigation, focus containment, and cross-tab validation; compact list headers keep New note and list actions available even when collapsed.
+- Empty chats show the latest open bot inbox messages and count, plus unfinished notes due today in the current working folder, with lightweight message rows, labeled shortcuts, and compact empty sections.
+- Notes Core API and global RPC note lookup/chunked browser attachment uploads, enabling Avi Workspace Notes without host filesystem access.
+- **Notes** — persistent folder-scoped lists with priorities, deadlines, completion/archive states, ordered subtasks and copied file attachments; auxiliary-panel filters and ordering, contextual auxiliary-model `/note`, and `note_lists`, `note_create`, `note_edit`, `note_search` agent/MCP tools plus global Notes RPC methods. See [Notes](docs/Notes.md).
+- Built-in/Installed plugin tabs with disabled-by-default Chrome Integration and Computer Use, distinct icons on themed backgrounds, bundled tools and skills, persistent enablement, and a Chrome extension installation guide. Native desktop resources are prepared per target platform during packaging.
 - Agent/MCP overview, bot work-log reading and messaging, thread creator/parent filters with type and child counts, and queue IDs for one-time bot activation focus.
 - **Relayed MCP** — AIVAX Remote exposes `/mcp/<device-id>` with AIVAX bearer authentication and public `/mcp` discovery with per-tool `instanceKey` authentication. Remote control shows device/instance identifiers and MCP endpoints; API-key menus copy either credential format. New keys use 6 lowercase alphanumeric characters; persistent public instance IDs use 10. Existing keys and device IDs are preserved, and public calls are rate-limited per instance.
 - **Keyboard shortcuts** — configurable in-app commands for model/reasoning selection, navigation, chat search, and zoom; global Quick Chat, plugin-provided bindings, conflict detection, persistent overrides, and global RPC `shortcuts:list` / `shortcuts:save`.
@@ -10,6 +15,7 @@
 - **ORPC Draft 1 remote transport** — RPC WebSockets now speak binary ORPC (`avi-orpc-draft1`): length-prefixed frames carrying UTF-8 JSON operation envelopes (`operationId`, `expiresAt` now + 180 s, `params`), dotted wire methods over the colon application names, acknowledged server events (`eventId` with an `OK` ack), no batching, and the full specification bundled at `docs/api/rpc/orpc-spec.md`.
 
 ### Changed
+- Removed desktop interceptor commands (including `/side`, `/quick-compress`, and `/optimize-prompt`) from the RPC command catalog sent to Avi Workspace. The desktop composer and context discovery now share their classification; ordinary workflows and skills remain available remotely.
 - Bot avatars now use AIVAX Orbs keyed by bot ID in the sidebar, Inbox list and work-log message headers, and settings; removed the random icon control while retaining `iconSeed` API compatibility.
 - The composer project picker now lists up to 30 recent projects instead of 8.
 - **Overview Inbox** — opens conversations in a resizable side panel without leaving the Overview, sharing chat-panel styles and width controls but showing a close button instead of tabs.

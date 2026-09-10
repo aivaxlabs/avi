@@ -173,6 +173,7 @@ export default function App() {
   const [rubberDucks, setRubberDucks] = useState([]);
   const [bots, setBots] = useState([]);
   const [botDataByBot, setBotDataByBot] = useState({});
+  const [botsError, setBotsError] = useState('');
   const [botsLoading, setBotsLoading] = useState(true);
   const [botSchedulerSnooze, setBotSchedulerSnooze] = useState({
     active: false,
@@ -186,6 +187,7 @@ export default function App() {
   const [tasksByConversation, setTasksByConversation] = useState({});
   const [providerPanels, setProviderPanels] = useState([]);
   const [openProviderPanelIds, setOpenProviderPanelIds] = useState([]);
+  const [notesTabOpen, setNotesTabOpen] = useState(false);
   const [filesTabOpen, setFilesTabOpen] = useState(false);
   const [gitReviewTabOpen, setGitReviewTabOpen] = useState(false);
   const [subagentsTabOpen, setSubagentsTabOpen] = useState(false);
@@ -591,6 +593,7 @@ export default function App() {
       const state = await api.bots.list();
       setBots(state.bots ?? []);
       setBotDataByBot(state.botDataByBot ?? {});
+      setBotsError('');
       setBotSchedulerSnooze(state.schedulerSnooze ?? {
         active: false,
         mode: null,
@@ -598,6 +601,7 @@ export default function App() {
       });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
+      setBotsError('Could not load bot inbox.');
     } finally {
       setBotsLoading(false);
     }
@@ -1036,6 +1040,7 @@ export default function App() {
     setActiveAuxiliaryTab((current) => {
       if (
         sideChats.some((sideChat) => sideChat.id === current)
+        || (current === 'notes' && notesTabOpen)
         || (current === 'files' && filesTabOpen)
         || (current === 'git-review' && gitReviewTabOpen)
         || (current === 'subagents' && subagentsTabOpen)
@@ -1046,6 +1051,7 @@ export default function App() {
         return current;
       }
       return sideChats[0]?.id
+        ?? (notesTabOpen ? 'notes' : null)
         ?? (filesTabOpen ? 'files' : null)
         ?? (gitReviewTabOpen ? 'git-review' : null)
         ?? (tasksTabOpen ? 'tasks' : null)
@@ -1054,6 +1060,7 @@ export default function App() {
     });
   }, [
     botQueueTabOpen,
+    notesTabOpen,
     filesTabOpen,
     gitReviewTabOpen,
     openProviderPanels,
@@ -1698,6 +1705,7 @@ export default function App() {
     setRunning((state) => ({ ...state, [id]: false }));
     if (activeAuxiliaryTab === id) {
       const nextTab = remaining[Math.min(index, remaining.length - 1)]?.id
+        ?? (notesTabOpen ? 'notes' : null)
         ?? (filesTabOpen ? 'files' : null)
         ?? (gitReviewTabOpen ? 'git-review' : null)
         ?? (tasksTabOpen ? 'tasks' : null)
@@ -2115,7 +2123,7 @@ export default function App() {
   const auxiliaryOnCloseBotQueueTab = useStableCallback(closeBotQueueTab);
   const auxiliaryOnSelectTab = useStableCallback(async (tabId) => {
     setActiveAuxiliaryTab(tabId);
-    if (['subagents', 'files', 'git-review'].includes(tabId)) {
+    if (['notes', 'tasks', 'bot-queue', 'subagents', 'files', 'git-review'].includes(tabId)) {
       setActiveSubagentId(null);
     } else if (!providerPanels.some((panel) => panel.id === tabId)) {
       await loadInitialMessagePage(tabId);
@@ -2137,6 +2145,7 @@ export default function App() {
     if (activeAuxiliaryTab === 'git-review') {
       setActiveAuxiliaryTab(
         sideChats[0]?.id
+          ?? (notesTabOpen ? 'notes' : null)
           ?? (filesTabOpen ? 'files' : null)
           ?? (tasksTabOpen ? 'tasks' : null)
           ?? (botQueueTabOpen ? 'bot-queue' : null)
@@ -2154,6 +2163,7 @@ export default function App() {
     if (activeAuxiliaryTab === 'subagents') {
       setActiveAuxiliaryTab(
         sideChats[0]?.id
+          ?? (notesTabOpen ? 'notes' : null)
           ?? (filesTabOpen ? 'files' : null)
           ?? (gitReviewTabOpen ? 'git-review' : null)
           ?? openProviderPanels[0]?.id
@@ -2167,6 +2177,20 @@ export default function App() {
     setActiveAuxiliaryTab('git-review');
     setAuxiliaryPanelVisible(true);
   });
+  const auxiliaryOnOpenNotesTab = useStableCallback(() => {
+    setNotesTabOpen(true);
+    setActiveSubagentId(null);
+    setActiveAuxiliaryTab('notes');
+    setAuxiliaryPanelVisible(true);
+  });
+  const auxiliaryOnCloseNotesTab = useStableCallback(() => {
+    setNotesTabOpen(false);
+    if (activeAuxiliaryTab === 'notes') setActiveAuxiliaryTab(null);
+  });
+  useEffect(() => {
+    window.addEventListener('avi:note-created', auxiliaryOnOpenNotesTab);
+    return () => window.removeEventListener('avi:note-created', auxiliaryOnOpenNotesTab);
+  }, [auxiliaryOnOpenNotesTab]);
   const auxiliaryOnOpenFilesTab = useStableCallback(() => {
     setFilesTabOpen(true);
     setActiveSubagentId(null);
@@ -2197,6 +2221,7 @@ export default function App() {
     if (activeAuxiliaryTab === panelId) {
       setActiveAuxiliaryTab(
         remaining[Math.min(index, remaining.length - 1)]
+          ?? (notesTabOpen ? 'notes' : null)
           ?? (filesTabOpen ? 'files' : null)
           ?? (gitReviewTabOpen ? 'git-review' : null)
           ?? (subagentsTabOpen ? 'subagents' : sideChats[0]?.id ?? null),
@@ -2498,6 +2523,15 @@ export default function App() {
               historyHasMore={messagePagesByConversation[selectedId]?.hasMore ?? false}
               historyLoading={messagePagesByConversation[selectedId]?.loading ?? false}
               onLoadOlderHistory={() => loadOlderMessagePage(selectedId)}
+              bots={bots}
+              botDataByBot={botDataByBot}
+              botsLoading={botsLoading}
+              botsError={botsError}
+              onOpenInbox={(botId, pendencyId) => {
+                setOrchestrationOpen(true);
+                setOverviewInboxNavigation(botId ? { botId, pendencyId } : null);
+              }}
+              onOpenNotes={auxiliaryOnOpenNotesTab}
               botMode={Boolean(selectedBot)}
               onShowBotInPanel={selectedBot ? chatOnShowBotInPanel : undefined}
               emptyBackgroundEnabled={getTheme(appearance.themeId).emptyChatBackground !== false}
@@ -2588,6 +2622,7 @@ export default function App() {
                   setActiveSubagentId(null);
                   setActiveAuxiliaryTab((current) => (
                     sideChats.some((sideChat) => sideChat.id === current)
+                    || (current === 'notes' && notesTabOpen)
                     || (current === 'files' && filesTabOpen)
                     || (current === 'git-review' && gitReviewTabOpen)
                     || (current === 'subagents' && subagentsTabOpen)
@@ -2596,6 +2631,7 @@ export default function App() {
                     || openProviderPanels.some((panel) => panel.id === current)
                       ? current
                       : sideChats[0]?.id
+                        ?? (notesTabOpen ? 'notes' : null)
                         ?? (filesTabOpen ? 'files' : null)
                         ?? (gitReviewTabOpen ? 'git-review' : null)
                         ?? (tasksTabOpen ? 'tasks' : null)
@@ -2661,6 +2697,9 @@ export default function App() {
                 project={currentProject}
                 providerPanels={providerPanels}
                 openProviderPanels={openProviderPanels}
+                notesTabOpen={notesTabOpen}
+                onOpenNotesTab={auxiliaryOnOpenNotesTab}
+                onCloseNotesTab={auxiliaryOnCloseNotesTab}
                 filesTabOpen={filesTabOpen}
                 gitReviewTabOpen={gitReviewTabOpen}
                 subagentsTabOpen={subagentsTabOpen}

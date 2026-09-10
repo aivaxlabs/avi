@@ -29,6 +29,14 @@ All RPC traffic uses binary WebSocket messages; a text message closes the socket
 
 The complete framing, reconstruction, and recovery rules are specified in the bundled [ORPC Draft 1 specification](orpc-spec.md). Avi content is UTF-8 JSON, decoded only after a response is fully reassembled.
 
+## Notes
+
+The global socket exposes `notes:lists`, `notes:save-list`, `notes:delete-list`, `notes:search`, `notes:save`, `notes:reorder`, `notes:generate`, `notes:add-attachment`, and `notes:read-attachment`. See [Notes: public IPC / RPC contract](../../Notes.md#public-ipc--rpc-contract) for payloads, data shapes, pagination, file chunking, and archive semantics. `notes:get` retrieves one note and `notes:upload-attachment` accepts browser files in bounded chunks. See [Notes RPC](notes.md) for the upload/download protocol. Native file-picker/export dialogs remain local-only.
+
+## Plugin management
+
+`plugins:list` returns plugin inventory with `builtIn: boolean` per record, `builtInPluginsDir`, `pluginsDir`, failures and `restartRequired`. `plugins:set-enabled` accepts `{ id, enabled }` for either category; changes apply after restart. `plugins:remove` rejects built-ins. `plugins:install-chrome-extension` takes no payload, opens the bundled Chrome extension folder, copies its path to the desktop clipboard and returns `{ extensionPath }`; the user completes Load unpacked in Chrome. It does not install an extension silently or publish it to the Chrome Web Store.
+
 ## Method names
 
 `rpc:discover` and the method reference pages use application names with a colon (`folders:list`). ORPC method tokens do not allow `:`, so the wire method replaces it with a dot (`folders.list`). The server maps the dotted wire name back to the application name before dispatch. Both forms name the same method; this reference shows application names in headings and the JSON request body in examples.

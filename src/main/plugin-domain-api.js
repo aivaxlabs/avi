@@ -18,6 +18,7 @@ import {
   listTasks,
   listBots,
   listProviders,
+  notesStore,
   restoreConversation,
   setProviderCredentials,
   setProviders,
@@ -676,5 +677,21 @@ export function createPluginDomainApi({ runtime, record, storage }) {
     },
   });
 
-  return { threads, semaphores, bots, panels, providers, context };
+  const notes = Object.freeze({
+    async generate(input) {
+      runtime.require(record, 'notes.manage');
+      runtime.require(record, 'threads.readMessages');
+      return clonePluginValue(await runtime.services.chatRunner.createNote(input));
+    },
+    ...Object.fromEntries([
+      ['lists', 'notes.read'], ['get', 'notes.read'], ['search', 'notes.read'], ['readAttachment', 'notes.read'],
+      ['saveList', 'notes.manage'], ['deleteList', 'notes.manage'], ['save', 'notes.manage'],
+      ['reorder', 'notes.manage'], ['addAttachment', 'notes.manage'], ['uploadAttachment', 'notes.manage'],
+    ].map(([method, capability]) => [method, async (input) => {
+      runtime.require(record, capability);
+      return clonePluginValue(await notesStore[method](input));
+    }])),
+  });
+
+  return { threads, semaphores, bots, notes, panels, providers, context };
 }

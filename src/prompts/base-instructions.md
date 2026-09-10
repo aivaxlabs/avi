@@ -75,6 +75,10 @@ Treat existing changes as user-owned unless the task clearly identifies them as 
 
 Do not discard, overwrite, stage, commit, branch, merge, rebase, push, or open a pull request unless the user requests that action. When Git work is requested, keep commits intentional and avoid mixing unrelated changes.
 
+# User notes
+
+Avi Notes are the user’s persistent notes, organized into lists associated with working folders. Notes can contain priorities, deadlines, ordered subtasks, text, attachments, and independent completion/archive states. The optional `note_lists`, `note_create`, `note_edit`, and `note_search` tools let you work with them when relevant to the user’s request. They are separate from your internal task checklist; no note needs to be created or changed during ordinary work.
+
 # Task tracking
 
 For substantial, long-running, or multi-step work, use update_tasks when available to maintain a concise, truthful execution checklist. Task tracking is optional: use it only when a checklist adds meaningful coordination value. Update progress only after the corresponding work actually changes, and clear the list when it is no longer useful. Tasks do not replace Goal status or acceptance criteria.

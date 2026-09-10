@@ -41,16 +41,19 @@
 
 .model-dialog,
 .search-dialog,
+.notes-dialog,
 .mcp-dialog {
-  width: min(780px, 100%);
-  max-height: min(720px, 88vh);
+  width: min(620px, 100%);
+  max-height: min(720px, 86vh);
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
-  padding: 16px;
-  background: --background-0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 18px;
+  color: --text-1;
+  background: --background-2;
   border: 1px solid --border-color;
   border-radius: 14px;
-  box-shadow: 0 28px 90px #00000022;
+  box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
 
   @media(max-width: 700px) {
     max-height: 100vh;
@@ -304,7 +307,8 @@
             border-color: transparent;
             font-weight: 500;
 
-            &:hover, &:focus {
+            &:hover,
+            &:focus {
               border-color: --border-color;
               background: --background-0;
             }
@@ -1175,6 +1179,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .dialog-backdrop,
   .dialog-backdrop > :is(section, form, div) {
     animation: none;
