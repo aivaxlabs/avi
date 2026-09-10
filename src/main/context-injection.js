@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { opendir, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { composerCommands } from '../shared/composer-commands.js';
 import {
   traceError,
   traceVerbose,
@@ -604,7 +605,9 @@ export async function listContextItems(
         commandKeys.add(key);
         commands.push({
           id: key,
-          type: group.id,
+          type: group.id === 'workflow' && composerCommands.some((command) => command.name === name)
+            ? 'interceptor'
+            : group.id,
           name,
           description: item.description,
         });

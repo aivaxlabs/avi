@@ -55,8 +55,6 @@
 
 .sidebar-bots {
   flex: 0 0 auto;
-  min-height: 0;
-  max-height: 220px;
   overflow: auto;
   display: grid;
   align-content: start;

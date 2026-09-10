@@ -8,6 +8,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { composerCommands } from '../src/shared/composer-commands.js';
 import {
   listContextItems,
   resolveDynamicContext,
@@ -287,6 +288,28 @@ try {
   assert.deepEqual(
     context.commands.map((command) => command.id).sort(),
     ['skill:frontend-skill', 'workflow:workspace-workflow'],
+  );
+
+  const interceptorRoot = path.join(installationRoot, 'interceptor-catalog');
+  await mkdir(path.join(interceptorRoot, 'workflows'), { recursive: true });
+  await mkdir(path.join(interceptorRoot, 'skills', 'side'), { recursive: true });
+  await Promise.all([
+    ...composerCommands.map((command) => writeFile(
+      path.join(interceptorRoot, 'workflows', `${command.name}.md`),
+      `---\nname: ${command.name}\n---\nDesktop action`,
+    )),
+    writeFile(path.join(interceptorRoot, 'skills', 'side', 'SKILL.md'), '---\nname: side\n---\nA normal skill'),
+    writeFile(path.join(interceptorRoot, 'workflows', 'review.md'), '---\nname: review\n---\nA normal workflow'),
+  ]);
+  const interceptorCatalog = await listContextItems(interceptorRoot, { includeRootCatalog: true });
+  assert.ok(composerCommands.every((command) => command.type === 'interceptor'));
+  assert.deepEqual(
+    interceptorCatalog.commands.filter((command) => command.type === 'interceptor').map((command) => command.name).sort(),
+    composerCommands.map((command) => command.name).sort(),
+  );
+  assert.deepEqual(
+    interceptorCatalog.commands.filter((command) => command.type !== 'interceptor').map((command) => command.id).sort(),
+    ['skill:side', 'workflow:review'],
   );
 
   const installationContext = await listContextItems(installationContextDirectory, {
