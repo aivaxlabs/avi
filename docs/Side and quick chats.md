@@ -26,7 +26,7 @@ A side chat only explores and investigates: it does not implement changes or tak
 
 ## Quick Chat
 
-First select **Settings → Default models → Quick chat model**. There is no automatic model fallback.
+First select **Settings → Models → Auxiliar models → Quick chat model**. There is no automatic model fallback.
 
 Open **Quick chat** from the Sidebar or tray. The window supports model switching, attachments and drag-and-drop, audio recording, stopping a response, and answering structured questions. Its conversation disappears when the window closes and is never added to Archive or conversation search.
 
@@ -35,6 +35,8 @@ Quick Chat uses `$HOME` as the tool and MCP workspace. Although its instructions
 Quick Chat only explores and investigates: it does not implement changes or take material actions. It can inspect threads across all folders, but it is not focused on any single thread, and it can direct main threads or their sub-agents only when explicitly asked to. Quick Chat answers are meant to be quick, avoiding long tool chains and deep analyses.
 
 Quick Chat can create ordinary threads or sub-agents and can keep Tasks or Goal state in memory. Session-only state does not survive closing the window.
+
+Model rules do not apply to Quick Chat. Side Chat is a full chat for rule matching and uses the `main` role.
 
 ## Which one to use
 

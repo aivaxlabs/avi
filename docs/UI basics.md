@@ -41,7 +41,7 @@ Side chats open as separate private conversation panels.
 
 ## Composer
 
-The model picker has two modes. When **Settings → Default models → Intelligence levels** defines at least three levels, the picker opens as an intelligence slider: each level applies a configured model and reasoning effort, and **Advanced** switches to direct selection. In advanced mode, **Model** lists favorite models plus **Explore models**, and **Effort** lists the reasoning levels supported by the selected model. Changing models clears an incompatible reasoning effort. Model names containing `(Fast)` or `- Fast` show that text as a lightning icon after the name instead; long labels truncate without separating the icon, and nested menus flip inward when the viewport edge is too close. The project folder can be changed only before the thread is created.
+The model picker has two modes. When **Settings → Models → Model slider** defines at least three levels, the picker opens as an intelligence slider: each level applies a configured model and reasoning effort, and **Advanced** switches to direct selection. In advanced mode, **Model** lists favorite models plus **Explore models**, and **Effort** lists the reasoning levels supported by the selected model. Changing models clears an incompatible reasoning effort. Model names containing `(Fast)` or `- Fast` show that text as a lightning icon after the name instead; long labels truncate without separating the icon, and nested menus flip inward when the viewport edge is too close. The project folder can be changed only before the thread is created.
 
 ### Sending while work is running
 
@@ -96,7 +96,7 @@ The **Overview** page is an observability surface, not an execution mode. It sum
 
 ## Settings
 
-Settings contains General, Tuning, Personalization, Providers, Default models, Context, MCP servers, AIVAX Features, Maintenance, Remote control, and About Avi. Maintenance groups archived-conversation management and temporary-storage cleanup with the Semaphores inspector.
+Settings contains General, Tuning, Personalization, Providers, Models, Context, MCP servers, AIVAX Features, Maintenance, Remote control, and About Avi. The **Models** page has **Auxiliar models**, **Sub-agents**, **Rules**, and **Model slider** tabs; one **Save default models** action persists the complete draft. Maintenance groups archived-conversation management and temporary-storage cleanup with the Semaphores inspector.
 
 Packaged installations check GitHub for updates at startup and every six hours. A Settings badge and a green banner in **General** announce a newer release. Choose **Install update** to download the matching installer; finish active work first because Avi closes and reopens during installation. **About** always provides update status and a manual update check, including download progress and failure details. General only shows the card when an update is available. See [Automatic updates](Automatic%20updates.md) for platform requirements.
 

@@ -1,62 +1,23 @@
 # Design philosophy
 
-## Product character
+Avi is a calm, compact desktop workspace for sustained technical work. Chat is the primary surface; navigation and panels support it, while settings is a dedicated management workspace. Do not apply a landing-page, mobile drawer, or dashboard aesthetic to these surfaces without a requested redesign.
 
-Design Avi as a calm, compact desktop workspace for sustained technical work. The interface should feel precise and capable without competing with the conversation. Favor legible density, stable placement, restrained surfaces, and direct feedback over decorative chrome, novelty, or dashboard-like ornamentation.
+## Decision priorities
 
-## Priorities
+- Keep the user's task, context, and operational state visible. Make the primary action obvious and preserve predictable placement.
+- Establish hierarchy through alignment, spacing, typography, and text tone before adding borders, color, shadows, or cards.
+- Use progressive disclosure for advanced controls. Short supporting copy should explain a consequence or scope, not repeat the label.
+- Preserve recoverable input and show the next action when work waits, fails, or is blocked. Partial or failed output must not look complete.
+- Prefer legible density over empty visual space. At narrow widths, truncate labels and disclose secondary actions before clipping content or shrinking essential controls.
 
-1. Keep the user's current task, context, and system state visible.
-2. Make the primary action obvious; keep secondary and destructive actions quieter.
-3. Preserve predictable placement and behavior across chat, panels, navigation, and settings.
-4. Use progressive disclosure for advanced controls instead of presenting every option at once.
-5. Preserve recoverable input and explain the next action when work waits, fails, or is blocked.
+## Visual decisions
 
-## Visual hierarchy
+Use the token, typography, theme, accessibility, and motion contracts in [Renderer guide](../AGENTS.Renderer.md), not a new local design system. The sources are `src/styles/globals.xcss`, `typo.xcss`, `layout.xcss`, and `themes/`.
 
-- Establish hierarchy with spacing, alignment, typography, and text tone before adding borders, color, shadows, or cards.
-- Use `--font-ui` for interface copy and `--font-code` only for code, identifiers, paths, shortcuts, and monospaced data.
-- Reuse the restrained type scale in `src/styles/typo.xcss`: `--font-xl` through `--font-xs`. Do not introduce a feature-local font family or type scale.
-- Keep headings concise and sentence case. Use muted supporting copy to clarify consequence or scope, not to repeat the label.
-- Reserve strong elevation and backdrop effects for temporary overlays or clear layer separation.
+Reserve elevation and backdrops for actual layer separation. Avoid decorative gradients, glowing borders, oversized hero copy, excessive pills, and a rounded card around every message or setting. Pills suit compact modes and context; cards suit coherent configuration groups, not individual labels or metrics.
 
-## Color and themes
+Motion should explain origin, continuity, or feedback. An overlay may enter from its trigger and a panel from its edge; decorative loops and motion that competes with reading or typing do not belong here. Preserve reduced-motion paths.
 
-- Use semantic surfaces and text tokens: `--background-*`, `--text-*`, `--border-color`, `--item-hover`, and `--item-active`.
-- Use intent tokens only for intent: `--primary-color`, `--success-color`, `--warn-color`, and `--danger-color`.
-- Do not infer meaning from a literal hue or assume a dark or light background. Verify every state in built-in and plugin themes and both color schemes.
-- Never use color as the only status signal. Pair it with text, iconography, shape, or accessible state.
-- Avoid hard-coded colors except for media, syntax, or an intentional effect that cannot be represented by a semantic token.
+## Before adding a new treatment
 
-## Interaction and feedback
-
-- Preserve established action meanings and keyboard behavior during visual refinements.
-- Show specific feedback close to the control or content it affects for loading, waiting, permission, success, interruption, validation, and error states.
-- Keep destructive actions visually and spatially separate, label them explicitly, and require confirmation when recovery is difficult.
-- Give icon-only controls an accessible name and usually a tooltip. Hover, icons, placeholder text, and color cannot be the only explanation.
-- Use native semantic controls before custom clickable containers.
-
-## Motion
-
-- Animate only when motion clarifies origin, continuity, or feedback.
-- Reuse `--duration-*`, `--ease-smooth-out`, `--base-transition`, `--distance-base`, and `--scale-*` from `src/styles/globals.xcss`.
-- Keep entrance and state transitions short and interruptible. Avoid decorative loops except a bounded operational indicator such as a spinner.
-- Provide a `prefers-reduced-motion` path for every non-essential animation or transition.
-
-## Density and responsiveness
-
-- Optimize first for mouse and keyboard in Electron's desktop layout, then preserve the existing narrow-window behavior.
-- Compress labels and secondary controls progressively; do not clip content, actions, focus rings, or operational state.
-- Use `min-width: 0`, `min-height: 0`, ellipsis, and intentional internal scrolling in grid and flex children.
-- Do not invent a mobile layout pattern where Avi currently uses compact desktop columns unless the task explicitly requests one.
-
-## Avoid AI-looking UI
-
-- Do not turn ordinary content into a collection of rounded cards.
-- Avoid oversized hero copy, gratuitous gradients, glowing borders, excessive pills, and decorative status chips.
-- Do not add empty visual filler, generic illustrations, or verbose helper copy.
-- Prefer one coherent surface hierarchy and a small number of purposeful accents.
-
-## Source anchors
-
-Use `src/styles/globals.xcss`, `src/styles/typo.xcss`, `src/styles/layout.xcss`, `src/styles/themes/`, and `.agents/AGENTS.Renderer.md` as the current visual-system contract.
+Compare the same role in the existing UI: menu with menu, configuration group with configuration group, and chat output with chat output. Prefer the implemented family even when a standalone alternative looks attractive. If the family cannot meet the requirement, identify the missing behavior rather than silently restyling the product.

@@ -21,7 +21,7 @@ To record a binding, focus its field and press the actual key combination, then 
 
 Model and reasoning commands target the focused composer, or the main composer when none is focused, and stop at the configured boundaries. Model stepping requires a configured intelligence slider. Sidebar, thread, and panel commands apply to the main workspace. Only Quick Chat and plugin commands declaring `supportsGlobal` offer global mode. Other bindings cannot be promoted to desktop shortcuts.
 
-Find searches the currently rendered visible message text, without case sensitivity. Use Enter/Shift+Enter or Next/Previous to navigate; Escape closes it. **Include older messages** expands the chat history and updates results. Collapsed content must be expanded to be searched. This is not a semantic search or a search of attachments. Matches spanning separate rendered text nodes are not combined.
+Find floats in a compact, centered panel above the composer and highlights results without changing native text selection or keyboard focus while typing. Searches update after a 50 ms debounce and inspect the currently rendered visible message text, without case sensitivity. Use Enter/Shift+Enter or Next/Previous to navigate; Escape closes it. **Include older messages** expands the chat history and updates results. Collapsed content must be expanded to be searched. This is not a semantic search or a search of attachments. Matches spanning separate rendered text nodes are not combined.
 
 Bindings are installation-wide and persist across restarts. Plugin changes follow the normal plugin restart lifecycle. On startup, a newly introduced conflicting contribution is inactive and reports the conflict in Settings.
 

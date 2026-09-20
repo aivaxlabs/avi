@@ -1,16 +1,18 @@
 .chat-area {
   position: relative;
   height: 100%;
-  --composer-bottom: 0;
+  --composer-bottom: 0px;
   background: var(--background-1);
   overflow: hidden;
   isolation: isolate;
 
   > .chat-find {
     position: absolute;
-    top: 8px;
-    right: 12px;
-    left: 12px;
+    bottom: calc(var(--composer-bottom) + var(--composer-clearance, 176px) + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 640px;
+    max-width: calc(100% - 24px);
     z-index: 10;
     display: flex;
     align-items: center;
@@ -32,6 +34,11 @@
     }
 
     > button { padding: 6px; }
+  }
+
+  ::highlight(avi-chat-find) {
+    background-color: var(--primary-color);
+    color: var(--background-1);
   }
 
   .chat-background-image {
@@ -132,7 +139,7 @@
         calc(100% - var(--composer-clearance, 176px) - 14px));
 
     &:has(.command-picker) {
-      --composer-bottom: 0;
+      --composer-bottom: 0px;
     }
 
     > .composer-wrap:not(.inline-composer-wrap) .composer {
@@ -177,7 +184,7 @@
   &.chat-empty-home {
     display: flex;
     flex-direction: column;
-    --composer-bottom: 0;
+    --composer-bottom: 0px;
 
     > .chat-scroll {
       flex: 1;

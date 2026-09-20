@@ -1,62 +1,33 @@
 # Chat workspace
 
-## Purpose and anatomy
+## Reuse the conversation pipeline
 
-Keep chat as Avi's primary work surface. Preserve this hierarchy:
+`src/renderer/components/ChatView.jsx` composes history, messages, inline questions and run states, selection actions, and `Composer`. Extend that pipeline instead of adding a second conversation renderer or local inference state model.
 
-1. `.chat-workspace` owns the main chat and optional auxiliary-panel columns.
-2. `.chat-area` contains background treatment, the scrollable conversation region, drop feedback, and the anchored composer.
-3. `.chat-scroll` is the keyboard-focusable `Conversation messages` region.
-4. `.messages-column` centers readable message content.
-5. `Composer` remains visually anchored over the lower edge without becoming part of message history.
+| Change | Existing owner |
+|---|---|
+| Conversation layout, history, selection, inline question flow | `ChatView.jsx` |
+| Message roles, segments, reasoning, tools, attachments, usage, and actions | `Message.jsx`; preserve its `RichContent.jsx` rendering path |
+| Prompt, queue/goal strips, model/mode controls, send/stop | [Composer](./chat-composer.md) |
+| Empty main-chat inbox and notes summary | `EmptyChatSummary.jsx`, mounted by `ChatView` only when not `compact` |
+| Same conversation in an auxiliary tab | `ChatView compact` with that conversation's state and callbacks; see the caller in `AuxiliaryPanel.jsx` |
 
-Do not add a permanent chat header or toolbar unless the task requires it; keep controls near the content or action they affect.
+`compact` changes presentation, not the runtime contract. Preserve conversation identity, `draftKey`, messages, model/project context, run state, questions, and the matching action callbacks. Do not feed an auxiliary chat the main conversation's state accidentally. Keep the existing memoized boundaries and callback behavior when extending props so streaming does not rerender unrelated history or reset the composer.
 
-## Layout contract
+## Layout and scroll ownership
 
-- Keep the workspace and chat area at `min-width: 0`, `min-height: 0`, and `overflow: hidden`; let `.chat-scroll` own vertical scrolling.
-- Keep `.messages-column` at `max-width: 820px`, centered, with the established 22px turn gap.
-- Keep user content right-aligned and bounded to `min(620px, 78%)`; narrow windows may expand it to 90%.
-- Preserve bottom clearance derived from the live composer height so the last message and focus indicators remain reachable.
-- Keep the main chat at least 320px wide when an auxiliary panel is open.
-- Do not place page-level controls inside the scroll region or create nested scrolling around the entire conversation.
+- `.chat-workspace` owns chat/panel columns; `.chat-area` contains the background, `.chat-scroll`, drop feedback, and composer. Keep grid/flex children at `min-width: 0`, `min-height: 0`; `.chat-scroll` owns conversation scrolling.
+- Preserve `.chat-scroll` as the focusable, labeled `Conversation messages` region and retain `ChatFind` integration. Do not wrap the conversation in another scroller or add a permanent header without a requested layout change.
+- `.messages-column` is centered at 820px maximum with 22px turn gaps. User bubbles remain right-aligned at `min(620px, 78%)`, expanding to 90% in the existing narrow breakpoint; assistant output stays on the reading surface.
+- Preserve the live composer-height measurement and `--composer-clearance`, not a guessed bottom spacer. Inline editing stays in flow; the empty main-chat layout has its own composer placement.
+- `src/renderer/lib/use-streaming-auto-scroll.js` follows new output only at the live edge. Retain `prepareForPrepend` and the history-loading path so older-message loads do not jump the viewport.
 
-## Message hierarchy
+## State and content integrity
 
-- Extend `ChatView`, `Message`, and `Composer`; do not introduce a parallel conversation renderer.
-- Preserve clear distinctions among user input, assistant output, reasoning, tool activity, approvals, questions, queued or steered prompts, errors, interruptions, and cross-thread content.
-- Keep user messages as compact bounded bubbles. Keep assistant output on the reading surface rather than enclosing every response in a decorative card.
-- Preserve semantic Markdown, code, media, file references, diffs, and restricted rich directives.
-- Keep operational detail visible enough to understand what the agent did and whether it completed.
+Keep user input, assistant output, reasoning, tools, approvals, questions, queues, interruptions, errors, and cross-thread content distinguishable. Extend existing segments and rich content rather than flattening technical output into generic cards. Preserve native question controls, Markdown, code, media, file references, diffs, and restricted directives.
 
-## Scrolling and streaming
+Place waiting, permission, and recovery actions with the relevant turn and expose only actions valid for runtime state. Empty-chat decoration stays non-interactive and `aria-hidden`; the prompt remains primary. Show the full-area drop overlay only for a valid drag. Backgrounds and compact layout must not hide operational state or reduce reading contrast.
 
-- Preserve `useStreamingAutoScroll`: follow output only while the user is at the live edge; never pull them away from older content they intentionally inspect.
-- Preserve incremental history loading near the top and maintain scroll position when older turns are prepended.
-- Render streaming output incrementally without destabilizing completed content.
-- Keep the conversation region focusable and labeled; selection actions must work with mouse and keyboard selection.
+## Check the affected flow
 
-## Empty and transient states
-
-- Empty chat may center a concise prompt and elevate the composer, but text entry remains the dominant element.
-- Keep background imagery and WebGPU decoration non-interactive and `aria-hidden`; they must not reduce text or control contrast.
-- Use the full-area file-drop overlay only during a valid drag and state the action explicitly.
-- Place waiting, semaphore, question, permission, interruption, and error states inline with the relevant turn.
-- Preserve user input when an operation fails and provide a clear retry, cancel, resume, or next action.
-
-## Responsive and motion rules
-
-- Preserve the existing compact auxiliary-chat variant: smaller empty heading, tighter horizontal padding, and the same chat semantics.
-- Do not solve narrow layouts with fixed widths that clip messages, attachments, code, or focus rings.
-- Use the shared motion tokens for new-turn and empty-state transitions, and remove non-essential animation under `prefers-reduced-motion`.
-
-## Accessibility
-
-- Keep `.chat-scroll` as a labeled region with keyboard focus.
-- Use semantic headings, sections, fieldsets, navigation, and live regions for their existing meanings.
-- Every status must have text or an accessible label; color and animation only reinforce it.
-- Keep inline questions operable with native radio, checkbox, text input, and button semantics.
-
-## Source anchors
-
-Use `src/renderer/components/ChatView.jsx`, `src/renderer/components/Message.jsx`, `src/renderer/lib/use-streaming-auto-scroll.js`, `src/styles/components/chat.xcss`, and `src/styles/components/message.xcss`.
+Check main and compact chat when shared rendering changes, long/rich content, inline editing, and empty/loaded states. For scroll changes, verify streaming at and away from the live edge, prepending history, and reachability of the final message above the composer. Styles: `src/styles/components/chat.xcss` and `message.xcss`; general accessibility, theme, and build requirements remain in the Renderer guide.

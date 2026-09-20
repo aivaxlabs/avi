@@ -1,26 +1,30 @@
 ---
-description: Optional design guidance for Avi's workspace, panels, navigation, settings, composer, and visual philosophy.
+description: Design Avi UI by reusing existing dropdowns, dialogs, popovers, auxiliary tabs, settings pages, and chat components.
 embeddable: false
 ---
 # Avi design guide
 
-Read this instruction before designing, reviewing, or changing Avi's renderer UI. Apply it together with `.agents/AGENTS.Renderer.md`; the renderer guide remains authoritative for architecture, accessibility, XCSS, generated styles, and validation.
+Use for designing, reviewing, or changing Avi's renderer UI. Read with [Renderer guide](./AGENTS.Renderer.md), which owns architecture, accessibility, themes, XCSS, and validation requirements. A review is read-only unless changes are requested.
 
-## Choose the relevant guide
+## Choose the existing surface
 
-- [Design philosophy](./design/design-philosophy.md): read for every visual or interaction change.
-- [Chat workspace](./design/chat-workspace.md): read for conversation layout, messages, empty chat, scrolling, and chat-level states.
-- [Chat composer](./design/chat-composer.md): read for prompt entry, attachments, model or mode controls, queueing, and send/stop behavior.
-- [Sidebar](./design/sidebar.md): read for primary navigation, conversations, bots, grouping, filters, and collapsed behavior.
-- [Auxiliary panels](./design/auxiliary-panels.md): read for the resizable right panel, tabs, side chats, files, tasks, agents, bots, and provider panels.
-- [Settings](./design/settings.md): read for configuration navigation, forms, list-detail flows, persistence, validation, and feedback.
+| Need | Reuse / read |
+|---|---|
+| Short action menu, nested flyout, contextual popover, or modal | [Overlays](./design/overlays.md): `DropdownMenu`, specialized dialogs, and caller-owned behavior |
+| Persistent context beside chat or a new auxiliary tab | [Auxiliary panels](./design/auxiliary-panels.md): `AuxiliaryPanel`, `PanelResizer`, and existing panel bodies |
+| Configuration page or editor | [Settings](./design/settings.md): `SettingsPage`, focused settings components, and section/row families |
+| Conversation content, history, empty chat, or inline run state | [Chat workspace](./design/chat-workspace.md): `ChatView`, `Message`, and rich-content pipeline |
+| Prompt entry, attachments, pickers, queues, or send/stop | [Chat composer](./design/chat-composer.md): `Composer` and its existing controls |
+| Primary navigation, conversation/bot rows, grouping, or filters | [Sidebar](./design/sidebar.md): `Sidebar` and established row menus |
+| Visual hierarchy, density, or a proposed new visual treatment | [Design philosophy](./design/design-philosophy.md) |
 
-Read every guide touched by a cross-surface change. Do not apply one surface's density, hierarchy, or interaction model to another without checking both guides.
+Read only the guides for affected surfaces. For example, adding an action menu to a panel needs panels and overlays, not every design reference.
 
-## Shared implementation contract
+## Reuse means implementation reuse
 
-- Ground new work in the existing components under `src/renderer/components/` and the XCSS sources under `src/styles/`.
-- Reuse semantic tokens, component families, responsive breakpoints, focus behavior, and established state models before adding variants.
-- Preserve mouse and keyboard operation, accessible names, logical focus, reduced motion, and light, dark, built-in, and plugin themes.
-- Treat dimensions documented in these guides as current layout contracts. Change them only when the task explicitly requires a layout redesign and validate all affected surfaces together.
-- Keep `src/styles/**/*.xcss` authoritative. Never edit `src/renderer/styles.css` directly; regenerate it with `bun run styles` after XCSS changes.
+1. Inspect the existing component, a comparable caller, and its XCSS before editing. Source paths in the guides are relative to the repository root.
+2. Use exported components and their props first. Where only a markup/class family exists, follow that structure and keep behavior in the existing owner. Do not invent a generic component API or copy feature-specific persistence into another surface.
+3. Reuse classes and semantic tokens, not their resolved CSS values. A renamed selector reproducing an existing control is duplication, not reuse.
+4. Add a local variant only for a concrete unmet requirement; state the gap briefly. Do not introduce a wrapper, dependency, parallel state model, or broad refactor merely to make reuse look uniform.
+
+Documented dimensions describe current layout contracts, not universal design constants. Preserve them unless the task explicitly requires redesign; validate affected surfaces together when they change. Existing examples are evidence of structure, not proof that every accessibility or dismissal requirement is already implemented.

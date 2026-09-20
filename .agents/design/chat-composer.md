@@ -1,65 +1,32 @@
 # Chat composer
 
-## Role and hierarchy
+## Extend the existing input surface
 
-The composer is the primary input surface. Preserve this order of attention:
+Use `src/renderer/components/Composer.jsx` through the existing `ChatView` composition. The hierarchy is prompt/attachments, primary send/stop/resume action, permission/work mode/model, secondary menus, then project and usage context. New controls must not crowd text entry or obscure runtime state.
 
-1. Prompt text and attachments.
-2. Contextual send, stop, resume, or cancel action.
-3. Permission, work mode, model, and reasoning context.
-4. Attachment and advanced-action menus.
-5. Project and context-usage indicators below the main input.
+Reuse these implementations rather than recreating them:
 
-New controls must not crowd text entry, obscure the current send/stop state, or make model, permission, project, and work mode ambiguous.
+- Local `ComposerChip` and `ComposerStrip` for compact context and goal/queue/task/status rows. They are implementation details in `Composer.jsx`, not exported components.
+- `DropdownMenu` / `DropdownMenuItem` for short action menus; read [Overlays](./overlays.md) for caller-owned positioning, focus, keyboard, and dismissal.
+- `ModelPicker` for the full model-selection dialog; its props are `models`, `favorites`, `currentModel`, `onClose`, `onChoose`, and `onToggleFavorite`.
+- `ContextUsageDialog`, `ProviderUsages`, and `WorkspaceDialog` for their existing domains, not new lookalike dialogs.
+- The current command picker for commands, workflows, skills, mentions, models, and effort. `src/renderer/lib/composer-invocation.js` parses the invocation; selection, filtering, and keyboard handling remain in the composer.
 
-## Shell and dimensions
+## Layout contract
 
-- Keep `.composer-wrap` anchored above the lower edge with pointer events limited to its interactive children.
-- Keep the composer centered at `min(720px, 100%)`; supporting goal, queue, and status strips use the narrower `min(680px, 95%)` family.
-- Preserve the two-row grid: textarea across the first row, then attachment, permission/mode, model, and primary action.
-- Keep the textarea at 14px, `line-height: 1.35`, a 48px minimum, content-driven growth, and bounded vertical scrolling.
-- Preserve the focused-surface treatment: semantic background change, primary border, and opaque focus outline.
-- Keep the inline editing variant in normal flow and retain its explicit cancel action.
+`.composer-wrap` anchors the normal composer with pointer events limited to interactive children. Preserve the centered `min(720px, 100%)` input and `min(680px, 95%)` supporting strips. The grid places text first, then attachment, permission/mode, model, and a stable trailing primary action.
 
-## Controls
+Retain the textarea's 14px text, 1.35 line height, 48px minimum, content-driven growth, and bounded scrolling; action-row controls are 34px. Preserve the focused surface and outline. Inline editing stays in normal flow with Cancel; empty main chat has its own layout. Truncate long model/project labels and hide secondary permission text at existing breakpoints before reducing the input area.
 
-- The send/stop/resume control is the strongest action and occupies the stable trailing position.
-- Show only the action valid for runtime state; prevent duplicate submission while resolving.
-- Keep attachment, permission, model, reasoning, and work-mode controls visually secondary.
-- Truncate long model, project, and path labels instead of expanding the composer.
-- At narrow widths, progressively hide secondary permission text before reducing the input area; keep accessible names intact.
-- Place popovers against their trigger, constrain them to the viewport, and preserve logical focus and Escape behavior.
+## Input and runtime contracts
 
-## Input behavior
+- Preserve per-conversation recoverable drafts and the established attachment model across picker, paste, drag/drop, audio, and text. Do not clear input before submission is accepted; retain it on failure.
+- Keep multiline and send shortcuts consistent. Check menus, editing, recording, command selection, and dialogs before changing Enter or Escape handling.
+- Derive send, stop, resume, cancel, queue, and steer behavior from the existing props/state. Distinguish goal preparation, optimization, recording, editing, and queue resumption; prevent duplicate submission while resolving.
+- Keep model, permission, work mode, project, and context usage understandable even when labels collapse. Explain non-obvious disabled actions near the control.
 
-- Preserve multiline keyboard behavior and the established send shortcut. Do not repurpose Enter or Escape without checking editing, menus, dialogs, recording, and command modes.
-- Persist recoverable drafts per conversation and do not clear text or attachments until submission is accepted.
-- Keep command, workflow, skill, mention, model, and effort discovery in the existing command picker rather than adding competing inputs.
-- Preserve deterministic keyboard navigation and active-option feedback in pickers.
-- Keep drag/drop, file picker, paste, audio, and text attachments within the same attachment model.
+## Check the affected flow
 
-## Runtime states
+Exercise draft restoration when switching conversations, attachments, multiline input, valid primary actions, menu keyboard handling, and the narrow/compact and inline-edit variants touched by the change. A shared prop change must reach existing callers and memo comparisons. Quick Chat uses its own `QuickComposer` in `QuickChatApp.jsx`; inspect it separately if the task includes that window rather than assuming automatic parity.
 
-- Distinguish sending, stopping, goal preparation, prompt optimization, recording, editing, queueing, steering, and queue resumption.
-- Show goal, queued-message, edit-count, sub-agent, and task context in the existing strips or chips above the input.
-- Keep status copy concise and specific. Use tabular numerals for elapsed time, token counts, and similar changing data.
-- Disabled controls must remain understandable; use nearby explanation when the reason is not obvious.
-- Error handling must preserve prompt text and attachments for retry.
-
-## Visual language
-
-- Use semantic surfaces and restrained borders. The composer may have stronger focus emphasis than surrounding controls because it is the primary action surface.
-- Pills are appropriate for compact modes, status, model, permission, or project context; do not turn ordinary actions or copy into pills.
-- Use 34px as the established action-row control height and preserve comfortable icon-only targets.
-- Keep empty-chat shimmer and optimization motion subordinate to text entry and remove it under `prefers-reduced-motion`.
-
-## Accessibility
-
-- Give every icon-only action an `aria-label`; mirror expanded state with `aria-expanded` and popup type with `aria-haspopup`.
-- Preserve native textarea, button, range, dialog, and menu semantics.
-- Return focus to the invoking control when menus or dialogs close where the existing pattern does so.
-- Do not expose placeholder text as the only label or instruction.
-
-## Source anchors
-
-Use `src/renderer/components/Composer.jsx`, `src/renderer/lib/composer-invocation.js`, `src/styles/components/composer.xcss`, `src/styles/components/project-picker.xcss`, and `src/styles/components/zz-context-usage.xcss`.
+Styles: `src/styles/components/composer.xcss`, `project-picker.xcss`, and `zz-context-usage.xcss`. Keep semantic tokens, icon labels, reduced motion, and renderer validation as defined in the Renderer guide.

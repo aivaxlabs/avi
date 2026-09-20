@@ -16,6 +16,8 @@ No parameters. Returns an array of binding snapshots:
 
 Built-in IDs are `model.previous`, `model.next`, `reasoning.previous`, `reasoning.next`, `quick-chat`, `threads.search`, `sidebar.toggle`, `panel.toggle`, `thread.new`, `thread.home`, `chat.find`, `zoom.in`, `zoom.out`, and `zoom.reset`. Plugin IDs use `plugin:<pluginId>:<contributionId>`.
 
+The in-app `chat.find` action opens a compact, centered floating search panel above the composer. Results use CSS highlights without changing native text selection. Typing retains input focus and updates matches after a 50 ms debounce; this does not change the RPC request or response contract.
+
 ## `shortcuts:save`
 
 Parameters: `{ id, pattern, global }`, or `{ id, reset: true }`. `pattern` must be a string and `global` a boolean for non-reset requests. Empty pattern disables. Reset removes the stored override. Returns the complete updated snapshot array.

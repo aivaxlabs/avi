@@ -37,11 +37,7 @@ Keep the top and footer outside the independently scrolling list. Do not make th
 
 ## Menus and filters
 
-- Reuse `DropdownMenu` and established row-menu patterns for conversation, folder, tag, bot, filter, and snooze actions.
-- Portal menus when needed to escape sidebar overflow; clamp them to the viewport.
-- Close menus on outside interaction and Escape, restore focus where established, and close position-sensitive menus on resize.
-- Use `menuitemcheckbox` and `aria-checked` for toggleable filters.
-- Keep destructive actions explicit and separated from routine navigation.
+Reuse `DropdownMenu` and existing row-menu callers for conversation, folder, tag, bot, filter, and snooze actions. Follow [Overlays](./overlays.md) for positioning, portal, keyboard, focus, and dismissal responsibilities; these are not supplied by `DropdownMenu` itself. Toggleable filters use `menuitemcheckbox` with `aria-checked`. Keep destructive actions explicit and separate from navigation.
 
 ## Resizing and motion
 

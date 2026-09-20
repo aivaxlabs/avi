@@ -39,19 +39,28 @@ export function ChatFind({ scrollRef, conversationId, compact, hasMore, loading,
       }
       setMatches(ranges);
     };
-    update();
-    const observer = new MutationObserver(update);
+    let timer = setTimeout(update, 50);
+    const observer = new MutationObserver(() => {
+      clearTimeout(timer);
+      timer = setTimeout(update, 50);
+    });
     observer.observe(root, { childList: true, characterData: true, subtree: true });
-    return () => observer.disconnect();
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
   }, [open, query, conversationId, scrollRef]);
   useEffect(() => {
     const range = matches[position % Math.max(matches.length, 1)];
     if (!range) return;
-    const selection = window.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
+    const highlight = CSS.highlights.get('avi-chat-find') ?? new Highlight();
+    highlight.add(range);
+    CSS.highlights.set('avi-chat-find', highlight);
     range.startContainer.parentElement.scrollIntoView({ block: 'center' });
-    return () => selection.removeAllRanges();
+    return () => {
+      highlight.delete(range);
+      if (!highlight.size) CSS.highlights.delete('avi-chat-find');
+    };
   }, [matches, position]);
   if (!open) return null;
   return (
