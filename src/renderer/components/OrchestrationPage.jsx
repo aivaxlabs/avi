@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatPrice } from '../lib/format.js';
-import { hasOpenBotUserAction } from '../../shared/bot-work-items.js';
+import { getBotPendencyStatusLabel, hasOpenBotUserAction } from '../../shared/bot-work-items.js';
 
 const compactNumber = new Intl.NumberFormat('en-US', {
   notation: 'compact',
@@ -517,7 +517,7 @@ export function OrchestrationPage({ models, onOpenThread, bots = [], botDataByBo
               yesterday.setDate(yesterday.getDate() - 1);
               const latest = pendency.messages.at(-1);
               const needsUser = hasOpenBotUserAction(pendency);
-              const status = pendency.status === 'completed' ? 'Completed' : needsUser ? 'Needs you' : 'Waiting for bot';
+              const status = getBotPendencyStatusLabel(pendency);
               return (
                 <div key={`${bot.id}:${pendency.id}`}>
                   {day !== previousDay && <h2>{day === today.toLocaleDateString() ? 'Today' : day === yesterday.toLocaleDateString() ? 'Yesterday' : updated.toLocaleDateString(undefined, { dateStyle: 'long' })}</h2>}

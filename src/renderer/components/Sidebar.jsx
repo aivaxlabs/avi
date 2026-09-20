@@ -1030,6 +1030,10 @@ const BotItem = memo(function BotItem({
           </span>
         ) : bot.running || bot.scheduleState === 'working' ? (
           <LoaderCircle className="run-spinner" size={13} aria-label="Working" />
+        ) : bot.scheduleState === 'queued' ? (
+          <span title="Activation queued — waiting for a bot slot"><Clock size={13} aria-label="Activation queued" /></span>
+        ) : bot.scheduleState === 'outside-window' ? (
+          <span title="Outside activation hours — existing work can continue"><Moon size={13} aria-label="Outside activation hours" /></span>
         ) : bot.scheduleState === 'disabled' ? (
           <span className="bot-status-dot disabled" aria-label={statusLabel} />
         ) : bot.scheduleState === 'sleep' ? (

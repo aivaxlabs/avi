@@ -74,7 +74,7 @@ Returned by conversation, folder, child-thread, bot-thread, queue, compaction, a
 | `stoppedByUser` | boolean | Whether an aborted message resulted from an explicit user Stop action. |
 | `status` | string | Lifecycle state, including `queued`, `steered`, `sent`, `waiting_mcp`, `streaming`, `completed`, `aborted`, or `error`. |
 | `content` | string | Textual content and serialized textual blocks. |
-| `segments` | object[] | Timeline segments. Shapes depend on `type`, such as content, reasoning, tool call/result, error, provider continuation, or context compression. RPC tool-call segments omit `argumentsText`, `resultText`, and `mediaContent`; they include `conversationId`, `messageId`, `detailsAvailable`, `hasArguments`, `hasResult`, and `hasMediaContent` for deferred retrieval. Preserve unknown fields. |
+| `segments` | object[] | Timeline segments. Shapes depend on `type`, such as content, reasoning, tool call/result, error, provider continuation, or context compression. Tool-call segments include `isMcp` and the optional real `mcpServerName`; RPC projections omit `argumentsText`, `resultText`, and `mediaContent`, while adding `conversationId`, `messageId`, `detailsAvailable`, `hasArguments`, `hasResult`, and `hasMediaContent` for deferred retrieval. Preserve unknown fields. |
 | `edits` | object[] | Persisted edit history. |
 | `attachments` | `Attachment[]` | Attached media/files/context markers. |
 | `continuations` | object[] | Provider continuation metadata. |

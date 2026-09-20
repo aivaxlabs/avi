@@ -180,6 +180,9 @@ contextBridge.exposeInMainWorld('chatApp', {
     list: (parentConversationId) => invoke('rubber-ducks:list', parentConversationId),
   },
   bots: {
+    settings: () => invoke('bots:settings'),
+    saveSettings: (value) => invoke('bots:save-settings', value),
+    statistics: (days) => invoke('bots:statistics', { days }),
     list: () => invoke('bots:list'),
     snooze: (options) => invoke('bots:snooze', options),
     snoozeOne: (botId, options) => invoke('bots:snooze-one', { botId, options }),
@@ -192,6 +195,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     resolveApproval: (payload) => invoke('bots:resolve-approval', payload),
     replyPendency: (payload) => invoke('bots:reply-pendency', payload),
     completePendency: (payload) => invoke('bots:complete-pendency', payload),
+    markPendencyRead: (payload) => invoke('bots:mark-pendency-read', payload),
     chooseFolder: () => invoke('bots:choose-folder'),
   },
   providers: {

@@ -1,6 +1,7 @@
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { BOT_PENDENCY_COMPLETION_REASONS } from '../shared/bot-work-items.js';
 
 export const BOT_PENDENCY_STATUSES = new Set(['open', 'completed']);
 export const BOT_MESSAGE_ROLES = new Set(['bot', 'user']);
@@ -70,6 +71,10 @@ function validateMessage(message) {
   if (!Array.isArray(message.attachments)) throw new Error('Invalid message attachments: expected array');
   validateAttachments(message.attachments);
   requireString(message.createdAt, 'message.createdAt');
+  if (message.requiresUserResponse !== undefined && typeof message.requiresUserResponse !== 'boolean') {
+    throw new Error('Invalid requiresUserResponse: expected boolean');
+  }
+  if (message.readAt !== undefined && message.readAt !== null) requireString(message.readAt, 'message.readAt');
 }
 
 function validateApprovalObject(value) {
@@ -201,7 +206,7 @@ export async function readBotWorkState(dataFolder) {
 }
 
 export async function createBotPendency(dataFolder, input, now) {
-  const { title, content, attachments = [] } = input;
+  const { title, content, attachments = [], requiresUserResponse = true } = input;
   requireString(title, 'title');
   requireString(content, 'content');
   const messageAttachments = validateAttachments(attachments);
@@ -210,12 +215,13 @@ export async function createBotPendency(dataFolder, input, now) {
     id: randomUUID(),
     title,
     status: 'open',
-    messages: [{ id: randomUUID(), role: 'bot', content, attachments: messageAttachments, createdAt: ts }],
+    messages: [{ id: randomUUID(), role: 'bot', content, attachments: messageAttachments, createdAt: ts, requiresUserResponse, readAt: null }],
     approval: null,
     createdAt: ts,
     updatedAt: ts,
     completedAt: null,
   };
+  validatePendency(pendency);
 
   return mutateBotWorkState(dataFolder, async () => {
     const inbox = await readInboxFile(dataFolder);
@@ -241,7 +247,7 @@ export async function attachBotPendencyApproval(dataFolder, input, now) {
       id: randomUUID(),
       title,
       status: 'open',
-      messages: [{ id: randomUUID(), role: 'bot', content: context, attachments: [], createdAt: ts }],
+      messages: [{ id: randomUUID(), role: 'bot', content: context, attachments: [], createdAt: ts, requiresUserResponse: true, readAt: null }],
       approval: null,
       createdAt: ts,
       updatedAt: ts,
@@ -270,7 +276,8 @@ export async function attachBotPendencyApproval(dataFolder, input, now) {
 }
 
 export async function appendBotPendencyMessage(dataFolder, input, now) {
-  const { pendencyId, role, content, attachments = [] } = input;
+  const { pendencyId, role, content, attachments = [], requiresUserResponse = true } = input;
+  if (typeof requiresUserResponse !== 'boolean') throw new Error('Invalid requiresUserResponse: expected boolean');
   requireString(pendencyId, 'pendencyId');
   if (!BOT_MESSAGE_ROLES.has(role)) throw new Error(`Invalid message role: ${role}`);
   if (typeof content !== 'string') throw new Error('Invalid content: expected string');
@@ -299,6 +306,7 @@ export async function appendBotPendencyMessage(dataFolder, input, now) {
         content,
         attachments: messageAttachments,
         createdAt: ts,
+        ...(role === 'bot' ? { requiresUserResponse, readAt: null } : {}),
       }],
       updatedAt: ts,
     };
@@ -310,8 +318,38 @@ export async function appendBotPendencyMessage(dataFolder, input, now) {
   });
 }
 
-export async function completeBotPendency(dataFolder, pendencyId, now) {
+export async function markBotPendencyMessagesRead(dataFolder, pendencyId, messageIds, now) {
   requireString(pendencyId, 'pendencyId');
+  if (!Array.isArray(messageIds) || messageIds.length === 0 || messageIds.length > 5000) {
+    throw new Error('Invalid messageIds: expected 1 to 5000 message IDs');
+  }
+  for (const id of messageIds) requireString(id, 'messageId');
+  const ids = new Set(messageIds);
+  const ts = now ?? new Date().toISOString();
+  return mutateBotWorkState(dataFolder, async () => {
+    const inbox = await readInboxFile(dataFolder);
+    const idx = inbox.findIndex((entry) => entry.id === pendencyId);
+    if (idx === -1) throw new Error(`Pendency not found: ${pendencyId}`);
+    const existing = inbox[idx];
+    const messages = existing.messages.map((message) => (
+      ids.has(message.id) && message.role === 'bot' && !message.readAt
+        ? { ...message, readAt: ts }
+        : message
+    ));
+    if (messages.every((message, index) => message === existing.messages[index])) return existing;
+    const updated = { ...existing, messages };
+    validatePendency(updated);
+    inbox[idx] = updated;
+    await writeInboxFile(dataFolder, inbox);
+    return updated;
+  });
+}
+
+export async function completeBotPendency(dataFolder, pendencyId, now, reason) {
+  requireString(pendencyId, 'pendencyId');
+  if (reason !== undefined && (typeof reason !== 'string' || !Object.hasOwn(BOT_PENDENCY_COMPLETION_REASONS, reason))) {
+    throw new Error('Invalid pendency completion reason.');
+  }
   const ts = now ?? new Date().toISOString();
 
   return mutateBotWorkState(dataFolder, async () => {
@@ -324,7 +362,19 @@ export async function completeBotPendency(dataFolder, pendencyId, now) {
     }
     if (existing.status === 'completed') return existing;
 
-    const updated = { ...existing, status: 'completed', completedAt: ts, updatedAt: ts };
+    const updated = {
+      ...existing,
+      status: 'completed',
+      completedAt: ts,
+      updatedAt: ts,
+      messages: reason === undefined ? existing.messages : [...existing.messages, {
+        id: randomUUID(),
+        role: 'user',
+        content: `Closed: ${BOT_PENDENCY_COMPLETION_REASONS[reason]}.`,
+        attachments: [],
+        createdAt: ts,
+      }],
+    };
     validatePendency(updated);
 
     inbox[idx] = updated;

@@ -52,6 +52,7 @@ const BOT_CONFIG_PROPERTIES = Object.freeze({
   contextSize: { type: ['integer', 'null'], minimum: 1, description: 'Optional model context-window override.' },
   activationPeriodMinutes: { type: 'integer', minimum: 1, description: 'Minutes between automatic activation checks.' },
   activationMode: { type: 'string', enum: ['static', 'smart'], description: 'Static activates every period; smart can idle when no useful work remains.' },
+  executionMode: { type: ['string', 'null'], enum: ['direct', 'orchestrator', null], description: 'Null inherits the global execution mode.' },
   maxActivations: { type: 'integer', minimum: 0, description: 'Consecutive activation limit before a cooldown; 0 disables the limit.' },
   activationWindow: {
     type: 'object',
@@ -745,6 +746,9 @@ export const CLIENT_TOOLS = Object.freeze([
           enabled: bot.enabled,
           running: bot.running,
           scheduleState: bot.scheduleState,
+          queued: bot.queued,
+          executionMode: bot.executionMode,
+          effectiveExecutionMode: bot.effectiveExecutionMode,
           activationMode: bot.activationMode,
           activationPeriodMinutes: bot.activationPeriodMinutes,
           maxActivations: bot.maxActivations,
@@ -889,7 +893,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'bots_activate',
-    description: 'Activate a bot immediately, ignoring automatic enabled, period, idle, activation-window, and activation-limit rules. With an empty work queue, the bot reviews its full scope without a specific focus task. It does not start a duplicate run.',
+    description: 'Request a bot activation, bypassing individual automatic enabled, period, idle, window, and activation-limit rules. Global activation hours and FIFO capacity still apply. Existing work is never blocked. With an empty work queue, the bot reviews its full scope. Does not start duplicate runs.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -909,7 +913,8 @@ export const CLIENT_TOOLS = Object.freeze([
         activated: activated === true,
         status: activated === true
           ? 'started'
-          : 'already_running_or_start_failed',
+          : activated?.queued ? activated.reason : 'already_running_or_start_failed',
+        ...(activated?.queued ? { queued: true } : {}),
       };
     },
   },

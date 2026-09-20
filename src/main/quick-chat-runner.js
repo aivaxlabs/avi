@@ -278,11 +278,15 @@ export class QuickChatRunner {
               });
             }
             if (['content', 'reasoning', 'tool-call', 'item-complete', 'retry', 'retry-clear', 'error', 'usage'].includes(event.type)) {
+              const eventTool = event.type === 'tool-call'
+                ? availableTools.find((tool) => tool.name === event.name)
+                : null;
               accumulator.apply(event.type === 'tool-call'
                 ? {
                     ...event,
                     key: `round:${roundIndex}:${event.key ?? event.callId ?? 'tool'}`,
-                    isMcp: Boolean(availableTools.find((tool) => tool.name === event.name)?.mcp),
+                    isMcp: Boolean(eventTool?.mcp),
+                    mcpServerName: eventTool?.mcp?.serverName ?? null,
                   }
                 : event);
               this.updateAssistant(session, assistantMessage, accumulator, 'streaming');
@@ -323,6 +327,7 @@ export class QuickChatRunner {
               invocationGoal,
               requiresHumanApproval: false,
               isMcp: Boolean(tool.mcp),
+              mcpServerName: tool.mcp?.serverName ?? null,
             });
             this.updateAssistant(session, assistantMessage, accumulator, 'streaming');
             const value = await this.executeTool(tool, input, {

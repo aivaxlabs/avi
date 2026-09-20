@@ -1,11 +1,13 @@
 import Avatar from 'boring-avatars';
 import { memo, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
   ArrowLeft,
   Bot,
   Check,
   ChevronRight,
+  Ellipsis,
   Files,
   Gauge,
   GitPullRequest,
@@ -21,7 +23,7 @@ import {
   Shield,
   X,
 } from 'lucide-react';
-import { hasOpenBotUserAction } from '../../shared/bot-work-items.js';
+import { BOT_PENDENCY_COMPLETION_REASONS, getBotPendencyStatusLabel, hasOpenBotUserAction } from '../../shared/bot-work-items.js';
 import { fileToAttachment, formatBytes } from '../lib/files.js';
 import { AttachmentImage, AttachmentVideo } from './AttachmentVideo.jsx';
 import { ChatView } from './ChatView.jsx';
@@ -142,6 +144,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   onResolveBotApproval,
   onReplyBotPendency,
   onCompleteBotPendency,
+  onMarkBotPendencyRead,
   botQueueTabOpen = false,
   selectedBotId,
   inboxNavigation,
@@ -231,8 +234,12 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   const [pendencyDrafts, setPendencyDrafts] = useState({});
   const [pendencyFeedback, setPendencyFeedback] = useState({});
   const [pendencyBusy, setPendencyBusy] = useState(false);
+  const [pendencyMenu, setPendencyMenu] = useState(null);
+  const pendencyMenuRef = useRef(null);
+  const pendencyMenuTriggerRef = useRef(null);
   const pendencyBusyRef = useRef(false);
   const pendencyHeadingRef = useRef(null);
+  const pendencyHistoryRef = useRef(null);
   const pendencyOpenerIdRef = useRef(null);
   const selectedBot = bots.find((bot) => bot.id === selectedBotId) ?? (inboxOnly ? null : bots[0]) ?? null;
   const selectedBotState = botDataByBot[selectedBot?.id] ?? { inbox: emptyList, activity: emptyList, error: null };
@@ -241,6 +248,30 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   const draftKey = `${selectedBot?.id}:${selectedPendency?.id}`;
   const draft = pendencyDrafts[draftKey] ?? { content: '', attachments: emptyList };
   const feedback = pendencyFeedback[draftKey];
+  useEffect(() => {
+    if (!pendencyMenu) return undefined;
+    if (pendencyMenu.key !== draftKey || pendencyBusy || selectedPendency?.status !== 'open' || selectedPendency.approval) {
+      setPendencyMenu(null);
+      return undefined;
+    }
+    const controller = new AbortController();
+    const dismiss = () => {
+      setPendencyMenu(null);
+      pendencyMenuTriggerRef.current?.focus();
+    };
+    window.addEventListener('pointerdown', (event) => {
+      if (!pendencyMenuRef.current?.contains(event.target) && !pendencyMenuTriggerRef.current?.contains(event.target)) dismiss();
+    }, { signal: controller.signal });
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' || event.key === 'Tab') dismiss();
+    }, { signal: controller.signal });
+    window.addEventListener('resize', dismiss, { signal: controller.signal });
+    window.addEventListener('scroll', (event) => {
+      if (!pendencyMenuRef.current?.contains(event.target)) dismiss();
+    }, { capture: true, signal: controller.signal });
+    pendencyMenuRef.current?.querySelector('[role="menuitem"]')?.focus();
+    return () => controller.abort();
+  }, [pendencyMenu, draftKey, pendencyBusy, selectedPendency?.status, selectedPendency?.approval]);
   const query = botQuery.trim().toLowerCase();
   const filteredInbox = selectedBotState.inbox.filter((item) => (
     (inboxFilter === 'all' || (inboxFilter === 'needs-user' ? hasOpenBotUserAction(item) : item.status === inboxFilter))
@@ -285,7 +316,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
     }
   }
 
-  async function actOnPendency(action) {
+  async function actOnPendency(action, reason) {
     if (!selectedPendency || pendencyBusyRef.current) return;
     if (action === 'reply' && !draft.content.trim() && !draft.attachments.length) return;
     pendencyBusyRef.current = true;
@@ -295,7 +326,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
       const result = action === 'reply'
         ? await onReplyBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id, ...draft })
         : action === 'complete'
-          ? await onCompleteBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id })
+          ? await onCompleteBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id, ...(reason ? { reason } : {}) })
           : await onResolveBotApproval(selectedPendency.approval.id, action === 'approve');
       if (action === 'reply') updatePendencyDraft({ content: '', attachments: [] });
       setPendencyFeedback((current) => ({ ...current, [draftKey]: {
@@ -442,6 +473,42 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   const showingSubagents = activeTab === subagentsTabId;
   const showingTasks = activeTab === tasksTabId;
   const showingBotQueue = activeTab === botQueueTabId;
+  useEffect(() => {
+    if (!showingBotQueue || botPanelTab !== 'inbox' || botsLoading || selectedBotError || !selectedPendency || !onMarkBotPendencyRead) return undefined;
+    const history = pendencyHistoryRef.current;
+    if (!history) return undefined;
+    const unreadIds = new Set();
+    for (const message of selectedPendency.messages) {
+      if (message.role === 'bot' && !message.readAt) unreadIds.add(message.id);
+    }
+    if (!unreadIds.size) return undefined;
+    const targets = [...history.querySelectorAll('[data-bot-message-id]')].filter((element) => unreadIds.has(element.dataset.botMessageId));
+    const controller = new AbortController();
+    const observer = new IntersectionObserver((entries) => {
+      if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
+      const messageIds = [];
+      for (const entry of entries) {
+        if (!entry.isIntersecting || entry.intersectionRatio < 0.5) continue;
+        messageIds.push(entry.target.dataset.botMessageId);
+        observer.unobserve(entry.target);
+      }
+      if (!messageIds.length) return;
+      void onMarkBotPendencyRead({ botId: selectedBot.id, pendencyId: selectedPendency.id, messageIds }).catch((error) => {
+        setPendencyFeedback((current) => ({ ...current, [draftKey]: { error: true, text: `Could not mark messages as read: ${error.message || String(error)}. Reopen this Inbox conversation to retry.` } }));
+      });
+    }, { root: history, threshold: 0.5 });
+    const observeUnread = () => {
+      if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
+      for (const target of targets) {
+        observer.unobserve(target);
+        observer.observe(target);
+      }
+    };
+    observeUnread();
+    window.addEventListener('focus', observeUnread, { signal: controller.signal });
+    document.addEventListener('visibilitychange', observeUnread, { signal: controller.signal });
+    return () => { controller.abort(); observer.disconnect(); };
+  }, [showingBotQueue, botPanelTab, botsLoading, selectedBotError, selectedPendency, selectedBot?.id, draftKey, onMarkBotPendencyRead]);
   const activeProviderPanel = openProviderPanels.find((panel) => panel.id === activeTab) ?? null;
   const activeSubagent = showingSubagents
     ? subagents.find((subagent) => subagent.id === activeSubagentId) ?? null
@@ -669,22 +736,71 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                     {!selectedBotError && inboxOnly && !selectedPendency && <p role="status">This Inbox conversation is no longer available.</p>}
                     {!selectedBotError && botPanelTab === 'inbox' && (!inboxOnly || selectedPendency) && (selectedPendency ? (
                       <section className="bot-inbox-detail" aria-labelledby="bot-pendency-title">
-                        <div className="bot-inbox-history">
+                        <div className="bot-inbox-history" ref={pendencyHistoryRef}>
                         <header>
                           {!inboxOnly && <button type="button" onClick={() => {
                             setSelectedPendencyId(null);
                             queueMicrotask(() => document.getElementById(pendencyOpenerIdRef.current)?.focus());
                           }}><ArrowLeft size={15} aria-hidden="true" />Inbox</button>}
-                          <span>{selectedPendency.status === 'completed' ? 'Completed' : hasOpenBotUserAction(selectedPendency) ? 'Needs you' : 'Waiting for bot'}</span>
-                          {selectedPendency.status === 'open' && <button type="button" disabled={pendencyBusy || Boolean(selectedPendency.approval)} title={selectedPendency.approval ? 'Resolve the approval first.' : undefined} onClick={() => actOnPendency('complete')}><Check size={14} aria-hidden="true" />Complete</button>}
+                          <span>{getBotPendencyStatusLabel(selectedPendency)}</span>
+                          {selectedPendency.status === 'open' && <>
+                            <button className="bot-inbox-complete" type="button" disabled={pendencyBusy || Boolean(selectedPendency.approval)} title={selectedPendency.approval ? 'Resolve the approval first.' : undefined} onClick={() => actOnPendency('complete')}><Check size={14} aria-hidden="true" />Complete</button>
+                            <button
+                              ref={pendencyMenuTriggerRef}
+                              className="bot-inbox-completion-menu-trigger"
+                              type="button"
+                              aria-label="More completion options"
+                              title={selectedPendency.approval ? 'Resolve the approval first.' : 'More completion options'}
+                              aria-haspopup="menu"
+                              aria-expanded={Boolean(pendencyMenu)}
+                              disabled={pendencyBusy || Boolean(selectedPendency.approval)}
+                              onClick={(event) => {
+                                const rect = event.currentTarget.getBoundingClientRect();
+                                setPendencyMenu((current) => current ? null : {
+                                  key: draftKey,
+                                  left: Math.max(8, Math.min(rect.right - 180, window.innerWidth - 188)),
+                                  top: Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 144)),
+                                });
+                              }}
+                            ><Ellipsis size={16} aria-hidden="true" /></button>
+                            {pendencyMenu?.key === draftKey && createPortal(
+                              <DropdownMenu
+                                ref={pendencyMenuRef}
+                                className="bot-inbox-completion-menu"
+                                fixed
+                                role="menu"
+                                aria-label="Completion options"
+                                style={{ left: pendencyMenu.left, top: pendencyMenu.top }}
+                                onKeyDown={(event) => {
+                                  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+                                  event.preventDefault();
+                                  const items = [...event.currentTarget.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+                                  const index = items.indexOf(document.activeElement);
+                                  const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+                                    : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+                                  items[next]?.focus();
+                                }}
+                              >
+                                {Object.entries(BOT_PENDENCY_COMPLETION_REASONS).map(([reason, label]) => (
+                                  <DropdownMenuItem key={reason} role="menuitem" disabled={pendencyBusy || Boolean(selectedPendency.approval)} onClick={() => {
+                                    setPendencyMenu(null);
+                                    pendencyHeadingRef.current?.focus();
+                                    void actOnPendency('complete', reason);
+                                  }}>{label}</DropdownMenuItem>
+                                ))}
+                              </DropdownMenu>,
+                              document.body,
+                            )}
+                          </>}
                         </header>
                         <h2 id="bot-pendency-title" ref={pendencyHeadingRef} tabIndex={-1}>{selectedPendency.title}</h2>
                         <ol className="bot-inbox-messages">
                           {selectedPendency.messages.toSorted((left, right) => new Date(right.createdAt) - new Date(left.createdAt)).map((message) => (
                             <li key={message.id} className={`from-${message.role}`}>
-                              <header>
+                              <header data-bot-message-id={message.role === 'bot' ? message.id : undefined}>
                                 {message.role !== 'user' && <span className="bot-avatar" aria-hidden="true"><img src={`https://orb.aivax.net/${encodeURIComponent(selectedBot.id)}`} width={22} height={22} alt="" /></span>}
                                 <strong>{message.role === 'user' ? 'You' : selectedBot.name}</strong>
+                                {message.role === 'bot' && <span className="bot-message-response-indicator">{message.requiresUserResponse !== false ? 'Requires your response' : 'No response required'}</span>}
                                 <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleString()}</time>
                               </header>
                               <MarkdownSegment text={message.content} finalized />
@@ -722,7 +838,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                       <ul className="bot-inbox-list">
                         {filteredInbox.map((item) => (
                           <li key={item.id}><button id={`bot-pendency-${item.id}`} type="button" className={hasOpenBotUserAction(item) ? 'needs-user' : ''} onClick={(event) => { pendencyOpenerIdRef.current = event.currentTarget.id; setSelectedPendencyId(item.id); }}>
-                            <strong>{item.title}</strong><span className="bot-inbox-preview">{item.messages.at(-1)?.content || 'Attachment'}</span><span className="bot-inbox-meta"><span>{item.status === 'completed' ? 'Completed' : hasOpenBotUserAction(item) ? 'Needs you' : 'Waiting for bot'}</span><time dateTime={item.updatedAt}>{new Date(item.updatedAt).toLocaleString()}</time></span>
+                            <strong>{item.title}</strong><span className="bot-inbox-preview">{item.messages.at(-1)?.content || 'Attachment'}</span><span className="bot-inbox-meta"><span>{getBotPendencyStatusLabel(item)}</span><time dateTime={item.updatedAt}>{new Date(item.updatedAt).toLocaleString()}</time></span>
                           </button></li>
                         ))}
                       </ul>

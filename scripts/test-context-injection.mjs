@@ -436,7 +436,9 @@ try {
     'Create a pendency with `bot_pendency_create` only when',
     'A `<bot-pendency-update>` message contains a user\'s reply',
     'send the answer to the same pendency with `bot_pendency_message`',
-    'Use `bot_pendency_complete` when no user action remains',
+    'Set `requiresUserResponse: true` when a response or action is needed',
+    'Informational messages lose their attention indicator when viewed',
+    'Use `bot_pendency_complete` when the conversation is fully resolved',
     'Write in the first person',
     'Every entry must stand alone',
     'Do not log routine checks with no change',
@@ -845,6 +847,38 @@ try {
     /You have sub-agents and\/or other threads available on this tree\./,
   );
   assert.doesNotMatch(threadSystemContext, /<current_thread>|<thread_directory>|subagent-id/);
+
+  const modelRules = ['test:one', '@virtual', 'test:other'].flatMap((modelId) => (
+    ['all', 'main', 'bot', 'subagent'].map((role) => ({ modelId, role, instructions: `RULE:${modelId}:${role}` }))
+  ));
+  for (const [orchestrationRole, bot, expectedRole] of [
+    ['orchestrator', null, 'main'], ['side_chat', null, 'main'],
+    ['orchestrator', { id: 'bot', workFiles: [] }, 'bot'], ['subagent', { id: 'bot', workFiles: [] }, 'subagent'],
+    ['supervisor', { id: 'bot', workFiles: [] }, null],
+  ]) {
+    const context = await resolveDynamicContext({
+      traceOperation: 'chat', effectiveModelId: 'test:one', virtualModelId: '@virtual',
+      modelRules, orchestrationRole, bot,
+    });
+    const matched = context.match(/RULE:[^\s]+/g) ?? [];
+    assert.deepEqual(matched, expectedRole ? [
+      'RULE:test:one:all', 'RULE:@virtual:all', `RULE:test:one:${expectedRole}`, `RULE:@virtual:${expectedRole}`,
+    ] : []);
+  }
+  for (const overrides of [{ auxiliary: true }, { quickChat: true }, { traceOperation: 'compactation' }]) {
+    const context = await resolveDynamicContext({
+      traceOperation: 'chat', effectiveModelId: 'test:one', modelRules,
+      orchestrationRole: 'orchestrator', ...overrides,
+    });
+    assert.ok(!context.includes('RULE:'));
+  }
+  const switchedContext = await resolveDynamicContext({
+    traceOperation: 'chat', effectiveModelId: 'test:other', virtualModelId: '@virtual',
+    modelRules, orchestrationRole: 'orchestrator',
+  });
+  assert.ok(!switchedContext.includes('RULE:test:one:'));
+  assert.ok(switchedContext.includes('RULE:test:other:main'));
+  assert.ok(switchedContext.includes('RULE:@virtual:main'));
 
   console.log('Context variant discovery passed.');
 } finally {

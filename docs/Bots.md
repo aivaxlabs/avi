@@ -2,6 +2,16 @@
 
 Bots are autonomous AI teammates. Each bot lives in a persistent thread, is activated periodically by Avi, and works proactively: it finds work, organizes it, executes bounded work directly, and follows outcomes across activations. Worker threads are reserved for genuinely long or context-heavy deliverables, not routine exploration, research, listings, status checks, or short diagnostics.
 
+## Global activation settings and statistics
+
+Open **Settings → Bots**. **Activation settings** adds an optional local-time day/hour window and a simultaneous-activation limit (1–128, default 2). These rules complement each bot's own schedule. No selected days means every day; empty times allow the full day; overnight ranges are supported. Equal start/end times are rejected. The global execution mode is inherited only by bots without an individual override.
+
+New activations wait in FIFO order among eligible bots. A queued request does not create a chat message, consume its recurring task, or display Thinking. The global window also applies to explicit manual/agent activations; the agent force option bypasses only individual automatic rules. The clock means **Activation queued**; the moon with **Outside activation hours** means the window is closed. Running work takes precedence in the indicator.
+
+These controls admit new activations only. Existing turns, replies, restart resumptions, and descendant work threads continue independently, even outside hours or above a newly reduced limit. Active bot turns occupy admission capacity, but are never suspended to satisfy it. Pending requests are in-memory, deduplicated per bot, and cleared on restart, disable, deletion, or reset. Scheduled work is reconsidered on subsequent scheduler ticks. Window-blocked requests do not hold execution slots.
+
+**Statistics** offers rolling **1d / 7d / 30d** periods and refreshes while open. Usage includes the bot's conversation and recursively created descendants, including archived threads whose history remains. Cached input is a subset of input, not added again. Costs are estimates from available configured pricing, not billing totals; unavailable or incomplete pricing is explicitly reported. The UTC consumption timeline groups recorded response timestamps by bot, not precise activation times or execution durations. Deleted history cannot be reconstructed.
+
 ## Creating a bot
 
 Use the **+** button in the sidebar's **Bots** section. Avi creates the bot with an AIVAX Orb tied to its ID and opens its settings. Every bot needs a configured model before creation.
@@ -12,7 +22,7 @@ Agents can read inbox messages and activity with `bots_read_work_log`, and reply
 
 Agents in normal threads and Quick Chat can also manage bots with `bots_list`, `bots_create`, `bots_update`, `bots_delete`, and `bots_activate`. Select `/create-bot` in the composer for a guided setup that checks existing bots, defines the purpose and schedule, creates the bot, verifies its configuration, and optionally starts its first activation. Autonomous bot conversations do not receive these management tools and cannot create or control other bots.
 
-`bots_activate` is an explicit one-time call: it ignores automatic enabled, period, idle, activation-window, and activation-limit rules, while refusing to start a duplicate run when the bot is already active. The sidebar's **Activate now** action keeps the normal enabled-state behavior. Both paths can activate a bot with an empty Work queue; that activation reviews the bot's full scope without a specific recurring focus.
+`bots_activate` is an explicit one-time call: it ignores individual automatic enabled, period, idle, activation-window, and activation-limit rules, but still respects the global activation window and FIFO admission limit, while refusing to start a duplicate run when the bot is already active. The sidebar's **Activate now** action keeps the normal enabled-state behavior. Both paths can activate a bot with an empty Work queue; that activation reviews the bot's full scope without a specific recurring focus.
 
 ## Bot settings
 
@@ -65,7 +75,9 @@ Open **Bots** in the auxiliary panel and select a bot in the header. The compact
 - **Inbox** — conversations where the bot asks for your input. Open a pendency to read its messages and reply there, with text, images, or files. Messages appear from newest at the top to oldest at the bottom, and every message shows its date and time. The reply composer stays at the bottom of the panel while the conversation history scrolls independently. Filter the list by status to find open or completed conversations.
 - **Activity** — the bot's first-person diary of important work. Each entry has a title, description, category, and date; category filtering narrows the timeline. Entries explain the subject and result without requiring previous entries or the main chat.
 
-A pendency has only two states: `open` or `completed`. Open items awaiting your response contribute to the sidebar notification count. Reading a pendency does not clear it. Replying transfers attention to the bot and removes it from the count, unless a protected approval still needs an explicit decision. The bot can continue the conversation or mark it completed. A new bot message reopens a completed pendency; a final response should be followed by completion when no user action remains.
+Use **Complete** to close a pendency, or the adjacent **More completion options** menu to choose **Abandon**, **Duplicate**, or **Already worked**. These options close the existing item and record the reason as a user message in its history; **Duplicate** does not create a copy. They do not activate the bot or resolve a pending approval.
+
+A pendency has only two states: `open` or `completed`. Each bot message displays **Requires your response** or **No response required**. Bot tools accept `requiresUserResponse` (default `true`, including older messages). A latest informational message (`false`) counts as **Unread** until its header is visible in the focused Inbox; it then becomes **Read** and stops contributing to the sidebar attention count. Messages outside the visible scroll area are not marked read. Viewing does not complete the pendency, activate the bot, or dismiss an approval. Messages requiring a response remain **Needs you** after viewing. Replying transfers attention to the bot unless a protected approval still needs a decision. A new bot message reopens a completed pendency and requests attention again.
 
 The bot continues all work in its main thread. When you reply, Avi saves your message and sends a `<bot-pendency-update>` with the pendency ID, reply, and attachments to that thread. An active bot receives it in its priority queue; an idle bot starts a continuation. It can use tools and worker threads to prepare a response, but is instructed to answer inside the same pendency. If delivery fails, the Inbox keeps your message and reports the failure; do not send it again just to retry delivery and duplicate the conversation.
 

@@ -100,10 +100,23 @@ try {
   assert.equal(firstRuntime.dataFolder, firstDataFolder);
   const createPendency = firstRuntime.tools.find((tool) => tool.name === 'bot_pendency_create');
   assert.ok(createPendency);
-  await createPendency.execute({
+  assert.equal(createPendency.inputSchema.properties.requiresUserResponse.type, 'boolean');
+  const informational = await createPendency.execute({
     title: 'Stored in the isolated folder',
     content: 'Prove work state remains isolated per bot.',
+    requiresUserResponse: false,
   });
+  assert.equal(informational.messages[0].requiresUserResponse, false);
+  const marked = await manager.markPendencyRead(firstBot.id, informational.id, [informational.messages[0].id]);
+  assert.ok(marked.messages[0].readAt);
+  assert.equal(marked.status, 'open');
+  const messageTool = firstRuntime.tools.find((tool) => tool.name === 'bot_pendency_message');
+  assert.equal(messageTool.inputSchema.properties.requiresUserResponse.type, 'boolean');
+  const updatedInfo = await messageTool.execute({ id: informational.id, content: 'New information', requiresUserResponse: false });
+  assert.equal(updatedInfo.messages.at(-1).requiresUserResponse, false);
+  assert.equal(updatedInfo.messages.at(-1).readAt, null);
+  const question = await messageTool.execute({ id: informational.id, content: 'Please review.' });
+  assert.equal(question.messages.at(-1).requiresUserResponse, true);
   assert.equal(existsSync(join(workingFolder, 'inbox.json')), false);
   assert.equal(
     JSON.parse(await readFile(join(firstDataFolder, 'inbox.json'), 'utf8'))[0].title,

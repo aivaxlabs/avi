@@ -17,9 +17,10 @@ import {
   createBotPendency,
   ensureBotWorkStateFiles,
   mutateBotWorkState,
+  markBotPendencyMessagesRead,
   readBotWorkState,
 } from '../src/main/bot-work-state.js';
-import { hasOpenBotUserAction } from '../src/shared/bot-work-items.js';
+import { getBotPendencyStatusLabel, hasOpenBotUserAction } from '../src/shared/bot-work-items.js';
 
 const root = mkdtempSync(join(tmpdir(), 'bot-ws-test-'));
 let passed = 0;
@@ -323,6 +324,83 @@ await run([
   }),
 ]);
 
+// --- Message attention and reading ---
+await run([
+  test('read: informational messages clear attention without completing or reordering', async () => {
+    const d = sub('read-info');
+    const item = await createBotPendency(d, { title: 'Result', content: 'Finished', requiresUserResponse: false }, T);
+    assert.equal(hasOpenBotUserAction(item), true);
+    assert.equal(getBotPendencyStatusLabel(item), 'Unread');
+    const read = await markBotPendencyMessagesRead(d, item.id, [item.messages[0].id], T2);
+    assert.equal(hasOpenBotUserAction(read), false);
+    assert.equal(getBotPendencyStatusLabel(read), 'Read');
+    assert.equal(read.status, 'open');
+    assert.equal(read.completedAt, null);
+    assert.equal(read.updatedAt, T);
+    assert.equal(read.messages[0].readAt, T2);
+    assert.deepEqual((await readBotWorkState(d)).inbox, [read]);
+    assert.deepEqual(await markBotPendencyMessagesRead(d, item.id, [item.messages[0].id], T), read);
+  }),
+  test('read: required and legacy messages keep attention after viewing', async () => {
+    const d = sub('read-required');
+    const item = await createBotPendency(d, { title: 'Question', content: 'Answer?' }, T);
+    assert.equal(item.messages[0].requiresUserResponse, true);
+    const read = await markBotPendencyMessagesRead(d, item.id, [item.messages[0].id], T2);
+    assert.equal(hasOpenBotUserAction(read), true);
+    assert.equal(getBotPendencyStatusLabel(read), 'Needs you');
+    delete read.messages[0].requiresUserResponse;
+    delete read.messages[0].readAt;
+    await writeFile(join(d, BOT_WORK_STATE_FILES.inbox), JSON.stringify([read]));
+    const legacy = await markBotPendencyMessagesRead(d, item.id, [item.messages[0].id], T2);
+    assert.equal(hasOpenBotUserAction(legacy), true);
+    assert.equal(legacy.messages[0].requiresUserResponse, undefined);
+  }),
+  test('read: explicit IDs do not acknowledge a concurrently appended bot message', async () => {
+    const d = sub('read-concurrent');
+    const item = await createBotPendency(d, { title: 'Info', content: 'First', requiresUserResponse: false }, T);
+    await Promise.all([
+      appendBotPendencyMessage(d, { pendencyId: item.id, role: 'bot', content: 'New', requiresUserResponse: false }, T2),
+      markBotPendencyMessagesRead(d, item.id, [item.messages[0].id], T2),
+    ]);
+    const state = (await readBotWorkState(d)).inbox[0];
+    assert.equal(state.messages[0].readAt, T2);
+    assert.equal(state.messages[1].readAt, null);
+    assert.equal(state.messages[1].requiresUserResponse, false);
+    assert.equal(hasOpenBotUserAction(state), true);
+    const read = await markBotPendencyMessagesRead(d, item.id, [state.messages[1].id], T2);
+    assert.equal(hasOpenBotUserAction(read), false);
+    const required = await appendBotPendencyMessage(d, { pendencyId: item.id, role: 'bot', content: 'Question' }, T2);
+    assert.equal(required.messages.at(-1).requiresUserResponse, true);
+    assert.equal(hasOpenBotUserAction(required), true);
+  }),
+  test('read: approval stays pending and user messages are not modified', async () => {
+    const d = sub('read-approval');
+    const item = await attachBotPendencyApproval(d, { botId: 'b', kind: 'work', title: 'T', context: 'C', prompt: 'P' }, T);
+    const replied = await appendBotPendencyMessage(d, { pendencyId: item.id, role: 'user', content: 'Comment' }, T);
+    const read = await markBotPendencyMessagesRead(d, item.id, replied.messages.map((message) => message.id), T2);
+    assert.deepEqual(read.approval, item.approval);
+    assert.equal(read.status, 'open');
+    assert.equal(hasOpenBotUserAction(read), true);
+    assert.equal(read.messages[0].requiresUserResponse, true);
+    assert.deepEqual(read.messages[1], replied.messages[1]);
+  }),
+  test('read: invalid inputs and flags do not mutate stored data', async () => {
+    const d = sub('read-invalid');
+    const item = await createBotPendency(d, { title: 'T', content: 'C' }, T);
+    const before = await readFile(join(d, BOT_WORK_STATE_FILES.inbox), 'utf8');
+    for (const requiresUserResponse of [null, 'false', 0, {}]) {
+      await assert.rejects(() => createBotPendency(d, { title: 'T', content: 'C', requiresUserResponse }), /requiresUserResponse/);
+      await assert.rejects(() => appendBotPendencyMessage(d, { pendencyId: item.id, role: 'bot', content: 'C', requiresUserResponse }), /requiresUserResponse/);
+    }
+    for (const ids of [null, [], [''], [3], Array(5001).fill('x')]) {
+      await assert.rejects(() => markBotPendencyMessagesRead(d, item.id, ids), /messageId/);
+    }
+    await assert.rejects(() => markBotPendencyMessagesRead(d, 'missing', ['x']), /Pendency not found/);
+    assert.deepEqual(await markBotPendencyMessagesRead(d, item.id, ['unknown']), item);
+    assert.equal(await readFile(join(d, BOT_WORK_STATE_FILES.inbox), 'utf8'), before);
+  }),
+]);
+
 // --- completeBotPendency ---
 await run([
   test('complete: fills completedAt and is idempotent', async () => {
@@ -336,15 +414,48 @@ await run([
     assert.equal(again.status, 'completed');
     assert.equal(again.completedAt, T2);
   }),
+  test('complete: reasons persist once and remain in history after reopening', async () => {
+    for (const [reason, label] of [['abandon', 'Abandon'], ['duplicate', 'Duplicate'], ['already-worked', 'Already worked']]) {
+      const d = sub(`complete-${reason}`);
+      const item = await createBotPendency(d, { title: 'T', content: 'C' }, T);
+      const completed = await completeBotPendency(d, item.id, T2, reason);
+      assert.equal(completed.status, 'completed');
+      assert.equal(completed.messages.length, 2);
+      assert.equal(completed.messages[1].role, 'user');
+      assert.equal(completed.messages[1].content, `Closed: ${label}.`);
+      assert.equal(completed.messages[1].createdAt, T2);
+      const persisted = JSON.parse(await readFile(join(d, BOT_WORK_STATE_FILES.inbox), 'utf8'));
+      assert.deepEqual(persisted, [completed]);
+      const again = await completeBotPendency(d, item.id, T2, 'abandon');
+      assert.deepEqual(again, completed);
+      const reopened = await appendBotPendencyMessage(d, { pendencyId: item.id, role: 'bot', content: 'Follow-up' }, T2);
+      assert.equal(reopened.status, 'open');
+      assert.equal(reopened.completedAt, null);
+      assert.equal(reopened.messages[1].content, `Closed: ${label}.`);
+    }
+  }),
+  test('complete: invalid reasons do not mutate the inbox', async () => {
+    const d = sub('complete-invalid-reason');
+    const item = await createBotPendency(d, { title: 'T', content: 'C' }, T);
+    const before = await readFile(join(d, BOT_WORK_STATE_FILES.inbox), 'utf8');
+    for (const reason of [null, '', 'unknown', 'toString', '__proto__', {}, ['abandon']]) {
+      await assert.rejects(() => completeBotPendency(d, item.id, T2, reason), /Invalid pendency completion reason/);
+    }
+    assert.equal(await readFile(join(d, BOT_WORK_STATE_FILES.inbox), 'utf8'), before);
+  }),
   test('complete: blocked while approval is pending', async () => {
     const d = sub('complete-approval');
     const item = await attachBotPendencyApproval(d, {
       botId: 'b', kind: 'work', title: 'T', context: 'c', prompt: 'p',
     }, T);
-    await assert.rejects(
-      () => completeBotPendency(d, item.id, T2),
-      /Resolve the pending approval/,
-    );
+    for (const reason of [undefined, 'abandon', 'duplicate', 'already-worked']) {
+      await assert.rejects(
+        () => completeBotPendency(d, item.id, T2, reason),
+        /Resolve the pending approval/,
+      );
+    }
+    const persisted = JSON.parse(await readFile(join(d, BOT_WORK_STATE_FILES.inbox), 'utf8'));
+    assert.deepEqual(persisted, [item]);
   }),
   test('complete: unknown pendency throws', async () => {
     const d = sub('complete-missing');

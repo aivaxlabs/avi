@@ -6,6 +6,7 @@ export const emptyDefaultModels = Object.freeze({
   supervision: null,
   quickChat: null,
   compactation: null,
+  rules: Object.freeze([]),
   subagents: Object.freeze({
     enabled: false,
     small: null,
@@ -54,6 +55,7 @@ export function normalizeDefaultModels(value, strict = false) {
     supervision: normalizeSelection(source.supervision),
     quickChat: normalizeSelection(source.quickChat),
     compactation: normalizeSelection(source.compactation),
+    rules: [],
     subagents: {
       enabled: subagents.enabled === true,
       small: normalizeSelection(subagents.small),
@@ -64,6 +66,27 @@ export function normalizeDefaultModels(value, strict = false) {
       levels: normalizeIntelligenceLevels(source.intelligence),
     },
   };
+
+  if (strict && source.rules !== undefined && !Array.isArray(source.rules)) {
+    throw new Error('Model rules must be an array.');
+  }
+  const ruleKeys = new Set();
+  for (const entry of Array.isArray(source.rules) ? source.rules : []) {
+    const modelId = typeof entry?.modelId === 'string' ? entry.modelId.trim() : '';
+    const role = entry?.role;
+    const instructions = typeof entry?.instructions === 'string' ? entry.instructions.trim() : '';
+    const key = JSON.stringify([modelId, role]);
+    if (!modelId || !['main', 'bot', 'subagent', 'all'].includes(role) || !instructions) {
+      if (strict) throw new Error('Every model rule requires a model ID, a supported thread role, and instructions.');
+      continue;
+    }
+    if (ruleKeys.has(key)) {
+      if (strict) throw new Error('Only one rule per model and thread role is allowed.');
+      continue;
+    }
+    ruleKeys.add(key);
+    normalized.rules.push({ modelId, role, instructions });
+  }
 
   if (strict
     && normalized.intelligence.levels.length > 0
@@ -170,6 +193,17 @@ export function validateDefaultModels(settings, models) {
     }
   });
 
+  for (const rule of normalized.rules) {
+    if (!modelsById.has(rule.modelId)) {
+      warnings.push({
+        role: 'rules',
+        label: 'Model rule',
+        modelId: rule.modelId,
+        reason: 'model unavailable',
+        message: `Model rule for ${rule.modelId} (${rule.role}) is inactive because the model is unavailable.`,
+      });
+    }
+  }
   return warnings;
 }
 

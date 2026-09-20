@@ -40,6 +40,17 @@ try {
   assert.match(overviewPanel, /aria-label="Close Inbox panel"/);
   assert.match(overviewPanel, /id="bot-pendency-title"[^>]*>Choose Acme export format/);
   assert.match(overviewPanel, /Send reply/);
+  assert.match(overviewPanel, /Requires your response/);
+  const info = { ...inbox[0], messages: [{ ...inbox[0].messages[0], requiresUserResponse: false }] };
+  const infoState = { 'bot-1': { inbox: [info], activity: [], error: null } };
+  const infoPanel = render({ ...overviewProps, botDataByBot: infoState });
+  assert.match(infoPanel, /No response required/);
+  assert.match(infoPanel, />Unread<\/span>/);
+  info.messages[0].readAt = '2026-09-04T17:00:00Z';
+  assert.match(render({ ...overviewProps, botDataByBot: infoState }), />Read<\/span>/);
+  const readDashboard = renderToStaticMarkup(React.createElement(OrchestrationPage, { models: [], bots: props.bots, botDataByBot: infoState }));
+  assert.doesNotMatch(readDashboard, /orchestration-inbox-row needs-user/);
+  assert.match(readDashboard, /aria-label="Read"/);
   assert.doesNotMatch(overviewPanel, /role="tablist"|role="tab"|role="tabpanel"|bot-work-selector|bot-inbox-filters|Review Acme invoice/);
   const richContent = [
     '::finding[Payment status]{level="P1"}',

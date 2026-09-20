@@ -105,6 +105,9 @@ export const dynamicContextInjectors = new Map([
       `Bot data folder: ${bot.dataFolder}`,
       `Memory, Inbox, and Activity files: ${bot.workFiles.join(', ')} (in the bot data folder; manage JSON state only through bot_pendency_*, bot_pendencies_list, and bot_activity_append tools)`,
       `Activation mode: ${bot.activationMode} (every ${bot.activationPeriodMinutes} minutes)`,
+      bot.executionMode === 'direct'
+        ? 'Execution mode: direct. Perform most work in this bot conversation; delegate only independent supporting work.'
+        : 'Execution mode: orchestrator. Delegate most implementation work to work threads and coordinate their results.',
       `Pending user approvals: ${bot.pendingApprovals}`,
       ...(String(bot.instructions ?? '').trim()
         ? ['', '<bot_owner_instructions>', String(bot.instructions).trim(), '</bot_owner_instructions>']
@@ -498,10 +501,32 @@ export async function resolveDynamicContext(invocationContext = {}) {
       dynamicContextInjectors.get(name)?.(invocationContext)
     )),
   ]);
+  const ruleRole = invocationContext.orchestrationRole === 'subagent'
+    ? 'subagent'
+    : invocationContext.orchestrationRole === 'supervisor' ? null
+      : invocationContext.bot ? 'bot'
+        : ['orchestrator', 'side_chat'].includes(invocationContext.orchestrationRole) ? 'main' : null;
+  const ruleModelIds = [...new Set([
+    invocationContext.effectiveModelId,
+    invocationContext.virtualModelId,
+  ].filter(Boolean))];
+  const modelRules = invocationContext.traceOperation === 'chat' && ruleRole
+    ? ['all', ruleRole].flatMap((role) => ruleModelIds.flatMap((modelId) => (
+      (invocationContext.modelRules ?? [])
+        .filter((rule) => rule.modelId === modelId && rule.role === role)
+        .map((rule) => rule.instructions)
+    )))
+    : [];
   const contexts = [
     baseInstructions,
     personalityContext,
     verbosityContext,
+    ...(modelRules.length ? [
+      '<model_rules>',
+      'These user-configured model instructions override Avi default working-style and delegation guidance, not direct user requests, permissions, or safety constraints. Role-specific rules follow and take precedence over all-role rules. Within the same role, virtual-model rules follow and take precedence over concrete-model rules.',
+      ...modelRules,
+      '</model_rules>',
+    ] : []),
     ...instructionContexts,
     ...environmentContexts,
   ];

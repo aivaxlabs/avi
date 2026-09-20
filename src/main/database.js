@@ -534,6 +534,9 @@ if (db.prepare("PRAGMA table_info('messages')").all().find((column) => column.na
   `);
 }
 const botColumns = db.prepare("PRAGMA table_info('bots')").all();
+if (!botColumns.some((column) => column.name === 'execution_mode')) {
+  db.exec('ALTER TABLE bots ADD COLUMN execution_mode TEXT');
+}
 if (!botColumns.some((column) => column.name === 'active_assistant_message_id')) {
   db.exec('ALTER TABLE bots ADD COLUMN active_assistant_message_id TEXT');
 }
@@ -1036,14 +1039,14 @@ const statements = {
   insertBot: db.prepare(`
     INSERT INTO bots (
       id, conversation_id, name, icon_seed, personality, working_folder, model,
-      reasoning_effort, context_size, activation_period_minutes, activation_mode,
+      reasoning_effort, context_size, activation_period_minutes, activation_mode, execution_mode,
       max_activations, activation_window, instructions, work_queue, enabled, status,
       next_activation_at, idle_until, activation_count, work_queue_index,
       active_assistant_message_id, snooze_until, created_at, updated_at
     )
     VALUES (
       @id, @conversationId, @name, @iconSeed, @personality, @workingFolder, @model,
-      @reasoningEffort, @contextSize, @activationPeriodMinutes, @activationMode,
+      @reasoningEffort, @contextSize, @activationPeriodMinutes, @activationMode, @executionMode,
       @maxActivations, @activationWindow, @instructions, @workQueue, @enabled, @status,
       @nextActivationAt, @idleUntil, @activationCount, @workQueueIndex,
       @activeAssistantMessageId, @snoozeUntil, @createdAt, @updatedAt
@@ -1060,6 +1063,7 @@ const statements = {
         context_size = CASE WHEN @contextSizeChanged = 1 THEN @contextSize ELSE context_size END,
         activation_period_minutes = COALESCE(@activationPeriodMinutes, activation_period_minutes),
         activation_mode = COALESCE(@activationMode, activation_mode),
+        execution_mode = CASE WHEN @executionModeChanged = 1 THEN @executionMode ELSE execution_mode END,
         max_activations = COALESCE(@maxActivations, max_activations),
         activation_window = COALESCE(@activationWindow, activation_window),
         instructions = COALESCE(@instructions, instructions),
@@ -1476,6 +1480,73 @@ export function setDesktopSettings(value) {
   const settings = normalizeDesktopSettings(value, true);
   writeJson('desktopSettings', settings);
   return settings;
+}
+
+export function getBotUsageConversations() {
+  return db.prepare('SELECT id, parent_conversation_id, model, created_at FROM conversations').all().map((row) => ({
+    id: row.id,
+    parentConversationId: row.parent_conversation_id,
+    model: row.model,
+    createdAt: row.created_at,
+  }));
+}
+
+export function getBotUsageMessages(days) {
+  if (![1, 7, 30].includes(days)) throw new Error('Statistics period must be 1, 7, or 30 days.');
+  return db.prepare(`
+    WITH RECURSIVE bot_threads(id) AS (
+      SELECT conversation_id FROM bots
+      UNION
+      SELECT c.id FROM conversations c JOIN bot_threads parent ON c.parent_conversation_id = parent.id
+    )
+    SELECT m.id, m.conversation_id, m.model, m.usage, m.created_at
+    FROM messages m JOIN bot_threads t ON t.id = m.conversation_id
+    WHERE m.role = 'assistant' AND m.hidden = 0 AND m.created_at >= ?
+  `).all(new Date(Date.now() - days * 86_400_000).toISOString()).map((row) => ({
+    id: row.id,
+    conversationId: row.conversation_id,
+    model: row.model,
+    role: 'assistant',
+    usage: JSON.parse(row.usage || '{}'),
+    createdAt: row.created_at,
+  }));
+}
+
+export function getBotSettings() {
+  return normalizeBotSettings(readJson('botSettings'));
+}
+
+export function setBotSettings(value) {
+  const settings = normalizeBotSettings({ ...getBotSettings(), ...value });
+  writeJson('botSettings', settings);
+  return settings;
+}
+
+function normalizeBotSettings(value) {
+  const { maxConcurrentBots = 2, executionMode = 'orchestrator', activationWindow = null } = value ?? {};
+  if (!Number.isInteger(maxConcurrentBots) || maxConcurrentBots < 1 || maxConcurrentBots > 128) {
+    throw new Error('Simultaneous activations must be an integer from 1 to 128.');
+  }
+  if (!['direct', 'orchestrator'].includes(executionMode)) {
+    throw new Error('Bot execution mode must be direct or orchestrator.');
+  }
+  if (activationWindow !== null) {
+    if (typeof activationWindow !== 'object' || Array.isArray(activationWindow)
+      || !Array.isArray(activationWindow.days)
+      || activationWindow.days.some((day) => !Number.isInteger(day) || day < 0 || day > 6)
+      || [activationWindow.startMinute, activationWindow.endMinute].some((minute) => (
+        minute != null && (!Number.isInteger(minute) || minute < 0 || minute > 1439)
+      ))) throw new Error('Invalid global activation window.');
+    if (activationWindow.endMinute === 0 && activationWindow.startMinute == null
+      || Number.isInteger(activationWindow.startMinute) && activationWindow.startMinute === activationWindow.endMinute) {
+      throw new Error('The activation window must allow some time to run.');
+    }
+  }
+  return {
+    maxConcurrentBots,
+    executionMode,
+    activationWindow: activationWindow === null ? null : normalizeActivationWindow(activationWindow),
+  };
 }
 
 export function getArchiveSettings() {
@@ -2034,6 +2105,7 @@ function mapBot(row) {
     activationMode: botActivationModes.includes(row.activation_mode) ? row.activation_mode : 'static',
     maxActivations: Math.max(0, Number(row.max_activations) || 0),
     activationWindow: normalizeActivationWindow(row.activation_window),
+    executionMode: row.execution_mode || null,
     instructions: row.instructions || '',
     workQueue,
     workQueueIndex: workQueue.length > 0
@@ -2062,6 +2134,7 @@ export function createBot({
   contextSize = null,
   activationPeriodMinutes = 10,
   activationMode = 'static',
+  executionMode = null,
   maxActivations = 10,
   activationWindow = {},
   instructions = '',
@@ -2071,6 +2144,9 @@ export function createBot({
   nextActivationAt = null,
 }) {
   const now = timestamp();
+  if (executionMode !== null && !['direct', 'orchestrator'].includes(executionMode)) {
+    throw new Error('Bot execution mode must be direct, orchestrator, or null.');
+  }
   statements.insertBot.run({
     id: crypto.randomUUID(),
     conversationId,
@@ -2083,6 +2159,7 @@ export function createBot({
     contextSize,
     activationPeriodMinutes: Math.max(1, Number(activationPeriodMinutes) || 10),
     activationMode: botActivationModes.includes(activationMode) ? activationMode : 'static',
+    executionMode,
     maxActivations: Math.max(0, Number(maxActivations) || 0),
     activationWindow: stringify(normalizeActivationWindow(activationWindow)),
     instructions: String(instructions ?? ''),
@@ -2102,6 +2179,9 @@ export function createBot({
 }
 
 export function updateBot(id, changes = {}) {
+  if (changes.executionMode != null && !['direct', 'orchestrator'].includes(changes.executionMode)) {
+    throw new Error('Bot execution mode must be direct, orchestrator, or null.');
+  }
   const changed = (key) => (Object.prototype.hasOwnProperty.call(changes, key) ? 1 : 0);
   const currentBot = getBot(id);
   const workQueue = changes.workQueue === undefined
@@ -2124,6 +2204,8 @@ export function updateBot(id, changes = {}) {
     contextSizeChanged: changed('contextSize'),
     activationPeriodMinutes: changes.activationPeriodMinutes ?? null,
     activationMode: changes.activationMode ?? null,
+    executionMode: changes.executionMode ?? null,
+    executionModeChanged: changed('executionMode'),
     maxActivations: changes.maxActivations ?? null,
     activationWindow: changes.activationWindow === undefined
       ? null

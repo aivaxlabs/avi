@@ -47,6 +47,8 @@ The configured custom Relay domain serves the same paths; availability requires 
 
 ## Tools
 
+- `note_lists`, `note_create`, `note_edit`, `note_search` — persistent user notes. Read tools discover/filter lists and notes; mutations create or edit title, text, list, priority, deadline, status, ordered subtasks, and file attachments. See [Notes](../../Notes.md#agent-tools) for semantics and [data shapes](../../Notes.md#data-shapes). Mutations are not read-only.
+
 - `bots_list`, `bots_create`, `bots_update`, `bots_delete`, `bots_activate`
 - `bots_read_work_log`, `bots_send_work_log_message`
 - `chat_overview`, `chat_list_folders`, `chat_list_threads`, `chat_create_thread`
@@ -57,6 +59,8 @@ The configured custom Relay domain serves the same paths; availability requires 
 `chat_list_threads` accepts `type: all | user | agent` (persisted creator), `parentThreadId` (exact ID; null selects roots), and `folderPath`. Text output includes creator, concrete thread type, parent ID for children, and direct visible sub-thread count for roots. Side-chat visibility is unchanged.
 
 `bots_read_work_log({ id, workLogId?, status?: all | open | completed })` returns inbox messages, activity diary, and read errors. Message content and diary descriptions remain Markdown strings in the API; the Desktop Inbox and Activity render them with the same restricted visualization directives as chat. No API payload changes are required. `bots_send_work_log_message({ id, workLogId, message })` appends a reply to an existing inbox entry and delivers it to the main bot thread; inspect `delivered` and `error` before retrying because persistence may succeed even if delivery fails. It does not approve pending actions.
+
+Global bot activation hours and FIFO capacity apply to new activations, including `bots_activate`, without restricting ongoing work or resumptions. A deferred call returns `activated: false`, `queued: true`, and `status: "queued" | "outside-window" | "sleep"`. Bot listings expose those distinct scheduling states and `effectiveExecutionMode`; create/update accepts nullable `executionMode` (`direct` or `orchestrator`), inheriting the global mode when null. See [Bots RPC](../rpc/bots.md) for global settings and 1d/7d/30d descendant statistics.
 
 `bots_list` preserves `workQueue` and adds `workQueueItems: [{ id, task }]`. IDs are zero-based positions for the current queue snapshot, not persistent identities across edits. `bots_activate({ id, workQueueId? })` overrides the focus for one activation, ahead of actionable inbox work, without advancing the recurring cursor. Invalid IDs fail before activation.
 

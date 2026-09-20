@@ -92,6 +92,7 @@ export class RouterProvider {
         return await candidate.provider.stream({
           ...options,
           model: candidate.model,
+          invocationContext: { ...options.invocationContext, virtualModelId: this.router.id },
           reasoningEffort: adaptReasoningEffort(options.reasoningEffort, candidate.model.reasoning),
           onEvent: (event) => {
             if (event.type === 'error') errorEvent = event;

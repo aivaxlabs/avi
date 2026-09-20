@@ -101,7 +101,7 @@ export class ModelProvider {
       reasoningEffort,
       tools,
       toolHistory,
-      invocationContext,
+      invocationContext: { ...invocationContext, effectiveModelId: model.id },
     });
     invocationContext.onPrepared?.();
     const goalMode = invocationContext.workMode === 'goal';

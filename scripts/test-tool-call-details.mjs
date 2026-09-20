@@ -4,6 +4,7 @@ import {
   projectChatEventForClient,
   projectMessageForClient,
 } from '../src/main/client-message-projection.js';
+import { StreamAccumulator } from '../src/main/streaming.js';
 
 const message = {
   id: 'message-1',
@@ -12,7 +13,9 @@ const message = {
   segments: [{
     id: 'tool-call-1',
     type: 'tool-call',
-    name: 'read_file',
+    name: 'mcp_foobar_search',
+    isMcp: true,
+    mcpServerName: 'Foobar',
     status: 'completed',
     argumentsText: '{"path":"large.txt"}',
     resultText: 'large output',
@@ -30,7 +33,9 @@ assert.equal(projected.segments[1], message.segments[1]);
 assert.deepEqual(projected.segments[0], {
   id: 'tool-call-1',
   type: 'tool-call',
-  name: 'read_file',
+  name: 'mcp_foobar_search',
+  isMcp: true,
+  mcpServerName: 'Foobar',
   status: 'completed',
   conversationId: 'conversation-1',
   messageId: 'message-1',
@@ -43,6 +48,17 @@ assert.equal(Object.hasOwn(projected.segments[0], 'argumentsText'), false);
 assert.equal(Object.hasOwn(projected.segments[0], 'resultText'), false);
 assert.equal(Object.hasOwn(projected.segments[0], 'mediaContent'), false);
 assert.equal(message.segments[0].resultText, 'large output');
+
+const accumulator = new StreamAccumulator();
+accumulator.apply({
+  type: 'tool-call',
+  key: 'round:0:call-1',
+  callId: 'call-1',
+  name: 'mcp_foobar_search',
+  isMcp: true,
+  mcpServerName: 'Foobar',
+});
+assert.equal(accumulator.segments[0].mcpServerName, 'Foobar');
 
 const pending = projectMessageForClient({
   ...message,

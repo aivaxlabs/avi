@@ -1,6 +1,16 @@
 # RPC bots
 
-Bot methods are available only on the global `WS /rpc` endpoint. Scalar bot IDs use `params.payload` as described in the [RPC overview](overview.md#request-envelope). Desktop folder pickers are not exposed; clients provide `workingFolder` directly. Calls are ORPC `REQ` frames on the `avi-orpc-draft1` subprotocol; the wire method is the dotted form of the heading name and the JSON shown in examples is the frame content.
+Bot methods are available only on the global `WS /rpc` endpoint. Scalar bot IDs use `params.payload` as described in the [RPC overview](overview.md#request-envelope). Desktop folder pickers are not exposed; clients provide `workingFolder` directly. Calls are ORPC `REQ` frames on the `avi-orpc-draft2` subprotocol; the wire method is the dotted form of the heading name and the JSON shown in examples is the frame content.
+
+## Global activation settings and statistics
+
+- `bots:settings` (no payload): returns `{ maxConcurrentBots, executionMode, activationWindow }` from the existing `botSettings` preferences.
+- `bots:save-settings`: accepts partial settings. `maxConcurrentBots` is an integer 1–128; `executionMode` is `direct` or `orchestrator`; `activationWindow` is null or `{ days: number[], startMinute: number | null, endMinute: number | null }`. Days are 0–6, minutes 0–1439, equal bounds are invalid. Returns normalized settings and reevaluates pending activations without interrupting work.
+- `bots:statistics`: accepts `{ days: 1 | 7 | 30 }` (default 7). Returns `{ days, from, to, totals, bots, timeline }`. Bot rows include `id`, `name`, `conversationId`, `descendants`, `scheduleState`, `running`, and `totals`. Totals include tokens, input/cached/output/reasoning tokens, responses, createdThreads, cost, pricedResponses and unpricedResponses. Timeline entries contain UTC date, usageMessages, tokens, cost and per-bot consumption. Costs are null for incomplete pricing; timestamps describe response usage, not activation duration. Archived descendants with retained messages are included.
+
+`bots:list` additionally exposes `queued`, `effectiveExecutionMode`, and distinct `scheduleState` values `queued` and `outside-window`. These are activation admission states, not model inference. `bots:activate` can return `{ queued: true, reason }` instead of true when deferred; null means it did not start. Requests are deduplicated and do not create assistant placeholders until admitted. Global restrictions never gate existing work or restart resumptions. Pending requests are in-memory and do not survive restart.
+
+Bot create/update accepts `executionMode: "direct" | "orchestrator" | null`; null inherits the global default.
 
 ## Bot response types
 
@@ -59,7 +69,7 @@ The **Overview** page opens on **Inbox** by default. This view aggregates `botDa
 | `snooze` | [`SnoozeState`](#snoozestate) | Per-bot snooze state. |
 | `scheduleState` | `"working"` \| `"disabled"` \| `"sleep"` \| `"active"` | Derived scheduler state. |
 | `activationWindowDescription` | string | Human-readable activation-window summary. |
-| `attentionCount` | number | Open pendencies whose last message is from the bot, or whose protected approval is still pending. Present in list results. |
+| `attentionCount` | number | Open pendencies whose latest bot message requires a response (`requiresUserResponse !== false`) or has no `readAt`, or whose protected approval is still pending. Present in list results. |
 
 ### `Approval`
 
@@ -87,6 +97,8 @@ The **Overview** page opens on **Inbox** by default. This view aggregates `botDa
 | `content` | string | Message text. |
 | `attachments` | [`Attachment[]`](types.md#attachment) | Files, images, and inline content using the chat attachment format. |
 | `createdAt` | ISO 8601 string | Date and time the message was sent. |
+| `requiresUserResponse` | boolean, optional | Bot messages: whether a response or action is required. Missing means `true` for compatibility. |
+| `readAt` | ISO 8601 string \| null, optional | Recorded when the Desktop shows the message in the focused Inbox. Listing messages does not acknowledge them. Informational messages stop counting toward attention after viewing. |
 
 ### `Pendency`
 

@@ -11,6 +11,7 @@ import {
   getBot,
   getBotByConversation,
   getBotSchedulerSnoozeUntil,
+  getBotSettings,
   getConversation,
   getMessage,
   getMessages,
@@ -26,6 +27,7 @@ import {
 import {
   decideActivation,
   describeActivationWindow,
+  isWithinActivationWindow,
   nextActivationFrom,
   smartIdleUntil,
 } from './bot-scheduling.js';
@@ -40,6 +42,7 @@ import {
   consumeBotPendencyApproval,
   createBotPendency,
   ensureBotWorkStateFiles,
+  markBotPendencyMessagesRead,
   readBotWorkState,
   readInboxFile,
   readActivityFile,
@@ -110,7 +113,8 @@ export class BotManager {
     this.sendEvent = sendEvent;
     this.timer = null;
     this.approvals = new Map();
-    this.activating = new Set();
+    this.activating = new Map();
+    this.activationQueue = new Map();
     this.botSnoozeUntilRestart = new Set();
     this.schedulerSnoozeUntil = getBotSchedulerSnoozeUntil();
     this.schedulerSnoozeUntilRestart = false;
@@ -138,6 +142,8 @@ export class BotManager {
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.activationQueue.clear();
+    this.activating.clear();
   }
 
   getSchedulerSnooze(now = Date.now()) {
@@ -348,6 +354,7 @@ export class BotManager {
       const workingFolder = resolveBotWorkingFolder(bot);
       return {
         ...bot,
+        effectiveExecutionMode: bot.executionMode ?? getBotSettings().executionMode,
         resolvedWorkingFolder: workingFolder,
         resolvedDataFolder: resolveBotDataFolder(bot),
         conversation: getConversation(bot.conversationId),
@@ -355,17 +362,22 @@ export class BotManager {
         pendingApprovals: [...this.approvals.values()]
           .filter((entry) => entry.botId === bot.id).length,
         snooze: this.getBotSnooze(bot.id),
+        queued: this.activationQueue.has(bot.id),
         scheduleState: this.chatRunner?.runs?.has(bot.conversationId)
           ? 'working'
-          : bot.enabled === false
+          : bot.enabled === false && !this.activationQueue.get(bot.id)?.force
             ? 'disabled'
-            : this.getBotSnooze(bot.id).active
-              ? 'sleep'
-              : ['idle', 'outside-window', 'max-activations', 'paused'].includes(
-                decideActivation({ bot, now: Date.now() }).reason,
-              )
-              ? 'sleep'
-              : 'active',
+            : !isWithinActivationWindow(getBotSettings().activationWindow, new Date())
+              || !this.activationQueue.get(bot.id)?.force && !isWithinActivationWindow(bot.activationWindow, new Date())
+              ? 'outside-window'
+              : (this.getSchedulerSnooze().active || this.getBotSnooze(bot.id).active)
+                && !this.activationQueue.get(bot.id)?.force
+                ? 'sleep'
+                : this.activationQueue.has(bot.id)
+                  ? 'queued'
+                  : ['idle', 'max-activations', 'paused'].includes(decideActivation({ bot, now: Date.now() }).reason)
+                    ? 'sleep'
+                    : 'active',
         activationWindowDescription: describeActivationWindow(bot.activationWindow),
       };
     });
@@ -422,6 +434,7 @@ export class BotManager {
       contextSize: config?.contextSize ?? null,
       activationPeriodMinutes: config?.activationPeriodMinutes ?? 10,
       activationMode: config?.activationMode ?? 'static',
+      executionMode: config?.executionMode ?? null,
       maxActivations: config?.maxActivations ?? 10,
       activationWindow: config?.activationWindow ?? {},
       instructions: config?.instructions ?? '',
@@ -454,6 +467,10 @@ export class BotManager {
       ) throw new Error('Work queue index is out of range.');
     }
     const updated = updateBot(id, changes);
+    if (changes.enabled === false) {
+      this.activationQueue.delete(id);
+      this.activating.delete(id);
+    }
     if (changes.workQueueIndex !== undefined) {
       updateBotScheduler(id, { workQueueIndex: changes.workQueueIndex });
     }
@@ -483,6 +500,8 @@ export class BotManager {
       if (entry.botId === id) this.approvals.delete(approvalId);
     }
     this.botSnoozeUntilRestart.delete(id);
+    this.activationQueue.delete(id);
+    this.activating.delete(id);
     deleteBot(id);
     deleteConversation(bot.conversationId);
     traceInfo('bots.deleted', { bot_id: id });
@@ -491,6 +510,8 @@ export class BotManager {
   }
 
   async clearBotThread(id) {
+    this.activationQueue.delete(id);
+    this.activating.delete(id);
     const bot = getBot(id);
     if (!bot) throw new Error('Bot not found.');
     this.chatRunner?.stop(bot.conversationId, { includeSubagents: true, stoppedByUser: true });
@@ -501,6 +522,8 @@ export class BotManager {
   }
 
   async fullResetBot(id) {
+    this.activationQueue.delete(id);
+    this.activating.delete(id);
     const bot = getBot(id);
     if (!bot) throw new Error('Bot not found.');
     const conversations = listAllConversations();
@@ -773,17 +796,57 @@ export class BotManager {
     return { item, delivered, ...(error ? { error } : {}) };
   }
 
-  async completePendency(botId, pendencyId) {
+  async markPendencyRead(botId, pendencyId, messageIds) {
+    const bot = getBot(botId);
+    if (!bot) throw new Error('Bot not found.');
+    const { dataFolder } = await ensureBotFolders(bot);
+    const item = await markBotPendencyMessagesRead(dataFolder, pendencyId, messageIds);
+    this.broadcast('bots:work-state');
+    return item;
+  }
+
+  async completePendency(botId, pendencyId, reason) {
     const bot = getBot(botId);
     if (!bot) throw new Error('Bot not found.');
     if (typeof pendencyId !== 'string' || pendencyId.length === 0) {
       throw new Error('Invalid pendencyId: expected non-empty string');
     }
     const { dataFolder } = await ensureBotFolders(bot);
-    const item = await completeBotPendency(dataFolder, pendencyId);
+    const item = await completeBotPendency(dataFolder, pendencyId, undefined, reason);
     this.noteUserInteraction(bot.conversationId);
     this.broadcast('bots:work-state');
     return item;
+  }
+
+  async drainActivationQueue() {
+    if (this.drainingActivations) return;
+    this.drainingActivations = true;
+    try {
+      for (const [botId, options] of this.activationQueue) {
+        const bot = getBot(botId);
+        if (!bot || !bot.enabled && !options.force) {
+          this.activationQueue.delete(botId);
+          continue;
+        }
+        if (this.chatRunner?.runs?.has(bot.conversationId) || bot.activeAssistantMessageId) {
+          this.activationQueue.delete(botId);
+          continue;
+        }
+        if (!isWithinActivationWindow(getBotSettings().activationWindow, new Date())) break;
+        if (!options.force && (this.getSchedulerSnooze().active || this.getBotSnooze(botId).active
+          || !isWithinActivationWindow(bot.activationWindow, new Date()))) break;
+        const running = listBots().filter((item) => (
+          this.activating.has(item.id) || item.activeAssistantMessageId
+          || this.chatRunner?.runs?.has(item.conversationId)
+        )).length;
+        if (running >= getBotSettings().maxConcurrentBots) break;
+        this.activationQueue.delete(botId);
+        options.result = await this.activateBot(botId, { ...options, admitted: true });
+      }
+    } finally {
+      this.drainingActivations = false;
+      this.broadcast('bots:updated');
+    }
   }
 
   async tick() {
@@ -797,6 +860,7 @@ export class BotManager {
         await this.resumeInterruptedRun(bot);
       }
     }
+    await this.drainActivationQueue();
     const hadSnooze = Boolean(this.schedulerSnoozeUntil || this.schedulerSnoozeUntilRestart);
     if (this.getSchedulerSnooze().active) return;
     if (hadSnooze) this.broadcast('bots:snooze', { snooze: this.getSchedulerSnooze() });
@@ -850,7 +914,7 @@ export class BotManager {
     }
   }
 
-  async activateBot(botId, { trigger = 'scheduler', force = false, workQueueId } = {}) {
+  async activateBot(botId, { trigger = 'scheduler', force = false, workQueueId, admitted = false } = {}) {
     const bot = getBot(botId);
     if (!bot) throw new Error('Bot not found.');
     if (workQueueId !== undefined && (!Number.isInteger(workQueueId) || workQueueId < 0 || workQueueId >= bot.workQueue.length)) {
@@ -858,7 +922,7 @@ export class BotManager {
     }
     if (!bot.enabled && !force) return null;
     if (this.activating.has(bot.id)) return null;
-    if (this.chatRunner?.runs?.has(bot.conversationId)) {
+    if (bot.activeAssistantMessageId || this.chatRunner?.runs?.has(bot.conversationId)) {
       updateBotScheduler(bot.id, {
         nextActivationAt: new Date(
           nextActivationFrom(bot.activationPeriodMinutes, Date.now()),
@@ -866,7 +930,18 @@ export class BotManager {
       });
       return null;
     }
-    this.activating.add(bot.id);
+    if (!admitted) {
+      if (!this.activationQueue.has(botId)) {
+        this.activationQueue.set(botId, { trigger, force, workQueueId });
+      }
+      const request = this.activationQueue.get(botId);
+      await this.drainActivationQueue();
+      return this.activationQueue.has(botId)
+        ? { queued: true, reason: this.describeBots().find((item) => item.id === botId)?.scheduleState }
+        : request.result ?? null;
+    }
+    const activation = {};
+    this.activating.set(bot.id, activation);
     try {
       const folders = await ensureBotFolders(bot);
       const { inbox } = await readBotWorkState(folders.dataFolder);
@@ -883,6 +958,7 @@ export class BotManager {
         activationPrompt.push(`<focus-task>${escapeMarkupText(focusTask)}</focus-task>`);
       }
       activationPrompt.push('</bot-activation>');
+      if (this.activating.get(bot.id) !== activation || !getBot(bot.id)) return null;
       const boundaryMessage = getMessages(bot.conversationId)
         .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
         .filter((message) => message.role === 'user' || message.role === 'assistant')
@@ -940,7 +1016,7 @@ export class BotManager {
       this.broadcast('bots:updated');
       return null;
     } finally {
-      this.activating.delete(bot.id);
+      if (this.activating.get(bot.id) === activation) this.activating.delete(bot.id);
     }
   }
 
@@ -1051,6 +1127,7 @@ export class BotManager {
           properties: {
             title: { type: 'string', description: 'Short recognizable label.' },
             content: { type: 'string', description: 'The first message: what this pendency needs from the user and why.' },
+            requiresUserResponse: { type: 'boolean', description: 'True when the user must respond or act (default). Set false for an informational message: viewing it clears its attention indicator without completing the pendency.' },
             attachmentPaths: {
               type: 'array',
               items: { type: 'string' },
@@ -1060,11 +1137,12 @@ export class BotManager {
           required: ['title', 'content'],
           additionalProperties: false,
         },
-        execute: async ({ title, content, attachmentPaths = [] }) => {
+        execute: async ({ title, content, attachmentPaths = [], requiresUserResponse = true }) => {
           await ensureBotFolders(bot);
           const pendency = await createBotPendency(dataFolder, {
             title,
             content,
+            requiresUserResponse,
             attachments: attachmentPaths.map((path) => filePathToAttachment(path)),
           });
           this.broadcast('bots:work-state');
@@ -1082,6 +1160,7 @@ export class BotManager {
           properties: {
             id: { type: 'string', description: 'Pendency id returned by bot_pendencies_list or bot_pendency_create.' },
             content: { type: 'string' },
+            requiresUserResponse: { type: 'boolean', description: 'True when the user must respond or act (default). Set false for an informational message: viewing it clears its attention indicator without completing the pendency.' },
             attachmentPaths: {
               type: 'array',
               items: { type: 'string' },
@@ -1091,12 +1170,13 @@ export class BotManager {
           required: ['id', 'content'],
           additionalProperties: false,
         },
-        execute: async ({ id, content, attachmentPaths = [] }) => {
+        execute: async ({ id, content, attachmentPaths = [], requiresUserResponse = true }) => {
           await ensureBotFolders(bot);
           const pendency = await appendBotPendencyMessage(dataFolder, {
             pendencyId: id,
             role: 'bot',
             content,
+            requiresUserResponse,
             attachments: attachmentPaths.map((path) => filePathToAttachment(path)),
           });
           this.broadcast('bots:work-state');
@@ -1206,6 +1286,7 @@ export class BotManager {
       dataFolder,
       workFiles: Object.keys(WORK_FILES),
       activationMode: bot.activationMode,
+      executionMode: bot.executionMode ?? getBotSettings().executionMode,
       activationPeriodMinutes: bot.activationPeriodMinutes,
       pendingApprovals: queueCount,
       instructions: bot.instructions,

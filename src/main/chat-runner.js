@@ -2117,6 +2117,12 @@ export class ChatRunner {
       ? getGoal(latestUser.goalId)
       : getGoalForConversation(conversation.id);
     const instructionUsage = await resolveDynamicContextUsage({
+      traceOperation: 'chat',
+      effectiveModelId: selection.model.id,
+      modelRules: preferences.defaultModels?.rules ?? [],
+      orchestrationRole: conversation.isSubagent ? 'subagent'
+        : conversation.isSideChat ? 'side_chat'
+          : conversation.isRubberDuck ? 'supervisor' : 'orchestrator',
       conversationId: conversation.id,
       workspacePath: conversation.projectPath,
       mcpInstructions: mcpRuntime.instructions,
@@ -3145,6 +3151,7 @@ export class ChatRunner {
               conversationId,
               workspacePath,
               traceOperation: 'chat',
+              modelRules: preferences.defaultModels?.rules ?? [],
               traceRound: roundIndex,
               mcpInstructions: mcpRuntime.instructions,
               ...this.getPluginContext({
@@ -3210,13 +3217,15 @@ export class ChatRunner {
                 }
                 contextCompactionRequested = compactionNeeded;
               }
+              const eventTool = event.type === 'tool-call'
+                ? availableTools.find((tool) => tool.name === event.name)
+                : null;
               accumulator.apply(event.type === 'tool-call'
                 ? {
                     ...event,
                     key: `round:${roundIndex}:${event.key ?? event.callId ?? 'tool'}`,
-                    isMcp: Boolean(
-                      availableTools.find((tool) => tool.name === event.name)?.mcp,
-                    ),
+                    isMcp: Boolean(eventTool?.mcp),
+                    mcpServerName: eventTool?.mcp?.serverName ?? null,
                   }
                 : event);
               if (event.type === 'error') {
@@ -3426,6 +3435,7 @@ export class ChatRunner {
             invocationGoal,
             requiresHumanApproval: requiresHumanApproval === true,
             isMcp: isMcpTool,
+            mcpServerName: tool?.mcp?.serverName ?? null,
           });
           persistToolState({ force: true });
 
@@ -4592,6 +4602,13 @@ export class ChatRunner {
   finishRun(conversationId) {
     const current = this.runs.get(conversationId);
     this.runs.delete(conversationId);
+    if (!this.shuttingDown) {
+      queueMicrotask(() => {
+        this.getBotManager()?.drainActivationQueue().catch((error) => {
+          traceError('bots.activation-queue-error', { error: error.message });
+        });
+      });
+    }
     if (current?.semaphoreResume) {
       this.pausedQueues.delete(conversationId);
       void this.resumeSemaphore(

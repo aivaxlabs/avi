@@ -1876,7 +1876,33 @@ function nearestPositive(a, b) {
 function groupLabel(items) {
   const hasReasoning = items.some((item) => item.type === 'reasoning');
   const tools = items.filter((item) => ['tool', 'tool-call', 'server-tool'].includes(item.type));
-  const toolLabel = `${tools.length} ${tools.length === 1 ? 'tool' : 'tools'}`;
+  const toolCounts = new Map();
+
+  for (const [index, tool] of tools.entries()) {
+    const name = tool.mcpServerName
+      ? `${tool.mcpServerName.replace(/\s+MCP$/i, '')} MCP`
+      : tool.name || tool.toolType || 'tool';
+    const key = tool.mcpServerName ? `mcp:${tool.mcpServerName}` : `tool:${name}`;
+    const existing = toolCounts.get(key);
+    if (existing) existing.count += 1;
+    else toolCounts.set(key, { name, count: 1, index });
+  }
+
+  const calledTools = [...toolCounts.values()];
+  const shownTools = calledTools.length > 3
+    ? calledTools
+      .toSorted((left, right) => right.count - left.count || left.index - right.index)
+      .slice(0, 2)
+      .map((tool) => tool.name)
+    : calledTools.map((tool) => tool.name);
+  const remainingTools = calledTools.length - shownTools.length;
+  const toolLabel = [
+    ...shownTools,
+    remainingTools > 0
+      ? `${remainingTools} other ${remainingTools === 1 ? 'tool' : 'tools'}`
+      : null,
+  ].filter(Boolean).join(', ');
+
   if (hasReasoning && tools.length > 0) return `Thinked, called ${toolLabel}`;
   if (hasReasoning) return 'Thinked';
   if (tools.length > 0) return `Called ${toolLabel}`;
@@ -1893,9 +1919,18 @@ function formatWorkedDuration(startValue, endValue) {
     return `Worked for ${safeSeconds} ${safeSeconds === 1 ? 'second' : 'seconds'}`;
   }
 
-  const minutes = Math.floor(seconds / 60);
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
   const remainingSeconds = seconds % 60;
-  return `Worked for ${minutes}m ${remainingSeconds}s`;
+  const durationParts = [
+    days > 0 ? `${days}d` : null,
+    days > 0 || hours > 0 ? `${hours}h` : null,
+    `${minutes}m`,
+    `${remainingSeconds}s`,
+  ].filter(Boolean);
+
+  return `Worked for ${durationParts.join(' ')}`;
 }
 
 function formatMetricDuration(value) {

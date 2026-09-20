@@ -84,6 +84,7 @@ export function BotSettingsDialog({
     activationPeriod: initialPeriodMinutes / PERIOD_UNIT_MINUTES[initialPeriodUnit],
     activationPeriodUnit: initialPeriodUnit,
     activationMode: bot?.activationMode ?? 'static',
+    executionMode: bot?.executionMode ?? '',
     enabled: bot?.enabled !== false,
     maxActivationsEnabled: (bot?.maxActivations ?? 10) > 0,
     maxActivations: bot?.maxActivations > 0 ? bot.maxActivations : 10,
@@ -156,6 +157,7 @@ export function BotSettingsDialog({
           Math.round((Number(draft.activationPeriod) || 1) * PERIOD_UNIT_MINUTES[draft.activationPeriodUnit]) || 10,
         ),
         activationMode: draft.activationMode,
+        executionMode: draft.executionMode || null,
         enabled: draft.enabled,
         maxActivations: draft.maxActivationsEnabled
           ? Math.max(1, Number(draft.maxActivations) || 10)
@@ -620,6 +622,14 @@ export function BotSettingsDialog({
                     <h3>How should it pause?</h3>
                     <p>Choose whether the bot follows the interval strictly or can idle intelligently.</p>
                   </header>
+                  <label className="settings-field settings-field-wide">
+                    <span>Execution mode</span>
+                    <select value={draft.executionMode} onChange={(event) => update({ executionMode: event.target.value })}>
+                      <option value="">Use global default</option>
+                      <option value="orchestrator">Orchestrator</option>
+                      <option value="direct">Direct</option>
+                    </select>
+                  </label>
                   <fieldset className="bot-settings-choices">
                     <legend className="sr-only">Activation mode</legend>
                     <label className={classNames('bot-settings-choice', draft.activationMode === 'static' && 'active')}>

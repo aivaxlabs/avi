@@ -45,6 +45,7 @@ import { intelligenceLevelLimits, titleCaseEffort } from '../lib/models.js';
 import { AivaxFeaturesSettings } from './AivaxFeaturesSettings.jsx';
 import { AppearanceSettings } from './AppearanceSettings.jsx';
 import { MaintenanceSettings } from './MaintenanceSettings.jsx';
+import { BotSettingsPage } from './BotSettingsPage.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { McpSettings } from './McpSettings.jsx';
 import { PluginsSettings } from './PluginsSettings.jsx';
@@ -349,6 +350,7 @@ export function SettingsPage({
     initialView ?? (initialContextFolder ? 'context-folder' : 'general'),
   );
   const [shortcutFooter, setShortcutFooter] = useState(null);
+  const [botFooter, setBotFooter] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [providerDraft, setProviderDraft] = useState(null);
   const [routers, setRouters] = useState([]);
@@ -378,6 +380,23 @@ export function SettingsPage({
   const [tuningDraft, setTuningDraft] = useState(tuning);
   const [defaultModelsDraft, setDefaultModelsDraft] = useState(defaultModels);
   const [defaultModelsSaved, setDefaultModelsSaved] = useState(false);
+  const [modelsTab, setModelsTab] = useState('auxiliary');
+  const [modelRuleKeys, setModelRuleKeys] = useState(() => (defaultModels?.rules ?? []).map(() => crypto.randomUUID()));
+  const modelTabs = [['auxiliary', 'Auxiliar models'], ['subagents', 'Sub-agents'], ['rules', 'Rules'], ['slider', 'Model slider']];
+  const modelRules = defaultModelsDraft?.rules ?? [];
+  const invalidModelRules = modelRules.some((rule, index) => (
+    !rule.modelId.trim() || !rule.instructions.trim()
+    || !['main', 'bot', 'subagent', 'all'].includes(rule.role)
+    || modelRules.some((other, otherIndex) => otherIndex < index
+      && other.modelId.trim() === rule.modelId.trim() && other.role === rule.role)
+  ));
+  const updateModelRule = (index, changes) => {
+    setDefaultModelsSaved(false);
+    setDefaultModelsDraft((current) => ({
+      ...current,
+      rules: current.rules.map((rule, ruleIndex) => ruleIndex === index ? { ...rule, ...changes } : rule),
+    }));
+  };
   const updateIntelligenceLevel = (index, changes) => {
     setDefaultModelsSaved(false);
     setDefaultModelsDraft((current) => ({
@@ -647,7 +666,8 @@ export function SettingsPage({
     remote: 'Remote control',
     aivax: 'AIVAX Features',
     maintenance: 'Maintenance',
-    'default-models': 'Default models',
+    bots: 'Bots',
+    'default-models': 'Models',
     shortcuts: 'Keyboard shortcuts',
     general: 'General',
     tuning: 'Tuning',
@@ -671,7 +691,8 @@ export function SettingsPage({
     remote: 'Expose Avi orchestration through a local authenticated MCP server.',
     aivax: 'Add persistent memory, richer web tools, and semantic thread search through AIVAX.',
     maintenance: 'Manage archived conversations, storage cleanup, and semaphore permits.',
-    'default-models': 'Choose models for supporting tasks, supervision, and sub-agent orchestration.',
+    bots: 'Control new activations and review bot consumption.',
+    'default-models': 'Configure model assignments, instructions, and the composer slider.',
     shortcuts: 'Customize shortcuts, desktop access, and plugin contributions.',
     general: 'Configure chat behavior and desktop integration.',
     tuning: 'Adjust context, tool execution, parallel work, and diagnostics.',
@@ -792,7 +813,7 @@ export function SettingsPage({
               Routers
             </button>
           )}
-          {(!settingsQuery || 'models default auxiliary supervision quick chat sub-agent orchestration fallback reasoning compactation compression'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'models default auxiliary supervision quick chat sub-agent orchestration fallback reasoning compactation compression rules instructions slider'.includes(settingsQuery)) && (
             <button
               className={view === 'default-models' ? 'active' : undefined}
               type="button"
@@ -804,7 +825,7 @@ export function SettingsPage({
               }}
             >
               <Network size={16} />
-              Default models
+              Models
             </button>
           )}
           {(!settingsQuery || 'context instructions skills workflows'.includes(settingsQuery)) && (
@@ -879,6 +900,12 @@ export function SettingsPage({
             >
               <Globe2 size={16} />
               Remote control
+            </button>
+          )}
+          {(!settingsQuery || 'bots activation settings statistics consumption schedule'.includes(settingsQuery)) && (
+            <button type="button" className={view === 'bots' ? 'active' : undefined}
+              aria-current={view === 'bots' ? 'page' : undefined} onClick={() => { setView('bots'); setError(''); }}>
+              <Workflow size={16} />Bots
             </button>
           )}
           {(!settingsQuery || 'maintenance archive archived conversations retention cleanup restore storage semaphores permits'.includes(settingsQuery)) && (
@@ -1508,6 +1535,7 @@ export function SettingsPage({
             {view === 'plugins' && <PluginsSettings />}
             {view === 'aivax' && <AivaxFeaturesSettings />}
             {view === 'maintenance' && <MaintenanceSettings />}
+            {view === 'bots' && <BotSettingsPage footerTarget={botFooter} />}
             {view === 'mcp' && (
               <McpSettings
                 initialFolder={initialContextFolder}
@@ -1573,8 +1601,26 @@ export function SettingsPage({
             )}
 
             {view === 'default-models' && defaultModelsDraft && (
-              <div className="settings-tuning">
-                <section className="settings-section">
+              <div className="settings-tuning settings-models">
+                <div className="maintenance-tabs" role="tablist" aria-label="Model settings">
+                  {modelTabs.map(([tab, label], index) => (
+                    <button key={tab} id={`models-tab-${tab}`} type="button" role="tab"
+                      aria-selected={modelsTab === tab} aria-controls={`models-panel-${tab}`}
+                      tabIndex={modelsTab === tab ? 0 : -1}
+                      onClick={() => setModelsTab(tab)}
+                      onKeyDown={(event) => {
+                        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                        event.preventDefault();
+                        const next = event.key === 'Home' ? 0 : event.key === 'End' ? modelTabs.length - 1
+                          : (index + (event.key === 'ArrowRight' ? 1 : -1) + modelTabs.length) % modelTabs.length;
+                        setModelsTab(modelTabs[next][0]);
+                        document.getElementById(`models-tab-${modelTabs[next][0]}`)?.focus();
+                      }}
+                    >{label}</button>
+                  ))}
+                </div>
+                <section className="settings-section" role="tabpanel" id="models-panel-auxiliary"
+                  aria-labelledby="models-tab-auxiliary" hidden={modelsTab !== 'auxiliary'}>
                   <div className="settings-section-heading">
                     <h3>General tasks</h3>
                     <p>Optional models used for supporting tasks, Quick Chat, agent supervision, and context compactation.</p>
@@ -1622,7 +1668,8 @@ export function SettingsPage({
                     />
                   </div>
                 </section>
-                <section className="settings-section">
+                <section className="settings-section" role="tabpanel" id="models-panel-subagents"
+                  aria-labelledby="models-tab-subagents" hidden={modelsTab !== 'subagents'}>
                   <div className="settings-section-heading">
                     <h3>Sub-agent model levels</h3>
                     <p>When enabled, orchestration tools request a task level instead of a model and reasoning effort.</p>
@@ -1668,7 +1715,61 @@ export function SettingsPage({
                     ))}
                   </div>
                 </section>
-                <section className="settings-section">
+                <section className="settings-section" role="tabpanel" id="models-panel-rules"
+                  aria-labelledby="models-tab-rules" hidden={modelsTab !== 'rules'}>
+                  <div className="settings-section-heading">
+                    <h3>Model rules</h3>
+                    <p>Set how a model should work in each thread role. Rules guide behavior without changing permissions.</p>
+                  </div>
+                  {modelRules.map((rule, index) => (
+                    <div className="settings-section-card settings-form model-rule" key={modelRuleKeys[index]}>
+                      <div className="settings-card-row">
+                        <strong>Rule {index + 1}</strong>
+                        <button type="button" className="icon-button tiny danger" aria-label={`Remove rule ${index + 1}`}
+                          onClick={() => {
+                            setDefaultModelsSaved(false);
+                            setDefaultModelsDraft((current) => ({ ...current, rules: current.rules.filter((_, i) => i !== index) }));
+                            setModelRuleKeys((current) => current.filter((_, i) => i !== index));
+                          }}><Trash2 size={16} /></button>
+                      </div>
+                      <div className="model-rule-selection">
+                        <label className="settings-field">
+                          <span>Model</span>
+                          <select value={rule.modelId} aria-invalid={!rule.modelId.trim()}
+                            onChange={(event) => updateModelRule(index, { modelId: event.target.value })}>
+                            <option value="">Choose a model</option>
+                            {rule.modelId && !models.some((model) => model.id === rule.modelId)
+                              && <option value={rule.modelId}>{rule.modelId} (unavailable)</option>}
+                            {models.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.providerName}</option>)}
+                          </select>
+                        </label>
+                        <label className="settings-field">
+                          <span>Thread role</span>
+                          <select value={rule.role} onChange={(event) => updateModelRule(index, { role: event.target.value })}>
+                            <option value="main">Main</option>
+                            <option value="bot">Bot</option>
+                            <option value="subagent">Sub-agents</option>
+                            <option value="all">All roles</option>
+                          </select>
+                        </label>
+                      </div>
+                      <label className="settings-field">
+                        <span>Instructions</span>
+                        <textarea rows={8} value={rule.instructions} aria-invalid={!rule.instructions.trim()}
+                          placeholder="For example: plan implementation tasks, delegate execution to sub-agents, and review the results."
+                          onChange={(event) => updateModelRule(index, { instructions: event.target.value })} />
+                      </label>
+                    </div>
+                  ))}
+                  <p>To save, choose a model and write instructions for each rule. Use each model and role combination only once.</p>
+                  <div><button type="button" className="primary-mini" onClick={() => {
+                    setDefaultModelsSaved(false);
+                    setDefaultModelsDraft((current) => ({ ...current, rules: [...(current.rules ?? []), { modelId: '', role: 'main', instructions: '' }] }));
+                    setModelRuleKeys((current) => [...current, crypto.randomUUID()]);
+                  }}><Plus size={16} /> Add rule</button></div>
+                </section>
+                <section className="settings-section" role="tabpanel" id="models-panel-slider"
+                  aria-labelledby="models-tab-slider" hidden={modelsTab !== 'slider'}>
                   <div className="settings-section-heading">
                     <h3>Intelligence levels</h3>
                     <p>Between 3 and 10 levels for the composer intelligence slider. Each level selects a model and an optional reasoning effort.</p>
@@ -2736,6 +2837,7 @@ export function SettingsPage({
         </div>
 
         {view === 'shortcuts' && <footer className="settings-actions" ref={setShortcutFooter} />}
+        {view === 'bots' && <footer className="settings-actions" ref={setBotFooter} />}
         {(view === 'provider' || view === 'model' || view === 'router' || ['general', 'tuning', 'personalization'].includes(view) || view === 'default-models') && (
           <footer className="settings-actions">
             <span className="settings-error" role="alert">{error}</span>
@@ -2751,7 +2853,7 @@ export function SettingsPage({
                       : view === 'router'
                         ? !routerDraft?.name.trim() || routerDraft.models.length === 0
                         : view === 'default-models'
-                          ? !defaultModelsDraft
+                          ? !defaultModelsDraft || invalidModelRules
                           || (defaultModelsDraft.subagents.enabled && [
                             defaultModelsDraft.subagents.small,
                             defaultModelsDraft.subagents.medium,

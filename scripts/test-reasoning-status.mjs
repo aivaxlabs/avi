@@ -47,7 +47,14 @@ const renderMessage = (
   }));
 };
 
-const renderContent = (content, segments = []) => renderToStaticMarkup(createElement(Message, {
+const renderContent = (
+  content,
+  segments = [],
+  {
+    createdAt = '2026-01-01T00:00:00.000Z',
+    updatedAt = '2026-01-01T00:00:01.000Z',
+  } = {},
+) => renderToStaticMarkup(createElement(Message, {
   message: {
     id: 'assistant-message',
     role: 'assistant',
@@ -58,8 +65,8 @@ const renderContent = (content, segments = []) => renderToStaticMarkup(createEle
     edits: [],
     continuations: [],
     usage: {},
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-01-01T00:00:01.000Z',
+    createdAt,
+    updatedAt,
   },
   modelName: 'Test model',
   workedMessages: [],
@@ -133,6 +140,48 @@ assert.equal(
   answerTextFromTextualBlocks('<think>First reasoning</think><think>Second reasoning</think>Final answer'),
   'Final answer',
 );
+
+const longRunningThink = renderContent('<think>Long reasoning</think>Final answer', [], {
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-08T10:26:32.000Z',
+});
+assert.match(longRunningThink, />Worked for 7d 10h 26m 32s</);
+
+const toolGroup = (names, segments = []) => renderContent(
+  `<thinking-group>${names.map((name) => (
+    `<tool><toolname>${name}</toolname><toolreason>Testing</toolreason></tool>`
+  )).join('')}</thinking-group>`,
+  segments,
+);
+
+const threeTools = toolGroup(['foo_bar', 'daz_kaz', 'tool_name']);
+assert.match(threeTools, /class="thinking-label">Called foo_bar, daz_kaz, tool_name</);
+
+const frequentTools = toolGroup([
+  'rare_one',
+  'foo_bar',
+  'daz_kaz',
+  'foo_bar',
+  'other_two',
+  'daz_kaz',
+  'other_three',
+  'foo_bar',
+  'other_four',
+]);
+assert.match(frequentTools, /class="thinking-label">Called foo_bar, daz_kaz, 4 other tools</);
+
+const mcpTools = [
+  'mcp_foobar_search',
+  'mcp_foobar_anything',
+  'mcp_foobar_something',
+];
+const consolidatedMcpTools = toolGroup(mcpTools, mcpTools.map((name, index) => ({
+  id: `tool-call-${index}`,
+  type: 'tool-call',
+  name,
+  mcpServerName: 'Foobar',
+})));
+assert.match(consolidatedMcpTools, /class="thinking-label">Called Foobar MCP</);
 
 const afterCompression = renderContent('Answer<think>Private reasoning</think>Final answer', [{
   id: 'compression',

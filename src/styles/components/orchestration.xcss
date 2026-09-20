@@ -1,12 +1,15 @@
-.orchestration-page {
-  min-width: 0;
-  height: 100%;
-  overflow: auto;
-  padding: 72px clamp(24px, 5vw, 72px) 48px;
-  background: var(--background-1);
-  color: var(--text-1);
-  scrollbar-width: thin;
-  scrollbar-color: var(--text-4) transparent;
+.orchestration-page,
+.bot-statistics {
+  &.orchestration-page {
+    min-width: 0;
+    height: 100%;
+    overflow: auto;
+    padding: 72px clamp(24px, 5vw, 72px) 48px;
+    background: var(--background-1);
+    color: var(--text-1);
+    scrollbar-width: thin;
+    scrollbar-color: var(--text-4) transparent;
+  }
 
   .orchestration-inbox {
     max-width: 1180px;
@@ -1184,7 +1187,9 @@
   }
 
   @media (max-width: 900px) {
-    padding-inline: 20px;
+    &.orchestration-page {
+      padding-inline: 20px;
+    }
 
     .orchestration-header {
       align-items: flex-start;
@@ -1238,7 +1243,9 @@
   }
 
   @media (max-width: 620px) {
-    padding-inline: 14px;
+    &.orchestration-page {
+      padding-inline: 14px;
+    }
 
     .token-overview-metrics {
       grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -3,6 +3,10 @@
 ## [Canary]
 
 ### Added
+- **Bot activation settings and statistics** — optional global days/hours and FIFO admission complement individual schedules without blocking ongoing work or resumptions. Settings → Bots separates Activation settings from Statistics, with 1d/7d/30d descendant consumption, current states, and per-bot UTC consumption timelines. Global RPC exposes settings, saves, and statistics; individual execution modes inherit the global default when unset.
+- **Models settings** — the former Default models page is now Models, with Auxiliar models, Sub-agents, Rules, and Model slider tabs. Default-model rules support concrete models and virtual routers, role-specific instructions, strict save validation, and unavailable-model warnings.
+- **Bot message attention** — bot messages declare whether a user response is required. Informational messages clear their attention badge when viewed in the focused Inbox; required replies and protected approvals remain pending. Read receipts do not complete conversations or activate bots.
+- **Inbox completion options** — a menu beside Complete offers Abandon, Duplicate, and Already worked, recording the selected reason in the conversation history. Completion controls are rounded and borderless.
 - Note creation/editing uses the shared app dialog styling and tabs for Details, Sub-tasks, and Attachments, with keyboard navigation, focus containment, and cross-tab validation; compact list headers keep New note and list actions available even when collapsed.
 - Empty chats show the latest open bot inbox messages and count, plus unfinished notes due today in the current working folder, with lightweight message rows, labeled shortcuts, and compact empty sections.
 - Notes Core API and global RPC note lookup/chunked browser attachment uploads, enabling Avi Workspace Notes without host filesystem access.
@@ -15,6 +19,7 @@
 - **ORPC Draft 1 remote transport** — RPC WebSockets now speak binary ORPC (`avi-orpc-draft1`): length-prefixed frames carrying UTF-8 JSON operation envelopes (`operationId`, `expiresAt` now + 180 s, `params`), dotted wire methods over the colon application names, acknowledged server events (`eventId` with an `OK` ack), no batching, and the full specification bundled at `docs/api/rpc/orpc-spec.md`.
 
 ### Changed
+- **ORPC Draft 2 (breaking)** — remote RPC now requires `avi-orpc-draft2`, multipart requests/responses without execution IDs, reserved controls for cancellation, integrity, recovery, heartbeat and graceful shutdown, and SHA-256 `CHECKSEND` verification before dispatch or result delivery. Desktop and Workspace must be upgraded together. The physical `avi-relay-v1` transport and stable application `operationId` remain unchanged; RPC documentation and bundled specification now describe Draft 2.
 - Removed desktop interceptor commands (including `/side`, `/quick-compress`, and `/optimize-prompt`) from the RPC command catalog sent to Avi Workspace. The desktop composer and context discovery now share their classification; ordinary workflows and skills remain available remotely.
 - Bot avatars now use AIVAX Orbs keyed by bot ID in the sidebar, Inbox list and work-log message headers, and settings; removed the random icon control while retaining `iconSeed` API compatibility.
 - The composer project picker now lists up to 30 recent projects instead of 8.
@@ -26,6 +31,10 @@
 - **Remote RPC breaking migration** — JSON-RPC 2.0 is replaced by ORPC Draft 1: one operation per frame, at-least-once delivery deduplicated by a durable `remote_operations` journal (SQLite, 4096 entries / 64 MiB) keyed by identity, scope, resource, and `operationId`, one automatic retry with a fresh wire request id and identical body (60 s attempt / 150 s overall), delivery-only cancellation (handlers may still complete after a client timeout; reserved-but-unrecorded operations answer `OUTCOME_UNKNOWN` instead of re-executing), per-peer and global in-flight concurrency capped at 64, and `error.code` as number or string (`LIMIT`). The relay application handshake moves to v3 — `avi-remote-open`/`avi-remote-ready` v3 carry `protocol: "avi-orpc-draft1"`, heartbeat is `avi-remote-ping`/`avi-remote-pong` v3 — and bridged frames travel as opaque base64 binary over the unchanged `avi-relay-v1` transport. RPC docs, the public relay protocol, and the remote-control guide were rewritten accordingly.
 
 ### Fixed
+- Tool-group summaries now list invoked tool names, rank the two most frequent names in larger groups, and consolidate calls from the same MCP server under its configured name.
+- Worked-block duration labels now include days and hours instead of accumulating long runs entirely in minutes.
+- Bot settings now hide inactive tab panels even when section layout styles are applied; consumption metrics and timelines share the Orchestration styles within Statistics, including narrow layouts.
+- Bot activation settings use the shared styled switch and weekday selector in a full-width row; all seven days remain accessible without horizontal scrolling and wrap in narrow layouts.
 - Sidebar bot notification badges now vertically center their count text instead of rendering it visibly offset inside the pill.
 - Local file links and absolute file references open after confirmation; file references and Edited files share Open, Copy path, and Open in explorer context actions. Explorer reveals physical paths behind workspace symlinks, and sidebar terminals launch an interactive shell in a new console without fragile command quoting.
 - Bot Inbox reply composer stays at the bottom of the panel while conversation history scrolls independently.
@@ -83,6 +92,7 @@
 - Bot activations now mark a checkpoint in the bot conversation, so each activation starts its model context from the previous boundary instead of replaying the full history.
 
 ### Fixed
+- Chat find (Ctrl+F) now floats in a compact, centered panel above the composer, highlights matches without changing native text selection or input focus, and debounces matching by 50 ms.
 - Dropdowns now size to their labels instead of shrinking to the minimum width inside narrow action anchors or nested menus.
 - Missing local images and videos in conversation context now become an explicit unavailability notice instead of aborting OpenAI-compatible and OpenAI Subscription requests.
 - Remote RPC history and message events now send attachment metadata instead of embedded content, preventing media-heavy conversations from exceeding the relay frame limit. Attachment bytes remain available through `attachments:read`.
@@ -119,6 +129,7 @@
 ### Docs
 - Organized the API reference into separate Core, MCP, and RPC sections with a shared entry point, corrected cross-navigation, and complete field-level request, response, shared-type, error, and notification references for every Remote JSON-RPC method.
 - Added renderer design instructions for overlays, chat and inference, configuration forms, the visual system, and Avi's UI/UX philosophy.
+- Refined the project design guide around existing components and surface ownership, with explicit dropdown/dialog/popover contracts, auxiliary-tab and settings integration, chat reuse, and documented implementation limitations. Settings guidance now defines user orientation, a consistent page/section/field hierarchy, shared save placement and lifecycle, and internal-tab behavior.
 - Refreshed the README feature overview with autonomous bots, Rubber Duck reviews, model routers, rich chat content, declarative plugin settings, Teach Skill, and updated usage tracking.
 - Improved the `/create-plugin` workflow description to highlight hooks, providers, themes, and advanced customizations.
 - Documented `sidebar:status`, `sidebar:mark-seen`, `tags:list`, and `tags:save` with shared `SidebarStatus` and `Tag` types and the per-instance ephemerality of completed-unseen state.

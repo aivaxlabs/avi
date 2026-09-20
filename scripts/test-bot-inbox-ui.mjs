@@ -17,7 +17,7 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AuxiliaryPanel } from '/src/renderer/components/AuxiliaryPanel.jsx';
 import '/src/renderer/styles.css';
-window.__test = { replies: [], mode: 'success' };
+window.__test = { replies: [], reads: [], mode: 'success' };
 window.chatApp = { files: { select: async () => [{ id: 'note', kind: 'text_inline', name: 'notes.txt', mime: 'text/plain', size: 10, text: 'Olá, ação.' }] }, app: { openExternal: () => {} } };
 const pending = { id: 'pending', title: 'Choose the Acme invoice export format', status: 'open', messages: [{ id: 'm1', role: 'bot', content: 'I verified the Acme invoices. Should I send the export as **CSV** or **JSON**?', attachments: [], createdAt: '2026-09-04T15:00:00Z' }, { id: 'm2', role: 'bot', content: 'Which format preserves the original values?', attachments: [], createdAt: '2026-09-04T16:00:00Z' }], updatedAt: '2026-09-04T16:00:00Z', approval: null };
 const other = { ...pending, id: 'other', title: 'Review the Acme export totals', updatedAt: '2026-09-04T14:00:00Z', messages: [{ ...pending.messages[0], id: 'm3', content: 'Please confirm the totals in the Acme invoice export.' }] };
@@ -28,6 +28,11 @@ createRoot(document.getElementById('root')).render(React.createElement(() => {
   window.__test.setErrors = setErrors;
   window.__test.setInbox = setInbox;
   return <AuxiliaryPanel sideChats={[]} subagents={[]} bots={[{ id: 'bot-1', name: 'Acme assistant' }]} botDataByBot={{ 'bot-1': { inbox, errors, error: errors.inbox || errors.activity, activity: [{ id: 'a1', title: 'I verified the Acme invoice export', description: 'I checked the invoice totals and found no differences. The export is ready for the format you choose.', category: 'completed', createdAt: '2026-09-04T14:00:00Z' }, { id: 'a2', title: 'I found an export encoding issue', description: 'I found that the Acme CSV export was dropping accented characters.', category: 'discovery', createdAt: '2026-09-04T13:00:00Z' }] } }} botQueueTabOpen selectedBotId="bot-1" activeTab="bot-queue" visibleMessagesByConversation={{}} visibleRunning={{}} models={[]} favorites={[]} recentModels={[]} recentProjects={[]} onSelectBot={() => {}} onClosePanel={() => {}}
+    onMarkBotPendencyRead={async (payload) => {
+      window.__test.reads.push(payload);
+      if (window.__test.mode === 'read-error') throw new Error('Test read failed');
+      setInbox((items) => items.map((item) => item.id !== payload.pendencyId ? item : { ...item, messages: item.messages.map((message) => payload.messageIds.includes(message.id) ? { ...message, readAt: new Date().toISOString() } : message) }));
+    }}
     onReplyBotPendency={async (payload) => {
       window.__test.replies.push(payload);
       if (window.__test.mode === 'reject') throw new Error('Test save failed');
@@ -65,6 +70,8 @@ try {
   window.webContents.on('console-message', (_event, _level, message) => console.log(`Renderer: ${message}`));
   window.webContents.on('did-fail-load', (_event, code, description) => console.error(`Load failed: ${code} ${description}`));
   await window.loadURL(`http://127.0.0.1:${vite.httpServer.address().port}/__bot-inbox-test`);
+  window.show();
+  window.focus();
   const results = await window.webContents.executeJavaScript(`(async () => {
     const checks = [];
     const check = (name, value) => { checks.push({ name, pass: Boolean(value) }); if (!value) throw new Error(name); };
@@ -75,6 +82,9 @@ try {
     check('Only Inbox and Activity tabs', [...document.querySelectorAll('.bot-work-tabs button')].map(el=>el.textContent).join('|') === 'Inbox|Activity');
     document.getElementById('bot-pendency-pending').click();
     await wait(() => document.querySelector('textarea'));
+    await wait(() => window.__test.reads.length > 0);
+    check('Required message still needs action after reading', document.querySelector('.bot-inbox-history > header > span').textContent === 'Needs you');
+    check('Required response indicator displayed', document.querySelector('.bot-message-response-indicator').textContent === 'Requires your response');
     check('Conversation has full date and time', document.querySelector('.bot-inbox-messages time').dateTime === '2026-09-04T16:00:00Z');
     const renderedMessages = [...document.querySelectorAll('.bot-inbox-messages li')].map((item) => item.textContent);
     check('Conversation messages show newest first', renderedMessages[0].includes('Which format preserves the original values?') && renderedMessages.at(-1).includes('I verified the Acme invoices.'));
@@ -155,6 +165,37 @@ try {
   await writeFile(join(artifacts, 'inbox-empty-dark.png'), (await window.webContents.capturePage()).toPNG());
   await window.webContents.executeJavaScript(`document.documentElement.dataset.colorScheme = 'light'; new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
   await writeFile(join(artifacts, 'inbox-empty-light.png'), (await window.webContents.capturePage()).toPNG());
+  window.setContentSize(580, 500);
+  const readResults = await window.webContents.executeJavaScript(`(async () => {
+    const checks = [];
+    const wait = async (predicate) => { for (let i=0;i<100;i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 30)); } throw new Error('Read UI wait timed out'); };
+    const check = (name, value) => { checks.push({ name, pass: Boolean(value) }); if (!value) throw new Error(name); };
+    window.__test.reads = [];
+    window.__test.setInbox([{ id: 'info', title: 'Informational result', status: 'open', approval: null, updatedAt: '2026-09-04T16:00:00Z', messages: [
+      { id: 'older-info', role: 'bot', content: 'Older result.', attachments: [], createdAt: '2026-09-04T15:00:00Z', requiresUserResponse: false },
+      { id: 'latest-info', role: 'bot', content: 'Detailed result. '.repeat(500), attachments: [], createdAt: '2026-09-04T16:00:00Z', requiresUserResponse: false },
+    ] }]);
+    await wait(() => document.getElementById('bot-pendency-info'));
+    check('Listing does not acknowledge messages', window.__test.reads.length === 0);
+    document.getElementById('bot-pendency-info').click();
+    await wait(() => window.__test.reads.length > 0);
+    check('Only visible message acknowledged', window.__test.reads.flatMap(call => call.messageIds).join(',') === 'latest-info');
+    await wait(() => document.querySelector('.bot-inbox-history > header > span').textContent === 'Read');
+    check('Informational message clears attention without completion', Boolean(document.querySelector('.bot-inbox-complete')) && document.querySelector('.bot-message-response-indicator').textContent === 'No response required');
+    document.querySelector('.bot-inbox-history').scrollTop = 100000;
+    await wait(() => window.__test.reads.some(call => call.messageIds.includes('older-info')));
+    check('Scrolling acknowledges newly visible message', true);
+    document.querySelector('.bot-inbox-history > header > button').click();
+    await wait(() => document.getElementById('bot-pendency-info'));
+    window.__test.mode = 'read-error';
+    window.__test.setInbox(items => items.map(item => ({ ...item, messages: [{ ...item.messages[0], id: 'failed-read', readAt: null }] })));
+    await new Promise(resolve => setTimeout(resolve, 60));
+    document.getElementById('bot-pendency-info').click();
+    await wait(() => document.querySelector('.bot-inbox-feedback[role="alert"]'));
+    check('Read failure remains visible and unread', document.querySelector('.bot-inbox-feedback').textContent.includes('Test read failed') && document.querySelector('.bot-inbox-history > header > span').textContent === 'Unread');
+    return checks;
+  })()`, true);
+  for (const result of readResults) { console.log('PASS ' + result.name); results.push(result); }
   await writeFile(join(artifacts, 'results.json'), JSON.stringify(results, null, 2));
   console.log(`Bot Inbox UI passed. Artifacts: ${artifacts}`);
 } catch (error) {

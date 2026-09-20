@@ -34,6 +34,7 @@ function addModel(id, {
     getContributions: () => ({ models: [], tools: [], auxiliaryPanels: [] }),
     stream: async (options) => {
       calls.push({ id, reasoningEffort: options.reasoningEffort });
+      assert.ok(options.invocationContext.virtualModelId.startsWith('@'));
       return stream ? stream(options) : { assistantContent: id, continuation: [], toolCalls: [] };
     },
   };

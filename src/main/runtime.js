@@ -60,6 +60,10 @@ import {
   forkConversation,
   flushSecureStorage,
   getArchiveSettings,
+  getBotSettings,
+  getBotUsageMessages,
+  getBotUsageConversations,
+  setBotSettings,
   getArchiveStats,
   getAivaxAccessToken,
   getAivaxSettings,
@@ -1848,6 +1852,22 @@ function registerIpc() {
       schedulerSnooze: botManager.getSchedulerSnooze(),
     };
   });
+  applicationIpc.handle('bots:statistics', async (_event, { days = 7 } = {}) => {
+    const { buildBotStatistics } = await import('./bot-statistics.js');
+    return buildBotStatistics({
+      bots: botManager.describeBots(),
+      conversations: getBotUsageConversations(),
+      messages: getBotUsageMessages(days),
+      models: providerRegistry.listModels(),
+      days,
+    });
+  });
+  applicationIpc.handle('bots:settings', () => getBotSettings());
+  applicationIpc.handle('bots:save-settings', async (_event, value) => {
+    const settings = setBotSettings(value);
+    await botManager.drainActivationQueue();
+    return settings;
+  });
   applicationIpc.handle('bots:snooze', (_event, options = {}) => (
     botManager.setSchedulerSnooze(options)
   ));
@@ -1877,8 +1897,11 @@ function registerIpc() {
       attachments: payload.attachments,
     })
   ));
+  applicationIpc.handle('bots:mark-pendency-read', (_event, payload = {}) => (
+    botManager.markPendencyRead(String(payload.botId ?? ''), String(payload.pendencyId ?? ''), payload.messageIds)
+  ));
   applicationIpc.handle('bots:complete-pendency', (_event, payload = {}) => (
-    botManager.completePendency(String(payload.botId ?? ''), String(payload.pendencyId ?? ''))
+    botManager.completePendency(String(payload.botId ?? ''), String(payload.pendencyId ?? ''), payload.reason)
   ));
   applicationIpc.handle('bots:choose-folder', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {

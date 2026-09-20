@@ -117,6 +117,7 @@ export class StreamAccumulator {
         existing.requiresHumanApproval =
           event.requiresHumanApproval ?? existing.requiresHumanApproval;
         existing.isMcp = event.isMcp ?? existing.isMcp;
+        existing.mcpServerName = event.mcpServerName ?? existing.mcpServerName;
         return;
       }
 
@@ -131,6 +132,7 @@ export class StreamAccumulator {
         invocationGoal: event.invocationGoal ?? '',
         requiresHumanApproval: event.requiresHumanApproval ?? false,
         isMcp: event.isMcp ?? false,
+        mcpServerName: event.mcpServerName ?? null,
         status: 'running',
       });
       this.nextSequence += 1;

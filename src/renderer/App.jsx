@@ -2114,6 +2114,11 @@ export default function App() {
     await refreshBots();
     return result;
   });
+  const auxiliaryOnMarkBotPendencyRead = useStableCallback(async (payload) => {
+    const result = await api.bots.markPendencyRead(payload);
+    await refreshBots();
+    return result;
+  });
   const auxiliaryOnCompleteBotPendency = useStableCallback(async (payload) => {
     const result = await api.bots.completePendency(payload);
     await refreshBots();
@@ -2662,6 +2667,7 @@ export default function App() {
                 onResolveBotApproval={auxiliaryOnResolveBotApproval}
                 onReplyBotPendency={auxiliaryOnReplyBotPendency}
                 onCompleteBotPendency={auxiliaryOnCompleteBotPendency}
+                onMarkBotPendencyRead={auxiliaryOnMarkBotPendencyRead}
                 onClosePanel={() => setOverviewInboxNavigation(null)}
               />
             )}
@@ -2674,6 +2680,7 @@ export default function App() {
                 onResolveBotApproval={auxiliaryOnResolveBotApproval}
                 onReplyBotPendency={auxiliaryOnReplyBotPendency}
                 onCompleteBotPendency={auxiliaryOnCompleteBotPendency}
+                onMarkBotPendencyRead={auxiliaryOnMarkBotPendencyRead}
                 botQueueTabOpen={botQueueTabOpen}
                 selectedBotId={selectedBotLogId}
                 onSelectBot={setSelectedBotLogId}

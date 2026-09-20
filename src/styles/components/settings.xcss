@@ -452,6 +452,46 @@
     }
   }
 
+  .settings-models {
+    > .maintenance-tabs {
+      flex-wrap: wrap;
+    }
+
+    > [role="tabpanel"][hidden] {
+      display: none;
+    }
+
+    .model-rule {
+      .settings-field {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+
+        > select,
+        > textarea {
+          grid-column: 1;
+          grid-row: 2;
+          min-width: 0;
+          width: 100%;
+          border-radius: 7px;
+        }
+
+        > textarea {
+          font-family: var(--font-ui);
+        }
+      }
+
+      > .model-rule-selection {
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+        gap: 16px;
+
+        @media (max-width: 700px) {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+    }
+  }
+
   .settings-section-heading h3 {
     color: var(--text-1);
     font-size: 1rem;
@@ -2496,6 +2536,11 @@
   .maintenance-tabs {
     display: flex;
     gap: 4px;
+    overflow-x: auto;
+
+    > button {
+      flex-shrink: 0;
+    }
 
     button {
       position: relative;
@@ -2512,7 +2557,8 @@
         background: var(--item-hover);
       }
 
-      &[aria-selected="true"] {
+      &[aria-selected="true"],
+      &[aria-pressed="true"] {
         color: var(--text-1);
         background-color: --background-4;
       }

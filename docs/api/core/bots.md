@@ -2,6 +2,10 @@
 
 The bots namespace delegates all state changes to BotManager, preserving scheduling, runtime markers, folders, approvals, and thread ownership.
 
+## Activation admission
+
+Global activation hours and simultaneous-activation capacity complement individual schedules. They gate only new activations: existing turns, replies, restart resumptions and descendant threads continue. The RPC/MCP bot listing exposes `queued`, `scheduleState` (`queued` or `outside-window` when admission is deferred), and `effectiveExecutionMode`; Core handles retain the persisted snapshot shape. Create/update accepts `executionMode: 'direct' | 'orchestrator' | null`; null inherits the global default. Global settings and consumption statistics are available through the [Bots RPC methods](../rpc/bots.md).
+
 ## Namespace
 
 ```ts
@@ -58,7 +62,7 @@ bot.tools.register(tool): Disposable
 
 `inbox.list()` and `activity.list()` return detached persisted snapshots. A pendency is a conversation with the user, not a task board. A reply is recorded as a `user` message and delivered to the bot's main thread inside `<bot-pendency-update>` with the pendency ID and attachments. It uses the priority queue when a run is active and starts a continuation otherwise. The bot answers through its pendency tools, even when it uses workers to prepare that answer.
 
-`reply()` returns `{ item, delivered, error? }`. `delivered: false` means the reply was saved but could not be submitted to the main thread; do not blindly resend it and create a duplicate. `complete()` closes the pendency unless a protected approval is pending. Reading an item does not acknowledge it. An open pendency counts as requiring user action when its last message is from the bot or an explicit approval still waits for a decision.
+`reply()` returns `{ item, delivered, error? }`. `delivered: false` means the reply was saved but could not be submitted to the main thread; do not blindly resend it and create a duplicate. `complete()` closes the pendency unless a protected approval is pending. Listing items does not acknowledge them. Bot messages have optional `requiresUserResponse` (missing means `true`) and `readAt` fields. The Desktop records `readAt` only for messages visible in the focused Inbox. An open pendency counts toward attention when its latest bot message requires a response or is still unread; pending approvals always count. Viewing an informational message clears its attention indicator without completing the pendency or activating the bot.
 
 Activity entries are first-person, self-contained accounts of important work, not automatic logs of routine calls. The two views persist in `inbox.json` and `diary.json` in the isolated bot data folder. Legacy `work-items.json` and `activity.json` are never read or migrated and remain untouched on disk.
 

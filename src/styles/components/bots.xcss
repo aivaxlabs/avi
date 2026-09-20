@@ -1,3 +1,60 @@
+.bot-settings-page {
+  .bot-activation-days {
+    grid-template-columns: minmax(0, 1fr);
+
+    > small {
+      top: 0;
+    }
+
+    > .bot-settings-days {
+      grid-column: 1;
+      grid-row: 3;
+      width: 100%;
+      max-width: 420px;
+      grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
+      margin-top: 6px;
+    }
+  }
+
+  > [role="tabpanel"][hidden] {
+    display: none;
+  }
+
+  > .bot-statistics {
+    min-width: 0;
+
+    > .token-overview {
+      width: 100%;
+      margin-inline: 0;
+    }
+
+    .token-overview-cost {
+      flex-wrap: wrap;
+
+      > small {
+        flex-basis: 100%;
+      }
+    }
+
+    .usage-breakdown-copy > span {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 620px) {
+      .usage-breakdown-content {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .usage-breakdown-value {
+        justify-items: start;
+      }
+    }
+  }
+}
+
 .bots-label {
   margin: 0;
   padding-top: 8px;
@@ -583,6 +640,20 @@
       }
 
       > button {
+        &.bot-inbox-complete,
+        &.bot-inbox-completion-menu-trigger {
+          border: 0;
+          border-radius: 999px;
+          padding-inline: 10px;
+        }
+
+        &.bot-inbox-completion-menu-trigger {
+          width: 30px;
+          height: 30px;
+          padding: 0;
+          justify-content: center;
+        }
+
         &:hover:not(:disabled) {
           color: var(--text-1);
           background: var(--item-hover);
@@ -654,6 +725,11 @@
           min-width: 0;
           flex: 1 1 100px;
           overflow-wrap: anywhere;
+        }
+
+        > .bot-message-response-indicator {
+          color: var(--text-3);
+          font-size: --font-xs;
         }
 
         > time {

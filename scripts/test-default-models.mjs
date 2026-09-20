@@ -22,6 +22,7 @@ const settings = {
   supervision: null,
   quickChat: null,
   compactation: null,
+  rules: [],
   subagents: {
     enabled: true,
     small: { modelId: 'test:small', reasoningEffort: 'low' },
@@ -36,6 +37,7 @@ assert.deepEqual(normalizeDefaultModels(null), {
   supervision: null,
   quickChat: null,
   compactation: null,
+  rules: [],
   subagents: {
     enabled: false,
     small: null,
@@ -59,6 +61,28 @@ assert.deepEqual(normalizeDefaultModels({
   ...settings,
   compactation: { modelId: ' test:orchestrator ', reasoningEffort: ' high ' },
 }).compactation, { modelId: 'test:orchestrator', reasoningEffort: 'high' });
+
+const rules = [
+  { modelId: ' test:small ', role: 'main', instructions: ' Plan first. ' },
+  { modelId: '@virtual', role: 'all', instructions: 'Delegate execution.' },
+  { modelId: 'test:small', role: 'bot', instructions: 'Review the queue.' },
+  { modelId: 'test:small', role: 'subagent', instructions: 'Stay focused.' },
+];
+const normalizedRules = normalizeDefaultModels({ rules }, true).rules;
+assert.deepEqual(normalizedRules[0], { modelId: 'test:small', role: 'main', instructions: 'Plan first.' });
+assert.equal(normalizedRules[1].modelId, '@virtual');
+const persistedRulesJson = JSON.stringify({ rules: normalizedRules });
+assert.deepEqual(normalizeDefaultModels(JSON.parse(persistedRulesJson), true).rules, normalizedRules);
+assert.throws(() => normalizeDefaultModels({ rules: {} }, true), /must be an array/);
+for (const rule of [null, {}, { ...rules[0], role: 'supervisor' }, { ...rules[0], instructions: ' ' }, { ...rules[0], modelId: '' }]) {
+  assert.throws(() => normalizeDefaultModels({ rules: [rule] }, true), /Every model rule requires/);
+  assert.deepEqual(normalizeDefaultModels({ rules: [rule] }).rules, []);
+}
+assert.throws(() => normalizeDefaultModels({ rules: [rules[0], rules[0]] }, true), /Only one rule/);
+assert.equal(normalizeDefaultModels({ rules: [rules[0], rules[0]] }).rules.length, 1);
+assert.deepEqual(validateDefaultModels({ rules }, [...models, { id: '@virtual', reasoning: [] }]), []);
+assert.equal(validateDefaultModels({ rules }, models)[0].role, 'rules');
+assert.equal(normalizeDefaultModels({ rules }).rules.length, 4);
 
 const intelligenceLevels = [
   { id: 'level-fast', modelId: ' test:small ', reasoningEffort: ' low ' },

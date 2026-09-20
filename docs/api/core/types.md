@@ -191,6 +191,8 @@ type RunSnapshot =
 
 ### BotSnapshot
 
+The persisted bot shape additionally includes `executionMode: 'direct' | 'orchestrator' | null`. Null inherits global bot settings; changing global settings does not overwrite the stored override.
+
 Returned by `avi.bots.list`, `bot.getSnapshot()`, and every bot state mutation.
 
 ```ts
@@ -259,6 +261,8 @@ interface BotPendencyMessage {
   content: string;
   attachments: Attachment[];
   createdAt: string;
+  requiresUserResponse?: boolean;
+  readAt?: string | null;
 }
 ```
 
