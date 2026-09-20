@@ -192,7 +192,11 @@ try {
   const sideChatModelMessages = toModelMessages(first.conversation.id);
   assert.equal(sideChatModelMessages[0].role, 'system');
   assert.ok(sideChatModelMessages[0].content.includes('thread_type: side_chat'));
-  assert.ok(sideChatModelMessages[0].content.includes('only explore and investigate'));
+  assert.ok(sideChatModelMessages[0].content.includes('By default, explore and investigate'));
+  assert.ok(sideChatModelMessages[0].content.includes('Prefer proposing that actions, changes, and implementations be delegated to the parent thread'));
+  assert.ok(sideChatModelMessages[0].content.includes('not a read-only restriction'));
+  assert.ok(sideChatModelMessages[0].content.includes('If the user explicitly asks you to perform work in this side chat, carry it out here'));
+  assert.ok(!sideChatModelMessages[0].content.includes('Do not implement anything or take actions'));
   assert.ok(sideChatModelMessages[0].content.includes('only when the user explicitly asks'));
   assert.ok(sideChatModelMessages[0].content.includes(`thread_id: ${first.conversation.id}`));
   assert.ok(sideChatModelMessages[0].content.includes(`parent_thread_id: ${parent.id}`));

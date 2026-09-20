@@ -22,7 +22,7 @@ Names increment as **Side chat 1**, **Side chat 2**, and so on. You cannot creat
 
 Side chats are private: ordinary and sub-agent threads cannot inspect, interrupt, or send prompts to them. Use a side chat to explore an alternative without adding it to the main thread, and copy any important conclusion before closing it.
 
-A side chat only explores and investigates: it does not implement changes or take actions. It may inspect the parent thread and its sub-agents, and it can direct the parent agent or a sub-agent only when explicitly asked to. Side-chat answers are meant to be quick, avoiding long tool chains and deep analyses.
+A side chat defaults to exploration and discussion, preferring to propose delegating actions, changes, and implementations to the parent thread. This is a preference, not a read-only restriction: when you explicitly ask it to perform work in the side chat, it can edit files, execute scripts or commands, and perform operations with its available tools and configured permissions. It may inspect the parent thread and its sub-agents, but sends them instructions only when explicitly asked to. Answers stay concise without cutting explicitly requested execution or validation short.
 
 ## Quick Chat
 
@@ -32,7 +32,7 @@ Open **Quick chat** from the Sidebar or tray. The window supports model switchin
 
 Quick Chat uses `$HOME` as the tool and MCP workspace. Although its instructions emphasize speed and restraint, all available normal tools, provider tools, and MCP tools run in Full access without approval dialogs. Ephemeral storage does not mean the session cannot cause external effects; review the requested work and configured integrations before using Quick Chat.
 
-Quick Chat only explores and investigates: it does not implement changes or take material actions. It can inspect threads across all folders, but it is not focused on any single thread, and it can direct main threads or their sub-agents only when explicitly asked to. Quick Chat answers are meant to be quick, avoiding long tool chains and deep analyses.
+Quick Chat can implement changes, edit files, execute scripts or commands, and perform operations, including on external systems, when you explicitly request them. A question or discussion alone does not authorize actions. An explicit request covers the tool steps needed to complete it; you do not need to name each tool or move the work to a full thread. Quick Chat can inspect threads across all folders, but it is not focused on any single thread, and it directs main threads or their sub-agents only when explicitly asked to. Answers stay concise without leaving requested work unfinished.
 
 Quick Chat can create ordinary threads or sub-agents and can keep Tasks or Goal state in memory. Session-only state does not survive closing the window.
 

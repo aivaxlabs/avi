@@ -567,6 +567,11 @@ try {
     quickChat: true,
     tuning: { verbosity: 'high' },
   });
+  assert.ok(quickChatVerbosityContext.includes('Quick Chat is not read-only'));
+  assert.ok(quickChatVerbosityContext.includes('When the user explicitly requests an action, carry it out here'));
+  assert.ok(quickChatVerbosityContext.includes('Take actions only within the scope of the user\'s explicit request'));
+  assert.ok(quickChatVerbosityContext.includes('do not require the user to name each tool'));
+  assert.ok(!quickChatVerbosityContext.includes('Do not implement changes or take material actions'));
   assert.ok(quickChatVerbosityContext.includes(highVerbosity.trim()));
   assert.ok(!quickChatVerbosityContext.includes(mediumVerbosity.trim()));
 

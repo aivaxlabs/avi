@@ -28,6 +28,8 @@ Available on both sockets.
 
 Available on both sockets. Forks the parent's visible history into a new side chat and appends hidden side-chat instructions.
 
+The side-chat system context defaults to exploration and discussion and prefers proposing delegation of actions to the parent. This is not a read-only restriction: an explicit user request allows execution in the side chat using its available tools and configured permissions. Sending instructions to the parent or its sub-agents also requires an explicit user request. This guidance does not change the RPC schema or tool permissions.
+
 **Params:**
 
 | Field | Type | Required | Description |
