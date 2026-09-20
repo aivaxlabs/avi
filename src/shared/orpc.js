@@ -298,6 +298,12 @@ export class OrpcPeer {
         return;
       }
       if (this.pending.has(frame.id) || (transfer && (transfer.processing || transfer.method !== frame.method))) {
+        const previous = transfer?.method === frame.method ? transfer.parts.get(frame.part) : undefined;
+        const identical = previous
+          && previous.content.length === frame.content.length
+          && previous.content.every((byte, index) => byte === frame.content[index])
+          && previous.final === frame.final;
+        if (identical) return;
         this.sendControl('RES', `${frame.id}#LOCKED`);
         return;
       }
@@ -452,7 +458,16 @@ export class OrpcPeer {
       this.finish(id, new OrpcError('Operation cancelled by peer', 'CANCELLED'));
       await this.sendControl(reply, `${id}#CANCELACK`);
     } else if (control === 'CHECKSEND') {
-      const transfer = type === 'REQ' ? this.incoming.get(id) : this.pending.get(id);
+      const transfers = type === 'REQ' ? this.incoming : this.pending;
+      const transfer = transfers.get(id);
+      const repeat = transfer?.expectedCheck
+        && frame.content.length === transfer.expectedCheck.length
+        && frame.content.every((byte, index) => byte === transfer.expectedCheck[index]);
+      if (repeat) {
+        const valid = await transfer.checkPromise;
+        if (transfers.get(id) === transfer) await this.sendControl(reply, `${id}#${valid ? 'CHECKOK' : 'CHECKFAIL'}`);
+        return;
+      }
       if (transfer?.verifying) return;
       if (!transfer?.content) {
         await this.sendControl(reply, `${id}#CHECKFAIL`);
@@ -461,13 +476,17 @@ export class OrpcPeer {
         return;
       }
       transfer.verifying = true;
-      let hashes;
-      try { hashes = utf8Text(frame.content).split(';'); }
-      catch { hashes = []; }
-      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', transfer.content));
-      const expected = `sha256:${Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
-      const valid = hashes.length > 0 && hashes.every((hash) => hash === expected);
-      if ((type === 'REQ' ? this.incoming : this.pending).get(id) !== transfer) return;
+      transfer.expectedCheck = frame.content.slice();
+      transfer.checkPromise = (async () => {
+        let hashes;
+        try { hashes = utf8Text(frame.content).split(';'); }
+        catch { hashes = []; }
+        const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', transfer.content));
+        const expected = `sha256:${Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+        return hashes.length > 0 && hashes.every((hash) => hash === expected);
+      })();
+      const valid = await transfer.checkPromise;
+      if (transfers.get(id) !== transfer) return;
       await this.sendControl(reply, `${id}#${valid ? 'CHECKOK' : 'CHECKFAIL'}`);
       if ((type === 'REQ' ? this.incoming : this.pending).get(id) !== transfer) return;
       if (valid) this.completeTransfer(type, id, transfer);

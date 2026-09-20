@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import WebSocket, { WebSocketServer } from 'ws';
 import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
-import { OrpcPeer, ORPC_PROTOCOL, controlFrame, requestFrame } from '../src/shared/orpc.js';
+import { OrpcPeer, ORPC_LIMITS, ORPC_PROTOCOL, controlFrame, requestFrame } from '../src/shared/orpc.js';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -329,6 +329,20 @@ try {
   emitChatEvent({ conversationId: 'conv-4', type: 'conversation', payload: { text: 'late' } });
   await sleep(40);
   assert.equal(lateEvent.messages.length, lateEventCount, 'events after termination must not be delivered');
+
+  const exitingEvent = new PairChannel(server.createRelaySocket('/rpc/conversations/streams/conv-5'), 'exiting event channel');
+  await exitingEvent.waitOpen();
+  await exitingEvent.next((message) => message.method === 'conversation:ready', 'conversation:ready');
+  Object.defineProperty(exitingEvent.socket, 'bufferedAmount', { configurable: true, value: ORPC_LIMITS.bufferedBytes });
+  let exitingCloseCode = null;
+  exitingEvent.socket.once('close', (code) => { exitingCloseCode = code; });
+  exitingEvent.peer.sendControl('REQ', '#EXIT');
+  await sleep(20);
+  emitChatEvent({ conversationId: 'conv-5', type: 'conversation', payload: { text: 'during-exit' } });
+  await sleep(20);
+  Object.defineProperty(exitingEvent.socket, 'bufferedAmount', { configurable: true, value: 0 });
+  await exitingEvent.waitClose();
+  assert.equal(exitingCloseCode, 1000, 'a CANCELLED event refusal during EXIT/BYE must let the BYE handshake close the socket normally instead of 1013');
 
   const relayDeviceId = 'bridge-test-device';
   const accountUuid = '11111111-2222-4333-8444-555555555555';

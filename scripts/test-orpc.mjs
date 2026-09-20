@@ -309,6 +309,37 @@ test('queue bounds, rate limiting and stalled backpressure cleanup', async () =>
   } finally { blocked.peer.terminate(); }
 });
 
+test('byte-identical duplicate after dispatch is ignored instead of LOCKED', async () => {
+  let calls = 0;
+  const { peer, sent } = recorder({ onRequest: () => { calls++; return new Promise(() => {}); } });
+  try {
+    const frames = [...requestFrames('a', 'm', bytes('body'))];
+    for (const frame of frames) peer.receive(frame);
+    await until(() => calls === 1);
+    peer.receive(frames[0]);
+    await pause(20);
+    assert.equal(calls, 1);
+    assert.ok(!sent.some((frame) => frame.control === 'LOCKED'));
+    assert.equal(peer.incoming.get('a')?.processing, true);
+  } finally { peer.terminate(); }
+});
+
+test('repeated CHECKSEND during a pending handler always answers without re-dispatch', async () => {
+  let calls = 0;
+  const { peer, sent } = recorder({ integrity: true, onRequest: () => { calls++; return new Promise(() => {}); } });
+  try {
+    const body = bytes('abc');
+    const hex = Buffer.from(await crypto.subtle.digest('SHA-256', body)).toString('hex');
+    const checkBytes = bytes(`sha256:${hex}`);
+    peer.receive(requestFrame('a', 'm', body));
+    await until(() => peer.incoming.get('a')?.content);
+    peer.receive(controlFrame('REQ', 'a#CHECKSEND', checkBytes));
+    peer.receive(controlFrame('REQ', 'a#CHECKSEND', checkBytes));
+    await until(() => calls === 1 && sent.filter((frame) => frame.control === 'CHECKOK').length >= 2);
+    assert.equal(calls, 1);
+  } finally { peer.terminate(); }
+});
+
 test('malformed input terminates once and application exceptions remain opaque', async () => {
   const { peer, errors } = recorder();
   const rejected = assert.rejects(peer.call('m', bytes('body')), { code: 'PROTOCOL' });

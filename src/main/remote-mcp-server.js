@@ -144,7 +144,9 @@ const rpcError = (id, code, message, data) => ({
 });
 const socketSend = (socket, value) => {
   const content = JSON.stringify({ eventId: crypto.randomUUID(), expiresAt: Date.now() + 180_000, params: value.params });
-  socket.orpc.call(value.method.replace(':', '.'), new TextEncoder().encode(content)).catch(() => socket.close?.(1013, 'Event delivery incomplete'));
+  socket.orpc.call(value.method.replace(':', '.'), new TextEncoder().encode(content)).catch((error) => {
+    if (error?.code !== 'CANCELLED' || !socket.orpc.closing) socket.close?.(1013, 'Event delivery incomplete');
+  });
 };
 
 function projectRemoteMessage(message) {
