@@ -420,7 +420,7 @@
       text-transform: uppercase;
     }
 
-    strong {
+    > strong {
       overflow: hidden;
       color: var(--text-1);
       font-size: clamp(2.6rem, 5vw, 3.85rem);
@@ -428,6 +428,21 @@
       letter-spacing: -.045em;
       line-height: 1;
       text-overflow: ellipsis;
+    }
+
+    .token-overview-cost {
+      margin-top: 4px;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      letter-spacing: normal;
+      text-transform: none;
+
+      strong {
+        color: var(--text-1);
+        font-size: 14px;
+        font-variant-numeric: tabular-nums;
+      }
     }
   }
 
@@ -1120,6 +1135,11 @@
     span {
       color: var(--text-3);
       font-size: .9rem;
+    }
+
+    .provider-model-pricing {
+      color: var(--text-2);
+      font-variant-numeric: tabular-nums;
     }
   }
 
