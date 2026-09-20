@@ -48,6 +48,9 @@ const GLOBAL_RPC_METHODS = new Set([
   'app:install-update',
   'models:list',
   'bots:list',
+  'bots:settings',
+  'bots:save-settings',
+  'bots:statistics',
   'bots:snooze',
   'bots:snooze-one',
   'bots:create',
@@ -420,10 +423,12 @@ export class RemoteMcpServer {
 
   attachRpcSocket(socket, { scope, resource = '', methods, preparePayload }) {
     const peer = new OrpcPeer({
+      integrity: true,
       send: (frame) => socket.send(Buffer.from(frame)),
       isOpen: () => socket.readyState === WebSocket.OPEN,
       bufferedAmount: () => socket.bufferedAmount ?? 0,
       onError: (error) => socket.close?.(error.code === 'LIMIT' ? 1009 : 1002, error.code ?? 'PROTOCOL'),
+      onClose: () => socket.close?.(1000, 'ORPC shutdown'),
       onRequest: async (wireMethod, bytes) => {
         let content;
         let request;

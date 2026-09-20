@@ -57,7 +57,7 @@ Avi is a harness built from scratch which brings model conversations, cross-prov
   - Remote MCP: persistent server that provides orchestration tools to connect to external services (Claude, ChatGPT, etc.)
   - Overview page: opens on Inbox by default with a searchable, status-filtered list of bot conversations, plus ongoing tasks and consumption insights.
 - **Remote control (ORPC RPC API)**:
-  - Global WebSocket with administrative handlers plus isolated per-thread WebSockets for bidirectional conversation control and events, over the binary ORPC Draft 1 protocol (`avi-orpc-draft1`) with UTF-8 JSON operation envelopes.
+  - Global WebSocket with administrative handlers plus isolated per-thread WebSockets for bidirectional conversation control and events, over the binary ORPC Draft 2 protocol (`avi-orpc-draft2`) with multipart UTF-8 JSON operation envelopes, bounded reconstruction, and Avi CHECKSEND SHA-256 integrity validation.
   - Browser clients authenticate with API keys (no URL secrets); discovery reports methods, capabilities, versions, and the model catalog.
   - Multiple labelled API keys with optional expiration, managed independently.
   - Opt-in WAN bridge through the public relay with AIVAX-authenticated tickets and a stable per-install device id; only RPC streams are relayed.

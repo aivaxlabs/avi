@@ -1,6 +1,6 @@
 # RPC sidebar status and tags
 
-All methods on this page use the global `WS /rpc` socket. Shared result types are defined in [RPC shared types](types.md). Calls are ORPC `REQ` frames on the `avi-orpc-draft1` subprotocol; the wire method is the dotted form of the heading name and the JSON shown in examples is the frame content. See the [RPC overview](overview.md).
+All methods on this page use the global `WS /rpc` socket. Shared result types are defined in [RPC shared types](types.md). Calls are ORPC `REQ` frames on the `avi-orpc-draft2` subprotocol; the wire method is the dotted form of the heading name and the JSON shown in examples is the frame content. See the [RPC overview](overview.md).
 
 ## `sidebar:status`
 

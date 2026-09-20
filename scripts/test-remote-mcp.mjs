@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import WebSocket from 'ws';
-import { OrpcPeer, ORPC_LIMITS, ORPC_PROTOCOL, requestFrame } from '../src/shared/orpc.js';
+import { OrpcPeer, ORPC_LIMITS, ORPC_PROTOCOL } from '../src/shared/orpc.js';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -415,7 +415,7 @@ try {
     return new Promise((resolveEvent) => inbox.waiters.push({ resolve: resolveEvent }));
   };
   await assert.rejects(openSocket('/rpc', expiredApiKey));
-  // The avi-orpc-draft1 subprotocol is mandatory even when the Authorization header carries the key.
+  // The avi-orpc-draft2 subprotocol is mandatory even when the Authorization header carries the key.
   await assert.rejects(openSocket('/rpc', apiKey, []));
   const browserProtocols = [
     ORPC_PROTOCOL,
@@ -460,7 +460,8 @@ try {
   assert.deepEqual(globalDiscovery.methods, [
     'app:check-for-updates', 'app:install-update', 'app:update-state',
     'bots:activate', 'bots:clear-thread', 'bots:complete-pendency', 'bots:create', 'bots:delete', 'bots:full-reset',
-    'bots:list', 'bots:reply-pendency', 'bots:resolve-approval', 'bots:snooze', 'bots:snooze-one', 'bots:update',
+    'bots:list', 'bots:reply-pendency', 'bots:resolve-approval', 'bots:save-settings', 'bots:settings',
+    'bots:snooze', 'bots:snooze-one', 'bots:statistics', 'bots:update',
     'conversations:archive', 'conversations:create', 'conversations:delete',
     'conversations:fork', 'conversations:list', 'conversations:search', 'conversations:set-tags',
     'conversations:update', 'folders:list', 'folders:save-color', 'folders:threads', 'models:list',

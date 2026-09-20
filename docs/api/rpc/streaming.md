@@ -7,7 +7,7 @@ GET /rpc/conversations/streams/<thread-id> HTTP/1.1
 Upgrade: websocket
 Connection: Upgrade
 Authorization: Bearer <api-key>
-Sec-WebSocket-Protocol: avi-orpc-draft1
+Sec-WebSocket-Protocol: avi-orpc-draft2
 ```
 
 Requests accepted by this socket are documented under [threads and messages](conversations.md), [child conversations](child-threads.md), and [chat and Goals](chat.md). This page documents server events.

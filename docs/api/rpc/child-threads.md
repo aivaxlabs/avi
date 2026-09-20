@@ -1,6 +1,6 @@
 # RPC child conversations
 
-This page covers side chats, sub-agent listings, and Rubber Duck listings. Shared objects use the [`Conversation`](types.md#conversation) and [`Message`](types.md#message) types. Calls are ORPC `REQ` frames on the `avi-orpc-draft1` subprotocol; the wire method is the dotted form of the heading name and the JSON shown in examples is the frame content. See the [RPC overview](overview.md).
+This page covers side chats, sub-agent listings, and Rubber Duck listings. Shared objects use the [`Conversation`](types.md#conversation) and [`Message`](types.md#message) types. Calls are ORPC `REQ` frames on the `avi-orpc-draft2` subprotocol; the wire method is the dotted form of the heading name and the JSON shown in examples is the frame content. See the [RPC overview](overview.md).
 
 ## ID behavior by socket
 

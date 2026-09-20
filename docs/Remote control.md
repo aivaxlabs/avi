@@ -18,10 +18,10 @@ The UI shows **Listening** or **Not listening** and startup errors such as a por
 
 - HTTP MCP: `/mcp`
 - HTTP MCP with path credential: `/mcp/:key`
-- global RPC WebSocket (ORPC Draft 1): `/rpc`
+- global RPC WebSocket (ORPC Draft 2): `/rpc`
 - isolated conversation RPC WebSocket: `/rpc/conversations/streams/:thread-id`
 
-Use `Authorization: Bearer <api-key>` with `/mcp` and native WebSocket clients. Browser RPC clients offer `avi-orpc-draft1` and `avi-api-key.<base64url UTF-8 key>` as WebSocket subprotocols; native clients may authenticate with the Authorization header but every client must still offer `avi-orpc-draft1`, which is the only protocol the server selects. Never place an RPC key in a URL or query string. `/mcp/:key` remains available only for MCP clients that cannot set an Authorization header.
+Use `Authorization: Bearer <api-key>` with `/mcp` and native WebSocket clients. Browser RPC clients offer `avi-orpc-draft2` and `avi-api-key.<base64url UTF-8 key>` as WebSocket subprotocols; native clients may authenticate with the Authorization header but every client must still offer `avi-orpc-draft2`, which is the only protocol the server selects. Never place an RPC key in a URL or query string. `/mcp/:key` remains available only for MCP clients that cannot set an Authorization header.
 
 ## API keys
 
@@ -42,7 +42,7 @@ Avi identifies itself to the relay with a stable per-install device id shown as 
 
 The Remote screen shows the bridge status: stopped, connecting, connected, reconnecting, unauthorized, or error. Avi retries transient failures automatically with increasing delays (1 s to 30 s, resetting after a stable period) and stops retrying after an authorization failure, such as ticket HTTP 401/403 or a relay policy close, until the toggle or the AIVAX connection changes. The relay closes active connections after at most 1 hour (close code `4001`); Avi republishes with a fresh ticket automatically. Disabling the bridge toggle, disconnecting AIVAX, or quitting Avi stops the bridge; turning the local Remote server off or deleting its API keys does not. Local access remains available regardless of relay state.
 
-For RPC, the relay carries `/rpc` and `/rpc/conversations/streams/:thread-id`. Consumers complete the documented per-connection open/ready handshake (version 3, advertising the `avi-orpc-draft1` application protocol) that carries only the target route — authorization is the connected AIVAX account, and the relay passes frames opaquely afterwards. See the [public relay protocol](api/rpc/relay-protocol.md) for the exact wire contract.
+For RPC, the relay carries `/rpc` and `/rpc/conversations/streams/:thread-id`. Consumers complete the documented per-connection open/ready handshake (version 3, advertising the `avi-orpc-draft2` application protocol) that carries only the target route — authorization is the connected AIVAX account, and the relay passes frames opaquely afterwards. See the [public relay protocol](api/rpc/relay-protocol.md) for the exact wire contract.
 
 ### Distribution
 
@@ -69,7 +69,7 @@ The stateless Streamable HTTP MCP server exposes bot and chat orchestration tool
 
 ## RPC WebSockets
 
-Both RPC WebSockets speak ORPC Draft 1 (`avi-orpc-draft1`): binary length-prefixed frames carrying UTF-8 JSON operation envelopes (`operationId`, `expiresAt`, `params`) with dotted wire methods over the colon application names, and acknowledged server events. See the [RPC overview](api/rpc/overview.md) and the bundled [ORPC Draft 1 specification](api/rpc/orpc-spec.md).
+Both RPC WebSockets speak ORPC Draft 2 (`avi-orpc-draft2`): binary length-prefixed frames carrying UTF-8 JSON operation envelopes (`operationId`, `expiresAt`, `params`) with dotted wire methods over the colon application names, and acknowledged server events. See the [RPC overview](api/rpc/overview.md) and the bundled [ORPC Draft 2 specification](api/rpc/orpc-spec.md).
 
 `WS /rpc` handles administrative/global folder, thread, search, and bot operations. It does not receive detailed conversation events.
 

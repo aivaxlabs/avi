@@ -1,33 +1,34 @@
 # Avi RPC API
 
-Remote Control exposes selected Electron application requests through two authenticated WebSockets that speak the ORPC Draft 1 binary protocol (`avi-orpc-draft1`) carrying UTF-8 JSON application payloads. Each method reference documents its complete parameter and result contract.
+Remote Control exposes selected Electron application requests through two authenticated WebSockets that speak the ORPC Draft 2 binary protocol (`avi-orpc-draft2`) carrying UTF-8 JSON application payloads. Each method reference documents its complete parameter and result contract.
 
 ## WebSockets
 
 - `ws://127.0.0.1:<port>/rpc` — global operations for folders, regular threads, child conversations, search, bots, sidebar status, and tags.
 - `ws://127.0.0.1:<port>/rpc/conversations/streams/:thread-id` — isolated control and events for one conversation.
 
-Every upgrade must offer the `avi-orpc-draft1` WebSocket subprotocol; the server selects only that protocol and rejects upgrades without it. Authentication is separate from the subprotocol: native clients send `Authorization: Bearer <api-key>`, browsers offer the base64url credential subprotocol described in [Authentication](authentication.md). Both mechanisms are accepted, and both still require the ORPC subprotocol.
+Every upgrade must offer the `avi-orpc-draft2` WebSocket subprotocol; the server selects only that protocol and rejects upgrades without it. Authentication is separate from the subprotocol: native clients send `Authorization: Bearer <api-key>`, browsers offer the base64url credential subprotocol described in [Authentication](authentication.md). Both mechanisms are accepted, and both still require the ORPC subprotocol.
 
 ## Wire frames
 
 All RPC traffic uses binary WebSocket messages; a text message closes the socket with close code `1002`. Each frame is an ASCII decimal length, a space, an ASCII header, one LF, and opaque content:
 
 ```text
-<length> ORPC/1 REQ<request-id> <method>
+<length> ORPC/1 REQ<base-id> <method> <part> <final>
 <content>
 ```
 
 ```text
-<length> ORPC/1 RES<request-id> <execution-id> <part> <final>
+<length> ORPC/1 RES<base-id> <part> <final>
 <content>
 ```
 
 - `<length>` counts every payload byte after the prefix — header, LF separator, and content — and excludes the prefix digits and the separating space.
-- Requests are single frames. Responses may be segmented; reassemble parts in `<part>` order until the `<final>` part before decoding. A response completes only when every part and the final marker arrived.
-- This binding carries exactly one complete frame per binary WebSocket message; the receiver validates the declared length against the message bounds and rejects short or trailing bytes. Malformed framing closes the socket (`1002` protocol, `1009` limit).
+- Requests and responses are multipart. Reconstruct each base-id independently from parts in arbitrary arrival order; completion requires every part through the declared final part.
+- This Avi binding carries exactly one complete frame per binary WebSocket message. It targets 64 KiB frames, limits any frame to 1 MiB, each reconstructed request/response to 32 MiB, aggregate transfer to 64 MiB, and a transfer to 8192 parts. Malformed or oversized framing closes the socket (`1002` protocol, `1009` limit).
+- Base IDs use `[0-9a-zA-Z_.@]+`, max 64 bytes; control IDs are reserved. `REQ` and `RES` use the same base-id and no execution-id field.
 
-The complete framing, reconstruction, and recovery rules are specified in the bundled [ORPC Draft 1 specification](orpc-spec.md). Avi content is UTF-8 JSON, decoded only after a response is fully reassembled.
+The complete framing, reconstruction, and recovery rules are specified in the bundled [ORPC Draft 2 specification](orpc-spec.md). Avi application content is UTF-8 JSON, decoded only after a request or response is fully reassembled. The Avi binding requires `CHECKSEND` with lowercase `sha256:<64 hex>` after every reconstructed request and response; execution proceeds or succeeds only after every supplied hash matches, and unsupported algorithms produce `CHECKFAIL`. `PING/PONG` provides heartbeats; `EXIT/BYE` performs graceful shutdown, and the transport must not close before `BYE` except on error or loss.
 
 ## Notes
 
@@ -67,7 +68,7 @@ Keyboard bindings can be inspected and edited through [Keyboard shortcuts RPC](s
 
 ## Cancellation is delivery-only
 
-Draft 1 has no wire cancellation. A client timeout or abort gives up on the **delivery** of the response; it does not interrupt or undo the operation's application effects, and the handler may still complete on the server. Never treat a timed-out or abandoned call as proof that nothing happened. Before issuing a **new** `operationId` for the same intent, recover through read-only means (`rpc:discover`, `conversations:context`, listing methods) and check application state; a new operation token can duplicate the effect. Draft 1 guarantees no exactly-once execution: an operation may execute more than once, and bounded recovery always ends in a completed response or an explicit failure — never a silent outcome.
+`CANCEL` and `CANCELACK` stop further delivery where possible; they do not undo application effects already started. A timeout, transport loss, or cancellation is not proof that nothing happened. The stable application `operationId` remains unchanged across retries so the application can deduplicate effects; ORPC itself does not guarantee exactly-once execution.
 
 ## Response envelope
 
@@ -102,7 +103,7 @@ Failure:
 
 ## Retries and idempotency
 
-Transport recovery is bounded and automatic: an incomplete delivery is retried at most **once**, after a short backoff, with a fresh wire request id and the same body — same method and `operationId` — under a 60-second per-attempt timeout and a 150-second overall budget. Identifiers are never reused: every attempt gets a new request id, and the server pairs every attempt with a fresh execution id. Non-`INCOMPLETE` failures are terminal and are not retried.
+Transport recovery is bounded and automatic: an incomplete delivery is retried at most **once** with a fresh base-id and the same method/body — including the same application `operationId` — under a 60-second per-attempt timeout and a 150-second overall budget. `CHECKFAIL`, `RESEND`, and `LOCKED` use fresh retry IDs; `RESEND` acknowledges whole-transfer recovery. At most 64 operations run concurrently, the queue is capped at 64 MiB, and transmission is limited to 1 MiB/s and 64 frames/s.
 
 The server journals operations durably in SQLite (`remote_operations`, pruned by `expiresAt`, capped at 4096 entries / 64 MiB). Repeating the same `(identity, scope, resource, operationId)` with the same method-and-body fingerprint returns the recorded response once the operation completes; a different body under a known `operationId` is rejected as a token conflict. If the server reserved the operation and crashed before storing a result, repeats receive `OUTCOME_UNKNOWN` instead of re-executing: a pending operation is never silently re-run. Inspect application state before issuing a new operation for the same intent.
 
@@ -131,6 +132,8 @@ The client must answer with a final `RES`; Avi treats the literal bytes `OK` as 
 `rpc:discover` (wire `rpc.discover`) is available on both sockets. It returns Avi `appVersion`, API versions `{ core: 2, rpc: 1, mcp: { latest, supported } }`, the selected socket `scope`, the ORPC transport descriptor `{ protocol, framing, limits }`, and exact sorted `methods` (application names) and `capabilities` arrays. Clients must use the advertised RPC v1 contract; there is no fallback to an earlier RPC version.
 
 `models:list` is available on the global socket and returns `{ models, lastModel, defaultModels, messageDeliveryMode }`: the provider model catalog used by Avi's model picker and `chat:send`, the last selected model, the current default-model preferences, and the authoritative `"queue"` or `"steer"` Message delivery mode from Avi settings. Remote composers use that mode for Enter and the opposite mode for Ctrl+Enter.
+
+`defaultModels.rules` is additive to the existing `defaultModels` object and has the shape `[{ modelId, role, instructions }]`. `role` is one of `main`, `bot`, `subagent`, or `all`; an empty configuration is `[]`. `modelId` may identify a concrete model or a virtual router. Existing Desktop model-settings status/save operations are unchanged; there is no new RPC endpoint for rules. Save validation rejects malformed entries, blank model IDs or instructions, unsupported roles, and duplicate `(modelId, role)` pairs. Unavailable model IDs are retained and reported as warnings.
 
 ## Remote server and relay status
 
@@ -163,7 +166,7 @@ Authenticated global `/rpc` clients can invoke `remote:state` with no payload. I
 
 ## Reference
 
-- [ORPC Draft 1 specification](orpc-spec.md)
+- [ORPC Draft 2 specification](orpc-spec.md)
 - [Shared types](types.md)
 - [Authentication and API keys](authentication.md)
 - [Public relay protocol](relay-protocol.md)

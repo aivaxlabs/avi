@@ -8,7 +8,7 @@ HTTP and native WebSocket clients can send a Bearer token during the handshake:
 Authorization: Bearer <api-key>
 ```
 
-Browser WebSocket clients authenticate with two offered subprotocols: `avi-orpc-draft1` and `avi-api-key.<credential>`, where `<credential>` is the unpadded base64url encoding of the UTF-8 API key.
+Browser WebSocket clients authenticate with two offered subprotocols: `avi-orpc-draft2` and `avi-api-key.<credential>`, where `<credential>` is the unpadded base64url encoding of the UTF-8 API key.
 
 ```js
 const credential = btoa(unescape(encodeURIComponent(apiKey)))
@@ -16,12 +16,12 @@ const credential = btoa(unescape(encodeURIComponent(apiKey)))
   .replaceAll('/', '_')
   .replace(/=+$/, '');
 const socket = new WebSocket(url, [
-  'avi-orpc-draft1',
+  'avi-orpc-draft2',
   `avi-api-key.${credential}`,
 ]);
 ```
 
-The server selects and echoes only `avi-orpc-draft1`. Every upgrade must offer it — including native clients that authenticate with the Authorization header, which additionally require the ORPC subprotocol. A credential protocol offered without `avi-orpc-draft1` is rejected. Never put an API key in the RPC URL, query string, logs, or persisted browser history.
+The server selects and echoes only `avi-orpc-draft2`. Every upgrade must offer it — including native clients that authenticate with the Authorization header, which additionally require the ORPC subprotocol. A credential protocol offered without `avi-orpc-draft2` is rejected. Never put an API key in the RPC URL, query string, logs, or persisted browser history.
 
 Expired and deleted keys are rejected with HTTP `401`. Deleting the last key turns Remote Control off. Enabling Remote Control without a key creates a non-expiring key labelled `Default`.
 
@@ -29,4 +29,4 @@ Keys are encrypted through Electron secure storage. Existing installations migra
 
 Remote Control binds only to `127.0.0.1`, applies DNS-rebinding protection to MCP, compares secrets with timing-safe equality, and limits request bodies to 1 MiB. Host validation accepts only localhost/127.0.0.1 authorities, and the local listener never accepts an authentication bypass: local MCP and RPC clients always present a Remote API key.
 
-The opt-in RPC WAN bridge is independent of the local server toggle and its keys. Avi publishes the RPC WebSockets through `https://avi-relay.aivax.net`, and bridged connections carry no Remote API key: the connected AIVAX account substitutes it, with handshake v3 opens carrying only the target route and the advertised `avi-orpc-draft1` application protocol. Both relay legs use TLS, but Cloudflare and the relay operator terminate and observe the traffic, including the AIVAX token, tickets, and everything relayed. Only use credentials acceptable under that trust model. See [bridge lifecycle, distribution, and limitations](../../Remote%20control.md#aivax-remote--mcp-and-rpc) and the [public relay protocol](relay-protocol.md).
+The opt-in RPC WAN bridge is independent of the local server toggle and its keys. Avi publishes the RPC WebSockets through `https://avi-relay.aivax.net`, and bridged connections carry no Remote API key: the connected AIVAX account substitutes it, with handshake v3 opens carrying only the target route and the advertised `avi-orpc-draft2` application protocol. Both relay legs use TLS, but Cloudflare and the relay operator terminate and observe the traffic, including the AIVAX token, tickets, and everything relayed. Only use credentials acceptable under that trust model. See [bridge lifecycle, distribution, and limitations](../../Remote%20control.md#aivax-remote--mcp-and-rpc) and the [public relay protocol](relay-protocol.md).

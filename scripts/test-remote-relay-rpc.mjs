@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { once } from 'node:events';
 import { createServer, request } from 'node:http';
@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import WebSocket, { WebSocketServer } from 'ws';
 import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
-import { OrpcPeer, ORPC_PROTOCOL, parseFrame, requestFrame, responseFrames } from '../src/shared/orpc.js';
+import { OrpcPeer, ORPC_PROTOCOL, controlFrame, requestFrame } from '../src/shared/orpc.js';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -25,6 +25,8 @@ const { RemoteMcpServer } = await import('../src/main/remote-mcp-server.js');
 const { AIVAX_RELAY_URL, RemoteRelay } = await import('../src/main/remote-relay.js');
 
 const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+const hyphenless = () => randomUUID().replaceAll('-', '');
+const sha256Check = (bytes) => textEncoder.encode(`sha256:${createHash('sha256').update(bytes).digest('hex')}`);
 
 // The default ORPC peer rate budget is 1 MiB/s outbound; 512 KiB keeps this fixture fast while
 // still exercising multi-frame reassembly.
@@ -291,23 +293,27 @@ try {
   assert.equal(dispatched.length, dispatchCountBefore, 'oversize client payloads must close the pair without dispatch');
   fatDownstream.expectSilence(() => true, 0);
 
-  const fatUpstream = new PairChannel(server.createRelaySocket('/rpc/conversations/streams/conv-3'), 'oversize server channel');
+  const fatUpstream = new PairChannel(server.createRelaySocket('/rpc/conversations/streams/conv-3'), 'multipart server channel');
   await fatUpstream.waitOpen();
   await fatUpstream.next((message) => message.method === 'conversation:ready', 'conversation:ready');
-  emitChatEvent({ conversationId: 'conv-3', type: 'run-state', blob: 'y'.repeat(1024 * 1024 + 1) });
-  await fatUpstream.waitClose();
-  assert.equal(fatUpstream.messages.find((message) => message.method === 'conversation:event'), undefined,
-    'oversize server payloads must close the pair without delivery');
+  const fatBlob = 'y'.repeat(1024 * 1024 + 1);
+  emitChatEvent({ conversationId: 'conv-3', type: 'run-state', blob: fatBlob });
+  const fatEvent = await fatUpstream.next((message) => message.method === 'conversation:event', 'multipart conversation:event');
+  assert.equal(fatEvent.params.event.blob.length, fatBlob.length,
+    'Draft2 delivers multi-frame server events above the 1 MiB frame limit');
 
   delayNextApplicationRequest = 120;
   const lateReply = new PairChannel(server.createRelaySocket('/rpc'), 'late reply channel');
   await lateReply.waitOpen();
   const replyCount = lateReply.messages.length;
-  lateReply.send(Buffer.from(requestFrame(randomUUID(), 'remote.state', textEncoder.encode(JSON.stringify({
+  const lateId = hyphenless();
+  const lateBody = textEncoder.encode(JSON.stringify({
     operationId: randomUUID(),
     expiresAt: Date.now() + 60_000,
     params: {},
-  })))));
+  }));
+  lateReply.send(Buffer.from(requestFrame(lateId, 'remote.state', lateBody)));
+  lateReply.send(Buffer.from(controlFrame('REQ', `${lateId}#CHECKSEND`, sha256Check(lateBody))));
   lateReply.socket.terminate();
   await lateReply.waitClose();
   await sleep(180);
@@ -357,6 +363,36 @@ try {
     handleProtocols: (protocols) => (protocols.has('avi-relay-v1') ? 'avi-relay-v1' : false),
   });
   const validTickets = new Set();
+  const wanPeers = new Map();
+  const wanPeer = (channelId) => {
+    let peer = wanPeers.get(channelId);
+    if (!peer) {
+      peer = new OrpcPeer({
+        send: (frame) => sendToPublisher({
+          type: 'data', channelId, encoding: 'base64', data: Buffer.from(frame).toString('base64'),
+        }),
+        isOpen: () => publishers.size > 0,
+        onRequest: (method, content) => {
+          const envelope = {
+            type: 'data',
+            channelId,
+            encoding: 'base64',
+            frame: { type: 'REQ', method: method.replace('.', ':'), content: JSON.parse(textDecoder.decode(content)) },
+          };
+          const waiterIndex = envelopeWaiters.findIndex((waiter) => waiter.predicate(envelope));
+          if (waiterIndex !== -1) {
+            const [waiter] = envelopeWaiters.splice(waiterIndex, 1);
+            clearTimeout(waiter.timer);
+            waiter.resolve(envelope);
+          } else pendingEnvelopes.push(envelope);
+          return textEncoder.encode('OK');
+        },
+        onError: () => {},
+      });
+      wanPeers.set(channelId, peer);
+    }
+    return peer;
+  };
   mockRelay.on('upgrade', (req, socket, head) => {
     const protocols = String(req.headers['sec-websocket-protocol'] ?? '').split(',').map((item) => item.trim());
     const ticket = protocols.find((protocol) => protocol.startsWith('avi-relay-ticket.'))?.slice('avi-relay-ticket.'.length) ?? null;
@@ -370,17 +406,11 @@ try {
       client.on('message', (data, isBinary) => {
         if (isBinary) return;
         const envelope = JSON.parse(data.toString('utf8'));
-        if (envelope.type === 'data' && envelope.encoding === 'base64' && typeof envelope.data === 'string') {
-          try {
-            const frame = parseFrame(Buffer.from(envelope.data, 'base64'));
-            envelope.frame = { type: frame.type, id: frame.id, method: frame.method?.replace('.', ':'), content: JSON.parse(textDecoder.decode(frame.content)) };
-            if (frame.type === 'REQ') {
-              const [ack] = responseFrames(frame.id, randomUUID(), textEncoder.encode('OK'));
-              sendToPublisher({ type: 'data', channelId: envelope.channelId, encoding: 'base64', data: Buffer.from(ack).toString('base64') });
-            }
-          } catch {
-            // Non-frame payloads stay undecoded for control-message handling.
-          }
+        if (envelope.type === 'data' && envelope.encoding === 'base64' && typeof envelope.data === 'string'
+          && typeof envelope.channelId === 'string') {
+          try { wanPeer(envelope.channelId).receive(Buffer.from(envelope.data, 'base64')); }
+          catch { }
+          return;
         }
         const waiterIndex = envelopeWaiters.findIndex((waiter) => waiter.predicate(envelope));
         if (waiterIndex !== -1) {
@@ -437,13 +467,6 @@ try {
     }, label);
     return JSON.parse(envelope.data);
   };
-  const awaitChannelFrame = async (channelId, frameId, label) => {
-    const envelope = await awaitEnvelope((item) => (
-      item.type === 'data' && item.channelId === channelId && item.encoding === 'base64'
-        && item.frame?.type === 'RES' && item.frame.id === frameId
-    ), label);
-    return envelope.frame.content;
-  };
   const awaitChannelEvent = async (channelId, predicate, label) => {
     const envelope = await awaitEnvelope((item) => (
       item.type === 'data' && item.channelId === channelId && item.encoding === 'base64'
@@ -462,20 +485,14 @@ try {
     });
     return channelId;
   };
-  const sendWanCall = (channelId, method, params) => {
-    const frameId = randomUUID();
-    sendToPublisher({
-      type: 'data',
-      channelId,
-      encoding: 'base64',
-      data: Buffer.from(requestFrame(frameId, method.replace(':', '.'), textEncoder.encode(JSON.stringify({
-        operationId: randomUUID(),
-        expiresAt: Date.now() + 60_000,
-        params,
-      })))).toString('base64'),
-    });
-    return frameId;
-  };
+  const sendWanCall = (channelId, method, params) => wanPeer(channelId).call(
+    method.replace(':', '.'),
+    textEncoder.encode(JSON.stringify({
+      operationId: randomUUID(),
+      expiresAt: Date.now() + 60_000,
+      params,
+    })),
+  ).then((bytes) => JSON.parse(textDecoder.decode(bytes)));
 
   const relay = new RemoteRelay({
     deviceId: relayDeviceId,
@@ -500,7 +517,7 @@ try {
     await awaitChannelText(wanGlobal, (message) => message.type === 'avi-remote-ready', 'WAN global ready'),
     { type: 'avi-remote-ready', version: 3, protocol: ORPC_PROTOCOL },
   );
-  const wanDiscover = await awaitChannelFrame(wanGlobal, sendWanCall(wanGlobal, 'rpc:discover'), 'WAN discover');
+  const wanDiscover = await sendWanCall(wanGlobal, 'rpc:discover');
   assert.equal(wanDiscover.result.scope, 'global');
 
   const dispatchBeforeRejection = dispatched.length;
@@ -547,17 +564,17 @@ try {
 
   localKeys.push({ value: 'local-key', expiresAt: null });
   await sleep(80);
-  assert.equal((await awaitChannelFrame(wanGlobal, sendWanCall(wanGlobal, 'rpc:discover'), 'discover with local key')).result.scope, 'global');
+  assert.equal((await sendWanCall(wanGlobal, 'rpc:discover')).result.scope, 'global');
   localKeys.splice(0, localKeys.length);
   await sleep(80);
   assert.equal(
-    (await awaitChannelFrame(wanGlobal, sendWanCall(wanGlobal, 'rpc:discover'), 'discover after key deletion')).result.scope,
+    (await sendWanCall(wanGlobal, 'rpc:discover')).result.scope,
     'global',
     'deleting the last local key must not affect the WAN session',
   );
   assert.equal(relay.snapshot().status, 'connected');
 
-  const wanState = await awaitChannelFrame(wanGlobal, sendWanCall(wanGlobal, 'remote:state', { payload: { includeRelay: true } }), 'WAN state');
+  const wanState = await sendWanCall(wanGlobal, 'remote:state', { payload: { includeRelay: true } });
   assert.deepEqual(wanState.result, { running: true, relay: { status: 'connected' } });
 
   await server.start(0);
@@ -585,7 +602,7 @@ try {
   protocolUpgrade.socket.destroy();
 
   assert.match((await rejectedUpgrade('/rpc')).message, /: 401$/);
-  // The avi-orpc-draft1 subprotocol is mandatory even when the Authorization header carries the key.
+  // The avi-orpc-draft2 subprotocol is mandatory even when the Authorization header carries the key.
   assert.match((await rejectedUpgrade('/rpc', validAuth())).message, /: 401$/);
   const forgedProtocol = `avi-api-key.${Buffer.from('wrong-key').toString('base64url')}`;
   assert.match((await rejectedUpgrade('/rpc', { 'sec-websocket-protocol': `${forgedProtocol}, ${ORPC_PROTOCOL}` })).message, /: 401$/);
@@ -594,9 +611,8 @@ try {
   assert.equal((await httpRequest('/mcp', { ...mcpHeaders, ...validAuth() }, initializeRequest)).status, 401,
     'a deleted local key must stop authenticating direct local requests');
 
-  const pendingDiscoverId = sendWanCall(wanGlobal, 'rpc:discover');
   assert.equal(
-    (await awaitChannelFrame(wanGlobal, pendingDiscoverId, 'discover after listener start')).result.scope,
+    (await sendWanCall(wanGlobal, 'rpc:discover')).result.scope,
     'global',
     'the WAN session must ignore local listener and key state entirely',
   );

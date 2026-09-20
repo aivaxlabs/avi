@@ -278,7 +278,7 @@ The same `limit` and `cursor` fields as `conversations:messages`.
 
 ## Conversation-scoped workspace helpers
 
-`mentions:list` accepts optional `query` and returns `{ paths, servers }`. `context:commands` takes no parameters and returns the available skills/workflows/commands. `files:diff` accepts only `filePath` and returns Avi's workspace diff response. All three methods force the URL conversation's `projectPath`; caller-provided folder paths are ignored.
+`mentions:list` accepts optional `query` and returns `{ paths, servers }`. `context:commands` takes no parameters and returns the available skills and workflows (`{ id, type, name, description }`). Desktop composer actions are internally classified as `interceptor` commands and excluded from the RPC response, including workflows whose names match those reserved actions. Skills with the same names remain available. Avi Workspace therefore receives no interceptor commands such as `/side`, `/quick-compress`, or `/optimize-prompt`. `files:diff` accepts only `filePath` and returns Avi's workspace diff response. All three methods force the URL conversation's `projectPath`; caller-provided folder paths are ignored.
 
 ## `attachments:read`
 

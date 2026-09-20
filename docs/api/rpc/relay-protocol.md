@@ -80,7 +80,7 @@ No RPC frame is processed before the handshake completes. Within the 10-second h
 {
   "type": "avi-remote-open",
   "version": 3,
-  "protocol": "avi-orpc-draft1",
+  "protocol": "avi-orpc-draft2",
   "path": "/rpc"
 }
 ```
@@ -89,7 +89,7 @@ No RPC frame is processed before the handshake completes. Within the 10-second h
 |---|---|---:|---|
 | `type` | string | yes | Must be exactly `avi-remote-open`. |
 | `version` | number | yes | Must be exactly `3`. |
-| `protocol` | string | yes | Must be exactly `avi-orpc-draft1`; the application protocol used after `avi-remote-ready`. |
+| `protocol` | string | yes | Must be exactly `avi-orpc-draft2`; the application protocol used after `avi-remote-ready`. |
 | `path` | string | yes | Exactly `/rpc` or `/rpc/conversations/streams/<thread-id>` with the target conversation id. No other route is bridged. |
 
 Authorization is the AIVAX account identity carried by your ticket; there is no credential field. Handshake versions 1 and 2, a `version` other than 3, an unexpected `protocol` value, and any frame containing an `apiKey` property are rejected.
@@ -97,7 +97,7 @@ Authorization is the AIVAX account identity carried by your ticket; there is no 
 On success the publisher sends:
 
 ```json
-{"type":"avi-remote-ready","version":3,"protocol":"avi-orpc-draft1"}
+{"type":"avi-remote-ready","version":3,"protocol":"avi-orpc-draft2"}
 ```
 
 `avi-remote-ready` is sent only after the Desktop establishes an in-process RPC session for the requested route — it does not dial its own loopback listener and never injects a key. It is the consumer's signal that RPC frames will now flow.
@@ -136,7 +136,7 @@ Only the consumer initiates application-level heartbeats; the publisher answers 
 
 Frames are passed through opaquely to the in-process RPC session; neither the relay nor the publisher interprets them:
 
-- After `avi-remote-ready`, send only binary ORPC frames (`avi-orpc-draft1`) plus the documented `avi-remote-ping` control JSON. ORPC requires binary messages — any other text is forwarded as-is and the channel closes with a protocol error, because the local RPC session accepts only binary frames.
+- After `avi-remote-ready`, send only binary ORPC frames (`avi-orpc-draft2`) plus the documented `avi-remote-ping` control JSON. ORPC requires binary messages — any other text is forwarded as-is and the channel closes with a protocol error, because the local RPC session accepts only binary frames.
 - Use the documented [RPC envelope](overview.md) with dotted wire methods; responses are correlated by ORPC request id. The relay imposes no ordering or correlation of its own.
 - Payloads are bounded: a single frame must stay within 1 MiB (the local server's message limit). On the publisher leg, frames travel base64-encoded and opaque inside relay channel envelopes, capped at 2 MiB plus 1024 bytes of framing; oversized frames fail closed and close the channel.
 
@@ -165,7 +165,7 @@ Workspace (consumer)                              Relay                     Avi 
    |--- POST /v1/relays/<deviceId>/tickets {role:"consumer"} --->|                           |
    |<-- 201 { ticket, expiresAt, websocketUrl, protocol } --------|                          |
    |--- WSS websocketUrl, [avi-relay-v1, avi-relay-ticket.<ticket>] --->|                    |
-   |--- {"type":"avi-remote-open","version":3,"protocol":"avi-orpc-draft1",|                          |
+   |--- {"type":"avi-remote-open","version":3,"protocol":"avi-orpc-draft2",|                          |
    |     "path":"/rpc"} ----------------------------------------->|--- in-process session -->|
    |<-- {"type":"avi-remote-ready","version":3,"protocol":...} ---|<--- ok ------------------|
    |--- {"type":"avi-remote-ping","version":3,"id":"a"} --------->|                          |

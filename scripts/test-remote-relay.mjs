@@ -661,26 +661,26 @@ test('passes text and binary ORPC payloads opaquely in both directions', async (
     };
 
     // Text path: an ORPC REQ frame travels as the raw text payload.
-    const req = wireText('ORPC/1 REQorpcrq01 rpc.discover', JSON.stringify({ operationId: 'd'.repeat(16), expiresAt: Date.now() + 60_000, params: {} }));
+    const req = wireText('ORPC/1 REQorpcrq01 rpc.discover 1 1', JSON.stringify({ operationId: 'd'.repeat(16), expiresAt: Date.now() + 60_000, params: {} }));
     relayServer.sendToPublisher({ type: 'data', channelId, encoding: 'text', data: req });
     await sleep(20);
     assert.equal(local.messages.filter((message) => !message.isBinary).at(-1).data.toString('utf8'), req);
 
     // The local server answers with a text RES frame; the publisher relays it untouched.
-    const res = wireText('ORPC/1 RESorpcrq01 exec-d-1 1 1', 'resultado com acentuação ✓');
+    const res = wireText('ORPC/1 RESorpcrq01 1 1', 'resultado com acentuação ✓');
     local.sockets[0].send(res);
     const reply = await relayServer.takeEnvelope((envelope) => envelope.channelId === channelId && envelope.encoding === 'text' && envelope.data.includes('RESorpcrq01'));
     assert.equal(reply.data, res);
 
     // Binary path: an ORPC frame with multi-byte UTF-8 must stay byte-identical through base64.
-    const binaryReq = wireBinary('ORPC/1 REQorpcrq02 chat.send', 'olá ✓ 日本語 🎉');
+    const binaryReq = wireBinary('ORPC/1 REQorpcrq02 chat.send 1 1', 'olá ✓ 日本語 🎉');
     relayServer.sendToPublisher({ type: 'data', channelId, encoding: 'base64', data: binaryReq.toString('base64') });
     await sleep(20);
     const binaryMessage = local.messages.find((message) => message.isBinary);
     assert.ok(binaryMessage);
     assert.ok(binaryMessage.data.equals(binaryReq));
 
-    const binaryRes = wireBinary('ORPC/1 RESorpcrq02 exec-d-2 1 1', '日本語 🚀');
+    const binaryRes = wireBinary('ORPC/1 RESorpcrq02 1 1', '日本語 🚀');
     local.sockets[0].send(binaryRes);
     const binaryReply = await relayServer.takeEnvelope((envelope) => envelope.channelId === channelId && envelope.encoding === 'base64');
     assert.ok(Buffer.from(binaryReply.data, 'base64').equals(binaryRes));
