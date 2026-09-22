@@ -62,6 +62,46 @@ const modelDefinitions = [
     fast: true,
   },
   {
+    id: 'gpt-6-sol',
+    modelId: 'gpt-6-sol',
+    name: 'GPT-6 Sol',
+    description: 'Cost-efficient high-end model for demanding professional work.',
+    context: { input: 272_000, output: 128_000 },
+    reasoning: THROUGH_MAX_REASONING,
+    imageInput: true,
+    fast: true,
+  },
+  {
+    id: 'gpt-6-sol-1m',
+    modelId: 'gpt-6-sol',
+    name: 'GPT-6 Sol (1M)',
+    description: 'Cost-efficient high-end model for demanding professional work with extended context.',
+    context: { input: 872_000, output: 128_000 },
+    reasoning: THROUGH_MAX_REASONING,
+    imageInput: true,
+    fast: true,
+  },
+  {
+    id: 'gpt-6-luna',
+    modelId: 'gpt-6-luna',
+    name: 'GPT-6 Luna',
+    description: 'Fast, cost-efficient model for high-volume tasks and lightweight agentic work.',
+    context: { input: 272_000, output: 128_000 },
+    reasoning: THROUGH_MAX_REASONING,
+    imageInput: true,
+    fast: true,
+  },
+  {
+    id: 'gpt-6-luna-1m',
+    modelId: 'gpt-6-luna',
+    name: 'GPT-6 Luna (1M)',
+    description: 'Fast, cost-efficient model for high-volume tasks and lightweight agentic work with extended context.',
+    context: { input: 872_000, output: 128_000 },
+    reasoning: THROUGH_MAX_REASONING,
+    imageInput: true,
+    fast: true,
+  },
+  {
     id: 'gpt-5.6-sol',
     modelId: 'gpt-5.6-sol',
     name: 'GPT-5.6 Sol',
@@ -100,37 +140,7 @@ const modelDefinitions = [
     reasoning: THROUGH_XHIGH_REASONING,
     imageInput: true,
     fast: true,
-  },
-  {
-    id: 'gpt-5.4',
-    modelId: 'gpt-5.4',
-    name: 'GPT-5.4',
-    description: 'General-purpose reasoning model.',
-    context: { input: 272_000, output: 128_000 },
-    reasoning: THROUGH_XHIGH_REASONING,
-    imageInput: true,
-    fast: true,
-  },
-  {
-    id: 'gpt-5.4-mini',
-    modelId: 'gpt-5.4-mini',
-    name: 'GPT-5.4 Mini',
-    description: 'Compact GPT-5.4 model for efficient tasks.',
-    context: { input: 272_000, output: 128_000 },
-    reasoning: THROUGH_XHIGH_REASONING,
-    imageInput: true,
-    fast: false,
-  },
-  {
-    id: 'gpt-5.3-codex-spark',
-    modelId: 'gpt-5.3-codex-spark',
-    name: 'GPT-5.3 Codex Spark',
-    description: 'Fast Codex model for focused coding tasks.',
-    context: { input: 128_000, output: 128_000 },
-    reasoning: THROUGH_XHIGH_REASONING,
-    imageInput: false,
-    fast: false,
-  },
+  }
 ];
 
 export const openAiSubscriptionProviderType = defineProvider({
@@ -144,7 +154,7 @@ export const openAiSubscriptionProviderType = defineProvider({
     connection: 'managed',
     models: 'managed',
     modelsDescription:
-      'GPT-6 Astra and Astra (1M); GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; '
+      'GPT-6 Astra, Sol, and Luna (standard and 1M); GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; '
       + 'GPT-5.3 Codex Spark. Supported models also include Fast variants.',
     fields: [{
       id: 'imageTool',

@@ -152,6 +152,35 @@ for (const [model, id, name, serviceTier] of [
   assert.equal(variantBody.service_tier, serviceTier);
 }
 
+for (const family of ['sol', 'luna']) {
+  for (const suffix of ['', '-fast', '-1m', '-1m-fast']) {
+    const modelId = `gpt-6-${family}`;
+    const model = subscriptionProvider.listModels().find(
+      (entry) => entry.id === `subscription:${modelId}${suffix}`,
+    );
+    assert.ok(model, `Missing ${modelId}${suffix}`);
+    assert.equal(model.modelId, modelId);
+    assert.deepEqual(model.context, {
+      input: suffix.includes('1m') ? 872_000 : 272_000,
+      output: 128_000,
+    });
+    assert.deepEqual(model.reasoning, astra.reasoning);
+    assert.deepEqual(model.capabilities, astra.capabilities);
+    const variantBody = await responsesApi.createBody({
+      provider: subscriptionProvider.config,
+      model,
+      messages: [{ role: 'user', content: 'Hello' }],
+      reasoningEffort: 'max',
+      tools: [],
+      toolHistory: [],
+      invocationContext: { auxiliary: true },
+    });
+    assert.equal(variantBody.model, modelId);
+    assert.equal(variantBody.reasoning.effort, 'max');
+    assert.equal(variantBody.service_tier, suffix.endsWith('fast') ? 'priority' : undefined);
+  }
+}
+
 const astraFastBody = await responsesApi.createBody({
   provider: subscriptionProvider.config,
   model: astraFast,
