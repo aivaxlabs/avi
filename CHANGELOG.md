@@ -101,6 +101,7 @@
 - Bot activations now mark a checkpoint in the bot conversation, so each activation starts its model context from the previous boundary instead of replaying the full history.
 
 ### Fixed
+- Desktop release builds now use native ARM64 runners on Windows and Linux and separate Intel and ARM64 macOS jobs, so native Computer Use dependencies can be packaged for each architecture.
 - Chat find (Ctrl+F) now floats in a compact, centered panel above the composer, highlights matches without changing native text selection or input focus, and debounces matching by 50 ms.
 - Dropdowns now size to their labels instead of shrinking to the minimum width inside narrow action anchors or nested menus.
 - Missing local images and videos in conversation context now become an explicit unavailability notice instead of aborting OpenAI-compatible and OpenAI Subscription requests.

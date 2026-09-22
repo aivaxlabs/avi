@@ -22,7 +22,7 @@ The updater supports x64 and ARM64. On an emulated installation it follows the a
 
 ## Release publishing
 
-`.github/workflows/build-desktop.yml` builds each platform and merges the installer artifacts into the flat **avi-release** Actions ZIP. Publish the **contents** of that ZIP as assets on a stable GitHub release in `aivaxlabs/avi`, not just the ZIP itself. Use a semantic version tag such as `v0.7.0` and ensure packaged `package.json` has the same version.
+`.github/workflows/build-desktop.yml` builds each platform and architecture on a matching native runner, then merges their installer artifacts into the flat **avi-release** Actions ZIP. Publish the **contents** of that ZIP as assets on a stable GitHub release in `aivaxlabs/avi`, not just the ZIP itself. Use a semantic version tag such as `v0.7.0` and ensure packaged `package.json` has the same version.
 
 | Platform | Current Actions filename | Recognized legacy filename |
 | --- | --- | --- |

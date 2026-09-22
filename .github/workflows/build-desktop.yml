@@ -21,7 +21,7 @@ jobs:
             artifact-name: avi-build-windows-x64
             output-name: Avi-windows-${arch}.${ext}
           - name: Windows arm64
-            os: windows-latest
+            os: windows-11-arm
             package-args: --arm64
             artifact-name: avi-build-windows-arm64
             output-name: Avi-windows-${arch}.${ext}
@@ -31,14 +31,19 @@ jobs:
             artifact-name: avi-build-linux-x64
             output-name: Avi-linux-${arch}.${ext}
           - name: Linux arm64
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
             package-args: --arm64
             artifact-name: avi-build-linux-arm64
             output-name: Avi-linux-${arch}.${ext}
-          - name: macOS x64 and arm64
-            os: macos-latest
-            package-args: --x64 --arm64
-            artifact-name: avi-build-macos
+          - name: macOS x64
+            os: macos-15-intel
+            package-args: --x64
+            artifact-name: avi-build-macos-x64
+            output-name: Avi-macos-${arch}.${ext}
+          - name: macOS arm64
+            os: macos-15
+            package-args: --arm64
+            artifact-name: avi-build-macos-arm64
             output-name: Avi-macos-${arch}.${ext}
 
     env:
