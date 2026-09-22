@@ -91,6 +91,8 @@ export class PluginManager {
   constructor({
     pluginsDir,
     builtInPluginsDir,
+    getBuiltInPluginState,
+    setBuiltInPluginState,
     reservedIds = {},
     reservedToolNames = [],
     loadTimeoutMs = 10_000,
@@ -101,6 +103,11 @@ export class PluginManager {
     }
     this.pluginsDir = resolve(pluginsDir);
     this.builtInPluginsDir = builtInPluginsDir ? resolve(builtInPluginsDir) : null;
+    if (this.builtInPluginsDir && (typeof getBuiltInPluginState !== 'function' || typeof setBuiltInPluginState !== 'function')) {
+      throw new Error('Built-in plugins require persistent state storage.');
+    }
+    this.getBuiltInPluginState = getBuiltInPluginState;
+    this.setBuiltInPluginState = setBuiltInPluginState;
     this.builtInIds = new Set();
     this.builtInState = {};
     this.loadTimeoutMs = loadTimeoutMs;
@@ -143,15 +150,21 @@ export class PluginManager {
     const sources = directories.map((name) => ({ name, builtIn: false }));
     this.builtInIds = new Set();
     if (this.builtInPluginsDir) {
-      try {
-        this.builtInState = JSON.parse(await readFile(join(this.pluginsDir, '.avi-built-in-state.json'), 'utf8'));
-        if (!this.builtInState || typeof this.builtInState !== 'object' || Array.isArray(this.builtInState)) {
-          throw new Error('Built-in plugin state must be an object.');
+      let state = this.getBuiltInPluginState();
+      if (state === null) {
+        try {
+          state = JSON.parse(await readFile(join(this.pluginsDir, '.avi-built-in-state.json'), 'utf8'));
+          if (!state || typeof state !== 'object' || Array.isArray(state)) {
+            throw new Error('Built-in plugin state must be an object.');
+          }
+          state = Object.fromEntries(Object.entries(state).map(([id, enabled]) => [id, enabled === true]));
+        } catch (error) {
+          state = error.code === 'ENOENT' ? {} : null;
+          if (error.code !== 'ENOENT') failures.push({ fileName: '.avi-built-in-state.json', error: String(error) });
         }
-      } catch (error) {
-        this.builtInState = {};
-        if (error.code !== 'ENOENT') failures.push({ fileName: '.avi-built-in-state.json', error: String(error) });
+        if (state !== null) this.setBuiltInPluginState(state);
       }
+      this.builtInState = state ?? {};
       try {
         const builtIns = (await readdir(this.builtInPluginsDir, { withFileTypes: true }))
           .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'));
@@ -435,14 +448,7 @@ export class PluginManager {
     if (plugin.enabled === enabled) return { ...plugin, restartRequired: this.restartRequired };
     if (plugin.builtIn) {
       const nextState = { ...this.builtInState, [plugin.id.toLowerCase()]: enabled };
-      const statePath = join(this.pluginsDir, '.avi-built-in-state.json');
-      const temporary = `${statePath}.${randomUUID()}.tmp`;
-      try {
-        await writeFile(temporary, `${JSON.stringify(nextState, null, 2)}\n`, 'utf8');
-        await rename(temporary, statePath);
-      } finally {
-        await rm(temporary, { force: true });
-      }
+      this.setBuiltInPluginState(nextState);
       this.builtInState = nextState;
       Object.assign(plugin, {
         enabled,

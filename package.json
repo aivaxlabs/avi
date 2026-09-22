@@ -1,6 +1,6 @@
 {
   "name": "avi",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Local desktop workspace for AI conversations, tools, and orchestration.",
   "author": "AIVAX Labs",
   "homepage": "https://avi.aivax.net",
@@ -22,7 +22,7 @@
     "test:context": "bun scripts/test-context-injection.mjs",
     "test:plugins": "bun scripts/test-plugins.mjs && bun scripts/test-plugin-runtime-v2.mjs && bun scripts/test-child-processes-plugin.mjs",
     "built-ins:prepare": "bun scripts/prepare-built-in-plugins.mjs",
-    "test:built-ins": "bun scripts/test-built-in-plugins.mjs && node scripts/test-chrome-integration.mjs",
+    "test:built-ins": "electron --no-sandbox scripts/test-built-in-plugins.mjs && node scripts/test-chrome-integration.mjs",
     "test:aivax": "electron --no-sandbox scripts/test-aivax-client.mjs",
     "test:plan": "bun scripts/test-plan-mode.mjs",
     "test:goal": "bun scripts/test-goal-mode.mjs",

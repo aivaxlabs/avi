@@ -1476,6 +1476,23 @@ export function setFolderColor(folderPath, color) {
   return colors;
 }
 
+function validateBuiltInPluginState(state) {
+  if (!state || typeof state !== 'object' || Array.isArray(state)
+    || Object.values(state).some((enabled) => typeof enabled !== 'boolean')) {
+    throw new Error('Built-in plugin state must contain boolean preferences.');
+  }
+  return state;
+}
+
+export function getBuiltInPluginState() {
+  const row = statements.getValue.get('builtInPluginState');
+  return row ? validateBuiltInPluginState(JSON.parse(row.value)) : null;
+}
+
+export function setBuiltInPluginState(state) {
+  writeJson('builtInPluginState', validateBuiltInPluginState(state));
+}
+
 export function getKeyboardShortcuts() {
   return readJson('keyboardShortcuts') ?? {};
 }

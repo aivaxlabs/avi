@@ -61,6 +61,7 @@ import {
   flushSecureStorage,
   getArchiveSettings,
   getBotSettings,
+  getBuiltInPluginState,
   getBotUsageMessages,
   getBotUsageConversations,
   setBotSettings,
@@ -98,6 +99,7 @@ import {
   restoreConversation,
   runArchiveMaintenance,
   setArchiveSettings,
+  setBuiltInPluginState,
   setKeyboardShortcuts,
   setAivaxAccessToken,
   setAivaxSettings,
@@ -193,6 +195,8 @@ const pluginsDirectory = app.isPackaged
   : join(app.getAppPath(), 'plugins');
 const pluginManager = new PluginManager({
   pluginsDir: pluginsDirectory,
+  getBuiltInPluginState,
+  setBuiltInPluginState,
   builtInPluginsDir: join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'built-in-plugins'),
   reservedToolNames: [
     ...CLIENT_TOOLS.map((tool) => tool.name),
@@ -1618,7 +1622,7 @@ function registerIpc() {
       });
       chatRunner.semaphores.cleanMissingConversations();
       return {
-        ...archiveState(options),
+        ...await archiveState(options),
         maintenance,
       };
     } finally {
