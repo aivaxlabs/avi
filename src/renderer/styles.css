@@ -13036,7 +13036,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     flex: 1;
     overflow: auto;
     min-height: 0;
-    padding-bottom: 180px;
+    padding-bottom: 8px;
 }
 
 .notes-panel > .notes-lists > .notes-list {
@@ -13131,8 +13131,43 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 }
 
 .notes-panel > .notes-lists > .notes-list > .notes-items > .notes-item > .notes-copy > small {
-    font-size: 10px;
+    font-size: var(--font-xs);
     color: var(--text-3);
+}
+
+.notes-panel > .notes-lists > .notes-list > .notes-items > .notes-item > .notes-copy > small.notes-metadata {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+}
+
+.notes-panel > .notes-lists > .notes-list > .notes-items > .notes-item > .notes-copy > small.notes-metadata > .notes-priority, .notes-panel > .notes-lists > .notes-list > .notes-items > .notes-item > .notes-copy > small.notes-metadata > .notes-due {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-2);
+}
+
+.notes-panel > .notes-lists > .notes-list > .notes-items > .notes-item > .notes-copy > small.notes-metadata > .notes-priority > svg, .notes-panel > .notes-lists > .notes-list > .notes-items > .notes-item > .notes-copy > small.notes-metadata > .notes-due > svg {
+    flex: none;
+}
+
+.notes-panel > .notes-lists > .notes-list > .notes-items > .notes-item > .notes-copy > small.notes-metadata > .notes-priority.is-high {
+    color: var(--warn-color);
+    font-weight: 600;
+}
+
+.notes-panel > .notes-lists > .notes-list > .notes-items > .notes-item > .notes-copy > small.notes-metadata > .notes-priority.is-urgent {
+    color: var(--danger-color);
+    font-weight: 600;
+}
+
+.notes-panel > .notes-lists > .notes-list > .notes-items > .notes-item > .notes-copy > small.notes-metadata > .notes-due.is-overdue {
+    color: var(--danger-color);
+}
+
+.notes-panel > .notes-lists > .notes-list > .notes-items > .notes-item > .notes-copy > small.notes-metadata > .notes-due.is-today {
+    color: var(--warn-color);
 }
 
 .notes-panel > .notes-lists > .notes-list > .notes-items > .notes-item.is-done > .notes-copy > strong {
@@ -13167,77 +13202,36 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     padding: 6px;
 }
 
-.notes-menu {
-    position: relative;
-    flex: none;
+.dropdown-menu.notes-dropdown {
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
 }
 
-.notes-menu > summary {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    list-style: none;
-    cursor: pointer;
-    width: 26px;
-    height: 26px;
-    border-radius: 4px;
+.dropdown-menu.notes-dropdown.notes-filters {
+    width: 240px;
+    padding: 12px;
+    gap: 8px;
 }
 
-.notes-menu > summary:hover {
-    background: var(--background-3);
-}
-
-.notes-menu > .notes-menu-content {
-    position: absolute;
-    right: 0;
-    top: 100%;
-    z-index: 20;
-    width: 210px;
-    max-height: 360px;
-    overflow: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: 8px;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    background: var(--background-2);
-    box-shadow: 0 8px 24px #0004;
-}
-
-.notes-menu > .notes-menu-content > button {
-    background: transparent;
-    color: var(--text-1);
-    text-align: left;
-    border: 0;
-    padding: 6px;
-    border-radius: 3px;
-}
-
-.notes-menu > .notes-menu-content > button:hover {
-    background: var(--background-3);
-}
-
-.notes-menu > .notes-menu-content > strong {
-    color: var(--text-3);
-    font-size: 10px;
-    padding: 5px;
-}
-
-.notes-menu > .notes-menu-content > hr {
-    width: 100%;
-    border: 0;
-    border-top: 1px solid var(--border-color);
-}
-
-.notes-menu > .notes-menu-content > label {
+.dropdown-menu.notes-dropdown.notes-filters > label {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    margin-bottom: 5px;
+    font-size: var(--font-sm);
+    color: var(--text-2);
 }
 
-.notes-menu > .notes-menu-content > label.notes-checkbox {
+.dropdown-menu.notes-dropdown.notes-filters > label > input:not([type=checkbox]), .dropdown-menu.notes-dropdown.notes-filters > label > select {
+    min-width: 0;
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    color: var(--text-1);
+    border-radius: 4px;
+    padding: 6px;
+}
+
+.dropdown-menu.notes-dropdown.notes-filters > label.notes-checkbox {
     flex-direction: row;
     align-items: center;
 }

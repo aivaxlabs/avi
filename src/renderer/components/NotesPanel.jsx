@@ -1,24 +1,97 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowUp, Download, GripVertical, MoreHorizontal, Plus, SlidersHorizontal, X } from 'lucide-react';
+import {
+  Archive, ArchiveRestore, ArrowDown, ArrowUp, AtSign, CalendarClock, Check, CheckCircle2,
+  Circle, Download, Flag, GripVertical, ListChecks, MoreHorizontal, Paperclip, Pencil,
+  Plus, SlidersHorizontal, Trash2, X,
+} from 'lucide-react';
 import { compareNotes } from '../../shared/notes.js';
+import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 
 const priorities = ['none', 'low', 'medium', 'high', 'urgent'];
 const editorTabs = [['details', 'Details'], ['subtasks', 'Sub-tasks'], ['attachments', 'Attachments']];
 const orders = [['urgency', 'Urgency'], ['createdAt', 'Creation time'], ['updatedAt', 'Updated time'], ['priority', 'Priority'], ['dueAt', 'Due time'], ['manual', 'Manual']];
 
-function NotesMenu({ label, children }) {
-  return <details className="notes-menu" onKeyDown={(event) => {
-    if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus(); }
-  }}>
-    <summary aria-label={label} title={label}><MoreHorizontal size={15} /></summary>
-    <div className="notes-menu-content" onClick={(event) => {
-      if (event.target.closest('button')) event.currentTarget.parentElement.open = false;
-    }}>{children}</div>
-  </details>;
+function NotesMenu({ label, children, filter = false }) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
+  const lastItemRef = useRef(false);
+  const id = useId();
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const menu = menuRef.current;
+    const anchor = triggerRef.current.getBoundingClientRect();
+    const bounds = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(anchor.right - bounds.width, window.innerWidth - bounds.width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(anchor.bottom + 4, window.innerHeight - bounds.height - 8))}px`;
+    const controls = menu.querySelectorAll('button:not(:disabled), select, input');
+    (lastItemRef.current ? controls[controls.length - 1] : controls[0])?.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const dismiss = (event) => {
+      if (menuRef.current?.contains(event.target) || triggerRef.current?.contains(event.target)) return;
+      if (menuRef.current?.contains(document.activeElement)) triggerRef.current?.focus();
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('focusin', dismiss);
+    window.addEventListener('scroll', dismiss, true);
+    window.addEventListener('resize', dismiss);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      document.removeEventListener('focusin', dismiss);
+      window.removeEventListener('scroll', dismiss, true);
+      window.removeEventListener('resize', dismiss);
+    };
+  }, [open]);
+
+  return <>
+    <button ref={triggerRef} type="button" className="icon-button tiny" aria-label={label} title={label}
+      aria-haspopup={filter ? 'dialog' : 'menu'} aria-expanded={open} aria-controls={open ? id : undefined}
+      onClick={() => { lastItemRef.current = false; setOpen(!open); }}
+      onKeyDown={(event) => {
+        if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+        event.preventDefault();
+        lastItemRef.current = event.key === 'ArrowUp';
+        setOpen(true);
+      }}>
+      {filter ? <SlidersHorizontal size={16} /> : <MoreHorizontal size={15} />}
+    </button>
+    {open && createPortal(<DropdownMenu ref={menuRef} fixed id={id} role={filter ? 'dialog' : 'menu'} aria-label={label}
+      className={filter ? 'notes-dropdown notes-filters' : 'notes-dropdown'}
+      onClick={(event) => {
+        if (filter || !event.target.closest('button:not(:disabled)')) return;
+        triggerRef.current?.focus();
+        setOpen(false);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          triggerRef.current?.focus();
+          setOpen(false);
+        }
+        if (filter) return;
+        if (event.key === 'Tab') {
+          triggerRef.current?.focus();
+          setOpen(false);
+        }
+        if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+        event.preventDefault();
+        const items = [...menuRef.current.querySelectorAll('button:not(:disabled)')];
+        const index = items.indexOf(document.activeElement);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+          : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        items[next]?.focus();
+      }}>{children}</DropdownMenu>, document.body)}
+  </>;
 }
 
-export function NotesPanel({ folderPath = null }) {
+export function NotesPanel({ folderPath = null, onAddToChat }) {
   const [lists, setLists] = useState([]);
   const [notes, setNotes] = useState([]);
   const [filters, setFilters] = useState({ query: '', status: 'active', priority: '', dateField: 'dueAt', after: '', before: '' });
@@ -29,12 +102,17 @@ export function NotesPanel({ folderPath = null }) {
   const [editor, setEditor] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
   const [revision, setRevision] = useState(0);
+  const [now, setNow] = useState(Date.now);
   const dragRef = useRef(null);
   const dialogRef = useRef(null);
   const busyRef = useRef(false);
   const api = window.chatApp.notes;
 
   useEffect(() => api.onChanged(() => setRevision((value) => value + 1)), [api]);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
   useEffect(() => {
     let active = true;
     const timer = setTimeout(async () => {
@@ -104,12 +182,8 @@ export function NotesPanel({ folderPath = null }) {
   return <div className="notes-panel">
     <div className="notes-toolbar">
       <input type="search" aria-label="Filter notes" placeholder="Filter notes..." value={filters.query} onChange={(event) => setFilters({ ...filters, query: event.target.value })} />
-      <details className="notes-menu" onKeyDown={(event) => {
-        if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus(); }
-      }}>
-        <summary aria-label="Filter by" title="Filter by"><SlidersHorizontal size={16} /></summary>
-        <div className="notes-menu-content notes-filters">
-          <strong>Filter by</strong>
+      <NotesMenu label="Filter by" filter>
+          <strong className="dropdown-menu-label">Filter by</strong>
           <label>Status<select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}>
             <option value="active">Not archived</option><option value="open">Not done</option><option value="done">Done</option><option value="archived">Archived</option><option value="all">All</option>
           </select></label>
@@ -122,8 +196,7 @@ export function NotesPanel({ folderPath = null }) {
           <label>From<input type="date" value={filters.after} onChange={(event) => setFilters({ ...filters, after: event.target.value })} /></label>
           <label>Through<input type="date" value={filters.before} onChange={(event) => setFilters({ ...filters, before: event.target.value })} /></label>
           <label className="notes-checkbox"><input type="checkbox" checked={allFolders} onChange={(event) => setAllFolders(event.target.checked)} />All working folders</label>
-        </div>
-      </details>
+      </NotesMenu>
       <button type="button" className="icon-button" title="New list" aria-label="New list" disabled={busy} onClick={() => setEditor({ kind: 'list', name: '', folderPath })}><Plus size={16} /></button>
     </div>
     <p className="notes-scope" title={folderPath ?? 'No working folder'}>{allFolders ? 'All working folders' : folderPath ?? 'No working folder'}</p>
@@ -148,38 +221,59 @@ export function NotesPanel({ folderPath = null }) {
             <span className="notes-list-actions" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
             <button type="button" disabled={busy || list.archived} onClick={() => setEditor({ kind: 'note', listId: list.id, title: '', description: '', priority: 'none', dueAt: '', subtasks: [] })}><Plus size={13} />New note</button>
             <NotesMenu label={`List options for ${list.name}`}>
-              <button type="button" disabled={busy} onClick={() => setEditor({ ...list, kind: 'list' })}>Rename list</button>
-              <button type="button" disabled={busy} onClick={() => mutate(() => api.saveList({ id: list.id, archived: !list.archived }))}>{list.archived ? 'Restore list' : 'Archive list'}</button>
-              <hr /><strong>Order by</strong>
-              {orders.map(([value, label]) => <button type="button" key={value} aria-pressed={list.orderBy === value} disabled={busy} onClick={() => mutate(() => api.saveList({ id: list.id, orderBy: value }))}>{label}{list.orderBy === value ? ' ✓' : ''}</button>)}
-              <hr />
-              <button type="button" disabled={busy || listIndex === 0} onClick={() => move('list', list.id, visibleLists[listIndex - 1].id)}>Move list up</button>
-              <button type="button" disabled={busy || listIndex === visibleLists.length - 1} onClick={() => move('list', list.id, visibleLists[listIndex + 1].id)}>Move list down</button>
-              <hr />
-              <button type="button" disabled={busy} onClick={() => setConfirmation({ id: list.id, archivedOnly: true, title: `Delete all archived notes in “${list.name}”?` })}>Delete all archived notes</button>
-              <button type="button" disabled={busy} onClick={() => setConfirmation({ id: list.id, title: `Delete “${list.name}” and all its notes?` })}>Delete list</button>
+              <DropdownMenuItem role="menuitem" icon={<Pencil size={14} />} disabled={busy} onClick={() => setEditor({ ...list, kind: 'list' })}>Rename list</DropdownMenuItem>
+              <DropdownMenuItem role="menuitem" icon={list.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />} disabled={busy} onClick={() => mutate(() => api.saveList({ id: list.id, archived: !list.archived }))}>{list.archived ? 'Restore list' : 'Archive list'}</DropdownMenuItem>
+              <hr className="dropdown-menu-divider" /><div className="dropdown-menu-label">Order by</div>
+              {orders.map(([value, label]) => <DropdownMenuItem key={value} role="menuitemradio" aria-checked={list.orderBy === value} active={list.orderBy === value}
+                icon={list.orderBy === value ? <Check size={14} /> : <span />} disabled={busy}
+                onClick={() => mutate(() => api.saveList({ id: list.id, orderBy: value }))}>{label}</DropdownMenuItem>)}
+              <hr className="dropdown-menu-divider" />
+              <DropdownMenuItem role="menuitem" icon={<ArrowUp size={14} />} disabled={busy || listIndex === 0} onClick={() => move('list', list.id, visibleLists[listIndex - 1].id)}>Move list up</DropdownMenuItem>
+              <DropdownMenuItem role="menuitem" icon={<ArrowDown size={14} />} disabled={busy || listIndex === visibleLists.length - 1} onClick={() => move('list', list.id, visibleLists[listIndex + 1].id)}>Move list down</DropdownMenuItem>
+              <hr className="dropdown-menu-divider" />
+              <DropdownMenuItem role="menuitem" icon={<Trash2 size={14} />} disabled={busy} onClick={() => setConfirmation({ id: list.id, archivedOnly: true, title: `Delete all archived notes in “${list.name}”?` })}>Delete all archived notes</DropdownMenuItem>
+              <DropdownMenuItem role="menuitem" icon={<Trash2 size={14} />} disabled={busy} onClick={() => setConfirmation({ id: list.id, title: `Delete “${list.name}” and all its notes?` })}>Delete list</DropdownMenuItem>
             </NotesMenu>
             </span>
           </summary>
           <ul className="notes-items">
-            {items.map((note, index) => <li key={note.id} className={`notes-item${note.done ? ' is-done' : ''}`}
+            {items.map((note, index) => {
+              const due = note.dueAt ? new Date(note.dueAt) : null;
+              const overdue = due && !note.done && !note.archived && !list.archived && due.getTime() < now;
+              const dueToday = due && !note.done && !note.archived && !list.archived && due.toDateString() === new Date(now).toDateString();
+              const dueLabel = overdue ? 'Overdue' : dueToday ? 'Due today' : 'Due';
+              return <li key={note.id} className={`notes-item${note.done ? ' is-done' : ''}`}
               onDragOver={(event) => { if (dragRef.current?.kind === 'note' && dragRef.current.listId === list.id) event.preventDefault(); }}
               onDrop={(event) => { const drag = dragRef.current; if (drag?.kind !== 'note') return; event.preventDefault(); event.stopPropagation(); dragRef.current = null; if (drag.listId === list.id) void move('note', drag.id, note.id, list.id); }}>
               <span className="notes-grip" draggable={!busy} title="Drag to reorder note" onDragStart={(event) => { event.stopPropagation(); dragRef.current = { kind: 'note', id: note.id, listId: list.id }; event.dataTransfer.setData('text/plain', note.id); }} onDragEnd={() => { dragRef.current = null; }}><GripVertical size={13} /></span>
               <input type="checkbox" checked={note.done} disabled={busy} aria-label={`Mark ${note.title} ${note.done ? 'not done' : 'done'}`} onChange={(event) => mutate(() => api.save({ id: note.id, done: event.target.checked }))} />
               <button type="button" className="notes-copy" onClick={() => setEditor({ ...note, kind: 'note', dueAt: note.dueAt ? new Date(Date.parse(note.dueAt) - new Date(note.dueAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '' })}>
                 <strong>{note.title}</strong>{note.description && <span>{note.description}</span>}
-                <small>{[note.priority !== 'none' ? `${note.priority} priority` : '', note.dueAt ? `Due ${new Date(note.dueAt).toLocaleString()}` : '', note.subtasks.length ? `${note.subtasks.filter((task) => task.done).length}/${note.subtasks.length} subtasks` : '', note.attachments.length ? `${note.attachments.length} files` : '', note.archived ? 'Archived' : ''].filter(Boolean).join(' · ')}</small>
+                {(note.priority !== 'none' || due) && <small className="notes-metadata">
+                  {note.priority !== 'none' && <span className={`notes-priority is-${note.priority}`}><Flag size={12} />{note.priority[0].toUpperCase() + note.priority.slice(1)} priority</span>}
+                  {due && <time dateTime={note.dueAt} title={due.toLocaleString()} className={`notes-due${overdue ? ' is-overdue' : dueToday ? ' is-today' : ''}`}>
+                    <CalendarClock size={12} />{dueLabel} · {due.toLocaleString([], { month: 'short', day: 'numeric', ...(due.getFullYear() !== new Date(now).getFullYear() ? { year: 'numeric' } : {}), hour: '2-digit', minute: '2-digit' })}
+                  </time>}
+                </small>}
+                {(note.subtasks.length > 0 || note.attachments.length > 0 || note.archived) && <small>{[note.subtasks.length ? `${note.subtasks.filter((task) => task.done).length}/${note.subtasks.length} subtasks` : '', note.attachments.length ? `${note.attachments.length} files` : '', note.archived ? 'Archived' : ''].filter(Boolean).join(' · ')}</small>}
               </button>
               <NotesMenu label={`Options for ${note.title}`}>
-                <button type="button" disabled={busy} onClick={() => mutate(() => api.save({ id: note.id, done: !note.done }))}>{note.done ? 'Set status: Not done' : 'Set status: Done'}</button>
-                {[['Set due date', 'details'], ['Manage attachments', 'attachments'], ['Manage sub-tasks', 'subtasks']].map(([label, tab]) => <button type="button" key={label} onClick={() => setEditor({ ...note, kind: 'note', tab, dueAt: note.dueAt ? new Date(Date.parse(note.dueAt) - new Date(note.dueAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '' })}>{label}</button>)}
-                <hr />
-                <button type="button" disabled={busy || index === 0} onClick={() => move('note', note.id, items[index - 1].id, list.id)}>Move up</button>
-                <button type="button" disabled={busy || index === items.length - 1} onClick={() => move('note', note.id, items[index + 1].id, list.id)}>Move down</button>
-                <hr /><button type="button" disabled={busy} onClick={() => mutate(() => api.save({ id: note.id, archived: !note.archived }))}>{note.archived ? 'Restore' : 'Archive'}</button>
+                <DropdownMenuItem role="menuitem" icon={<AtSign size={14} />} disabled={!onAddToChat}
+                onClick={() => onAddToChat?.({
+                  id: crypto.randomUUID(), kind: 'context_marker', markerType: 'note_reference', markerKey: note.id,
+                  name: `@${note.title}`, size: 0,
+                  text: `Referenced note (snapshot):\n${JSON.stringify({ id: note.id, title: note.title, description: note.description, priority: note.priority, dueAt: note.dueAt, done: note.done, subtasks: note.subtasks.map(({ text, done }) => ({ text, done })) }, null, 2)}`,
+                })}>Mention in chat</DropdownMenuItem>
+                <DropdownMenuItem role="menuitem" icon={note.done ? <Circle size={14} /> : <CheckCircle2 size={14} />} disabled={busy} onClick={() => mutate(() => api.save({ id: note.id, done: !note.done }))}>{note.done ? 'Set status: Not done' : 'Set status: Done'}</DropdownMenuItem>
+                {[['Set due date', 'details', CalendarClock], ['Manage attachments', 'attachments', Paperclip], ['Manage sub-tasks', 'subtasks', ListChecks]].map(([label, tab, Icon]) => <DropdownMenuItem role="menuitem" icon={<Icon size={14} />} key={label} disabled={busy} onClick={() => setEditor({ ...note, kind: 'note', tab, dueAt: note.dueAt ? new Date(Date.parse(note.dueAt) - new Date(note.dueAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '' })}>{label}</DropdownMenuItem>)}
+                <hr className="dropdown-menu-divider" />
+                <DropdownMenuItem role="menuitem" icon={<ArrowUp size={14} />} disabled={busy || index === 0} onClick={() => move('note', note.id, items[index - 1].id, list.id)}>Move up</DropdownMenuItem>
+                <DropdownMenuItem role="menuitem" icon={<ArrowDown size={14} />} disabled={busy || index === items.length - 1} onClick={() => move('note', note.id, items[index + 1].id, list.id)}>Move down</DropdownMenuItem>
+                <hr className="dropdown-menu-divider" />
+                <DropdownMenuItem role="menuitem" icon={note.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />} disabled={busy} onClick={() => mutate(() => api.save({ id: note.id, archived: !note.archived }))}>{note.archived ? 'Restore' : 'Archive'}</DropdownMenuItem>
               </NotesMenu>
-            </li>)}
+            </li>;
+            })}
           </ul>
           {items.length === 0 && <p className="notes-empty">No matching notes.</p>}
         </details>;

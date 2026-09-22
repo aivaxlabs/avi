@@ -121,7 +121,9 @@ Variant fields:
 | `text_inline` | `text: string`. |
 | `file` | `dataUrl: string`, including PDF/file data. |
 | `file_reference` | No required extra field; content remains at `path`. |
-| `context_marker` | Marker metadata may be added by the composer; no binary payload is required. |
+| `context_marker` | `text: string` supplies context to the model; `markerType?: string` and `markerKey?: string` identify the marker. No binary payload is required. |
+
+Desktop **Mention in chat** creates a `context_marker` with `markerType: "note_reference"`, `markerKey` set to the saved note ID, a display `name`, and `size: 0`. Its `text` contains a self-contained note snapshot, including ordered subtasks; it excludes copied file bytes. `markerKey` is metadata, not a server-side lookup: the model receives `text` as captured when mentioned.
 
 Avi can normalize or materialize attachments before persistence. Clients must use the returned attachment object as authoritative.
 

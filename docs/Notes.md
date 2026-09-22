@@ -14,6 +14,12 @@ Create a list with the toolbar’s **+**, then select **New note** in the list h
 
 The Desktop note editor uses the shared app dialog backdrop, header, and footer, with **Details**, **Sub-tasks**, and **Attachments** tabs. Escape or clicking the backdrop closes the editor when no save is in progress; keyboard focus stays inside the dialog and returns to the opener on close. Drafts are preserved when switching tabs; Save validates all tabs and reveals any required field that needs attention. The note menu opens the relevant tab directly. Save and Cancel remain visible while tab content scrolls.
 
+Desktop list and note menus use shared dropdown styling and icons. Arrow keys, Home and End navigate enabled actions; Escape closes the menu and restores trigger focus. Selection, outside interaction, panel scrolling and window resizing dismiss the menu. Filters use the same surface with native form controls.
+
+Each note’s **...** dropdown contains **Mention in chat**, with an **@** icon. It adds a snapshot of the note’s title, ID, text, priority, deadline, completion state and ordered subtasks to the current composer, without sending a message or changing the note. Copied file attachments are not included. The snapshot does not automatically update when the note changes.
+
+Priority and deadline appear separately with icons and labels. High/urgent priorities are emphasized; unfinished, non-archived notes show **Overdue** or **Due today** as appropriate. Deadline labels use local time, refresh every minute, and retain the full timestamp in their tooltip. Completed or archived notes keep their deadline without an overdue warning.
+
 The checkbox beside a note marks it done; it does not archive it. The note menu changes completion status, opens deadline/subtask/attachment editing, and archives or restores the note. Archived notes and lists are hidden by default. The status filter can show not done, done, archived, all, or all non-archived notes.
 
 Search matches titles, text, and subtask text. Additional filters select priority and an inclusive local-date range for creation, update, or due time. Deadlines are stored as UTC instants and displayed in local time. The panel loads up to 5,000 notes within the selected folder scope and warns when that limit is exceeded.

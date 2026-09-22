@@ -887,7 +887,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
               onRunAgent={onRunAgent}
             />
           ) : activeTab === 'notes' ? (
-            <NotesPanel key={project?.path ?? 'global'} folderPath={project?.path ?? null} />
+            <NotesPanel key={project?.path ?? 'global'} folderPath={project?.path ?? null} onAddToChat={onAddToChat} />
           ) : activeProviderPanel ? (
             <ProviderPanel
               panel={activeProviderPanel}

@@ -4,6 +4,8 @@ Notes methods run on the authenticated **global** `/rpc` socket. Use discovery t
 
 The [Notes contract table](../../Notes.md#public-ipc--rpc-contract) documents list CRUD, note creation/editing/search, ordering, auxiliary generation, and attachment reads. `notes:get` accepts `{id}` and returns the full note snapshot, including ordered subtasks and attachment metadata. It rejects unknown IDs.
 
+Desktop **Mention in chat** adds a local composer [context marker](types.md#attachment) containing a note snapshot. It does not call a `notes:*` method or change the note; no additional RPC endpoint is required.
+
 ## Browser attachment upload
 
 Use `notes:upload-attachment`, never a browser file path. The Desktop host cannot resolve a file path from the browser machine.

@@ -32,7 +32,7 @@
     flex: 1;
     overflow: auto;
     min-height: 0;
-    padding-bottom: 180px;
+    padding-bottom: 8px;
 
     > .notes-list {
       border-bottom: 1px solid var(--border-color);
@@ -122,8 +122,48 @@
             }
 
             > small {
-              font-size: 10px;
+              font-size: var(--font-xs);
               color: var(--text-3);
+
+              &.notes-metadata {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px 8px;
+
+                > .notes-priority,
+                > .notes-due {
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 4px;
+                  color: var(--text-2);
+
+                  > svg {
+                    flex: none;
+                  }
+                }
+
+                > .notes-priority {
+                  &.is-high {
+                    color: var(--warn-color);
+                    font-weight: 600;
+                  }
+
+                  &.is-urgent {
+                    color: var(--danger-color);
+                    font-weight: 600;
+                  }
+                }
+
+                > .notes-due {
+                  &.is-overdue {
+                    color: var(--danger-color);
+                  }
+
+                  &.is-today {
+                    color: var(--warn-color);
+                  }
+                }
+              }
             }
           }
 
@@ -166,72 +206,32 @@
   }
 }
 
-.notes-menu {
-  position: relative;
-  flex: none;
+.dropdown-menu.notes-dropdown {
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
 
-  > summary {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    list-style: none;
-    cursor: pointer;
-    width: 26px;
-    height: 26px;
-    border-radius: 4px;
-
-    &:hover {
-      background: var(--background-3);
-    }
-  }
-
-  > .notes-menu-content {
-    position: absolute;
-    right: 0;
-    top: 100%;
-    z-index: 20;
-    width: 210px;
-    max-height: 360px;
-    overflow: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: 8px;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    background: var(--background-2);
-    box-shadow: 0 8px 24px #0004;
-
-    > button {
-      background: transparent;
-      color: var(--text-1);
-      text-align: left;
-      border: 0;
-      padding: 6px;
-      border-radius: 3px;
-
-      &:hover {
-        background: var(--background-3);
-      }
-    }
-
-    > strong {
-      color: var(--text-3);
-      font-size: 10px;
-      padding: 5px;
-    }
-
-    > hr {
-      width: 100%;
-      border: 0;
-      border-top: 1px solid var(--border-color);
-    }
+  &.notes-filters {
+    width: 240px;
+    padding: 12px;
+    gap: 8px;
 
     > label {
       display: flex;
       flex-direction: column;
       gap: 4px;
-      margin-bottom: 5px;
+      font-size: var(--font-sm);
+      color: var(--text-2);
+
+      > input:not([type=checkbox]),
+      > select {
+        min-width: 0;
+        background: var(--background-2);
+        border: 1px solid var(--border-color);
+        color: var(--text-1);
+        border-radius: 4px;
+        padding: 6px;
+      }
 
       &.notes-checkbox {
         flex-direction: row;

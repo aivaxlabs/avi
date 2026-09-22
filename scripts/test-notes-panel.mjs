@@ -46,7 +46,7 @@ writeFileSync(join(harnessDir, 'test-entry.jsx'), [
   `const state = {`,
   `  lists: [{ id: 'list-work', name: 'Work', folderPath: null, archived: false, orderBy: 'manual', position: 0, createdAt: now(), updatedAt: now() }],`,
   `  notes: [`,
-  `    { id: 'note-open', listId: 'list-work', title: 'Seed open note', description: 'seed description', priority: 'none', dueAt: null, done: false, archived: false, position: 0,`,
+  `    { id: 'note-open', listId: 'list-work', title: 'Seed open note', description: 'seed description', priority: 'urgent', dueAt: new Date(Date.now() - 3600000).toISOString(), done: false, archived: false, position: 0,`,
   `      subtasks: [{ id: 'st-1', text: 'first subtask', done: false }, { id: 'st-2', text: 'second subtask', done: false }], attachments: [], createdAt: now(), updatedAt: now() },`,
   `    { id: 'note-done', listId: 'list-work', title: 'Seed done note', description: '', priority: 'none', dueAt: null, done: true, archived: false, position: 1,`,
   `      subtasks: [], attachments: [], createdAt: now(), updatedAt: now() },`,
@@ -91,7 +91,7 @@ writeFileSync(join(harnessDir, 'test-entry.jsx'), [
   `  pickAttachments: async () => null,`,
   `}};`,
   ``,
-  `function Harness() { return <div style={{ height: '100vh', width: 'min(420px, 100vw)' }}><NotesPanel folderPath={null} /></div>; }`,
+  `function Harness() { return <div style={{ height: '100vh', width: 'min(420px, 100vw)' }}><NotesPanel folderPath={null} onAddToChat={(attachment) => { window.__mention = attachment; }} /></div>; }`,
   `createRoot(document.getElementById('root')).render(<Harness />);`,
   ``,
 ].join('\n'));
@@ -141,6 +141,14 @@ function listByName(name) {
   return qa('.notes-list').find((el) => (q('.notes-list-heading strong', el)?.textContent || '').startsWith(name));
 }
 function dialog() { return q('.notes-dialog'); }
+async function clickMenuItem(label) {
+  const item = qa('.notes-dropdown button').find((element) => element.textContent === label);
+  item.scrollIntoView({ block: 'nearest' });
+  await sleep(200);
+  const bounds = item.getBoundingClientRect();
+  console.log('[native-click] ' + JSON.stringify({ x: Math.round(bounds.left + bounds.width / 2), y: Math.round(bounds.top + bounds.height / 2) }));
+  await wait_for(() => !q('.notes-dropdown'), 2000, 'native action: ' + label);
+}
 (async () => {
   console.log('[driver] start');
   window.__errors = [];
@@ -172,11 +180,63 @@ function dialog() { return q('.notes-dialog'); }
   const work = listByName('Work');
   const heading = q('.notes-list-heading', work);
   check('list actions live in summary instead of a separate row', Boolean(q('.notes-list-actions', heading)) && !q('.notes-list-heading > small', work));
-  q('.notes-menu > summary', heading).click();
-  await wait_for(() => q('.notes-menu', heading).open, 2000, 'list menu open');
+  const menuTrigger = q('button[aria-label="List options for Work"]', heading);
+  menuTrigger.click();
+  await wait_for(() => q('.notes-dropdown[role="menu"]'), 2000, 'list menu open');
   check('opening list menu does not collapse list', work.open);
-  q('.notes-menu > summary', heading).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  check('Escape closes menu without collapsing list', !q('.notes-menu', heading).open && work.open);
+  check('menu uses shared portaled surface', q('.notes-dropdown').parentElement === document.body);
+  check('menu initially focuses first action', document.activeElement.textContent === 'Rename list');
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+  check('End focuses last action', document.activeElement.textContent === 'Delete list');
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  check('ArrowDown wraps menu focus', document.activeElement.textContent === 'Rename list');
+  qa('.notes-dropdown button').find((el) => el.textContent === 'Manual').focus();
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  check('keyboard navigation skips disabled action', document.activeElement.textContent === 'Move list down');
+  const menuBounds = q('.notes-dropdown').getBoundingClientRect();
+  check('menu fits viewport', menuBounds.left >= 0 && menuBounds.right <= innerWidth && menuBounds.top >= 0 && menuBounds.bottom <= innerHeight);
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await wait_for(() => !q('.notes-dropdown'), 2000, 'menu closed');
+  check('Escape closes menu and restores focus without collapsing list', document.activeElement === menuTrigger && work.open);
+  menuTrigger.click();
+  await wait_for(() => q('.notes-dropdown'), 2000, 'menu reopened');
+  q('input[aria-label="Filter notes"]').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  await wait_for(() => !q('.notes-dropdown'), 2000, 'outside closes');
+  check('outside pointer closes menu', !q('.notes-dropdown'));
+  menuTrigger.click();
+  await wait_for(() => q('.notes-dropdown'), 2000, 'rename menu');
+  await clickMenuItem('Rename list');
+  await wait_for(() => dialog(), 2000, 'rename action runs');
+  check('native menu click opens rename dialog', q('#notes-dialog-title').textContent === 'Rename list');
+  q('.notes-dialog button[aria-label="Close"]').click();
+  await wait_for(() => !dialog(), 2000, 'rename closed');
+  menuTrigger.click();
+  await wait_for(() => q('.notes-dropdown'), 2000, 'ordering menu');
+  await clickMenuItem('Priority');
+  await wait_for(() => window.__notes.state.lists.find((list) => list.id === 'list-work').orderBy === 'priority', 2000, 'order action persisted');
+  check('native menu click persists ordering', true);
+  await window.chatApp.notes.saveList({ id: 'list-work', orderBy: 'manual' });
+  const callsBeforeMention = window.__notes.calls.length;
+  q('button[aria-label="Options for Seed open note"]').click();
+  await wait_for(() => q('.notes-dropdown'), 2000, 'mention menu');
+  await clickMenuItem('Mention in chat');
+  const mention = window.__mention;
+  const snapshot = JSON.parse(mention.text.slice(mention.text.indexOf('{')));
+  check('mention emits self-contained note marker without mutation', mention.kind === 'context_marker' && mention.markerType === 'note_reference' && mention.markerKey === 'note-open' && mention.name === '@Seed open note' && snapshot.description === 'seed description' && snapshot.subtasks[0].text === 'first subtask' && window.__notes.calls.length === callsBeforeMention);
+  check('priority and overdue have explicit text and icons', q('.notes-priority.is-urgent').textContent === 'Urgent priority' && q('.notes-due.is-overdue').textContent.includes('Overdue') && Boolean(q('.notes-priority svg')));
+  await window.chatApp.notes.save({ id: 'note-open', done: true });
+  await wait_for(() => !q('.notes-due.is-overdue'), 2000, 'completed deadline neutral');
+  check('completed note has no overdue warning', Boolean(q('.notes-due')) && !q('.notes-due.is-overdue'));
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+  await window.chatApp.notes.save({ id: 'note-open', done: false, dueAt: todayEnd.toISOString() });
+  await wait_for(() => q('.notes-due.is-today'), 2000, 'due today label');
+  check('upcoming local-day deadline says Due today', q('.notes-due.is-today').textContent.includes('Due today'));
+  q('button[aria-label="Filter by"]').click();
+  await wait_for(() => q('.notes-filters'), 2000, 'filters opened');
+  check('filter uses dialog semantics and focuses form', q('.notes-filters').getAttribute('role') === 'dialog' && document.activeElement.tagName === 'SELECT');
+  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await wait_for(() => !q('.notes-filters'), 2000, 'filters closed');
   heading.click();
   await wait_for(() => !work.open, 2000, 'list collapsed');
   qa('button', heading).find((el) => el.textContent.includes('New note')).click();
@@ -228,12 +288,16 @@ function dialog() { return q('.notes-dialog'); }
   check('filters notes by query', titles().length === 1);
   setInput(filter, '');
   await wait_for(() => titles().length >= 3, 3000, 'filter cleared');
+  q('button[aria-label="Filter by"]').click();
+  await wait_for(() => q('.notes-filters select'), 2000, 'status filter opened');
   const statusSelect = q('.notes-filters select');
   setInput(statusSelect, 'done', 'change');
   await wait_for(() => titles().length === 2 && titles().includes('Seed done note') && titles().includes('Driver note edited'), 3000, 'done filter');
   check('filters notes by done status', titles().length === 2);
   setInput(statusSelect, 'active', 'change');
   await wait_for(() => titles().includes('Seed open note'), 3000, 'active filter');
+  statusSelect.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await wait_for(() => !q('.notes-filters'), 2000, 'status filter closed');
 
   q('button[aria-label="New list"]').click();
   await wait_for(() => dialog()?.isConnected, 2000, 'cancel-target dialog');
@@ -281,7 +345,9 @@ function dialog() { return q('.notes-dialog'); }
     q('.notes-panel').parentElement.style.width = width + 'px';
     check('no panel overflow at ' + width, q('.notes-panel').scrollWidth <= q('.notes-panel').clientWidth);
   }
-  qa('.notes-item button').find((el) => el.textContent === 'Manage attachments').click();
+  q('.notes-item button[aria-haspopup="menu"]').click();
+  await wait_for(() => q('.notes-dropdown[role="menu"]'), 2000, 'note menu opened');
+  await clickMenuItem('Manage attachments');
   await wait_for(() => dialog()?.isConnected && !q('#notes-panel-attachments').hidden, 2000, 'direct attachments tab');
   check('attachment menu opens Attachments directly', q('#notes-tab-attachments').getAttribute('aria-selected') === 'true');
   q('#notes-tab-attachments').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
@@ -312,6 +378,12 @@ app.whenReady().then(async () => {
   win.once('ready-to-show', () => win.showInactive());
   win.webContents.on('console-message', (event) => {
     if (String(event.message).includes('Download the React DevTools')) return;
+    if (String(event.message).startsWith('[native-click] ')) {
+      const point = JSON.parse(event.message.slice('[native-click] '.length));
+      win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+      win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point });
+      win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point });
+    }
     console.log('[page]', event.message);
   });
 

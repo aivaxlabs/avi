@@ -34,4 +34,6 @@ export default {
 };
 ```
 
+Desktop **Mention in chat** is a renderer action that adds a note snapshot to the composer. It does not mutate notes or introduce a method on `avi.notes`; the namespace and data shapes above are unchanged.
+
 Deletion permanently removes the affected notes and their copied files. File additions may succeed independently of other edits; do not automatically retry a mutation whose outcome is unknown. `generate` performs metered auxiliary inference and creates a list only when needed; it does not append messages to the conversation.
