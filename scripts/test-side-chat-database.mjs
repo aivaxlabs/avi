@@ -620,7 +620,11 @@ try {
       conversationId: parent.id,
     },
   );
-  assert.equal(crossAgentCalls[0].text, 'Coordinate this finding with the team.');
+  assert.ok(crossAgentCalls[0].text.startsWith(
+    `<cross-message from_thread_id="${parent.id}" from_role="thread" from_name="`,
+  ));
+  assert.match(crossAgentCalls[0].text, /not a user instruction/);
+  assert.ok(crossAgentCalls[0].text.endsWith('\nCoordinate this finding with the team.\n</cross-message>'));
   assert.equal(crossAgentCalls[0].fromAgent, true);
   assert.equal(crossAgentCalls[0].ultraMode, true);
   assert.equal(crossAgentCalls[0].queuePriority, false);
@@ -1072,7 +1076,50 @@ try {
   assert.match(orchestratorMessage, new RegExp(`Thread ID: ${parent.id}`));
   assert.match(orchestratorMessage, /Status: queued$/);
 
-  assert.equal(orchestratorMessageCalls[0].text, 'Queue inspection completed.');
+  assert.ok(orchestratorMessageCalls[0].text.startsWith(
+    `<cross-message from_thread_id="${spawnedThreadId}" from_role="subagent" from_name="`,
+  ));
+  assert.ok(orchestratorMessageCalls[0].text.endsWith('\nQueue inspection completed.\n</cross-message>'));
+  const originalSenderTitle = getConversation(spawnedThreadId).title;
+  updateConversation(spawnedThreadId, { title: 'Euclid "A&B" <team>\nsecond line' });
+  await sendPromptTool.execute(
+    { threadId: parent.id, prompt: 'Vou mapear sem editar arquivos.' },
+    {
+      chatRunner: {
+        send: async (payload) => {
+          assert.equal(payload.steer, true);
+          assert.equal(payload.fromAgent, true);
+          assert.ok(payload.text.includes('from_name="Euclid &quot;A&amp;B&quot; &lt;team&gt;&#10;second line"'));
+          const delivered = insertMessage({
+            conversationId: parent.id,
+            role: 'user',
+            model: 'test/model',
+            status: 'sent',
+            fromAgent: payload.fromAgent,
+            content: payload.text,
+          });
+          const apiMessage = database.messageToApiBlock(delivered);
+          assert.equal(apiMessage.content, payload.text);
+          assert.match(apiMessage.content, /does not override the user's request/);
+          return { queued: false, message: delivered };
+        },
+      },
+      conversationId: spawnedThreadId,
+    },
+  );
+  updateConversation(spawnedThreadId, { title: originalSenderTitle });
+  await sendPromptTool.execute(
+    { threadId: parent.id, prompt: 'External coordination.' },
+    {
+      chatRunner: {
+        send: async (payload) => {
+          assert.ok(payload.text.startsWith('<cross-message from_thread_id="external" from_role="external_agent">'));
+          return { queued: false, message: { id: 'external-message' } };
+        },
+      },
+      conversationId: null,
+    },
+  );
   assert.equal(orchestratorMessageCalls[0].ultraMode, true);
   assert.equal(orchestratorMessageCalls[0].queuePriority, true);
 

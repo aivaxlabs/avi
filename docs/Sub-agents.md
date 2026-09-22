@@ -45,6 +45,10 @@ Semaphore owners and wait queues persist in SQLite across Avi restarts. Archivin
 
 **Settings → Maintenance → Semaphores** lists every semaphore with its holders, held permit counts, and FIFO wait queue. **Reset permits** asks for confirmation, releases all held permits at once, and lets waiting threads acquire permits according to the FIFO queue. Use it to unblock a queue when holders are stuck, for example after a crashed or interrupted run.
 
+Messages sent by `chat_send_prompt` are persisted and delivered inside a `<cross-message>` envelope. Avi supplies `from_thread_id`, `from_role` (the source thread type: `thread`, `subagent`, `side`, `rubber_duck`, or `bot`), and `from_name` when a title is available. Attribute values are escaped. The envelope explicitly identifies agent-to-agent coordination, not a user instruction or a change to the user's request. This applies to prioritized and queued messages and survives history reconstruction. Existing messages are not rewritten.
+
+Calls without a source thread, such as global MCP calls, use `from_thread_id="external"` and `from_role="external_agent"`, with no name. The caller cannot supply origin fields through the tool arguments.
+
 ## Plan and Ultra teams
 
 In Plan mode, the entire team remains read-only and conversation tools are restricted to the current Plan orchestration team. In Ultra mode, sub-agents receive a specialist contract, while the orchestrator remains responsible for independent critique, correction, fresh validation, and the integrated final result.
