@@ -33,6 +33,8 @@ Archive maintenance runs once at Avi startup. Startup maintenance applies the co
 
 **Run forced cleanup** is intentionally more destructive. It first archives ordinary threads eligible under the automatic archive policy, then permanently deletes the entire archive, including side chats and sub-agents that are archived with their parent thread. Active, non-archived side chats and sub-agents are preserved. It also prunes bot conversation history using the configured retention window. Bot definitions and their most recent retained conversation round remain available.
 
+After forced cleanup completes, Maintenance refreshes the archive list, pagination, retention settings, and storage statistics before showing the cleanup result. A refresh failure does not undo permanent deletions.
+
 Bot history pruning starts at the first human message or `<bot-activation>` message inside the configured retention window and deletes every older message. If no activity falls inside the window, Avi keeps the bot's most recent round as minimal context. Bots with an active or resumable run, pending queue, or active Goal are skipped until a later maintenance run.
 
 Deleting temporary storage can remove temporary attachments, tool outputs, logs, and cached media. It does not delete every saved conversation, but artifacts that were only temporary will no longer be available.

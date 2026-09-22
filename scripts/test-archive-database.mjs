@@ -1,8 +1,63 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+
+const runtimeSource = readFileSync(new URL('../src/main/runtime.js', import.meta.url), 'utf8');
+const handlerStart = runtimeSource.indexOf("  applicationIpc.handle('archive:maintenance',");
+const handlerEnd = runtimeSource.indexOf("  applicationIpc.handle('archive:temporary-storage',", handlerStart);
+assert.ok(handlerStart >= 0 && handlerEnd > handlerStart);
+const handlers = new Map();
+const maintenance = { archived: 1, deletedArchived: 2, deletedDisposable: 0, prunedBotMessages: 0 };
+const archiveSnapshot = {
+  settings: { archiveAfterDays: 7 },
+  conversations: [],
+  pagination: { page: 1, pageSize: 20, total: 0, totalPages: 1 },
+  stats: { total: 0, active: 0, archived: 0, diskBytes: 0 },
+};
+let resolveArchiveState;
+let rejectArchiveState;
+let receivedOptions;
+let cleanupCalls = 0;
+new Function('applicationIpc', 'chatRunner', 'listForcedCleanupConversationIds', 'runArchiveMaintenance', 'archiveState', `
+  let forcedCleanupRunning = false;
+  ${runtimeSource.slice(handlerStart, handlerEnd)}
+`)(
+  { handle: (name, handler) => handlers.set(name, handler) },
+  { runs: new Map(), removeConversationSemaphores() {}, semaphores: { cleanMissingConversations() {} } },
+  () => [],
+  () => { cleanupCalls += 1; return maintenance; },
+  (options) => {
+    receivedOptions = options;
+    return new Promise((resolve, reject) => {
+      resolveArchiveState = resolve;
+      rejectArchiveState = reject;
+    });
+  },
+);
+const maintenanceHandler = handlers.get('archive:maintenance');
+const archiveOptions = { query: 'archived', page: 2, pageSize: 20 };
+const responsePromise = maintenanceHandler(null, archiveOptions);
+await Promise.resolve();
+resolveArchiveState(archiveSnapshot);
+const response = await responsePromise;
+assert.deepEqual(response, { ...archiveSnapshot, maintenance }, 'forced cleanup must return the resolved archive state');
+assert.equal(receivedOptions, archiveOptions);
+assert.equal(response.settings.archiveAfterDays, 7);
+assert.equal(response.pagination.page, 1);
+
+const failedRefresh = maintenanceHandler(null, archiveOptions);
+await Promise.resolve();
+await assert.rejects(maintenanceHandler(null, archiveOptions), /already running/);
+rejectArchiveState(new Error('Archive refresh failed'));
+await assert.rejects(failedRefresh, /Archive refresh failed/);
+const retry = maintenanceHandler(null, archiveOptions);
+await Promise.resolve();
+resolveArchiveState(archiveSnapshot);
+assert.deepEqual(await retry, { ...archiveSnapshot, maintenance });
+assert.equal(cleanupCalls, 3, 'concurrent cleanup is rejected and the guard resets after refresh failure');
+console.log('Archive maintenance async response contract passed.');
 
 const testProfile = mkdtempSync(join(tmpdir(), 'avi-archive-test-'));
 const resolvedProfile = resolve(testProfile);

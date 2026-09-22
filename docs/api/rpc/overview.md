@@ -34,9 +34,13 @@ The complete framing, reconstruction, and recovery rules are specified in the bu
 
 The global socket exposes `notes:lists`, `notes:save-list`, `notes:delete-list`, `notes:search`, `notes:save`, `notes:reorder`, `notes:generate`, `notes:add-attachment`, and `notes:read-attachment`. See [Notes: public IPC / RPC contract](../../Notes.md#public-ipc--rpc-contract) for payloads, data shapes, pagination, file chunking, and archive semantics. `notes:get` retrieves one note and `notes:upload-attachment` accepts browser files in bounded chunks. See [Notes RPC](notes.md) for the upload/download protocol. Native file-picker/export dialogs remain local-only.
 
+## Archive maintenance
+
+`archive:maintenance` accepts archive-list options `{ query, page, pageSize }` and returns the fully resolved archive state `{ settings, conversations, pagination, stats }` plus `maintenance: { archived, deletedArchived, deletedDisposable, prunedBotMessages }`. The request completes only after the post-cleanup archive refresh resolves; a refresh failure rejects the request but does not roll back completed deletions. Concurrent forced cleanup requests are rejected while cleanup or its refresh is in progress.
+
 ## Plugin management
 
-`plugins:list` returns plugin inventory with `builtIn: boolean` per record, `builtInPluginsDir`, `pluginsDir`, failures and `restartRequired`. `plugins:set-enabled` accepts `{ id, enabled }` for either category; changes apply after restart. `plugins:remove` rejects built-ins. `plugins:install-chrome-extension` takes no payload, opens the bundled Chrome extension folder, copies its path to the desktop clipboard and returns `{ extensionPath }`; the user completes Load unpacked in Chrome. It does not install an extension silently or publish it to the Chrome Web Store.
+`plugins:list` returns plugin inventory with `builtIn: boolean` per record, `builtInPluginsDir`, `pluginsDir`, failures and `restartRequired`. `plugins:set-enabled` accepts `{ id, enabled }` for either category; changes apply after restart. For built-ins, the preference is saved to the user's SQLite database before success is returned; a write failure rejects the request without changing the inventory or restart flag. Startup imports legacy `.avi-built-in-state.json` only when no database state exists. Request and response shapes are unchanged. `plugins:remove` rejects built-ins. `plugins:install-chrome-extension` takes no payload, opens the bundled Chrome extension folder, copies its path to the desktop clipboard and returns `{ extensionPath }`; the user completes Load unpacked in Chrome. It does not install an extension silently or publish it to the Chrome Web Store.
 
 ## Method names
 
