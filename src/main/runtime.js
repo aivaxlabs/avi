@@ -1702,7 +1702,7 @@ function registerIpc() {
     };
   };
   const loadComposerState = async (conversationId) => {
-    const state = getComposerState(conversationId);
+    const state = getComposerState(conversationId, { restoreLastMessage: true });
     if (!state) return null;
     const attachments = await materializeLegacyVideoAttachments(state.attachments);
     return attachments.some((attachment, index) => attachment !== state.attachments[index])

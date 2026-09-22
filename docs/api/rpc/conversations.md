@@ -189,7 +189,9 @@ Updated [`Conversation`](types.md#conversation), or `null` when the conversation
 
 ## `composer-state:get`
 
-Returns the persisted composer draft for the URL conversation. Legacy video attachments may be materialized and persisted during this read.
+Returns the composer state for the URL conversation. Model, reasoning effort, work mode, and Ultra selection come from the latest visible, non-agent-authored user message (including queued or steered messages), rather than an older saved selection. Cancelled messages do not participate. Draft text, attachments, and permission mode remain independently persisted. Without a qualifying message, saved draft selections are used. Rubber Duck remains a conversation type, not a work-mode value. This restoration also applies to the `composer` snapshot in `conversations:context`.
+
+Legacy video attachments may be materialized and persisted during this read.
 
 ### Params
 
@@ -197,7 +199,7 @@ Omit `params`, or set `params.payload` to the same conversation ID as the URL.
 
 ### Result
 
-[`ComposerState`](types.md#composerstate), or `null` when no state has been saved.
+[`ComposerState`](types.md#composerstate), or `null` when neither a saved draft nor a qualifying user message exists.
 
 ## `composer-state:save`
 

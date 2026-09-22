@@ -974,6 +974,14 @@ const statements = {
   getComposerState: db.prepare(`
     SELECT * FROM conversation_composer_states WHERE conversation_id = ?
   `),
+  getLastComposerMessage: db.prepare(`
+    SELECT model, reasoning_effort, work_mode, ultra_mode, updated_at
+    FROM messages
+    WHERE conversation_id = ? AND role = 'user' AND hidden = 0 AND from_agent = 0
+      AND status IN ('sent', 'completed', 'aborted', 'waiting_mcp', 'queued', 'steered')
+    ORDER BY created_at DESC, rowid DESC
+    LIMIT 1
+  `),
   upsertComposerState: db.prepare(`
     INSERT INTO conversation_composer_states (
       conversation_id, permission_mode, model, reasoning_effort, work_mode,
@@ -2264,19 +2272,23 @@ export function getConversation(id) {
   return row ? mapConversation(row) : null;
 }
 
-export function getComposerState(conversationId) {
+export function getComposerState(conversationId, { restoreLastMessage = false } = {}) {
   const row = statements.getComposerState.get(conversationId);
-  if (!row) return null;
+  const message = restoreLastMessage
+    ? statements.getLastComposerMessage.get(conversationId)
+    : null;
+  if (!row && !message) return null;
+  const selection = message ?? row;
   return {
-    conversationId: row.conversation_id,
-    permissionMode: row.permission_mode,
-    model: row.model,
-    reasoningEffort: row.reasoning_effort,
-    workMode: row.work_mode,
-    ultraMode: Boolean(row.ultra_mode),
-    draftText: row.draft_text,
-    attachments: parse(row.attachments, []),
-    updatedAt: row.updated_at,
+    conversationId,
+    permissionMode: row?.permission_mode ?? getPreferences().tuning.defaultPermissionMode,
+    model: selection.model,
+    reasoningEffort: selection.reasoning_effort,
+    workMode: selection.work_mode,
+    ultraMode: Boolean(selection.ultra_mode),
+    draftText: row?.draft_text ?? '',
+    attachments: parse(row?.attachments, []),
+    updatedAt: message?.updated_at ?? row.updated_at,
   };
 }
 

@@ -560,6 +560,8 @@ export function Composer({
         setPermissionMode(state?.permissionMode ?? defaultPermissionMode);
         setCurrentModel(botMode ? initialModel : state?.model || initialModel);
         setReasoningEffort(state?.reasoningEffort ?? null);
+        setWorkMode(botMode || !state ? initialWorkMode : state.workMode);
+        setUltraMode(botMode || !state ? initialUltraMode : state.ultraMode);
         hydratedConversationIdRef.current = conversationId;
       })
       .catch(() => {

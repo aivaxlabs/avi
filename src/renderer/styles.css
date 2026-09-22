@@ -12025,7 +12025,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     text-transform: uppercase;
 }
 
-.orchestration-page .token-overview-total strong, .bot-statistics .token-overview-total strong {
+.orchestration-page .token-overview-total > strong, .bot-statistics .token-overview-total > strong {
     overflow: hidden;
     color: var(--text-1);
     font-size: clamp(2.6rem, 5vw, 3.85rem);
@@ -12033,6 +12033,21 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     letter-spacing: -.045em;
     line-height: 1;
     text-overflow: ellipsis;
+}
+
+.orchestration-page .token-overview-total .token-overview-cost, .bot-statistics .token-overview-total .token-overview-cost {
+    margin-top: 4px;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    letter-spacing: normal;
+    text-transform: none;
+}
+
+.orchestration-page .token-overview-total .token-overview-cost strong, .bot-statistics .token-overview-total .token-overview-cost strong {
+    color: var(--text-1);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
 }
 
 .orchestration-page .token-overview-cost, .bot-statistics .token-overview-cost {
@@ -12712,6 +12727,11 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 .orchestration-page .provider-model-name span, .bot-statistics .provider-model-name span {
     color: var(--text-3);
     font-size: .9rem;
+}
+
+.orchestration-page .provider-model-name .provider-model-pricing, .bot-statistics .provider-model-name .provider-model-pricing {
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
 }
 
 .orchestration-page .provider-model-pricing, .bot-statistics .provider-model-pricing {

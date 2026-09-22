@@ -52,7 +52,7 @@ The base prompt keeps the main implementation with the agent and encourages para
 
 ## `chat:replace-user-message`
 
-Replaces an editable user message, deletes subsequent run history, reconciles active Goal state, and sends the replacement.
+Replaces an editable user message, deletes subsequent run history, reconciles active Goal state, and sends the replacement. The replacement user message persists its model, reasoning effort, work mode, and Ultra flag; these parameters become the restored composer selection when the thread is reopened.
 
 ### Params
 

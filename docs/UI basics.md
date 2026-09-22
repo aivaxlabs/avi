@@ -41,6 +41,10 @@ Side chats open as separate private conversation panels.
 
 ## Composer
 
+Opening a thread restores the model, reasoning effort, Plan/Goal mode, and Ultra selection from its latest user message, including a confirmed edit or a queued message. Unsent text and attachments remain saved separately; changing a selection without sending does not override the last message when reopening the thread. Rubber Duck is a separate thread type and remains unchanged. Bot threads retain their configured model and mode restrictions.
+
+Editing a message keeps model changes local until you send the replacement. Cancelling the edit does not change the thread's model. Sending the edit saves the selected parameters on the replacement message.
+
 The model picker has two modes. When **Settings → Models → Model slider** defines at least three levels, the picker opens as an intelligence slider: each level applies a configured model and reasoning effort, and **Advanced** switches to direct selection. In advanced mode, **Model** lists favorite models plus **Explore models**, and **Effort** lists the reasoning levels supported by the selected model. Changing models clears an incompatible reasoning effort. Model names containing `(Fast)` or `- Fast` show that text as a lightning icon after the name instead; long labels truncate without separating the icon, and nested menus flip inward when the viewport edge is too close. The project folder can be changed only before the thread is created.
 
 ### Sending while work is running

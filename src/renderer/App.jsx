@@ -1281,6 +1281,15 @@ export default function App() {
     const effectiveUltraMode = targetConversation?.isSubagent
       ? targetConversation.orchestrationMode === 'ultra'
       : !targetConversation?.isSideChat && !targetConversation?.isRubberDuck && messageUltraMode;
+    const orchestrationMode = messageWorkMode === 'plan'
+      ? 'plan' : effectiveUltraMode ? 'ultra' : null;
+    if (
+      targetConversation
+      && !activeBot && !targetConversation.isSubagent && !targetConversation.isRubberDuck
+      && targetConversation.orchestrationMode !== orchestrationMode
+    ) {
+      await api.conversations.update({ id: conversationId, orchestrationMode });
+    }
     if (
       messageWorkMode === 'goal'
       && !['active', 'paused'].includes(targetConversation?.goal?.status)
