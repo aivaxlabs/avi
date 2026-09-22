@@ -3,6 +3,7 @@
 ## [Canary]
 
 ### Added
+- **OpenAI Subscription models** — added GPT-6 Sol and GPT-6 Luna in standard and 1M-context versions, including Fast variants for both context sizes.
 - Notes now offers a per-note **Mention in chat** dropdown action that adds a text snapshot to the composer without sending or editing the note. Shared dropdowns provide consistent icons, keyboard navigation, dismissal and viewport containment; separate priority/deadline labels highlight urgent, overdue and due-today notes.
 - **Bot activation settings and statistics** — optional global days/hours and FIFO admission complement individual schedules without blocking ongoing work or resumptions. Settings → Bots separates Activation settings from Statistics, with 1d/7d/30d descendant consumption, current states, and per-bot UTC consumption timelines. Global RPC exposes settings, saves, and statistics; individual execution modes inherit the global default when unset.
 - **Models settings** — the former Default models page is now Models, with Auxiliar models, Sub-agents, Rules, and Model slider tabs. Default-model rules support concrete models and virtual routers, role-specific instructions, strict save validation, and unavailable-model warnings.
@@ -32,6 +33,7 @@
 - **Remote RPC breaking migration** — JSON-RPC 2.0 is replaced by ORPC Draft 1: one operation per frame, at-least-once delivery deduplicated by a durable `remote_operations` journal (SQLite, 4096 entries / 64 MiB) keyed by identity, scope, resource, and `operationId`, one automatic retry with a fresh wire request id and identical body (60 s attempt / 150 s overall), delivery-only cancellation (handlers may still complete after a client timeout; reserved-but-unrecorded operations answer `OUTCOME_UNKNOWN` instead of re-executing), per-peer and global in-flight concurrency capped at 64, and `error.code` as number or string (`LIMIT`). The relay application handshake moves to v3 — `avi-remote-open`/`avi-remote-ready` v3 carry `protocol: "avi-orpc-draft1"`, heartbeat is `avi-remote-ping`/`avi-remote-pong` v3 — and bridged frames travel as opaque base64 binary over the unchanged `avi-relay-v1` transport. RPC docs, the public relay protocol, and the remote-control guide were rewritten accordingly.
 
 ### Fixed
+- Cross-thread prompts now carry a persisted origin envelope with sender thread ID, role, and available name, explicitly distinguishing agent coordination from user instructions in live delivery and model history.
 - Notes dropdown actions execute before the menu closes, preserving native mouse clicks and focus; Mention in chat is inside the note menu.
 - Forced archive cleanup now waits for the refreshed archive state before returning, preventing the Maintenance page from crashing on missing settings, pagination, and statistics.
 - Built-in plugin enablement now persists in the user SQLite database instead of the installation directory, preventing preference resets when the installation is replaced. Existing JSON preferences migrate once, preserving disabled choices; database write failures leave the displayed state unchanged.
