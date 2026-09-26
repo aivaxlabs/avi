@@ -38,7 +38,6 @@ The definition supports `apiVersion`, `id`, `name`, `version`, optional `descrip
 - `avi.threads`
 - `avi.semaphores`
 - `avi.bots`
-- [`avi.notes`](notes.md)
 - `avi.tools`
 - `avi.interceptors`
 - `avi.events`
@@ -67,8 +66,6 @@ bots.manage
 bots.run
 bots.readState
 bots.approvals.resolve
-notes.read
-notes.manage
 tools.register
 tools.intercept
 events.subscribe

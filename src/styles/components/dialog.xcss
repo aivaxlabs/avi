@@ -41,7 +41,6 @@
 
 .model-dialog,
 .search-dialog,
-.notes-dialog,
 .mcp-dialog {
   width: min(620px, 100%);
   max-height: min(720px, 86vh);

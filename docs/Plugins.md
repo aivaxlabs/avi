@@ -6,7 +6,6 @@ Plugins extend Avi with trusted JavaScript executed in the Electron main process
 
 The only public contract is **Plugin API v2**. Older API versions are rejected.
 
-The [`avi.notes` Core domain](api/core/notes.md) exposes persistent user notes with `notes.read` and `notes.manage` capabilities, including list/note editing, search, ordering, attachments and auxiliary generation.
 
 ## Minimal plugin
 

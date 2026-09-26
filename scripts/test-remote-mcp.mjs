@@ -282,14 +282,8 @@ try {
       'chat_list_threads',
       'chat_overview',
       'chat_send_prompt',
-      'note_create',
-      'note_edit',
-      'note_lists',
-      'note_search',
     ],
   );
-  assert.equal(listed.tools.find((tool) => tool.name === 'note_create').annotations.readOnlyHint, false);
-  assert.equal(listed.tools.find((tool) => tool.name === 'note_search').annotations.readOnlyHint, true);
   const createThread = listed.tools.find((tool) => tool.name === 'chat_create_thread');
   assert.deepEqual(createThread.inputSchema.properties.model_name.enum, ['test:model']);
   assert.deepEqual(createThread.inputSchema.properties.reasoning_effort.enum, ['low', 'high']);
@@ -455,7 +449,7 @@ try {
   });
   assert.equal(globalDiscovery.scope, 'global');
   assert.deepEqual(globalDiscovery.capabilities, [
-    'acknowledged-events', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags', 'app-updates', 'notes',
+    'acknowledged-events', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags', 'app-updates',
   ]);
   assert.deepEqual(globalDiscovery.methods, [
     'app:check-for-updates', 'app:install-update', 'app:update-state',
@@ -465,8 +459,6 @@ try {
     'conversations:archive', 'conversations:create', 'conversations:delete',
     'conversations:fork', 'conversations:list', 'conversations:search', 'conversations:set-tags',
     'conversations:update', 'folders:list', 'folders:save-color', 'folders:threads', 'models:list',
-    'notes:add-attachment', 'notes:delete-list', 'notes:generate', 'notes:get', 'notes:lists', 'notes:read-attachment',
-    'notes:reorder', 'notes:save', 'notes:save-list', 'notes:search', 'notes:upload-attachment',
     'remote:state', 'rpc:discover', 'rubber-ducks:list', 'shortcuts:list', 'shortcuts:save',
     'side-chats:close', 'side-chats:create', 'side-chats:list',
     'sidebar:mark-seen', 'sidebar:status', 'subagents:list', 'tags:list', 'tags:save',

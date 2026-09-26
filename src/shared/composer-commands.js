@@ -40,11 +40,6 @@ export const composerCommands = [
     description: 'Remove tool results before the latest four turns without calling a model',
   },
   {
-    id: 'note',
-    name: 'note',
-    description: 'Create a user note using the auxiliary model (not sent to chat)',
-  },
-  {
     id: 'optimize-prompt',
     name: 'optimize-prompt',
     description: 'Expand and optimize the current prompt using the auxiliary model',

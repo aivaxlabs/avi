@@ -123,8 +123,6 @@ Variant fields:
 | `file_reference` | No required extra field; content remains at `path`. |
 | `context_marker` | `text: string` supplies context to the model; `markerType?: string` and `markerKey?: string` identify the marker. No binary payload is required. |
 
-Desktop **Mention in chat** creates a `context_marker` with `markerType: "note_reference"`, `markerKey` set to the saved note ID, a display `name`, and `size: 0`. Its `text` contains a self-contained note snapshot, including ordered subtasks; it excludes copied file bytes. `markerKey` is metadata, not a server-side lookup: the model receives `text` as captured when mentioned.
-
 Avi can normalize or materialize attachments before persistence. Clients must use the returned attachment object as authoritative.
 
 Historical message attachments returned by `conversations:messages`, `conversations:context` (including its queue), and `conversation:event` message events omit `dataUrl`, `base64`, and `text`. Their metadata and IDs remain available; retrieve content using `attachments:read` with the owning message and attachment IDs. This keeps embedded media out of relay history frames. Composer draft attachments and attachment-read chunks retain their content.

@@ -19,7 +19,6 @@ import { CLIENT_TOOLS } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
 
 const REMOTE_TOOL_NAMES = new Set([
-  'note_lists', 'note_create', 'note_edit', 'note_search',
   'bots_list',
   'bots_read_work_log',
   'bots_send_work_log_message',
@@ -36,9 +35,6 @@ const REMOTE_TOOL_NAMES = new Set([
   'chat_inspect_thread',
 ]);
 const GLOBAL_RPC_METHODS = new Set([
-  'notes:lists', 'notes:save-list', 'notes:delete-list', 'notes:search', 'notes:save',
-  'notes:reorder', 'notes:generate', 'notes:add-attachment', 'notes:read-attachment',
-  'notes:get', 'notes:upload-attachment',
   'rpc:discover',
   'shortcuts:list',
   'shortcuts:save',
@@ -577,7 +573,7 @@ export class RemoteMcpServer {
       transport: { protocol: ORPC_PROTOCOL, framing: 'complete-frame', limits: ORPC_LIMITS },
       methods: [...methods].sort(),
       capabilities: scope === 'global'
-        ? ['acknowledged-events', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags', 'app-updates', 'notes']
+        ? ['acknowledged-events', 'models', 'folders', 'conversations', 'bots', 'sidebar-status', 'tags', 'app-updates']
         : [
             'acknowledged-events',
             'conversation-events',
@@ -648,6 +644,20 @@ export class RemoteMcpServer {
         throw new Error('The conversation id does not match the WebSocket conversation.');
       }
       return { ...next, id: conversationId };
+    }
+    if (['chat:send', 'goals:start', 'composer-state:save'].includes(method) && Array.isArray(next.attachments)) {
+      for (const attachment of next.attachments) {
+        let bytes = 0;
+        if (typeof attachment?.text === 'string') bytes = Buffer.byteLength(attachment.text, 'utf8');
+        else if (typeof attachment?.base64 === 'string') bytes = Buffer.from(attachment.base64, 'base64').length;
+        else if (typeof attachment?.dataUrl === 'string') {
+          const comma = attachment.dataUrl.indexOf(',');
+          if (comma >= 0) bytes = attachment.dataUrl.slice(0, comma).endsWith(';base64')
+            ? Buffer.from(attachment.dataUrl.slice(comma + 1), 'base64').length
+            : Buffer.byteLength(decodeURIComponent(attachment.dataUrl.slice(comma + 1)), 'utf8');
+        }
+        if (bytes > 10 * 1024 * 1024) throw new Error('Each uploaded file must be 10 MB or smaller.');
+      }
     }
     if (method === 'side-chats:create') return { ...next, parentConversationId: conversationId };
     if (method === 'chat:send' && next.goalId !== undefined && next.goalId !== null) {

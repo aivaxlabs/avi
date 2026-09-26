@@ -1,39 +1,7 @@
-import { useEffect, useState } from 'react';
-import { ArrowUpRight, CalendarDays, Inbox } from 'lucide-react';
+import { ArrowUpRight, Inbox } from 'lucide-react';
 import { hasOpenBotUserAction } from '../../shared/bot-work-items.js';
 
-export function EmptyChatSummary({ folderPath, bots = [], botDataByBot = {}, botsLoading, botsError, onOpenInbox, onOpenNotes }) {
-  const [today, setToday] = useState({ notes: [], total: 0, loading: true, error: '' });
-  const [revision, setRevision] = useState(0);
-  useEffect(() => {
-    const refresh = () => setRevision((value) => value + 1);
-    const unsubscribe = window.chatApp.notes.onChanged(refresh);
-    const timer = window.setInterval(refresh, 60_000);
-    window.addEventListener('focus', refresh);
-    return () => {
-      unsubscribe();
-      window.clearInterval(timer);
-      window.removeEventListener('focus', refresh);
-    };
-  }, []);
-  useEffect(() => {
-    let active = true;
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-    end.setMilliseconds(-1);
-    window.chatApp.notes.search({
-      folderPath: folderPath ?? null, done: false, archived: false,
-      dueAfter: start.toISOString(), dueBefore: end.toISOString(), orderBy: 'dueAt', limit: 3,
-    }).then((result) => {
-      if (active) setToday({ ...result, loading: false, error: '' });
-    }).catch(() => {
-      if (active) setToday({ notes: [], total: 0, loading: false, error: 'Could not load today’s notes.' });
-    });
-    return () => { active = false; };
-  }, [folderPath, revision]);
-
+export function EmptyChatSummary({ bots = [], botDataByBot = {}, botsLoading, botsError, onOpenInbox }) {
   const inbox = [];
   let inboxUnavailable = Boolean(botsError);
   for (const bot of bots) {
@@ -63,22 +31,6 @@ export function EmptyChatSummary({ folderPath, bots = [], botDataByBot = {}, bot
           </button>
         </li>)}</ul>
       </>}
-    </section>
-    <section className={!today.loading && !today.error && today.total === 0 ? 'summary-empty' : ''} aria-label="Notes due today" aria-busy={today.loading}>
-      <header>
-        <h2><CalendarDays size={16} aria-hidden="true" />Due today{!today.loading && !today.error && <span className="summary-count">{today.total}</span>}</h2>
-        <button type="button" className="summary-open" onClick={onOpenNotes} aria-label="Open notes">Open notes<ArrowUpRight size={14} aria-hidden="true" /></button>
-      </header>
-      <p className="summary-caption" title={folderPath ?? 'No working folder'}>Notes · current working folder</p>
-      {today.loading ? <p className="summary-state" role="status">Loading notes...</p> : today.error ? <p className="summary-state" role="status">{today.error}</p> : today.total === 0 ? <p className="summary-state">No notes due today.</p> : <ul>
-        {today.notes.map((note) => <li key={note.id}>
-          <button type="button" className="summary-item" onClick={onOpenNotes}>
-            <span className="summary-meta"><time dateTime={note.dueAt}>{new Date(note.dueAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</time><span>{note.priority !== 'none' ? `${note.priority} priority` : 'Note'}</span></span>
-            <strong>{note.title}</strong>
-            {note.subtasks.length > 0 && <span className="summary-preview">{note.subtasks.filter((task) => task.done).length}/{note.subtasks.length} subtasks complete</span>}
-          </button>
-        </li>)}
-      </ul>}
     </section>
   </div>;
 }

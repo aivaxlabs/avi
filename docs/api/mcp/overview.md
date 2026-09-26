@@ -47,7 +47,6 @@ The configured custom Relay domain serves the same paths; availability requires 
 
 ## Tools
 
-- `note_lists`, `note_create`, `note_edit`, `note_search` — persistent user notes. Read tools discover/filter lists and notes; mutations create or edit title, text, list, priority, deadline, status, ordered subtasks, and file attachments. See [Notes](../../Notes.md#agent-tools) for semantics and [data shapes](../../Notes.md#data-shapes). Mutations are not read-only.
 
 - `bots_list`, `bots_create`, `bots_update`, `bots_delete`, `bots_activate`
 - `bots_read_work_log`, `bots_send_work_log_message`

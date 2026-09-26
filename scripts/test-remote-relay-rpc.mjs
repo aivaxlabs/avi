@@ -221,6 +221,14 @@ let failure = null;
 const sockets = [];
 let reopenedDatabase = null;
 try {
+  const uploadAtLimit = Buffer.alloc(10 * 1024 * 1024).toString('base64');
+  const uploadOverLimit = Buffer.alloc(10 * 1024 * 1024 + 1).toString('base64');
+  for (const method of ['chat:send', 'goals:start', 'composer-state:save']) {
+    const payload = { attachments: [{ size: 1, dataUrl: `data:application/octet-stream;base64,${uploadAtLimit}` }] };
+    assert.equal(server.prepareConversationPayload(method, payload, 'upload-test').attachments[0].dataUrl, payload.attachments[0].dataUrl);
+    assert.throws(() => server.prepareConversationPayload(method, { attachments: [{ size: 1, base64: uploadOverLimit }] }, 'upload-test'), /10 MB/);
+    assert.throws(() => server.prepareConversationPayload(method, { attachments: [{ dataUrl: `data:application/octet-stream;base64,${uploadOverLimit}` }] }, 'upload-test'), /10 MB/);
+  }
   const initialRemote = database.getRemoteSettings();
   assert.equal(initialRemote.relayEnabled, false);
   assert.match(initialRemote.relayDeviceId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);

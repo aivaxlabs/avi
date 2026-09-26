@@ -226,7 +226,6 @@ export const ChatView = memo(function ChatView({
   botsLoading,
   botsError,
   onOpenInbox,
-  onOpenNotes,
   onShowBotInPanel,
   onChooseProject,
   onUseHome,
@@ -836,9 +835,9 @@ export const ChatView = memo(function ChatView({
         ) : isEmptyChat ? (
           <div className="empty-chat">
             <h1>How can I help you today?</h1>
-            {!compact && <EmptyChatSummary key={currentProject?.path ?? 'home'} folderPath={currentProject?.path}
+            {!compact && <EmptyChatSummary
               bots={bots} botDataByBot={botDataByBot} botsLoading={botsLoading} botsError={botsError}
-              onOpenInbox={onOpenInbox} onOpenNotes={onOpenNotes} />}
+              onOpenInbox={onOpenInbox} />}
           </div>
         ) : (
           <div className="messages-column">

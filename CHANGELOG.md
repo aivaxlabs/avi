@@ -2,17 +2,15 @@
 
 ## [Canary]
 
+Version in development: 0.7.0.
+
 ### Added
 - **OpenAI Subscription models** — added GPT-6 Sol and GPT-6 Luna in standard and 1M-context versions, including Fast variants for both context sizes.
-- Notes now offers a per-note **Mention in chat** dropdown action that adds a text snapshot to the composer without sending or editing the note. Shared dropdowns provide consistent icons, keyboard navigation, dismissal and viewport containment; separate priority/deadline labels highlight urgent, overdue and due-today notes.
 - **Bot activation settings and statistics** — optional global days/hours and FIFO admission complement individual schedules without blocking ongoing work or resumptions. Settings → Bots separates Activation settings from Statistics, with 1d/7d/30d descendant consumption, current states, and per-bot UTC consumption timelines. Global RPC exposes settings, saves, and statistics; individual execution modes inherit the global default when unset.
 - **Models settings** — the former Default models page is now Models, with Auxiliar models, Sub-agents, Rules, and Model slider tabs. Default-model rules support concrete models and virtual routers, role-specific instructions, strict save validation, and unavailable-model warnings.
 - **Bot message attention** — bot messages declare whether a user response is required. Informational messages clear their attention badge when viewed in the focused Inbox; required replies and protected approvals remain pending. Read receipts do not complete conversations or activate bots.
 - **Inbox completion options** — a menu beside Complete offers Abandon, Duplicate, and Already worked, recording the selected reason in the conversation history. Completion controls are rounded and borderless.
-- Note creation/editing uses the shared app dialog styling and tabs for Details, Sub-tasks, and Attachments, with keyboard navigation, focus containment, and cross-tab validation; compact list headers keep New note and list actions available even when collapsed.
-- Empty chats show the latest open bot inbox messages and count, plus unfinished notes due today in the current working folder, with lightweight message rows, labeled shortcuts, and compact empty sections.
-- Notes Core API and global RPC note lookup/chunked browser attachment uploads, enabling Avi Workspace Notes without host filesystem access.
-- **Notes** — persistent folder-scoped lists with priorities, deadlines, completion/archive states, ordered subtasks and copied file attachments; auxiliary-panel filters and ordering, contextual auxiliary-model `/note`, and `note_lists`, `note_create`, `note_edit`, `note_search` agent/MCP tools plus global Notes RPC methods. See [Notes](docs/Notes.md).
+- Empty chats show the latest open bot inbox messages and count, with lightweight message rows, labeled shortcuts, and compact empty sections.
 - Built-in/Installed plugin tabs with disabled-by-default Chrome Integration and Computer Use, distinct icons on themed backgrounds, bundled tools and skills, persistent enablement, and a Chrome extension installation guide. Native desktop resources are prepared per target platform during packaging.
 - Agent/MCP overview, bot work-log reading and messaging, thread creator/parent filters with type and child counts, and queue IDs for one-time bot activation focus.
 - **Relayed MCP** — AIVAX Remote exposes `/mcp/<device-id>` with AIVAX bearer authentication and public `/mcp` discovery with per-tool `instanceKey` authentication. Remote control shows device/instance identifiers and MCP endpoints; API-key menus copy either credential format. New keys use 6 lowercase alphanumeric characters; persistent public instance IDs use 10. Existing keys and device IDs are preserved, and public calls are rate-limited per instance.
@@ -21,6 +19,7 @@
 - **ORPC Draft 1 remote transport** — RPC WebSockets now speak binary ORPC (`avi-orpc-draft1`): length-prefixed frames carrying UTF-8 JSON operation envelopes (`operationId`, `expiresAt` now + 180 s, `params`), dotted wire methods over the colon application names, acknowledged server events (`eventId` with an `OK` ack), no batching, and the full specification bundled at `docs/api/rpc/orpc-spec.md`.
 
 ### Changed
+- Remote RPC attachment uploads in `chat:send`, `goals:start` and `composer-state:save` validate a 10 MiB decoded per-file limit independently of metadata. Native ORPC multipart requests support files larger than a single WebSocket frame; the 32 MiB operation limit is unchanged.
 - **ORPC Draft 2 (breaking)** — remote RPC now requires `avi-orpc-draft2`, multipart requests/responses without execution IDs, reserved controls for cancellation, integrity, recovery, heartbeat and graceful shutdown, and SHA-256 `CHECKSEND` verification before dispatch or result delivery. Desktop and Workspace must be upgraded together. The physical `avi-relay-v1` transport and stable application `operationId` remain unchanged; RPC documentation and bundled specification now describe Draft 2.
 - Removed desktop interceptor commands (including `/side`, `/quick-compress`, and `/optimize-prompt`) from the RPC command catalog sent to Avi Workspace. The desktop composer and context discovery now share their classification; ordinary workflows and skills remain available remotely.
 - Bot avatars now use AIVAX Orbs keyed by bot ID in the sidebar, Inbox list and work-log message headers, and settings; removed the random icon control while retaining `iconSeed` API compatibility.
@@ -34,7 +33,6 @@
 
 ### Fixed
 - Cross-thread prompts now carry a persisted origin envelope with sender thread ID, role, and available name, explicitly distinguishing agent coordination from user instructions in live delivery and model history.
-- Notes dropdown actions execute before the menu closes, preserving native mouse clicks and focus; Mention in chat is inside the note menu.
 - Forced archive cleanup now waits for the refreshed archive state before returning, preventing the Maintenance page from crashing on missing settings, pagination, and statistics.
 - Built-in plugin enablement now persists in the user SQLite database instead of the installation directory, preventing preference resets when the installation is replaced. Existing JSON preferences migrate once, preserving disabled choices; database write failures leave the displayed state unchanged.
 - Reopening a thread restores model, reasoning effort, Plan/Goal, and Ultra from the latest user message, including confirmed edits, instead of stale composer selections. Unsent text and attachments are preserved, and cancelling an inline model edit no longer changes the thread model.

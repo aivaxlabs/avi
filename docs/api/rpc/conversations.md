@@ -201,6 +201,10 @@ Omit `params`, or set `params.payload` to the same conversation ID as the URL.
 
 [`ComposerState`](types.md#composerstate), or `null` when neither a saved draft nor a qualifying user message exists.
 
+### Remote attachment uploads
+
+`composer-state:save`, `chat:send` and `goals:start` accept embedded attachments up to **10 MiB (10,485,760 decoded bytes) per file**. The remote boundary validates actual content, not the caller's `size` metadata. Existing `dataUrl`, `base64` and text representations are unchanged. ORPC Draft 2 splits the JSON operation into multipart frames and verifies integrity before dispatch; no separate upload/chunk endpoint is required. The complete encoded request remains limited to 32 MiB, including base64 expansion and the operation envelope. Send larger groups in separate messages. WebSocket and relay frame limits remain unchanged.
+
 ## `composer-state:save`
 
 Persists the composer draft for the URL conversation.

@@ -30,10 +30,6 @@ All RPC traffic uses binary WebSocket messages; a text message closes the socket
 
 The complete framing, reconstruction, and recovery rules are specified in the bundled [ORPC Draft 2 specification](orpc-spec.md). Avi application content is UTF-8 JSON, decoded only after a request or response is fully reassembled. The Avi binding requires `CHECKSEND` with lowercase `sha256:<64 hex>` after every reconstructed request and response; execution proceeds or succeeds only after every supplied hash matches, and unsupported algorithms produce `CHECKFAIL`. `PING/PONG` provides heartbeats; `EXIT/BYE` performs graceful shutdown, and the transport must not close before `BYE` except on error or loss.
 
-## Notes
-
-The global socket exposes `notes:lists`, `notes:save-list`, `notes:delete-list`, `notes:search`, `notes:save`, `notes:reorder`, `notes:generate`, `notes:add-attachment`, and `notes:read-attachment`. See [Notes: public IPC / RPC contract](../../Notes.md#public-ipc--rpc-contract) for payloads, data shapes, pagination, file chunking, and archive semantics. `notes:get` retrieves one note and `notes:upload-attachment` accepts browser files in bounded chunks. See [Notes RPC](notes.md) for the upload/download protocol. Native file-picker/export dialogs remain local-only.
-
 ## Archive maintenance
 
 `archive:maintenance` accepts archive-list options `{ query, page, pageSize }` and returns the fully resolved archive state `{ settings, conversations, pagination, stats }` plus `maintenance: { archived, deletedArchived, deletedDisposable, prunedBotMessages }`. The request completes only after the post-cleanup archive refresh resolves; a refresh failure rejects the request but does not roll back completed deletions. Concurrent forced cleanup requests are rejected while cleanup or its refresh is in progress.

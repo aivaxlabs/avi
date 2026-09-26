@@ -33,13 +33,12 @@ mkdirSync(buildDir, { recursive: true });
 mkdirSync(harnessDir, { recursive: true });
 mkdirSync(shotDir, { recursive: true });
 
-// Integration contract: ChatView must pass the project path (not the project object)
-// as folderPath, and key the summary by path so it remounts per working folder.
+// Integration contract: ChatView renders the inbox-only EmptyChatSummary.
 const chatViewSource = readFileSync(join(root, 'src', 'renderer', 'components', 'ChatView.jsx'), 'utf8');
-const contractPass = chatViewSource.includes('folderPath={currentProject?.path}')
-  && chatViewSource.includes("key={currentProject?.path ?? 'home'}")
-  && !chatViewSource.includes('folderPath={currentProject}');
-console.log(`${contractPass ? 'PASS' : 'FAIL'}  ChatView integration: EmptyChatSummary receives currentProject?.path, keyed by path`);
+const contractPass = chatViewSource.includes('<EmptyChatSummary')
+  && chatViewSource.includes('onOpenInbox={onOpenInbox}')
+  && !chatViewSource.includes('onOpenNotes');
+console.log(`${contractPass ? 'PASS' : 'FAIL'}  ChatView integration: EmptyChatSummary is inbox-only`);
 let failures = contractPass ? 0 : 1;
 
 writeFileSync(join(harnessDir, 'test-entry.jsx'), [
@@ -47,43 +46,8 @@ writeFileSync(join(harnessDir, 'test-entry.jsx'), [
   `import { createRoot } from ${JSON.stringify(join(root, 'node_modules/react-dom/client.js').replaceAll('\\', '/'))};`,
   `import { EmptyChatSummary } from ${JSON.stringify(join(root, 'src/renderer/components/EmptyChatSummary.jsx').replaceAll('\\', '/'))};`,
   ``,
-  `const clone = (value) => JSON.parse(JSON.stringify(value));`,
-  `const at = (h, m) => { const d = new Date(); d.setHours(h, m, 0, 0); return d.toISOString(); };`,
   `const mins = (n) => new Date(Date.now() + n * 60000).toISOString();`,
-  `const listeners = new Set();`,
-  `const seedNotes = [`,
-  `  { id: 'note-1', title: 'Ship release notes', priority: 'high', dueAt: at(9, 30), subtasks: [{ id: 's1', text: 'Draft changelog', done: true }, { id: 's2', text: 'Tag build', done: false }] },`,
-  `  { id: 'note-2', title: 'Review inbox pendency', priority: 'none', dueAt: at(11, 0), subtasks: [] },`,
-  `  { id: 'note-3', title: 'Water the plants', priority: 'low', dueAt: at(18, 15), subtasks: [{ id: 's3', text: 'Fill the can', done: true }] },`,
-  `];`,
-  `let searchResult = { notes: seedNotes, total: 5 };`,
-  `let searchMode = 'ok';`,
-  `const searchLog = [];`,
-  `let pending = [];`,
-  `window.chatApp = { notes: {`,
-  `  onChanged: (fn) => { listeners.add(fn); window.__subs += 1; return () => { listeners.delete(fn); window.__unsubs += 1; }; },`,
-  `  search: async (input) => {`,
-  `    searchLog.push(clone(input));`,
-  `    if (searchMode === 'fail') throw new Error('notes backend down');`,
-  `    if (searchMode === 'manual') return new Promise((resolve) => pending.push({ input: clone(input), resolve }));`,
-  `    return clone(searchResult);`,
-  `  },`,
-  `}};`,
-  `window.__subs = 0;`,
-  `window.__unsubs = 0;`,
-  `window.__events = { inbox: [], notes: [] };`,
-  `window.__search = {`,
-  `  log: searchLog,`,
-  `  setMode: (mode) => { searchMode = mode; },`,
-  `  set: (notes, total) => { searchResult = { notes, total }; },`,
-  `  setSeed: () => { searchResult = { notes: seedNotes, total: 5 }; },`,
-  `  emit: () => { listeners.forEach((fn) => fn()); },`,
-  `  resolveByPath: (folderPath, notes, total) => {`,
-  `    const index = pending.findIndex((entry) => entry.input.folderPath === folderPath);`,
-  `    const entry = pending.splice(index, 1)[0];`,
-  `    entry.resolve({ notes, total });`,
-  `  },`,
-  `};`,
+  `window.__events = { inbox: [] };`,
   `const bots = [{ id: 'bot-1', name: 'Release Bot' }, { id: 'bot-2', name: 'Support Bot' }];`,
   `window.__bots = bots;`,
   `window.__fullInbox = {`,
@@ -101,13 +65,11 @@ writeFileSync(join(harnessDir, 'test-entry.jsx'), [
   ``,
   `function ChatHarness() {`,
   `  const [props, setProps] = useState({`,
-  `    folderPath: null,`,
   `    bots,`,
   `    botDataByBot: window.__fullInbox,`,
   `    botsLoading: true,`,
   `    botsError: null,`,
   `    onOpenInbox: (...args) => window.__events.inbox.push(args),`,
-  `    onOpenNotes: () => window.__events.notes.push(1),`,
   `  });`,
   `  window.__setProps = (patch) => setProps((prev) => ({ ...prev, ...patch }));`,
   `  return <div className="chat-area chat-empty chat-empty-home" style={{ height: '100vh' }}>`,
@@ -121,14 +83,6 @@ writeFileSync(join(harnessDir, 'test-entry.jsx'), [
   `  </div>;`,
   `}`,
   `createRoot(document.getElementById('root')).render(<ChatHarness />);`,
-  ``,
-  `window.__mountSecond = (folderPath) => {`,
-  `  const host = document.createElement('div');`,
-  `  document.body.appendChild(host);`,
-  `  window.__secondRoot = createRoot(host);`,
-  `  window.__secondRoot.render(<EmptyChatSummary folderPath={folderPath} bots={[]} botDataByBot={{}} botsLoading={false} botsError={null} onOpenInbox={() => {}} onOpenNotes={() => {}} />);`,
-  `};`,
-  `window.__unmountSecond = () => { window.__secondRoot.unmount(); };`,
   ``,
 ].join('\n'));
 
@@ -183,20 +137,11 @@ window.__layoutCheck = () => {
   };
 };
 const inboxSec = () => q('section[aria-label="Bot inbox"]');
-const notesSec = () => q('section[aria-label="Notes due today"]');
 const badge = (sec) => q('.summary-count', sec)?.textContent;
 (async () => {
   console.log('[driver] start');
 
-  await wait_for(() => window.__search.log.length === 1, 4000, 'initial search');
-  check('fires exactly one notes search on mount', window.__search.log.length === 1);
-  const call = window.__search.log[0];
-  const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
-  const end = new Date(midnight); end.setDate(end.getDate() + 1); end.setMilliseconds(-1);
-  check('search scopes to the local today window', call.dueAfter === midnight.toISOString() && call.dueBefore === end.toISOString(), JSON.stringify(call));
-  check('search requests open, unarchived, dueAt order, limit 3', call.done === false && call.archived === false && call.orderBy === 'dueAt' && call.limit === 3, JSON.stringify(call));
-  check('search uses the current folder scope (null at home)', call.folderPath === null);
-
+  check('renders only the bot inbox section', Boolean(inboxSec()) && qa('.empty-chat-summary > section').length === 1);
   check('real generated CSS applied (summary grid)', getComputedStyle(q('.empty-chat-summary')).display === 'grid');
   check('dom structure .chat-area.chat-empty.chat-empty-home > .chat-scroll > .empty-chat > .empty-chat-summary', Boolean(q('.chat-area.chat-empty.chat-empty-home > .chat-scroll > .empty-chat > .empty-chat-summary')));
 
@@ -221,43 +166,6 @@ const badge = (sec) => q('.summary-count', sec)?.textContent;
   q('.summary-open', inboxSec()).click();
   check('inbox header opens full inbox without args', window.__events.inbox[1] && window.__events.inbox[1].length === 0, JSON.stringify(window.__events.inbox[1]));
 
-  await wait_for(() => qa('.summary-item', notesSec()).length === 3, 4000, 'notes rows');
-  check('notes badge shows total beyond returned limit', badge(notesSec()) === '5', 'badge=' + badge(notesSec()));
-  const noteTitles = qa('.summary-item strong', notesSec()).map((el) => el.textContent);
-  check('notes render backend order', JSON.stringify(noteTitles) === JSON.stringify(['Ship release notes', 'Review inbox pendency', 'Water the plants']), noteTitles.join(' | '));
-  const times = qa('.summary-item time', notesSec()).map((el) => el.getAttribute('datetime'));
-  check('notes expose dueAt via time elements within today', times.length === 3 && times.every((t) => new Date(t).toDateString() === new Date().toDateString()), times.join(' | '));
-  const noteMeta = qa('.summary-item .summary-meta', notesSec()).map((el) => el.lastElementChild.textContent);
-  check('notes label priority with Note fallback', noteMeta[0] === 'high priority' && noteMeta[1] === 'Note' && noteMeta[2] === 'low priority', noteMeta.join(' | '));
-  const notePreviews = qa('.summary-item .summary-preview', notesSec()).map((el) => el.textContent);
-  check('notes show subtask completion only when subtasks exist', notePreviews.length === 2 && notePreviews[0] === '1/2 subtasks complete' && notePreviews[1] === '1/1 subtasks complete', JSON.stringify(notePreviews));
-  check('notes caption falls back to no-folder tooltip', q('.summary-caption', notesSec()).title === 'No working folder');
-
-  q('.summary-item', notesSec()).click();
-  check('note click opens notes', window.__events.notes.length === 1);
-  q('.summary-open', notesSec()).click();
-  check('notes header opens notes', window.__events.notes.length === 2);
-
-  let since = window.__search.log.length;
-  window.__search.set([{ id: 'note-9', title: 'Only fresh note', priority: 'none', dueAt: new Date().toISOString(), subtasks: [] }], 1);
-  window.__search.emit();
-  await wait_for(() => window.__search.log.length === since + 1 && badge(notesSec()) === '1', 3000, 'changed refresh');
-  check('onChanged event refires search with the same contract', JSON.stringify(window.__search.log[window.__search.log.length - 1]) === JSON.stringify(window.__search.log[0]));
-  check('refresh updates rendered rows and count', qa('.summary-item', notesSec()).length === 1 && noteTitles.length === 3);
-
-  window.__search.setSeed();
-  since = window.__search.log.length;
-  window.__search.setMode('fail');
-  window.__search.emit();
-  await wait_for(() => notesSec().textContent.includes('Could not load today'), 3000, 'notes error');
-  check('notes search failure shows error state', Boolean(q('.summary-state[role="status"]', notesSec())) && notesSec().textContent.includes('Could not load today'));
-  check('notes error hides count badge', !q('.summary-count', notesSec()));
-  check('failed search still recorded the request', window.__search.log.length === since + 1);
-  window.__search.setMode('ok');
-  window.__search.emit();
-  await wait_for(() => badge(notesSec()) === '5', 3000, 'notes recovery');
-  check('notes recover after backend returns', badge(notesSec()) === '5');
-
   window.__setProps({ botsError: 'gateway offline' });
   await wait_for(() => inboxSec().textContent.includes('Some inbox messages could not be loaded.'), 3000, 'botsError');
   check('botsError marks inbox unavailable', inboxSec().textContent.includes('Some inbox messages could not be loaded.'));
@@ -272,51 +180,6 @@ const badge = (sec) => q('.summary-count', sec)?.textContent;
   check('inbox without open messages shows caught-up state', inboxSec().textContent.includes('No open messages'));
   window.__setProps({ bots: window.__bots, botDataByBot: window.__fullInbox });
   await wait_for(() => badge(inboxSec()) === '5', 3000, 'inbox reopen');
-
-  window.__search.setMode('manual');
-  window.__setProps({ folderPath: '/work' });
-  await wait_for(() => window.__search.log[window.__search.log.length - 1].folderPath === '/work', 3000, 'folder work search');
-  window.__setProps({ folderPath: '/notes' });
-  await wait_for(() => window.__search.log[window.__search.log.length - 1].folderPath === '/notes', 3000, 'folder notes search');
-  check('folderPath change re-scopes the search', window.__search.log[window.__search.log.length - 2].folderPath === '/work' && window.__search.log[window.__search.log.length - 1].folderPath === '/notes');
-  window.__search.resolveByPath('/notes', [{ id: 'note-final', title: 'Fresh scoped note', priority: 'none', dueAt: new Date().toISOString(), subtasks: [] }], 9);
-  window.__search.resolveByPath('/work', [{ id: 'note-stale', title: 'Stale scoped note', priority: 'none', dueAt: new Date().toISOString(), subtasks: [] }], 2);
-  await wait_for(() => badge(notesSec()) === '9', 3000, 'race winner');
-  check('stale response cannot overwrite newer scope', qa('.summary-item strong', notesSec())[0].textContent === 'Fresh scoped note' && q('.summary-caption', notesSec()).title === '/notes');
-
-  window.__search.setMode('ok');
-  window.__search.setSeed();
-  window.__search.emit();
-  await wait_for(() => badge(notesSec()) === '5' && qa('.summary-item', notesSec()).length === 3, 3000, 'resync');
-  window.__setProps({ folderPath: null });
-  await wait_for(() => q('.summary-caption', notesSec()).title === 'No working folder', 3000, 'caption home');
-
-  const created = []; const cleared = []; const focusRemoved = [];
-  const realSet = window.setInterval.bind(window);
-  const realClear = window.clearInterval.bind(window);
-  const realRemove = window.removeEventListener.bind(window);
-  window.setInterval = (fn, ms) => { const id = realSet(fn, ms); created.push({ id: id, ms: ms }); return id; };
-  window.clearInterval = (id) => { cleared.push(id); return realClear(id); };
-  window.removeEventListener = (type, fn) => { if (type === 'focus') focusRemoved.push(fn); return realRemove(type, fn); };
-  const subsBefore = window.__subs;
-  const unsubsBefore = window.__unsubs;
-  since = window.__search.log.length;
-  window.__mountSecond('/scratch');
-  await wait_for(() => window.__search.log.length === since + 1, 3000, 'second mount search');
-  check('second instance searches its own folder scope', window.__search.log[window.__search.log.length - 1].folderPath === '/scratch');
-  check('instance registers a 60s refresh interval', created.length === 1 && created[0].ms === 60000, JSON.stringify(created));
-  check('instance subscribes to notes changes', window.__subs === subsBefore + 1);
-  window.__unmountSecond();
-  await sleep(150);
-  check('unmount unsubscribes notes changes', window.__unsubs === unsubsBefore + 1);
-  check('unmount clears the refresh interval', cleared.length === 1 && cleared[0] === created[0].id, JSON.stringify(cleared));
-  check('unmount removes the focus listener', focusRemoved.length === 1);
-  const scratchCalls = () => window.__search.log.filter((entry) => entry.folderPath === '/scratch').length;
-  const sinceScratch = scratchCalls();
-  window.__search.emit();
-  window.dispatchEvent(new Event('focus'));
-  await sleep(200);
-  check('unmounted instance performs no refreshes on change or focus', scratchCalls() === sinceScratch, 'scratchCalls=' + scratchCalls());
 
   check('no renderer errors during run', window.__errors.length === 0, JSON.stringify(window.__errors));
   return results;
@@ -373,20 +236,19 @@ app.whenReady().then(async () => {
       console.log('[harness] screenshot:', shotPath);
     }
 
-    await win.webContents.executeJavaScript("window.__search.set([], 0); window.__search.emit()");
+    await win.webContents.executeJavaScript("window.__setProps({ bots: [], botDataByBot: {} })");
     await new Promise((resolve) => setTimeout(resolve, 150));
     const emptyState = await win.webContents.executeJavaScript(`(() => {
-      const section = document.querySelector('section[aria-label="Notes due today"]');
+      const section = document.querySelector('section[aria-label="Bot inbox"]');
       return section.classList.contains('summary-empty') && section.getBoundingClientRect().height < 100
-        && getComputedStyle(document.querySelector('.empty-chat-summary')).gridTemplateColumns.split(' ').length === 1
-        && getComputedStyle(document.querySelector('.summary-item')).backgroundColor === 'rgba(0, 0, 0, 0)';
+        && getComputedStyle(document.querySelector('.empty-chat-summary')).gridTemplateColumns.split(' ').length === 1;
     })()`);
-    layoutResults.push({ name: 'empty notes collapse to compact row; inbox rows have no filled background', pass: emptyState });
+    layoutResults.push({ name: 'empty inbox collapses to compact row', pass: emptyState });
     await new Promise((resolve) => setTimeout(resolve, 100));
-    writeFileSync(join(shotDir, 'empty-chat-no-notes.png'), await win.capturePage().then((image) => image.toPNG()));
+    writeFileSync(join(shotDir, 'empty-chat-no-inbox.png'), await win.capturePage().then((image) => image.toPNG()));
     await win.webContents.executeJavaScript("document.documentElement.dataset.colorScheme = 'dark'");
     await new Promise((resolve) => setTimeout(resolve, 100));
-    writeFileSync(join(shotDir, 'empty-chat-no-notes-dark.png'), await win.capturePage().then((image) => image.toPNG()));
+    writeFileSync(join(shotDir, 'empty-chat-no-inbox-dark.png'), await win.capturePage().then((image) => image.toPNG()));
 
     for (const { name, pass, info } of [...results, ...layoutResults]) {
       console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${info ? '  (' + info + ')' : ''}`);
