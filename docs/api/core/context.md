@@ -14,6 +14,10 @@ avi.context.items.read(id): Promise<ContextDocument | null>
 
 Roots include global, installation, static plugin contribution, and active runtime plugin roots.
 
+Directory discovery and item reads are asynchronous and bounded by the host's available processor count. Results preserve deterministic path ordering and existing cache, depth, timeout, and symlink-cycle rules.
+
+Items expose `relativePath` relative to the requested root with `/` separators, `activationMode` (`always-visible` for automatically embedded ordinary-chat root instructions, otherwise `on-demand`), `invocationMode` (`assistant-only` for skills/workflows with `user-invocable: false`, otherwise null), and `parentSkillPath` (the nearest discovered ancestor skill's absolute path, otherwise null). There is no supported user-only metadata flag. `BOTS.md` remains bot-only regardless of the ordinary-chat activation badge.
+
 ## Registration
 
 ```js

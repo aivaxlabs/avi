@@ -421,6 +421,10 @@ interface ContextRoot {
 
 interface ContextItem {
   path: string;
+  relativePath: string;
+  activationMode: 'always-visible' | 'on-demand';
+  invocationMode: 'assistant-only' | null;
+  parentSkillPath: string | null;
   title: string;
   description: string;
   embeddable: boolean;

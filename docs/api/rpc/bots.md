@@ -148,7 +148,7 @@ Omit `params`.
 | `botDataByBot` | `Record<string, BotData>` | Inbox and Activity keyed by bot ID. |
 | `schedulerSnooze` | [`SnoozeState`](#snoozestate) | Global scheduler snooze state. |
 
-The method returns an empty collection/state rather than throwing when no bots exist.
+The method returns an empty collection/state rather than throwing when no bots exist. Bot directories load with CPU-count-bounded parallelism (`Math.max(1, availableParallelism())`) in stable bot order: inbox and activity read in parallel per bot, per-section failures return `[]` for that section, and one bot's failure does not affect the others.
 
 ## `bots:snooze`
 

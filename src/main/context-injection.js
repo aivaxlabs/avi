@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { opendir, readFile, realpath, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { availableParallelism, homedir } from 'node:os';
 import path from 'node:path';
 import { composerCommands } from '../shared/composer-commands.js';
 import {
@@ -29,7 +29,7 @@ const IGNORED_WORKSPACE_DIRECTORIES = new Set([
 ]);
 const MAX_CONTEXT_RECURSION_DEPTH = 6;
 const CONTEXT_SCAN_TIMEOUT_MS = 5_000;
-const CONTEXT_SCAN_CONCURRENCY = 32;
+const CONTEXT_SCAN_CONCURRENCY = Math.max(1, availableParallelism());
 const CONTEXT_ITEM_CACHE_MS = 1_000;
 const CONTEXT_SCAN_CACHE_MS = 60_000;
 const CONTEXT_DIRECTORY_NAME = '.agents';
@@ -581,7 +581,8 @@ export async function listContextItems(
       skillFiles,
       workflowFiles,
     } = scan;
-    const groups = await Promise.all([
+    const skillsByDirectory = new Map(skillFiles.map((file) => [normalizePathKey(path.dirname(file)), file]));
+    const groups = await mapContextConcurrent([
       {
         id: 'instruction',
         title: 'Instructions',
@@ -600,10 +601,32 @@ export async function listContextItems(
         folderPath: root,
         files: workflowFiles,
       },
-    ].map(async ({ files, ...group }) => ({
+    ], async ({ files, ...group }) => ({
       ...group,
-      items: await Promise.all(files.map((filePath) => readContextItem(filePath))),
-    })));
+      items: await mapContextConcurrent(files, async (filePath) => {
+        const item = await readContextItem(filePath);
+        const directory = path.dirname(filePath);
+        let parentSkillPath = null;
+        if (group.id === 'skill') {
+          let ancestor = path.dirname(directory);
+          while (ancestor !== path.dirname(ancestor)) {
+            parentSkillPath = skillsByDirectory.get(normalizePathKey(ancestor)) ?? null;
+            if (parentSkillPath || normalizePathKey(ancestor) === normalizePathKey(root)) break;
+            ancestor = path.dirname(ancestor);
+          }
+        }
+        const rootInstruction = normalizePathKey(directory) === normalizePathKey(root)
+          || (!includeRootCatalog && normalizePathKey(directory) === normalizePathKey(path.join(root, '.agents')));
+        return {
+          ...item,
+          relativePath: path.relative(root, filePath).replaceAll('\\', '/'),
+          activationMode: group.id === 'instruction' && rootInstruction && item.embeddable
+            && !BOT_INSTRUCTION_FILE_PATTERN.test(path.basename(filePath)) ? 'always-visible' : 'on-demand',
+          invocationMode: group.id !== 'instruction' && !item.userInvocable ? 'assistant-only' : null,
+          parentSkillPath,
+        };
+      }),
+    }), 1);
     const items = groups.flatMap((group) => group.items);
     const commands = [];
     const commandKeys = new Set();
@@ -701,13 +724,12 @@ async function scanContextFiles(
   const skillFiles = [];
   const workflowFiles = [];
   const seenDirectories = new Set();
-  const waitingTasks = [];
+  const pendingDirectories = [{ path: root, contextRoot: includeRootCatalog ? root : null, depth: 0 }];
   const deadline = Date.now() + CONTEXT_SCAN_TIMEOUT_MS;
-  let activeTasks = 0;
   let timedOut = false;
   let directoryCount = 0;
 
-  const visit = async (directoryPath, contextRoot = null, depth = 0) => {
+  const visit = async ({ path: directoryPath, contextRoot, depth }) => {
     if (Date.now() >= deadline) {
       timedOut = true;
       return;
@@ -729,11 +751,6 @@ async function scanContextFiles(
     if (seenDirectories.has(directoryKey)) return;
     seenDirectories.add(directoryKey);
     directoryCount += 1;
-    if (activeTasks >= CONTEXT_SCAN_CONCURRENCY) {
-      await new Promise((resolve) => waitingTasks.push(resolve));
-    }
-
-    activeTasks += 1;
     const childDirectories = [];
 
     try {
@@ -787,16 +804,19 @@ async function scanContextFiles(
       }
     } catch {
       return;
-    } finally {
-      activeTasks -= 1;
-      waitingTasks.shift()?.();
     }
 
     if (depth >= MAX_CONTEXT_RECURSION_DEPTH) return;
-    await Promise.all(childDirectories.map((child) => visit(child.path, child.contextRoot, depth + 1)));
+    for (const child of childDirectories) pendingDirectories.push({ ...child, depth: depth + 1 });
   };
 
-  await visit(root, includeRootCatalog ? root : null);
+  while (pendingDirectories.length > 0) {
+    if (Date.now() >= deadline) {
+      timedOut = true;
+      break;
+    }
+    await mapContextConcurrent(pendingDirectories.splice(0, CONTEXT_SCAN_CONCURRENCY), visit);
+  }
 
   const sortPaths = (paths) => uniqueFiles(paths).sort((left, right) => (
     left.localeCompare(right, undefined, { numeric: true })
@@ -809,6 +829,18 @@ async function scanContextFiles(
     directoryCount,
     timedOut,
   };
+}
+
+async function mapContextConcurrent(items, callback, concurrency = CONTEXT_SCAN_CONCURRENCY) {
+  const results = new Array(items.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await callback(items[index]);
+    }
+  }));
+  return results;
 }
 
 function normalizePathKey(filePath) {

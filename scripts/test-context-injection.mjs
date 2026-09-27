@@ -228,6 +228,14 @@ try {
     'project.instructions.md',
   ].sort();
   assert.deepEqual(instructionPaths, expectedInstructionPaths);
+  for (const item of instructionItems) {
+    assert.equal(item.relativePath, path.relative(root, item.path).replaceAll('\\', '/'));
+    assert.equal(item.invocationMode, null);
+  }
+  assert.equal(instructionItems.find((item) => item.relativePath === 'AGENTS.md').activationMode, 'always-visible');
+  assert.equal(instructionItems.find((item) => item.relativePath === '.agents/AGENTS.Project.md').activationMode, 'always-visible');
+  assert.equal(instructionItems.find((item) => item.relativePath === 'optional.instructions.md').activationMode, 'on-demand');
+  assert.equal(instructionItems.find((item) => item.relativePath === 'nested/MEMORY.child.md').activationMode, 'on-demand');
   assert.equal(
     instructionItems.find((item) => item.title === 'deep.instructions.md').description,
     'Deep recursive instructions',
@@ -272,6 +280,9 @@ try {
     skillItems.find((item) => item.description === 'Frontend skill from frontmatter').userInvocable,
     true,
   );
+  assert.ok(skillItems.every((item) => item.activationMode === 'on-demand'));
+  assert.equal(skillItems.find((item) => !item.userInvocable).invocationMode, 'assistant-only');
+  assert.equal(skillItems.find((item) => item.userInvocable).invocationMode, null);
   const workflowItems = context.groups.find((group) => group.id === 'workflow').items;
   assert.deepEqual(
     workflowItems.map((item) => item.description).sort(),
@@ -885,6 +896,15 @@ try {
   assert.ok(switchedContext.includes('RULE:test:other:main'));
   assert.ok(switchedContext.includes('RULE:@virtual:main'));
 
+  const treeRoot = path.join(installationRoot, 'tree-fixture');
+  await mkdir(path.join(treeRoot, 'skills', 'parent', 'child', 'deep'), { recursive: true });
+  const skillPaths = ['', 'child', 'child/deep'].map((part) => path.join(treeRoot, 'skills', 'parent', part, 'SKILL.md'));
+  await Promise.all(skillPaths.map((file) => writeFile(file, '# Nested skill')));
+  const tree = (await listContextItems(treeRoot, { includeRootCatalog: true })).groups.find((group) => group.id === 'skill');
+  assert.equal(tree.items.find((item) => item.path === skillPaths[0]).parentSkillPath, null);
+  assert.equal(tree.items.find((item) => item.path === skillPaths[1]).parentSkillPath, skillPaths[0]);
+  assert.equal(tree.items.find((item) => item.path === skillPaths[2]).parentSkillPath, skillPaths[1]);
+  assert.equal(tree.items.find((item) => item.path === skillPaths[2]).relativePath, 'skills/parent/child/deep/SKILL.md');
   console.log('Context variant discovery passed.');
 } finally {
   if (originalHome === undefined) delete process.env.HOME;

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { availableParallelism, homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   clearConversationMessages,
@@ -385,7 +385,8 @@ export class BotManager {
 
   async listBotDataByBot(botId) {
     if (botId !== undefined && !getBot(botId)) throw new Error('Bot not found.');
-    return Object.fromEntries(await Promise.all(listBots().filter((bot) => botId === undefined || bot.id === botId).map(async (bot) => {
+    const bots = listBots().filter((bot) => botId === undefined || bot.id === botId);
+    const loadOne = async (bot) => {
       try {
         const { dataFolder } = await ensureBotFolders(bot);
         const results = await Promise.allSettled([readInboxFile(dataFolder), readActivityFile(dataFolder)]);
@@ -407,7 +408,19 @@ export class BotManager {
           error: `Inbox: ${message}; Activity: ${message}`,
         }];
       }
-    })));
+    };
+    const limit = Math.max(1, availableParallelism());
+    const results = new Array(bots.length);
+    let next = 0;
+    const workers = Array.from({ length: Math.min(limit, bots.length) }, async () => {
+      while (next < bots.length) {
+        const index = next;
+        next += 1;
+        results[index] = await loadOne(bots[index]);
+      }
+    });
+    await Promise.all(workers);
+    return Object.fromEntries(results);
   }
 
   async createBotFromConfig(config) {
