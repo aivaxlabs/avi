@@ -30,7 +30,7 @@ function serverStatusLabel(server) {
     : statusLabels[server.status] ?? server.status;
 }
 
-export function McpSettings({ initialFolder = null, botId = null, onNavigationChange }) {
+export function McpSettings({ initialFolder = null, botId = null, lockFolder = false, onNavigationChange }) {
   const [folders, setFolders] = useState([]);
   const [selectedFolder, setSelectedFolder] = useState(initialFolder);
   const [folder, setFolder] = useState(null);
@@ -108,7 +108,7 @@ export function McpSettings({ initialFolder = null, botId = null, onNavigationCh
         title: selectedFolder.name,
         description: folder?.configPath ?? '',
         backLabel: 'Back to scopes',
-        onBack: () => {
+        onBack: lockFolder ? null : () => {
           setSelectedFolder(null);
           setFolder(null);
           setError('');
@@ -142,6 +142,7 @@ export function McpSettings({ initialFolder = null, botId = null, onNavigationCh
     inspection?.status,
     inspection?.toolCount,
     onNavigationChange,
+    lockFolder,
     selectedFolder,
   ]);
 

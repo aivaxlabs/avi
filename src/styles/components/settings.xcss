@@ -219,10 +219,15 @@
       font-weight: 500;
     }
 
-    .settings-navigation-separator {
-      height: 1px;
-      margin: 8px 8px 6px;
-      background: var(--background-3);
+    > .settings-navigation-separator {
+      width: auto;
+      height: 0;
+      margin: 8px 8px;
+      padding: 0;
+      border: 0;
+      border-top: 1px solid var(--background-3);
+      background: none;
+      align-self: start;
     }
 
     button {
@@ -1720,6 +1725,36 @@
 
   .settings-context-item-list {
     overflow: hidden;
+
+    .settings-context-entry + .settings-context-entry {
+      border-top: 1px solid var(--border-color);
+    }
+
+    .settings-context-subskills {
+      margin: 0 12px 12px 28px;
+      border-left: 1px solid var(--border-color);
+      padding-left: 12px;
+
+      > summary {
+        width: fit-content;
+        padding: 6px 8px;
+        color: var(--text-3);
+        font-size: var(--font-xs);
+        cursor: pointer;
+
+        &:focus-visible {
+          outline: 2px solid var(--primary-color);
+          outline-offset: 2px;
+        }
+
+        > span { margin-left: 6px; }
+      }
+
+      @media (max-width: 700px) {
+        margin-left: 8px;
+        padding-left: 4px;
+      }
+    }
   }
 
   .settings-context-item {
@@ -1763,12 +1798,48 @@
     display: grid;
     gap: 3px;
 
-    strong {
-      overflow: hidden;
-      color: var(--text-1);
-      font-weight: 500;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    > .settings-context-item-heading {
+      display: flex;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 4px 10px;
+      min-width: 0;
+
+      > .settings-context-relative-path {
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text-3);
+        opacity: .65;
+        font-size: var(--font-xs);
+      }
+
+      > strong {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--text-1);
+        font-weight: 500;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+
+    > .settings-context-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 3px;
+
+      > span {
+        padding: 2px 6px;
+        border-radius: 4px;
+        color: var(--text-3);
+        background: var(--background-3);
+        font-size: var(--font-xs);
+        line-height: 1.4;
+      }
     }
 
     small {

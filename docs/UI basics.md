@@ -1,6 +1,6 @@
 # UI basics
 
-The Avi window is divided into the Sidebar, conversation area, composer, and auxiliary panel.
+The Avi window has an Activity Bar and a shared page composer. Home contains the chat Sidebar, conversation area, message composer, and auxiliary panel; Inbox, Folders, and Settings reuse the same page surface.
 
 ## Workspaces
 
@@ -12,7 +12,13 @@ Context and file search follow symlinks everywhere, retaining existing exclusion
 
 ## Sidebar
 
-The Sidebar provides **New chat**, **Quick chat**, conversation search, **Overview**, chronological/model/folder grouping, and **Settings**. Collapsing it leaves a narrow rail with the main action icons centered beneath the expand button and Settings at the bottom.
+The Activity Bar provides **Home**, **Inbox**, and **Folders**, with **Settings** fixed at the bottom. Home is the default and keeps **New chat**, **Quick chat**, conversation search, bots, and chronological/model/folder grouping in the existing Sidebar. Collapsing the chat Sidebar leaves its main action icons beneath the expand button. Switching Activity Bar destinations keeps the current chat mounted, including its unsent message.
+
+**Folders** lists known working folders, with **Global** pinned above the scrolling list. **Filter folders** searches names and paths without hiding Global; long names truncate, and only the folder list scrolls. Open a folder to access **MCP Servers**, **Context**, **Threads**, and **Archive**. Global uses the home folder for threads and MCP servers and `~/.agents` for context. Threads and Archive show only the selected folder; global retention and cleanup remain in Settings → Maintenance. Use **All folders** to return to the list.
+
+The **Home** badge counts chats awaiting approval or input, blocked chats, chats marked as needing attention, and unseen completions awaiting review, counting each chat once. Running or semaphore-waiting chats alone do not increase it. The **Inbox** badge counts open Inbox entries whose latest message is an unread bot message, including informational messages. Historical messages, completed entries, and already-read requests for replies or approvals do not increase it. Both badges hide at zero and display `99+` above 99; their tooltips expose the full counts.
+
+With transparency enabled, the Activity Bar remains transparent, the chat Sidebar has a light tint, and the shared composer carries the subtle edge shadow on every page. Opaque mode uses theme-aware borders.
 
 Folder menus can open the project or terminal, copy the path, open context management, and pick a color from a predefined palette that tints the folder icon. Thread menus can fork a conversation, copy its thread ID, attach colored tags, or archive it. Tags are managed from **Tags → Manage tags**, where you can create, rename, recolor, and delete them; Avi ships with the Review, Important, and Blocked tags. The sidebar filter menu can show agent-created threads, which are hidden by default, and filter conversations by one or more tags (chats matching any selected tag are kept), regardless of the active grouping. Status indicators identify running work, unseen completions, pending approvals, and questions waiting for input.
 
@@ -90,15 +96,19 @@ Ultra persists on the conversation and requires a model-driven production, indep
 
 The base instructions keep the main implementation with the agent and encourage sub-agents for exploration, research, analysis, and tests that can proceed independently in parallel. When several independent tasks exist, the agent prefers separate, bounded assignments across multiple sub-agents rather than concentrating them in one. It avoids duplicating delegated work, inspects progress and results, guides sub-agents when needed, and integrates their evidence. The base prompt does not reference specific mode names; session-specific instructions define any different division of work or scope restrictions, including read-only Plan delegation.
 
-### Overview dashboard
+### Inbox dashboard
 
-**Overview** opens on the **Inbox** tab by default. The **Inbox** tab brings together conversations from every bot in an email-style list, grouped by the local date of the latest message, newest first. Each row shows the bot, subject, latest-message preview, attachments indicator, and time. Search bot names and message text, or filter by **Needs you**, **Open**, and **Completed**. The dot and tab count indicate conversations needing your input, not unread messages. Select a row to open that exact conversation in the Bots panel, where replies, attachments, completion, and approvals remain available. Inbox is independent of the model usage date range.
+**Inbox** in the Activity Bar replaces the former Overview entry and opens on the **Inbox** tab by default. The **Inbox** tab brings together conversations from every bot in an email-style list, grouped by the local date of the latest message, newest first. Each row shows the bot, subject, latest-message preview, attachments indicator, and time. Search bot names and message text, or filter by **Needs you**, **Open**, and **Completed**. The dot and tab count indicate conversations needing your input, not unread messages. Select a row to open that exact conversation in the Bots panel, where replies, attachments, completion, and approvals remain available. Inbox is independent of the model usage date range.
 
 **Tasks overview** shows only user-created threads in **Recently completed**, **Tasks requiring attention**, and **Ongoing tasks**. Threads created by agents, bots, sub-agents, and side chats are excluded from these lists. **Models summary** still includes usage from all conversation types.
 
-The **Overview** page is an observability surface, not an execution mode. It summarizes Tasks and Goals, recent activity, work requiring attention, model responses, token use, and model rankings over a selected time range.
+Inbox and the shared Tasks overview/Models summary load independently in parallel, so you can use Inbox while statistics load. Inbox initially renders 50 entries; **Show more** reveals another 50. Search and status filters apply to the entire Inbox, and shortened list previews do not change the full message in the side panel.
+
+The **Inbox** page is an observability surface, not an execution mode. It summarizes Tasks and Goals, recent activity, work requiring attention, model responses, token use, and model rankings over a selected time range.
 
 ## Settings
+
+Navigation groups use the same horizontal separator and spacing throughout, including around AIVAX Features.
 
 Settings contains General, Tuning, Personalization, Providers, Models, Context, MCP servers, AIVAX Features, Maintenance, Remote control, and About Avi. The **Models** page has **Auxiliar models**, **Sub-agents**, **Rules**, and **Model slider** tabs; one **Save default models** action persists the complete draft. Maintenance groups archived-conversation management and temporary-storage cleanup with the Semaphores inspector.
 

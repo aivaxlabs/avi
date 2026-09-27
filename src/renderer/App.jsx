@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { PanelRightOpen, ShieldAlert } from 'lucide-react';
 import { Sidebar } from './components/Sidebar.jsx';
+import { ActivityBar } from './components/ActivityBar.jsx';
 import { ChatView } from './components/ChatView.jsx';
 import { SearchDialog } from './components/SearchDialog.jsx';
 import { SettingsPage } from './components/SettingsPage.jsx';
@@ -154,6 +155,13 @@ export default function App() {
   }
   const [completedUnseen, setCompletedUnseen] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [foldersOpen, setFoldersOpen] = useState(false);
+  const [visitedSettings, setVisitedSettings] = useState(false);
+  const [visitedFolders, setVisitedFolders] = useState(false);
+  useEffect(() => {
+    if (settingsOpen) setVisitedSettings(true);
+    if (foldersOpen) setVisitedFolders(true);
+  }, [foldersOpen, settingsOpen]);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
   const [settingsContextFolder, setSettingsContextFolder] = useState(null);
   const [settingsInitialView, setSettingsInitialView] = useState(null);
@@ -215,7 +223,9 @@ export default function App() {
   const inspectedConversationIdRef = useRef(null);
   const selectedConversationIdRef = useRef(null);
 
-  inspectedConversationIdRef.current = settingsOpen || orchestrationOpen ? null : selectedId;
+  useLayoutEffect(() => {
+    inspectedConversationIdRef.current = settingsOpen || foldersOpen || orchestrationOpen ? null : selectedId;
+  }, [foldersOpen, orchestrationOpen, selectedId, settingsOpen]);
   selectedConversationIdRef.current = selectedId;
 
   const deleteMessageCache = useStableCallback((conversationIds) => {
@@ -587,23 +597,42 @@ export default function App() {
     };
   }, []);
 
-  const refreshBots = useCallback(async () => {
-    try {
-      const state = await api.bots.list();
-      setBots(state.bots ?? []);
-      setBotDataByBot(state.botDataByBot ?? {});
-      setBotsError('');
-      setBotSchedulerSnooze(state.schedulerSnooze ?? {
-        active: false,
-        mode: null,
-        until: null,
-      });
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-      setBotsError('Could not load bot inbox.');
-    } finally {
-      setBotsLoading(false);
+  const botsRefreshPromiseRef = useRef(null);
+  const botsRefreshPendingRef = useRef(false);
+
+  const refreshBots = useCallback(() => {
+    if (botsRefreshPromiseRef.current) {
+      botsRefreshPendingRef.current = true;
+      return botsRefreshPromiseRef.current;
     }
+    const run = (async () => {
+      try {
+        do {
+          botsRefreshPendingRef.current = false;
+          let state;
+          try {
+            state = await api.bots.list();
+          } catch (nextError) {
+            setError(nextError instanceof Error ? nextError.message : String(nextError));
+            setBotsError('Could not load bot inbox.');
+            continue;
+          }
+          setBots(state.bots ?? []);
+          setBotDataByBot(state.botDataByBot ?? {});
+          setBotsError('');
+          setBotSchedulerSnooze(state.schedulerSnooze ?? {
+            active: false,
+            mode: null,
+            until: null,
+          });
+        } while (botsRefreshPendingRef.current);
+      } finally {
+        botsRefreshPromiseRef.current = null;
+        setBotsLoading(false);
+      }
+    })();
+    botsRefreshPromiseRef.current = run;
+    return run;
   }, []);
 
   useEffect(() => {
@@ -614,14 +643,14 @@ export default function App() {
   }, [refreshBots]);
 
   useEffect(() => {
-    if (!selectedId || settingsOpen || orchestrationOpen) return;
+    if (!selectedId || settingsOpen || foldersOpen || orchestrationOpen) return;
     setCompletedUnseen((state) => {
       if (!state[selectedId]) return state;
       const next = { ...state };
       delete next[selectedId];
       return next;
     });
-  }, [orchestrationOpen, selectedId, settingsOpen]);
+  }, [foldersOpen, orchestrationOpen, selectedId, settingsOpen]);
 
   useEffect(() => {
     if (
@@ -634,6 +663,7 @@ export default function App() {
   }, [currentConversation?.goal?.status, currentConversation?.id, workMode]);
 
   useEffect(() => api.app.onNavigate(async ({ view, conversationId, project, draftText }) => {
+    setFoldersOpen(false);
     setOrchestrationOpen(false);
     setSearchOpen(false);
     if (view === 'new-conversation') {
@@ -1073,6 +1103,9 @@ export default function App() {
   }, []);
 
   async function selectConversation(id) {
+    setSettingsOpen(false);
+    setFoldersOpen(false);
+    setOrchestrationOpen(false);
     const conversation = conversations.find((item) => item.id === id);
     if (conversation?.model) setDraftModel(conversation.model);
     inspectedConversationIdRef.current = id;
@@ -2023,13 +2056,31 @@ export default function App() {
   const sidebarSemaphoreWaiting = useMemo(() => Object.fromEntries(
     semaphoreWaits.map((wait) => [wait.conversationId, true]),
   ), [semaphoreWaits]);
+  const activityCounts = useMemo(() => ({
+    home: conversations.filter((conversation) => (
+      approvalPending[conversation.id]
+      || inputPending[conversation.id]
+      || conversation.workStatus === 'blocked'
+      || conversation.needsAttention
+      || completedUnseen[conversation.id]
+    )).length,
+    inbox: Object.values(botDataByBot).reduce((count, data) => count + (
+      (data.inbox ?? []).filter((item) => {
+        const latest = item.messages?.at(-1);
+        return item.status === 'open' && latest?.role === 'bot' && !latest.readAt;
+      }).length
+    ), 0),
+  }), [conversations, approvalPending, inputPending, completedUnseen, botDataByBot]);
   const sidebarOnSetConversationTags = useStableCallback(setConversationTags);
   const sidebarOnSetFolderColor = useStableCallback(setFolderColor);
   const sidebarOnSaveChatTags = useStableCallback(saveChatTags);
+  const orchestrationOnRefreshBots = useStableCallback(refreshBots);
   const sidebarOnQuickChat = useStableCallback(() => api.quickChat.open().catch((nextError) => {
     setError(nextError instanceof Error ? nextError.message : String(nextError));
   }));
   const sidebarOnNewChat = useStableCallback((preset = {}) => {
+    setSettingsOpen(false);
+    setFoldersOpen(false);
     setOrchestrationOpen(false);
     selectedConversationIdRef.current = null;
     setSelectedId(null);
@@ -2072,10 +2123,6 @@ export default function App() {
       window.removeEventListener('avi:shortcut-error', onError);
     };
   }, [appState?.defaultProject, sidebarOnNewChat]);
-  const sidebarOnOpenOrchestration = useStableCallback(() => {
-    setOrchestrationOpen(true);
-    setAuxiliaryPanelVisible(false);
-  });
   const sidebarOnOpenProject = useStableCallback(async (project) => {
     try {
       await api.context.open(project.path);
@@ -2107,7 +2154,28 @@ export default function App() {
   const sidebarOnSettings = useStableCallback((contextFolder = null, initialView = null) => {
     setSettingsContextFolder(contextFolder);
     setSettingsInitialView(initialView ?? (contextFolder ? 'context-folder' : null));
-    setSettingsOpen(true);
+    setFoldersOpen(Boolean(contextFolder));
+    setSettingsOpen(!contextFolder);
+    setOrchestrationOpen(false);
+  });
+  const onSelectActivity = useStableCallback(async (activity) => {
+    if (settingsOpen || foldersOpen) {
+      try {
+        const nextConversations = await api.conversations.list();
+        setConversations(nextConversations);
+        if (selectedId && !nextConversations.some((conversation) => conversation.id === selectedId)) {
+          selectedConversationIdRef.current = null;
+          setSelectedId(null);
+        }
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : String(nextError));
+        return;
+      }
+    }
+    setSettingsOpen(activity === 'settings');
+    setFoldersOpen(activity === 'folders');
+    setOrchestrationOpen(activity === 'inbox');
+    setSearchOpen(false);
   });
   const sidebarOnToggleCollapsed = useStableCallback(() => (
     setSidebarCollapsed((value) => !value)
@@ -2285,6 +2353,7 @@ export default function App() {
     Math.min(
       420,
       windowWidth
+        - 52
         - (sidePanelVisible ? auxiliaryPanelWidth : 0)
         - minimumMainContentWidth,
     ),
@@ -2293,7 +2362,8 @@ export default function App() {
   const auxiliaryPanelWidthMax = Math.max(
     minimumAuxiliaryPanelWidth,
     windowWidth
-      - (effectiveSidebarCollapsed ? 58 : effectiveSidebarWidth)
+      - 52
+      - (orchestrationOpen ? 0 : effectiveSidebarCollapsed ? 58 : effectiveSidebarWidth)
       - minimumMainContentWidth,
   );
   const effectiveAuxiliaryPanelWidth = Math.min(
@@ -2304,7 +2374,8 @@ export default function App() {
     'app-shell',
     appState?.platform && `platform-${appState.platform}`,
     effectiveSidebarCollapsed && 'sidebar-collapsed',
-    settingsOpen && 'settings-active',
+    (settingsOpen || foldersOpen) && 'settings-active',
+    orchestrationOpen && 'inbox-active',
     appState?.tuning?.chatReasoningTraces === 'hidden' && 'reasoning-traces-hidden',
   ]
     .filter(Boolean)
@@ -2358,9 +2429,27 @@ export default function App() {
         '--auxiliary-panel-width': `${effectiveAuxiliaryPanelWidth}px`,
       }}
     >
-      {settingsOpen ? (
+      <ActivityBar
+        active={settingsOpen ? 'settings' : foldersOpen ? 'folders' : orchestrationOpen ? 'inbox' : 'home'}
+        onSelect={onSelectActivity}
+        counts={activityCounts}
+        updateAvailable={updateState?.available === true}
+      />
+      <div className="app-composer">
+      {[false, true].filter((folderMode) => folderMode
+        ? foldersOpen || visitedFolders
+        : settingsOpen || visitedSettings).map((folderMode) => (
+        <div className="settings-composer" key={folderMode ? 'folders' : 'settings'}
+          hidden={folderMode ? !foldersOpen : !settingsOpen}>
         <SettingsPage
-          key={`${settingsInitialView ?? 'providers'}:${settingsContextFolder?.path ?? ''}`}
+          key={folderMode === Boolean(settingsContextFolder)
+            ? `${settingsInitialView ?? ''}:${settingsContextFolder?.path ?? ''}`
+            : 'default'}
+          folderMode={folderMode}
+          homeFolder={appState.defaultProject}
+          conversations={conversations}
+          onOpenThread={sidebarOnSelect}
+          onThreadsChange={async () => setConversations(await api.conversations.list())}
           providers={providers}
           providerTypes={providerTypes}
           tuning={appState.tuning}
@@ -2370,8 +2459,8 @@ export default function App() {
             themes,
             personalities: appState.pluginCatalog?.personalities ?? [],
           }}
-          initialContextFolder={settingsContextFolder}
-          initialView={settingsInitialView}
+          initialContextFolder={folderMode ? settingsContextFolder : null}
+          initialView={folderMode === Boolean(settingsContextFolder) ? settingsInitialView : null}
           appearance={appearance}
           backgroundUrl={chatBackgroundUrl}
           desktop={appState.desktop}
@@ -2399,6 +2488,7 @@ export default function App() {
             setSettingsContextFolder(null);
             setSettingsInitialView(null);
             setSettingsOpen(false);
+            setFoldersOpen(false);
             if (selectedId && !nextConversations.some((conversation) => conversation.id === selectedId)) {
               const fallback = nextConversations[0]?.id ?? null;
               selectedConversationIdRef.current = fallback;
@@ -2429,8 +2519,10 @@ export default function App() {
             return savedTuning;
           }}
         />
-      ) : (
-        <>
+        </div>
+      ))}
+        <div className="home-composer" hidden={settingsOpen || foldersOpen}>
+          <div className="home-sidebar" hidden={orchestrationOpen}>
           <Sidebar
             conversations={conversations}
             bots={bots}
@@ -2443,7 +2535,6 @@ export default function App() {
             approvalPending={approvalPending}
             inputPending={inputPending}
             semaphoreWaiting={sidebarSemaphoreWaiting}
-            updateState={updateState}
             homePath={appState.defaultProject.path}
             chatTags={appState.chatTags ?? emptyList}
             folderColors={appState.folderColors ?? emptyObject}
@@ -2461,7 +2552,6 @@ export default function App() {
             onSnoozeBot={sidebarOnSnoozeBot}
             onSnoozeBots={sidebarOnSnoozeBots}
             onSearch={sidebarOnSearch}
-            onOpenOrchestration={sidebarOnOpenOrchestration}
             onFork={sidebarOnFork}
             onArchive={sidebarOnArchive}
             onOpenProject={sidebarOnOpenProject}
@@ -2470,10 +2560,10 @@ export default function App() {
             onCopyThreadId={sidebarOnCopyThreadId}
             onSettings={sidebarOnSettings}
             collapsed={effectiveSidebarCollapsed}
-            orchestrationOpen={orchestrationOpen}
             onToggleCollapsed={sidebarOnToggleCollapsed}
           />
-          {!effectiveSidebarCollapsed && (
+          </div>
+          {!effectiveSidebarCollapsed && !orchestrationOpen && (
             <PanelResizer
               label="Resize sidebar"
               controls="main-sidebar"
@@ -2494,22 +2584,25 @@ export default function App() {
               ? ' with-auxiliary-panel'
               : ''}`}
           >
-            {orchestrationOpen ? (
-              <OrchestrationPage
-                bots={bots}
-                botDataByBot={botDataByBot}
-                botsLoading={botsLoading}
-                onRefreshBots={refreshBots}
-                onOpenBotPendency={(botId, pendencyId) => {
-                  setOverviewInboxNavigation({ botId, pendencyId });
-                }}
-                models={models}
-                onOpenThread={(id) => {
-                  setOrchestrationOpen(false);
-                  selectConversation(id);
-                }}
-              />
-            ) : (
+            {orchestrationOpen && (
+              <div className="orchestration-container">
+                <OrchestrationPage
+                  bots={bots}
+                  botDataByBot={botDataByBot}
+                  botsLoading={botsLoading}
+                  onRefreshBots={orchestrationOnRefreshBots}
+                  onOpenBotPendency={(botId, pendencyId) => {
+                    setOverviewInboxNavigation({ botId, pendencyId });
+                  }}
+                  models={models}
+                  onOpenThread={(id) => {
+                    setOrchestrationOpen(false);
+                    selectConversation(id);
+                  }}
+                />
+              </div>
+            )}
+            <div className="chat-view-slot" hidden={orchestrationOpen}>
               <ChatView
               {...shell}
               historyHasMore={messagePagesByConversation[selectedId]?.hasMore ?? false}
@@ -2586,7 +2679,7 @@ export default function App() {
               defaultPermissionMode={appState.tuning.defaultPermissionMode}
               continuationRepliesEnabled={appState.tuning.continuationRepliesEnabled}
               />
-            )}
+            </div>
             {sidePanelVisible && (
               <PanelResizer
                 label={overviewInboxVisible ? 'Resize Inbox panel' : 'Resize auxiliary panel'}
@@ -2744,8 +2837,8 @@ export default function App() {
               />
             )}
           </div>
-        </>
-      )}
+        </div>
+      </div>
       {!settingsOpen && searchOpen && (
         <SearchDialog
           onClose={() => setSearchOpen(false)}

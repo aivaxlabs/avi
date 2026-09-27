@@ -1,0 +1,212 @@
+[data-transparency-mode="opaque"] .activity-bar {
+  padding-top: 6px;
+}
+
+.activity-bar {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px 10px 6px;
+  background: transparent;
+  -webkit-app-region: drag;
+
+  > button {
+    position: relative;
+    flex: 0 0 38px;
+    width: 38px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border-radius: 9px;
+    color: --text-3;
+    background: transparent;
+    -webkit-app-region: no-drag;
+
+    &:hover {
+      color: --text-1;
+      background: --item-hover;
+    }
+
+    &[aria-current="page"] {
+      color: --text-1;
+      background: --item-active;
+    }
+
+    &:focus-visible {
+      outline: 2px solid --primary-color;
+      outline-offset: 2px;
+    }
+
+    &.activity-settings {
+      margin-top: auto;
+    }
+
+    > .activity-count-badge {
+      position: absolute;
+      top: -2px;
+      right: -3px;
+      min-width: 17px;
+      height: 17px;
+      padding: 0 4px;
+      display: grid;
+      place-items: center;
+      border-radius: 9px;
+      color: --background-0;
+      background: --text-1;
+      font-size: --font-xs;
+      font-weight: 600;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      pointer-events: none;
+    }
+
+    > .activity-update-badge {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: --primary-color;
+    }
+  }
+}
+
+.app-composer {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  overflow: hidden;
+  border-left: 1px solid --border-color;
+
+  > .settings-composer {
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+  }
+
+  > .home-composer {
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: var(--sidebar-width, 222px) 0 minmax(0, 1fr);
+
+    > .home-sidebar {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+    }
+  }
+
+  .chat-view-slot {
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+
+  :root[data-transparency-mode="transparent"] & {
+    border-left: none;
+
+    .sidebar {
+      --sidebar-background: var(--background-transparent-2, color-mix(in srgb, var(--background-1) 35%, transparent));
+    }
+  }
+}
+
+.app-shell.sidebar-collapsed .home-composer {
+  grid-template-columns: 58px minmax(0, 1fr);
+}
+
+.app-shell.inbox-active .home-composer {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.folders-page {
+  > .folder-navigation {
+    min-width: 0;
+
+    > h2 {
+      margin: 10px 16px;
+      font-size: --font-lg;
+      font-weight: 600;
+    }
+
+    > .folder-global {
+      flex: 0 0 auto;
+      padding-bottom: 8px;
+      border-bottom: 1px solid --border-color;
+    }
+
+    > .settings-search {
+      flex: 0 0 32px;
+      min-width: 0;
+
+      > svg {
+        flex-shrink: 0;
+      }
+    }
+
+    > h2 {
+      flex-shrink: 0;
+    }
+
+    > .folder-navigation-scroll {
+      flex: 1 1 0;
+      min-width: 0;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-gutter: stable;
+      scrollbar-width: thin;
+
+      .folder-navigation-heading {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 16px;
+        min-width: 0;
+
+        > strong {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      }
+
+      .settings-navigation {
+        min-width: 0;
+        grid-template-columns: minmax(0, 1fr);
+        overflow: visible;
+
+        button {
+          min-width: 0;
+          max-width: 100%;
+
+          > svg {
+            flex-shrink: 0;
+          }
+        }
+
+        p {
+          color: --text-3;
+          padding: 0 10px;
+          font-size: --font-sm;
+          overflow-wrap: anywhere;
+        }
+
+        button > span {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      }
+    }
+  }
+}

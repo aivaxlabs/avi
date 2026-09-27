@@ -4,6 +4,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   overflow: hidden;
+  container-type: inline-size;
 
   &.with-auxiliary-panel {
     grid-template-columns: minmax(0, 1fr) 0 var(--auxiliary-panel-width, 42%);

@@ -68,7 +68,7 @@ Settings are organized by the decisions they control:
 
 ## Inbox and Activity
 
-In **Overview → Inbox**, clicking an item opens its conversation beside the Overview without navigating away. This panel shares the chat side panel's styles and draggable width control, but has no tabs or bot selector. Use its close button to return to the full-width Overview, or click another Inbox item to switch conversations.
+In the Activity Bar's **Inbox** page, clicking an item opens its conversation beside the inbox list without navigating away. This panel shares the chat side panel's styles and draggable width control, but has no tabs or bot selector. Use its close button to return to the full-width Inbox, or click another Inbox item to switch conversations.
 
 Open **Bots** in the auxiliary panel and select a bot in the header. The compact search and filter controls adapt to the panel width. The panel has two tabs:
 

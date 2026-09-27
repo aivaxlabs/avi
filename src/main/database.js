@@ -927,6 +927,7 @@ const statements = {
     WHERE deleted_at IS NULL
       AND archived_at IS NOT NULL
       AND conversation_type = 'thread'
+      AND (@folderScope IS NULL OR c.project_path = @folderScope)
       AND (@query = '' OR title LIKE @pattern ESCAPE '\\' OR EXISTS (
         SELECT 1 FROM messages
         WHERE conversation_id = c.id AND hidden = 0
@@ -944,6 +945,7 @@ const statements = {
     WHERE deleted_at IS NULL
       AND archived_at IS NOT NULL
       AND conversation_type = 'thread'
+      AND (@folderScope IS NULL OR c.project_path = @folderScope)
       AND (@query = '' OR title LIKE @pattern ESCAPE '\\' OR EXISTS (
         SELECT 1 FROM messages
         WHERE conversation_id = c.id AND hidden = 0
@@ -2022,22 +2024,24 @@ export function listAllConversations({ includeLatestReasoningEffort = false } = 
   return statement.all().map(mapConversation);
 }
 
-export function countArchivedConversations(query = '') {
+export function countArchivedConversations(query = '', { folderPath } = {}) {
   const normalized = String(query ?? '').trim();
   const pattern = `%${normalized.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
   return Number(statements.countArchivedConversations.get({
     query: normalized,
     pattern,
+    folderScope: typeof folderPath === 'string' && folderPath ? resolve(folderPath) : null,
   })?.total) || 0;
 }
 
-export function listArchivedConversations(query = '', { limit = 200, offset = 0 } = {}) {
+export function listArchivedConversations(query = '', { limit = 200, offset = 0, folderPath } = {}) {
   const normalized = String(query ?? '').trim();
   const pattern = `%${normalized.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
   return statements.listArchivedConversations
     .all({
       query: normalized,
       pattern,
+      folderScope: typeof folderPath === 'string' && folderPath ? resolve(folderPath) : null,
       limit: Math.max(1, Math.trunc(Number(limit)) || 200),
       offset: Math.max(0, Math.trunc(Number(offset)) || 0),
     })
@@ -2909,7 +2913,7 @@ export function toModelMessages(
   const hasCheckpoint = Boolean(conversation?.context_checkpoint) && hasCheckpointBoundary;
   const checkpoint = hasCheckpoint
     ? [{
-      role: 'system',
+      role: 'user',
       content: `<conversation_checkpoint>\n${conversation.context_checkpoint}\n</conversation_checkpoint>`,
     }]
     : [];
@@ -2957,7 +2961,7 @@ export function toModelMessagesThroughUser(
     ...childThreadContext(conversation),
     ...(useCheckpoint
       ? [{
-        role: 'system',
+        role: 'user',
         content: `<conversation_checkpoint>\n${conversation.context_checkpoint}\n</conversation_checkpoint>`,
       }]
       : []),

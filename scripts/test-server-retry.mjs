@@ -1942,7 +1942,7 @@ try {
   );
   assert.deepEqual(postCheckpointRequest.toolHistory, []);
   assert.deepEqual(postCheckpointRequest.messages, [{
-    role: 'system',
+    role: 'user',
     content: '<conversation_checkpoint>\n'
       + 'Per-inference checkpoint.\n'
       + '</conversation_checkpoint>',
@@ -2089,7 +2089,7 @@ try {
       }
       assert.deepEqual(toolHistory, []);
       assert.equal(messages.length, 1);
-      assert.equal(messages[0].role, 'system');
+      assert.equal(messages[0].role, 'user');
       assert.match(messages[0].content, /Compressed conversation checkpoint/);
       onEvent({ type: 'content', text: 'Recovered after compaction.' });
       onEvent({
@@ -2162,7 +2162,7 @@ try {
     })),
     [
       {
-        role: 'system',
+        role: 'user',
         content: '<conversation_checkpoint>\n'
           + 'Compressed conversation checkpoint.\n'
           + '</conversation_checkpoint>',
@@ -2277,7 +2277,7 @@ try {
   assert.deepEqual(
     database.toModelMessages(thresholdConversation.id),
     [{
-      role: 'system',
+      role: 'user',
       content: '<conversation_checkpoint>\nThreshold checkpoint.\n</conversation_checkpoint>',
     }],
   );

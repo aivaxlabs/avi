@@ -32,7 +32,7 @@ The complete framing, reconstruction, and recovery rules are specified in the bu
 
 ## Archive maintenance
 
-`archive:maintenance` accepts archive-list options `{ query, page, pageSize }` and returns the fully resolved archive state `{ settings, conversations, pagination, stats }` plus `maintenance: { archived, deletedArchived, deletedDisposable, prunedBotMessages }`. The request completes only after the post-cleanup archive refresh resolves; a refresh failure rejects the request but does not roll back completed deletions. Concurrent forced cleanup requests are rejected while cleanup or its refresh is in progress.
+`archive:maintenance` accepts archive-list options `{ query, page, pageSize }` and returns the fully resolved archive state `{ settings, conversations, pagination, stats }` plus `maintenance: { archived, deletedArchived, deletedDisposable, prunedBotMessages }`. All archive-list options (`archive:state`, `archive:save`, `archive:restore`, `archive:delete`, `archive:maintenance`) also accept an optional `folderPath`: when supplied, the archived list, count, and pagination are filtered before pagination to archived threads whose resolved `projectPath` exactly matches the resolved `folderPath`. An omitted `folderPath` preserves the existing all-folder behavior; an explicit home path scopes the list to home only. The request completes only after the post-cleanup archive refresh resolves; a refresh failure rejects the request but does not roll back completed deletions. Concurrent forced cleanup requests are rejected while cleanup or its refresh is in progress.
 
 ## Plugin management
 
@@ -162,7 +162,7 @@ Authenticated global `/rpc` clients can invoke `remote:state` with no payload. I
 
 ## Overview dashboard
 
-`orchestration:overview` retains its method name despite the UI rename to **Overview**. Its `ongoing`, `requiresAttention`, and `recentlyCompleted` arrays contain only conversations with `conversationType: "thread"` and `createdBy: "user"`. Agent-created threads are excluded before task-history classification. The `metrics` aggregation continues to include all conversation types; the task filter does not change model usage totals.
+`orchestration:overview` retains its method name despite the UI rename to **Inbox**. Database reads and aggregation run in a background worker; concurrent requests for the same range share the in-flight calculation. The response shape is unchanged. Its `ongoing`, `requiresAttention`, and `recentlyCompleted` arrays contain only conversations with `conversationType: "thread"` and `createdBy: "user"`. Agent-created threads are excluded before task-history classification. The `metrics` aggregation continues to include all conversation types; the task filter does not change model usage totals.
 
 ## Reference
 

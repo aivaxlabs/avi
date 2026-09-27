@@ -1,6 +1,6 @@
 # MCP servers
 
-Model Context Protocol (MCP) connects Avi to live tools and context from local processes, applications, and remote services. Prefer **Settings → MCP servers** for configuration and diagnostics.
+Model Context Protocol (MCP) connects Avi to live tools and context from local processes, applications, and remote services. Use **Folders → Global or a working folder → MCP Servers** for scoped configuration and diagnostics. **Settings → MCP servers** remains available for browsing all scopes.
 
 ## Scopes and precedence
 

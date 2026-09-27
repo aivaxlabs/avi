@@ -244,6 +244,7 @@ try {
   const checkpointBlocks = database.toModelMessagesThroughUser(
     helperConversation.id, helperFailedAssistantId, { includeFailedUser: true },
   );
+  assert.deepEqual(checkpointBlocks.map(({ role }) => role), ['user']);
   assert.deepEqual(checkpointBlocks.map(blockText), [
     '<conversation_checkpoint>\nCOMPACTED CURRENT PROMPT\n</conversation_checkpoint>',
   ], 'recovery at the checkpoint boundary must use the checkpoint, not empty or pre-compaction history');
@@ -292,6 +293,7 @@ try {
     await waitFor(() => !runner.runs.has(conversation.id));
     assert.equal(calls.length, 1, 'checkpoint recovery must reach the provider');
     assert.deepEqual(executed, ['pending'], 'confirmed tool results must not execute again');
+    assert.deepEqual(calls[0].messages.map(({ role }) => role), ['user']);
     assert.deepEqual(calls[0].messages.map(blockText), ['<conversation_checkpoint>\nRECOVERY CHECKPOINT\n</conversation_checkpoint>']);
     assert.deepEqual(calls[0].toolHistory[0].continuation, changedModel ? [] : continuation);
     assert.equal(calls[0].toolHistory[0].results[0].output, 'CONFIRMED');

@@ -1,3 +1,9 @@
+.orchestration-container {
+  min-width: 0;
+  min-height: 0;
+  container: orchestration / inline-size;
+}
+
 .orchestration-page,
 .bot-statistics {
   &.orchestration-page {
@@ -9,6 +15,70 @@
     color: var(--text-1);
     scrollbar-width: thin;
     scrollbar-color: var(--text-4) transparent;
+
+    @container orchestration (max-width: 900px) {
+      .orchestration-container & {
+        padding: 32px 20px;
+      }
+
+      .orchestration-header {
+        align-items: flex-start;
+        flex-wrap: wrap;
+        margin-bottom: 20px;
+      }
+
+      .orchestration-range-trigger {
+        margin-left: 0;
+      }
+
+      .orchestration-range-popover {
+        top: 100%;
+        right: 0;
+      }
+
+      .token-overview,
+      .usage-breakdown-grid,
+      .provider-model-row {
+        grid-template-columns: 1fr;
+      }
+
+      .token-overview-total {
+        padding-inline: 0;
+        border-right: 0;
+        border-bottom: 1px solid var(--border-color);
+      }
+    }
+
+    @container orchestration (max-width: 620px) {
+      .orchestration-container & {
+        padding: 22px 10px;
+      }
+
+      .token-overview-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+
+        div {
+          padding: 16px;
+
+          &:nth-child(3) {
+            border-left: 0;
+          }
+
+          &:nth-child(n + 3) {
+            border-top: 1px solid var(--border-color);
+          }
+        }
+      }
+
+      .provider-model-metrics {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .provider-usage-track,
+      .provider-model-list {
+        margin-left: 0;
+      }
+    }
   }
 
   .orchestration-inbox {
@@ -143,7 +213,7 @@
         font-size: .9rem;
       }
 
-      @media (max-width: 800px) {
+      @container orchestration (max-width: 800px) {
         gap: 8px;
         flex-wrap: wrap;
 

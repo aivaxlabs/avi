@@ -54,11 +54,15 @@ Quick Chat uses reduced instructions and does not receive the full ordinary-thre
 
 ## Context management UI
 
-**Settings → Context** lists Global and known project folders. Each scope groups Instructions, Skills, and Workflows with a title, description, and approximate token count. Selecting an item opens the file in its system-associated application; Avi does not include an internal Markdown editor.
+Open **Folders → Global or a working folder → Context** from the Activity Bar. Global inspects `~/.agents`; a working folder inspects its own context. **Settings → Context** remains available for the complete context-scope list, including plugin context. Each scope groups Instructions, Skills, and Workflows with a title, description, and approximate token count. A subdued relative file path appears to the left of the title, relative to the selected context root (`~/.agents` for Global). Nested skills are grouped beneath their nearest parent skill in collapsible Sub-skills sections.
+
+Activation badges describe actual loading behavior: **Always visible** means the instruction body is injected automatically; **On demand** means the item is cataloged for explicit reading. Skills and workflows are on demand. These badges describe ordinary-chat visibility; `BOTS.md` remains bot-thread-only and its applicable root instructions are injected for bots. **Assistant only** identifies skills or workflows with `user-invocable: false`; unspecified invocation metadata has no extra badge. Avi does not currently implement a user-only activation flag.
+
+Directory discovery and metadata reads run asynchronously with processor-count-bounded concurrency. Loading does not require a synchronous filesystem scan in the renderer. Selecting an item opens the file in its system-associated application; Avi does not include an internal Markdown editor.
 
 ## Conversation compaction
 
-Regular copies, side chats, and Rubber Duck forks preserve the source checkpoint and its history boundary, even when that boundary is a hidden runtime message. Older history stays visible in the conversation but is not replayed to the model. Forks ending before the boundary do not inherit the later checkpoint or its token counter. Sub-agents start with fresh context rather than a copy of the parent history.
+Regular copies, side chats, and Rubber Duck forks preserve the source checkpoint and its history boundary, even when that boundary is a hidden runtime message. Older history stays visible in the conversation but is not replayed to the model. The checkpoint is sent to the model as a `user` message, followed by any conversation messages after the boundary; it is not a system instruction. Forks ending before the boundary do not inherit the later checkpoint or its token counter. Sub-agents start with fresh context rather than a copy of the parent history.
 
 Automatic and manual checkpoint compaction send regular conversation messages followed by a final user request for a checkpoint. In-flight tool calls and results remain structured messages, not a JSON transcript. Provider-specific reasoning and continuation metadata are removed; assistant text, tool calls, results, and supported media are retained, including content recovered from continuation items.
 

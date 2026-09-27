@@ -15,7 +15,7 @@ const entry = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { SettingsPage } from '/src/renderer/components/SettingsPage.jsx';
-import { Sidebar } from '/src/renderer/components/Sidebar.jsx';
+import { ActivityBar } from '/src/renderer/components/ActivityBar.jsx';
 import '/src/renderer/styles.css';
 window.__calls = [];
 window.chatApp = { tuning: { shells: async () => [] }, app: {
@@ -24,7 +24,7 @@ window.chatApp = { tuning: { shells: async () => [] }, app: {
 }};
 const root = createRoot(document.getElementById('root'));
 window.renderUpdate = (state) => root.render(<div style={{display:'flex',height:'100vh'}}>
-  <Sidebar conversations={[]} running={{}} completedUnseen={{}} updateState={state} onSettings={()=>{}} />
+  <ActivityBar active="settings" updateAvailable={state.available} onSelect={()=>{}} />
   <SettingsPage providers={[]} providerTypes={[]} models={[]} tuning={{terminalShell:'auto',verbosity:'medium'}} appearance={{scheme:'dark'}} desktop={{}} updateState={state} />
 </div>);
 window.renderUpdate({status:'available',supported:true,available:true,latestVersion:'0.7.0',currentVersion:'0.6.0'});
@@ -51,7 +51,7 @@ try {
     const wait = async (predicate) => { for(let i=0;i<150;i++) { if(predicate()) return; await new Promise(r=>setTimeout(r,20)); } throw new Error('UI timeout'); };
     const button = (text) => [...document.querySelectorAll('.settings-update button')].find(el=>el.textContent.trim()===text);
     await wait(()=>button('Install update'));
-    if(!document.querySelector('.settings-update.available') || !document.querySelector('.settings-update-badge')) throw new Error('Update indicators missing');
+    if(!document.querySelector('.settings-update.available') || !document.querySelector('.activity-update-badge')) throw new Error('Update indicators missing');
     button('Install update').click();
     await wait(()=>window.__calls.includes('install'));
     window.renderUpdate({status:'downloading',available:true,supported:true,progress:42,latestVersion:'0.7.0'});
@@ -66,7 +66,7 @@ try {
     button('Check for updates').click();
     await wait(()=>window.__calls.includes('check'));
     window.renderUpdate({status:'idle',available:false,supported:false,unsupportedReason:'Development build'});
-    await wait(()=>!document.querySelector('.settings-update-badge'));
+    await wait(()=>!document.querySelector('.activity-update-badge'));
     await wait(()=>!document.querySelector('.settings-update'));
     const about = [...document.querySelectorAll('button')].find(el=>el.textContent.trim()==='About');
     about.click();

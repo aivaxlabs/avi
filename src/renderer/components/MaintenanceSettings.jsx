@@ -30,8 +30,9 @@ const byteFormatter = new Intl.NumberFormat('en-US', {
 });
 const archivePageSize = 20;
 
-export function MaintenanceSettings() {
+export function MaintenanceSettings({ folderPath, archiveOnly = false, onThreadsChange }) {
   const [tab, setTab] = useState('archive');
+  const scope = typeof folderPath === 'string' && folderPath ? folderPath : undefined;
   const [state, setState] = useState(null);
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -45,7 +46,7 @@ export function MaintenanceSettings() {
     let active = true;
     setListLoading(true);
     window.chatApp.archive
-      .state({ query, page, pageSize: archivePageSize })
+      .state({ query, page, pageSize: archivePageSize, ...(scope ? { folderPath: scope } : {}) })
       .then((next) => {
         if (active) setState(next);
       })
@@ -58,9 +59,10 @@ export function MaintenanceSettings() {
     return () => {
       active = false;
     };
-  }, [page, query]);
+  }, [page, query, scope]);
 
   useEffect(() => {
+    if (archiveOnly) return undefined;
     let active = true;
     window.chatApp.archive
       .temporaryStorage()
@@ -73,10 +75,10 @@ export function MaintenanceSettings() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [archiveOnly]);
 
   const conversations = state?.conversations ?? [];
-  const archiveOptions = { query, page, pageSize: archivePageSize };
+  const archiveOptions = { query, page, pageSize: archivePageSize, ...(scope ? { folderPath: scope } : {}) };
 
   async function run(mutation) {
     setBusy(true);
@@ -86,6 +88,7 @@ export function MaintenanceSettings() {
       const next = await mutation();
       setState(next);
       setPage(next.pagination.page);
+      await onThreadsChange?.();
       return next;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -109,8 +112,8 @@ export function MaintenanceSettings() {
   if (!state) {
     return (
       <div className="maintenance-settings">
-        {tabs}
-        {tab === 'archive' ? (
+        {!archiveOnly && tabs}
+        {archiveOnly || tab === 'archive' ? (
           <section className="settings-section archive-settings">
             <div className="settings-empty">Loading archive...</div>
             {error && (
@@ -128,113 +131,115 @@ export function MaintenanceSettings() {
 
   return (
     <div className="maintenance-settings">
-      {tabs}
-      {tab === 'archive' ? (
+      {!archiveOnly && tabs}
+      {archiveOnly || tab === 'archive' ? (
         <div className="archive-settings">
-          <section className="settings-section">
-            <div className="settings-section-heading">
-              <h3>Archive Settings</h3>
-              <p>Keep the active thread list fast by moving old conversations out of the main view.</p>
-            </div>
-            <div className="settings-section-card settings-row-card">
-              <label className="settings-field settings-field-wide">
-                <span>Automatically archive old conversations</span>
-                <select
-                  disabled={busy}
-                  value={state.settings.archiveAfterDays ?? 'never'}
-                  onChange={(event) =>
-                    run(() =>
-                      window.chatApp.archive.save(
-                        {
-                          ...state.settings,
-                          archiveAfterDays: event.target.value === 'never' ? null : Number(event.target.value),
-                        },
-                        archiveOptions,
-                      ),
-                    )
-                  }
-                >
-                  {retentionOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="settings-field settings-field-wide">
-                <span>Automatically delete archived conversations</span>
-                <select
-                  disabled={busy}
-                  value={state.settings.deleteArchivedAfterDays ?? 'never'}
-                  onChange={(event) =>
-                    run(() =>
-                      window.chatApp.archive.save(
-                        {
-                          ...state.settings,
-                          deleteArchivedAfterDays: event.target.value === 'never' ? null : Number(event.target.value),
-                        },
-                        archiveOptions,
-                      ),
-                    )
-                  }
-                >
-                  {archivedDeletionOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="settings-field settings-field-wide">
-                <span>Automatically delete disposable conversations</span>
-                <select
-                  disabled={busy}
-                  value={state.settings.deleteDisposableAfterDays ?? 'never'}
-                  onChange={(event) =>
-                    run(() =>
-                      window.chatApp.archive.save(
-                        {
-                          ...state.settings,
-                          deleteDisposableAfterDays: event.target.value === 'never' ? null : Number(event.target.value),
-                        },
-                        archiveOptions,
-                      ),
-                    )
-                  }
-                >
-                  {disposableDeletionOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="settings-field settings-field-wide">
-                <span>Keep bot conversation history</span>
-                <select
-                  disabled={busy}
-                  value={state.settings.botHistoryRetentionDays}
-                  onChange={(event) =>
-                    run(() =>
-                      window.chatApp.archive.save(
-                        {
-                          ...state.settings,
-                          botHistoryRetentionDays: Number(event.target.value),
-                        },
-                        archiveOptions,
-                      ),
-                    )
-                  }
-                >
-                  {botHistoryRetentionOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </section>
+          {!archiveOnly && (
+            <section className="settings-section">
+              <div className="settings-section-heading">
+                <h3>Archive Settings</h3>
+                <p>Keep the active thread list fast by moving old conversations out of the main view.</p>
+              </div>
+              <div className="settings-section-card settings-row-card">
+                <label className="settings-field settings-field-wide">
+                  <span>Automatically archive old conversations</span>
+                  <select
+                    disabled={busy}
+                    value={state.settings.archiveAfterDays ?? 'never'}
+                    onChange={(event) =>
+                      run(() =>
+                        window.chatApp.archive.save(
+                          {
+                            ...state.settings,
+                            archiveAfterDays: event.target.value === 'never' ? null : Number(event.target.value),
+                          },
+                          archiveOptions,
+                        ),
+                      )
+                    }
+                  >
+                    {retentionOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-field settings-field-wide">
+                  <span>Automatically delete archived conversations</span>
+                  <select
+                    disabled={busy}
+                    value={state.settings.deleteArchivedAfterDays ?? 'never'}
+                    onChange={(event) =>
+                      run(() =>
+                        window.chatApp.archive.save(
+                          {
+                            ...state.settings,
+                            deleteArchivedAfterDays: event.target.value === 'never' ? null : Number(event.target.value),
+                          },
+                          archiveOptions,
+                        ),
+                      )
+                    }
+                  >
+                    {archivedDeletionOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-field settings-field-wide">
+                  <span>Automatically delete disposable conversations</span>
+                  <select
+                    disabled={busy}
+                    value={state.settings.deleteDisposableAfterDays ?? 'never'}
+                    onChange={(event) =>
+                      run(() =>
+                        window.chatApp.archive.save(
+                          {
+                            ...state.settings,
+                            deleteDisposableAfterDays: event.target.value === 'never' ? null : Number(event.target.value),
+                          },
+                          archiveOptions,
+                        ),
+                      )
+                    }
+                  >
+                    {disposableDeletionOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-field settings-field-wide">
+                  <span>Keep bot conversation history</span>
+                  <select
+                    disabled={busy}
+                    value={state.settings.botHistoryRetentionDays}
+                    onChange={(event) =>
+                      run(() =>
+                        window.chatApp.archive.save(
+                          {
+                            ...state.settings,
+                            botHistoryRetentionDays: Number(event.target.value),
+                          },
+                          archiveOptions,
+                        ),
+                      )
+                    }
+                  >
+                    {botHistoryRetentionOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </section>
+          )}
 
           <section className="settings-section">
             <div className="settings-section-heading">
@@ -330,103 +335,105 @@ export function MaintenanceSettings() {
             )}
           </section>
 
-          <section className="settings-section">
-            <div className="settings-section-heading">
-              <h3>Maintenance</h3>
-              <p>Review storage usage or apply all archive policies immediately.</p>
-            </div>
-            <div className="archive-stats">
-              <div>
-                <Database size={16} />
-                <span>
-                  <strong>{state.stats.total}</strong>Total conversations
-                </span>
+          {!archiveOnly && (
+            <section className="settings-section">
+              <div className="settings-section-heading">
+                <h3>Maintenance</h3>
+                <p>Review storage usage or apply all archive policies immediately.</p>
               </div>
-              <div>
-                <Database size={16} />
-                <span>
-                  <strong>{state.stats.active}</strong>Active conversations
-                </span>
+              <div className="archive-stats">
+                <div>
+                  <Database size={16} />
+                  <span>
+                    <strong>{state.stats.total}</strong>Total conversations
+                  </span>
+                </div>
+                <div>
+                  <Database size={16} />
+                  <span>
+                    <strong>{state.stats.active}</strong>Active conversations
+                  </span>
+                </div>
+                <div>
+                  <Archive size={16} />
+                  <span>
+                    <strong>{state.stats.archived}</strong>Archived conversations
+                  </span>
+                </div>
+                <div>
+                  <HardDrive size={16} />
+                  <span>
+                    <strong>{byteFormatter.format(state.stats.diskBytes / 1_048_576)}</strong>
+                    Conversation storage
+                  </span>
+                </div>
               </div>
-              <div>
-                <Archive size={16} />
+              <div className="settings-section-card archive-maintenance">
                 <span>
-                  <strong>{state.stats.archived}</strong>Archived conversations
+                  <strong>Temporary storage</strong>
+                  <small>
+                    {temporaryStorage
+                      ? `${byteFormatter.format(temporaryStorage.bytes / 1_048_576)} in ${temporaryStorage.path}`
+                      : 'Calculating temporary storage...'}
+                  </small>
                 </span>
-              </div>
-              <div>
-                <HardDrive size={16} />
-                <span>
-                  <strong>{byteFormatter.format(state.stats.diskBytes / 1_048_576)}</strong>
-                  Conversation storage
-                </span>
-              </div>
-            </div>
-            <div className="settings-section-card archive-maintenance">
-              <span>
-                <strong>Temporary storage</strong>
-                <small>
-                  {temporaryStorage
-                    ? `${byteFormatter.format(temporaryStorage.bytes / 1_048_576)} in ${temporaryStorage.path}`
-                    : 'Calculating temporary storage...'}
-                </small>
-              </span>
-              <button
-                className="danger"
-                type="button"
-                disabled={busy || !temporaryStorage?.bytes}
-                onClick={async () => {
-                  if (
-                    !window.confirm(
-                      'Delete all Avi temporary storage? Temporary attachments, tool outputs, logs, and cached media will be permanently removed.',
+                <button
+                  className="danger"
+                  type="button"
+                  disabled={busy || !temporaryStorage?.bytes}
+                  onClick={async () => {
+                    if (
+                      !window.confirm(
+                        'Delete all Avi temporary storage? Temporary attachments, tool outputs, logs, and cached media will be permanently removed.',
+                      )
                     )
-                  )
-                    return;
-                  setBusy(true);
-                  setError('');
-                  setNotice('');
-                  try {
-                    const storage = await window.chatApp.archive.clearTemporaryStorage();
-                    setTemporaryStorage(storage);
-                    setNotice('Temporary storage deleted.');
-                  } catch (nextError) {
-                    setError(nextError instanceof Error ? nextError.message : String(nextError));
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                <Trash2 size={14} />
-                Delete temporary storage
-              </button>
-            </div>
-            <div className="settings-section-card archive-maintenance">
-              <span>
-                <strong>Forced cleanup</strong>
-                <small>Archives eligible old threads, permanently deletes the entire archive including archived side chats and sub-agents, then prunes old bot history.</small>
-              </span>
-              <button
-                className="danger"
-                type="button"
-                disabled={busy}
-                onClick={async () => {
-                  if (
-                    !window.confirm('Run forced cleanup now? This permanently deletes every archived conversation, including archived side chats and sub-agents, after archiving eligible old threads. Active side chats and sub-agents are preserved. Old bot history will also be pruned. This cannot be undone.')
-                  )
-                    return;
-                  const next = await run(() => window.chatApp.archive.maintenance(archiveOptions));
-                  if (next?.maintenance) {
-                    setNotice(
-                      `Cleanup complete: ${next.maintenance.archived} archived, ${next.maintenance.deletedArchived} archived threads deleted, ${next.maintenance.deletedDisposable} archived side chats and sub-agents deleted, ${next.maintenance.prunedBotMessages} old bot messages deleted.`,
-                    );
-                  }
-                }}
-              >
-                <Trash2 size={14} />
-                Run forced cleanup
-              </button>
-            </div>
-          </section>
+                      return;
+                    setBusy(true);
+                    setError('');
+                    setNotice('');
+                    try {
+                      const storage = await window.chatApp.archive.clearTemporaryStorage();
+                      setTemporaryStorage(storage);
+                      setNotice('Temporary storage deleted.');
+                    } catch (nextError) {
+                      setError(nextError instanceof Error ? nextError.message : String(nextError));
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  <Trash2 size={14} />
+                  Delete temporary storage
+                </button>
+              </div>
+              <div className="settings-section-card archive-maintenance">
+                <span>
+                  <strong>Forced cleanup</strong>
+                  <small>Archives eligible old threads, permanently deletes the entire archive including archived side chats and sub-agents, then prunes old bot history.</small>
+                </span>
+                <button
+                  className="danger"
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    if (
+                      !window.confirm('Run forced cleanup now? This permanently deletes every archived conversation, including archived side chats and sub-agents, after archiving eligible old threads. Active side chats and sub-agents are preserved. Old bot history will also be pruned. This cannot be undone.')
+                    )
+                      return;
+                    const next = await run(() => window.chatApp.archive.maintenance(archiveOptions));
+                    if (next?.maintenance) {
+                      setNotice(
+                        `Cleanup complete: ${next.maintenance.archived} archived, ${next.maintenance.deletedArchived} archived threads deleted, ${next.maintenance.deletedDisposable} archived side chats and sub-agents deleted, ${next.maintenance.prunedBotMessages} old bot messages deleted.`,
+                      );
+                    }
+                  }}
+                >
+                  <Trash2 size={14} />
+                  Run forced cleanup
+                </button>
+              </div>
+            </section>
+          )}
 
           {notice && (
             <div className="settings-context-status" role="status">

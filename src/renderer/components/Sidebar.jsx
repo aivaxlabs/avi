@@ -12,7 +12,6 @@ import {
   FolderCog,
   FolderOpen,
   Hash,
-  LayoutDashboard,
   LoaderCircle,
   MessageSquarePlus,
   Moon,
@@ -63,7 +62,6 @@ export const Sidebar = memo(function Sidebar({
   approvalPending = emptyObject,
   inputPending = emptyObject,
   semaphoreWaiting = emptyObject,
-  updateState = null,
   onNewChat,
   onQuickChat,
   onSelect,
@@ -75,7 +73,6 @@ export const Sidebar = memo(function Sidebar({
   onSnoozeBot,
   onSnoozeBots,
   onSearch,
-  onOpenOrchestration,
   onFork,
   onArchive,
   onOpenProject,
@@ -89,7 +86,6 @@ export const Sidebar = memo(function Sidebar({
   onSetFolderColor,
   onSaveChatTags,
   collapsed,
-  orchestrationOpen,
   onToggleCollapsed,
   homePath,
 }) {
@@ -110,7 +106,6 @@ export const Sidebar = memo(function Sidebar({
   const [tagsSaving, setTagsSaving] = useState(false);
   const [stickyScrollActive, setStickyScrollActive] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const updateAvailable = updateState?.available === true;
   const filterButtonRef = useRef(null);
   const snoozeButtonRef = useRef(null);
   const folderMenuButtonRef = useRef(null);
@@ -413,11 +408,11 @@ export const Sidebar = memo(function Sidebar({
           </button>
         </div>
         <div className="nav-actions">
-          <button type="button" onClick={() => onNewChat()}>
+          <button type="button" aria-label="New chat" title="New chat" onClick={() => onNewChat()}>
             <MessageSquarePlus size={17} />
             <span>New chat</span>
           </button>
-          <button type="button" onClick={onQuickChat}>
+          <button type="button" aria-label="Quick chat" title="Quick chat" onClick={onQuickChat}>
             <Zap size={17} />
             <span>Quick chat</span>
           </button>
@@ -428,16 +423,7 @@ export const Sidebar = memo(function Sidebar({
         onScroll={(event) => setStickyScrollActive(event.currentTarget.scrollTop > 0)}
       >
         <div className="nav-actions">
-          <button
-            className={orchestrationOpen ? 'active' : undefined}
-            type="button"
-            aria-current={orchestrationOpen ? 'page' : undefined}
-            onClick={onOpenOrchestration}
-          >
-            <LayoutDashboard size={17} />
-            <span>Overview</span>
-          </button>
-          <button type="button" onClick={onSearch}>
+          <button type="button" aria-label="Search chats" title="Search chats" onClick={onSearch}>
             <Search size={17} />
             <span>Search chats</span>
           </button>
@@ -887,16 +873,6 @@ export const Sidebar = memo(function Sidebar({
         })}
       </div>
       </div>
-      <button
-        className="settings-button"
-        type="button"
-        onClick={() => onSettings()}
-        aria-label={updateAvailable ? 'Settings, update available' : undefined}
-      >
-        <Settings size={17} />
-        <span>Settings</span>
-        {updateAvailable && <i className="settings-update-badge" aria-hidden="true" />}
-      </button>
       {editingWorkspace && <WorkspaceDialog project={editingWorkspace} onClose={() => setEditingWorkspace(null)} />}
       {tagsManagerOpen && createPortal(
         <TagsManagerDialog

@@ -197,6 +197,11 @@ try {
   assert.equal(countArchivedConversations('missing'), 0);
   assert.deepEqual(listArchivedConversations('fixture', { limit: 1, offset: 0 }).map((item) => item.id), [parent.id]);
   assert.deepEqual(listArchivedConversations('fixture', { limit: 1, offset: 1 }), []);
+  assert.equal(countArchivedConversations('', { folderPath: process.cwd() }), 1);
+  assert.equal(countArchivedConversations('', { folderPath: tmpdir() }), 0);
+  assert.deepEqual(listArchivedConversations('', { limit: 10, offset: 0, folderPath: process.cwd() }).map((item) => item.id), [parent.id]);
+  assert.deepEqual(listArchivedConversations('', { limit: 10, offset: 0, folderPath: tmpdir() }), []);
+  assert.deepEqual(listArchivedConversations('fixture', { limit: 1, offset: 1, folderPath: process.cwd() }), []);
   assert.deepEqual(getArchiveStats(), {
     total: 3,
     active: 0,

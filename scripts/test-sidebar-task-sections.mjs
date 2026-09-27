@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Sidebar } from '../src/renderer/components/Sidebar.jsx';
+import { ActivityBar } from '../src/renderer/components/ActivityBar.jsx';
 
 globalThis.window = {
   localStorage: {
@@ -66,18 +67,23 @@ const markup = renderToStaticMarkup(React.createElement(Sidebar, {
 
 const stickyTopIndex = markup.indexOf('class="sidebar-sticky-top"');
 const stickyScrollIndex = markup.indexOf('class="sidebar-sticky-scroll"');
-const settingsIndex = markup.indexOf('class="settings-button"');
+const activityMarkup = renderToStaticMarkup(React.createElement(ActivityBar, {
+  active: 'home', onSelect: () => {}, updateAvailable: true,
+}));
 assert.ok(stickyTopIndex >= 0, 'The fixed sidebar top should be rendered.');
 assert.ok(stickyScrollIndex > stickyTopIndex, 'Scrollable content should follow the fixed sidebar top.');
-assert.ok(settingsIndex > stickyScrollIndex, 'Settings should remain outside the scrollable content.');
+assert.doesNotMatch(markup, /class="settings-button"/);
+assert.match(activityMarkup, /aria-label="Home" aria-current="page"/);
+assert.match(activityMarkup, /aria-label="Inbox"/);
+assert.match(activityMarkup, /class="activity-settings"[^>]*aria-label="Settings, update available"/);
 
 const stickyTopMarkup = markup.slice(stickyTopIndex, stickyScrollIndex);
 assert.match(stickyTopMarkup, /New chat/);
 assert.match(stickyTopMarkup, /Quick chat/);
 assert.doesNotMatch(stickyTopMarkup, /Orchestration/);
 
-const stickyScrollMarkup = markup.slice(stickyScrollIndex, settingsIndex);
-assert.match(stickyScrollMarkup, /Orchestration/);
+const stickyScrollMarkup = markup.slice(stickyScrollIndex);
+assert.doesNotMatch(stickyScrollMarkup, /<span>Overview<\/span>/);
 assert.match(stickyScrollMarkup, /Search chats/);
 assert.doesNotMatch(stickyScrollMarkup, /<span>New chat<\/span>/);
 assert.doesNotMatch(stickyScrollMarkup, /<span>Quick chat<\/span>/);

@@ -17,18 +17,10 @@ body,
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: var(--sidebar-width, 222px) 0 minmax(0, 1fr);
+  grid-template-columns: 52px minmax(0, 1fr);
   background: transparent;
   overflow: hidden;
   transition: grid-template-columns 160ms --base-transition;
-
-  &.sidebar-collapsed {
-    grid-template-columns: 58px minmax(0, 1fr);
-  }
-
-  &.settings-active {
-    grid-template-columns: minmax(0, 1fr);
-  }
 
   &.platform-win32,
   &.platform-darwin {
@@ -44,9 +36,6 @@ body,
       linear-gradient(135deg, --background-1, --background-2);
   }
 
-  @media (max-width: 700px) {
-    grid-template-columns: 58px minmax(0, 1fr);
-  }
 }
 
 .panel-resizer {
@@ -89,7 +78,7 @@ html[data-transparency-mode="opaque"] {
 }
 
 html[data-transparency-mode="transparent"] {
-  .chat-workspace {
+  .app-composer {
     position: relative;
     border-top-left-radius: 10px;
     filter: drop-shadow(-1px -1px 1px #00000011);
@@ -97,8 +86,8 @@ html[data-transparency-mode="transparent"] {
     height: calc(100% - 2px);
   }
 
-  & [data-color-scheme="dark"] {
-    .chat-workspace {
+  &[data-color-scheme="dark"] {
+    .app-composer {
       filter: drop-shadow(-1px -1px 2px #00000031);
     }
   }

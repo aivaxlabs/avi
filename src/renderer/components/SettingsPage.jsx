@@ -45,6 +45,8 @@ import { intelligenceLevelLimits, titleCaseEffort } from '../lib/models.js';
 import { AivaxFeaturesSettings } from './AivaxFeaturesSettings.jsx';
 import { AppearanceSettings } from './AppearanceSettings.jsx';
 import { MaintenanceSettings } from './MaintenanceSettings.jsx';
+import { FolderNavigation } from './FolderNavigation.jsx';
+import { ContextItems } from './ContextItems.jsx';
 import { BotSettingsPage } from './BotSettingsPage.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { McpSettings } from './McpSettings.jsx';
@@ -59,10 +61,6 @@ const capabilityOptions = [
   { value: 'audio', label: 'Audio' },
   { value: 'pdfFiles', label: 'PDF files' },
 ];
-const compactTokenFormatter = new Intl.NumberFormat('en-US', {
-  notation: 'compact',
-  maximumFractionDigits: 1,
-});
 const personalityDescriptions = Object.freeze({
   none: 'Uses only Avi base instructions without an additional personality.',
   candid: 'Direct and encouraging, with clear feedback and concrete next steps.',
@@ -218,6 +216,10 @@ function DefaultModelField({
   );
 }
 
+function SettingsNavigationSeparator() {
+  return <hr className="settings-navigation-separator" />;
+}
+
 function ActionMenu({
   disabled = false,
   label,
@@ -322,6 +324,11 @@ function ActionMenu({
 }
 
 export function SettingsPage({
+  folderMode = false,
+  homeFolder = null,
+  conversations = [],
+  onOpenThread,
+  onThreadsChange,
   providers,
   providerTypes,
   tuning,
@@ -347,7 +354,7 @@ export function SettingsPage({
   onSaveTuning,
 }) {
   const [view, setView] = useState(
-    initialView ?? (initialContextFolder ? 'context-folder' : 'general'),
+    initialView ?? (initialContextFolder ? 'context-folder' : folderMode ? 'folder-list' : 'general'),
   );
   const [shortcutFooter, setShortcutFooter] = useState(null);
   const [botFooter, setBotFooter] = useState(null);
@@ -537,7 +544,14 @@ export function SettingsPage({
     setContextLoading(true);
     setContextFolder(null);
     setError('');
-    window.chatApp.context.folder(selectedContextFolder.path)
+    const folderRequest = folderMode && selectedContextFolder.path === homeFolder.path
+      ? window.chatApp.context.folders().then((folders) => {
+        const globalFolder = folders.find((folder) => folder.name === 'Global');
+        if (!globalFolder) throw new Error('Global context folder is unavailable.');
+        return window.chatApp.context.folder(globalFolder.path);
+      })
+      : window.chatApp.context.folder(selectedContextFolder.path);
+    folderRequest
       .then((folder) => {
         if (!cancelled) setContextFolder(folder);
       })
@@ -552,7 +566,7 @@ export function SettingsPage({
     return () => {
       cancelled = true;
     };
-  }, [selectedContextFolder, view]);
+  }, [folderMode, homeFolder?.path, selectedContextFolder, view]);
 
   useEffect(() => {
     if (!selectedProvider) {
@@ -653,6 +667,9 @@ export function SettingsPage({
   }
 
   const pageTitle = {
+    'folder-list': 'Folders',
+    'folder-threads': `${selectedContextFolder?.name ?? ''} · Threads`,
+    'folder-archive': `${selectedContextFolder?.name ?? ''} · Archive`,
     list: 'Providers',
     routers: 'Model routers',
     router: routerDraft?.name || 'New model router',
@@ -675,6 +692,9 @@ export function SettingsPage({
     about: 'About Avi',
   }[view];
   const pageDescription = {
+    'folder-list': 'Choose Global or a working folder to manage its servers, context, threads, and archive.',
+    'folder-threads': selectedContextFolder?.displayPath || selectedContextFolder?.path || '',
+    'folder-archive': 'Archived threads in this folder. Retention policies remain in Settings → Maintenance.',
     list: 'Manage the connections and models available in chats.',
     routers: 'Route requests across an ordered set of available models.',
     router: 'Configure the routing mode and ordered model sequence.',
@@ -709,7 +729,25 @@ export function SettingsPage({
   );
 
   return (
-    <section className="settings-page">
+    <section className={classNames('settings-page', folderMode && 'folders-page')}>
+      {folderMode ? (
+        <FolderNavigation
+          homeFolder={homeFolder}
+          selectedFolder={selectedContextFolder}
+          view={view}
+          onSelectFolder={(folder) => {
+            setSelectedContextFolder(folder);
+            setContextFolder(null);
+            setMcpNavigation(null);
+            setError('');
+            setView(folder ? 'folder-threads' : 'folder-list');
+          }}
+          onSelectView={(nextView) => {
+            setView(nextView);
+            setError('');
+          }}
+        />
+      ) : (
       <aside className="settings-sidebar">
         <div className="settings-sidebar-titlebar" />
         <button className="settings-back" type="button" onClick={onClose}>
@@ -779,7 +817,7 @@ export function SettingsPage({
             </button>
           )}
 
-          <div className="settings-navigation-separator" role="separator" />
+          <SettingsNavigationSeparator />
           <span>Models</span>
           {(!settingsQuery || 'models providers api'.includes(settingsQuery)) && (
             <button
@@ -870,7 +908,7 @@ export function SettingsPage({
             </button>
           )}
 
-          <div className="settings-navigation-separator" role="separator" />
+          <SettingsNavigationSeparator />
           {(!settingsQuery || 'aivax features memory account balance plan web search fetch semantic thread rag collection index'.includes(settingsQuery)) && (
             <button
               className={view === 'aivax' ? 'active' : undefined}
@@ -886,7 +924,7 @@ export function SettingsPage({
             </button>
           )}
 
-          <div className="settings-navigation-separator" role="separator" />
+          <SettingsNavigationSeparator />
 
           {(!settingsQuery || 'remote control mcp http api key bearer token port'.includes(settingsQuery)) && (
             <button
@@ -923,7 +961,7 @@ export function SettingsPage({
             </button>
           )}
 
-          <div className="settings-navigation-separator" role="separator" />
+          <SettingsNavigationSeparator />
           {(!settingsQuery || 'about avi version website github repository project'.includes(settingsQuery)) && (
             <button
               className={view === 'about' ? 'active' : undefined}
@@ -940,11 +978,12 @@ export function SettingsPage({
           )}
         </nav>
       </aside>
+      )}
 
       <main className="settings-main">
         <header className="settings-page-header">
           <div>
-            {showInlineBack && (
+            {showInlineBack && (!folderMode || (view === 'mcp' && mcpNavigation?.onBack)) && (
               <button
                 className="settings-inline-back"
                 type="button"
@@ -1489,56 +1528,60 @@ export function SettingsPage({
                         }]}
                       />
                     </header>
-                    <div className="settings-context-item-list">
-                      {group.items.map((item) => (
-                        <button
-                          className="settings-context-item"
-                          type="button"
-                          key={item.path}
-                          title={item.path}
-                          onClick={() => {
-                            setError('');
-                            window.chatApp.context.open(item.path).catch((nextError) => {
-                              setError(
-                                nextError instanceof Error ? nextError.message : String(nextError),
-                              );
-                            });
-                          }}
-                        >
-                          <span className="settings-entity-icon">
-                            {group.id === 'instruction'
-                              ? <FileText size={16} />
-                              : group.id === 'skill'
-                                ? <FolderCog size={16} />
-                                : <Workflow size={16} />}
-                          </span>
-                          <span className="settings-context-item-copy">
-                            <strong>{item.title}</strong>
-                            <small>{item.description}</small>
-                          </span>
-                          <span className="settings-context-token-count">
-                            ~{compactTokenFormatter.format(item.tokenCount)} tokens
-                          </span>
-                        </button>
-                      ))}
-                      {group.items.length === 0 && (
-                        <div className="settings-context-group-empty">No context items.</div>
-                      )}
-                    </div>
+                    <ContextItems group={group} onOpen={(filePath) => {
+                      setError('');
+                      window.chatApp.context.open(filePath).catch((nextError) => {
+                        setError(nextError instanceof Error ? nextError.message : String(nextError));
+                      });
+                    }} />
                   </section>
                 ))}
                 {error && <div className="settings-context-error" role="alert">{error}</div>}
               </section>
             )}
 
+            {view === 'folder-list' && (
+              <div className="settings-empty">
+                <Folder size={24} aria-hidden="true" />
+                <strong>Select a folder</strong>
+                <span>Global is always available at the top of the folder list.</span>
+              </div>
+            )}
+            {view === 'folder-threads' && (
+              <section className="settings-section">
+                <div className="settings-entity-list">
+                  {conversations.filter((thread) => thread.projectPath === selectedContextFolder?.path).map((thread) => (
+                    <article className="settings-entity-row" key={thread.id}>
+                      <button className="settings-entity-main" type="button" onClick={() => onOpenThread(thread.id)}>
+                        <span className="settings-entity-icon"><FileText size={16} /></span>
+                        <span className="settings-entity-copy">
+                          <strong>{thread.title || thread.firstPrompt || 'Untitled conversation'}</strong>
+                          <small>{thread.model}</small>
+                        </span>
+                        <ArrowRight className="settings-entity-arrow" size={15} />
+                      </button>
+                    </article>
+                  ))}
+                  {!conversations.some((thread) => thread.projectPath === selectedContextFolder?.path) && (
+                    <div className="settings-empty">No active threads in this folder.</div>
+                  )}
+                </div>
+              </section>
+            )}
+            {view === 'folder-archive' && (
+              <MaintenanceSettings key={selectedContextFolder.path} archiveOnly
+                folderPath={selectedContextFolder.path} onThreadsChange={onThreadsChange} />
+            )}
             {view === 'remote' && <RemoteSettings />}
             {view === 'plugins' && <PluginsSettings />}
             {view === 'aivax' && <AivaxFeaturesSettings />}
-            {view === 'maintenance' && <MaintenanceSettings />}
+            {view === 'maintenance' && <MaintenanceSettings onThreadsChange={onThreadsChange} />}
             {view === 'bots' && <BotSettingsPage footerTarget={botFooter} />}
             {view === 'mcp' && (
               <McpSettings
-                initialFolder={initialContextFolder}
+                key={folderMode ? selectedContextFolder?.path : 'settings'}
+                initialFolder={folderMode ? selectedContextFolder : initialContextFolder}
+                lockFolder={folderMode}
                 onNavigationChange={setMcpNavigation}
               />
             )}

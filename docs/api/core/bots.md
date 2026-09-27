@@ -66,7 +66,7 @@ bot.tools.register(tool): Disposable
 
 Activity entries are first-person, self-contained accounts of important work, not automatic logs of routine calls. The two views persist in `inbox.json` and `diary.json` in the isolated bot data folder. Legacy `work-items.json` and `activity.json` are never read or migrated and remain untouched on disk.
 
-Core `inbox.list()` and `activity.list()` retain fail-fast behavior: either file failing validation raises `CONFLICT` with the aggregated load error. The RPC `bots:list` snapshot instead exposes per-section errors and preserves the healthy section for the Bots panel.
+Core `inbox.list()` and `activity.list()` retain fail-fast behavior: either file failing validation raises `CONFLICT` with the aggregated load error. The RPC `bots:list` snapshot instead exposes per-section errors and preserves the healthy section for the Bots panel. The snapshot loader runs bot directories with CPU-count-bounded parallelism in stable bot order and keeps per-bot partial errors.
 
 The former `bot.workState.get()` method and work-item types have been removed. Plugin API v2 remains the accepted runtime version, but plugins using the old bot-work contract must adopt this Inbox/Activity contract.
 

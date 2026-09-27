@@ -81,12 +81,10 @@ import {
   getRemoteSettings,
   getThreadSearchManifest,
   initializeSecureStorage,
-  listAllConversations,
   listArchivedConversations,
   listConversations,
   listFavorites,
   listForcedCleanupConversationIds,
-  listInferenceUsage,
   listModelRouters,
   listProviders,
   listRemoteApiKeys,
@@ -156,7 +154,6 @@ import {
 import { ModelProviderRegistry } from './model-provider.js';
 import { ProviderUsageService } from './provider-usage-service.js';
 import { ModelRouterService } from './model-router.js';
-import { rankAivaxPricingModels } from './model-pricing.js';
 import { McpManager } from './mcp-manager.js';
 import { clearWorkspaceMentionCache, searchWorkspaceMentions } from './workspace-mentions.js';
 import { PluginManager } from './plugin-manager.js';
@@ -1570,8 +1567,10 @@ function registerIpc() {
 
   const archiveState = async (options = {}) => {
     const query = typeof options === 'string' ? options : String(options?.query ?? '');
+    const folderPath = typeof options?.folderPath === 'string' && options.folderPath ? resolve(options.folderPath) : null;
+    const scope = folderPath ? { folderPath } : {};
     const pageSize = Math.min(100, Math.max(1, Math.trunc(Number(options?.pageSize)) || 20));
-    const total = countArchivedConversations(query);
+    const total = countArchivedConversations(query, scope);
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const page = Math.min(totalPages, Math.max(1, Math.trunc(Number(options?.page)) || 1));
     return {
@@ -1579,6 +1578,7 @@ function registerIpc() {
       conversations: await Promise.all(listArchivedConversations(query, {
         limit: pageSize,
         offset: (page - 1) * pageSize,
+        ...scope,
       }).map(refreshConversationProject)),
       pagination: { page, pageSize, total, totalPages },
       stats: getArchiveStats(),
@@ -2009,6 +2009,50 @@ function registerIpc() {
       return runChatSearch(query);
     }
   });
+  let overviewWorker = null;
+  let overviewSequence = 0;
+  const pendingOverviews = new Map();
+  const inFlightOverviews = new Map();
+  const runOverviewAggregation = (payload) => {
+    const key = JSON.stringify({ from: payload.range?.from ?? null, to: payload.range?.to ?? null });
+    const inFlight = inFlightOverviews.get(key);
+    if (inFlight) return inFlight;
+    const task = new Promise((resolve, reject) => {
+      if (!overviewWorker) {
+        const worker = overviewWorker = new Worker(new URL('./overview-worker.js', import.meta.url));
+        worker.unref();
+        worker.on('message', ({ id, overview, error }) => {
+          const settle = pendingOverviews.get(id);
+          if (!settle) return;
+          pendingOverviews.delete(id);
+          if (error) settle.reject(new Error(error));
+          else settle.resolve(overview);
+        });
+        const failPending = (error) => {
+          if (overviewWorker !== worker) return;
+          overviewWorker = null;
+          for (const settle of pendingOverviews.values()) settle.reject(error);
+          pendingOverviews.clear();
+        };
+        worker.on('error', failPending);
+        worker.on('exit', (code) => {
+          failPending(new Error(`Overview worker exited with code ${code}.`));
+        });
+      }
+      const id = ++overviewSequence;
+      pendingOverviews.set(id, { resolve, reject });
+      try {
+        overviewWorker.postMessage({ id, payload });
+      } catch (error) {
+        pendingOverviews.delete(id);
+        reject(error);
+      }
+    }).finally(() => {
+      if (inFlightOverviews.get(key) === task) inFlightOverviews.delete(key);
+    });
+    inFlightOverviews.set(key, task);
+    return task;
+  };
   applicationIpc.handle('orchestration:overview', async (_event, range = {}) => {
     if (Date.now() >= aivaxModelCatalogExpiresAt) {
       aivaxModelCatalogRequest ??= requestAivax('/api/v1/information/models.json', {
@@ -2032,255 +2076,20 @@ function registerIpc() {
       await aivaxModelCatalogRequest;
     }
 
-    const configuredModels = new Map(
-      providerRegistry.listModels().map((model) => [model.id, model]),
+    const configuredModels = Object.fromEntries(
+      providerRegistry.listModels().map((model) => [model.id, {
+        id: model.id,
+        modelId: model.modelId ?? model.id,
+        providerId: model.providerId,
+      }]),
     );
-    const allConversations = listAllConversations();
-    const conversations = allConversations
-      .filter((conversation) => conversation.conversationType === 'thread' && conversation.createdBy === 'user');
-    const now = Date.now();
-    const defaultFrom = new Date();
-    defaultFrom.setDate(1);
-    defaultFrom.setHours(0, 0, 0, 0);
-    const requestedFrom = new Date(range.from).getTime();
-    const requestedTo = new Date(range.to).getTime();
-    const from = Number.isFinite(requestedFrom) ? requestedFrom : defaultFrom.getTime();
-    const to = Number.isFinite(requestedTo) ? requestedTo : now;
-    const isInRange = (value) => {
-      const timestamp = new Date(value).getTime();
-      return Number.isFinite(timestamp) && timestamp >= from && timestamp <= to;
-    };
-    const tasks = conversations.map((conversation) => {
-      const messages = getMessages(conversation.id).filter((message) => !message.hidden);
-      const latestMessage = messages.at(-1) ?? null;
-      const latestAssistant = messages.findLast((message) => message.role === 'assistant') ?? null;
-      const goalStatus = conversation.goal?.status ?? null;
-      const ongoing = ['active', 'paused'].includes(goalStatus)
-        || latestAssistant?.status === 'streaming'
-        || latestMessage?.status === 'queued';
-      const requiresAttention = !ongoing && (
-        goalStatus === 'blocked'
-        || ['error', 'aborted'].includes(latestAssistant?.status)
-        || ['error', 'aborted'].includes(latestMessage?.status)
-      );
-
-      return {
-        ...conversation,
-        messages,
-        latestMessage,
-        latestAssistant,
-        ongoing,
-        requiresAttention,
-      };
+    return runOverviewAggregation({
+      databasePath: join(homedir(), '.aivax', 'aivax.sqlite'),
+      range: range ?? {},
+      configuredModels,
+      modelCatalog: aivaxModelCatalog,
+      now: Date.now(),
     });
-    const projectDetails = new Map(allConversations.map((conversation) => [
-      conversation.projectPath,
-      {
-        path: conversation.projectPath,
-        name: conversation.projectName,
-        displayPath: conversation.projectDisplayPath,
-      },
-    ]));
-    const inferenceRecords = [];
-    for (const conversation of allConversations) {
-      for (const message of getMessages(conversation.id)) {
-        if (message.hidden || message.role !== 'assistant' || !isInRange(message.createdAt)) {
-          continue;
-        }
-        inferenceRecords.push({
-          type: conversation.isSubagent
-            ? 'subagent'
-            : conversation.isRubberDuck
-              ? 'supervision'
-              : conversation.isBot
-                ? 'bot'
-                : 'inference',
-          model: message.model || conversation.model || 'Unknown model',
-          projectPath: conversation.projectPath,
-          project: projectDetails.get(conversation.projectPath),
-          usage: message.usage,
-          createdAt: message.createdAt,
-        });
-      }
-    }
-    for (const inference of listInferenceUsage(
-      new Date(from).toISOString(),
-      new Date(to).toISOString(),
-    )) {
-      const project = projectDetails.get(inference.projectPath) ?? {
-        path: inference.projectPath,
-        name: inference.projectPath ? basename(inference.projectPath) : 'Unknown project',
-        displayPath: inference.projectPath ?? 'Unknown project',
-      };
-      inferenceRecords.push({ ...inference, project });
-    }
-
-    const modelUsage = new Map();
-    const pricingModels = new Map();
-    const dailyModelUsage = new Map();
-    const usageByType = new Map([
-      ['subagent', { id: 'subagent', responses: 0, tokens: 0 }],
-      ['bot', { id: 'bot', responses: 0, tokens: 0 }],
-      ['inference', { id: 'inference', responses: 0, tokens: 0 }],
-      ['auxiliary', { id: 'auxiliary', responses: 0, tokens: 0 }],
-      ['supervision', { id: 'supervision', responses: 0, tokens: 0 }],
-    ]);
-    const usageByProject = new Map();
-
-    for (const record of inferenceRecords) {
-      const model = record.model;
-      const inputTokens = Number(record.usage?.inputTokens) || 0;
-      const cachedInputTokens = Number(record.usage?.cachedInputTokens) || 0;
-      const outputTokens = Number(record.usage?.outputTokens) || 0;
-      const reasoningTokens = Number(record.usage?.reasoningTokens) || 0;
-      const totalTokens = Number(record.usage?.totalTokens) || inputTokens + outputTokens;
-      const configuredModel = configuredModels.get(model);
-      const catalogModelId = configuredModel?.modelId ?? model;
-      if (!pricingModels.has(model)) {
-        pricingModels.set(model, rankAivaxPricingModels(
-          catalogModelId,
-          aivaxModelCatalog,
-          configuredModel?.providerId,
-        )[0] ?? null);
-      }
-      const pricedModel = pricingModels.get(model);
-      const pricingTiers = Array.isArray(pricedModel?.pricing)
-        ? [...pricedModel.pricing].sort(
-          (left, right) => Number(right.tokenThreshold || 0) - Number(left.tokenThreshold || 0),
-        )
-        : [];
-      const appliedPricing = pricingTiers.find(
-        (pricing) => inputTokens >= Number(pricing.tokenThreshold || 0),
-      ) ?? null;
-      const inputRate = Number(appliedPricing?.inputPerMillionTokens);
-      const cachedInputRate = Number(appliedPricing?.cachedInputPerMillionTokens);
-      const outputRate = Number(appliedPricing?.outputPerMillionTokens);
-      const hasPricing = Number.isFinite(inputRate)
-        && Number.isFinite(cachedInputRate)
-        && Number.isFinite(outputRate);
-      const recordCost = hasPricing
-        ? (
-          Math.max(0, inputTokens - cachedInputTokens) * inputRate
-          + cachedInputTokens * cachedInputRate
-          + outputTokens * outputRate
-        ) / 1_000_000
-        : 0;
-      const displayPricing = pricingTiers.at(-1) ?? null;
-      const usage = modelUsage.get(model) ?? {
-        id: model,
-        messages: 0,
-        pricedMessages: 0,
-        cost: 0,
-        pricing: displayPricing && {
-          inputPerMillionTokens: Number(displayPricing.inputPerMillionTokens),
-          cachedInputPerMillionTokens: Number(displayPricing.cachedInputPerMillionTokens),
-          outputPerMillionTokens: Number(displayPricing.outputPerMillionTokens),
-        },
-        inputTokens: 0,
-        cachedInputTokens: 0,
-        outputTokens: 0,
-        reasoningTokens: 0,
-        durationMs: 0,
-        timedMessages: 0,
-        tokens: 0,
-      };
-      usage.messages += 1;
-      usage.pricedMessages += hasPricing ? 1 : 0;
-      usage.cost += recordCost;
-      usage.inputTokens += inputTokens;
-      usage.cachedInputTokens += cachedInputTokens;
-      usage.outputTokens += outputTokens;
-      usage.reasoningTokens += reasoningTokens;
-      if (Number.isFinite(record.usage?.durationMs)) {
-        usage.durationMs += record.usage.durationMs;
-        usage.timedMessages += 1;
-      }
-      usage.tokens += totalTokens;
-      modelUsage.set(model, usage);
-
-      const typeUsage = usageByType.get(record.type);
-      if (typeUsage) {
-        typeUsage.responses += 1;
-        typeUsage.tokens += totalTokens;
-      }
-
-      if (record.projectPath) {
-        const projectUsage = usageByProject.get(record.projectPath) ?? {
-          ...record.project,
-          responses: 0,
-          tokens: 0,
-          latestAt: 0,
-        };
-        projectUsage.responses += 1;
-        projectUsage.tokens += totalTokens;
-        projectUsage.latestAt = Math.max(
-          projectUsage.latestAt,
-          new Date(record.createdAt).getTime() || 0,
-        );
-        usageByProject.set(record.projectPath, projectUsage);
-      }
-
-      const createdAt = new Date(record.createdAt);
-      const day = new Date(
-        createdAt.getFullYear(),
-        createdAt.getMonth(),
-        createdAt.getDate(),
-      ).getTime();
-      const modelsForDay = dailyModelUsage.get(day) ?? new Map();
-      const usageForDay = modelsForDay.get(model) ?? { id: model, tokens: 0 };
-      usageForDay.tokens += totalTokens;
-      modelsForDay.set(model, usageForDay);
-      dailyModelUsage.set(day, modelsForDay);
-    }
-
-    return {
-      metrics: {
-        responses: inferenceRecords.length,
-        modelsUsed: modelUsage.size,
-        tokens: [...modelUsage.values()].reduce((total, usage) => total + usage.tokens, 0),
-        inputTokens: [...modelUsage.values()].reduce((total, usage) => total + usage.inputTokens, 0),
-        cachedInputTokens: [...modelUsage.values()]
-          .reduce((total, usage) => total + usage.cachedInputTokens, 0),
-        outputTokens: [...modelUsage.values()].reduce((total, usage) => total + usage.outputTokens, 0),
-        reasoningTokens: [...modelUsage.values()]
-          .reduce((total, usage) => total + usage.reasoningTokens, 0),
-        cost: [...modelUsage.values()].reduce((total, usage) => total + usage.cost, 0),
-        pricedResponses: [...modelUsage.values()]
-          .reduce((total, usage) => total + usage.pricedMessages, 0),
-        topModels: [...modelUsage.values()]
-          .sort((a, b) => b.tokens - a.tokens || b.messages - a.messages),
-        dailyTokens: [...dailyModelUsage.entries()]
-          .sort(([left], [right]) => left - right)
-          .map(([date, modelsForDay]) => ({
-            date,
-            models: [...modelsForDay.values()].sort((a, b) => b.tokens - a.tokens),
-          })),
-        usageByType: [...usageByType.values()],
-        usageByProject: [...usageByProject.values()]
-          .sort((a, b) => b.latestAt - a.latestAt)
-          .slice(0, 5),
-      },
-      ongoing: tasks
-        .filter((task) => task.ongoing)
-        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
-        .map(({ messages, latestMessage, latestAssistant, ongoing, requiresAttention, ...task }) => task),
-      requiresAttention: tasks
-        .filter((task) => task.requiresAttention)
-        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
-        .map(({ messages, latestMessage, latestAssistant, ongoing, requiresAttention, ...task }) => task),
-      recentlyCompleted: tasks
-        .filter((task) => (
-          !task.ongoing
-          && !task.requiresAttention
-          && (
-            task.goal?.status === 'completed'
-            || task.latestAssistant?.status === 'completed'
-          )
-        ))
-        .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
-        .slice(0, 8)
-        .map(({ messages, latestMessage, latestAssistant, ongoing, requiresAttention, ...task }) => task),
-    };
   });
   applicationIpc.handle('side-chats:list', (_event, parentConversationId) => (
     listSideChats(parentConversationId)
