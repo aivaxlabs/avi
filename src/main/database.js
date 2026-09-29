@@ -3045,6 +3045,7 @@ export function messageToApiBlocks(message, capabilities = {}) {
       });
     }
     blocks.push(assistantBlock);
+    const mediaBlocks = [];
     for (const segment of toolCalls) {
       if (segment.resultText === undefined) continue;
       blocks.push({
@@ -3054,9 +3055,10 @@ export function messageToApiBlocks(message, capabilities = {}) {
       });
       if (segment.mediaContent?.length) {
         const mediaContent = hydratePersistedMediaContent(segment.mediaContent);
-        if (mediaContent.length > 0) blocks.push({ role: 'user', content: mediaContent });
+        if (mediaContent.length > 0) mediaBlocks.push({ role: 'user', content: mediaContent });
       }
     }
+    blocks.push(...mediaBlocks);
     content = '';
     reasoning = '';
     round = null;

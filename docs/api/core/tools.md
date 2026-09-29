@@ -50,6 +50,8 @@ Global tools participate in every ordinary non-Plan inference. Thread tools part
 
 Core, provider, and MCP tools keep the existing composition precedence. Plugins cannot register a name reserved by Avi or a static plugin contribution.
 
+Calls to unknown tools return an error tool result so the model can correct the call. Error handling preserves the requested tool name even when no registered descriptor exists.
+
 ## Execution context
 
 ```ts

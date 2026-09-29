@@ -75,6 +75,34 @@ const verbosityOptions = Object.freeze([
   { value: 'high', label: 'High', description: 'Thorough responses for audits, teaching, and hand-offs without repetition or filler.' },
 ]);
 
+function providerHarnessRows(harness) {
+  const statefulSession = harness.session === 'stateful';
+  return [
+    { label: 'Tools and approvals', owner: 'Avi', detail: 'Tools run in Avi with its permissions and approvals.' },
+    {
+      label: 'Conversation session',
+      owner: statefulSession ? 'Provider' : 'Avi',
+      detail: statefulSession
+        ? 'Kept live between turns and recreated from Avi history when they differ.'
+        : 'Avi sends the conversation history with each request.',
+    },
+    { label: 'Context compaction', owner: 'Avi', detail: 'Avi summarizes long conversations before the context fills.' },
+    {
+      label: 'Request retries',
+      owner: harness.retries === 'provider' ? 'Provider' : 'Avi',
+      detail: harness.retries === 'provider'
+        ? 'The provider retries failed requests; Goal mode still retries after that.'
+        : 'Avi retries connection failures and server errors.',
+    },
+    {
+      label: 'Avi instructions',
+      owner: harness.instructions === 'context' ? 'Extra context' : 'System prompt',
+      detail: harness.instructions === 'context'
+        ? 'Delivered alongside the provider instructions as conversation context.'
+        : 'Sent as the system prompt; changes during a session arrive as context updates.',
+    },
+  ];
+}
 
 function MultiSelect({ label, onChange, options, values }) {
   const [open, setOpen] = useState(false);
@@ -381,6 +409,8 @@ export function SettingsPage({
   const [contextLoading, setContextLoading] = useState(false);
   const [mcpNavigation, setMcpNavigation] = useState(null);
   const [providerState, setProviderState] = useState(null);
+  const providerStateRequest = useRef(0);
+  const [providerAuthInput, setProviderAuthInput] = useState({ sessionId: '', value: '' });
   const [copiedProviderValue, setCopiedProviderValue] = useState('');
   const [settingsQuery, setSettingsQuery] = useState('');
   const [previewScheme, setPreviewScheme] = useState(appearance.scheme);
@@ -431,6 +461,14 @@ export function SettingsPage({
   const selectedType = providerTypes.find((type) => (
     type.id === (providerDraft?.interface ?? selectedProvider?.interface)
   ));
+  // Saved type fields can change how a managed provider connects, such as its authentication mode.
+  const savedProviderFields = selectedProvider
+    ? JSON.stringify([
+        selectedProvider.interface,
+        ...(providerTypes.find((type) => type.id === selectedProvider.interface)?.fields ?? [])
+          .map((field) => selectedProvider[field.id] ?? null),
+      ])
+    : '';
   const selectedTerminalShell = terminalShells?.find(
     (shell) => shell.id === tuningDraft?.terminalShell,
   );
@@ -574,11 +612,12 @@ export function SettingsPage({
       return undefined;
     }
     let active = true;
+    const request = ++providerStateRequest.current;
     setProviderState(null);
     setCopiedProviderValue('');
     window.chatApp.providers.state(selectedProvider.id)
       .then((status) => {
-        if (active) setProviderState(status);
+        if (active && request === providerStateRequest.current) setProviderState(status);
       })
       .catch((nextError) => {
         if (active) setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -586,7 +625,7 @@ export function SettingsPage({
     return () => {
       active = false;
     };
-  }, [selectedProvider?.id]);
+  }, [selectedProvider?.id, savedProviderFields]);
 
   async function runProviderMutation(mutation) {
     setBusy(true);
@@ -596,6 +635,46 @@ export function SettingsPage({
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runProviderAction(action, input) {
+    // Connection state fetched before this action started must not replace the action's result.
+    providerStateRequest.current += 1;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await window.chatApp.providers.action({
+        providerId: selectedProvider.id,
+        action,
+        input,
+      });
+      setProviderAuthInput({ sessionId: '', value: '' });
+      setProviderState(result?.state ?? result);
+      if (result?.followUp) {
+        try {
+          const completed = await window.chatApp.providers.action({
+            providerId: selectedProvider.id,
+            action: result.followUp.action,
+            input: result.followUp.input,
+          });
+          setProviderState(completed?.state ?? completed);
+        } catch (nextError) {
+          setProviderState(await window.chatApp.providers.state(selectedProvider.id));
+          throw nextError;
+        }
+      }
+      await onModelsChange();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      // A failed action can end a pending sign-in, so show the provider's current connection state.
+      try {
+        setProviderState(await window.chatApp.providers.state(selectedProvider.id));
+      } catch {
+        // Keep the previous state; the action error is already shown.
+      }
     } finally {
       setBusy(false);
     }
@@ -2475,29 +2554,13 @@ export function SettingsPage({
                                 <button
                                   type="button"
                                   disabled={busy}
-                                  onClick={() => runProviderMutation(async () => {
-                                    const result = await window.chatApp.providers.action({
-                                      providerId: selectedProvider.id,
-                                      action: providerState.connection.action.id,
-                                    });
-                                    setProviderState(result?.state ?? result);
-                                    if (result?.followUp) {
-                                      try {
-                                        const completed = await window.chatApp.providers.action({
-                                          providerId: selectedProvider.id,
-                                          action: result.followUp.action,
-                                          input: result.followUp.input,
-                                        });
-                                        setProviderState(completed?.state ?? completed);
-                                      } catch (nextError) {
-                                        setProviderState(
-                                          await window.chatApp.providers.state(selectedProvider.id),
-                                        );
-                                        throw nextError;
-                                      }
-                                    }
-                                    await onModelsChange();
-                                  })}
+                                  onClick={() => runProviderAction(
+                                    providerState.connection.action.id,
+                                    providerState.connection.input ? {
+                                      [providerState.connection.input.id]: providerAuthInput.sessionId === providerState.connection.input.sessionId
+                                        ? providerAuthInput.value : '',
+                                    } : undefined,
+                                  )}
                                 >
                                   {providerState.connection.action.label}
                                 </button>
@@ -2506,6 +2569,33 @@ export function SettingsPage({
                               <small>Save the provider before signing in.</small>
                             )}
                           </div>
+                          {providerState?.connection?.input && (
+                            <label className="settings-field settings-field-wide">
+                              <span>{providerState.connection.input.label}</span>
+                              <input
+                                type="password"
+                                autoComplete="off"
+                                spellCheck={false}
+                                disabled={busy}
+                                value={providerAuthInput.sessionId === providerState.connection.input.sessionId
+                                  ? providerAuthInput.value : ''}
+                                onChange={(event) => setProviderAuthInput({
+                                  sessionId: providerState.connection.input.sessionId,
+                                  value: event.target.value,
+                                })}
+                              />
+                              <small>{providerState.connection.input.description}</small>
+                            </label>
+                          )}
+                          {providerState?.connection?.secondaryAction && selectedProvider && (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => runProviderAction(providerState.connection.secondaryAction.id)}
+                            >
+                              {providerState.connection.secondaryAction.label}
+                            </button>
+                          )}
                           {providerState?.connection?.verification && (
                             <div className="provider-security-code" aria-live="polite">
                               <span>{providerState.connection.verification.label}</span>
@@ -2636,6 +2726,28 @@ export function SettingsPage({
                     </div>
                   </div>
                 </section>
+
+                {selectedType?.harness && (
+                  <section className="settings-section">
+                    <div className="settings-section-heading">
+                      <h3>Harness</h3>
+                      <p>Which parts of each run Avi handles and which the provider handles.</p>
+                    </div>
+                    <div className="settings-section-card">
+                      <dl className="provider-harness">
+                        {providerHarnessRows(selectedType.harness).map((row) => (
+                          <div key={row.label}>
+                            <dt>{row.label}</dt>
+                            <dd>
+                              <strong>{row.owner}</strong>
+                              <small>{row.detail}</small>
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+                  </section>
+                )}
 
                 <section className="settings-section">
                   <div className="models-editor-header">

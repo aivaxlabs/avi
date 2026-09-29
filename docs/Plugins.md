@@ -165,7 +165,7 @@ A personality is `{ id, name, description, instructions }`. Instructions become 
 
 ### Model providers and usage
 
-A provider contribution uses `{ descriptor, createBody, request, eventsFrom }` with optional `getContributions`, `getState`, `invokeAction`, `refresh`, and `remove`. Avi awaits `refresh` after provider configuration is saved, enabling asynchronous discovery before the synchronous model catalog is read. Its `getContributions` result can include `usageProviders` alongside models, tools, and auxiliary panels.
+A provider contribution uses `{ descriptor, createBody, request, eventsFrom }` with optional `getContributions`, `getState`, `invokeAction`, `refresh`, `remove`, and `releaseSession`. Avi awaits `refresh` after provider configuration is saved, enabling asynchronous discovery before the synchronous model catalog is read. Its `getContributions` result can include `usageProviders` alongside models, tools, and auxiliary panels. `descriptor.harness` declares whether the provider keeps model sessions or retries requests itself; tool execution and compaction always stay with Avi. See [harness capabilities](./api/core/providers.md#harness-capabilities).
 
 Plugins can also register standalone account usage with `avi.providers.usages.register()` and the `providers.usages.register` capability. Usage providers expose limits, formatted counters, and confirmed reset callbacks in the composer without adding user-manageable settings. Dynamic provider registration, usage providers, and write-only credential management are documented in [Providers](./api/core/providers.md).
 

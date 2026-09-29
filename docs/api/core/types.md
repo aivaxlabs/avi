@@ -373,10 +373,21 @@ interface ProviderTypeDescriptor {
     default?: string;
     options?: Array<{ value: string; label: string }>;
   }>;
+  harness?: ProviderHarness;
+}
+
+interface ProviderHarness {
+  session: 'stateless' | 'stateful';
+  retries: 'avi' | 'provider';
+  compaction: 'avi';
+  instructions: 'system' | 'context';
+  toolExecution: 'avi';
 }
 ```
 
 `connection: 'custom'` marks endpoint-driven types that require an HTTP/HTTPS `baseUrl` and accept credentials. Fields are available to both custom and managed provider types; omitted `type` values render as text inputs.
+
+`harness` declares which run responsibilities the provider covers. Omitted capabilities default to `stateless`, `avi`, `avi`, `system`, and `avi`; `types.list()` always returns the complete normalized object. Tool execution and compaction always remain with Avi, and registration rejects unknown capabilities or values. See [Providers](./providers.md#harness-capabilities).
 
 ### ProviderUsageSnapshot
 

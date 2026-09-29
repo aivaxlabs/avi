@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { REASONING_EFFORTS } from './provider-api.js';
+import { REASONING_EFFORTS, normalizeProviderHarness } from './provider-api.js';
 import { traceError, traceVerbose } from './trace-log.js';
 import { withRequestDiagnostics, reportRequestFailure, captureResponse } from './request-diagnostics.js';
 
@@ -33,6 +33,17 @@ export class ModelProvider {
     this.config = config;
     this.implementation = implementation;
     this.services = services;
+    this.harness = normalizeProviderHarness(implementation.descriptor?.harness);
+  }
+
+  async releaseSession({ conversationId, reason }) {
+    if (this.harness.session !== 'stateful' || typeof this.implementation.releaseSession !== 'function') return;
+    await this.implementation.releaseSession({
+      provider: this.config,
+      conversationId,
+      reason,
+      services: this.services,
+    });
   }
 
   listModels() {
@@ -113,7 +124,10 @@ export class ModelProvider {
         : invocationContext.auxiliary
           ? 'auxiliary'
           : 'chat');
-    const retryDelays = goalMode ? GOAL_RETRY_DELAYS_MS : NORMAL_RETRY_DELAYS_MS;
+    // Providers that retry internally are not replayed in normal chats; Goal mode still recovers from exhausted provider retries.
+    const retryDelays = goalMode
+      ? GOAL_RETRY_DELAYS_MS
+      : this.harness.retries === 'provider' ? [] : NORMAL_RETRY_DELAYS_MS;
     const maxAttempts = goalMode ? Infinity : retryDelays.length + 1;
     let assistantContent = '';
     let completedContinuation = null;
@@ -135,6 +149,7 @@ export class ModelProvider {
       let receivedTerminalEvent = this.implementation.requiresTerminalEvent !== true;
       let completionEvent = receivedTerminalEvent ? 'not-required' : 'missing';
       const attemptToolKeys = new Set();
+      const eventState = {};
       const connectTimeout = setTimeout(() => {
         connectTimedOut = true;
         attemptController.abort(new Error('The server did not respond within 2 minutes.'));
@@ -292,7 +307,7 @@ export class ModelProvider {
                 throw new Error('The provider returned an invalid SSE payload.');
               }
 
-              for (const event of this.implementation.eventsFrom(json)) {
+              for (const event of this.implementation.eventsFrom(json, eventState)) {
                 if (event.type === 'stream-complete') {
                   receivedTerminalEvent = true;
                   completionEvent = event.status ?? 'completed';
@@ -434,6 +449,12 @@ export class ModelProvider {
           }
         }
 
+        if (retryError && receivedOutput) {
+          const error = new Error(retryError.message);
+          error.code = retryError.code;
+          throw error;
+        }
+
         if (!retryError && !receivedTerminalEvent) {
           traceError('provider.stream-incomplete', {
             thread_id: invocationContext.conversationId,
@@ -569,7 +590,26 @@ export class ModelProviderRegistry {
   }
 
   listTypes() {
-    return [...this.providerTypes.values()].map((type) => type.descriptor);
+    return [...this.providerTypes.values()].map((type) => ({
+      ...type.descriptor,
+      harness: normalizeProviderHarness(type.descriptor.harness),
+    }));
+  }
+
+  async releaseSessions({ conversationId, reason }) {
+    await Promise.all(this.getProviders().map(async (config) => {
+      if (!this.providerTypes.has(config.interface)) return;
+      try {
+        await this.createProvider(config).releaseSession({ conversationId, reason });
+      } catch (error) {
+        traceError('provider.release-session-error', {
+          provider_id: config.id,
+          interface: config.interface,
+          thread_id: conversationId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }));
   }
 
   normalizeConfig(value) {

@@ -18,6 +18,7 @@ import extractZip from 'extract-zip';
 import semver from 'semver';
 import { normalizeMcpServer } from './mcp-config.js';
 import { pluginApi, PLUGIN_API_VERSION } from './plugin-api.js';
+import { normalizeProviderHarness } from './provider-api.js';
 import {
   PluginRuntime,
   assertPluginSerializable,
@@ -66,6 +67,7 @@ const CONTRIBUTION_FIELDS = Object.freeze({
     'invokeAction',
     'refresh',
     'remove',
+    'releaseSession',
   ]),
 });
 const HANDLER_KEYS = Object.freeze({
@@ -76,7 +78,7 @@ const HANDLER_KEYS = Object.freeze({
   shortcuts: new Set(['execute']),
   themes: new Set(),
   personalities: new Set(),
-  providers: new Set(['createBody', 'request', 'eventsFrom', 'getContributions', 'getState', 'invokeAction', 'refresh', 'remove']),
+  providers: new Set(['createBody', 'request', 'eventsFrom', 'getContributions', 'getState', 'invokeAction', 'refresh', 'remove', 'releaseSession']),
 });
 const EMPTY_CONTRIBUTIONS = Object.freeze(Object.fromEntries(
   CONTRIBUTION_TYPES.map((type) => [type, Object.freeze([])]),
@@ -1065,6 +1067,11 @@ export class PluginManager {
           if (typeof handlers[method] !== 'function') {
             throw new Error(`Provider "${identity}" requires a ${method} function.`);
           }
+        }
+        try {
+          normalizeProviderHarness(descriptor.descriptor.harness);
+        } catch (error) {
+          throw new Error(`Provider "${identity}": ${error.message}`);
         }
       }
       return { public: descriptor, handlers };

@@ -10,7 +10,7 @@ import { captureResponse, reportRequestFailure } from './request-diagnostics.js'
 const fileBase64Values = new WeakSet();
 const base64ChunkSize = 192 * 1024;
 
-export function fileBase64JsonValue(path, mime) {
+export function fileBase64JsonValue(path, mime, { dataUrl = true } = {}) {
   if (typeof path !== 'string' || !isAbsolute(path)) {
     throw new Error('Base64 file JSON values require an absolute file path.');
   }
@@ -22,7 +22,7 @@ export function fileBase64JsonValue(path, mime) {
   const file = statSync(resolvedPath);
   if (!file.isFile()) throw new Error('Base64 file JSON values require a regular file.');
 
-  const value = { path: resolvedPath, mime, size: file.size };
+  const value = { path: resolvedPath, mime, size: file.size, dataUrl };
   fileBase64Values.add(value);
   return value;
 }
@@ -142,7 +142,7 @@ async function* serializeJson(value, signal) {
     if (!current.isFile() || current.size !== value.size) {
       throw new Error('The attachment changed before it could be uploaded.');
     }
-    const prefix = JSON.stringify(`data:${value.mime};base64,`);
+    const prefix = JSON.stringify(value.dataUrl ? `data:${value.mime};base64,` : '');
     yield Buffer.from(prefix.slice(0, -1));
     let remainder = Buffer.alloc(0);
     for await (const chunk of createReadStream(value.path, {
@@ -202,7 +202,7 @@ async function* serializeJson(value, signal) {
 
 function jsonByteLength(value) {
   if (value && typeof value === 'object' && fileBase64Values.has(value)) {
-    return Buffer.byteLength(JSON.stringify(`data:${value.mime};base64,`))
+    return Buffer.byteLength(JSON.stringify(value.dataUrl ? `data:${value.mime};base64,` : ''))
       + (4 * Math.ceil(value.size / 3));
   }
   if (Array.isArray(value)) {

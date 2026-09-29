@@ -1908,14 +1908,19 @@ export class ChatRunner {
 
       const resumeSegments = (failedAssistant.segments ?? [])
         .filter((segment) => segment.type !== 'error');
-      const initialToolHistory = modelMessagesToToolHistory(
-        messageToApiBlocks(
-          { ...failedAssistant, segments: resumeSegments },
-          selectedModel.model.capabilities,
-        ),
-        conversationMessages,
-        selectedModel.model,
-      );
+      const hasResumableOutput = resumeSegments.some((segment) => (
+        ['content', 'reasoning', 'tool-call', 'provider-continuation'].includes(segment.type)
+      ));
+      const initialToolHistory = hasResumableOutput
+        ? modelMessagesToToolHistory(
+            messageToApiBlocks(
+              { ...failedAssistant, segments: resumeSegments },
+              selectedModel.model.capabilities,
+            ),
+            conversationMessages,
+            selectedModel.model,
+          )
+        : [];
 
       if (sourceUser.status !== 'sent') updateMessage(sourceUser.id, { status: 'sent' });
       const queue = this.getQueuedItems(conversation.id, model);
@@ -2472,6 +2477,8 @@ export class ChatRunner {
       if (automatic && run?.kind === 'chat') {
         run.consecutiveContextCompactionFailures = 0;
       }
+      // Stateful providers are recreated from the checkpoint instead of carrying the pre-compaction session.
+      await this.registry.releaseSessions?.({ conversationId: conversation.id, reason: 'compaction' });
       return updatedConversation;
     } catch (error) {
       const stopped = controller.signal.aborted;
@@ -3629,9 +3636,9 @@ export class ChatRunner {
             try {
               output = await this.afterToolExecute({
                 tool: {
-                  name: tool.name,
-                  description: tool.description,
-                  pluginId: tool.pluginId ?? null,
+                  name: tool?.name ?? toolCall.name,
+                  description: tool?.description,
+                  pluginId: tool?.pluginId ?? null,
                   isMcp: isMcpTool,
                 },
                 input,
@@ -3646,7 +3653,7 @@ export class ChatRunner {
             } catch (interceptorError) {
               traceError('plugin.tool-error-interceptor-failed', {
                 conversation_id: conversationId,
-                tool_name: tool.name,
+                tool_name: tool?.name ?? toolCall.name,
                 error: interceptorError instanceof Error ? interceptorError.message : String(interceptorError),
               });
             }

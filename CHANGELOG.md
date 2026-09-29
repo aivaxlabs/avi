@@ -5,6 +5,7 @@
 Version in development: 0.7.0.
 
 ### Added
+- Provider types can declare **harness capabilities** — stateful sessions, provider-side retries, and where Avi instructions are placed — while tool execution and compaction always stay with Avi. Settings shows the split for the selected provider, providers that retry on their own are not replayed in normal chats, and stateful sessions are released after Avi compacts a conversation.
 - Trace + Requests now captures HTTP, transport, response parsing, incomplete tool-call and local application-operation failures, including errors after HTTP 200. The operational trace links to each redacted temporary diagnostic file; successful operations do not write captures.
 - Git Review's AI dropdown generates a message from staged changes or forks a side chat to execute multi-commit in the selected repository without pushing.
 - Git Review separates Unstaged and Staged changes roots, with independent collapse state and matching diff scopes; partially staged files appear in both and manual commits remain staged-only.
@@ -41,6 +42,9 @@ Version in development: 0.7.0.
 - **Remote RPC breaking migration** — JSON-RPC 2.0 is replaced by ORPC Draft 1: one operation per frame, at-least-once delivery deduplicated by a durable `remote_operations` journal (SQLite, 4096 entries / 64 MiB) keyed by identity, scope, resource, and `operationId`, one automatic retry with a fresh wire request id and identical body (60 s attempt / 150 s overall), delivery-only cancellation (handlers may still complete after a client timeout; reserved-but-unrecorded operations answer `OUTCOME_UNKNOWN` instead of re-executing), per-peer and global in-flight concurrency capped at 64, and `error.code` as number or string (`LIMIT`). The relay application handshake moves to v3 — `avi-remote-open`/`avi-remote-ready` v3 carry `protocol: "avi-orpc-draft1"`, heartbeat is `avi-remote-ping`/`avi-remote-pong` v3 — and bridged frames travel as opaque base64 binary over the unchanged `avi-relay-v1` transport. RPC docs, the public relay protocol, and the remote-control guide were rewritten accordingly.
 
 ### Fixed
+- Unknown tool calls now return a tool error instead of crashing error handling with an undefined `tool.name` and displaying a misleading streaming `provider_error`.
+- Provider streaming failures after visible output now stop instead of automatically replaying partial text or tool calls.
+- Provider connection status in Settings now reloads after saving provider fields such as the authentication mode and after a failed provider action, and a status request started earlier no longer replaces a sign-in in progress.
 - Side Chats no longer restore the parent thread's Goal, Plan, or Ultra selection from copied user messages; their own subsequent messages still determine the restored composer mode.
 - Goal follow-up messages now reuse the existing objective, including after blocking or completion, without invoking the auxiliary model or automatically rewriting the specification. Explicit Goal edits remain available. Goal instructions require executing unmet criteria with scoped standing authorization, avoiding redundant permission requests, and treating blockers as a last resort after investigating alternatives and completing independent work; runtime approvals and user interruptions remain authoritative.
 - Git Review now shows the shared spinner and action-specific status during Git operations, refreshes, AI requests, and file loading instead of only disabling controls.
@@ -67,6 +71,10 @@ Version in development: 0.7.0.
 - Local file links and absolute file references open after confirmation; file references and Edited files share Open, Copy path, and Open in explorer context actions. Explorer reveals physical paths behind workspace symlinks, and sidebar terminals launch an interactive shell in a new console without fragile command quoting.
 - Bot Inbox reply composer stays at the bottom of the panel while conversation history scrolls independently.
 - Bot Inbox messages and Activity descriptions now reuse the chat rich Markdown renderer instead of displaying visualization directives as literal text.
+
+### Docs
+
+### Tests
 
 ## [0.6.0] — 2026-09-03
 

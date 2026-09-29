@@ -32,20 +32,42 @@ avi.providers.types.register({
     id: 'acme-responses',
     name: 'Acme Responses',
     connection: 'custom',
+    harness: { session: 'stateless', retries: 'avi' },
   },
   async createBody(context) {},
   async request(context) {},
-  eventsFrom(payload) {},
+  eventsFrom(payload, state) {},
   getContributions(context) {
     return { models: [], tools: [], auxiliaryPanels: [], usageProviders: [] };
   },
   async refresh(context) {},
+  async releaseSession(context) {},
 });
 ```
+
+`eventsFrom(payload, state)` receives an optional mutable state object isolated to one streaming attempt; it is reset for retries and never shared across concurrent streams. Existing one-argument handlers remain supported. Managed connection state may expose `connection.input` (`id`, `label`, `description`, opaque `sessionId`) for a masked secret field, such as an authorization code or API key, submitted to the primary action, and `connection.secondaryAction` (`id`, `label`) for cancellation. Never return PKCE verifiers, tokens, or keys in renderer-facing state.
 
 `descriptor.id`, `createBody`, `request`, and `eventsFrom` are required. Dynamic provider types participate in ModelProviderRegistry immediately and are removed on dispose.
 
 `refresh({ provider, services })` is optional. Avi awaits it after tentatively persisting a provider configuration and before returning from save. Use it to perform asynchronous model discovery or connection setup, then expose the resulting synchronous catalog from `getContributions()`. If refresh fails, Avi restores the previous provider list and reports the error.
+
+## Harness capabilities
+
+`descriptor.harness` declares which parts of a run the provider covers. Avi keeps every responsibility the provider does not claim.
+
+| Capability | Values | Default | Effect |
+| --- | --- | --- | --- |
+| `session` | `stateless`, `stateful` | `stateless` | A stateful provider may keep a live model session between rounds and runs. |
+| `retries` | `avi`, `provider` | `avi` | With `provider`, normal chats make one attempt and do not replay failures; Goal mode keeps its own recovery retries. |
+| `compaction` | `avi` | `avi` | Avi always compacts. Providers must not summarize or drop history on their own and should report context overflow as `context_length_exceeded`. |
+| `instructions` | `system`, `context` | `system` | Describes where the provider places Avi's instructions. It is shown to users; Avi's request contract is unchanged. |
+| `toolExecution` | `avi` | `avi` | Avi always executes tools, approvals, permissions, and interceptors. Providers return tool calls and never run them. |
+
+Unknown capabilities or values fail registration with `VALIDATION_FAILED`. `types.list()` returns the normalized `harness`, and Settings shows it for the selected provider type.
+
+A stateful provider still receives Avi's complete messages and tool history in every `createBody()` call. Avi remains the source of truth: the provider must compare that history with its session, append only new input, and recreate the session from Avi's history whenever they differ. Avi never restores a provider session from provider-side storage. `invocationContext.conversationId` and `traceOperation` identify which conversation turn a request belongs to; auxiliary requests set `auxiliary: true`.
+
+`releaseSession({ provider, conversationId, reason, services })` is optional and is called only for stateful providers. Avi calls it after compacting a conversation (`reason: 'compaction'`) so the next turn starts from the compaction checkpoint. Providers should also end idle sessions on their own.
 
 ## ProviderHandle
 

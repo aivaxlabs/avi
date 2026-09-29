@@ -31,6 +31,7 @@ import {
   createPluginDisposable,
   requirePluginId,
 } from './plugin-runtime.js';
+import { normalizeProviderHarness } from './provider-api.js';
 
 function providerSnapshot(provider) {
   if (!provider) return null;
@@ -575,6 +576,11 @@ export function createPluginDomainApi({ runtime, record, storage }) {
         const id = requirePluginId(definition?.descriptor?.id, 'Provider type ID');
         if (typeof definition.createBody !== 'function' || typeof definition.request !== 'function' || typeof definition.eventsFrom !== 'function') {
           throw new AviError('VALIDATION_FAILED', `Provider type "${id}" requires createBody, request, and eventsFrom.`);
+        }
+        try {
+          normalizeProviderHarness(definition.descriptor.harness);
+        } catch (error) {
+          throw new AviError('VALIDATION_FAILED', `Provider type "${id}": ${error.message}`);
         }
         const key = id.toLowerCase();
         if (runtime.providerTypes.has(key) || runtime.services.reservedProviderIds?.has(key)) throw new AviError('CONFLICT', `Provider type "${id}" is already registered.`);

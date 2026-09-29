@@ -4049,6 +4049,50 @@ body.panel-resizing * {
     grid-row: 3;
 }
 
+.settings-page .subscription-auth > .settings-field {
+    grid-column: 1 / -1;
+}
+
+.settings-page .provider-harness {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    margin: 0;
+    overflow: hidden;
+    background: var(--border-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.settings-page .provider-harness > div {
+    min-width: 0;
+    display: grid;
+    align-content: start;
+    gap: 4px;
+    padding: 10px 11px;
+    background: var(--background-3);
+}
+
+.settings-page .provider-harness > div:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+}
+
+.settings-page .provider-harness dt {
+    color: var(--text-3);
+    font-size: .9rem;
+}
+
+.settings-page .provider-harness dd {
+    display: grid;
+    gap: 2px;
+    margin: 0;
+    color: var(--text-1);
+}
+
+.settings-page .provider-harness dd small {
+    color: var(--text-3);
+}
+
 .settings-page .provider-security-code {
     grid-column: 2;
     display: grid;
@@ -4944,6 +4988,24 @@ body.panel-resizing * {
     }
 }
 
+@media (prefers-reduced-motion: reduce) {
+    .settings-page .settings-about-link {
+        transition: none;
+    }
+
+    .settings-page .settings-entity-row {
+        transition: none;
+    }
+
+    .settings-page .settings-context-item {
+        transition: none;
+    }
+
+    .settings-page .provider-type-card {
+        transition: none;
+    }
+}
+
 @media (max-width: 560px) {
     .settings-page .provider-import-dialog .dialog-footer {
         align-items: stretch;
@@ -4970,23 +5032,9 @@ body.panel-resizing * {
     .settings-page .provider-import-review dl {
         grid-template-columns: 1fr;
     }
-}
 
-@media (prefers-reduced-motion: reduce) {
-    .settings-page .settings-about-link {
-        transition: none;
-    }
-
-    .settings-page .settings-entity-row {
-        transition: none;
-    }
-
-    .settings-page .settings-context-item {
-        transition: none;
-    }
-
-    .settings-page .provider-type-card {
-        transition: none;
+    .settings-page .provider-harness {
+        grid-template-columns: 1fr;
     }
 }
 

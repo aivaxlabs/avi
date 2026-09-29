@@ -68,7 +68,7 @@ Router IDs begin with `@`. Routers cannot contain other routers. Avi adapts a re
 
 A normal conversation selects the first available value from: draft model, saved conversation model, last-used model, then the first catalog model. Sending is blocked when no model is available.
 
-A provider connection must begin responding within 30 seconds. Transport failures and HTTP 5xx responses use a limited retry schedule in normal chats. Goal mode retries indefinitely while the Goal remains active, eventually waiting five minutes between attempts.
+A provider connection must begin responding within 30 seconds. Transport failures and HTTP 5xx responses use a limited retry schedule in normal chats. Providers that retry on their own are not retried again in normal chats; **Settings → Providers** shows this under **Harness**. Goal mode retries indefinitely while the Goal remains active, eventually waiting five minutes between attempts.
 
 ## Security and troubleshooting
 
