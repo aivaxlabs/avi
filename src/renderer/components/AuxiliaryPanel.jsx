@@ -14,6 +14,8 @@ import {
   Inbox,
   BookOpen,
   MessageSquarePlus,
+  Maximize2,
+  Minimize2,
   ListChecks,
   Moon,
   Network,
@@ -186,6 +188,8 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   onOpenProviderPanel,
   onCloseProviderPanel,
   onClosePanel,
+  expanded = false,
+  onToggleExpanded,
   onCreateSideChat,
   onAddToChat,
   onAskInSideChat,
@@ -609,6 +613,9 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                 ))}
               </div>
               <AuxiliaryAddMenu panels={availablePanels} />
+              {onToggleExpanded && <button className="auxiliary-tab-close" type="button" aria-label={expanded ? 'Restore panel width' : 'Expand auxiliary panel'} title={expanded ? 'Restore panel width' : 'Expand auxiliary panel'} aria-pressed={expanded} onClick={onToggleExpanded}>
+                {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>}
               <button
                 className="auxiliary-tab-close"
                 type="button"
@@ -624,6 +631,9 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
               <span>Auxiliary panel</span>
               <div className="auxiliary-empty-actions">
                 <AuxiliaryAddMenu panels={availablePanels} />
+                {onToggleExpanded && <button className="auxiliary-tab-close" type="button" aria-label={expanded ? 'Restore panel width' : 'Expand auxiliary panel'} title={expanded ? 'Restore panel width' : 'Expand auxiliary panel'} aria-pressed={expanded} onClick={onToggleExpanded}>
+                  {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                </button>}
                 <button
                   className="auxiliary-tab-close"
                   type="button"

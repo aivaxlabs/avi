@@ -169,6 +169,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [conversationErrors, setConversationErrors] = useState({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [auxiliaryExpanded, setAuxiliaryExpanded] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
   const [auxiliaryPanelWidth, setAuxiliaryPanelWidth] = useState(
@@ -1321,7 +1322,7 @@ export default function App() {
     }
     if (
       messageWorkMode === 'goal'
-      && !['active', 'paused'].includes(targetConversation?.goal?.status)
+      && (!targetConversation?.goal || targetConversation.goal.status === 'discarded')
     ) {
       await startGoal({
         conversationId,
@@ -1731,6 +1732,17 @@ export default function App() {
     setAuxiliaryPanelVisible(true);
     setActiveAuxiliaryTab(result.conversation.id);
     await loadInitialMessagePage(result.conversation.id);
+    if (initialAttachment?.initialPrompt) {
+      await sendMessage({
+        text: initialAttachment.initialPrompt,
+        attachments: initialAttachment.attachments ?? [],
+        conversationId: result.conversation.id,
+        model: currentModel,
+        project: currentProject,
+        workMode: null,
+        ultraMode: false,
+      });
+    }
   }
 
   async function closeSideChat(id) {
@@ -2288,7 +2300,8 @@ export default function App() {
       );
     }
   });
-  const auxiliaryOnClosePanel = useStableCallback(() => setAuxiliaryPanelVisible(false));
+  const auxiliaryOnClosePanel = useStableCallback(() => { setAuxiliaryPanelVisible(false); setAuxiliaryExpanded(false); });
+  const auxiliaryOnToggleExpanded = useStableCallback(() => setAuxiliaryExpanded((value) => !value));
   const auxiliaryOnRunAgent = useStableCallback((payload) => sendMessage({
     ...payload,
     conversationId: selectedId,
@@ -2308,6 +2321,10 @@ export default function App() {
     await loadInitialMessagePage(id);
   });
   const auxiliaryOnSend = useStableCallback((thread, model, payload) => sendMessage({
+    workMode: ['active', 'paused'].includes(thread.goal?.status)
+      ? 'goal'
+      : thread.orchestrationMode === 'plan' ? 'plan' : null,
+    ultraMode: thread.orchestrationMode === 'ultra',
     ...payload,
     conversationId: thread.id,
     model,
@@ -2346,8 +2363,9 @@ export default function App() {
 
   const overviewInboxVisible = orchestrationOpen && Boolean(overviewInboxNavigation);
   const sidePanelVisible = orchestrationOpen ? overviewInboxVisible : auxiliaryPanelVisible;
+  const auxiliaryExpansionActive = auxiliaryExpanded && !orchestrationOpen && auxiliaryPanelVisible;
   const narrowWindow = windowWidth <= 700;
-  const effectiveSidebarCollapsed = narrowWindow || sidebarCollapsed;
+  const effectiveSidebarCollapsed = narrowWindow || sidebarCollapsed || auxiliaryExpansionActive;
   const sidebarWidthMax = Math.max(
     180,
     Math.min(
@@ -2367,7 +2385,7 @@ export default function App() {
       - minimumMainContentWidth,
   );
   const effectiveAuxiliaryPanelWidth = Math.min(
-    auxiliaryPanelWidth,
+    auxiliaryExpansionActive ? windowWidth * .8 : auxiliaryPanelWidth,
     auxiliaryPanelWidthMax,
   );
   const shellClassName = [
@@ -2680,7 +2698,7 @@ export default function App() {
               continuationRepliesEnabled={appState.tuning.continuationRepliesEnabled}
               />
             </div>
-            {sidePanelVisible && (
+            {sidePanelVisible && !auxiliaryExpansionActive && (
               <PanelResizer
                 label={overviewInboxVisible ? 'Resize Inbox panel' : 'Resize auxiliary panel'}
                 controls="auxiliary-panel"
@@ -2696,6 +2714,7 @@ export default function App() {
                 )}
               />
             )}
+            {auxiliaryExpansionActive && <div aria-hidden="true" />}
             {!orchestrationOpen && !auxiliaryPanelVisible && (
               <button
                 className="auxiliary-panel-toggle"
@@ -2750,6 +2769,8 @@ export default function App() {
             )}
             {!orchestrationOpen && auxiliaryPanelVisible && (
               <AuxiliaryPanel
+                expanded={auxiliaryExpanded}
+                onToggleExpanded={auxiliaryOnToggleExpanded}
                 sideChats={sideChats}
                 bots={bots}
                 botDataByBot={botDataByBot}

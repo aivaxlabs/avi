@@ -52,6 +52,7 @@ import {
   countArchivedConversations,
   createConversation,
   createRemoteApiKey,
+  rotateRemoteApiKey,
   deleteAivaxAccessToken,
   deleteConversation,
   deleteProviderCredentials,
@@ -150,6 +151,10 @@ import {
   commitGitPlan,
   pushGitRepository,
   reviewGitWorkspace,
+  listGitRepositories,
+  readGitRepositoryIndex,
+  readGitReviewFile,
+  mutateGitRepository,
 } from './git-review.js';
 import { ModelProviderRegistry } from './model-provider.js';
 import { ProviderUsageService } from './provider-usage-service.js';
@@ -164,6 +169,7 @@ import {
   listInstalledTerminalShells,
   resolveTerminalShell,
 } from './terminal-shell.js';
+import { diagnosticFetch as fetch, withRequestDiagnostics } from './request-diagnostics.js';
 import {
   setTraceLevel,
   traceError,
@@ -270,7 +276,11 @@ const attachmentPreviewExtensions = new Set([
   '.webm',
   '.webp',
 ]);
-const applicationIpc = { handle: (channel, handler) => ipcHandlers.set(channel, handler) };
+const applicationIpc = {
+  handle: (channel, handler) => ipcHandlers.set(channel, (...args) => (
+    withRequestDiagnostics({ method: 'AVI', url: channel }, () => handler(...args))
+  )),
+};
 const execFileAsync = promisify(execFile);
 
 function deleteAttachmentPreview(token) {
@@ -1549,6 +1559,15 @@ function registerIpc() {
     clipboard.writeText(apiKey.value);
     return { copied: true };
   });
+  applicationIpc.handle('remote:reveal-instance-key', (_event, id) => {
+    const apiKey = getRemoteApiKeys().find((key) => key.id === id);
+    if (!apiKey) throw new Error('Remote API key not found.');
+    return { value: `${getRemoteSettings().instanceId}@${apiKey.value}` };
+  });
+  applicationIpc.handle('remote:rotate-key', (_event, id) => {
+    rotateRemoteApiKey(id);
+    return remoteState();
+  });
   applicationIpc.handle('remote:copy-instance-key', (_event, id) => {
     const apiKey = getRemoteApiKeys().find((key) => key.id === id);
     if (!apiKey) throw new Error('Remote API key not found.');
@@ -2515,10 +2534,45 @@ function registerIpc() {
     if (!conversation) throw new Error('Start a conversation before opening Git Review.');
     return reviewGitWorkspace(conversation.projectPath);
   });
+  applicationIpc.handle('git-review:repositories', (_event, payload = {}) => {
+    const conversation = getConversation(payload.conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    return listGitRepositories(conversation.projectPath, { refresh: payload.refresh === true });
+  });
+  applicationIpc.handle('git-review:index', (_event, payload = {}) => {
+    const conversation = getConversation(payload.conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    return readGitRepositoryIndex(conversation.projectPath, payload.repositoryPath, { refresh: payload.refresh === true });
+  });
+  applicationIpc.handle('git-review:file', (_event, payload = {}) => {
+    const conversation = getConversation(payload.conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    return readGitReviewFile(conversation.projectPath, payload.repositoryPath, payload.filePath, { staged: payload.staged === true, unstaged: payload.unstaged === true });
+  });
+  applicationIpc.handle('git-review:mutate', (_event, payload = {}) => {
+    const conversation = getConversation(payload.conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    return mutateGitRepository(conversation.projectPath, payload.repositoryPath, payload);
+  });
   applicationIpc.handle('git-review:plan', async (_event, payload = {}) => {
     const conversation = getConversation(payload.conversationId);
     if (!conversation) throw new Error('Conversation not found.');
-    const review = await reviewGitWorkspace(conversation.projectPath);
+    if (payload.messageOnly === true) {
+      const index = await readGitRepositoryIndex(conversation.projectPath, payload.repositoryPath, { refresh: true });
+      const stagedFiles = index.files.filter((file) => file.staged);
+      if (!stagedFiles.length) throw new Error('Stage changes before generating a commit message.');
+      if (stagedFiles.length > 100) throw new Error('Too many staged files to generate a commit message. Use Generate commits instead.');
+      const files = await Promise.all(stagedFiles.map(async (file) => {
+        const preview = await readGitReviewFile(conversation.projectPath, payload.repositoryPath, file.path, { staged: true });
+        if (preview.message) throw new Error(`Cannot generate a message from an incomplete preview: ${file.path}`);
+        return { ...file, agentDiff: preview.diff || 'Binary or metadata-only change' };
+      }));
+      if (files.reduce((total, file) => total + file.agentDiff.length, 0) > 128_000) {
+        throw new Error('Staged changes are too large to generate a commit message.');
+      }
+      return chatRunner.createCommitPlan({ model: payload.model, repository: { ...index, files }, messageOnly: true });
+    }
+    const review = await reviewGitWorkspace(conversation.projectPath, payload.repositoryPath);
     const repository = review.repositories.find((item) => item.path === payload.repositoryPath);
     if (!repository) throw new Error('Repository not found. Refresh Git Review.');
     if (!repository.commitPlanAvailable) {

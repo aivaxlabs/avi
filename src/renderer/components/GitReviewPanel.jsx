@@ -1,701 +1,322 @@
 import {
-  AlertTriangle,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  GitBranch,
-  GitCommitHorizontal,
-  FileDiff,
-  FilePenLine,
-  FilePlus2,
-  FileQuestion,
-  FileSymlink,
-  FileWarning,
-  FileX2,
-  GitPullRequest,
-  MessageSquarePlus,
-  MessagesSquare,
-  MoreHorizontal,
-  PencilLine,
-  RefreshCw,
-  Rocket,
-  Search,
-  X,
+  AlertTriangle, Check, ChevronDown, ChevronRight, Copy, FileDiff, FileX,
+  Folder, FolderOpen, GitBranch, GitCommitHorizontal, GitPullRequest, LoaderCircle,
+  MessageSquarePlus, Minus, MoreHorizontal, Plus, RefreshCw, Rocket,
+  RotateCcw, Sparkles, SquareArrowOutUpRight, X,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import Prism from 'prismjs';
-import 'prismjs/components/prism-bash';
-import 'prismjs/components/prism-csharp';
-import 'prismjs/components/prism-css';
-import 'prismjs/components/prism-diff';
-import 'prismjs/components/prism-json';
-import 'prismjs/components/prism-jsx';
-import 'prismjs/components/prism-markdown';
-import 'prismjs/components/prism-markup';
-import 'prismjs/components/prism-powershell';
-import 'prismjs/components/prism-sql';
-import 'prismjs/components/prism-tsx';
-import 'prismjs/components/prism-typescript';
-import 'prismjs/components/prism-yaml';
-import 'prismjs/plugins/diff-highlight/prism-diff-highlight';
-import 'prismjs/plugins/diff-highlight/prism-diff-highlight.css';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
+import { GitReviewDiff, gitReviewAttachment } from './GitReviewDiff.jsx';
+import { buildGitTree, flattenGitTree } from '../lib/git-review.js';
 
-const fileStatuses = {
-  added: { badge: 'A', label: 'Added', Icon: FilePlus2 },
-  conflict: { badge: 'C', label: 'Merge conflict', Icon: FileWarning },
-  deleted: { badge: 'D', label: 'Deleted', Icon: FileX2 },
-  modified: { badge: 'M', label: 'Modified', Icon: FilePenLine },
-  renamed: { badge: 'R', label: 'Renamed', Icon: FileSymlink },
-  untracked: { badge: 'U', label: 'Untracked', Icon: FileQuestion },
-};
-const diffLanguages = {
-  '.bashrc': 'bash',
-  '.env': 'bash',
-  css: 'css',
-  cs: 'csharp',
-  html: 'markup',
-  js: 'javascript',
-  json: 'json',
-  jsx: 'jsx',
-  md: 'markdown',
-  mjs: 'javascript',
-  ps1: 'powershell',
-  sh: 'bash',
-  sql: 'sql',
-  ts: 'typescript',
-  tsx: 'tsx',
-  xml: 'markup',
-  yaml: 'yaml',
-  yml: 'yaml',
-};
+const badges = { added: 'A', deleted: 'D', modified: 'M', renamed: 'R', untracked: 'U', conflict: 'C' };
 
-function FileStatus({ status, iconOnly = false, showLabel = false }) {
-  const { badge, label, Icon } = fileStatuses[status] ?? {
-    badge: 'M',
-    label: 'Changed',
-    Icon: FileDiff,
-  };
-  return (
-    <span
-      className={`git-review-file-status status-${status}`}
-      aria-hidden={iconOnly || undefined}
-      aria-label={iconOnly ? undefined : label}
-      title={label}
-    >
-      <Icon size={14} aria-hidden="true" />
-      {!iconOnly && <b>{badge}</b>}
-      {showLabel && <span>{label}</span>}
-    </span>
-  );
-}
-
-function escapeXml(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
-
-function selectionLineRange(diff, content) {
-  const offset = Math.max(0, diff.indexOf(content));
-  const first = diff.slice(0, offset).split('\n').length;
-  const last = first + content.split('\n').length - 1;
-  return first === last ? `D${first}` : `D${first}-D${last}`;
-}
-
-function reviewAttachment(repository, file, content, comment = '') {
-  const lineRange = selectionLineRange(file.diff, content);
-  const path = repository.path === '.' ? file.path : `${repository.path}/${file.path}`;
-  return {
-    id: crypto.randomUUID(),
-    kind: 'context_marker',
-    markerType: comment ? 'git_annotation' : 'file_citation',
-    name: `${file.path}:${lineRange}${comment ? ' · annotation' : ''}`,
-    size: 0,
-    filepath: path,
-    text: [
-      `<git-review-citation repository="${escapeXml(repository.path)}" path="${escapeXml(file.path)}" range="${lineRange}">`,
-      `<diff>${escapeXml(content)}</diff>`,
-      comment ? `<comment>${escapeXml(comment)}</comment>` : null,
-      '</git-review-citation>',
-    ].filter(Boolean).join('\n'),
-  };
-}
-
-function CommitPlanDialog({ plans, committing, onClose, onCommit }) {
-  const commitCount = plans.reduce((total, plan) => total + plan.commits.length, 0);
-  const repositoryCount = plans.length;
-
-  return createPortal(
-    <div className="dialog-backdrop git-review-dialog-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !committing) onClose();
-    }}>
-      <section
-        className="git-review-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="commit-plan-title"
-        aria-describedby="commit-plan-description"
+const GitTree = memo(function GitTree({ files, selected, staged, onSelect, onMenu, onAction, busy }) {
+  const [collapsed, setCollapsed] = useState(new Map());
+  const [viewport, setViewport] = useState({ top: 0, height: 600 });
+  const ref = useRef(null);
+  const pendingFocus = useRef(null);
+  const trees = useMemo(() => [
+    { ...buildGitTree(files.filter((file) => file.unstaged || file.status === 'untracked')), name: 'Unstaged', group: 'unstaged' },
+    { ...buildGitTree(files.filter((file) => file.staged)), name: 'Staged changes', group: 'staged' },
+  ], [files]);
+  const rows = useMemo(() => trees.flatMap((tree) => {
+    const groupCollapsed = new Map([...collapsed].filter(([key]) => key.startsWith(`${tree.group}:`)).map(([key, value]) => [key.slice(tree.group.length + 1), value]));
+    return flattenGitTree(tree, groupCollapsed).map(({ node, depth }) => ({
+      node: { ...node, group: tree.group, key: `${tree.group}:${node.path}` }, depth,
+    }));
+  }), [trees, collapsed]);
+  const start = Math.max(0, Math.floor(viewport.top / 28) - 12);
+  const end = Math.min(rows.length, Math.ceil((viewport.top + viewport.height) / 28) + 12);
+  useEffect(() => {
+    const observer = new ResizeObserver(([entry]) => setViewport((value) => ({ ...value, height: entry.contentRect.height })));
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!pendingFocus.current) return;
+    const target = ref.current?.querySelector(`[data-git-key="${CSS.escape(pendingFocus.current)}"]`);
+    if (target) { target.focus({ preventScroll: true }); pendingFocus.current = null; }
+  }, [viewport, rows]);
+  const toggle = (node) => setCollapsed((current) => new Map(current).set(node.key, !(current.get(node.key) ?? (node.path !== '.' && node.count > 100))));
+  return <div className="git-review-tree" ref={ref} role="tree" aria-label="Changed files" onScroll={(event) => {
+    const top = event.currentTarget.scrollTop;
+    setViewport((value) => ({ ...value, top }));
+  }}><div style={{ height: rows.length * 28, position: 'relative' }}>
+    {rows.slice(start, end).map(({ node, depth }, position) => {
+      const isCollapsed = collapsed.get(node.key) ?? (node.path !== '.' && node.count > 100);
+      return <div key={node.key} className={`git-review-tree-row${selected === node.path && staged === (node.group === 'staged') ? ' selected' : ''}`} style={{ top: (start + position) * 28, paddingLeft: 7 + depth * 12 }}
+        role="treeitem" aria-level={depth + 1} aria-selected={selected === node.path && staged === (node.group === 'staged')} aria-expanded={node.directory ? !isCollapsed : undefined}
+        tabIndex={0} data-git-path={node.path} data-git-key={node.key} data-git-group={node.group}
+        onClick={() => node.directory ? toggle(node) : onSelect(node.path, node.group === 'staged')}
+        onContextMenu={(event) => onMenu(event, node)}
         onKeyDown={(event) => {
-          if (event.key !== 'Escape' || committing) return;
-          event.preventDefault();
-          onClose();
-        }}
-      >
-        <header className="dialog-header">
-          <div>
-            <h2 id="commit-plan-title">Review commit plan</h2>
-            <p id="commit-plan-description">
-              {commitCount} {commitCount === 1 ? 'commit' : 'commits'} across {repositoryCount} {repositoryCount === 1 ? 'repository' : 'repositories'}
-            </p>
-          </div>
-          <button className="icon-button" type="button" aria-label="Close commit plan" disabled={committing} onClick={onClose}>
-            <X size={16} />
-          </button>
-        </header>
-        <div className="git-review-plan-list">
-          {plans.map((plan) => (
-            <section key={plan.repositoryPath}>
-              <h3><GitCommitHorizontal size={15} aria-hidden="true" />{plan.repositoryName}</h3>
-              {plan.commits.map((commit, index) => (
-                <article key={`${commit.message}-${index}`}>
-                  <strong>{commit.message}</strong>
-                  <ul>{commit.files.map((file) => <li key={file}>{file}</li>)}</ul>
-                </article>
-              ))}
-            </section>
-          ))}
-        </div>
-        <footer className="dialog-footer">
-          <span>Creates local commits only. Nothing will be pushed.</span>
-          <div>
-            <button type="button" disabled={committing} onClick={onClose}>Cancel</button>
-            <button className="primary-mini" type="button" disabled={committing} onClick={onCommit}>
-              {committing ? <RefreshCw className="spin" size={14} /> : <Check size={14} />}
-              {committing ? 'Creating commits...' : `Create ${commitCount} ${commitCount === 1 ? 'commit' : 'commits'}`}
-            </button>
-          </div>
-        </footer>
-      </section>
-    </div>,
-    document.body,
-  );
+          if (event.target !== event.currentTarget) return;
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); node.directory ? toggle(node) : onSelect(node.path, node.group === 'staged'); }
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) onMenu(event, node);
+          if (event.key === 'ArrowRight' && node.directory && isCollapsed) { event.preventDefault(); toggle(node); }
+          if (event.key === 'ArrowLeft' && node.directory && !isCollapsed) { event.preventDefault(); toggle(node); }
+          if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+            event.preventDefault();
+            const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : Math.max(0, Math.min(rows.length - 1, start + position + (event.key === 'ArrowDown' ? 1 : -1)));
+            const nextPath = rows[nextIndex].node.key;
+            ref.current.scrollTop = Math.max(0, nextIndex * 28 - viewport.height / 2);
+            pendingFocus.current = nextPath;
+            setViewport((value) => ({ ...value, top: ref.current.scrollTop }));
+          }
+        }}>
+        {node.directory ? <>{isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}<Folder size={14} /></> : <FileDiff size={14} />}
+        <span className="git-review-tree-name" title={node.path}>{node.name}</span>
+        {!node.directory && <span className={`git-review-file-status status-${node.status}`} title={node.status}>{badges[node.status]}</span>}
+        {!node.directory && node.staged && <span className="git-review-staged" title="Has staged changes">●</span>}
+        <button type="button" className="git-review-tree-action" aria-label={`${node.group === 'staged' ? 'Unstage' : 'Stage'} ${node.path}`} disabled={busy} onClick={(event) => {
+          event.stopPropagation(); onAction(node.group === 'staged' ? 'unstage' : 'stage', node);
+        }}>{node.group === 'staged' ? <Minus size={13} /> : <Plus size={13} />}</button>
+        <button type="button" className="git-review-tree-action" aria-label={`Actions for ${node.path}`} aria-haspopup="menu" onClick={(event) => { event.stopPropagation(); onMenu(event, node); }}><MoreHorizontal size={13} /></button>
+      </div>;
+    })}
+  </div></div>;
+});
+
+function GitReviewDialog({ dialog, busy, onClose, onConfirm }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const previous = document.activeElement;
+    ref.current.showModal();
+    return () => previous?.isConnected && previous.focus();
+  }, []);
+  return createPortal(<dialog ref={ref} className="git-review-dialog" aria-labelledby="git-dialog-title" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
+    <header className="dialog-header"><h2 id="git-dialog-title">Discard changes?</h2><button className="icon-button" type="button" disabled={busy} onClick={onClose} aria-label="Close"><X size={16} /></button></header>
+    <div className="git-review-dialog-body">
+      <p>This permanently discards staged and unstaged changes in <strong>{dialog.path}</strong> in <strong>{dialog.repositoryName}</strong>, including untracked files.</p><p>This cannot be undone. Nested repositories are not discarded.</p>
+      {dialog.error && <p role="alert">{dialog.error}</p>}
+    </div>
+    <footer className="dialog-footer"><button type="button" disabled={busy} onClick={onClose}>Cancel</button><button type="button" className="danger" disabled={busy} onClick={onConfirm}>{busy ? <><LoaderCircle className="spin" size={14} aria-hidden="true" />Discarding changes...</> : 'Discard permanently'}</button></footer>
+  </dialog>, document.body);
 }
 
-export function GitReviewPanel({
-  conversationId,
-  model,
-  project,
-  onAddToChat,
-  onAskInSideChat,
-  onRunAgent,
-}) {
-  const [review, setReview] = useState(null);
+export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, model, project, onAddToChat, onAskInSideChat, onRunAgent }) {
+  const [catalog, setCatalog] = useState(null);
+  const [repositoryPath, setRepositoryPath] = useState('');
+  const [index, setIndex] = useState(null);
+  const [selected, setSelected] = useState('');
+  const [file, setFile] = useState(null);
+  const [staged, setStaged] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [fileLoading, setFileLoading] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState(null);
-  const [expanded, setExpanded] = useState(new Set());
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
   const [menu, setMenu] = useState(null);
-  const [filePickerRepositoryId, setFilePickerRepositoryId] = useState(null);
-  const [fileQuery, setFileQuery] = useState('');
-  const [selection, setSelection] = useState(null);
-  const [annotation, setAnnotation] = useState('');
-  const [plans, setPlans] = useState(null);
-  const [busyRepositories, setBusyRepositories] = useState(new Set());
-  const [committing, setCommitting] = useState(false);
-  const [visibleDiffs, setVisibleDiffs] = useState(new Set());
-  const [diffHeights, setDiffHeights] = useState(new Map());
-  const panelRef = useRef(null);
-  const contentRef = useRef(null);
-  const fileSearchRef = useRef(null);
-
-  const changedRepositories = useMemo(() => (
-    Array.isArray(review?.repositories)
-      ? review.repositories.filter((repository) => repository.files.length > 0)
-      : []
-  ), [review]);
-  const highlightedDiffs = useMemo(() => new Map(
-    (review?.repositories ?? []).flatMap((repository) => repository.files.flatMap((file) => {
-      const key = JSON.stringify([repository.id, file.path]);
-      if (!visibleDiffs.has(key)) return [];
-      const lowerName = file.path.toLowerCase().split('/').at(-1);
-      const extension = lowerName.includes('.') ? lowerName.split('.').at(-1) : lowerName;
-      const language = diffLanguages[lowerName] ?? diffLanguages[extension];
-      const diffLanguage = language ? `diff-${language}` : 'diff';
-      return [[
-        key,
-        {
-          html: Prism.highlight(file.diff, Prism.languages.diff, diffLanguage),
-          language: diffLanguage,
-        },
-      ]];
-    })),
-  ), [review, visibleDiffs]);
-
-  async function refresh() {
-    if (!conversationId) return;
-    setLoading(true);
-    setError('');
-    setNotice(null);
-    try {
-      const result = await window.chatApp.gitReview.state(conversationId);
-      if (!result || !Array.isArray(result.repositories)) {
-        throw new Error('Git Review returned an invalid response.');
-      }
-      setReview(result);
-      setExpanded((current) => current.size > 0
-        ? new Set([...current].filter((id) => result.repositories.some((item) => item.id === id)))
-        : new Set(result.repositories.filter((item) => item.files.length > 0).map((item) => item.id)));
-    } catch (nextError) {
-      setReview(null);
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-    } finally {
-      setLoading(false);
-    }
-  }
+  const [dialog, setDialog] = useState(null);
+  const [revision, setRevision] = useState(0);
+  const menuRef = useRef(null);
+  const scope = useRef(0);
+  const operation = useRef(false);
+  const indexCache = useRef(new Map());
+  const selectedByRepository = useRef(new Map());
 
   useEffect(() => {
-    setReview(null);
-    setExpanded(new Set());
-    setFilePickerRepositoryId(null);
-    setFileQuery('');
-    setSelection(null);
-    setVisibleDiffs(new Set());
-    setDiffHeights(new Map());
-    if (conversationId) refresh();
+    let active = true;
+    scope.current += 1;
+    indexCache.current.clear(); selectedByRepository.current.clear();
+    setCatalog(null); setIndex(null); setFile(null); setRepositoryPath(''); setSelected(''); setError(''); setMenu(null); setDialog(null);
+    if (!conversationId) return undefined;
+    setLoading(true);
+    window.chatApp.gitReview.repositories({ conversationId }).then((result) => {
+      if (!active) return;
+      setCatalog(result); setRepositoryPath(result.repositories[0]?.path ?? '');
+    }).catch((failure) => { if (active) setError(failure.message); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; scope.current += 1; };
   }, [conversationId, project?.path]);
 
   useEffect(() => {
-    const observer = new IntersectionObserver((entries) => {
-      const measuredHeights = entries.flatMap((entry) => {
-        if (entry.isIntersecting) return [];
-        const body = entry.target.querySelector('.git-review-diff');
-        return body ? [[entry.target.dataset.gitReviewDiffKey, body.getBoundingClientRect().height]] : [];
-      });
-      if (measuredHeights.length > 0) {
-        setDiffHeights((current) => {
-          const next = new Map(current);
-          for (const [key, height] of measuredHeights) next.set(key, height);
-          if (next.size !== current.size) return next;
-          for (const [key, height] of next) {
-            if (!current.has(key) || !Object.is(current.get(key), height)) return next;
-          }
-          return current;
-        });
-      }
-      setVisibleDiffs((current) => {
-        const next = new Set(current);
-        for (const entry of entries) {
-          const key = entry.target.dataset.gitReviewDiffKey;
-          if (entry.isIntersecting) next.add(key); else next.delete(key);
-        }
-        if (next.size !== current.size) return next;
-        for (const key of next) {
-          if (!current.has(key)) return next;
-        }
-        return current;
-      });
-    }, { root: contentRef.current, rootMargin: '600px 0px' });
-    for (const element of contentRef.current?.querySelectorAll('[data-git-review-diff-key]') ?? []) {
-      observer.observe(element);
-    }
-    return () => observer.disconnect();
-  }, [review, expanded]);
+    if (!repositoryPath) return undefined;
+    let active = true;
+    const cached = indexCache.current.get(repositoryPath);
+    setIndex(cached ?? null); setFile(null); setMenu(null); setDialog(null);
+    setLoading(true); setError('');
+    window.chatApp.gitReview.index({ conversationId, repositoryPath, refresh: revision > 0 }).then((result) => {
+      if (!active) return;
+      indexCache.current.set(repositoryPath, result);
+      setIndex(result);
+      const previous = selectedByRepository.current.get(repositoryPath);
+      const nextFile = result.files.find((item) => item.path === previous)
+        ?? result.files.find((item) => item.unstaged || item.status === 'untracked')
+        ?? result.files[0];
+      setSelected(nextFile?.path ?? '');
+      setStaged((current) => nextFile?.staged && (current || (!nextFile.unstaged && nextFile.status !== 'untracked')) ? true : false);
+    }).catch((failure) => { if (active) setError(failure.message); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [conversationId, repositoryPath, revision]);
+
+  useEffect(() => {
+    if (!index || index.path !== repositoryPath || !selected) { setFile(null); return undefined; }
+    let active = true;
+    setFileLoading(true); setFile(null);
+    window.chatApp.gitReview.file({ conversationId, repositoryPath, filePath: selected, staged, unstaged: !staged }).then((result) => {
+      if (active) setFile(result);
+    }).catch((failure) => { if (active) setError(failure.message); }).finally(() => { if (active) setFileLoading(false); });
+    return () => { active = false; };
+  }, [conversationId, repositoryPath, selected, staged, index, revision]);
 
   useEffect(() => {
     if (!menu) return undefined;
-    const controller = new AbortController();
-    window.addEventListener('pointerdown', () => setMenu(null), { signal: controller.signal });
-    window.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') setMenu(null);
-    }, { signal: controller.signal });
-    return () => controller.abort();
+    menuRef.current?.querySelector('button:not(:disabled)')?.focus();
+    const close = (event) => {
+      if (menuRef.current?.contains(event.target)) return;
+      setMenu(null);
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('resize', close);
+    document.addEventListener('scroll', close, true);
+    return () => { window.removeEventListener('pointerdown', close); window.removeEventListener('resize', close); document.removeEventListener('scroll', close, true); };
   }, [menu]);
 
-  useEffect(() => {
-    if (!filePickerRepositoryId) return undefined;
-    fileSearchRef.current?.focus();
-    const controller = new AbortController();
-    window.addEventListener('pointerdown', (event) => {
-      if (event.target.closest?.('.git-review-file-picker')) return;
-      setFilePickerRepositoryId(null);
-      setFileQuery('');
-    }, { signal: controller.signal });
-    window.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape') return;
-      setFilePickerRepositoryId(null);
-      setFileQuery('');
-    }, { signal: controller.signal });
-    return () => controller.abort();
-  }, [filePickerRepositoryId]);
-
-  useEffect(() => {
-    if (!selection) return undefined;
-    const controller = new AbortController();
-    window.addEventListener('pointerdown', (event) => {
-      if (event.target.closest?.('.selection-action-group, .git-review-annotation')) return;
-      setSelection(null);
-      setAnnotation('');
-    }, { signal: controller.signal });
-    return () => controller.abort();
-  }, [selection]);
-
-  function updateSelection(event, repository, file) {
-    const selected = window.getSelection();
-    if (!selected || selected.isCollapsed || !selected.rangeCount) return;
-    const range = selected.getRangeAt(0);
-    const code = event.currentTarget;
-    if (!code.contains(range.commonAncestorContainer)) return;
-    const content = selected.toString().trim();
-    if (!content) return;
-    const rect = range.getBoundingClientRect();
-    setSelection({
-      repository,
-      file,
-      content,
-      left: Math.max(8, Math.min(window.innerWidth - 310, rect.left)),
-      top: Math.max(8, Math.min(window.innerHeight - 120, rect.bottom + 7)),
-      annotating: false,
-    });
-  }
-
-  async function createPlans(repositories) {
-    const eligible = repositories.filter((repository) => (
-      repository.commitPlanAvailable
-    ));
-    if (eligible.length !== repositories.length) {
-      setError('Commit planning is disabled because the changes are too large or truncated.');
-      return;
+  const onSelect = useCallback((path, stagedSelection) => {
+    selectedByRepository.current.set(repositoryPath, path); setSelected(path); setStaged(stagedSelection);
+  }, [repositoryPath]);
+  const onMenu = useCallback((event, node) => {
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    setMenu({ node, opener: event.currentTarget, left: Math.max(8, Math.min(window.innerWidth - 245, event.clientX || rect.left)), top: Math.max(8, Math.min(window.innerHeight - 385, event.clientY || rect.bottom)) });
+  }, []);
+  const perform = useCallback(async (action, node = { path: '.' }, extra = {}) => {
+    if (operation.current || loading || !index || index.path !== repositoryPath) return;
+    if (action === 'discard' && !extra.confirmed) {
+      setDialog({ type: 'discard', path: node.path, repositoryName: index.name, version: index.version }); return;
     }
-    setBusyRepositories(new Set(repositories.map((repository) => repository.id)));
-    setError('');
+    operation.current = true;
+    setBusy({ stage: 'Staging changes...', unstage: 'Unstaging changes...', discard: 'Discarding changes...', ignore: 'Adding ignore rule...', commit: 'Creating commit...' }[action]);
+    setError(''); setNotice('');
+    const currentScope = scope.current;
     try {
-      const nextPlans = [];
-      for (const repository of repositories) {
-        const plan = await window.chatApp.gitReview.plan({
-          conversationId,
-          repositoryPath: repository.path,
-          model,
-        });
-        nextPlans.push({ ...plan, repositoryName: repository.name });
+      const result = await window.chatApp.gitReview.mutate({ conversationId, repositoryPath, action, path: node.path, version: index.version, ...extra });
+      if (currentScope !== scope.current) return;
+      if (action === 'commit') setMessage('');
+      setNotice(result.trackedFilesRemainTracked ? 'Ignore rule added. Already tracked files remain tracked.' : `${action === 'commit' ? 'Commit created' : 'Git changes updated'}.`);
+      if (extra.push) {
+        setBusy('Pushing commits...');
+        const pushed = await window.chatApp.gitReview.push({ conversationId, repositoryPath });
+        if (currentScope !== scope.current) return;
+        setNotice(pushed.pushed ? 'Commit created and pushed.' : `Commit created, but push failed: ${pushed.message}`);
       }
-      setPlans(nextPlans);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-    } finally {
-      setBusyRepositories(new Set());
-    }
-  }
+      setDialog(null); setRevision((value) => value + 1);
+    } catch (failure) {
+      if (currentScope === scope.current) {
+        setError(failure.message);
+        setDialog((value) => value ? { ...value, error: failure.message } : null);
+      }
+    } finally { operation.current = false; setBusy(false); }
+  }, [conversationId, repositoryPath, index, loading]);
 
-  async function acceptPlans() {
-    setCommitting(true);
-    setError('');
+  async function generatePlan() {
+    if (operation.current) return;
+    operation.current = true; setBusy('Generating commit message...'); setError('');
+    const currentScope = scope.current;
     try {
-      for (const plan of plans) {
-        await window.chatApp.gitReview.commit({
-          conversationId,
-          repositoryPath: plan.repositoryPath,
-          commits: plan.commits,
-        });
-      }
-      setPlans(null);
-      setNotice({ type: 'success', text: 'Commit plan created successfully.' });
-      await refresh();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-    } finally {
-      setCommitting(false);
-    }
+      const plan = await window.chatApp.gitReview.plan({ conversationId, repositoryPath, model, messageOnly: true });
+      if (currentScope === scope.current) setMessage(plan.commits[0].message);
+    } catch (failure) { if (currentScope === scope.current) setError(failure.message); }
+    finally { operation.current = false; setBusy(false); }
   }
 
-  async function pushRepositories(repositories) {
-    setBusyRepositories(new Set(repositories.map((repository) => repository.id)));
-    setError('');
-    const failures = [];
+  async function fileAction(action, node) {
+    setMenu(null);
     try {
-      for (const repository of repositories) {
-        const result = await window.chatApp.gitReview.push({
-          conversationId,
-          repositoryPath: repository.path,
-        });
-        if (!result.pushed) failures.push({ repository, result });
-      }
-      if (failures.length === 0) {
-        setNotice({ type: 'success', text: `Pushed ${repositories.length} repository(ies).` });
-      } else {
-        const conflictCount = failures.reduce((total, failure) => total + failure.result.conflicts.length, 0);
-        setNotice({
-          type: 'warning',
-          text: `${failures.length} push operation(s) failed.${conflictCount ? ` ${conflictCount} conflicted file(s) found.` : ''}`,
-          failures,
-        });
-      }
-      await refresh();
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : String(nextError));
-    } finally {
-      setBusyRepositories(new Set());
-    }
+      await window.chatApp.files[action]({ folderPath: catalog.root, filePath: repositoryPath === '.' ? node.path : `${repositoryPath}/${node.path === '.' ? '' : node.path}` });
+    } catch (failure) { setError(failure.message); }
   }
 
-  function runCodeReview(repository) {
-    onRunAgent?.({
-      text: `Run a code review for the repository at ${repository.path}. Review the current Git changes and report prioritized findings only; do not modify files.`,
-      attachments: [{
-        id: crypto.randomUUID(),
-        kind: 'context_marker',
-        markerType: 'workflow',
-        commandName: 'code-review',
-        name: '/code-review',
-        size: 0,
-        text: 'Use the code-review workflow.',
-      }],
-    });
-  }
-
-  function resolveConflicts(failure) {
-    const files = failure.result.conflicts.length > 0
-      ? failure.result.conflicts.join(', ')
-      : 'the current repository conflict state';
-    onRunAgent?.({
-      text: `Resolve the Git conflicts in repository ${failure.repository.path} on branch ${failure.result.branch ?? failure.repository.branch}. Conflicted files: ${files}. Inspect the repository state, preserve intent from both sides, validate the resolution, and do not push without explicit user approval.`,
-      attachments: [],
-    });
-  }
-
-  if (!conversationId) {
-    return <div className="git-review-empty"><GitPullRequest size={22} /><strong>Start a conversation</strong><span>Git Review is linked to the conversation workspace.</span></div>;
-  }
-
-  return (
-    <div className="git-review-panel" ref={panelRef}>
-      <header className="git-review-topbar">
-        <span>
-          <strong>Git Review</strong>
-          <small>{project?.displayPath ?? project?.path}</small>
-        </span>
-        <div>
-          <button type="button" disabled={loading || changedRepositories.length === 0 || !review?.commitPlanAvailable} onClick={() => createPlans(changedRepositories)}>
-            <GitCommitHorizontal size={14} /> Commit all
-          </button>
-          <button type="button" disabled={loading || !Array.isArray(review?.repositories) || review.repositories.length === 0} onClick={() => pushRepositories(review.repositories)}>
-            <Rocket size={14} /> Push all
-          </button>
-          <button type="button" aria-label="Git Review menu" title="More actions" onClick={(event) => {
-            event.stopPropagation();
-            const rect = event.currentTarget.getBoundingClientRect();
-            setMenu({ type: 'global', left: rect.right - 160, top: rect.bottom + 5 });
-          }}><MoreHorizontal size={15} /></button>
-        </div>
-      </header>
-
-      {error && <div className="git-review-notice error"><AlertTriangle size={15} /><span>{error}</span><button type="button" onClick={() => setError('')}><X size={13} /></button></div>}
-      {notice && <div className={`git-review-notice ${notice.type}`}>
-        {notice.type === 'success' ? <Check size={15} /> : <AlertTriangle size={15} />}
-        <span>{notice.text}</span>
-        {notice.failures?.some((failure) => failure.result.canResolveWithAgent) && (
-          <button type="button" onClick={() => resolveConflicts(notice.failures.find((failure) => failure.result.canResolveWithAgent))}>Resolve conflicts with agent</button>
-        )}
-        <button type="button" aria-label="Dismiss" onClick={() => setNotice(null)}><X size={13} /></button>
-      </div>}
-
-      <div className="git-review-content" ref={contentRef}>
-        {loading && !review ? (
-          <div className="git-review-empty"><RefreshCw className="spin" size={20} /><strong>Loading changes</strong></div>
-        ) : !review ? (
-          <div className="git-review-empty">
-            <AlertTriangle size={22} />
-            <strong>Could not load Git changes</strong>
-            <span>{error || 'Git Review did not return repository data.'}</span>
-            <button type="button" disabled={loading} onClick={refresh}><RefreshCw size={14} /> Retry</button>
+  if (!conversationId) return <div className="git-review-empty"><GitPullRequest size={22} /><strong>Start a conversation</strong><span>Git Review uses the conversation workspace.</span></div>;
+  const activeIndex = index?.path === repositoryPath ? index : null;
+  const stagedCount = activeIndex?.files.filter((item) => item.staged).length ?? 0;
+  return <div className="git-review-panel" aria-busy={Boolean(busy || loading || fileLoading)}>
+    <header className="git-review-topbar"><GitBranch size={16} /><select aria-label="Git repository" value={repositoryPath} disabled={busy || !catalog} onChange={(event) => { setRepositoryPath(event.target.value); setSelected(''); setMessage(''); setStaged(false); }}>
+      {!catalog?.repositories.length && <option value="">{loading ? 'Finding repositories...' : 'No repositories found'}</option>}
+      {catalog?.repositories.map((repository) => <option key={repository.path} value={repository.path}>{repository.path === '.' ? repository.name : repository.path}</option>)}
+    </select><span className="git-review-branch" title={activeIndex?.branch}>{activeIndex?.branch}</span>
+      <button type="button" className="icon-button" aria-label="Refresh repositories and changes" title="Refresh" disabled={busy || loading} onClick={async () => {
+        setLoading(true); setError('');
+        const currentScope = scope.current;
+        try {
+          const result = await window.chatApp.gitReview.repositories({ conversationId, refresh: true });
+          if (currentScope !== scope.current) return;
+          setCatalog(result);
+          if (!result.repositories.some((item) => item.path === repositoryPath)) setRepositoryPath(result.repositories[0]?.path ?? '');
+          setRevision((value) => value + 1);
+        } catch (failure) { if (currentScope === scope.current) setError(failure.message); }
+        finally { if (currentScope === scope.current) setLoading(false); }
+      }}>{loading ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : <RefreshCw size={14} />}</button>
+    </header>
+    {error && <div className="git-review-notice error" role="alert"><AlertTriangle size={15} /><span>{error}</span><button type="button" aria-label="Dismiss error" onClick={() => setError('')}><X size={13} /></button></div>}
+    {(busy || loading) && <div className="git-review-notice" role="status"><LoaderCircle className="spin" size={15} aria-hidden="true" /><span>{busy || (catalog ? 'Refreshing changes...' : 'Finding repositories...')}</span></div>}
+    {notice && !busy && !loading && <div className="git-review-notice" role="status"><Check size={15} /><span>{notice}</span><button type="button" aria-label="Dismiss notice" onClick={() => setNotice('')}><X size={13} /></button></div>}
+    <div className="git-review-workspace">
+      <aside className="git-review-navigation">
+        <form className="git-review-commit" onSubmit={(event) => { event.preventDefault(); perform('commit', undefined, { message }); }}>
+          <label htmlFor="git-commit-message">Commit message</label>
+          <div><textarea id="git-commit-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Message for staged changes" rows={2} disabled={busy} onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); if (message.trim() && stagedCount) perform('commit', undefined, { message }); } }} />
+            <button type="button" className="icon-button" title="Commit AI actions" aria-label="Generate commit with AI" aria-haspopup="menu" aria-expanded={menu?.type === 'generate'} disabled={busy || loading || !activeIndex?.files.length} onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              setMenu({ type: 'generate', opener: event.currentTarget, left: Math.max(8, Math.min(window.innerWidth - 245, rect.left)), top: Math.max(8, Math.min(window.innerHeight - 110, rect.bottom + 5)) });
+            }}><Sparkles size={15} /></button>
           </div>
-        ) : review.repositories.length === 0 ? (
-          <div className="git-review-empty"><GitBranch size={22} /><strong>No repositories found</strong><span>Git repositories are discovered up to three folders deep.</span></div>
-        ) : review.repositories.map((repository) => {
-          const isExpanded = expanded.has(repository.id);
-          const busy = busyRepositories.has(repository.id);
-          const filePickerOpen = filePickerRepositoryId === repository.id;
-          const normalizedFileQuery = fileQuery.trim().toLocaleLowerCase();
-          const matchingFiles = normalizedFileQuery
-            ? repository.files.filter((file) => file.path.toLocaleLowerCase().includes(normalizedFileQuery))
-            : repository.files;
-          return (
-            <section className="git-review-repository" key={repository.id}>
-              <header className="git-review-repository-header">
-                <button type="button" className="git-review-repository-toggle" onClick={() => setExpanded((current) => {
-                  const next = new Set(current);
-                  if (next.has(repository.id)) next.delete(repository.id); else next.add(repository.id);
-                  return next;
-                })}>
-                  {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                  <span><strong>{repository.name}</strong><small>{repository.files.length} changed · <i>+{repository.additions}</i> <b>-{repository.deletions}</b></small></span>
-                  <span className="git-review-branch"><GitBranch size={13} />{repository.branch}</span>
-                </button>
-                <button type="button" disabled={busy || !repository.commitPlanAvailable} onClick={() => createPlans([repository])}>
-                  {busy ? <RefreshCw className="spin" size={14} /> : <GitCommitHorizontal size={14} />} Create commits
-                </button>
-                <button type="button" aria-label={`${repository.name} menu`} onClick={(event) => {
-                  event.stopPropagation();
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  setMenu({ type: 'repository', repository, left: rect.right - 170, top: rect.bottom + 5 });
-                }}><MoreHorizontal size={15} /></button>
-              </header>
-
-              {isExpanded && repository.files.length === 0 && <div className="git-review-clean">Working tree clean</div>}
-              {isExpanded && repository.files.length > 0 && (
-                <>
-                  <div className="git-review-file-nav">
-                    <div className={`git-review-file-picker${filePickerOpen ? ' open' : ''}`}>
-                      <button
-                        type="button"
-                        className="git-review-file-picker-trigger"
-                        aria-expanded={filePickerOpen}
-                        aria-haspopup="listbox"
-                        onClick={() => {
-                          setFilePickerRepositoryId(filePickerOpen ? null : repository.id);
-                          setFileQuery('');
-                        }}
-                      >
-                        <Search size={15} aria-hidden="true" />
-                        <span>Go to file</span>
-                        <small>{repository.files.length}</small>
-                      </button>
-                      {filePickerOpen && (
-                        <div className="git-review-file-picker-popover">
-                          <label className="git-review-file-search">
-                            <Search size={15} aria-hidden="true" />
-                            <input
-                              ref={fileSearchRef}
-                              value={fileQuery}
-                              onChange={(event) => setFileQuery(event.target.value)}
-                              placeholder="Search changed files"
-                              aria-label={`Search files in ${repository.name}`}
-                            />
-                            {fileQuery && (
-                              <button type="button" aria-label="Clear search" onClick={() => {
-                                setFileQuery('');
-                                fileSearchRef.current?.focus();
-                              }}><X size={13} /></button>
-                            )}
-                          </label>
-                          <div className="git-review-file-results" role="listbox" aria-label={`Files in ${repository.name}`}>
-                            {matchingFiles.map((file) => (
-                              <button
-                                type="button"
-                                role="option"
-                                aria-selected="false"
-                                key={file.path}
-                                title={file.path}
-                                onClick={() => {
-                                  setFilePickerRepositoryId(null);
-                                  setFileQuery('');
-                                  document.getElementById(`git-review-${repository.id}-${file.path}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                }}
-                              >
-                                <FileStatus status={file.status} iconOnly />
-                                <span>{file.path}</span>
-                                <FileStatus status={file.status} showLabel />
-                              </button>
-                            ))}
-                            {matchingFiles.length === 0 && <span className="git-review-file-results-empty">No matching files</span>}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="git-review-diffs">
-                    {repository.files.map((file) => {
-                      const key = JSON.stringify([repository.id, file.path]);
-                      const highlightedDiff = highlightedDiffs.get(key);
-                      const visible = visibleDiffs.has(key);
-                      const estimatedHeight = diffHeights.get(key)
-                        ?? Math.min(560, Math.max(42, file.diff.split('\n').length * 18 + 18));
-                      return (
-                        <article
-                          id={`git-review-${repository.id}-${file.path}`}
-                          className="git-review-file"
-                          key={file.path}
-                          data-git-review-diff-key={key}
-                        >
-                          <header><FileStatus status={file.status} /><strong>{file.path}</strong>{file.staged && <small>staged</small>}{file.unstaged && <small>unstaged</small>}</header>
-                          {visible ? (file.diff ? (
-                            <pre className={`git-review-diff diff-highlight language-${highlightedDiff.language}`} tabIndex={0} onMouseUp={(event) => updateSelection(event, repository, file)} onKeyUp={(event) => updateSelection(event, repository, file)}>
-                              <code className={`diff-highlight language-${highlightedDiff.language}`} dangerouslySetInnerHTML={{ __html: highlightedDiff.html }} />
-                            </pre>
-                          ) : <div className="git-review-no-diff">{file.binary ? 'Binary file changed' : 'No textual diff available'}</div>) : (
-                            <div aria-hidden="true" style={{ height: estimatedHeight }} />
-                          )}
-                        </article>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </section>
-          );
-        })}
-      </div>
-
-      {menu && createPortal(
-        <DropdownMenu className="git-review-menu" fixed role="menu" style={{ left: menu.left, top: menu.top }} onPointerDown={(event) => event.stopPropagation()}>
-          {menu.type === 'global' ? (
-            <DropdownMenuItem icon={<RefreshCw size={14} />} role="menuitem" onClick={() => { setMenu(null); refresh(); }}>Refresh</DropdownMenuItem>
-          ) : (
-            <>
-              <DropdownMenuItem icon={<Rocket size={14} />} role="menuitem" disabled={busyRepositories.has(menu.repository.id)} onClick={() => { const repository = menu.repository; setMenu(null); pushRepositories([repository]); }}>Push</DropdownMenuItem>
-              <DropdownMenuItem icon={<GitPullRequest size={14} />} role="menuitem" disabled={!onRunAgent} onClick={() => { const repository = menu.repository; setMenu(null); runCodeReview(repository); }}>Code review</DropdownMenuItem>
-            </>
-          )}
-        </DropdownMenu>,
-        document.body,
-      )}
-
-      {selection && createPortal(
-        selection.annotating ? (
-          <form className="git-review-annotation" style={{ left: selection.left, top: selection.top }} onSubmit={(event) => {
-            event.preventDefault();
-            if (!annotation.trim()) return;
-            onAddToChat?.(reviewAttachment(selection.repository, selection.file, selection.content, annotation.trim()));
-            setSelection(null);
-            setAnnotation('');
-            window.getSelection()?.removeAllRanges();
-          }}>
-            <textarea autoFocus value={annotation} onChange={(event) => setAnnotation(event.target.value)} placeholder="Add a review comment..." rows={3} />
-            <footer><button type="button" onClick={() => { setSelection(null); setAnnotation(''); }}>Cancel</button><button type="submit" disabled={!annotation.trim()}>Add to chat</button></footer>
-          </form>
-        ) : (
-          <div
-            className="selection-action-group"
-            role="toolbar"
-            aria-label="Selected diff actions"
-            style={{ left: selection.left, top: selection.top }}
-            onMouseDown={(event) => event.preventDefault()}
-          >
-            <button type="button" onClick={() => setSelection((current) => ({ ...current, annotating: true }))}>
-              <PencilLine size={13} aria-hidden="true" />
-              <span>Annotate</span>
-            </button>
-            {onAddToChat && (
-              <button type="button" onClick={() => { onAddToChat(reviewAttachment(selection.repository, selection.file, selection.content)); setSelection(null); window.getSelection()?.removeAllRanges(); }}>
-                <MessageSquarePlus size={13} aria-hidden="true" />
-                <span>Add to chat</span>
-              </button>
-            )}
-            {onAskInSideChat && (
-              <button type="button" onClick={() => { onAskInSideChat(reviewAttachment(selection.repository, selection.file, selection.content)); setSelection(null); window.getSelection()?.removeAllRanges(); }}>
-                <MessagesSquare size={13} aria-hidden="true" />
-                <span>Open in side chat</span>
-              </button>
-            )}
-          </div>
-        ),
-        document.body,
-      )}
-
-      {plans && <CommitPlanDialog plans={plans} committing={committing} onClose={() => setPlans(null)} onCommit={acceptPlans} />}
+          <div className="git-review-commit-actions"><button type="submit" className="primary-mini" disabled={busy || loading || !stagedCount || !message.trim()}><GitCommitHorizontal size={14} />Commit</button><button type="button" title="Commit staged changes, then push" disabled={busy || loading || !stagedCount || !message.trim()} onClick={() => perform('commit', undefined, { message, push: true })}><Rocket size={14} />Commit + push</button></div>
+          <small>{`${activeIndex?.files.length ?? 0} changed · ${stagedCount} staged`}</small>
+        </form>
+        {activeIndex ? <GitTree key={repositoryPath} files={activeIndex.files} selected={selected} staged={staged} onSelect={onSelect} onMenu={onMenu} onAction={perform} busy={busy || loading} />
+          : <div className="git-review-empty">{loading ? 'Loading changes...' : 'Choose a repository.'}</div>}
+      </aside>
+      <section className="git-review-detail">
+        <header className="git-review-file-header"><strong title={selected}>{selected || 'Changes'}</strong><select aria-label="Diff scope" value={staged ? 'staged' : 'all'} onChange={(event) => setStaged(event.target.value === 'staged')}><option value="all">Unstaged</option><option value="staged">Staged changes</option></select></header>
+        {fileLoading ? <div className="git-review-empty" role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" />Loading file changes...</div> : file && activeIndex ? <GitReviewDiff key={`${repositoryPath}:${selected}:${staged}:${revision}`} repository={activeIndex} file={file} onAddToChat={onAddToChat} onAskInSideChat={onAskInSideChat} />
+          : <div className="git-review-empty"><GitBranch size={22} /><strong>{activeIndex?.files.length ? 'Select a changed file' : 'Working tree clean'}</strong></div>}
+      </section>
     </div>
-  );
-}
+    {menu && activeIndex && createPortal(<DropdownMenu ref={menuRef} className="git-review-menu" fixed role="menu" style={{ left: menu.left, top: menu.top }} onKeyDown={(event) => {
+      const buttons = [...menuRef.current.querySelectorAll('button:not(:disabled)')];
+      if (event.key === 'Escape' || event.key === 'Tab') { if (event.key === 'Escape') event.preventDefault(); setMenu(null); menu.opener?.focus(); }
+      if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault(); const position = buttons.indexOf(document.activeElement);
+        buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (position + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus();
+      }
+    }}>
+      {menu.type === 'generate' ? <>
+        <DropdownMenuItem icon={<Sparkles size={14} />} role="menuitem" disabled={busy || !stagedCount} onClick={() => { setMenu(null); generatePlan(); }}>Generate commit message</DropdownMenuItem>
+        <hr className="dropdown-menu-divider" />
+        <DropdownMenuItem icon={<GitCommitHorizontal size={14} />} role="menuitem" disabled={busy || !onAskInSideChat} onClick={async () => {
+          setMenu(null);
+          setBusy('Opening commit planning chat...');
+          try {
+            await onAskInSideChat({
+              initialPrompt: `Execute the multi-commit workflow now, only in the selected Git repository ${JSON.stringify(activeIndex.directory ?? repositoryPath)} (workspace-relative path: ${JSON.stringify(repositoryPath)}). Inspect its changes, organize them into coherent local commits, and create those commits. Do not touch other repositories or nested repositories. Do not push. Never stage credentials or sensitive configuration. Report the created hashes and messages.`,
+              attachments: [{ id: crypto.randomUUID(), kind: 'context_marker', markerType: 'workflow', commandName: 'multi-commit', name: '/multi-commit', size: 0, text: 'Read and execute the multi-commit workflow for the selected repository only.' }],
+            });
+          } catch (failure) { setError(failure.message); }
+          finally { setBusy(false); }
+        }}>Generate commits</DropdownMenuItem>
+      </> : <>
+      <DropdownMenuItem icon={<Plus size={14} />} role="menuitem" disabled={busy || loading} onClick={() => { perform('stage', menu.node); setMenu(null); }}>{menu.node.path === '.' ? 'Stage all' : 'Stage changes'}</DropdownMenuItem>
+      <DropdownMenuItem icon={<Minus size={14} />} role="menuitem" disabled={busy || loading} onClick={() => { perform('unstage', menu.node); setMenu(null); }}>Unstage changes</DropdownMenuItem>
+      <DropdownMenuItem icon={<RotateCcw size={14} />} role="menuitem" className="danger" disabled={busy || loading} onClick={() => { perform('discard', menu.node); setMenu(null); }}>{menu.node.path === '.' ? 'Discard all changes...' : 'Discard changes...'}</DropdownMenuItem>
+      {menu.node.path !== '.' && <DropdownMenuItem icon={<FileX size={14} />} role="menuitem" disabled={busy || loading} onClick={() => { perform('ignore', menu.node); setMenu(null); }}>Add to .gitignore</DropdownMenuItem>}
+      <hr className="dropdown-menu-divider" />
+      <DropdownMenuItem icon={<MessageSquarePlus size={14} />} role="menuitem" disabled={!onAddToChat} onClick={() => { onAddToChat(gitReviewAttachment(activeIndex, menu.node.path, '', 'Review the Git changes in this path.')); setMenu(null); }}>Annotate for AI · mention in chat</DropdownMenuItem>
+      <hr className="dropdown-menu-divider" />
+      <DropdownMenuItem icon={menu.node.directory ? <FolderOpen size={14} /> : <SquareArrowOutUpRight size={14} />} role="menuitem" onClick={() => fileAction('open', menu.node)}>Open {menu.node.directory ? 'folder' : 'file'}</DropdownMenuItem>
+      <DropdownMenuItem icon={<FolderOpen size={14} />} role="menuitem" onClick={() => fileAction('reveal', menu.node)}>Show in file explorer</DropdownMenuItem>
+      <DropdownMenuItem icon={<Copy size={14} />} role="menuitem" onClick={() => fileAction('copyPath', menu.node)}>Copy path</DropdownMenuItem>
+      {menu.node.path === '.' && <><hr className="dropdown-menu-divider" /><DropdownMenuItem icon={<Rocket size={14} />} role="menuitem" disabled={busy} onClick={async () => {
+        setMenu(null); if (operation.current) return; operation.current = true; setBusy('Pushing commits...');
+        try { const result = await window.chatApp.gitReview.push({ conversationId, repositoryPath }); setNotice(result.pushed ? 'Pushed successfully.' : `Push failed: ${result.message}`); } catch (failure) { setError(failure.message); } finally { operation.current = false; setBusy(false); }
+      }}>Push repository</DropdownMenuItem><DropdownMenuItem icon={<GitPullRequest size={14} />} role="menuitem" disabled={!onRunAgent} onClick={() => {
+        onRunAgent({ text: `Run a read-only code review of the current Git changes in repository ${repositoryPath}. Report prioritized findings; do not modify files.`, attachments: [] }); setMenu(null);
+      }}>Code review with agent</DropdownMenuItem></>}
+      </>}
+    </DropdownMenu>, document.body)}
+    {dialog && <GitReviewDialog dialog={dialog} busy={busy} onClose={() => setDialog(null)} onConfirm={() => perform('discard', { path: dialog.path }, { confirmed: true, version: dialog.version })} />}
+  </div>;
+});

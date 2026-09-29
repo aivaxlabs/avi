@@ -242,6 +242,8 @@ contextBridge.exposeInMainWorld('chatApp', {
     createKey: (payload) => invoke('remote:create-key', payload),
     copyKey: (id) => invoke('remote:copy-key', id),
     copyInstanceKey: (id) => invoke('remote:copy-instance-key', id),
+    revealInstanceKey: (id) => invoke('remote:reveal-instance-key', id),
+    rotateKey: (id) => invoke('remote:rotate-key', id),
     removeKey: (id) => invoke('remote:remove-key', id),
   },
   chat: {
@@ -284,6 +286,10 @@ contextBridge.exposeInMainWorld('chatApp', {
     copyPath: (payload) => invoke('files:copy-path', payload),
   },
   gitReview: {
+    repositories: (payload) => invoke('git-review:repositories', payload),
+    index: (payload) => invoke('git-review:index', payload),
+    file: (payload) => invoke('git-review:file', payload),
+    mutate: (payload) => invoke('git-review:mutate', payload),
     state: (conversationId) => invoke('git-review:state', conversationId),
     plan: (payload) => invoke('git-review:plan', payload),
     commit: (payload) => invoke('git-review:commit', payload),

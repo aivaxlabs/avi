@@ -45,9 +45,23 @@ The resizable right panel can show:
 
 Side chats open as separate private conversation panels.
 
+Use **Expand auxiliary panel**, between **+** and close, to widen it toward 80% of the window and temporarily compact the sidebar. The chat stays visible; the expansion reserves 320 px for it where the window permits. **Restore panel width** restores your normal layout without overwriting saved widths.
+
+### Git Review
+
+Choose **Git Review** from **+**, then select one repository above the changed-file tree. Discovery includes nested repositories and linked workspace folders, up to three directory levels and 20 repositories, excluding dependency/generated folders. Only the active repository's index and selected file's diff are loaded. Refresh rescans the catalog and active index. A spinner and action-specific status appear while Git operations run, then change to the result after the index refresh. File previews also show a loading spinner.
+
+The tree marks added, modified, deleted, renamed, untracked, and conflicted files; a dot marks staged changes. Folders do not display change counts; those with more than 100 changed files still start collapsed. Context menus group actions with icons and separators. Right-click a file/folder for stage, unstage, confirmed discard, add to `.gitignore`, mention in chat, open, show in explorer, and copy path. Root menus also offer stage/unstage, confirmed discard, push, and agent code review. Discard explicitly confirms removal of both staged and unstaged changes for the selected path. Ignore rules do not stop tracking already tracked files.
+
+The tree has **Unstaged** and **Staged changes** roots. Partially staged files appear in both; selecting an entry opens its corresponding diff. Commits use staged changes only. The diff offers **Unstaged** against the index and **Staged changes** against HEAD, with syntax highlighting for recognized languages using Avi's shared light/dark code palette. Arrows reveal 20 unchanged lines from either edge of a **hidden lines** block; clicking its count reveals the entire block. The right-hand map jumps to changed blocks. Select code to add a comment, mention it in chat, or send it to a side chat; annotations preserve the highlighted selection.
+
+Commit controls adapt to the navigation column width; the action buttons wrap into separate rows in narrow panels. **Commit** and **Commit + push** commit staged changes only. A failed push does not undo a successful local commit. The sparkle dropdown offers **Generate commit message**, which fills the message from staged changes without committing, and **Generate commits**, which forks a side chat and immediately asks the model to execute the multi-commit workflow only in the selected repository. The latter authorizes staging and creating local commits, not pushing. AI generation may incur model costs.
+
+Discard removes the selected staged, unstaged, and untracked changes after confirmation. Nested repositories are independent. Symbolic links/submodules and sensitive configuration (`.env`, `.env.*`, `appservice.ini`) require separate handling; back up sensitive configuration first. Binary files, working files larger than 2 MiB, and previews exceeding 10,000 combined content/diff lines show an explicit notice instead of rendering a potentially blocking text view.
+
 ## Composer
 
-Opening a thread restores the model, reasoning effort, Plan/Goal mode, and Ultra selection from its latest user message, including a confirmed edit or a queued message. Unsent text and attachments remain saved separately; changing a selection without sending does not override the last message when reopening the thread. Rubber Duck is a separate thread type and remains unchanged. Bot threads retain their configured model and mode restrictions.
+Opening a thread restores the model, reasoning effort, Plan/Goal mode, and Ultra selection from its latest user message, including a confirmed edit or a queued message. Unsent text and attachments remain saved separately; changing a selection without sending does not override the last message when reopening the thread. Rubber Duck is a separate thread type and remains unchanged. In a Side Chat, the parent's copied messages do not restore its Goal, Plan, or Ultra selection; only the Side Chat's own later messages can do so. Bot threads retain their configured model and mode restrictions.
 
 Editing a message keeps model changes local until you send the replacement. Cancelling the edit does not change the thread's model. Sending the edit saves the selected parameters on the replacement message.
 
@@ -87,6 +101,10 @@ Plan persists on the conversation, is incompatible with Ultra, and cancels an ac
 ### Goal
 
 Goal creates a persistent objective with a specification, revision, elapsed time, and status. You can pause, resume, edit, or stop it. Avi continues until the Goal is `completed`, `blocked`, or `cancelled`, and resumes continuing Goals after application startup. Interrupting active inference normally pauses rather than cancels the Goal. A finished Goal can be discarded from its strip; discarding clears the strip and the thread's blocked warning, and a new Goal can be started afterwards.
+
+Goal authorizes the work necessary to achieve and verify the objective within its scope, without redundant permission requests or handing executable work back to you. Runtime approvals, safety rules, explicit restrictions, pauses, cancellations, and revoked authorization still apply. The auxiliary model prepares the specification only when creating a Goal. Subsequent Goal messages reuse the existing objective, without auxiliary preparation or automatic changes to its specification or revision. Follow-up criteria remain in conversation history and guide execution. Sending in Goal mode after completion, blocking, or cancellation reactivates the same Goal; discard it first to create a different objective. Asking whether a criterion is met also directs the agent to close unmet gaps and continue, unless you explicitly ask only for a status report. Editing the Goal specification remains an explicit replacement.
+
+Blocking is a last resort: the agent must investigate the cause, try materially different permitted alternatives, and finish independent work first. A blocker report must explain what was tried, why remaining alternatives cannot work, and the minimum input or external change needed to resume. Difficulty, missing verification, and a failed attempt alone are not blockers. These are execution instructions, not a guarantee that a model will always follow them.
 
 Agents can also keep an internal task list for substantial work. If a turn ends with pending tasks, Avi sends one invisible continuation asking the agent to finish them; it does not repeat the same hook until new user input arrives. A task can be marked `inconclusive` only for a concrete blocker that requires the user. Threads with a blocked Goal, an inconclusive task, or a blocked owned semaphore show a warning icon and `Blocked` status in the sidebar; blocked state suppresses other automatic completion hooks until it is resolved.
 

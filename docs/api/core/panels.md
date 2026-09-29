@@ -8,6 +8,30 @@ The desktop preload bridge exposes `files.read`, `files.open`, `files.reveal`, a
 
 These desktop operations are not new plugin capabilities or remotely exposed RPC methods; the public plugin panel registration contract below is unchanged.
 
+## Built-in desktop Git Review actions
+
+`window.chatApp.gitReview` uses the `avi:invoke` gateway. These desktop operations are documented alongside Core panels, not exposed as new plugin capabilities or remote RPC methods. `conversationId` determines the workspace; repository paths must belong to its discovered catalog.
+
+| Method / logical channel | Payload | Result |
+| --- | --- | --- |
+| `repositories` / `git-review:repositories` | `{ conversationId, refresh? }` | `{ root, repositories: [{ id, name, path, directory }] }` |
+| `index` / `git-review:index` | `{ conversationId, repositoryPath, refresh? }` | Metadata, `hasHead`, `version`, `conflicts`, lightweight `files` without diffs |
+| `file` / `git-review:file` | `{ conversationId, repositoryPath, filePath, staged?, unstaged? }` | Status, `diff`, destination `content`, `binary`, optional `message` |
+| `mutate` / `git-review:mutate` | `{ conversationId, repositoryPath, action, path?, message?, confirmed?, version? }` | Action result or rejected request |
+| `plan` / `git-review:plan` | `{ conversationId, repositoryPath, model?, messageOnly? }` | AI commit plan for the selected repository |
+| `commit` / `git-review:commit` | `{ conversationId, repositoryPath, commits }` | Executed plan covering current changed files |
+| `push` / `git-review:push` | `{ conversationId, repositoryPath }` | `{ pushed, message, conflicts, branch, canResolveWithAgent }` |
+
+The desktop panel uses the existing status strip and spinner while action promises and index refreshes are pending, with separate commit/push labels and `aria-busy`. Progress is indeterminate; these IPC methods do not emit progress events.
+
+`plan` with `messageOnly: true` generates exactly one message from staged previews only (128,000-character input limit), without staging or committing. The desktop Generate commits action instead uses the existing side-chat fork and chat-send flow with the selected repository and multi-commit workflow marker.
+
+File previews with `unstaged: true` compare the working tree against the index; `staged: true` compares the index against HEAD and takes precedence. With neither flag, the legacy combined preview remains available.
+
+Actions are `stage`, `unstage`, `discard`, `ignore`, and `commit`. `path` is a repository-relative file/folder or `.` for all current changes. Manual commit requires staged changes and a message of 1–10,000 characters; it never stages implicitly. Discard requires `confirmed: true` and the reviewed index `version`, and rejects symbolic links, directories/submodules, and sensitive configuration before mutation. Ignore appends an anchored literal rule without replacing existing entries or untracking files. Pathspecs are literal; mutation invalidates repository-scoped caches.
+
+Discovery coalesces requests for 30 seconds; status caches for 1.5 seconds. Explicit refresh bypasses TTLs. Versions include HEAD, status, Git index metadata, and changed-file metadata. Preview cache keys include canonical repository, path, scope, version, and file metadata, with at most 12 entries. Legacy `state(conversationId)` remains available for eager review; the UI uses split catalog/index/file requests. Panel expansion is transient local layout state; plugin registration is unchanged.
+
 ## API
 
 ```ts
