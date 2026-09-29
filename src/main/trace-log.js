@@ -21,6 +21,7 @@ const allowedDetails = new Set([
   'attempt',
   'bot_id',
   'cache_ratio',
+  'capture_path',
   'cached_input_tokens',
   'code',
   'compaction_ratio',
@@ -150,6 +151,10 @@ export function traceVerbose(event, details = {}) {
   writeTrace('INFO', event, details);
 }
 
+export function isRequestLoggingEnabled() {
+  return traceLevel === 'requests';
+}
+
 export function logApiRequest({
   model,
   providerId,
@@ -165,14 +170,15 @@ export function logApiRequest({
     const lines = [
       '# API request log',
       `# timestamp: ${new Date().toISOString()}`,
-      `# model: ${model ?? 'unknown'}`,
-      `# provider: ${providerId ?? 'unknown'}`,
+      `# model: ${redactSecrets(String(model ?? 'unknown')).replace(/[\r\n]/g, ' ')}`,
+      `# provider: ${redactSecrets(String(providerId ?? 'unknown')).replace(/[\r\n]/g, ' ')}`,
       '',
       '## Request',
       `${method} ${redactSecrets(String(url ?? ''))} HTTP/1.1`,
       ...formatHeaderLines(headers),
       '',
-      redactSecrets(String(body ?? '')),
+      redactSecrets(String(body ?? '').slice(0, 8 * 1024 * 1024))
+        + (String(body ?? '').length > 8 * 1024 * 1024 ? '\n[Request capture truncated at 8 MiB characters]' : ''),
       '',
       '## Response',
       response ? `${response.status} ${response.statusText ?? ''}`.trim() : '(no response)',
@@ -183,9 +189,18 @@ export function logApiRequest({
       '',
     ];
     mkdirSync(requestLogDirectory, { recursive: true });
-    appendFileSync(requestLogPath(model), lines.join('\n'), 'utf8');
-  } catch {
-    // Logging must never interrupt application execution.
+    const capturePath = requestLogPath(model);
+    appendFileSync(capturePath, lines.join('\n'), { encoding: 'utf8', mode: 0o600 });
+    traceError('request.capture-written', {
+      model,
+      provider_id: providerId,
+      http_status: response?.status,
+      error: String(error ?? `HTTP ${response?.status ?? 'unknown'}`).split('\n')[0],
+      capture_path: capturePath,
+    });
+    return capturePath;
+  } catch (captureError) {
+    traceError('request.capture-failed', { error: captureError.message });
   }
 }
 
@@ -199,7 +214,7 @@ function requestLogPath(model) {
 
 function formatHeaderLines(headers) {
   return (Array.isArray(headers) ? headers : Object.entries(headers ?? {})).map(([name, value]) => (
-    `${name}: ${String(name).toLowerCase() === 'authorization' ? '[REDACTED]' : redactSecrets(String(value))}`
+    `${name}: ${/^(authorization|proxy-authorization|cookie|set-cookie|x-api-key)$/i.test(String(name)) ? '[REDACTED]' : redactSecrets(String(value))}`
   ));
 }
 
@@ -207,7 +222,7 @@ function redactSecrets(text) {
   return text
     .replace(/\b(Bearer|Basic)\s+[^\s,;]+/gi, '$1 [REDACTED]')
     .replace(
-      /((?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|client[_-]?secret|password)["']?\s*[:=]\s*["']?)[^\s,"'}]+/gi,
+      /((?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|client[_-]?secret|password|loginKey|id[_-]?token)["']?\s*[:=]\s*["']?)[^\s,"'}]+/gi,
       '$1[REDACTED]',
     )
     .replace(
@@ -228,12 +243,18 @@ function writeTrace(level, event, details) {
     if (!allowedDetails.has(key) || rawValue === undefined || rawValue === null) continue;
     if (!['string', 'number', 'boolean'].includes(typeof rawValue)) continue;
 
+    if (key === 'capture_path') {
+      if (typeof rawValue === 'string' && rawValue.startsWith(`${requestLogDirectory}${process.platform === 'win32' ? '\\' : '/'}`)) {
+        safeDetails[key] = rawValue.replace(/[\r\n\t]/g, '');
+      }
+      continue;
+    }
     safeDetails[key] = typeof rawValue === 'string'
       ? rawValue
           .slice(0, key === 'error' ? 4_000 : 300)
           .replace(/\b(Bearer|Basic)\s+[^\s,;]+/gi, '$1 [REDACTED]')
           .replace(
-            /((?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|client[_-]?secret|password)["']?\s*[:=]\s*["']?)[^\s,"'}]+/gi,
+            /((?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|client[_-]?secret|password|loginKey|id[_-]?token)["']?\s*[:=]\s*["']?)[^\s,"'}]+/gi,
             '$1[REDACTED]',
           )
           .replace(

@@ -91,6 +91,104 @@ try {
   assert.doesNotMatch(integrationContent, /integration-secret-456/);
   assert.match(integrationContent, /integration-failed/);
 
+  const { withRequestDiagnostics, diagnosticFetch } = await import('../src/main/request-diagnostics.js');
+  const { ModelProvider } = await import('../src/main/model-provider.js');
+  const { chatCompletionsApi } = await import('../src/providers/openai-compatible.js');
+  const originalFetch = globalThis.fetch;
+  const count = () => readdirSync(requestLogDirectory).length;
+  const before = count();
+  try {
+    globalThis.fetch = async () => new Response('{invalid', { status: 200 });
+    await assert.rejects(withRequestDiagnostics({ model: 'json-test' }, async () => {
+      const response = await diagnosticFetch('https://example.test/json');
+      await response.json();
+    }));
+    assert.equal(count(), before + 1, 'JSON parsing failure creates one capture');
+
+    globalThis.fetch = async () => new Response('{}', { status: 200 });
+    await withRequestDiagnostics({}, async () => (await diagnosticFetch('https://example.test/ok')).json());
+    assert.equal(count(), before + 1, 'success creates no capture');
+    await assert.rejects(withRequestDiagnostics({ method: 'AVI', url: 'test:operation' }, async () => {
+      throw new Error('local validation failed');
+    }), /local validation failed/);
+    assert.equal(count(), before + 2);
+
+    const payload = { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'read_file', arguments: '{}{}' } }] } }] };
+    const provider = new ModelProvider({ id: 'test' }, {
+      createBody: async () => ({}),
+      request: async () => new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`),
+      eventsFrom: chatCompletionsApi.eventsFrom,
+    }, {});
+    await assert.rejects(provider.stream({
+      model: { modelId: 'test', reasoning: [] }, messages: [], tools: [], toolHistory: [],
+      signal: new AbortController().signal, onEvent() {},
+    }), (error) => error.code === 'incomplete_tool_call');
+    assert.equal(count(), before + 3);
+    const captures = readdirSync(requestLogDirectory).map((file) => readFileSync(join(requestLogDirectory, file), 'utf8'));
+    assert.ok(captures.some((text) => text.includes('{}{}') && text.includes('incomplete tool call')));
+    const trace = readFileSync(join(resolvedProfile, '.aivax', 'trace.log'), 'utf8');
+    assert.match(trace, /request.capture-written/);
+    assert.match(trace, /capture_path=/);
+    assert.ok(trace.includes('request-logs'));
+    assert.ok(!trace.includes('{}{}'), 'raw arguments stay out of trace');
+
+    let start = count();
+    globalThis.fetch = async () => { throw new TypeError('network offline'); };
+    await assert.rejects(withRequestDiagnostics({}, () => diagnosticFetch('https://example.test/offline')), /network offline/);
+    assert.equal(count(), start + 1, 'network error creates only one capture');
+
+    start = count();
+    globalThis.fetch = async () => new Response('denied', { status: 403 });
+    await assert.rejects(withRequestDiagnostics({}, async () => {
+      const response = await diagnosticFetch('https://example.test/denied', {
+        headers: { Cookie: 'session=private-cookie', 'X-Api-Key': 'private-key' },
+        body: '{"loginKey":"private-login"}', method: 'POST',
+      });
+      assert.equal(await response.text(), 'denied');
+      throw new Error('denied');
+    }), /denied/);
+    assert.equal(count(), start + 1, 'non-ok response creates only one capture');
+    for (const file of readdirSync(requestLogDirectory)) {
+      assert.doesNotMatch(readFileSync(join(requestLogDirectory, file), 'utf8'), /private-cookie|private-key|private-login/);
+    }
+
+    const sseServer = createServer((_request, response) => {
+      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      response.end(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`);
+    });
+    await new Promise((ready) => sseServer.listen(0, '127.0.0.1', ready));
+    try {
+      provider.implementation.request = () => sendJsonRequest(`http://127.0.0.1:${sseServer.address().port}/chat`, {
+        value: { model: 'test', messages: [{ role: 'user', content: 'capture-request-marker' }] },
+      });
+      start = count();
+      await assert.rejects(provider.stream({
+        model: { modelId: 'test', reasoning: [] }, messages: [], tools: [], toolHistory: [],
+        signal: new AbortController().signal, onEvent() {},
+      }), (error) => error.code === 'incomplete_tool_call');
+      assert.equal(count(), start + 1);
+      assert.ok(readdirSync(requestLogDirectory).some((file) => {
+        const text = readFileSync(join(requestLogDirectory, file), 'utf8');
+        return text.includes('capture-request-marker') && text.includes('{}{}');
+      }), 'HTTP 200 parsing failure retains both request and SSE response');
+    } finally {
+      await new Promise((closed) => sseServer.close(closed));
+    }
+
+    let cancelled = false;
+    provider.implementation.request = async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode('data: {broken\n\n')); },
+      cancel() { cancelled = true; },
+    }));
+    await assert.rejects(provider.stream({
+      model: { modelId: 'test', reasoning: [] }, messages: [], tools: [], toolHistory: [],
+      signal: new AbortController().signal, onEvent() {},
+    }), /invalid SSE payload/);
+    assert.ok(cancelled, 'parsing failure cancels the underlying stream');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
   console.log('Request log tests passed.');
 } finally {
   rmSync(resolvedProfile, { recursive: true, force: true });

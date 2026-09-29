@@ -51,14 +51,16 @@ The dialog offers two manual modes:
 
 ## Tuning → Diagnostics
 
-- **Trace + Requests** — Verbose trace plus the raw HTTP request and response written on API errors;
+- **Trace + Requests** — Verbose trace plus temporary diagnostic captures on HTTP, transport, parsing, inference and local application-operation errors;
 - **Verbose** — detailed timings and errors;
 - **Minimal** — default; errors only;
 - **Disabled** — fatal errors only; operational trace logging is disabled.
 
 Uncaught main-process and renderer errors, unhandled rejections, renderer/preload failures, and abnormal renderer or child-process termination are recorded as `FATAL` at every level. The log is `~/.aivax/trace.log`. Logs do not include prompts, messages, tool inputs, attachments, API keys, or user file paths.
 
-In **Trace + Requests** mode, a failed provider API request (HTTP status `>= 400` or a transport error) writes the raw HTTP request and response to `$TEMP/.avi/debug/request-logs/yyyy-MM-dd-model-randomid.log`. The request body is the full inference payload, so unlike the trace log it does contain prompts and messages; `Authorization`/`Bearer` tokens, API keys, and user file paths are redacted.
+In **Trace + Requests** mode, failed HTTP requests and local processing errors write diagnostic files to `$TEMP/.avi/debug/request-logs/yyyy-MM-dd-model-randomid.log`. This includes invalid SSE/tool arguments after HTTP 200, response JSON parsing, AIVAX API validation, and application-operation errors without HTTP. `trace.log` records the error and generated capture path. Built-in HTTP callers are covered; third-party plugins using their own networking are not automatically intercepted.
+
+Captures include available request data, response headers, consumed response bytes and the error stack. Successful operations do not write capture files. Response capture is limited to 8 MiB and marks truncation; multipart and binary request bodies are omitted. Unlike operational trace, captures may contain prompts, messages and tool inputs. Credentials, cookies and user file paths are redacted, so these are diagnostic copies rather than byte-for-byte wire dumps. Review captures before sharing them. Local failures without a request contain operation details and the error, not an invented HTTP response.
 
 For isolated startup diagnostics, launch Avi with these command-line flags:
 

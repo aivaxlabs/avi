@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { REASONING_EFFORTS } from './provider-api.js';
 import { traceError, traceVerbose } from './trace-log.js';
+import { withRequestDiagnostics, reportRequestFailure, captureResponse } from './request-diagnostics.js';
 
 const EMPTY_PROVIDER_CONTRIBUTIONS = Object.freeze({
   models: Object.freeze([]),
@@ -90,6 +91,7 @@ export class ModelProvider {
     signal,
     onEvent,
   }) {
+    return withRequestDiagnostics({ model: model.modelId, providerId: this.config.id }, async () => {
     if (reasoningEffort && !model.reasoning.includes(reasoningEffort)) {
       throw new Error(`Reasoning effort "${reasoningEffort}" is not supported by ${model.name}.`);
     }
@@ -181,6 +183,12 @@ export class ModelProvider {
         clearTimeout(connectTimeout);
       }
 
+      if (response) response = captureResponse(response, {
+        model: model.modelId,
+        providerId: this.config.id,
+        method: 'POST',
+        url: response.url,
+      });
       const retryableResponse = response?.status >= 500 && response.status <= 599;
       if (retryableResponse) {
         traceVerbose('provider.retryable-response', {
@@ -419,6 +427,11 @@ export class ModelProvider {
           }
         } finally {
           signal.removeEventListener('abort', abortReader);
+          try {
+            await reader.cancel();
+          } catch {
+            // Preserve the original parsing/transport error if cancellation also fails.
+          }
         }
 
         if (!retryError && !receivedTerminalEvent) {
@@ -487,6 +500,7 @@ export class ModelProvider {
         }
       }
 
+      if (response) reportRequestFailure(retryError, response);
       const exhausted = attempt === maxAttempts;
       const displayedMaxAttempts = Number.isFinite(maxAttempts) ? retryDelays.length : null;
       if (exhausted) {
@@ -533,6 +547,7 @@ export class ModelProvider {
         if (signal.aborted) abortDelay();
       });
     }
+    });
   }
 }
 

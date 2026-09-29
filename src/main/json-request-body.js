@@ -4,7 +4,8 @@ import { request as requestHttp } from 'node:http';
 import { request as requestHttps } from 'node:https';
 import { isAbsolute } from 'node:path';
 import { Readable } from 'node:stream';
-import { logApiRequest } from './trace-log.js';
+import { isRequestLoggingEnabled } from './trace-log.js';
+import { captureResponse, reportRequestFailure } from './request-diagnostics.js';
 
 const fileBase64Values = new WeakSet();
 const base64ChunkSize = 192 * 1024;
@@ -47,7 +48,16 @@ function serializeRequestBody(value) {
 }
 
 export async function sendJsonRequest(url, { headers = {}, value, signal, logContext } = {}) {
-  const serialized = createJsonRequestBody(value, signal);
+  let serialized;
+  try {
+    serialized = createJsonRequestBody(value, signal);
+  } catch (error) {
+    reportRequestFailure(error, undefined, {
+      ...logContext, method: 'POST', url: String(url),
+      body: isRequestLoggingEnabled() ? serializeRequestBody(value) : '',
+    });
+    throw error;
+  }
   const target = new URL(url);
   const requestTransport = target.protocol === 'https:' ? requestHttps : requestHttp;
   let resolveResponse;
@@ -72,10 +82,16 @@ export async function sendJsonRequest(url, { headers = {}, value, signal, logCon
         if (value !== undefined) responseHeaders.append(name, String(value));
       }
     }
-    const httpResponse = new Response(Readable.toWeb(response), {
+    const httpResponse = captureResponse(new Response(Readable.toWeb(response), {
       status: response.statusCode,
       statusText: response.statusMessage,
       headers: responseHeaders,
+    }), {
+      ...logContext,
+      method: 'POST',
+      url: target.href,
+      headers: Object.entries(requestHeaders),
+      body: isRequestLoggingEnabled() ? serializeRequestBody(value) : '',
     });
     if (response.statusCode >= 400) {
       let bodyText = '';
@@ -84,38 +100,26 @@ export async function sendJsonRequest(url, { headers = {}, value, signal, logCon
       } catch {
         bodyText = '';
       }
-      logApiRequest({
-        ...logContext,
-        method: 'POST',
-        url: target.href,
-        headers: Object.entries(requestHeaders),
-        body: serializeRequestBody(value),
-        response: {
-          status: response.statusCode,
-          statusText: response.statusMessage,
-          headers: [...responseHeaders.entries()],
-          body: bodyText,
-        },
-      });
-      resolveResponse(new Response(bodyText, {
+      reportRequestFailure(new Error(`HTTP ${response.statusCode} ${response.statusMessage}`), httpResponse);
+      resolveResponse(captureResponse(new Response(bodyText, {
         status: response.statusCode,
         statusText: response.statusMessage,
         headers: responseHeaders,
-      }));
+      }), {}, httpResponse));
       return;
     }
     resolveResponse(httpResponse);
   });
   request.once('error', (error) => {
-    logApiRequest({
+    const failure = new TypeError(error.message, { cause: error });
+    reportRequestFailure(failure, undefined, {
       ...logContext,
       method: 'POST',
       url: target.href,
       headers: Object.entries(requestHeaders),
-      body: serializeRequestBody(value),
-      error: error.message,
+      body: isRequestLoggingEnabled() ? serializeRequestBody(value) : '',
     });
-    rejectResponse(new TypeError(error.message, { cause: error }));
+    rejectResponse(failure);
   });
 
   try {

@@ -14,6 +14,7 @@ import {
   join,
 } from 'node:path';
 import { sendJsonRequest } from '../main/json-request-body.js';
+import { diagnosticFetch as fetch } from '../main/request-diagnostics.js';
 import { defineProvider } from '../main/provider-api.js';
 import {
   traceError,

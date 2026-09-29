@@ -1,4 +1,5 @@
 import { getAivaxAccessToken } from './database.js';
+import { diagnosticFetch as fetch, withRequestDiagnostics } from './request-diagnostics.js';
 
 const AIVAX_API_BASE_URL = 'https://inference.aivax.net';
 export const AIVAX_LONG_INFERENCE_BASE_URL = 'https://direct.inference.aivax.net';
@@ -24,6 +25,7 @@ export async function requestAivax(path, {
   responseType,
   signal,
 } = {}) {
+  return withRequestDiagnostics({ method, url: new URL(path, baseUrl).href }, async () => {
   if (accessToken === undefined || accessToken === '') {
     throw new Error('Connect an AIVAX account in Settings first.');
   }
@@ -71,6 +73,7 @@ export async function requestAivax(path, {
   }
   if (includeResponseEnvelope) return value;
   return result;
+  });
 }
 
 export function indexAivaxDocuments(collectionId, documents, options = {}) {

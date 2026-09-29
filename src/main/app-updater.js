@@ -4,6 +4,7 @@ import { constants } from 'node:fs';
 import { access, mkdir, mkdtemp, open, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import semver from 'semver';
+import { diagnosticFetch } from './request-diagnostics.js';
 
 const repository = 'https://github.com/aivaxlabs/avi';
 const downloadHosts = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
@@ -86,7 +87,7 @@ fi
 `;
 
 export class AppUpdater {
-  constructor({ app, onChange, requestQuit, fetchImpl = globalThis.fetch, spawnImpl = spawn,
+  constructor({ app, onChange, requestQuit, fetchImpl = diagnosticFetch, spawnImpl = spawn,
     platform = process.platform, arch = process.arch, env = process.env }) {
     this.app = app;
     this.onChange = onChange;

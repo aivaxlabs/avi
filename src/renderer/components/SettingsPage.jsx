@@ -2302,13 +2302,13 @@ export function SettingsPage({
                           }));
                         }}
                       >
-                        <option value="requests">Trace + Requests · Verbose trace and raw HTTP on API errors</option>
+                        <option value="requests">Trace + Requests · Verbose trace and diagnostic files on errors</option>
                         <option value="verbose">Verbose · Detailed timings and errors</option>
                         <option value="minimal">Minimal · Errors only</option>
                         <option value="disabled">Disabled · Fatal errors only</option>
                       </select>
                       <small>
-                        Logs never include prompts, messages, tool inputs, attachments, API keys, or user file paths.
+                        Operational trace excludes conversation content. Trace + Requests saves error captures that may contain prompts, messages and tool inputs, with credentials redacted. The trace links to each temporary capture.
                       </small>
                     </label>
                   </div>

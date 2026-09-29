@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { diagnosticFetch as fetch } from './request-diagnostics.js';
 import {
   readFile,
   stat,
@@ -508,7 +509,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'update_goal_status',
-    description: 'Classify the active Goal as completed or blocked. Use completed only with verified acceptance evidence, and blocked only for a real condition that prevents further progress.',
+    description: 'Classify the active Goal as completed only after verifying every acceptance term, including follow-up criteria. Use blocked as a last resort only when no permitted approach can advance remaining work, after investigating alternatives and completing independent work. Otherwise keep executing the Goal.',
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
@@ -522,7 +523,7 @@ export const CLIENT_TOOLS = Object.freeze([
         summary: {
           type: 'string',
           minLength: 1,
-          description: 'For completed, concrete evidence that every acceptance term was met. For blocked, the exact blocker and work already attempted.',
+          description: 'For completed, concrete evidence that every acceptance term was met. For blocked, the exact blocker, approaches tried and their results, why remaining alternatives cannot work, and the minimum input, authority, capability, or external change needed to resume.',
         },
       },
       required: ['status', 'summary'],
