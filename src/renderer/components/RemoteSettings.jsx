@@ -16,6 +16,8 @@ export function RemoteSettings() {
   const [port, setPort] = useState('18992');
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(null);
+  const [credentialsOpen, setCredentialsOpen] = useState(false);
+  const [revealedKey, setRevealedKey] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
   const keyMenuRef = useRef(null);
   const [newKeyLabel, setNewKeyLabel] = useState('');
@@ -75,6 +77,7 @@ export function RemoteSettings() {
   async function mutate(action) {
     setBusy(true);
     setCopied(null);
+    setRevealedKey(null);
     setOpenMenuId(null);
     setError('');
     try {
@@ -211,7 +214,7 @@ export function RemoteSettings() {
                 <span>Authenticate with your AIVAX bearer token.</span>
                 <strong>With an MCP instance key</strong>
                 <span>Public MCP URL: {REMOTE_MCP_PUBLIC_URL}</span>
-                <span>Copy MCP instance key from the API keys menu below.</span>
+                <span>Manage MCP instance keys in the reserved credentials section below.</span>
                 <span>Pass instanceKey with every tool call: instanceId@key.</span>
                 <span>Instance ID: {state.instanceId}</span>
                 {state.relay?.status === 'unauthorized' && <span>Reconnect your AIVAX account.</span>}
@@ -348,8 +351,73 @@ export function RemoteSettings() {
         </form>
       </div>
 
+      <div className="settings-section-card settings-row-card">
+        <div className="settings-card-row">
+          <div className="remote-row-copy">
+            <strong>Instance keys · Reserved credentials</strong>
+            <span>These secrets allow remote control of Avi. Share only with trusted clients.</span>
+          </div>
+          <button
+            className="remote-action"
+            type="button"
+            aria-expanded={credentialsOpen}
+            aria-controls="remote-instance-credentials"
+            disabled={busy}
+            onClick={() => {
+              setCredentialsOpen(!credentialsOpen);
+              setRevealedKey(null);
+            }}
+          >
+            {credentialsOpen ? 'Hide credentials' : 'Manage credentials'}
+          </button>
+        </div>
+        {credentialsOpen && (
+          <div id="remote-instance-credentials">
+            {state.apiKeys.map((key) => (
+              <div className="settings-card-row" key={key.id}>
+                <div className="remote-row-copy">
+                  <strong>{key.label || 'API key'}</strong>
+                  <span>{revealedKey?.id === key.id ? revealedKey.value : '••••••••••••••••'}</span>
+                </div>
+                <div className="remote-create-inputs">
+                  <button
+                    className="remote-action"
+                    type="button"
+                    disabled={busy}
+                    aria-label={`${revealedKey?.id === key.id ? 'Hide' : 'Show'} instance key for ${key.label || 'API key'}`}
+                    onClick={async () => {
+                      if (revealedKey?.id === key.id) {
+                        setRevealedKey(null);
+                        return;
+                      }
+                      const result = await mutate(() => window.chatApp.remote.revealInstanceKey(key.id));
+                      if (result) setRevealedKey({ id: key.id, value: result.value });
+                    }}
+                  >
+                    {revealedKey?.id === key.id ? 'Hide' : 'Show'}
+                  </button>
+                  <button
+                    className="remote-action"
+                    type="button"
+                    disabled={busy}
+                    aria-label={`Rotate instance key for ${key.label || 'API key'}`}
+                    onClick={() => {
+                      if (!window.confirm('Rotate this instance key? The old instance key and its local API key will stop authenticating new requests. Update every client using them. Existing connections and running actions are not cancelled.')) return;
+                      mutate(() => window.chatApp.remote.rotateKey(key.id));
+                    }}
+                  >
+                    Rotate
+                  </button>
+                </div>
+              </div>
+            ))}
+            {state.apiKeys.length === 0 && <div className="remote-keys-empty">Create an API key above to obtain an instance key.</div>}
+          </div>
+        )}
+      </div>
+
       <p className="remote-footnote">
-        API key secrets are never displayed. Use each key menu to copy the API key, or its MCP instance key for the public MCP URL.
+        Instance keys stay hidden until explicitly revealed. Rotation preserves the key name and expiration.
       </p>
       {error && <div className="settings-context-error" role="alert">{error}</div>}
     </section>

@@ -27,7 +27,7 @@ Use `Authorization: Bearer <api-key>` with `/mcp` and native WebSocket clients. 
 
 Remote Control supports multiple keys. New keys contain 6 cryptographically random lowercase letters/digits; existing keys remain valid. Each key has a label, creation time, optional expiration, and a **...** menu: **Copy API Key**, **Copy MCP instance key**, and **Delete**. The latter copy format is `<instance-id>@<api-key>`, using the installation's persistent 10-character lowercase alphanumeric public instance ID. Expired keys remain visible for diagnosis but cannot authenticate. Deleting the last key turns Remote Control off.
 
-Secret values are encrypted through Electron secure storage and copied by the main process; they are not displayed or returned to the renderer. Existing single-key installations migrate to a non-expiring key labelled `Default` without changing the secret.
+Secret values are encrypted through Electron secure storage and copied by the main process. **Instance keys · Reserved credentials** is collapsed by default. Expanding it keeps values masked; **Show** explicitly retrieves one secret, **Hide** clears it, and collapsing the section clears the revealed value. **Rotate** requires confirmation and replaces the underlying API key while preserving its name and expiration. The old local API key and MCP instance key stop authenticating new requests; update all clients using them. Existing connections and running actions are not cancelled. Normal state responses contain metadata only; secrets reach the renderer only through an explicit reveal. Existing single-key installations migrate to a non-expiring key labelled `Default` without changing the secret.
 
 ## AIVAX Remote — MCP and RPC
 

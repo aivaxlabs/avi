@@ -164,6 +164,20 @@ const httpRequest = (path, headers) => new Promise((resolvePromise, reject) => {
       assert.equal(localLegacy.status, 200, 'a legacy long key must keep working locally');
     }
 
+    {
+      const before = database.getRemoteApiKeys().find((entry) => entry.id === key.id);
+      database.rotateRemoteApiKey(key.id);
+      const after = database.getRemoteApiKeys().find((entry) => entry.id === key.id);
+      assert.notEqual(after.value, before.value);
+      assert.deepEqual({ ...after, value: null }, { ...before, value: null });
+      assert.equal((await callMcp(server, `${database.getRemoteSettings().instanceId}@${before.value}`)).status, 401);
+      await assertToolsOk(callMcp(server, `${database.getRemoteSettings().instanceId}@${after.value}`), 'rotated credential authenticates');
+      assert.equal((await httpRequest('/mcp', { ...jsonHeaders, authorization: `Bearer ${before.value}` })).status, 401);
+      assert.equal((await httpRequest('/mcp', { ...jsonHeaders, authorization: `Bearer ${after.value}` })).status, 200);
+      assert.throws(() => database.rotateRemoteApiKey('missing'), /not found/);
+      assert.equal(database.getRemoteApiKeys().find((entry) => entry.id === legacy.id).value, legacy.value);
+    }
+
     console.log('Remote instance key tests passed.');
   } catch (error) {
     failure = error;

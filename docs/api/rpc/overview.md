@@ -139,6 +139,8 @@ The client must answer with a final `RES`; Avi treats the literal bytes `OK` as 
 
 Desktop-only key management uses `window.chatApp.remote.createKey(payload)`, `copyKey(id)`, `copyInstanceKey(id)`, and `removeKey(id)` (logical IPC `remote:create-key`, `remote:copy-key`, `remote:copy-instance-key`, `remote:remove-key`). Copy actions write the secret in the main process and return only `{ copied: true }`; they are not exposed on global RPC. `copyInstanceKey` formats `<instanceId>@<api-key>` for [public MCP](../mcp/overview.md).
 
+Desktop-only `window.chatApp.remote.revealInstanceKey(id)` (`remote:reveal-instance-key`) returns `{ value: "<instanceId>@<api-key>" }` only for an explicit reveal. `rotateKey(id)` (`remote:rotate-key`) replaces the secret atomically and returns metadata-only remote state, preserving ID, label, creation time, and expiration. Both reject missing key IDs and remain unavailable on RPC. Rotation invalidates the old local and public MCP credentials for subsequent authentication, not existing connections or running actions. The reserved credentials section starts collapsed and values start masked.
+
 Authenticated global `/rpc` clients can invoke `remote:state` with no payload. It is also advertised by `rpc:discover`; it is not a conversation-stream method. The existing Desktop `window.chatApp.remote.state()` returns the same contract:
 
 | Field | Type | Meaning |

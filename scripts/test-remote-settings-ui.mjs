@@ -30,10 +30,12 @@ window.chatApp = { remote: {
     relayDeviceId: 'device-uuid-1',
     instanceId: 'ab12cd34ef',
     relay: { status: 'connected', mcpUrl: 'wss://relay/mcp/device-uuid-1' },
-    apiKeys: keys,
+    apiKeys: keys.map(({ value, ...metadata }) => metadata),
   }),
   save: async (value) => { window.__calls.push(['save', value]); return value; },
   createKey: async (payload) => { window.__calls.push(['createKey', payload]); return null; },
+  revealInstanceKey: async (id) => { window.__calls.push(['revealInstanceKey', id]); return { value: 'ab12cd34ef@' + keys.find(key => key.id === id).value }; },
+  rotateKey: async (id) => { window.__calls.push(['rotateKey', id]); keys.find(key => key.id === id).value = 'new123'; },
   copyKey: async (id) => { window.__calls.push(['copyKey', id]); return { copied: true }; },
   copyInstanceKey: async (id) => { window.__calls.push(['copyInstanceKey', id]); return { copied: true }; },
   removeKey: async (id) => {
@@ -91,6 +93,31 @@ try {
     if (!details.textContent.includes('Authenticate with your AIVAX bearer token')) throw new Error('Device URL auth explanation missing');
     if (!details.getBoundingClientRect().height) throw new Error('Connection guide is hidden');
     if (!text().includes('New keys are 6 characters')) throw new Error('New key format hint missing');
+
+    const button = (label) => [...document.querySelectorAll('button')].find(el => el.textContent.trim() === label);
+    if (document.querySelector('#remote-instance-credentials') || text().includes('ws9k2m')) throw new Error('Credentials must start hidden');
+    if (window.__calls.some(([name]) => name === 'revealInstanceKey')) throw new Error('Secret fetched before explicit reveal');
+    button('Manage credentials').click();
+    await wait(() => document.querySelector('#remote-instance-credentials'), 'credentials expanded');
+    if (text().includes('ws9k2m')) throw new Error('Expanded credentials must remain masked');
+    document.querySelector('[aria-label="Show instance key for Workspace"]').click();
+    await wait(() => text().includes('ab12cd34ef@ws9k2m'), 'explicit reveal');
+    document.querySelector('[aria-label="Hide instance key for Workspace"]').click();
+    await wait(() => !text().includes('ws9k2m'), 'hide secret');
+    window.confirm = () => false;
+    document.querySelector('[aria-label="Rotate instance key for Workspace"]').click();
+    if (window.__calls.some(([name]) => name === 'rotateKey')) throw new Error('Cancelled rotation executed');
+    window.confirm = () => true;
+    document.querySelector('[aria-label="Rotate instance key for Workspace"]').click();
+    await wait(() => window.__calls.some(([name]) => name === 'rotateKey'), 'rotation');
+    await wait(() => !document.querySelector('[aria-label="Show instance key for Workspace"]').disabled, 'rotation complete');
+    document.querySelector('[aria-label="Show instance key for Workspace"]').click();
+    await wait(() => text().includes('ab12cd34ef@new123'), 'rotated reveal');
+    button('Hide credentials').click();
+    await wait(() => !text().includes('new123'), 'collapse clears secret');
+    button('Manage credentials').click();
+    await wait(() => document.querySelector('#remote-instance-credentials'), 'reopen credentials');
+    if (text().includes('new123')) throw new Error('Reopening must not reveal secret');
 
     const first = await openMenu('API key actions for Workspace');
     if (!menuItem(first, 'Copy API key')) throw new Error('Copy API key item missing');
