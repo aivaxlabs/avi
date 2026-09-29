@@ -189,7 +189,7 @@ Updated [`Conversation`](types.md#conversation), or `null` when the conversation
 
 ## `composer-state:get`
 
-Returns the composer state for the URL conversation. Model, reasoning effort, work mode, and Ultra selection come from the latest visible, non-agent-authored user message (including queued or steered messages), rather than an older saved selection. Cancelled messages do not participate. Draft text, attachments, and permission mode remain independently persisted. Without a qualifying message, saved draft selections are used. Rubber Duck remains a conversation type, not a work-mode value. This restoration also applies to the `composer` snapshot in `conversations:context`.
+Returns the composer state for the URL conversation. Model, reasoning effort, work mode, and Ultra selection come from the latest visible, non-agent-authored user message (including queued or steered messages), rather than an older saved selection. Cancelled messages do not participate. Draft text, attachments, and permission mode remain independently persisted. Without a qualifying message, saved draft selections are used. For a Side Chat, only messages sent after the fork's hidden boundary qualify; copied parent messages supply context but cannot restore the parent's Goal, Plan, or Ultra selection. Rubber Duck remains a conversation type, not a work-mode value. This restoration also applies to the `composer` snapshot in `conversations:context`.
 
 Legacy video attachments may be materialized and persisted during this read.
 

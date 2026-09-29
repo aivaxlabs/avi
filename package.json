@@ -25,7 +25,7 @@
     "test:built-ins": "electron --no-sandbox scripts/test-built-in-plugins.mjs && node scripts/test-chrome-integration.mjs",
     "test:aivax": "electron --no-sandbox scripts/test-aivax-client.mjs",
     "test:plan": "bun scripts/test-plan-mode.mjs",
-    "test:goal": "bun scripts/test-goal-mode.mjs",
+    "test:goal": "electron --no-sandbox scripts/test-goal-mode.mjs",
     "test:prompt-expansion": "electron --no-sandbox scripts/test-prompt-expansion.mjs",
     "test:ultra": "bun scripts/test-ultra-mode.mjs",
     "test:server-retry": "bun scripts/test-server-retry.mjs",

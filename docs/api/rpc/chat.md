@@ -23,6 +23,8 @@ Sends a user message, steers or queues it behind an active run, or waits for an 
 
 `userInitiated` is always forced to `true`. Supplying a non-null `goalId` is rejected; start a Goal with `goals:start` or continue it with `workMode: "goal"`.
 
+Sending with `workMode: "goal"` reuses the existing Goal without auxiliary preparation or changes to its `specification` or `revision`. A user-initiated send after `completed`, `blocked`, or `cancelled` reactivates that same Goal, preserving its ID, objective, revision, start time, and accumulated active time while clearing the terminal result. Internal or agent-origin messages do not reactivate terminal Goals. A paused Goal remains paused; use `goals:change` with `resume` to resume automatic iterations. Use `goals:change` with `edit` to explicitly replace the specification. Follow-up criteria stay in conversation history and guide execution without rewriting the persisted objective. Goal instructions require executing unmet work, not merely assessing it, except when the user explicitly requests status-only reporting.
+
 The base prompt keeps the main implementation with the agent and encourages parallel delegation of independent exploration, research, analysis, and tests. It prefers multiple bounded assignments when several independent tasks exist, prohibits duplicating delegated work, and requires inspecting, guiding, and integrating sub-agent work. Session-specific instructions define any different division of work or scope restrictions. The effective Ultra mode additionally requires the orchestrator to retain the main and most demanding implementation, using sub-agents for bounded, less demanding supporting tasks and independent critique; Plan delegation remains read-only. Mode-specific responsibilities are injected only for the active mode. This is an instruction policy, not a tool-availability restriction; the request schema is unchanged.
 
 ### Result
@@ -322,7 +324,7 @@ Always `true`.
 
 ## `goals:start`
 
-Creates an active Goal and sends its initial prompt.
+Creates an active Goal and sends its initial prompt. Auxiliary preparation is limited to this creation path; an existing active or paused Goal is rejected before any auxiliary call. For follow-up messages, use `chat:send` with `workMode: "goal"` rather than starting another Goal.
 
 ### Params
 
@@ -366,6 +368,8 @@ Changes the active Goal lifecycle.
 | `stopRun` | boolean | No | Whether to stop the active run when changing state. Defaults to `true`. |
 
 `stop` cancels messages queued for the Goal and can emit `message-delete` events.
+
+`completed` requires evidence covering the full objective and follow-up criteria. `blocked` is instructed as a last resort after investigating permitted alternatives and completing independent work; its summary must identify attempted approaches and results, why alternatives cannot advance the remaining work, and the minimum dependency needed to resume. The API validates the required summary, not the truth of the model's evidence. Goal authorization remains scoped to the objective and does not bypass runtime approvals, restrictions, or cancellation.
 
 ### Result
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   mkdtempSync,
+  readFileSync,
   rmSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,11 +22,13 @@ try {
     closeDatabase,
     createConversation,
     forkConversation,
+    getComposerState,
     getConversation,
     getGoalForConversation,
     getMessages,
     insertMessage,
     replaceTasks,
+    setComposerState,
   } = database;
   const model = {
     id: 'test:model',
@@ -38,6 +41,10 @@ try {
   const startGoalTool = CLIENT_TOOLS.find((tool) => tool.name === 'start_goal');
   assert.match(startGoalTool.description, /only when explicitly requested/);
   assert.match(startGoalTool.description, /do not infer Goals from ordinary tasks/);
+  const goalStatusTool = CLIENT_TOOLS.find((tool) => tool.name === 'update_goal_status');
+  assert.match(goalStatusTool.description, /including follow-up criteria/);
+  assert.match(goalStatusTool.description, /last resort/);
+  assert.match(goalStatusTool.inputSchema.properties.summary.description, /why remaining alternatives cannot work/);
 
   function buildRunner(provider, events = []) {
     return {
@@ -522,6 +529,229 @@ try {
     message.hidden
     && message.content.includes('<goal_update')
   )));
+
+  for (const mode of ['goal', 'plan', 'ultra']) {
+    const modeParent = createConversation({ model: model.id, projectPath: process.cwd() });
+    insertMessage({
+      conversationId: modeParent.id,
+      role: 'user',
+      status: 'sent',
+      model: model.id,
+      content: `Parent ${mode} request`,
+      workMode: mode === 'ultra' ? null : mode,
+      ultraMode: mode === 'ultra',
+    });
+    const sideChat = forkConversation(modeParent.id, { sideChat: true });
+    assert.equal(sideChat.conversation.goal, null);
+    assert.equal(sideChat.conversation.orchestrationMode, null);
+    assert.equal(getComposerState(sideChat.conversation.id, { restoreLastMessage: true }), null);
+    setComposerState(sideChat.conversation.id, {
+      model: model.id,
+      workMode: mode === 'ultra' ? null : mode,
+      ultraMode: mode === 'ultra',
+      draftText: 'Side chat draft',
+    });
+    const draft = getComposerState(sideChat.conversation.id, { restoreLastMessage: true });
+    assert.equal(draft.workMode, null);
+    assert.equal(draft.ultraMode, false);
+    assert.equal(draft.draftText, 'Side chat draft');
+    insertMessage({
+      conversationId: sideChat.conversation.id,
+      role: 'user',
+      status: 'sent',
+      model: model.id,
+      content: 'Side chat request',
+      workMode: mode === 'ultra' ? null : mode,
+      ultraMode: mode === 'ultra',
+    });
+    const ownSelection = getComposerState(sideChat.conversation.id, { restoreLastMessage: true });
+    assert.equal(ownSelection.workMode, mode === 'ultra' ? null : mode);
+    assert.equal(ownSelection.ultraMode, mode === 'ultra');
+    assert.equal(ownSelection.draftText, 'Side chat draft');
+  }
+  const existingSideChat = forkConversation(completionConversation.id, { sideChat: true });
+  setComposerState(existingSideChat.conversation.id, {
+    model: model.id,
+    workMode: 'goal',
+    draftText: 'Existing side chat draft',
+  });
+  assert.equal(getComposerState(existingSideChat.conversation.id, { restoreLastMessage: true }).workMode, null);
+  await completionRunner.startGoal({
+    conversationId: existingSideChat.conversation.id,
+    model: model.id,
+    specification: 'A Goal explicitly created in the Side Chat.',
+  });
+  assert.equal(getComposerState(existingSideChat.conversation.id, { restoreLastMessage: true }).workMode, 'goal');
+
+  const appSource = readFileSync(new URL('../src/renderer/App.jsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const auxiliarySendStart = appSource.indexOf('  const auxiliaryOnSend = useStableCallback(');
+  const auxiliarySendEnd = appSource.indexOf('  const auxiliaryOnImplementPlan', auxiliarySendStart);
+  assert.ok(auxiliarySendStart >= 0 && auxiliarySendEnd > auxiliarySendStart);
+  const auxiliaryPayload = new Function('sendMessage', 'useStableCallback', `
+    ${appSource.slice(auxiliarySendStart, auxiliarySendEnd)}
+    return auxiliaryOnSend;
+  `)((payload) => payload, (callback) => callback);
+  const sideThread = { id: 'side-thread', projectPath: process.cwd(), orchestrationMode: null };
+  assert.equal((await auxiliaryPayload(sideThread, model.id, { text: 'Continue' })).workMode, null);
+  assert.equal((await auxiliaryPayload(sideThread, model.id, { text: 'Continue' })).ultraMode, false);
+  assert.equal((await auxiliaryPayload(sideThread, model.id, { text: 'Plan', workMode: 'plan' })).workMode, 'plan');
+  assert.equal((await auxiliaryPayload({ ...sideThread, goal: { status: 'active' } }, model.id, { text: 'Continue' })).workMode, 'goal');
+
+  const sendStart = appSource.indexOf('  async function sendMessage(');
+  const goalRouteStart = appSource.indexOf("    if (\n      messageWorkMode === 'goal'", sendStart);
+  const goalRouteEnd = appSource.indexOf('    const selectedIdBeforeSend', goalRouteStart);
+  assert.ok(sendStart >= 0 && goalRouteStart > sendStart && goalRouteEnd > goalRouteStart);
+  const routeGoalSend = new Function('targetConversation', 'startGoal', `
+    return (async () => {
+      const messageWorkMode = 'goal';
+      const conversationId = 'thread', model = 'test:model', project = {}, text = 'Follow-up';
+      const attachments = [], reasoningEffort = null, permissionMode = 'full_access', effectiveUltraMode = false;
+      ${appSource.slice(goalRouteStart, goalRouteEnd)}
+      return 'send';
+    })();
+  `);
+  for (const status of ['active', 'paused', 'completed', 'blocked', 'cancelled', 'discarded', null]) {
+    let starts = 0;
+    const route = await routeGoalSend(status ? { goal: { status } } : null, async () => { starts += 1; });
+    const createsGoal = status === 'discarded' || status === null;
+    assert.equal(starts, createsGoal ? 1 : 0, `Unexpected Goal creation for ${status}`);
+    assert.equal(route, createsGoal ? undefined : 'send');
+  }
+
+  const followUpCalls = [];
+  let finishBeforeFollowUp;
+  const followUpProvider = {
+    getContributions: () => ({ tools: [] }),
+    stream: async (request) => {
+      followUpCalls.push(request);
+      if (followUpCalls.length === 1) {
+        return new Promise((resolveStream) => {
+          finishBeforeFollowUp = () => resolveStream({ assistantContent: '', toolCalls: [] });
+        });
+      }
+      if (followUpCalls.length === 2) {
+        assert.equal(request.invocationContext.goal.revision, 1);
+        assert.equal(request.invocationContext.goal.specification, 'Export clients and insurance reports.');
+        return { assistantContent: 'Implementing and verifying the additional criteria.', toolCalls: [] };
+      }
+      if (followUpCalls.length === 3) {
+        return {
+          assistantContent: '',
+          toolCalls: [{
+            callId: 'complete-follow-up-goal',
+            name: 'update_goal_status',
+            argumentsText: JSON.stringify({
+              status: 'completed',
+              summary: 'Both consecutive runs and preservation of earlier exports were verified.',
+              __requires_human_approval: false,
+              __invocation_goal: 'Complete the original objective and additional criteria.',
+            }),
+          }],
+        };
+      }
+      return { assistantContent: 'Done.', toolCalls: [] };
+    },
+  };
+  const { runner: followUpRunner } = buildRunner(followUpProvider);
+  const followUpConversation = createConversation({ model: model.id, projectPath: process.cwd() });
+  await followUpRunner.startGoal({
+    conversationId: followUpConversation.id,
+    model: model.id,
+    specification: 'Export clients and insurance reports.',
+    sendInitialPrompt: true,
+  });
+  await waitFor(() => Boolean(finishBeforeFollowUp));
+  assert.equal(getGoalForConversation(followUpConversation.id).revision, 1);
+  let activeAuxiliaryCalls = 0;
+  followUpRunner.prepareInitialPrompt = async () => {
+    activeAuxiliaryCalls += 1;
+    throw new Error('Goal follow-ups must not invoke auxiliary preparation.');
+  };
+  for (const text of [
+    'Does it run without intervention? Verify two consecutive runs.',
+    'Keep existing exports intact.',
+  ]) {
+    const followUp = await followUpRunner.send({
+      conversationId: followUpConversation.id,
+      model: model.id,
+      text,
+      workMode: 'goal',
+      userInitiated: true,
+    });
+    assert.equal(followUp.queued, true);
+  }
+  finishBeforeFollowUp();
+  await waitFor(() => getGoalForConversation(followUpConversation.id).status === 'completed'
+    && !followUpRunner.runs.has(followUpConversation.id));
+  assert.equal(getGoalForConversation(followUpConversation.id).status, 'completed');
+  assert.equal(getGoalForConversation(followUpConversation.id).revision, 1);
+  assert.equal(followUpCalls.length, 4);
+  assert.equal(activeAuxiliaryCalls, 0);
+  const followUpHistory = getMessages(followUpConversation.id);
+  assert.ok(followUpHistory.some((message) => message.content === 'Does it run without intervention? Verify two consecutive runs.'));
+  assert.ok(followUpHistory.some((message) => message.content === 'Keep existing exports intact.'));
+
+  for (const action of ['completed', 'blocked', 'stop']) {
+    let finishFollowUp;
+    const resumedCalls = [];
+    const resumedProvider = {
+      getContributions: () => ({ tools: [] }),
+      stream: async (request) => {
+        resumedCalls.push(request);
+        return new Promise((resolveStream) => {
+          finishFollowUp = () => resolveStream({ assistantContent: 'Continued the existing Goal.', toolCalls: [] });
+        });
+      },
+    };
+    const { runner: resumedRunner } = buildRunner(resumedProvider);
+    resumedRunner.getPreferences = () => ({
+      defaultModels: { auxiliary: { modelId: auxiliaryModel.id } },
+      tuning: {},
+    });
+    let auxiliaryFollowUpCalls = 0;
+    resumedRunner.prepareInitialPrompt = async () => {
+      auxiliaryFollowUpCalls += 1;
+      throw new Error('An existing Goal must not invoke auxiliary preparation.');
+    };
+    const resumedConversation = createConversation({ model: model.id, projectPath: process.cwd() });
+    const initial = await resumedRunner.startGoal({
+      conversationId: resumedConversation.id,
+      model: model.id,
+      specification: 'Stable original objective.',
+    });
+    await assert.rejects(resumedRunner.startGoal({
+      conversationId: resumedConversation.id,
+      model: model.id,
+      specification: 'Must not prepare a duplicate Goal.',
+      sendInitialPrompt: true,
+    }), /already has an active Goal/);
+    await resumedRunner.changeGoal({
+      conversationId: resumedConversation.id,
+      action,
+      summary: 'Previous iteration result.',
+    });
+    await resumedRunner.send({
+      conversationId: resumedConversation.id,
+      model: model.id,
+      text: 'Continue with this additional criterion.',
+      workMode: 'goal',
+      userInitiated: true,
+    });
+    await waitFor(() => Boolean(finishFollowUp));
+    const resumedGoal = getGoalForConversation(resumedConversation.id);
+    assert.equal(resumedGoal.id, initial.goal.id);
+    assert.equal(resumedGoal.specification, initial.goal.specification);
+    assert.equal(resumedGoal.revision, 1);
+    assert.equal(resumedGoal.status, 'active');
+    assert.equal(resumedGoal.startedAt, initial.goal.startedAt);
+    assert.equal(resumedGoal.endedAt, null);
+    assert.equal(resumedGoal.resultSummary, null);
+    assert.equal(resumedCalls[0].invocationContext.goal.id, initial.goal.id);
+    assert.equal(auxiliaryFollowUpCalls, 0);
+    await resumedRunner.changeGoal({ conversationId: resumedConversation.id, action: 'pause' });
+    finishFollowUp();
+    await waitFor(() => !resumedRunner.runs.has(resumedConversation.id));
+  }
 
   const planSwitchCalls = [];
   let finishGoalBeforePlan;

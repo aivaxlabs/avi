@@ -16,7 +16,7 @@ Side Chat and Quick Chat are both temporary surfaces, but they have different st
 
 ## Side Chat
 
-Create one with `/side` or **Side chat** in the auxiliary panel. The fork copies visible messages and the current checkpoint, but not queued, steered, or hidden messages. A copied streaming message is normalized to completed.
+Create one with `/side` or **Side chat** in the auxiliary panel. The fork copies visible messages and the current checkpoint, but not queued, steered, or hidden messages. A copied streaming message is normalized to completed. Copied messages provide context, not the Side Chat's composer selection: Goal, Plan, and Ultra from the parent are not selected when the Side Chat opens. After a message is sent in the Side Chat, its own latest user message determines the restored selection. A Goal explicitly started in the Side Chat remains its own Goal, separate from the parent's.
 
 Names increment as **Side chat 1**, **Side chat 2**, and so on. You cannot create a side chat from another side chat or from a sub-agent. Opening a parent lists its side chats without loading their histories; opening a side-chat tab loads its recent messages and fetches older pages as you scroll upward. The compact side-chat composer omits the parent workspace and Git branch controls. Background side-chat status continues updating while its tab or the auxiliary panel is inactive without re-rendering the main conversation for text-only streaming updates. Closing the panel interrupts active work and permanently deletes the side-chat thread.
 

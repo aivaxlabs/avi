@@ -982,6 +982,18 @@ const statements = {
     ORDER BY created_at DESC, rowid DESC
     LIMIT 1
   `),
+  getLastSideChatComposerMessage: db.prepare(`
+    SELECT model, reasoning_effort, work_mode, ultra_mode, updated_at
+    FROM messages
+    WHERE conversation_id = ? AND role = 'user' AND hidden = 0 AND from_agent = 0
+      AND status IN ('sent', 'completed', 'aborted', 'waiting_mcp', 'queued', 'steered')
+      AND rowid > (
+        SELECT MAX(rowid) FROM messages
+        WHERE conversation_id = ? AND hidden = 1 AND content LIKE '<side-chat-instructions>%'
+      )
+    ORDER BY created_at DESC, rowid DESC
+    LIMIT 1
+  `),
   upsertComposerState: db.prepare(`
     INSERT INTO conversation_composer_states (
       conversation_id, permission_mode, model, reasoning_effort, work_mode,
@@ -1679,6 +1691,22 @@ export function getRemoteApiKeys() {
   return secureStorage.remoteApiKeys;
 }
 
+function generateRemoteApiKeyValue() {
+  let value;
+  do {
+    value = Array.from({ length: 6 }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[randomInt(36)]).join('');
+  } while (secureStorage.remoteApiKeys.some((key) => key.value === value));
+  return value;
+}
+
+export function rotateRemoteApiKey(id) {
+  if (!secureStorage.remoteApiKeys.some((key) => key.id === id)) {
+    throw new Error('Remote API key not found.');
+  }
+  const value = generateRemoteApiKeyValue();
+  writeRemoteApiKeys(secureStorage.remoteApiKeys.map((key) => key.id === id ? { ...key, value } : key));
+}
+
 export function createRemoteApiKey({ label, expiresAt = null } = {}) {
   const normalizedLabel = typeof label === 'string' ? label.trim() : '';
   if (!normalizedLabel) {
@@ -1688,10 +1716,7 @@ export function createRemoteApiKey({ label, expiresAt = null } = {}) {
   if (expiration && (Number.isNaN(expiration.getTime()) || expiration.getTime() <= Date.now())) {
     throw new Error('The remote API key expiration must be a future date.');
   }
-  let value;
-  do {
-    value = Array.from({ length: 6 }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[randomInt(36)]).join('');
-  } while (secureStorage.remoteApiKeys.some((key) => key.value === value));
+  const value = generateRemoteApiKeyValue();
   const key = {
     id: crypto.randomUUID(),
     label: normalizedLabel,
@@ -2293,18 +2318,22 @@ export function getConversation(id) {
 
 export function getComposerState(conversationId, { restoreLastMessage = false } = {}) {
   const row = statements.getComposerState.get(conversationId);
+  const conversation = restoreLastMessage ? getConversation(conversationId) : null;
   const message = restoreLastMessage
-    ? statements.getLastComposerMessage.get(conversationId)
+    ? conversation?.isSideChat
+      ? statements.getLastSideChatComposerMessage.get(conversationId, conversationId)
+      : statements.getLastComposerMessage.get(conversationId)
     : null;
   if (!row && !message) return null;
   const selection = message ?? row;
+  const sideChatWithoutOwnSelection = conversation?.isSideChat && !message && !conversation.goal;
   return {
     conversationId,
     permissionMode: row?.permission_mode ?? getPreferences().tuning.defaultPermissionMode,
     model: selection.model,
     reasoningEffort: selection.reasoning_effort,
-    workMode: selection.work_mode,
-    ultraMode: Boolean(selection.ultra_mode),
+    workMode: sideChatWithoutOwnSelection ? null : selection.work_mode,
+    ultraMode: sideChatWithoutOwnSelection ? false : Boolean(selection.ultra_mode),
     draftText: row?.draft_text ?? '',
     attachments: parse(row?.attachments, []),
     updatedAt: message?.updated_at ?? row.updated_at,

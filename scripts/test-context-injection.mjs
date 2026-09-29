@@ -746,6 +746,35 @@ try {
     orchestrationRole: 'subagent',
   })).includes('role="orchestrator"'));
 
+  for (const status of ['active', 'paused']) {
+    const goalContext = await resolveDynamicContext({
+      workspacePath: root,
+      goal: { id: 'test-goal', revision: 2, status, specification: 'Export reports and verify unattended runs.' },
+    });
+    const goalBlock = goalContext.match(/<goal_mode[\s\S]*?<\/goal_mode>/)?.[0] ?? '';
+    for (const requirement of [
+      'Export reports and verify unattended runs.',
+      'achieve and verify the objective, not merely assess it',
+      'standing user authorization',
+      'Do not request redundant permission',
+      'does not override runtime approval requirements',
+      'pauses, cancellations, or revoked authorization',
+      'Incorporate follow-up criteria and corrections',
+      'closing any discovered gap and continuing execution',
+      'explicitly requests only a status report, pause, or stop',
+      'do not invent credentials, user answers',
+      'Treat status "blocked" as a last resort',
+      'try materially different permitted approaches',
+      'complete all independent work',
+      'why remaining alternatives cannot work',
+      'leave it active',
+    ]) {
+      assert.ok(goalBlock.includes(requirement), `Goal context is missing: ${requirement}`);
+    }
+    if (status === 'paused') assert.match(goalBlock, /paused automatic Goal iterations/);
+  }
+  assert.ok(!injected.includes('<goal_mode'));
+
   const longSubagentPrompt = 'x'.repeat(300);
   const tasksContext = await resolveDynamicContext({
     tasks: [{
