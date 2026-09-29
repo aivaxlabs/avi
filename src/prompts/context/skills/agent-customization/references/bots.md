@@ -1,4 +1,4 @@
-# Bots in Avi
+# Bots
 
 Use bots for persistent, proactive responsibilities that should survive across activations. Use a regular thread or `chat_spawn_subagent` for one-off work.
 
@@ -18,7 +18,7 @@ These tools are intentionally unavailable inside autonomous bot conversations. A
 
 `bots_create` requires `name` and a configured `model`. Other fields are optional:
 
-- `workingFolder`: absolute project folder. If omitted, Avi creates a dedicated folder under `~/.aivax/bots/`.
+- `workingFolder`: absolute project folder. If omitted, a dedicated folder under `~/.aivax/bots/` is created.
 - `instructions`: recurring responsibilities, priorities, boundaries, and completion signals.
 - `workQueue`: ordered recurring tasks distributed round-robin across successful activations. The current item is supplied as the activation's focus. An empty list activates without a recurring focus task.
 - `reasoningEffort` and `contextSize`: model-specific overrides.

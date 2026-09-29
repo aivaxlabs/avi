@@ -271,7 +271,7 @@ export class BotManager {
               ? {
                   ...segment,
                   status: 'error',
-                  resultText: 'Tool execution was interrupted by the application restart. Its completion is unknown, so Avi did not retry it automatically.',
+                  resultText: 'Tool execution was interrupted by the application restart. Its completion is unknown, so it was not retried automatically.',
                 }
               : segment
           )),

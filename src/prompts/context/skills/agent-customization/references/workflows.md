@@ -1,4 +1,4 @@
-# Workflows in Avi
+# Workflows
 
 A workflow is a reusable task procedure stored as one Markdown file. Use it for a focused operation that a user should be able to select explicitly from the composer.
 
@@ -10,7 +10,7 @@ $PWD/.agents/workflows/<workflow-name>.md
 <project-subdirectory>/.agents/workflows/<workflow-name>.md
 ```
 
-Use `.md` for predictable editing and display. Avi catalogs files under these workflow directories, but a bare `$PWD/workflows` or `.github/prompts` directory is not a supported workflow location.
+Use `.md` for predictable editing and display. Files under these workflow directories are cataloged, but a bare `$PWD/workflows` or `.github/prompts` directory is not a supported workflow location.
 
 ## Supported frontmatter
 
@@ -21,19 +21,19 @@ description: Use when the user needs this focused procedure and expected result.
 ---
 ```
 
-Avi reads `name` (or `title`), `description`, and `user-invocable`. If `name` is omitted, the filename stem becomes the command name. Prefer a human-readable name that normalizes to the filename, such as `name: Code Review` in `code-review.md`. Set `user-invocable: false` only when the workflow should remain cataloged for the model but hidden from the `/` selector.
+The context loader reads `name` (or `title`), `description`, and `user-invocable`. If `name` is omitted, the filename stem becomes the command name. Prefer a human-readable name that normalizes to the filename, such as `name: Code Review` in `code-review.md`. Set `user-invocable: false` only when the workflow should remain cataloged for the model but hidden from the `/` selector.
 
-Fields copied from prompt systems—`agent`, `model`, `tools`, `argument-hint`, `context-embeddable`, `hooks`, and `tags`—do not configure Avi workflows.
+Fields copied from prompt systems—`agent`, `model`, `tools`, `argument-hint`, `context-embeddable`, `hooks`, and `tags`—do not configure workflows.
 
 ## Invocation
 
-- Type `/` in the composer to list Avi actions and workflows.
+- Type `/` in the composer to list actions and workflows.
 - Select `/workflow-name` and describe the concrete task in the same message.
 - Selecting the workflow adds a context marker; it does not execute a separate script or switch models.
-- Avi has no workflow argument schema, prompt variables, editor selection placeholder, or model fallback list.
+- There is no workflow argument schema, prompt variables, editor selection placeholder, or model fallback list.
 - Project workflows take command-name precedence over global workflows.
 
-Avoid names that collide with built-in Avi commands such as `/plan`, `/goal`, `/ultra`, `/model`, `/effort`, `/compress`, `/side`, `/mcp`, and `/restart-mcp`.
+Avoid names that collide with built-in commands such as `/plan`, `/goal`, `/ultra`, `/model`, `/effort`, `/compress`, `/side`, `/mcp`, and `/restart-mcp`.
 
 ## When to use a workflow
 
@@ -75,8 +75,8 @@ description: Use when the user asks to perform the example task and produce a ve
 
 1. Keep one clear objective per workflow.
 2. Let the agent discover repository facts before asking the user.
-3. Use only tools available in the current Avi run; never invent editor-specific commands.
-4. Respect Avi approval and Git rules. A workflow cannot authorize destructive actions by itself.
+3. Use only tools available in the current run; never invent editor-specific commands.
+4. Respect approval and Git rules. A workflow cannot authorize destructive actions by itself.
 5. State whether the default is read-only or mutating.
 6. Include a concrete completion and validation contract.
 7. Do not duplicate a second reusable prompt inside the workflow; the workflow file is already the reusable procedure.

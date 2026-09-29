@@ -1,6 +1,6 @@
 ---
 name: create-instruction
-description: Use when the user asks to create or update a focused instruction file or rule set for Avi. Decide project, subdirectory, or global scope, write grounded AGENTS.md content, and validate discovery. Not for initializing an entire project's instruction hierarchy—use /init for that.
+description: Use when the user asks to create or update a focused instruction file or rule set. Decide project, subdirectory, or global scope, write grounded AGENTS.md content, and validate discovery. Not for initializing an entire project's instruction hierarchy—use /init for that.
 ---
 # Create an instruction
 

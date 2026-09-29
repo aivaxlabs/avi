@@ -1,6 +1,6 @@
 ---
 name: create-workflow
-description: Use when the user asks to create or update a reusable Avi workflow. Decide project or global scope, define the workflow contract, write a focused procedure file, and validate discovery via the / selector.
+description: Use when the user asks to create or update a reusable workflow. Decide project or global scope, define the workflow contract, write a focused procedure file, and validate discovery via the / selector.
 ---
 # Create a workflow
 

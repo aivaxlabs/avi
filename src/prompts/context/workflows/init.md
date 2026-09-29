@@ -10,9 +10,9 @@ This workflow is mutating. It may create or update `AGENTS.md` files inside the 
 
 ## Required skill
 
-Before inspecting or writing project context, read and apply the bundled [agent-customization skill](../skills/agent-customization/SKILL.md), especially its [instruction-authoring](../skills/agent-customization/references/agent-instructions.md) and [workflow](../skills/agent-customization/references/workflows.md) guidance. Treat that skill as authoritative for supported Avi primitives, locations, frontmatter, hierarchy, and validation.
+Before inspecting or writing project context, read and apply the bundled [agent-customization skill](../skills/agent-customization/SKILL.md), especially its [instruction-authoring](../skills/agent-customization/references/agent-instructions.md) and [workflow](../skills/agent-customization/references/workflows.md) guidance. Treat that skill as authoritative for supported primitives, locations, frontmatter, hierarchy, and validation.
 
-This file intentionally lives at `context/workflows/init.md` in the Avi source tree because that directory is packaged as `$AVI/context/workflows`, making it an installation workflow discoverable as `/init`. Do not copy this path convention to ordinary projects; a project-local workflow belongs under `$PWD/.agents/workflows/`.
+This file intentionally lives at `context/workflows/init.md` in the application source tree because that directory is packaged as `$AVI/context/workflows`, making it an installation workflow discoverable as `/init`. Do not copy this path convention to ordinary projects; a project-local workflow belongs under `$PWD/.agents/workflows/`.
 
 Do not replace this requirement with remembered conventions. Do not create editor-specific prompt files, hooks, custom-agent definitions, or unsupported frontmatter.
 
@@ -42,7 +42,7 @@ A project area is a stable subsystem, application, package, service, platform ta
 
 Treat every existing instruction file as user-owned.
 
-- Read all applicable existing instruction files before changing anything. Avi-compatible names include `AGENTS.md`, `MEMORY.md`, `CLAUDE.md`, `GEMINI.md`, names with qualifiers such as `AGENTS.local.md`, and files ending in `.instructions.md` or `.agents.md` (case-insensitive). Prefer `AGENTS.md` for newly created project instructions.
+- Read all applicable existing instruction files before changing anything. Compatible names include `AGENTS.md`, `MEMORY.md`, `CLAUDE.md`, `GEMINI.md`, names with qualifiers such as `AGENTS.local.md`, and files ending in `.instructions.md` or `.agents.md` (case-insensitive). Prefer `AGENTS.md` for newly created project instructions.
 - Preserve accurate project-specific guidance and deliberate wording.
 - Resolve duplication by keeping a rule at the narrowest scope where it applies consistently.
 - Do not silently remove or weaken a rule. If existing guidance conflicts with repository evidence and intent cannot be established safely, preserve it and report the conflict.
@@ -179,13 +179,13 @@ Remove generic advice, repeated prose, unsupported claims, and instructions alre
 Perform proportionate structural validation:
 
 1. Confirm every created file is inside the intended workspace and named exactly `AGENTS.md`.
-2. Confirm every nested file has a concrete `description` using only Avi-supported frontmatter.
+2. Confirm every nested file has a concrete `description` using only supported frontmatter.
 3. Verify referenced paths and documentation links exist.
 4. Verify documented scripts against manifests, CI, or tool configuration; distinguish commands actually run from commands verified only by inspection.
 5. Check that instruction scopes do not overlap unnecessarily or contradict parent guidance.
 6. Review the final diff for accidental application-code changes, secrets, private paths, stale claims, and unrelated rewrites.
 7. Run `git diff --check` when Git is available.
-8. When the Avi UI is available, confirm discovery in Settings → Context management. Otherwise report discovery as structurally validated, not visually verified.
+8. When the application UI is available, confirm discovery in Settings → Context management. Otherwise report discovery as structurally validated, not visually verified.
 
 Do not run expensive, destructive, networked, credentialed, deployment, or AI-consuming commands merely to validate onboarding instructions. Do not install missing tools just for this workflow.
 
@@ -197,7 +197,7 @@ The workflow is complete when:
 - each identified material area has focused local guidance, or the repository is simple enough that the root file is demonstrably sufficient;
 - every statement is grounded in inspectable project evidence;
 - existing user guidance and unrelated changes are preserved;
-- the final hierarchy is concise, non-duplicative, and structurally discoverable by Avi.
+- the final hierarchy is concise, non-duplicative, and structurally discoverable.
 
 ## Completion report
 

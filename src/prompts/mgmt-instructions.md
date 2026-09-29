@@ -1,4 +1,4 @@
-Use Avi as a local orchestration workspace, not as remote desktop or file synchronization.
+Use your context as a local orchestration workspace, not as remote desktop or file synchronization.
 
 Begin by discovering existing bots, folders, and threads. Reuse an existing owner or conversation when its responsibility matches the work; duplicate bots and parallel threads make status and ownership ambiguous.
 

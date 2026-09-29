@@ -1,13 +1,13 @@
 ---
 name: agent-customization
-description: Create, update, review, or debug Avi customization: instructions, skills, workflows, MCP configuration, and trusted plugins. Use when deciding which Avi primitive to use, where files belong, why context was not discovered, how /workflow and $skill invocation works, which frontmatter fields Avi supports, or when a plugin is appropriate.
+description: Create, update, review, or debug customization: instructions, skills, workflows, MCP configuration, and trusted plugins. Use when deciding which primitive to use, where files belong, why context was not discovered, how /workflow and $skill invocation works, which frontmatter fields are supported, or when a plugin is appropriate.
 user-invocable: false
 ---
-# Avi Context Customization
+# Context Customization
 
-Use this skill to customize Avi with five supported primitives: **instructions, skills, workflows, MCP, and plugins**. Avi bots are persistent autonomous teammates configured through built-in agent tools rather than an additional context primitive.
+Use this skill to customize the application with five supported primitives: **instructions, skills, workflows, MCP, and plugins**. Bots are persistent autonomous teammates configured through built-in agent tools rather than an additional context primitive.
 
-Avi does not discover VS Code or Copilot prompt files, hooks, custom-agent files, `.github` customization folders, or `.claude` skill folders. Runtime features such as Plan, Goal, Ultra, and sub-agents are Avi features, not additional context file types.
+The application does not discover VS Code or Copilot prompt files, hooks, custom-agent files, `.github` customization folders, or `.claude` skill folders. Runtime features such as Plan, Goal, Ultra, and sub-agents are built-in features, not additional context file types.
 
 ## Choose the primitive
 
@@ -17,9 +17,9 @@ Avi does not discover VS Code or Copilot prompt files, hooks, custom-agent files
 | A repeatable procedure selected explicitly for a task | Workflow |
 | Specialized knowledge or a procedure that benefits from references, scripts, examples, or assets | Skill |
 | Tools or live context from an external process, service, or API | MCP |
-| A trusted install-wide JavaScript extension contributing multiple Avi capabilities or main-process behavior | Plugin |
+| A trusted install-wide JavaScript extension contributing multiple application capabilities or main-process behavior | Plugin |
 
-Use instructions for behavior that should apply repeatedly. Use a workflow or skill for task-specific guidance so it does not consume every conversation's instruction context. Use MCP only when the agent needs a runtime integration; static guidance belongs in instructions or a skill. Use a plugin only when trusted executable extension code is necessary; plugins run with Avi main-process privileges.
+Use instructions for behavior that should apply repeatedly. Use a workflow or skill for task-specific guidance so it does not consume every conversation's instruction context. Use MCP only when the agent needs a runtime integration; static guidance belongs in instructions or a skill. Use a plugin only when trusted executable extension code is necessary; plugins run with main-process privileges.
 
 ## Supported locations
 
@@ -30,13 +30,13 @@ Use instructions for behavior that should apply repeatedly. Use a workflow or sk
 | User-global | `$HOME/.agents/AGENTS.md` or bot-only `BOTS.md` | `$HOME/.agents/workflows/*.md` | `$HOME/.agents/skills/<name>/SKILL.md` | `$HOME/.agents/mcpconfig.json` | — |
 | Project | `$PWD/AGENTS.md`, `$PWD/.agents/AGENTS.<subject>.md`, or bot-only `BOTS.md` | `$PWD/.agents/workflows/*.md` | `$PWD/.agents/skills/<name>/SKILL.md` | `$PWD/.agents/mcpconfig.json` | — |
 | Project subdirectory | `<dir>/AGENTS.md`, an explicitly scoped `$PWD/.agents/AGENTS.<subject>.md`, or bot-only `BOTS.md` | `<dir>/.agents/workflows/*.md` | `<dir>/.agents/skills/<name>/SKILL.md` | Configure the project scope | — |
-| Avi installation | Built-in context | Built-in context | Built-in context | — | `$INSTALL_DIR/plugins/*.js` |
+| Installation | Built-in context | Built-in context | Built-in context | — | `$INSTALL_DIR/plugins/*.js` |
 
 A bare `$PWD/context/` directory is not a context root; project skills and workflows belong under `$PWD/.agents/`.
 
 ## Discovery and scope
 
-Avi assembles context from two user-manageable sources:
+The runtime assembles context from two user-manageable sources:
 
 1. User-global `$HOME/.agents` context.
 2. The active workspace and its nested `.agents` directories.
@@ -45,9 +45,9 @@ Use the narrowest suitable scope. A project item can override a global command w
 
 Instruction files at the workspace root or directly under `$PWD/.agents` are injected directly by default. Other nested instruction files are listed with their paths and descriptions so the agent can read the applicable file before working in its scope. Centralized subject files must state their scope explicitly and may use `embeddable: false` to remain catalog-only. `BOTS.md` uses these same rules only in bot threads; normal threads, side chats, sub-agents, and Quick Chat receive neither its contents nor its catalog entry. Skill and workflow catalogs likewise include metadata, not the full file body; the agent must read a relevant or explicitly selected item before following it.
 
-The Settings → Context management screen shows the items Avi discovered for each scope. Use it to verify paths, names, descriptions, and approximate context size.
+The Settings → Context management screen shows the items discovered for each scope. Use it to verify paths, names, descriptions, and approximate context size.
 
-## Frontmatter Avi reads
+## Frontmatter fields that are read
 
 Keep frontmatter simple:
 
@@ -58,7 +58,7 @@ description: Use when the task needs this specific capability or procedure.
 ---
 ```
 
-Avi currently reads:
+The context loader currently reads:
 
 - `name` or `title` for the displayed item and command name;
 - `description` for catalog discovery and command help;
@@ -67,7 +67,7 @@ Avi currently reads:
 
 If `name` is omitted, a skill uses its folder name and a workflow uses its filename. Put `---` on the first line. A quoted single-line description or a YAML block using `>` or `|` is supported.
 
-Other fields such as `applyTo`, `context-embeddable`, `disable-model-invocation`, `agent`, `model`, `tools`, `hooks`, and `tags` do not control Avi behavior. `embeddable` applies only to instruction files; skills and workflows are already cataloged without embedding their full body. `user-invocable: false` only hides the composer command; the item remains in the catalog available to the model. Do not use frontmatter to imply restrictions or capabilities that Avi will not enforce.
+Other fields such as `applyTo`, `context-embeddable`, `disable-model-invocation`, `agent`, `model`, `tools`, `hooks`, and `tags` do not control behavior. `embeddable` applies only to instruction files; skills and workflows are already cataloged without embedding their full body. `user-invocable: false` only hides the composer command; the item remains in the catalog available to the model. Do not use frontmatter to imply restrictions or capabilities that will not be enforced.
 
 Plugin parameters do not come from workflow or skill frontmatter. They are JavaScript definition and contribution fields from the versioned plugin contract.
 
@@ -82,15 +82,15 @@ Plugin parameters do not come from workflow or skill frontmatter. They are JavaS
 
 ## Invocation model
 
-- Type `/` in the composer to find Avi actions and workflows.
+- Type `/` in the composer to find actions and workflows.
 - Type `$` to find skills.
 - Selecting an item adds a context marker to the next message.
-- The user's accompanying message supplies the task input; Avi does not implement prompt variables or an argument schema in frontmatter.
+- The user's accompanying message supplies the task input; prompt variables and an argument schema in frontmatter are not implemented.
 - Set `user-invocable: false` only when an item should remain discoverable by the model but should not appear in the composer picker.
 
 ## Unsupported VS Code concepts
 
-Do not create these for Avi:
+Do not create these:
 
 - `.github/prompts/*.prompt.md`;
 - `.github/instructions/*.instructions.md` as a special root;
@@ -99,7 +99,7 @@ Do not create these for Avi:
 - `.github/skills/` or `.claude/skills/` as discovery locations;
 - `applyTo` globs, prompt recommendations, model fallbacks, or per-file tool restrictions.
 
-Avi may recognize some legacy instruction filenames for compatibility, but new project guidance should use `AGENTS.md` and directory hierarchy instead of editor-specific conventions.
+Some legacy instruction filenames may be recognized for compatibility, but new project guidance should use `AGENTS.md` and directory hierarchy instead of editor-specific conventions.
 
 ## References
 

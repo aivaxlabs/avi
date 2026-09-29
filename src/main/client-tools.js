@@ -176,7 +176,7 @@ async function waitForTerminal(terminal, { untilExit, timeout }) {
 export const CLIENT_TOOLS = Object.freeze([
   {
     name: 'get_chat_attachments',
-    description: 'Get local paths and stable attachment indexes for images, audio, and videos attached by the user in the current chat. Existing files are returned directly; inference-only media is copied to Avi temporary storage first.',
+    description: 'Get local paths and stable attachment indexes for images, audio, and videos attached by the user in the current chat. Existing files are returned directly; inference-only media is copied to temporary storage first.',
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
@@ -2137,7 +2137,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'sleep_semaphore',
-    description: 'Acquire permits from an application-wide Avi-managed named semaphore shared by every thread. This must be the only tool call in its model round. If permits are unavailable, this tool ends the current inference and suspends the thread in a FIFO queue; Avi automatically resumes the thread when its turn is granted.',
+    description: 'Acquire permits from an application-wide managed named semaphore shared by every thread. This must be the only tool call in its model round. If permits are unavailable, this tool ends the current inference and suspends the thread in a FIFO queue; the application automatically resumes the thread when its turn is granted.',
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
@@ -2178,7 +2178,7 @@ export const CLIENT_TOOLS = Object.freeze([
         output: [
           `Waiting for semaphore "${result.name}". Queue position: ${result.position}.`,
           'This inference is ending now. Do not continue the protected work in this turn.',
-          'Avi will automatically invoke this thread with a system-user message when the permits are granted. The user may also run now or cancel this semaphore wait.',
+          'The application will automatically invoke this thread with a system-user message when the permits are granted. The user may also run now or cancel this semaphore wait.',
         ].join('\n'),
         suspendRun: true,
       };

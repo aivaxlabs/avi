@@ -1,10 +1,10 @@
 ---
 name: create-skill
-description: Use when the user asks to create, update, or persist reusable specialized knowledge as an Avi skill. Decide project or global scope, research when needed, write SKILL.md with grounded references, and validate discovery.
+description: Use when the user asks to create, update, or persist reusable specialized knowledge as a skill. Decide project or global scope, research when needed, write SKILL.md with grounded references, and validate discovery.
 ---
 # Create a skill
 
-Turn specialized knowledge into a durable Avi skill. The knowledge may come from research on a technology, library, framework, protocol, tool, API, or concept, or from expertise and conventions the user already provides.
+Turn specialized knowledge into a durable skill. The knowledge may come from research on a technology, library, framework, protocol, tool, API, or concept, or from expertise and conventions the user already provides.
 
 Do not use this workflow for a one-off explanation. Use a workflow for a single focused procedure and instructions for durable rules; use this workflow when the knowledge benefits from references, scripts, examples, or assets.
 

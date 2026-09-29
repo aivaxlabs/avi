@@ -1,6 +1,6 @@
-# Plugins in Avi
+# Plugins
 
-Use a plugin when a trusted, install-wide JavaScript extension needs runtime integration or multiple Avi capabilities. Prefer instructions, workflows, skills, or MCP when trusted main-process code is unnecessary.
+Use a plugin when a trusted, install-wide JavaScript extension needs runtime integration or multiple application capabilities. Prefer instructions, workflows, skills, or MCP when trusted main-process code is unnecessary.
 
 Read `docs/Plugins.md` and the relevant `docs/api/*.md` document before authoring or reviewing a plugin.
 
@@ -58,11 +58,11 @@ Use runtime registration for dynamic scope or deterministic cleanup.
 
 ## Declarative settings
 
-The optional top-level `settings` array adds Avi-rendered configuration sections to the plugin's card. Each option declares `title`, optional `description`, a supported JSON `valueSchema`, and main-process `getValue`, optional `validate`, and `setValue` handlers. Prefer standard JSON Schema `enum` and `items`; legacy authoring aliases `enums` and `itemsSchema` are normalized. Persist ordinary values with `avi.storage` and never use settings for credentials. Read `docs/api/core/settings.md` for the complete contract.
+The optional top-level `settings` array adds rendered configuration sections to the plugin's card. Each option declares `title`, optional `description`, a supported JSON `valueSchema`, and main-process `getValue`, optional `validate`, and `setValue` handlers. Prefer standard JSON Schema `enum` and `items`; legacy authoring aliases `enums` and `itemsSchema` are normalized. Persist ordinary values with `avi.storage` and never use settings for credentials. Read `docs/api/core/settings.md` for the complete contract.
 
 ## Security and installation
 
-Plugins run unsandboxed with Avi main-process privileges. Review source, dependencies, endpoints, CSS, schemas, file/process/network behavior, and credential handling. Never hard-code secrets.
+Plugins run unsandboxed with main-process privileges. Review source, dependencies, endpoints, CSS, schemas, file/process/network behavior, and credential handling. Never hard-code secrets.
 
 Installation accepts a reviewed `.js` or `.zip`, stages and validates it, and stores it at `$INSTALL_DIR/plugins/<id>/plugin.js`. Disabled plugins use `plugin.js.disabled` and are never imported. Package enable, disable, update, and removal currently require restart to affect loaded code.
 

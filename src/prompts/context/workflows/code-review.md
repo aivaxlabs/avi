@@ -63,7 +63,7 @@ For a broad or high-risk review, divide work into non-overlapping segments such 
 - performance, concurrency, resource use, and reliability;
 - tests, observability, deployment safety, and product impact.
 
-When Avi sub-agent tools are available and independent review adds value, use one focused sub-agent per segment. Give each a self-contained scope, risk context, evidence requirements, exclusions, and expected priority format. Inspect their results and synthesize them; never paste reports without judgment.
+When sub-agent tools are available and independent review adds value, use one focused sub-agent per segment. Give each a self-contained scope, risk context, evidence requirements, exclusions, and expected priority format. Inspect their results and synthesize them; never paste reports without judgment.
 
 For a small review, unavailable sub-agent tooling, or segments that strongly overlap, review directly instead of manufacturing delegation. Report any resulting coverage limitation only when material.
 

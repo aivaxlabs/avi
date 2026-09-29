@@ -1,13 +1,13 @@
 ---
 name: rich-chat-visualization
-description: Render callouts, findings, charts, diffs, diagrams, equations, referenced file excerpts, and copyable text in Avi chat using supported Markdown Directives.
+description: Render callouts, findings, charts, diffs, diagrams, equations, referenced file excerpts, and copyable text in chat using supported Markdown Directives.
 user-invocable: false
 ---
 # Rich Chat Visualization
 
-Avi recognizes restricted Markdown Directives in assistant messages. Use them only when the richer presentation improves comprehension or provides a useful copy target. Ordinary prose, tables, code fences, and inline `fileref` directives remain preferable for simple responses.
+The application recognizes restricted Markdown Directives in assistant messages. Use them only when the richer presentation improves comprehension or provides a useful copy target. Ordinary prose, tables, code fences, and inline `fileref` directives remain preferable for simple responses.
 
-Use each directive in its documented form. Do not wrap the outer directive in a Markdown code fence. Arbitrary HTML and unknown directives are not rendered as Avi components.
+Use each directive in its documented form. Do not wrap the outer directive in a Markdown code fence. Arbitrary HTML and unknown directives are not rendered as rich components.
 
 ## File references
 
@@ -80,15 +80,15 @@ Use a `mermaid-diagram` container containing exactly one fenced `mermaid` code b
 :::mermaid-diagram
 ```mermaid
 flowchart LR
-  User --> Avi
-  Avi --> Provider
+  User --> Assistant
+  Assistant --> Provider
 ```
 :::
 ````
 
 - Keep diagrams concise and self-contained.
 - Do not include links, HTML labels, scripts, event handlers, or external assets.
-- Avi loads Mermaid only when needed, uses strict mode, sanitizes the SVG, and shows source fallback if rendering fails.
+- Mermaid loads only when needed, uses strict mode, sanitizes the SVG, and shows source fallback if rendering fails.
 
 ## LaTeX and KaTeX
 
@@ -126,7 +126,7 @@ return result;
 - `path` is required and must begin with `./` or `../`.
 - `line-from` is optional and must be a positive integer.
 - `line-to` is optional, requires `line-from`, and must be greater than or equal to it.
-- `language` is optional. If omitted, Avi derives it from the file extension.
+- `language` is optional. If omitted, it is derived from the file extension.
 - Include only content actually read from that file and keep line attributes aligned with it.
 - Use `:fileref{path="./file.js" line-from="12" line-to="18"}` when the excerpt itself does not need to be visible.
 
@@ -164,4 +164,4 @@ Use the `finding` leaf directive as the heading for a prioritized review, securi
 
 Leaf and container directives must start on their own line. Keep a blank line before and after them. Multiple directives are allowed.
 
-Avi normalizes common, unambiguous LLM syntax mistakes, such as using the wrong directive colon count or putting a heading in `label`/`title`. Payload validation remains strict. Incomplete containers, ambiguous structures, invalid paths, levels, kinds, chart data, or oversized content remain ordinary Markdown/text. Content inside code fences is always literal. Never rely on arbitrary HTML, scripts, event handlers, inline styles, external assets, or embedded URLs.
+The chat renderer normalizes common, unambiguous LLM syntax mistakes, such as using the wrong directive colon count or putting a heading in `label`/`title`. Payload validation remains strict. Incomplete containers, ambiguous structures, invalid paths, levels, kinds, chart data, or oversized content remain ordinary Markdown/text. Content inside code fences is always literal. Never rely on arbitrary HTML, scripts, event handlers, inline styles, external assets, or embedded URLs.

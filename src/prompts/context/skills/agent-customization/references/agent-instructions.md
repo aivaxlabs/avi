@@ -1,4 +1,4 @@
-# Writing effective Avi instructions
+# Writing effective instructions
 
 Instructions are durable Markdown guidance that applies to work in a user, project, or directory scope. Prefer `AGENTS.md` for new instructions.
 
@@ -22,7 +22,7 @@ Do not use instructions for a one-off task, a long tutorial, static copies of ex
 | Entire project | `$PWD/AGENTS.md` or `$PWD/.agents/AGENTS.<subject>.md` |
 | One project subtree | `<subdirectory>/AGENTS.md` or an explicitly scoped `$PWD/.agents/AGENTS.<subject>.md` |
 
-A deeper `AGENTS.md` conventionally applies to that directory and its descendants. Avi catalogs nested instruction files with their paths; the agent must read and apply the relevant file. A centralized `.agents/AGENTS.<subject>.md` must state its scope explicitly because its path no longer provides subtree scope. Use directory hierarchy or explicit scope instead of an `applyTo` glob, which Avi does not implement.
+A deeper `AGENTS.md` conventionally applies to that directory and its descendants. The context loader catalogs nested instruction files with their paths; the agent must read and apply the relevant file. A centralized `.agents/AGENTS.<subject>.md` must state its scope explicitly because its path no longer provides subtree scope. Use directory hierarchy or explicit scope instead of an `applyTo` glob, which is not implemented.
 
 ## Template
 
@@ -68,7 +68,7 @@ Only include sections the scope actually needs.
 
 ## Validation
 
-- Open Settings → Context management and confirm that Avi lists the file.
+- Open Settings → Context management and confirm that the file is listed.
 - For a root file, verify its contents appear in the next conversation's runtime context.
 - For a nested file, verify its path and description are listed and that the agent reads it before changing files in that subtree.
 - Check for contradictions with broader global or project instructions.

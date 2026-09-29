@@ -204,7 +204,7 @@ export const dynamicContextInjectors = new Map([
     Array.isArray(semaphoreHoldings) && semaphoreHoldings.length > 0
       ? [
         '<semaphore_locks>',
-        'This thread currently owns the following Avi semaphore permits. Treat each permit as an active coordination lock: perform only the protected work authorized by the semaphore, do not assume another thread can enter the protected section, and call release_semaphore with the exact name and count as soon as that work is complete. Release permits before waiting on unrelated work or ending the task. If a concrete blocker requires user intervention while the permit must remain held, call update_semaphore_status with status "blocked" and explain the blocker. Never release permits owned by another thread.',
+        'This thread currently owns the following semaphore permits. Treat each permit as an active coordination lock: perform only the protected work authorized by the semaphore, do not assume another thread can enter the protected section, and call release_semaphore with the exact name and count as soon as that work is complete. Release permits before waiting on unrelated work or ending the task. If a concrete blocker requires user intervention while the permit must remain held, call update_semaphore_status with status "blocked" and explain the blocker. Never release permits owned by another thread.',
         ...semaphoreHoldings.map((holding) => (
           `<semaphore name="${escapeXml(holding.name)}" count="${holding.count}" max_count="${holding.maxCount}" />`
         )),
@@ -527,7 +527,7 @@ export async function resolveDynamicContext(invocationContext = {}) {
     verbosityContext,
     ...(modelRules.length ? [
       '<model_rules>',
-      'These user-configured model instructions override Avi default working-style and delegation guidance, not direct user requests, permissions, or safety constraints. Role-specific rules follow and take precedence over all-role rules. Within the same role, virtual-model rules follow and take precedence over concrete-model rules.',
+      'These user-configured model instructions override the default working-style and delegation guidance, not direct user requests, permissions, or safety constraints. Role-specific rules follow and take precedence over all-role rules. Within the same role, virtual-model rules follow and take precedence over concrete-model rules.',
       ...modelRules,
       '</model_rules>',
     ] : []),

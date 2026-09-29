@@ -1,4 +1,4 @@
-# Skills in Avi
+# Skills
 
 A skill is an on-demand package of specialized operational knowledge. Use it when the procedure benefits from supporting references, scripts, examples, templates, or assets.
 
@@ -10,7 +10,7 @@ $PWD/.agents/skills/<skill-name>/SKILL.md
 <project-subdirectory>/.agents/skills/<skill-name>/SKILL.md
 ```
 
-Avi does not discover project skills from `.github/skills`, `.claude/skills`, a bare `$PWD/skills`, or a normal `$PWD/context/skills` directory.
+Project skills are not discovered from `.github/skills`, `.claude/skills`, a bare `$PWD/skills`, or a normal `$PWD/context/skills` directory.
 
 ## Recommended structure
 
@@ -22,7 +22,7 @@ Avi does not discover project skills from `.github/skills`, `.claude/skills`, a 
 └── assets/       # Templates or other supporting files
 ```
 
-Only `SKILL.md` is required and discovered. Supporting files are not injected automatically; `SKILL.md` should tell the agent when to read or use them. Scripts still follow Avi's normal tool availability, permission, and approval rules.
+Only `SKILL.md` is required and discovered. Supporting files are not injected automatically; `SKILL.md` should tell the agent when to read or use them. Scripts still follow the normal tool availability, permission, and approval rules.
 
 ## Supported frontmatter
 
@@ -33,15 +33,15 @@ description: Use when performing X, diagnosing Y, or working with Z. Covers the 
 ---
 ```
 
-Avi reads `name` (or `title`), `description`, and `user-invocable`. Keep the name lowercase kebab-case and match the directory name for predictable `$skill-name` invocation, even though Avi does not currently enforce the match.
+The context loader reads `name` (or `title`), `description`, and `user-invocable`. Keep the name lowercase kebab-case and match the directory name for predictable `$skill-name` invocation, even though the match is not currently enforced.
 
-Set `user-invocable: false` only to hide the skill from the `$` selector. It remains in the catalog and can still be discovered by the model. Avi ignores `disable-model-invocation`, `context-embeddable`, `argument-hint`, `tools`, `model`, `agent`, and `hooks` for skill behavior.
+Set `user-invocable: false` only to hide the skill from the `$` selector. It remains in the catalog and can still be discovered by the model. `disable-model-invocation`, `context-embeddable`, `argument-hint`, `tools`, `model`, `agent`, and `hooks` are ignored for skill behavior.
 
 ## Invocation and discovery
 
 - Type `$` in the composer to list skills.
 - Select `$skill-name` to attach a marker to the next message.
-- Avi catalogs the skill's path and description; the agent must read `SKILL.md` before following it.
+- The skill's path and description are cataloged; the agent must read `SKILL.md` before following it.
 - The accompanying user message is the task input. There is no skill argument schema or variable interpolation.
 - Project skills take command-name precedence over global skills.
 

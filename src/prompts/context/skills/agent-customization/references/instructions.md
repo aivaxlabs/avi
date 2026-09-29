@@ -1,6 +1,6 @@
-# Avi instruction discovery and hierarchy
+# Instruction discovery and hierarchy
 
-Avi discovers Markdown instruction files in the user-global `.agents` directory and the active workspace.
+The application discovers Markdown instruction files in the user-global `.agents` directory and the active workspace.
 
 ## Recommended convention
 
@@ -15,9 +15,9 @@ $PWD/BOTS.md                       # Project rules for bots only
 $PWD/src/feature/BOTS.md           # Bot-only rules for one subtree
 ```
 
-`BOTS.md` uses the same root and nested scope behavior as `AGENTS.md`, but Avi only adds its body or catalog entry to bot-thread prompts. Ordinary threads, side chats, sub-agents, and Quick Chat cannot see it. Settings → Context can still list the file so the user can administer it.
+`BOTS.md` uses the same root and nested scope behavior as `AGENTS.md`, but only bot-thread prompts receive its body or catalog entry. Ordinary threads, side chats, sub-agents, and Quick Chat cannot see it. Settings → Context can still list the file so the user can administer it.
 
-Avi also recognizes the following names case-insensitively for compatibility:
+The following names are also recognized case-insensitively for compatibility:
 
 - `AGENTS.md` and `AGENTS.<suffix>.md`;
 - `MEMORY.md` and `MEMORY.<suffix>.md`;
@@ -35,14 +35,14 @@ These compatibility names do not gain VS Code or other editor semantics. In part
 - A root instruction file with `embeddable: false` in its front matter is cataloged with its path and description instead of having its body injected.
 - Other nested instruction files are cataloged with their paths and descriptions.
 - The agent must read applicable nested instructions before modifying files in their scope.
-- Directory hierarchy communicates intended scope to the agent: a deeper instruction file should refine or override broader guidance for its descendants. The Avi loader catalogs nested files but does not itself evaluate directory applicability or merge their bodies.
+- Directory hierarchy communicates intended scope to the agent: a deeper instruction file should refine or override broader guidance for its descendants. The context loader catalogs nested files but does not itself evaluate directory applicability or merge their bodies.
 - Ordinary Markdown files are not instructions merely because they contain imperative text.
 
 For predictable behavior, keep project-wide general guidance in `$PWD/AGENTS.md`, bot-only guidance in `$PWD/BOTS.md`, and place specialized guidance in the relevant subdirectory's matching file. A project may instead centralize explicitly scoped files as `$PWD/.agents/AGENTS.<subject>.md`; files directly under this directory follow root embedding rules, so add `embeddable: false` to specialized files that should remain catalog-only.
 
 ## Descriptions for nested files
 
-Avi uses the first `description` in simple frontmatter when cataloging a nested instruction file:
+The first `description` in simple frontmatter is used when cataloging a nested instruction file:
 
 ```markdown
 ---
@@ -54,7 +54,7 @@ description: Rules for database migrations under this directory.
 - Validate both upgrade and rollback paths.
 ```
 
-If there is no description, Avi uses the first non-empty body line. Descriptions help discovery but do not replace reading the file.
+If there is no description, the first non-empty body line is used. Descriptions help discovery but do not replace reading the file.
 
 Use `embeddable: false` when a root instruction should remain available for the agent to discover and read without consuming every turn's system-instruction context:
 
@@ -67,7 +67,7 @@ embeddable: false
 
 ## Source order
 
-Avi builds runtime context from:
+Runtime context is built from:
 
 1. global instructions under `$HOME/.agents`;
 2. workspace instructions.

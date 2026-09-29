@@ -1,10 +1,10 @@
-# MCP in Avi
+# MCP
 
-Use Model Context Protocol (MCP) when Avi needs tools or live context from another process, local application, service, or API. MCP is a runtime integration, not a Markdown instruction or workflow.
+Use Model Context Protocol (MCP) when tools or live context are needed from another process, local application, service, or API. MCP is a runtime integration, not a Markdown instruction or workflow.
 
 ## Where MCP is configured
 
-Prefer Settings → MCP servers. Avi supports two scopes:
+Prefer Settings → MCP servers. Two scopes are supported:
 
 | Scope | Configuration file | Applies to |
 |---|---|---|
@@ -67,13 +67,13 @@ For `stdio`, a relative working directory is resolved from the configuration sco
 
 ## Runtime behavior
 
-- Enabled servers connect when Avi initializes the relevant scope.
+- Enabled servers connect when the relevant scope is initialized.
 - Servers default to the `active` lifecycle. Servers configured with `"lifecycle": "passive"` stay disconnected and expose only `mcp_<normalized-server>_enable_mcp`; call that tool when the task needs the server's tools. Activation removes the activation tool and makes the real tools available for the rest of the run.
 - A passive server stays connected for 30 minutes of inactivity and every tool call renews that window. If the lease expires mid-task, the next tool call fails and the activation tool reappears; call it again to continue.
 - Server-provided instructions are injected into runtime context once the server is connected.
 - Server tools are exposed as `mcp_<normalized-server>_<normalized-tool>`.
 - Tool descriptions and schemas come from the server.
-- Approval behavior is controlled by Avi's current permission mode and the tool call, not by skill or workflow frontmatter.
+- Approval behavior is controlled by the current permission mode and the tool call, not by skill or workflow frontmatter.
 - `/mcp` shows servers available to the conversation; `/restart-mcp` restarts loaded servers.
 
 ## Security
