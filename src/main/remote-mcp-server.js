@@ -134,7 +134,7 @@ const MAX_WEBSOCKET_PAYLOAD_BYTES = 1024 * 1024;
 const RPC_PROTOCOL = ORPC_PROTOCOL;
 const RPC_API_KEY_PROTOCOL_PREFIX = 'avi-api-key.';
 const RPC_API_VERSION = 1;
-const APP_VERSION = '0.6.0';
+const APP_VERSION = '0.7.0';
 
 const rpcError = (id, code, message, data) => ({
   error: { code, message, ...(data === undefined ? {} : { data }) },

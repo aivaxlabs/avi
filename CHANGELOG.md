@@ -2,7 +2,7 @@
 
 ## [Canary]
 
-Version in development: 0.7.0.
+## [0.7.0] — 2026-10-01
 
 ### Added
 - **Media size limit** — Tuning → Tool execution caps images, videos, audio, and PDFs sent inline from chat attachments and `read_media_file` at 5 MB, 10 MB (default), 20 MB, 100 MB, or No limit, avoiding provider rejections such as "image exceeds 10 MB maximum". Each custom model can override the global value. Oversized attachments are sent as file paths; `read_media_file` falls back to AIVAX Media Descriptions, which keeps a fixed 20 MB limit, or reports an error.
@@ -84,6 +84,9 @@ Version in development: 0.7.0.
 
 ### Tests
 
+
+### Chores
+- Version bumped to 0.7.0.
 
 ## [0.6.0] — 2026-09-03
 
