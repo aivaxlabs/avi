@@ -391,7 +391,7 @@ export class OrpcPeer {
       if (transfer) transfer.resendRequested = true;
     }
     return this.enqueue([frame][Symbol.iterator](), frame.length, null).catch((error) => {
-      if (!this.closed) { this.terminate(error); this.onError(error); }
+      if (!this.closed && this.isOpen()) { this.terminate(error); this.onError(error); }
     });
   }
 
@@ -508,8 +508,8 @@ export class OrpcPeer {
     }
   }
 
-  ping() {
-    return this.waitControl('PING', 'PONG');
+  ping(timeoutMs = this.limits.attemptMs) {
+    return this.waitControl('PING', 'PONG', timeoutMs);
   }
 
   shutdown() {
@@ -518,7 +518,7 @@ export class OrpcPeer {
     return this.waitControl('EXIT', 'BYE');
   }
 
-  waitControl(control, expected) {
+  waitControl(control, expected, timeoutMs = this.limits.attemptMs) {
     if (this.closed || !this.isOpen()) return Promise.reject(new OrpcError('Channel closed', 'INCOMPLETE'));
     if (this.controls.has(expected)) return this.controls.get(expected).promise;
     const waiting = {};
@@ -528,7 +528,7 @@ export class OrpcPeer {
       waiting.timer = setTimeout(() => {
         this.controls.delete(expected);
         reject(new OrpcError(`Missing #${expected}`, 'INCOMPLETE'));
-      }, this.limits.attemptMs);
+      }, timeoutMs);
     });
     this.controls.set(expected, waiting);
     this.sendControl('REQ', `#${control}`);

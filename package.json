@@ -51,6 +51,7 @@
     "test:side-chat": "bun scripts/test-side-chat-database.mjs",
     "test:rubber-duck": "electron --no-sandbox scripts/test-rubber-duck.mjs",
     "test:archive": "electron --no-sandbox scripts/test-archive-database.mjs",
+    "test:export-thread": "electron --no-sandbox scripts/test-export-thread.mjs",
     "test:temporary-storage": "bun scripts/test-temporary-storage.mjs",
     "test:search": "electron --no-sandbox scripts/test-search-core.mjs",
     "test:fatal-errors": "bun scripts/test-trace-fatal.mjs && electron --no-sandbox scripts/test-fatal-errors.mjs",

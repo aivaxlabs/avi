@@ -4,6 +4,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { effectiveMediaSizeLimit } from '../shared/attachments.js';
 import {
   answerTextFromTextualBlocks,
   executionPlansFromTextualBlocks,
@@ -1315,6 +1316,7 @@ export class ChatRunner {
     attachments = await normalizeAttachmentsForModel(
       attachments,
       selectedModel.model.capabilities,
+      effectiveMediaSizeLimit(selectedModel.model, this.getPreferences().tuning),
     );
     text = String(text ?? '').trim();
     if (!text && attachments.length === 0) {
@@ -3379,7 +3381,10 @@ export class ChatRunner {
           const invocationGoal = typeof args?.__invocation_goal === 'string'
             ? args.__invocation_goal.trim()
             : '';
-          const requiresHumanApproval = args?.__requires_human_approval;
+          const requiresHumanApproval = {
+            true: true,
+            false: false,
+          }[String(args?.__requires_human_approval).trim().toLowerCase()];
           let input = args && typeof args === 'object' && !Array.isArray(args)
             ? { ...args }
             : null;
@@ -3556,6 +3561,7 @@ export class ChatRunner {
               aivax,
               defaultModels: preferences.defaultModels,
               capabilities: selection.model.capabilities,
+              mediaSizeLimit: effectiveMediaSizeLimit(selection.model, tuning),
               userAttachments: getMessages(conversationId)
                 .filter((message) => message.role === 'user')
                 .flatMap((message) => message.attachments),

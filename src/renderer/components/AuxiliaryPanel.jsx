@@ -1,5 +1,5 @@
 import Avatar from 'boring-avatars';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
@@ -205,6 +205,8 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   onImplementPlan,
   questionRequests = emptyList,
   onAnswerQuestion,
+  approvalRequests = emptyList,
+  onResolveApproval,
   onRunSemaphoreNow,
   onCancelSemaphore,
   semaphoreResolving = false,
@@ -518,6 +520,9 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
     }
     : null;
   const contextLimit = models.find((model) => model.id === currentModel)?.context.input ?? null;
+  const activeThreadApprovalRequests = useMemo(() => (
+    approvalRequests.filter((request) => request.conversationId === activeThread?.id)
+  ), [activeThread?.id, approvalRequests]);
 
   const hasActiveTab = tabs.some((tab) => tab.id === activeTab);
 
@@ -989,6 +994,8 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                 (request) => request.conversationId === activeThread.id,
               ) ?? null}
               onAnswerQuestion={onAnswerQuestion}
+              approvalRequests={activeThreadApprovalRequests}
+              onResolveApproval={onResolveApproval}
               onStop={() => onStop(activeThread.id)}
               onCompress={() => onCompress(activeThread.id, currentModel)}
               onMentionSelection={onAddToChat}

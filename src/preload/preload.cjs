@@ -70,6 +70,10 @@ contextBridge.exposeInMainWorld('chatApp', {
     favicon: (url) => invoke('app:favicon', url),
     onNavigate: (callback) => subscribe('app:navigate', callback),
   },
+  sidebar: {
+    markSeen: (conversationId) => invoke('sidebar:mark-seen', conversationId),
+    onSeen: (callback) => subscribe('sidebar:seen', callback),
+  },
   shortcuts: {
     list: () => invoke('shortcuts:list'),
     save: (payload) => invoke('shortcuts:save', payload),

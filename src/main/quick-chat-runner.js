@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
+import { effectiveMediaSizeLimit } from '../shared/attachments.js';
 import { createConversation, messageToApiBlocks } from './database.js';
-import { CLIENT_TOOLS, decorateToolsForInvocation } from './client-tools.js';
+import { CLIENT_TOOLS, decorateToolsForInvocation, normalizeQuestions } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
 import { normalizeAttachmentsForModel } from './files.js';
 import { StreamAccumulator } from './streaming.js';
@@ -77,6 +78,7 @@ export class QuickChatRunner {
     const normalizedAttachments = await normalizeAttachmentsForModel(
       attachments,
       selection.model.capabilities,
+      effectiveMediaSizeLimit(selection.model, this.getPreferences().tuning),
     );
     if (!text.trim() && normalizedAttachments.length === 0) {
       throw new Error('Write a message or attach a file.');
@@ -436,7 +438,7 @@ export class QuickChatRunner {
 
   async executeTool(tool, input, { session, selection, models, workspacePath, signal }) {
     if (tool.name === 'ask_question') {
-      const result = await this.askQuestion(session.id, input.questions, signal);
+      const result = await this.askQuestion(session.id, normalizeQuestions(input.questions), signal);
       if (result.cancelled) {
         if (result.afk) {
           return 'The user is away from keyboard (AFK) and did not answer within 60 seconds. No answers were collected. Decide whether to continue without the answers or stop.';
@@ -508,6 +510,7 @@ export class QuickChatRunner {
       aivax: this.getPreferences().aivax,
       defaultModels: this.getPreferences().defaultModels,
       capabilities: selection.model.capabilities,
+      mediaSizeLimit: effectiveMediaSizeLimit(selection.model, this.getPreferences().tuning),
       userAttachments: session.messages
         .filter((message) => message.role === 'user')
         .flatMap((message) => message.attachments),

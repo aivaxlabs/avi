@@ -19,7 +19,7 @@ Events are acknowledged ORPC calls in the server-to-client direction: Avi sends 
 | Field | Type | Description |
 | --- | --- | --- |
 | `eventId` | string | Stable event identifier used to deduplicate redelivery. |
-| `expiresAt` | number | Epoch-millisecond acceptance deadline (`now + 180 s`); expired events are rejected. |
+| `expiresAt` | number | Epoch-millisecond acceptance deadline (`now + 180 s`). A client may reject an expired event; the server keeps the channel open and the client recovers skipped events through `conversations:context` when it detects a sequence gap. |
 | `params` | object | Event payload documented per event below. |
 
 The client must answer with a final `RES` frame; Avi treats the literal bytes `OK` as acceptance. Repeating the same event under a new request id returns `OK` without re-emitting it; conflicting content under a known `eventId` fails. See [RPC overview](overview.md#events-server-to-client).

@@ -60,6 +60,7 @@ import {
   forkConversation,
   flushSecureStorage,
   getArchiveSettings,
+  getBotByConversation,
   getBotSettings,
   getBuiltInPluginState,
   getBotUsageMessages,
@@ -1031,6 +1032,7 @@ function initializeServices() {
       getPreferences,
       getApiKeys: getRemoteApiKeys,
       invokeApplicationRequest: invokeRemoteApplicationRequest,
+      onSeen: (conversationId) => sendRendererEvent('sidebar:seen', { conversationId }),
       resolveConversationProjectPath: (conversationId) => (
         getConversation(conversationId)?.projectPath ?? null
       ),
@@ -1280,6 +1282,9 @@ function registerIpc() {
   ));
 
 
+  applicationIpc.handle('sidebar:mark-seen', (_event, conversationId) => (
+    remoteMcpServer?.markSeen(conversationId)
+  ));
   applicationIpc.handle('shortcuts:list', () => keyboardShortcuts.shortcuts);
   applicationIpc.handle('shortcuts:save', (_event, payload) => keyboardShortcuts.save(payload));
   applicationIpc.handle('shortcuts:execute', (event, id) => {
@@ -1939,6 +1944,9 @@ function registerIpc() {
     return listConversationsWithProjects();
   });
   applicationIpc.handle('conversations:delete', (_event, conversationId) => {
+    if (getBotByConversation(conversationId)) {
+      throw new Error('This thread belongs to a bot. Delete the bot instead.');
+    }
     cleanupConversation(conversationId);
     deleteConversation(conversationId);
     chatRunner.semaphores.cleanMissingConversations();

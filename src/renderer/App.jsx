@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { PanelRightOpen, ShieldAlert } from 'lucide-react';
+import { PanelRightOpen } from 'lucide-react';
 import { Sidebar } from './components/Sidebar.jsx';
 import { ActivityBar } from './components/ActivityBar.jsx';
 import { ChatView } from './components/ChatView.jsx';
@@ -211,14 +211,12 @@ export default function App() {
   const [mcpAlert, setMcpAlert] = useState(null);
   const [mcpWorkspaceServers, setMcpWorkspaceServers] = useState(null);
   const [approvalRequests, setApprovalRequests] = useState([]);
-  const [approvalResolving, setApprovalResolving] = useState(false);
   const [questionRequests, setQuestionRequests] = useState([]);
   const [semaphoreWaits, setSemaphoreWaits] = useState([]);
   const [semaphoreResolving, setSemaphoreResolving] = useState(false);
   const [goalPreparations, setGoalPreparations] = useState({});
   const [workMode, setWorkMode] = useState(null);
   const [ultraMode, setUltraMode] = useState(false);
-  const approvalDialogRef = useRef(null);
   const messagePageLoadsRef = useRef(new Set());
   const auxiliaryConversationIdsRef = useRef(new Set());
   const inspectedConversationIdRef = useRef(null);
@@ -399,6 +397,10 @@ export default function App() {
   const auxiliaryQuestionRequests = useVisibleConversationItems(
     auxiliaryConversationIds,
     questionRequests,
+  );
+  const auxiliaryApprovalRequests = useVisibleConversationItems(
+    auxiliaryConversationIds,
+    approvalRequests,
   );
   const auxiliarySemaphoreWaits = useVisibleConversationItems(
     auxiliaryConversationIds,
@@ -645,6 +647,7 @@ export default function App() {
 
   useEffect(() => {
     if (!selectedId || settingsOpen || foldersOpen || orchestrationOpen) return;
+    void api.sidebar.markSeen(selectedId).catch(() => {});
     setCompletedUnseen((state) => {
       if (!state[selectedId]) return state;
       const next = { ...state };
@@ -652,6 +655,22 @@ export default function App() {
       return next;
     });
   }, [foldersOpen, orchestrationOpen, selectedId, settingsOpen]);
+
+  useEffect(() => api.sidebar.onSeen(({ conversationId }) => {
+    setCompletedUnseen((state) => {
+      if (!state[conversationId]) return state;
+      const next = { ...state };
+      delete next[conversationId];
+      return next;
+    });
+    setConversations((state) => {
+      const conversation = state.find((item) => item.id === conversationId);
+      if (!conversation?.needsAttention) return state;
+      return state.map((item) => (
+        item.id === conversationId ? { ...item, needsAttention: false } : item
+      ));
+    });
+  }), []);
 
   useEffect(() => {
     if (
@@ -687,6 +706,7 @@ export default function App() {
     const nextConversations = await api.conversations.list();
     const conversation = nextConversations.find((item) => item.id === conversationId);
     if (!conversation) return;
+    void api.sidebar.markSeen(conversationId).catch(() => {});
     setConversations(nextConversations.map((item) => (
       item.id === conversationId ? { ...item, needsAttention: false } : item
     )));
@@ -860,12 +880,12 @@ export default function App() {
             delete next[event.conversationId];
             return next;
           });
-        } else if (
-          !event.running
-          && !event.sleeping
-          && event.conversationId !== inspectedConversationIdRef.current
-        ) {
-          setCompletedUnseen((state) => ({ ...state, [event.conversationId]: true }));
+        } else if (!event.running && !event.sleeping) {
+          if (event.conversationId !== inspectedConversationIdRef.current) {
+            setCompletedUnseen((state) => ({ ...state, [event.conversationId]: true }));
+          } else {
+            void api.sidebar.markSeen(event.conversationId).catch(() => {});
+          }
         }
       } else if (event.type === 'semaphore-state') {
         setSemaphoreWaits(event.waits ?? []);
@@ -914,9 +934,9 @@ export default function App() {
     })
   ), []);
 
-  const activeApprovalRequest = approvalRequests.find(
+  const selectedApprovalRequests = useMemo(() => approvalRequests.filter(
     (request) => request.conversationId === selectedId,
-  ) ?? null;
+  ), [approvalRequests, selectedId]);
   const approvalPending = useMemo(() => Object.fromEntries(
     approvalRequests.map((request) => [request.conversationId, true]),
   ), [approvalRequests]);
@@ -924,34 +944,6 @@ export default function App() {
     questionRequests.map((request) => [request.conversationId, true]),
   ), [questionRequests]);
   const currentConversationError = selectedId ? conversationErrors[selectedId] ?? '' : '';
-
-  useEffect(() => {
-    if (!activeApprovalRequest) return undefined;
-    const previousFocus = document.activeElement;
-    const frame = requestAnimationFrame(() => (
-      approvalDialogRef.current?.querySelector('.primary-mini, button')?.focus()
-    ));
-    const disallowOnEscape = (event) => {
-      if (event.key !== 'Escape' || approvalResolving) return;
-      event.preventDefault();
-      api.chat.resolveApproval({
-        approvalId: activeApprovalRequest.approvalId,
-        decision: 'disallow',
-      }).then((resolved) => {
-        if (resolved) setApprovalRequests((state) => state.filter(
-          (request) => request.approvalId !== activeApprovalRequest.approvalId,
-        ));
-      }).catch((nextError) => {
-        setError(nextError instanceof Error ? nextError.message : String(nextError));
-      });
-    };
-    document.addEventListener('keydown', disallowOnEscape);
-    return () => {
-      cancelAnimationFrame(frame);
-      document.removeEventListener('keydown', disallowOnEscape);
-      previousFocus?.focus?.();
-    };
-  }, [activeApprovalRequest, approvalResolving]);
 
   useEffect(() => (
     api.onMcpEvent((event) => {
@@ -1110,6 +1102,7 @@ export default function App() {
     const conversation = conversations.find((item) => item.id === id);
     if (conversation?.model) setDraftModel(conversation.model);
     inspectedConversationIdRef.current = id;
+    void api.sidebar.markSeen(id).catch(() => {});
     setConversations((state) => state.map((item) => (
       item.id === id && item.needsAttention
         ? { ...item, needsAttention: false }
@@ -1454,21 +1447,19 @@ export default function App() {
     }
   }
 
-  async function resolveToolApproval(decision) {
-    if (!activeApprovalRequest || approvalResolving) return;
-    setApprovalResolving(true);
+  async function resolveToolApproval(approvalRequest, decision) {
     try {
       const resolved = await api.chat.resolveApproval({
-        approvalId: activeApprovalRequest.approvalId,
+        approvalId: approvalRequest.approvalId,
         decision,
       });
       if (resolved) setApprovalRequests((state) => state.filter(
-        (request) => request.approvalId !== activeApprovalRequest.approvalId,
+        (request) => request.approvalId !== approvalRequest.approvalId,
       ));
+      return resolved;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
-    } finally {
-      setApprovalResolving(false);
+      return false;
     }
   }
 
@@ -1964,6 +1955,7 @@ export default function App() {
   });
   const chatOnImplementPlan = useStableCallback(implementPlan);
   const chatOnAnswerQuestion = useStableCallback(resolveQuestionRequest);
+  const chatOnResolveApproval = useStableCallback(resolveToolApproval);
   const chatOnStop = useStableCallback(stopConversation);
   const chatOnQuickCompress = useStableCallback(quickCompressConversation);
   const chatOnCompress = useStableCallback(compressConversation);
@@ -2653,6 +2645,8 @@ export default function App() {
                 (request) => request.conversationId === selectedId,
               ) ?? null}
               onAnswerQuestion={chatOnAnswerQuestion}
+              approvalRequests={selectedApprovalRequests}
+              onResolveApproval={chatOnResolveApproval}
               onRunSemaphoreNow={chatOnRunSemaphoreNow}
               onCancelSemaphore={chatOnCancelSemaphore}
               semaphoreResolving={semaphoreResolving}
@@ -2835,6 +2829,8 @@ export default function App() {
                 onImplementPlan={auxiliaryOnImplementPlan}
                 questionRequests={auxiliaryQuestionRequests}
                 onAnswerQuestion={chatOnAnswerQuestion}
+                approvalRequests={auxiliaryApprovalRequests}
+                onResolveApproval={chatOnResolveApproval}
                 onRunSemaphoreNow={chatOnRunSemaphoreNow}
                 onCancelSemaphore={chatOnCancelSemaphore}
                 semaphoreResolving={semaphoreResolving}
@@ -2905,63 +2901,6 @@ export default function App() {
         >
           {error || currentConversationError}
         </button>
-      )}
-      {activeApprovalRequest && (
-        <div className="dialog-backdrop permission-dialog-backdrop">
-          <section
-            ref={approvalDialogRef}
-            className="permission-dialog"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="permission-dialog-title"
-            aria-describedby="permission-dialog-description"
-          >
-            <div className="permission-dialog-icon">
-              <ShieldAlert size={20} />
-            </div>
-            <div className="permission-dialog-copy">
-              <h2 id="permission-dialog-title">Allow this tool call?</h2>
-              <p id="permission-dialog-description">{activeApprovalRequest.invocationSummary}</p>
-              <dl>
-                <div>
-                  <dt>Tool</dt>
-                  <dd>{activeApprovalRequest.toolName}</dd>
-                </div>
-                <div>
-                  <dt>Folder</dt>
-                  <dd>{activeApprovalRequest.workspacePath || 'No folder'}</dd>
-                </div>
-              </dl>
-              {activeApprovalRequest.input && Object.keys(activeApprovalRequest.input).length > 0 && (
-                <pre>{JSON.stringify(activeApprovalRequest.input, null, 2)}</pre>
-              )}
-            </div>
-            <div className="permission-dialog-actions">
-              <button
-                type="button"
-                disabled={approvalResolving}
-                onClick={() => resolveToolApproval('disallow')}
-              >
-                Disallow
-              </button>
-              <button
-                type="button"
-                disabled={approvalResolving}
-                onClick={() => resolveToolApproval('allow_all')}
-              >
-                Always allow this command
-              </button>
-              <button
-                className="primary-mini"
-                type="button"
-                disabled={approvalResolving}
-                onClick={() => resolveToolApproval('allow')}
-              >
-                Allow
-              </button>
-            </div>
-          </section>
-        </div>
       )}
       <McpOverlay
         state={mcpState}

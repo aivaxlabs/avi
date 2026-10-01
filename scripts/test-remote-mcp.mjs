@@ -55,7 +55,9 @@ let remoteBots = [{
   conversation: null,
 }];
 const botOperations = [];
+const seenConversations = [];
 const server = new RemoteMcpServer({
+  onSeen: (conversationId) => seenConversations.push(conversationId),
   chatRunner: {
     runs: new Map(),
     reloadSnapshot: () => ({
@@ -112,7 +114,7 @@ const server = new RemoteMcpServer({
     if (['app:update-state', 'app:check-for-updates', 'app:install-update'].includes(channel)) {
       return { status: channel === 'app:install-update' ? 'installing' : 'available', available: true };
     }
-    if (channel === 'conversations:list') return [{ id: 'rpc-thread' }];
+    if (channel === 'conversations:list') return [{ id: 'rpc-thread', needsAttention: true }];
     if (channel === 'conversations:messages') {
       const messages = [1, 2, 3].map((number) => ({ id: `message-${number}`, conversationId: 'rpc-thread' }));
       const end = payload.cursor
@@ -276,6 +278,7 @@ try {
       'bots_send_work_log_message',
       'bots_update',
       'chat_create_thread',
+      'chat_export_thread',
       'chat_inspect_thread',
       'chat_interrupt_thread',
       'chat_list_folders',
@@ -474,7 +477,7 @@ try {
     defaultModels: preferences.defaultModels,
     messageDeliveryMode: 'steer',
   });
-  assert.deepEqual((await callRpc(globalSocket, 'conversations:list')).result, [{ id: 'rpc-thread' }]);
+  assert.deepEqual((await callRpc(globalSocket, 'conversations:list')).result, [{ id: 'rpc-thread', needsAttention: true }]);
   assert.deepEqual((await callRpc(globalSocket, 'tags:list')).result, {
     tags: [{ id: 'review', name: 'Review', color: '#e3b341' }],
   });
@@ -491,6 +494,19 @@ try {
   assert.deepEqual((await callRpc(globalSocket, 'sidebar:mark-seen', { conversationId: 'rpc-thread' })).result, {
     completedUnseenConversationIds: [],
   });
+  assert.deepEqual(seenConversations, ['rpc-thread']);
+  assert.deepEqual((await callRpc(globalSocket, 'conversations:list')).result, [{ id: 'rpc-thread', needsAttention: false }]);
+  for (const listener of chatEventListeners) {
+    listener({ type: 'run-state', conversationId: 'rpc-thread', running: true });
+  }
+  assert.deepEqual((await callRpc(globalSocket, 'conversations:list')).result, [{ id: 'rpc-thread', needsAttention: true }]);
+  for (const listener of chatEventListeners) {
+    listener({ type: 'run-state', conversationId: 'rpc-thread', running: false });
+  }
+  server.markSeen('rpc-thread');
+  assert.deepEqual(server.sidebarStatus().completedUnseenConversationIds, []);
+  assert.deepEqual(seenConversations, ['rpc-thread'], 'desktop acknowledgements must not echo to the renderer');
+  assert.deepEqual((await callRpc(globalSocket, 'conversations:list')).result, [{ id: 'rpc-thread', needsAttention: false }]);
   assert.match((await callRpc(globalSocket, 'sidebar:mark-seen', {})).error.data.message, /^sidebar:mark-seen requires/);
   for (const listener of chatEventListeners) {
     listener({ type: 'run-state', conversationId: 'tracker-thread', running: false });
@@ -523,6 +539,22 @@ try {
   const oversizedClose = new Promise((resolveClose) => oversizedSocket.once('close', resolveClose));
   oversizedSocket.send(Buffer.alloc(1024 * 1024 + 1));
   assert.equal(await oversizedClose, 1009);
+
+  const cancelledEventSocket = await openSocket('/rpc/conversations/streams/cancelled-event-thread');
+  await nextSocketEvent(cancelledEventSocket);
+  const eventRejected = new Promise((resolveRejected) => {
+    socketInboxes.get(cancelledEventSocket).peer.onError = resolveRejected;
+  });
+  socketInboxes.get(cancelledEventSocket).peer.onRequest = () => {
+    throw new Error('Event expired while the client was suspended.');
+  };
+  for (const listener of chatEventListeners) {
+    listener({ type: 'message', conversationId: 'cancelled-event-thread', message: { id: 'expired' } });
+  }
+  assert.match((await eventRejected).message, /Event expired/);
+  assert.ok((await callRpc(cancelledEventSocket, 'rpc:discover')).result);
+  assert.equal(cancelledEventSocket.readyState, WebSocket.OPEN, 'a cancelled event must not close the channel');
+  await closeSocket(cancelledEventSocket);
 
   const streamSocket = await openSocket('/rpc/conversations/streams/rpc-thread');
   const readyEvent = await nextSocketEvent(streamSocket);
@@ -635,6 +667,9 @@ try {
     { channel: 'conversations:list', payload: undefined },
     { channel: 'tags:list', payload: undefined },
     { channel: 'tags:save', payload: { tags: [{ id: 'kept', name: 'Kept', color: '#FFAA00' }] } },
+    { channel: 'conversations:list', payload: undefined },
+    { channel: 'conversations:list', payload: undefined },
+    { channel: 'conversations:list', payload: undefined },
     { channel: 'conversations:messages', payload: { limit: 2, cursor: undefined, conversationId: 'rpc-thread' } },
     {
       channel: 'conversations:messages',

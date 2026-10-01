@@ -21,6 +21,7 @@ import {
   relative,
   resolve,
 } from 'node:path';
+import { defaultMediaSizeLimit, mediaSizeLimitOptions } from '../shared/attachments.js';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import { normalizeDefaultModels } from './default-models.js';
 import { searchChatsIn } from './search-core.js';
@@ -58,6 +59,7 @@ const defaultTuningSettings = Object.freeze({
   continuationRepliesEnabled: true,
   automaticCompactionThreshold: 0.9,
   toolOutputLimit: 8_192,
+  mediaSizeLimit: defaultMediaSizeLimit,
   defaultPermissionMode: 'approve_for_me',
   messageDeliveryMode: 'queue',
   terminalShell: 'auto',
@@ -1119,6 +1121,7 @@ const statements = {
   getBotByConversation: db.prepare('SELECT * FROM bots WHERE conversation_id = ?'),
   listBots: db.prepare('SELECT * FROM bots ORDER BY created_at ASC'),
   deleteBot: db.prepare('DELETE FROM bots WHERE id = ?'),
+  updateBotConversation: db.prepare('UPDATE bots SET conversation_id = ?, updated_at = ? WHERE id = ?'),
   hardDeleteConversation: db.prepare('DELETE FROM conversations WHERE id = ?'),
   hardDeleteChildConversations: db.prepare(`
     DELETE FROM conversations
@@ -2303,6 +2306,11 @@ export function getBotByConversation(conversationId) {
   return row ? mapBot(row) : null;
 }
 
+export function setBotConversation(id, conversationId) {
+  statements.updateBotConversation.run(conversationId, timestamp(), id);
+  return getBot(id);
+}
+
 export function listBots() {
   return statements.listBots.all().map(mapBot);
 }
@@ -2378,6 +2386,9 @@ export function restoreConversation(id) {
 }
 
 export function deleteConversation(id, { hard = false } = {}) {
+  if (statements.getBotByConversation.get(id)) {
+    throw new Error('This thread belongs to a bot. Delete the bot instead.');
+  }
   if (hard) {
     statements.hardDeleteConversation.run(id);
     return;
@@ -3475,6 +3486,9 @@ function normalizeTuningSettings(value, strict = false) {
   const toolOutputLimit = tuning.toolOutputLimit === null
     ? null
     : Number(tuning.toolOutputLimit);
+  const mediaSizeLimit = tuning.mediaSizeLimit === null
+    ? null
+    : Number(tuning.mediaSizeLimit);
   const terminalTimeoutSeconds = Number(tuning.terminalTimeoutSeconds);
   const maxConcurrentSubagents = Number(tuning.maxConcurrentSubagents);
   const rubberDuckMaxTurns = Number(tuning.rubberDuckMaxTurns);
@@ -3499,6 +3513,9 @@ function normalizeTuningSettings(value, strict = false) {
     toolOutputLimit: [4_096, 8_192, 32_768, null].includes(toolOutputLimit)
       ? toolOutputLimit
       : defaultTuningSettings.toolOutputLimit,
+    mediaSizeLimit: mediaSizeLimitOptions.some((option) => option.value === mediaSizeLimit)
+      ? mediaSizeLimit
+      : defaultTuningSettings.mediaSizeLimit,
     defaultPermissionMode: [
       'ask_for_approval',
       'approve_for_me',

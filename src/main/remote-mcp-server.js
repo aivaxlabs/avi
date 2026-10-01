@@ -33,6 +33,7 @@ const REMOTE_TOOL_NAMES = new Set([
   'chat_send_prompt',
   'chat_interrupt_thread',
   'chat_inspect_thread',
+  'chat_export_thread',
 ]);
 const GLOBAL_RPC_METHODS = new Set([
   'rpc:discover',
@@ -141,7 +142,7 @@ const rpcError = (id, code, message, data) => ({
 const socketSend = (socket, value) => {
   const content = JSON.stringify({ eventId: crypto.randomUUID(), expiresAt: Date.now() + 180_000, params: value.params });
   socket.orpc.call(value.method.replace(':', '.'), new TextEncoder().encode(content)).catch((error) => {
-    if (error?.code !== 'CANCELLED' || !socket.orpc.closing) socket.close?.(1013, 'Event delivery incomplete');
+    if (error?.code !== 'CANCELLED') socket.close?.(1013, 'Event delivery incomplete');
   });
 };
 
@@ -163,6 +164,7 @@ export class RemoteMcpServer {
     getInstanceId = () => null,
     invokeApplicationRequest,
     subscribeChatEvents,
+    onSeen = () => {},
     resolveConversationProjectPath,
   }) {
     this.chatRunner = chatRunner;
@@ -173,14 +175,17 @@ export class RemoteMcpServer {
     this.getInstanceId = getInstanceId;
     this.invokeApplicationRequest = invokeApplicationRequest;
     this.subscribeChatEvents = subscribeChatEvents;
+    this.onSeen = onSeen;
     this.resolveConversationProjectPath = resolveConversationProjectPath;
     this.server = null;
     this.webSocketServer = null;
     this.port = null;
     this.completedUnseenConversationIds = new Set();
+    this.attentionSeenConversationIds = new Set();
     this.rpcOperations = new Map();
     this.subscribeChatEvents((event) => {
       if (event?.type !== 'run-state' || !event.conversationId) return;
+      if (event.running) this.attentionSeenConversationIds.delete(event.conversationId);
       if (event.running || event.stoppedByUser) {
         this.completedUnseenConversationIds.delete(event.conversationId);
       } else if (!event.sleeping) {
@@ -513,13 +518,21 @@ export class RemoteMcpServer {
         if (typeof conversationId !== 'string' || !conversationId) {
           throw new Error('sidebar:mark-seen requires a conversationId string.');
         }
-        this.completedUnseenConversationIds.delete(conversationId);
+        this.markSeen(conversationId);
+        this.onSeen(conversationId);
         return {
           result: { completedUnseenConversationIds: [...this.completedUnseenConversationIds] },
         };
       }
       const payload = preparePayload(request.method, rawPayload);
       let result = await this.invokeApplicationRequest(request.method, payload);
+      if (request.method === 'conversations:list' && Array.isArray(result)) {
+        result = result.map((conversation) => (
+          this.attentionSeenConversationIds.has(conversation.id)
+            ? { ...conversation, needsAttention: false }
+            : conversation
+        ));
+      }
       if (request.method === 'context:commands') {
         result = result.filter((command) => command.type !== 'interceptor');
       }
@@ -545,6 +558,11 @@ export class RemoteMcpServer {
         ...(error?.status === undefined ? {} : { status: error.status }),
       });
     }
+  }
+
+  markSeen(conversationId) {
+    this.completedUnseenConversationIds.delete(conversationId);
+    this.attentionSeenConversationIds.add(conversationId);
   }
 
   sidebarStatus() {

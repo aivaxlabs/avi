@@ -21,8 +21,23 @@ When a sub-agent completes or fails, Avi automatically steers a `<subagent_repor
 - `chat_send_prompt` — sends a prioritized message by default; `low_priority` queues it behind active work;
 - `chat_approve_tool_call` — allows a direct orchestrator to approve one pending tool call in its sub-agent by approval ID;
 - `chat_interrupt_thread` — interrupts at the next safe boundary without stopping child agents, background processes, or queued prompts;
-- `chat_inspect_thread` — returns the latest four turns, pending approval IDs, and waiting state without exposing reasoning;
-- `chat_list_threads`, `chat_list_thread_context`, and `chat_list_folders` — discover available threads, teams, and folders.
+- `chat_inspect_thread` — returns the latest four turns, pending approval IDs, and waiting state without exposing reasoning, and truncates long output;
+- `chat_export_thread` — writes the entire thread to a temporary folder (`metadata.json`, a delimited `transcript.md`, a structured `transcript.json`, and an `attachments/` folder) with full reasoning, content, tool calls, complete arguments, results, and media, and nothing truncated. Use it only when `chat_inspect_thread` cannot provide the needed detail, then open the files with `read_file`;
+- `chat_list_threads`, `chat_list_thread_context`, and `chat_list_folders` — discover available threads, teams, and folders;
+- `sleep(seconds, releaseTriggers?)` — waits 5–3600 seconds in the current conversation, then reports this conversation's terminals and direct sub-agents.
+
+`releaseTriggers` accepts up to 20 strings. The sleep ends at the timeout or as soon as any trigger is satisfied, including one already satisfied when the call starts; the result reports `Released by: <trigger>` or `Released by: timeout`. Invalid or unknown triggers fail before waiting. Conditions are checked every 500 ms.
+
+| Trigger | Released when |
+| --- | --- |
+| `after_thread_stop:<thread_id>` | The thread is not running, not waiting for input, and not waiting for a semaphore. |
+| `after_thread_input_required:<thread_id>` | The thread waits for a structured answer or a tool approval. |
+| `after_subagents_stop` | Every direct sub-agent of the current conversation has stopped. |
+| `after_process_killed:<terminal_id\|pid>` | The `run_in_terminal` execution has exited, or the given OS process ID no longer exists. |
+| `after_process_output:<terminal_id\|pid>` | The `run_in_terminal` execution printed output after the sleep started. |
+| `after_process_input_required:<terminal_id\|pid>` | Heuristic: the running `run_in_terminal` execution has been silent for 1.5 seconds and its last output does not end with a newline, as in an interactive prompt. |
+
+Only `after_process_killed` accepts a PID outside Avi's terminals; the other process triggers require a terminal started by `run_in_terminal`, identified by terminal ID or its shell PID.
 
 Threads waiting for a structured answer or tool permission report `waiting_for_input`. The direct orchestrator can inspect a sub-agent to find a pending approval ID and approve only that call; it cannot grant a persistent `allow_all` permission, and approval is unavailable in Plan mode. A prioritized message supersedes a pending structured question. Use it for urgent corrections; use low priority for normal coordination.
 

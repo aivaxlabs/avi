@@ -3,6 +3,7 @@
 ## [Canary]
 
 ### Added
+- **Per-model media size limit** — `ModelConfig` accepts optional `mediaSizeLimit` (`5242880`, `10485760`, `20971520`, `104857600`, or `null` for no limit); omitting it inherits the global Tuning limit. Other values fail provider normalization. Compatibility: Backward compatible; supports API v2.
 - **Provider harness capabilities** — provider type descriptors accept optional `harness` (`session`, `retries`, `compaction`, `instructions`, `toolExecution`); `types.list()` returns the normalized object. Stateful providers may implement `releaseSession({ provider, conversationId, reason, services })`, which Avi calls after compaction, and static provider contributions accept that handler. Providers declaring `retries: 'provider'` get one attempt in normal chats. Tool execution and compaction can only be `avi`; unknown capabilities or values fail registration. Omitting `harness` keeps the previous behavior. Compatibility: Backward compatible; supports API v2.
 - **Provider streaming state and managed login input** — `eventsFrom(payload, state)` receives isolated per-attempt parser state; managed connections can request a masked secret field, such as an authorization code or API key, and a secondary action. Existing handlers remain valid. Compatibility: Backward compatible; supports API v2.
 - **Bot execution-mode override** — bot create/update and persisted snapshots accept nullable `executionMode` (`direct` or `orchestrator`); null inherits the existing global bot preference. Compatibility: Backward compatible; supports API v2.

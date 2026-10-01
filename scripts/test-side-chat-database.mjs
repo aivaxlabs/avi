@@ -41,6 +41,7 @@ try {
     continuationRepliesEnabled: true,
     automaticCompactionThreshold: 0.9,
     toolOutputLimit: 8_192,
+    mediaSizeLimit: 10 * 1024 * 1024,
     defaultPermissionMode: 'approve_for_me',
     messageDeliveryMode: 'queue',
     terminalShell: 'auto',

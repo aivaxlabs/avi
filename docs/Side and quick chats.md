@@ -12,7 +12,7 @@ Side Chat and Quick Chat are both temporary surfaces, but they have different st
 | Visibility | Private and absent from the orchestration team directory | Absent from conversations, search, and Archive |
 | Closing | Interrupts and hard-deletes the child thread | Discards the in-memory session |
 | Initial model | Inherited from the fork | Requires a configured Quick chat model |
-| Tool permissions | Has its own composer state | Available tools run in Full access without approval dialogs |
+| Tool permissions | Has its own composer state; approvals appear inline in its panel | Available tools run in Full access without approval cards |
 
 ## Side Chat
 
@@ -30,7 +30,7 @@ First select **Settings → Models → Auxiliar models → Quick chat model**. T
 
 Open **Quick chat** from the Sidebar or tray. The window supports model switching, attachments and drag-and-drop, audio recording, stopping a response, and answering structured questions. Its conversation disappears when the window closes and is never added to Archive or conversation search.
 
-Quick Chat uses `$HOME` as the tool and MCP workspace. Although its instructions emphasize speed and restraint, all available normal tools, provider tools, and MCP tools run in Full access without approval dialogs. Ephemeral storage does not mean the session cannot cause external effects; review the requested work and configured integrations before using Quick Chat.
+Quick Chat uses `$HOME` as the tool and MCP workspace. Although its instructions emphasize speed and restraint, all available normal tools, provider tools, and MCP tools run in Full access without approval cards. Ephemeral storage does not mean the session cannot cause external effects; review the requested work and configured integrations before using Quick Chat.
 
 Quick Chat can implement changes, edit files, execute scripts or commands, and perform operations, including on external systems, when you explicitly request them. A question or discussion alone does not authorize actions. An explicit request covers the tool steps needed to complete it; you do not need to name each tool or move the work to a full thread. Quick Chat can inspect threads across all folders, but it is not focused on any single thread, and it directs main threads or their sub-agents only when explicitly asked to. Answers stay concise without leaving requested work unfinished.
 

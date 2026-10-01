@@ -81,13 +81,16 @@ const mimeTypes = {
   '.pdf': 'application/pdf',
 };
 
-export function filePathToAttachment(filePath, { deferImageContent = false } = {}) {
+export function filePathToAttachment(filePath, {
+  deferImageContent = false,
+  contentSizeLimit = attachmentContentSizeLimit,
+} = {}) {
   const path = realpathSync.native(filePath);
   const ext = extname(path).toLowerCase();
   const name = basename(path);
   const mime = mimeTypes[ext] ?? 'application/octet-stream';
   const size = statSync(path).size;
-  if (size > attachmentContentSizeLimit) {
+  if (size > contentSizeLimit) {
     return makeAttachment({ name, mime, size, kind: 'file_reference', path });
   }
   if (videoExtensions.has(ext)) {
@@ -112,7 +115,7 @@ export function filePathToAttachment(filePath, { deferImageContent = false } = {
   return makeAttachment({ name, mime, size: buffer.length, kind: 'file', path, dataUrl });
 }
 
-export async function normalizeAttachmentsForModel(attachments, capabilities = {}) {
+export async function normalizeAttachmentsForModel(attachments, capabilities = {}, mediaSizeLimit = null) {
   return Promise.all(attachments.map(async (originalAttachment) => {
     let attachment = originalAttachment;
     if (
@@ -131,10 +134,31 @@ export async function normalizeAttachmentsForModel(attachments, capabilities = {
       };
     }
 
+    if (
+      attachment.kind === 'file_reference'
+      && attachment.source !== 'pasted_text'
+      && typeof attachment.path === 'string'
+      && attachment.size > attachmentContentSizeLimit
+      && (mediaSizeLimit === null || attachment.size <= mediaSizeLimit)
+      && /^(image|video|audio)\/|^application\/pdf$/.test(attachment.mime ?? '')
+    ) {
+      const { id, source } = attachment;
+      attachment = {
+        ...filePathToAttachment(attachment.path, {
+          deferImageContent: true,
+          contentSizeLimit: mediaSizeLimit ?? Infinity,
+        }),
+        id,
+        ...(source ? { source } : {}),
+      };
+    }
+
     if (attachment.kind === 'video_url') {
       attachment = await materializeVideoAttachment(attachment);
     }
 
+    const withinMediaSizeLimit = mediaSizeLimit === null
+      || (attachment.size ?? attachmentToBuffer(attachment)?.length ?? 0) <= mediaSizeLimit;
     const supported = attachment.kind === 'context_marker'
       || attachment.kind === 'file_reference'
       || (
@@ -142,14 +166,16 @@ export async function normalizeAttachmentsForModel(attachments, capabilities = {
         && attachment.source !== 'pasted_text'
         && (attachment.size ?? Buffer.byteLength(attachment.text ?? '', 'utf8')) <= inlineTextAttachmentSizeLimit
       )
-      || (attachment.kind === 'image_url' && capabilities.images)
-      || (attachment.kind === 'video_url' && capabilities.video)
-      || (attachment.kind === 'input_audio' && capabilities.audio)
-      || (
-        attachment.kind === 'file'
-        && attachment.mime === 'application/pdf'
-        && capabilities.pdfFiles
-      );
+      || (withinMediaSizeLimit && (
+        (attachment.kind === 'image_url' && capabilities.images)
+        || (attachment.kind === 'video_url' && capabilities.video)
+        || (attachment.kind === 'input_audio' && capabilities.audio)
+        || (
+          attachment.kind === 'file'
+          && attachment.mime === 'application/pdf'
+          && capabilities.pdfFiles
+        )
+      ));
     if (supported) return attachment;
 
     const materialized = await materializeAttachment(attachment);

@@ -40,6 +40,7 @@ import {
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import aviIconUrl from '../../../assets/icon/avi.png';
+import { mediaSizeLimitOptions } from '../../shared/attachments.js';
 import { classNames } from '../lib/format.js';
 import { intelligenceLevelLimits, titleCaseEffort } from '../lib/models.js';
 import { AivaxFeaturesSettings } from './AivaxFeaturesSettings.jsx';
@@ -2294,6 +2295,28 @@ export function SettingsPage({
                       </small>
                     </label>
                     <label className="settings-field settings-field-wide">
+                      <span>Media size limit</span>
+                      <select
+                        value={tuningDraft.mediaSizeLimit ?? 'none'}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            mediaSizeLimit: event.target.value === 'none'
+                              ? null
+                              : Number(event.target.value),
+                          }));
+                        }}
+                      >
+                        {mediaSizeLimitOptions.map((option) => (
+                          <option key={option.label} value={option.value ?? 'none'}>{option.label}</option>
+                        ))}
+                      </select>
+                      <small>
+                        Largest image, video, audio, or PDF sent inline from chat attachments or read_media_file. Larger attachments are sent as file paths. Models can override this limit.
+                      </small>
+                    </label>
+                    <label className="settings-field settings-field-wide">
                       <span>Terminal timeout</span>
                       <input
                         type="number"
@@ -2954,6 +2977,31 @@ export function SettingsPage({
                         })}
                         placeholder="16384"
                       />
+                    </label>
+                    <label className="settings-field">
+                      <span>Media size limit</span>
+                      <select
+                        value={modelDraft.mediaSizeLimit === undefined
+                          ? 'global'
+                          : modelDraft.mediaSizeLimit ?? 'none'}
+                        onChange={(event) => {
+                          const { mediaSizeLimit: _mediaSizeLimit, ...current } = modelDraft;
+                          setModelDraft(event.target.value === 'global'
+                            ? current
+                            : {
+                                ...current,
+                                mediaSizeLimit: event.target.value === 'none'
+                                  ? null
+                                  : Number(event.target.value),
+                              });
+                        }}
+                      >
+                        <option value="global">Use Tuning setting</option>
+                        {mediaSizeLimitOptions.map((option) => (
+                          <option key={option.label} value={option.value ?? 'none'}>{option.label}</option>
+                        ))}
+                      </select>
+                      <small>Largest media file sent inline to this model.</small>
                     </label>
                   </div>
                   <div className="model-options-row">

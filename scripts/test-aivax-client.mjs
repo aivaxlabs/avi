@@ -262,6 +262,19 @@ try {
     writeFileSync(path, contents);
     return { path, contents, type };
   });
+  await assert.rejects(
+    readMediaFile.execute({ path: mediaFixtures[0].path }, {
+      capabilities: { images: true },
+      mediaSizeLimit: 2,
+    }),
+    /exceeds the .* MB media size limit/,
+  );
+  assert.equal(await readMediaFile.execute({ path: mediaFixtures[0].path }, {
+    aivax: { connected: true, mediaDescriptionsEnabled: true },
+    capabilities: { images: true },
+    mediaSizeLimit: 2,
+    requestAivax: async () => ({ data: [{ textContent: 'Described oversized image.' }] }),
+  }), JSON.stringify({ textContent: 'Described oversized image.' }));
   const mediaRequests = [];
   for (const fixture of mediaFixtures) {
     assert.equal(await readMediaFile.execute({ path: fixture.path, extractionGuidance: 'Focus on visible text.' }, {

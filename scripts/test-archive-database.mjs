@@ -530,9 +530,11 @@ try {
 
   deleteConversation(crossingCutoff.id, { hard: true });
   deleteConversation(disposableParent.id, { hard: true });
-  deleteConversation(botConversation.id, { hard: true });
-  deleteConversation(boundaryConversation.id, { hard: true });
-  deleteConversation(forcedRetentionConversation.id, { hard: true });
+  assert.throws(() => deleteConversation(botConversation.id, { hard: true }), /belongs to a bot/);
+  for (const conversation of [botConversation, boundaryConversation, forcedRetentionConversation]) {
+    database.deleteBot(database.getBotByConversation(conversation.id).id);
+    deleteConversation(conversation.id, { hard: true });
+  }
   assert.equal(getArchiveStats().total, 0);
   sqlite.close();
   console.log('Conversation archive database flow passed.');

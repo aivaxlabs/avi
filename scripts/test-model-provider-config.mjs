@@ -38,6 +38,15 @@ const providerInput = {
 };
 
 const normalized = registry.normalizeConfig(providerInput);
+assert.equal('mediaSizeLimit' in normalized.models[0], false);
+assert.equal(registry.normalizeConfig({
+  ...providerInput,
+  models: [{ ...providerInput.models[0], mediaSizeLimit: null }],
+}).models[0].mediaSizeLimit, null);
+assert.throws(() => registry.normalizeConfig({
+  ...providerInput,
+  models: [{ ...providerInput.models[0], mediaSizeLimit: 123 }],
+}), /media size limit/);
 assert.equal(normalized.models[0].instanceId, 'gpt-5.6-sol');
 assert.notEqual(normalized.models[1].instanceId, 'gpt-5.6-sol');
 assert.notEqual(normalized.models[0].instanceId, normalized.models[1].instanceId);
@@ -222,6 +231,20 @@ for (const api of [chatCompletionsApi, responsesApi]) {
   });
   assert.equal(configuredBody.temperature, 0.7);
   assert.equal(configuredBody.top_k, 40);
+
+  const outputField = api === chatCompletionsApi ? 'max_completion_tokens' : 'max_output_tokens';
+  assert.equal(configuredBody[outputField], 128_000);
+
+  const unlimitedBody = await api.createBody({
+    provider: provider.config,
+    model: { ...models[0], context: { input: 400_000, output: null } },
+    messages: [{ role: 'user', content: 'Hello' }],
+    reasoningEffort: null,
+    tools: [],
+    toolHistory: [],
+    invocationContext: { auxiliary: true },
+  });
+  assert.equal(Object.hasOwn(unlimitedBody, outputField), false);
 }
 
 assert.throws(

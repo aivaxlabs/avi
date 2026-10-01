@@ -882,14 +882,7 @@ export function Composer({
     input.value = String(position);
     slider.style.setProperty('--intelligence-fill', `${ratio * 100}%`);
     slider.style.setProperty('--intelligence-thumb-offset', `${13 - (ratio * 26)}px`);
-    slider.style.setProperty(
-      '--intelligence-shimmer-opacity',
-      position === maxIntelligenceIndex ? '0.72' : '0',
-    );
-    slider.style.setProperty(
-      '--intelligence-shimmer-play-state',
-      position === maxIntelligenceIndex ? 'running' : 'paused',
-    );
+    slider.toggleAttribute('data-max', position === maxIntelligenceIndex);
   }
 
   useEffect(() => {
@@ -2234,13 +2227,10 @@ export function Composer({
               >
                 <div
                   className="intelligence-slider"
+                  data-max={committedIntelligenceIndex === maxIntelligenceIndex || undefined}
                   style={{
                     '--intelligence-fill': `${sliderFillPercent}%`,
                     '--intelligence-thumb-offset': `${sliderThumbOffset}px`,
-                    '--intelligence-shimmer-opacity': committedIntelligenceIndex
-                      === maxIntelligenceIndex ? '0.72' : '0',
-                    '--intelligence-shimmer-play-state': committedIntelligenceIndex
-                      === maxIntelligenceIndex ? 'running' : 'paused',
                   }}
                 >
                   <span className="intelligence-slider-track" aria-hidden="true" />

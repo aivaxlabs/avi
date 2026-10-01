@@ -403,12 +403,14 @@ async function requestOpenAiSubscription({
   services,
 }) {
   const sessionId = invocationContext.conversationId ?? randomUUID();
+  // The ChatGPT Codex backend rejects max_output_tokens.
+  const { max_output_tokens: _maxOutputTokens, ...codexBody } = body;
   const requestBody = {
-    ...body,
-    ...(body.reasoning
-      ? { reasoning: { ...body.reasoning, summary: 'auto' } }
+    ...codexBody,
+    ...(codexBody.reasoning
+      ? { reasoning: { ...codexBody.reasoning, summary: 'auto' } }
       : {}),
-    instructions: body.instructions ?? '',
+    instructions: codexBody.instructions ?? '',
     tool_choice: 'auto',
     parallel_tool_calls: true,
     include: ['reasoning.encrypted_content'],

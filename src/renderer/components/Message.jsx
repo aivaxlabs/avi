@@ -12,6 +12,7 @@ import {
   FileDiff,
   FilePenLine,
   FileText,
+  FolderDown,
   FolderOpen,
   FolderTree,
   GitFork,
@@ -88,6 +89,7 @@ const fileReferenceUrlTransform = (url) => /^file:\/\//i.test(url) ? url : defau
 const TOOL_ICONS = Object.freeze({
   ask_question: CircleHelp,
   chat_create_thread: MessageSquarePlus,
+  chat_export_thread: FolderDown,
   chat_inspect_thread: ScanSearch,
   chat_interrupt_thread: CircleStop,
   chat_list_folders: FolderTree,

@@ -943,6 +943,7 @@ try {
   );
   assert.equal(typeof sleepResult, 'string');
   assert.match(sleepResult, /Slept (?:4\.9\d|5(?:\.\d+)?) seconds\./);
+  assert.match(sleepResult, /Released by: timeout/);
   assert.match(sleepResult, /Woke at: .*\d/);
   assert.match(sleepResult, /Terminals:\nNone\./);
   assert.match(sleepResult, /Sub-agents:\nNone\./);
@@ -954,6 +955,49 @@ try {
   await assert.rejects(
     sleep.execute({ seconds: 3_601 }, { conversationId: 'sleep-owner' }),
     /seconds must be a number from 5 to 3600/,
+  );
+
+  const triggerThread = createConversation({ model: model.id, projectPath: process.cwd() });
+  const triggerRuns = new Map([[triggerThread.id, {}]]);
+  const triggerRunner = {
+    runs: triggerRuns,
+    semaphores: { waitSnapshot: () => null },
+    getPendingQuestion: () => null,
+    getPendingApprovals: () => [],
+  };
+  setTimeout(() => triggerRuns.delete(triggerThread.id), 300);
+  const threadTriggerStartedAt = Date.now();
+  const threadTriggerResult = await sleep.execute(
+    { seconds: 30, releaseTriggers: [`after_thread_stop:${triggerThread.id}`] },
+    { conversationId: 'sleep-owner', chatRunner: triggerRunner },
+  );
+  assert.ok(Date.now() - threadTriggerStartedAt < 5_000);
+  assert.match(threadTriggerResult, new RegExp(`Released by: after_thread_stop:${triggerThread.id}`));
+  const immediateResult = await sleep.execute(
+    { seconds: 30, releaseTriggers: ['after_subagents_stop'] },
+    { conversationId: 'sleep-owner', chatRunner: triggerRunner },
+  );
+  assert.match(immediateResult, /Released by: after_subagents_stop/);
+  await assert.rejects(
+    sleep.execute(
+      { seconds: 5, releaseTriggers: ['after_unknown:1'] },
+      { conversationId: 'sleep-owner', chatRunner: triggerRunner },
+    ),
+    /Unsupported release trigger/,
+  );
+  await assert.rejects(
+    sleep.execute(
+      { seconds: 5, releaseTriggers: ['after_thread_stop:missing-thread'] },
+      { conversationId: 'sleep-owner', chatRunner: triggerRunner },
+    ),
+    /thread was not found/,
+  );
+  await assert.rejects(
+    sleep.execute(
+      { seconds: 5, releaseTriggers: ['after_process_input_required:123'] },
+      { conversationId: 'sleep-owner', chatRunner: triggerRunner },
+    ),
+    /terminal started by run_in_terminal/,
   );
   const writeFileTool = clientTools.CLIENT_TOOLS.find((tool) => tool.name === 'write_file');
   const writtenFile = join(testProfile, 'written-by-tool.md');
@@ -990,6 +1034,30 @@ try {
   );
   assert.equal(typeof failedTerminal, 'string');
   assert.match(failedTerminal, /Exit code: 7/);
+
+  const shortTerminal = await runInTerminal.execute(
+    {
+      command: terminalShell.label === 'cmd.exe' ? 'ping -n 3 127.0.0.1 >NUL' : 'sleep 2',
+      explanation: 'Run a short background command.',
+      goal: 'Verify process release triggers.',
+      mode: 'async',
+      timeout: 1,
+    },
+    {
+      signal: new AbortController().signal,
+      workspacePath: process.cwd(),
+      conversationId: 'process-trigger-owner',
+    },
+  );
+  const shortTerminalId = shortTerminal.match(/Terminal ID: (\S+)/)[1];
+  const processTriggerStartedAt = Date.now();
+  const processTriggerResult = await sleep.execute(
+    { seconds: 60, releaseTriggers: [`after_process_killed:${shortTerminalId}`] },
+    { conversationId: 'process-trigger-owner', chatRunner: { runs: new Map() } },
+  );
+  assert.ok(Date.now() - processTriggerStartedAt < 30_000);
+  assert.match(processTriggerResult, /Released by: after_process_killed:/);
+  assert.match(processTriggerResult, /Status: completed/);
 
   if (process.platform === 'win32') {
     const originalShell = process.env.SHELL;

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 const root = join(tmpdir(), '.avi', 'visualizations', `${new Date().toISOString().slice(0, 16).replace('T', '-').replace(':', '-')}-UTC`, 'bot-admission');
 mkdirSync(root, { recursive: true });
@@ -79,8 +80,84 @@ try {
   assert.equal(manager.activationQueue.has(bots[1].id), false);
   assert.equal(database.getBotUsageMessages(7).length, 0);
   assert.ok(database.getBotUsageConversations().some((item) => item.id === bots[0].conversationId));
+
+  database.setBotSettings({ activationWindow: null, maxConcurrentBots: 3 });
+  for (const bot of bots) {
+    manager.chatRunner.runs.delete(database.getBot(bot.id).conversationId);
+    database.updateBotScheduler(bot.id, { activeAssistantMessageId: null });
+  }
+  manager.activationQueue.clear();
+
+  const worker = database.createConversation({
+    model: 'test:model',
+    parentConversationId: bots[2].conversationId,
+    createdBy: 'agent',
+  });
+  const nestedWorker = database.createConversation({
+    model: 'test:model',
+    parentConversationId: worker.id,
+    createdBy: 'agent',
+  });
+  manager.chatRunner.runs.set(nestedWorker.id, {});
+  const requestsBeforeBusy = requests.length;
+  assert.equal(await manager.activateBot(bots[2].id, { force: true }), null);
+  assert.equal(requests.length, requestsBeforeBusy);
+  assert.equal(manager.describeBots()[2].scheduleState, 'working');
+  manager.chatRunner.runs.delete(nestedWorker.id);
+  manager.chatRunner.semaphores = {
+    waitSnapshot: (conversationId) => (conversationId === bots[2].conversationId ? { position: 1 } : null),
+  };
+  assert.equal(await manager.activateBot(bots[2].id, { force: true }), null);
+  assert.equal(requests.length, requestsBeforeBusy);
+  delete manager.chatRunner.semaphores;
+
+  const lostThreadId = database.getBot(bots[1].id).conversationId;
+  assert.throws(() => database.deleteConversation(lostThreadId), /belongs to a bot/);
+  const sqlite = new DatabaseSync(join(process.env.USERPROFILE, '.aivax', 'aivax.sqlite'));
+  sqlite.prepare('UPDATE conversations SET deleted_at = ? WHERE id = ?').run(new Date().toISOString(), lostThreadId);
+  sqlite.close();
+  assert.equal(database.getConversation(lostThreadId), null);
+  database.updateBotScheduler(bots[1].id, { activeAssistantMessageId: 'lost-response' });
+  assert.equal(await manager.resumeInterruptedRun(database.getBot(bots[1].id)), false);
+  const recreated = database.getBot(bots[1].id);
+  assert.notEqual(recreated.conversationId, lostThreadId);
+  assert.equal(recreated.activeAssistantMessageId, null);
+  const recreatedThread = database.getConversation(recreated.conversationId);
+  assert.equal(recreatedThread.conversationType, 'bot');
+  assert.equal(recreatedThread.isBot, true);
+  assert.equal(database.getBotByConversation(recreatedThread.id).id, bots[1].id);
+  const repliesBefore = requests.length;
+  await manager.replyToPendency(bots[1].id, 'missing-pendency').catch(() => {});
+  assert.equal(database.getBot(bots[1].id).conversationId, recreated.conversationId);
+  assert.equal(requests.length, repliesBefore);
+
+  const pendencyRequests = requests.length;
+  const activationBot = await manager.createBotFromConfig({
+    name: 'Activation context',
+    model: 'test:model',
+    workQueue: ['Work'],
+    workingFolder: join(process.env.USERPROFILE, 'work'),
+  });
+  const previousTurn = database.insertMessage({
+    conversationId: activationBot.conversationId,
+    role: 'user',
+    content: 'previous activation',
+    status: 'completed',
+  });
+  database.insertMessage({
+    conversationId: activationBot.conversationId,
+    role: 'assistant',
+    content: 'previous answer',
+    status: 'completed',
+  });
+  await manager.activateBot(activationBot.id, { force: true });
+  assert.equal(requests.length, pendencyRequests + 1);
+  assert.equal(requests.at(-1).conversationId, activationBot.conversationId);
+  const modelMessages = database.toModelMessages(activationBot.conversationId);
+  assert.equal(modelMessages.some((message) => JSON.stringify(message).includes(previousTurn.content)), false);
+
   manager.stop();
-  console.log('Bot activation admission: passed (window, FIFO, no phantom messages, ongoing/resumed work, validation).');
+  console.log('Bot activation admission: passed (window, FIFO, no phantom messages, ongoing/resumed work, busy workers, thread recreation, activation context reset, validation).');
 } finally {
   database.closeDatabase();
 }

@@ -336,6 +336,7 @@ interface ModelConfig {
   };
   context: { input: number; output: number };
   reasoning: string[];
+  mediaSizeLimit?: 5242880 | 10485760 | 20971520 | 104857600 | null;
 }
 ```
 

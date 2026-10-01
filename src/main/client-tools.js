@@ -2,17 +2,19 @@ import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { diagnosticFetch as fetch } from './request-diagnostics.js';
 import {
+  mkdir,
   readFile,
   stat,
   writeFile,
 } from 'node:fs/promises';
-import { EOL } from 'node:os';
+import { EOL, tmpdir } from 'node:os';
 import {
   basename,
   extname,
   isAbsolute,
   resolve,
 } from 'node:path';
+import { defaultMediaSizeLimit } from '../shared/attachments.js';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import { AIVAX_LONG_INFERENCE_BASE_URL, requestAivax } from './aivax-client.js';
 import {
@@ -23,6 +25,7 @@ import {
   getConversation,
   getMessages,
   listAllConversations,
+  listTasks,
   listSubagents,
   updateConversation,
 } from './database.js';
@@ -39,6 +42,9 @@ const MAX_TERMINAL_TIMEOUT_SECONDS = 300;
 const DEFAULT_TERMINAL_TIMEOUT_SECONDS = 30;
 const MIN_SLEEP_SECONDS = 5;
 const MAX_SLEEP_SECONDS = 60 * 60;
+const MAX_SLEEP_RELEASE_TRIGGERS = 20;
+const SLEEP_TRIGGER_POLL_MS = 500;
+const TERMINAL_INPUT_IDLE_MS = 1_500;
 const MAX_INSPECTED_TURNS = 4;
 const MAX_ASSISTANT_MESSAGES_BEFORE_FINAL = 6;
 const ANSI_ESCAPE_SEQUENCE = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
@@ -93,6 +99,7 @@ function appendTerminalOutput(terminal, chunk) {
     terminal.output = terminal.output.slice(-MAX_TERMINAL_OUTPUT_CHARS);
     terminal.truncated = true;
   }
+  terminal.lastActivityAt = Date.now();
   terminal.events.emit('activity');
 }
 
@@ -173,6 +180,84 @@ async function waitForTerminal(terminal, { untilExit, timeout }) {
   });
 }
 
+const THREAD_EXPORT_DIRECTORY = resolve(tmpdir(), '.avi', 'thread-exports');
+const EXPORT_MIME_EXTENSIONS = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/avif': '.avif',
+  'image/bmp': '.bmp',
+  'video/mp4': '.mp4',
+  'video/webm': '.webm',
+  'video/quicktime': '.mov',
+  'audio/mpeg': '.mp3',
+  'audio/wav': '.wav',
+  'audio/mp4': '.m4a',
+  'audio/ogg': '.ogg',
+  'application/pdf': '.pdf',
+  'application/json': '.json',
+  'text/plain': '.txt',
+};
+
+const MEDIA_DESCRIPTIONS_SIZE_LIMIT = 20 * 1024 * 1024;
+
+function safeFileSegment(value, fallback) {
+  const normalized = basename(String(value ?? ''))
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
+    .trim();
+  return normalized || fallback;
+}
+
+export function normalizeQuestions(questions) {
+  if (!Array.isArray(questions) || questions.length === 0) {
+    throw new Error('questions must be a non-empty array.');
+  }
+
+  return questions.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`questions[${index}] must be an object.`);
+    }
+    if (!['single_choice', 'multiple_choice', 'free_text'].includes(item.type)) {
+      throw new Error(`questions[${index}].type is invalid.`);
+    }
+    const question = typeof item.question === 'string' ? item.question.trim() : '';
+    if (!question) {
+      throw new Error(`questions[${index}].question must be a non-empty string.`);
+    }
+    if (item.type === 'free_text') return { type: item.type, question };
+
+    if (item.options === undefined) {
+      throw new Error(`questions[${index}].options is required for ${item.type}.`);
+    }
+    const maxOptions = item.type === 'multiple_choice' ? 6 : 3;
+    if (!Array.isArray(item.options) || item.options.length < 1 || item.options.length > maxOptions) {
+      throw new Error(`questions[${index}].options must contain one to ${maxOptions} options for ${item.type}.`);
+    }
+    const options = item.options.map((option, optionIndex) => {
+      const isObject = option && typeof option === 'object' && !Array.isArray(option);
+      const label = typeof option === 'string'
+        ? option.trim()
+        : isObject && typeof option.label === 'string' ? option.label.trim() : '';
+      if (!label || (isObject && option.description !== undefined && typeof option.description !== 'string')) {
+        throw new Error(`questions[${index}].options[${optionIndex}] must be a non-empty string or an object with a non-empty label and an optional string description.`);
+      }
+      return { label, description: isObject ? (option.description ?? '').trim() : '' };
+    });
+    if (new Set(options.map((option) => option.label)).size !== options.length) {
+      throw new Error(`questions[${index}].options must have unique labels.`);
+    }
+    return {
+      type: item.type,
+      question,
+      options: options.map((option) => option.label),
+      ...(options.some((option) => option.description)
+        ? { optionDescriptions: options.map((option) => option.description) }
+        : {}),
+    };
+  });
+}
+
 export const CLIENT_TOOLS = Object.freeze([
   {
     name: 'get_chat_attachments',
@@ -241,6 +326,7 @@ export const CLIENT_TOOLS = Object.freeze([
     execute: async ({ path, extractionGuidance }, {
       aivax,
       capabilities = {},
+      mediaSizeLimit = defaultMediaSizeLimit,
       requestAivax: requestMediaDescription = requestAivax,
       signal,
       userAttachments = [],
@@ -249,17 +335,25 @@ export const CLIENT_TOOLS = Object.freeze([
         throw new Error('path must be an absolute file path.');
       }
 
+      const { size } = await stat(path);
+      const sizeMb = (size / 1024 / 1024).toFixed(1);
+      const directReadAllowed = mediaSizeLimit === null || size <= mediaSizeLimit;
+      const modelLimitMessage = `the ${mediaSizeLimit / 1024 / 1024} MB media size limit for the selected model`;
+
       const attachment = filePathToAttachment(path, {
         deferImageContent: capabilities.images === true,
+        contentSizeLimit: Math.max(mediaSizeLimit ?? Infinity, MEDIA_DESCRIPTIONS_SIZE_LIMIT),
       });
-      const supported = (attachment.kind === 'image_url' && capabilities.images)
+      const supported = directReadAllowed && (
+        (attachment.kind === 'image_url' && capabilities.images)
         || (attachment.kind === 'video_url' && capabilities.video)
         || (attachment.kind === 'input_audio' && capabilities.audio)
         || (
           attachment.kind === 'file'
           && attachment.mime === 'application/pdf'
           && capabilities.pdfFiles
-        );
+        )
+      );
       if (supported) {
         const alreadyInContext = userAttachments.some((contextAttachment) => (
           contextAttachment.kind === attachment.kind
@@ -279,6 +373,9 @@ export const CLIENT_TOOLS = Object.freeze([
         throw new Error('read_media_file does not read text files. Use read_file instead.');
       }
       if (aivax?.connected && aivax.mediaDescriptionsEnabled) {
+        if (size > MEDIA_DESCRIPTIONS_SIZE_LIMIT) {
+          throw new Error(`The media file is ${sizeMb} MB, which exceeds the 20 MB AIVAX Media Descriptions limit${directReadAllowed ? '' : ` and ${modelLimitMessage}`}. Reduce or compress the file before reading it.`);
+        }
         const audioFormat = extname(attachment.path).slice(1).toLowerCase();
         const videoDataUrl = attachment.kind === 'video_url'
           ? `data:${attachment.mime};base64,${(await readFile(attachment.path)).toString('base64')}`
@@ -330,6 +427,9 @@ export const CLIENT_TOOLS = Object.freeze([
             return JSON.stringify(response);
           }
         }
+      }
+      if (!directReadAllowed) {
+        throw new Error(`The media file is ${sizeMb} MB, which exceeds ${modelLimitMessage}. Reduce or compress the file before reading it.`);
       }
       if (attachment.kind === 'video_url') {
         throw new Error('The selected model does not expose video input capability.');
@@ -553,7 +653,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'ask_question',
-    description: 'Ask the user focused questions and wait for actual answers before continuing. Never infer or invent answers. Use options only for single_choice and multiple_choice questions.',
+    description: 'Ask the user focused questions and wait for actual answers before continuing. Never infer or invent answers. single_choice shows radio buttons (one answer), multiple_choice shows checkboxes (any number of answers), and free_text shows a text box. Each option is a short label, optionally with a Markdown description that explains its consequence. The user can always type an "Other" answer for choice questions.',
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
@@ -569,7 +669,7 @@ export const CLIENT_TOOLS = Object.freeze([
               type: {
                 type: 'string',
                 enum: ['single_choice', 'multiple_choice', 'free_text'],
-                description: 'Use free_text for an open answer without options. Use single_choice or multiple_choice when options are provided.',
+                description: 'single_choice: radio buttons, exactly one answer. multiple_choice: checkboxes, the user may select several options. free_text: open answer without options.',
               },
               question: {
                 type: 'string',
@@ -578,11 +678,18 @@ export const CLIENT_TOOLS = Object.freeze([
               options: {
                 type: 'array',
                 minItems: 1,
-                maxItems: 3,
-                description: 'Required for single_choice and multiple_choice. Omit for free_text.',
+                maxItems: 6,
+                description: 'Required for single_choice (up to 3) and multiple_choice (up to 6). Omit for free_text. Answers are returned as option labels.',
                 items: {
-                  type: 'string',
+                  type: ['string', 'object'],
                   minLength: 1,
+                  description: 'A label string, or an object with a label and an optional description.',
+                  properties: {
+                    label: { type: 'string', minLength: 1, description: 'Short option text returned as the answer.' },
+                    description: { type: 'string', description: 'Optional Markdown shown under the label.' },
+                  },
+                  required: ['label'],
+                  additionalProperties: false,
                 },
               },
             },
@@ -595,46 +702,9 @@ export const CLIENT_TOOLS = Object.freeze([
       additionalProperties: false,
     },
     execute: async ({ questions }, { chatRunner, conversationId, signal, workMode }) => {
-      if (!Array.isArray(questions) || questions.length === 0) {
-        throw new Error('questions must be a non-empty array.');
-      }
-
-      const normalizedQuestions = questions.map((item, index) => {
-        if (!item || typeof item !== 'object' || Array.isArray(item)) {
-          throw new Error(`questions[${index}] must be an object.`);
-        }
-        if (!['single_choice', 'multiple_choice', 'free_text'].includes(item.type)) {
-          throw new Error(`questions[${index}].type is invalid.`);
-        }
-        const question = typeof item.question === 'string' ? item.question.trim() : '';
-        if (!question) {
-          throw new Error(`questions[${index}].question must be a non-empty string.`);
-        }
-        if (item.type !== 'free_text') {
-          if (item.options === undefined) {
-            throw new Error(`questions[${index}].options is required for ${item.type}.`);
-          }
-          if (
-            !Array.isArray(item.options)
-            || item.options.length < 1
-            || item.options.length > 3
-            || item.options.some((option) => typeof option !== 'string' || !option.trim())
-          ) {
-            throw new Error(`questions[${index}].options must contain one to three non-empty strings.`);
-          }
-        }
-        return {
-          type: item.type,
-          question,
-          ...(item.type === 'free_text'
-            ? {}
-            : { options: item.options.map((option) => option.trim()) }),
-        };
-      });
-
       const result = await chatRunner.askQuestion({
         conversationId,
-        questions: normalizedQuestions,
+        questions: normalizeQuestions(questions),
         signal,
         workMode: workMode ?? null,
       });
@@ -1704,7 +1774,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'chat_inspect_thread',
-    description: 'Inspect the latest four turns and whether the thread is waiting for user input, without exposing assistant reasoning, tool calls, or tool results.',
+    description: 'Inspect the latest four turns and whether the thread is waiting for user input. Returns only final assistant text, pending approval IDs, and status, without reasoning, tool calls, tool arguments, or tool results, and long output is truncated. This is a fast, low-cost in-context peek; when you need reasoning, tool calls, complete arguments and results, attachments, or the entire history, use chat_export_thread instead.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -1803,11 +1873,336 @@ export const CLIENT_TOOLS = Object.freeze([
         .at(-1);
       if (
         status === 'idle'
+        && !conversation.isBot
         && ['aborted', 'error'].includes(lastMessage?.status)
       ) {
         deleteConversation(conversation.id);
       }
       return result;
+    },
+  },
+  {
+    name: 'chat_export_thread',
+    description: 'Export an entire thread to a temporary folder for deep inspection: metadata.json, a delimited transcript.md, a structured transcript.json, and an attachments/ folder. The transcript captures every message with reasoning, full content, tool calls including complete arguments and results, errors, and media, using explicit BEGIN/END delimiters per block, and nothing is truncated. Use this only when chat_inspect_thread cannot provide the needed detail; it writes files to disk instead of returning the transcript inline, so read the returned files with read_file.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        threadId: {
+          type: 'string',
+          description: 'The thread ID to export.',
+        },
+      },
+      required: ['threadId'],
+      additionalProperties: false,
+    },
+    execute: async ({ threadId }, { chatRunner, conversationId }) => {
+      const conversation = getConversation(String(threadId));
+      if (!conversation) throw new Error('The thread was not found.');
+      if (conversation.isSideChat && !getConversation(conversationId)?.isSideChat) {
+        throw new Error('Side chats are private to side-chat threads.');
+      }
+
+      const messages = getMessages(conversation.id);
+      const exportedAt = new Date().toISOString();
+      const exportDirectory = resolve(
+        THREAD_EXPORT_DIRECTORY,
+        `${exportedAt.replace(/[:.]/g, '-')}-${safeFileSegment(conversation.id, 'thread')}`,
+      );
+      const attachmentsDirectory = resolve(exportDirectory, 'attachments');
+      await mkdir(attachmentsDirectory, { recursive: true });
+
+      const attachmentManifest = [];
+      let storedCount = 0;
+      const store = async ({ path, base64, dataUrl, text, mime, name, kind }, fallbackName) => {
+        let buffer = null;
+        if (typeof path === 'string' && isAbsolute(path)) {
+          try {
+            buffer = await readFile(path);
+          } catch {
+            buffer = null;
+          }
+        }
+        if (!buffer) {
+          if (typeof text === 'string') buffer = Buffer.from(text, 'utf8');
+          else if (typeof base64 === 'string') buffer = Buffer.from(base64, 'base64');
+          else if (typeof dataUrl === 'string' && dataUrl.startsWith('data:')) {
+            const comma = dataUrl.indexOf(',');
+            if (comma >= 0) {
+              const encoded = dataUrl.slice(comma + 1);
+              buffer = dataUrl.slice(0, comma).endsWith(';base64')
+                ? Buffer.from(encoded, 'base64')
+                : Buffer.from(decodeURIComponent(encoded), 'utf8');
+            }
+          }
+        }
+        if (!buffer) return null;
+        const index = String(storedCount + 1).padStart(4, '0');
+        const baseName = safeFileSegment(name || fallbackName || kind || 'attachment', 'attachment');
+        const subtype = typeof mime === 'string'
+          ? mime.split('/')[1]?.split(';')[0]?.replace(/[^a-zA-Z0-9.-]/g, '').toLowerCase()
+          : '';
+        const extension = EXPORT_MIME_EXTENSIONS[mime] ?? (subtype ? `.${subtype}` : '.bin');
+        const fileName = extname(baseName)
+          ? `${index}-${baseName}`
+          : `${index}-${baseName}${extension}`;
+        await writeFile(resolve(attachmentsDirectory, fileName), buffer);
+        storedCount += 1;
+        const ref = `attachments/${fileName}`;
+        attachmentManifest.push({ ref, kind: kind ?? null, mime: mime ?? null });
+        return ref;
+      };
+
+      const exportedMessages = [];
+      for (const message of messages) {
+        const attachments = [];
+        for (const attachment of message.attachments ?? []) {
+          if (attachment.kind === 'context_marker') {
+            attachments.push({
+              kind: 'context_marker',
+              label: attachment.label ?? attachment.name ?? null,
+              text: attachment.text ?? '',
+              ref: null,
+            });
+            continue;
+          }
+          const ref = await store(
+            {
+              path: attachment.path,
+              base64: attachment.base64,
+              dataUrl: attachment.dataUrl,
+              text: attachment.text,
+              mime: attachment.mime,
+              name: attachment.name,
+              kind: attachment.kind,
+            },
+            attachment.name,
+          );
+          attachments.push({
+            kind: attachment.kind ?? null,
+            name: attachment.name ?? null,
+            mime: attachment.mime ?? null,
+            ref,
+          });
+        }
+
+        const segments = [];
+        for (const segment of message.segments ?? []) {
+          if (segment.type === 'reasoning' || segment.type === 'content') {
+            segments.push({ type: segment.type, status: segment.status ?? null, text: segment.text ?? '' });
+          } else if (segment.type === 'tool-call') {
+            const mediaContent = [];
+            for (const media of segment.mediaContent ?? []) {
+              const inner = media.image_url ?? media.video_url ?? media.input_audio ?? media.file ?? {};
+              const mediaDataUrl = typeof inner.url === 'string'
+                ? inner.url
+                : typeof inner.file_data === 'string' ? inner.file_data : undefined;
+              const mediaMime = inner.mime
+                ?? (typeof mediaDataUrl === 'string' ? mediaDataUrl.match(/^data:([^;,]+)/)?.[1] : undefined)
+                ?? (media.input_audio ? `audio/${inner.format ?? 'mp3'}` : undefined);
+              const ref = await store(
+                { path: inner.path, base64: inner.data, dataUrl: mediaDataUrl, mime: mediaMime, name: inner.filename, kind: media.type },
+                segment.name,
+              );
+              if (ref) mediaContent.push({ type: media.type ?? null, mime: mediaMime ?? null, ref });
+            }
+            segments.push({
+              type: 'tool-call',
+              name: segment.name ?? null,
+              callId: segment.callId ?? null,
+              status: segment.status ?? null,
+              invocationGoal: segment.invocationGoal ?? '',
+              requiresHumanApproval: segment.requiresHumanApproval ?? false,
+              isMcp: segment.isMcp ?? false,
+              mcpServerName: segment.mcpServerName ?? null,
+              argumentsText: segment.argumentsText ?? '',
+              hasResult: Object.hasOwn(segment, 'resultText'),
+              resultText: Object.hasOwn(segment, 'resultText') ? segment.resultText : null,
+              mediaContent,
+            });
+          } else if (segment.type === 'error') {
+            segments.push({ type: 'error', code: segment.code ?? null, message: segment.message ?? '' });
+          } else if (segment.type === 'context-compression') {
+            segments.push({
+              type: 'context-compression',
+              inputTokens: segment.inputTokens ?? null,
+              outputTokens: segment.outputTokens ?? null,
+            });
+          } else if (segment.type === 'provider-continuation') {
+            segments.push({
+              type: 'provider-continuation',
+              round: segment.round ?? null,
+              model: segment.model ?? null,
+              items: segment.items ?? [],
+            });
+          } else {
+            segments.push({ type: segment.type ?? 'unknown', status: segment.status ?? null });
+          }
+        }
+
+        exportedMessages.push({
+          id: message.id,
+          role: message.role,
+          status: message.status,
+          hidden: Boolean(message.hidden),
+          fromAgent: Boolean(message.fromAgent),
+          model: message.model ?? null,
+          createdAt: message.createdAt ?? null,
+          updatedAt: message.updatedAt ?? null,
+          content: message.content ?? '',
+          attachments,
+          segments,
+        });
+      }
+
+      const status = chatRunner
+        ? isThreadWaitingForInput(chatRunner, conversation.id)
+          ? 'waiting_for_input'
+          : chatRunner.semaphores?.waitSnapshot?.(conversation.id)
+            ? 'sleeping'
+            : chatRunner.runs?.has?.(conversation.id) ? 'running' : 'idle'
+        : 'unknown';
+      const roleOf = conversation.isSideChat ? 'side_chat'
+        : conversation.isSubagent ? 'subagent'
+          : conversation.isRubberDuck ? 'rubber_duck'
+            : conversation.isBot ? 'bot' : 'orchestrator';
+      const assistantCount = exportedMessages.filter((message) => message.role === 'assistant').length;
+      const userCount = exportedMessages.filter((message) => message.role === 'user').length;
+      const systemCount = exportedMessages.filter((message) => message.role === 'system').length;
+
+      const metadata = {
+        exportedAt,
+        thread: {
+          id: conversation.id,
+          title: conversation.title,
+          model: conversation.model,
+          conversationType: conversation.conversationType,
+          role: roleOf,
+          status,
+          createdBy: conversation.createdBy,
+          projectPath: conversation.projectPath,
+          parentConversationId: conversation.parentConversationId,
+          initialPrompt: conversation.initialPrompt,
+          orchestrationMode: conversation.orchestrationMode,
+          createdAt: conversation.createdAt,
+          updatedAt: conversation.updatedAt,
+          archivedAt: conversation.archivedAt,
+          goal: conversation.goal
+            ? {
+              specification: conversation.goal.specification,
+              status: conversation.goal.status,
+              resultSummary: conversation.goal.resultSummary ?? null,
+            }
+            : null,
+          tasks: listTasks(conversation.id),
+        },
+        counts: {
+          messages: exportedMessages.length,
+          assistant: assistantCount,
+          user: userCount,
+          system: systemCount,
+          attachments: storedCount,
+        },
+        attachments: attachmentManifest,
+        files: [
+          'metadata.json',
+          'transcript.md',
+          'transcript.json',
+          ...(storedCount > 0 ? ['attachments/'] : []),
+        ],
+      };
+
+      const rule = '='.repeat(80);
+      const transcriptLines = [
+        `# Thread export \u2014 ${conversation.title ?? '(untitled)'}`,
+        '',
+        `thread_id: ${conversation.id}`,
+        `type: ${conversation.conversationType} (role=${roleOf})`,
+        `model: ${conversation.model ?? '(unknown)'}`,
+        `status: ${status}`,
+        `project: ${conversation.projectPath}`,
+        `created: ${conversation.createdAt ?? '(unknown)'} | updated: ${conversation.updatedAt ?? '(unknown)'}`,
+        `messages: ${exportedMessages.length} | attachments: ${storedCount}`,
+        `exported: ${exportedAt}`,
+      ];
+      exportedMessages.forEach((message, index) => {
+        const number = index + 1;
+        transcriptLines.push(
+          '',
+          rule,
+          `MESSAGE ${number}/${exportedMessages.length} \u2014 role=${message.role} status=${message.status}`
+            + (message.hidden ? ' hidden=true' : '')
+            + (message.fromAgent ? ' fromAgent=true' : ''),
+          `id=${message.id}${message.model ? ` model=${message.model}` : ''} created=${message.createdAt ?? '(unknown)'}`,
+          rule,
+        );
+        if (message.attachments.length > 0) {
+          transcriptLines.push('----- BEGIN ATTACHMENTS -----');
+          for (const attachment of message.attachments) {
+            transcriptLines.push(attachment.kind === 'context_marker'
+              ? `- [context_marker] ${attachment.label ?? ''}${attachment.text ? ` :: ${attachment.text}` : ''}`
+              : `- [${attachment.kind ?? 'file'}] ${attachment.name ?? ''}${attachment.mime ? ` (${attachment.mime})` : ''} -> ${attachment.ref ?? '(not stored)'}`);
+          }
+          transcriptLines.push('----- END ATTACHMENTS -----', '');
+        }
+        if (message.segments.length === 0 && message.content) {
+          transcriptLines.push('----- BEGIN CONTENT -----', message.content, '----- END CONTENT -----', '');
+        }
+        for (const segment of message.segments) {
+          if (segment.type === 'reasoning') {
+            transcriptLines.push('----- BEGIN REASONING -----', segment.text, '----- END REASONING -----', '');
+          } else if (segment.type === 'content') {
+            transcriptLines.push('----- BEGIN CONTENT -----', segment.text, '----- END CONTENT -----', '');
+          } else if (segment.type === 'tool-call') {
+            transcriptLines.push(
+              `----- BEGIN TOOL CALL: ${segment.name ?? 'tool'} -----`,
+              `callId=${segment.callId ?? ''} status=${segment.status ?? ''} approvalRequired=${segment.requiresHumanApproval ? 'true' : 'false'} mcp=${segment.isMcp ? 'true' : 'false'}${segment.mcpServerName ? ` server=${segment.mcpServerName}` : ''}`,
+            );
+            if (segment.invocationGoal) transcriptLines.push(`goal: ${segment.invocationGoal}`);
+            transcriptLines.push(
+              '[arguments]',
+              segment.argumentsText ? segment.argumentsText : '(empty)',
+              `[result${segment.hasResult ? `: status=${segment.status ?? 'completed'}` : ''}]`,
+              segment.hasResult ? String(segment.resultText ?? '') : '(no result captured)',
+            );
+            if (segment.mediaContent.length > 0) {
+              transcriptLines.push('[media]');
+              for (const media of segment.mediaContent) {
+                transcriptLines.push(`- ${media.ref}${media.mime ? ` (${media.mime})` : ''}`);
+              }
+            }
+            transcriptLines.push(`----- END TOOL CALL: ${segment.name ?? 'tool'} -----`, '');
+          } else if (segment.type === 'error') {
+            transcriptLines.push('----- BEGIN ERROR -----', `code=${segment.code ?? ''}`, segment.message ?? '', '----- END ERROR -----', '');
+          } else if (segment.type === 'context-compression') {
+            transcriptLines.push(`----- CONTEXT COMPRESSION ----- (inputTokens=${segment.inputTokens ?? ''} outputTokens=${segment.outputTokens ?? ''})`, '');
+          } else if (segment.type === 'provider-continuation') {
+            transcriptLines.push(`----- PROVIDER CONTINUATION ----- (round=${segment.round ?? ''} model=${segment.model ?? ''})`, '');
+          } else {
+            transcriptLines.push(`----- SEGMENT: ${segment.type} -----`, '');
+          }
+        }
+        transcriptLines.push(`(end of message ${number})`);
+      });
+
+      await writeFile(resolve(exportDirectory, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf8');
+      await writeFile(
+        resolve(exportDirectory, 'transcript.json'),
+        JSON.stringify({ threadId: conversation.id, exportedAt, messages: exportedMessages }, null, 2),
+        'utf8',
+      );
+      await writeFile(resolve(exportDirectory, 'transcript.md'), `${transcriptLines.join('\n')}\n`, 'utf8');
+
+      return [
+        `Exported thread ${conversation.id} to:`,
+        exportDirectory,
+        '',
+        `Files: metadata.json, transcript.md, transcript.json${storedCount > 0 ? `, attachments/ (${storedCount} file${storedCount === 1 ? '' : 's'})` : ''}`,
+        `Messages: ${exportedMessages.length} (assistant ${assistantCount}, user ${userCount}, system ${systemCount})`,
+        'transcript.md uses BEGIN/END-delimited blocks for reasoning, content, tool calls (with full arguments and results), and errors; transcript.json has the same data structured. Read them with read_file.',
+      ].join('\n');
     },
   },
   {
@@ -2060,7 +2455,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'sleep',
-    description: 'Wait for a requested number of seconds without leaving the current conversation. Use this to await long-running sub-agent work, terminal work, or analyses, then receive the current status of this conversation\'s terminals and direct sub-agents.',
+    description: 'Wait for a requested number of seconds without leaving the current conversation. Use this to await long-running sub-agent work, terminal work, or analyses, then receive the current status of this conversation\'s terminals and direct sub-agents. Optional release triggers end the wait early as soon as any of them is satisfied.',
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
@@ -2073,11 +2468,25 @@ export const CLIENT_TOOLS = Object.freeze([
           maximum: MAX_SLEEP_SECONDS,
           description: 'How long to wait, in seconds. Choose a value from 5 seconds to 1 hour.',
         },
+        releaseTriggers: {
+          type: 'array',
+          maxItems: MAX_SLEEP_RELEASE_TRIGGERS,
+          items: { type: 'string', minLength: 1 },
+          description: [
+            'Optional conditions that end the sleep before the timeout; the first satisfied trigger wins, and an already satisfied trigger releases immediately. Supported values:',
+            'after_thread_stop:<thread_id> — the thread is no longer running, waiting for input, or waiting for a semaphore;',
+            'after_thread_input_required:<thread_id> — the thread waits for a question answer or tool approval;',
+            'after_subagents_stop — every direct sub-agent of this conversation has stopped;',
+            'after_process_killed:<terminal_id|pid> — the Avi terminal or OS process has exited;',
+            'after_process_output:<terminal_id|pid> — the Avi terminal produced new output;',
+            'after_process_input_required:<terminal_id|pid> — heuristic: the running Avi terminal has been silent for 1.5 seconds after printing a line without a trailing newline, such as an interactive prompt.',
+          ].join(' '),
+        },
       },
       required: ['seconds'],
       additionalProperties: false,
     },
-    execute: async ({ seconds }, { signal, conversationId, chatRunner }) => {
+    execute: async ({ seconds, releaseTriggers = [] }, { signal, conversationId, chatRunner }) => {
       if (
         !Number.isFinite(seconds)
         || seconds < MIN_SLEEP_SECONDS
@@ -2085,20 +2494,120 @@ export const CLIENT_TOOLS = Object.freeze([
       ) {
         throw new Error('seconds must be a number from 5 to 3600.');
       }
+      if (!Array.isArray(releaseTriggers) || releaseTriggers.length > MAX_SLEEP_RELEASE_TRIGGERS) {
+        throw new Error(`releaseTriggers must be an array with at most ${MAX_SLEEP_RELEASE_TRIGGERS} items.`);
+      }
 
       const startedAt = Date.now();
-      await new Promise((resolveSleep, rejectSleep) => {
-        const abort = () => {
+      const isThreadStopped = (threadId) => (
+        !chatRunner?.runs?.has(threadId)
+        && !isThreadWaitingForInput(chatRunner, threadId)
+        && !chatRunner?.semaphores?.waitSnapshot(threadId)
+      );
+      const findTerminal = (target) => [...terminals.values()]
+        .find((terminal) => terminal.id === target || String(terminal.child.pid) === target);
+      const requireTerminal = (kind, target) => {
+        const terminal = findTerminal(target);
+        if (!terminal) {
+          throw new Error(`${kind} requires the terminal ID or PID of a terminal started by run_in_terminal: "${target}".`);
+        }
+        return terminal;
+      };
+      const triggers = releaseTriggers.map((value) => {
+        const trigger = String(value).trim();
+        const separator = trigger.indexOf(':');
+        const kind = separator < 0 ? trigger : trigger.slice(0, separator);
+        const target = separator < 0 ? '' : trigger.slice(separator + 1).trim();
+        if (kind !== 'after_subagents_stop' && !target) {
+          throw new Error(`Release trigger "${trigger}" requires an argument after ":".`);
+        }
+
+        switch (kind) {
+          case 'after_thread_stop':
+          case 'after_thread_input_required': {
+            if (!getConversation(target)) throw new Error(`Release trigger thread was not found: "${target}".`);
+            return {
+              trigger,
+              isReleased: kind === 'after_thread_stop'
+                ? () => isThreadStopped(target)
+                : () => isThreadWaitingForInput(chatRunner, target),
+            };
+          }
+
+          case 'after_subagents_stop':
+            return {
+              trigger,
+              isReleased: () => listAllConversations()
+                .filter((conversation) => (
+                  conversation.isSubagent && conversation.parentConversationId === conversationId
+                ))
+                .every((subagent) => isThreadStopped(subagent.id)),
+            };
+
+          case 'after_process_killed': {
+            const terminal = findTerminal(target);
+            if (terminal) return { trigger, isReleased: () => !terminal.running };
+            if (!/^\d+$/.test(target)) {
+              throw new Error(`after_process_killed requires a terminal ID or numeric PID: "${target}".`);
+            }
+            return {
+              trigger,
+              isReleased: () => {
+                try {
+                  process.kill(Number(target), 0);
+                  return false;
+                } catch (error) {
+                  return error?.code !== 'EPERM';
+                }
+              },
+            };
+          }
+
+          case 'after_process_output': {
+            const terminal = requireTerminal(kind, target);
+            return { trigger, isReleased: () => terminal.lastActivityAt > startedAt };
+          }
+
+          case 'after_process_input_required': {
+            const terminal = requireTerminal(kind, target);
+            return {
+              trigger,
+              isReleased: () => terminal.running
+                && terminal.output.length > 0
+                && !terminal.output.endsWith('\n')
+                && Date.now() - terminal.lastActivityAt >= TERMINAL_INPUT_IDLE_MS,
+            };
+          }
+
+          default:
+            throw new Error(`Unsupported release trigger: "${trigger}".`);
+        }
+      });
+
+      const releasedBy = await new Promise((resolveSleep, rejectSleep) => {
+        const cleanup = () => {
           clearTimeout(timeout);
+          clearInterval(poll);
           signal?.removeEventListener('abort', abort);
+        };
+        const abort = () => {
+          cleanup();
           rejectSleep(new Error('Sleep was interrupted.'));
         };
+        const check = () => {
+          const released = triggers.find(({ isReleased }) => isReleased());
+          if (!released) return;
+          cleanup();
+          resolveSleep(released.trigger);
+        };
         const timeout = setTimeout(() => {
-          signal?.removeEventListener('abort', abort);
-          resolveSleep();
+          cleanup();
+          resolveSleep(null);
         }, seconds * 1_000);
+        const poll = triggers.length > 0 ? setInterval(check, SLEEP_TRIGGER_POLL_MS) : null;
         signal?.addEventListener('abort', abort, { once: true });
         if (signal?.aborted) abort();
+        else check();
       });
       const wokeAt = new Date();
 
@@ -2111,6 +2620,7 @@ export const CLIENT_TOOLS = Object.freeze([
         ));
       return [
         `Slept ${sleptSeconds} seconds.`,
+        `Released by: ${releasedBy ?? 'timeout'}`,
         `Woke at: ${wokeAt.toString()}`,
         '',
         'Terminals:',
@@ -2348,6 +2858,7 @@ export const CLIENT_TOOLS = Object.freeze([
         events: new EventEmitter(),
         output: '',
         truncated: false,
+        lastActivityAt: Date.now(),
         running: true,
         exitCode: null,
         signal: null,

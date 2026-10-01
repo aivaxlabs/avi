@@ -48,7 +48,7 @@ Returned by conversation, folder, child-thread, bot-thread, queue, compaction, a
 | `firstPrompt` | string | First visible user prompt, or an empty string. |
 | `lastMessageRole` | string or `null` | Role of the latest visible message. |
 | `lastMessageStatus` | string or `null` | Status of the latest visible message. |
-| `needsAttention` | boolean | Whether the latest message indicates an error, interruption, streaming residue, or unanswered user input. |
+| `needsAttention` | boolean | Whether the latest message indicates an error, interruption, streaming residue, or unanswered user input. In `conversations:list`, `sidebar:mark-seen` or viewing the conversation in the Desktop window reports `false` until the conversation runs again; acknowledgements reset when Avi restarts. |
 | `createdAt` | string | Creation time. |
 | `updatedAt` | string | Last update time. |
 | `archivedAt` | string or `null` | Archive time. |
@@ -245,9 +245,10 @@ Returned by `conversations:context` for recovery.
 
 | Field | Type | Description |
 |---|---|---|
-| `type` | `"single_choice"`, `"multiple_choice"`, or `"free_text"` | Answer mode. |
+| `type` | `"single_choice"`, `"multiple_choice"`, or `"free_text"` | Answer mode: radio buttons (one answer), checkboxes (one or more answers), or open text. |
 | `question` | string | Prompt and correlation text. |
-| `options` | string[], optional | Valid options for choice questions. |
+| `options` | string[], optional | Option labels for choice questions: up to 3 for `single_choice`, up to 6 for `multiple_choice`. Answers use these labels. |
+| `optionDescriptions` | string[], optional | Markdown descriptions aligned with `options` by index; `""` when an option has none. Present only when at least one option has a description. |
 
 ### `PendingQuestion`
 
@@ -350,4 +351,4 @@ Returned by `sidebar:status`. Every field is a `string[]` of unique conversation
 | `approvalPendingConversationIds` | Conversations with a pending permission request. |
 | `inputPendingConversationIds` | Conversations with pending agent questions awaiting user input. |
 | `semaphoreWaitingConversationIds` | Conversations waiting for a semaphore permit. |
-| `completedUnseenConversationIds` | Completed runs not yet acknowledged through `sidebar:mark-seen`. Ephemeral remote state; see [sidebar status and tags](sidebar.md#sidebarmark-seen). |
+| `completedUnseenConversationIds` | Completed runs not yet acknowledged through `sidebar:mark-seen` or viewed in the Desktop window. Remote acknowledgements also clear the Desktop Review entry. Ephemeral instance state; see [sidebar status and tags](sidebar.md#sidebarmark-seen). |

@@ -21,7 +21,7 @@ Returns the authoritative status snapshot behind Avi's sidebar Working and Revie
 
 Acknowledges a completed conversation and removes it from `completedUnseenConversationIds`.
 
-The completed-unseen set is in-memory state of one Avi instance's remote server. It is shared by every connected RPC client, never persisted, and resets when Avi restarts. Entries are added when a run completes without user interruption or a semaphore wait, removed when the conversation starts a new run or the user stops it, and removed by this method. Avi's Desktop window keeps a separate session-local view of the same events and does not update this set, so remote clients must acknowledge the conversations they inspect themselves. Acknowledging an unknown conversation ID is a no-op.
+The completed-unseen set is in-memory state of one Avi instance's remote server. It is shared by every connected RPC client, never persisted, and resets when Avi restarts. Entries are added when a run completes without user interruption or a semaphore wait, removed when the conversation starts a new run or the user stops it, and removed by this method or when the user views the conversation in Avi's Desktop window, including a run that finishes while that conversation is already open there. Remote acknowledgements also clear the Desktop window's Review entry and attention indicator. Both acknowledgement paths make `conversations:list` report `needsAttention: false` for that conversation until it runs again. These acknowledgements are session-local and do not change stored messages. Acknowledging an unknown conversation ID does not create a conversation.
 
 **Params:**
 

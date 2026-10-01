@@ -46,7 +46,7 @@ Before sending a message, review:
 - **Model** and **Reasoning effort**;
 - **Ask for approval** — ask before every tool call;
 - **Approve for me** — ask when a call is marked as requiring approval;
-- **Full access** — run tool calls without an approval dialog;
+- **Full access** — run tool calls without an approval card;
 - Normal, Plan, Goal, and Ultra modes;
 - attachments, audio, and the selected folder.
 

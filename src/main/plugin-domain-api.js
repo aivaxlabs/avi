@@ -9,6 +9,7 @@ import {
   deleteProviderCredentials,
   forkConversation,
   getBot,
+  getBotByConversation,
   getConversation,
   getMessage,
   getMessages,
@@ -309,6 +310,9 @@ function createThreadHandle({ runtime, record, threadId, storage }) {
     async delete(options = {}) {
       runtime.require(record, 'threads.delete');
       read();
+      if (getBotByConversation(threadId)) {
+        throw new AviError('CONFLICT', 'Bot threads are deleted with their bot.');
+      }
       runtime.services.cleanupConversation(threadId);
       deleteConversation(threadId, { hard: options.hard === true });
       runtime.services.chatRunner.semaphores.cleanMissingConversations();

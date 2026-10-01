@@ -163,6 +163,7 @@ export const responsesApi = {
     return {
       model: model.modelId,
       ...inferenceRequestFields(provider),
+      ...(model.context?.output ? { max_output_tokens: model.context.output } : {}),
       ...(prepared.dynamicContext ? { instructions: prepared.dynamicContext } : {}),
       input: [
         ...messages.flatMap((message) => toResponsesInput(message, model)),
@@ -343,6 +344,7 @@ export const chatCompletionsApi = {
     return {
       model: model.modelId,
       ...inferenceRequestFields(provider),
+      ...(model.context?.output ? { max_completion_tokens: model.context.output } : {}),
       messages: [
         ...(prepared.dynamicContext
           ? [{ role: 'system', content: prepared.dynamicContext }]
@@ -371,16 +373,14 @@ export const chatCompletionsApi = {
                 }
               : {}),
           },
-          ...round.results.flatMap((result) => [
-            {
-              role: 'tool',
-              tool_call_id: result.callId,
-              content: result.output,
-            },
-            ...(result.mediaContent?.length
-              ? [{ role: 'user', content: toChatContent(result.mediaContent) }]
-              : []),
-          ]),
+          ...round.results.map((result) => ({
+            role: 'tool',
+            tool_call_id: result.callId,
+            content: result.output,
+          })),
+          ...round.results
+            .filter((result) => result.mediaContent?.length)
+            .map((result) => ({ role: 'user', content: toChatContent(result.mediaContent) })),
           ...(round.messages ?? []).map((message) => ({
             ...message,
             content: Array.isArray(message.content)

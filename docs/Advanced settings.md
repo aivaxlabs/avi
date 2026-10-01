@@ -41,6 +41,7 @@ The dialog offers two manual modes:
 ## Tuning → Tool execution
 
 - **Tool output length** — 4,096, 8,192 (default), 32,768 characters, or Disabled/No limit. The UI estimates tokens as characters divided by four. A tool definition can set `forcedTruncationLength` in estimated tokens to override this setting for its own output, including when global truncation is disabled. Disabling truncation can exhaust the model context window.
+- **Media size limit** — 5 MB, 10 MB (default), 20 MB, 100 MB, or No limit. Images, videos, audio, and PDFs larger than the limit are not sent inline: chat attachments are sent to the model as local file paths, and `read_media_file` falls back to AIVAX Media Descriptions when enabled or returns an error otherwise. AIVAX Media Descriptions has its own fixed 20 MB limit. A model can override this setting in its editor.
 - **Terminal timeout** — 5–300 seconds, default 30. An individual tool call can supply its own timeout.
 
 ## Tuning → Orchestration
@@ -69,11 +70,11 @@ For isolated startup diagnostics, launch Avi with these command-line flags:
 
 ## Tool approvals
 
-Under **Approve for me**, each tool call includes a model-supplied `__requires_human_approval` classification; approval is not determined solely by MCP annotations. Avi opens a dialog only when the tool is not approval-exempt, approval is requested, the mode is not Full access, and no matching persistent approval exists.
+Under **Approve for me**, each tool call includes a model-supplied `__requires_human_approval` classification; approval is not determined solely by MCP annotations. Avi shows an inline approval card in the conversation only when the tool is not approval-exempt, approval is requested, the mode is not Full access, and no matching persistent approval exists.
 
-**Always allow this command** stores a pattern based on the workspace and invocation summary and adds global permission guidance. A materially different summary can require approval again.
+**Always allow** stores a pattern based on the workspace and invocation summary and adds global permission guidance. A materially different summary can require approval again.
 
-Full access removes the approval dialog but does not override higher-level runtime restrictions. Plan remains read-only under every permission mode.
+Full access removes the approval card but does not override higher-level runtime restrictions. Plan remains read-only under every permission mode.
 
 ## Persistence and validation
 

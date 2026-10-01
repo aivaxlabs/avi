@@ -1,5 +1,7 @@
 import { ArrowUp, ChevronDown, Mic, Paperclip, Square, UploadCloud, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { createMp3Attachment } from './lib/audio.js';
 import { fileToAttachment, formatBytes, textToAttachment } from './lib/files.js';
 import { Message } from './components/Message.jsx';
@@ -393,7 +395,7 @@ function QuickQuestion({ request, onResolve, onActivity }) {
             })} />
           ) : (
             <div className="quick-question-options">
-              {question.options.map((option) => (
+              {question.options.map((option, optionIndex) => (
                 <label key={option}>
                   <input
                     type={question.type === 'multiple_choice' ? 'checkbox' : 'radio'}
@@ -421,7 +423,23 @@ function QuickQuestion({ request, onResolve, onActivity }) {
                       });
                     }}
                   />
-                  {option}
+                  <span className="quick-question-option-copy">
+                    <span>{option}</span>
+                    {question.optionDescriptions?.[optionIndex] && (
+                      <span className="quick-question-option-description">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            a: ({ node: _node, ...props }) => (
+                              <a {...props} target="_blank" rel="noreferrer" />
+                            ),
+                          }}
+                        >
+                          {question.optionDescriptions[optionIndex]}
+                        </ReactMarkdown>
+                      </span>
+                    )}
+                  </span>
                 </label>
               ))}
               <label>

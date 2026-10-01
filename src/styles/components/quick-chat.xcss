@@ -259,8 +259,28 @@ html.quick-chat-window #root {
 
 .quick-question label {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 7px;
+
+  input {
+    margin-top: 3px;
+  }
+}
+
+.quick-question-option-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+.quick-question-option-description {
+  color: var(--text-2);
+  font-size: .9rem;
+
+  p {
+    margin: 0;
+  }
 }
 
 .quick-question textarea,

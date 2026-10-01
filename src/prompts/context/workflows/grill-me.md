@@ -45,7 +45,8 @@ If the answer is safely established by evidence, record it as a finding instead 
 When `ask_question` is available:
 
 - use `single_choice` for one decision with up to three concrete options;
-- use `multiple_choice` only when several listed choices may apply together;
+- use `multiple_choice` (checkboxes, up to six options) only when several listed choices may apply together;
+- give an option `{ "label", "description" }` when its consequence needs a short explanation;
 - use `free_text` when the answer is open-ended or the option space cannot be represented honestly;
 - never invent the user's answer or add a fake “Other” option in place of `free_text`.
 

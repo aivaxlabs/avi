@@ -17,6 +17,7 @@ import {
   getMessages,
   listAllConversations,
   listBots,
+  setBotConversation,
   setBotSchedulerSnoozeUntil,
   updateBot,
   updateBotScheduler,
@@ -256,7 +257,48 @@ export class BotManager {
     this.broadcast('bots:updated');
   }
 
+  ensureBotConversation(bot) {
+    if (!bot || getConversation(bot.conversationId)) return bot;
+    const conversation = createConversation({
+      title: bot.name,
+      model: bot.model,
+      projectPath: resolveBotWorkingFolder(bot),
+      conversationType: 'bot',
+      titleStatus: 'generated',
+    });
+    setBotConversation(bot.id, conversation.id);
+    updateBotScheduler(bot.id, { activeAssistantMessageId: null });
+    traceInfo('bots.thread-recreated', {
+      bot_id: bot.id,
+      previous_thread_id: bot.conversationId,
+      thread_id: conversation.id,
+    });
+    this.broadcast('bots:updated');
+    return getBot(bot.id);
+  }
+
+  isBotBusy(bot) {
+    if (bot.activeAssistantMessageId) return true;
+    if (this.chatRunner?.semaphores?.waitSnapshot(bot.conversationId)) return true;
+    for (const conversationId of this.chatRunner?.runs?.keys() ?? []) {
+      for (
+        let conversation = getConversation(conversationId);
+        conversation;
+        conversation = conversation.parentConversationId
+          ? getConversation(conversation.parentConversationId)
+          : null
+      ) {
+        if (conversation.id === bot.conversationId) return true;
+      }
+    }
+    return false;
+  }
+
   async resumeInterruptedRun(bot) {
+    if (!getConversation(bot.conversationId)) {
+      this.ensureBotConversation(bot);
+      return false;
+    }
     try {
       const assistantMessage = getMessage(bot.activeAssistantMessageId);
       const interruptedToolCalls = assistantMessage?.segments.filter((segment) => (
@@ -363,7 +405,7 @@ export class BotManager {
           .filter((entry) => entry.botId === bot.id).length,
         snooze: this.getBotSnooze(bot.id),
         queued: this.activationQueue.has(bot.id),
-        scheduleState: this.chatRunner?.runs?.has(bot.conversationId)
+        scheduleState: this.isBotBusy(bot)
           ? 'working'
           : bot.enabled === false && !this.activationQueue.get(bot.id)?.force
             ? 'disabled'
@@ -695,7 +737,7 @@ export class BotManager {
     }
     const entry = this.approvals.get(approvalId);
     if (!entry) throw new Error('Approval item not found.');
-    const bot = getBot(entry.botId);
+    const bot = this.ensureBotConversation(getBot(entry.botId));
     if (!bot) throw new Error('Bot not found.');
     const { dataFolder } = await ensureBotFolders(bot);
     const { inbox } = await readBotWorkState(dataFolder);
@@ -755,7 +797,7 @@ export class BotManager {
   }
 
   async replyToPendency(botId, pendencyId, { content, attachments = [] } = {}) {
-    const bot = getBot(botId);
+    const bot = this.ensureBotConversation(getBot(botId));
     if (!bot) throw new Error('Bot not found.');
     if (typeof pendencyId !== 'string' || pendencyId.length === 0) {
       throw new Error('Invalid pendencyId: expected non-empty string');
@@ -841,7 +883,7 @@ export class BotManager {
           this.activationQueue.delete(botId);
           continue;
         }
-        if (this.chatRunner?.runs?.has(bot.conversationId) || bot.activeAssistantMessageId) {
+        if (this.isBotBusy(bot)) {
           this.activationQueue.delete(botId);
           continue;
         }
@@ -849,8 +891,7 @@ export class BotManager {
         if (!options.force && (this.getSchedulerSnooze().active || this.getBotSnooze(botId).active
           || !isWithinActivationWindow(bot.activationWindow, new Date()))) break;
         const running = listBots().filter((item) => (
-          this.activating.has(item.id) || item.activeAssistantMessageId
-          || this.chatRunner?.runs?.has(item.conversationId)
+          this.activating.has(item.id) || this.isBotBusy(item)
         )).length;
         if (running >= getBotSettings().maxConcurrentBots) break;
         this.activationQueue.delete(botId);
@@ -891,10 +932,7 @@ export class BotManager {
       const decision = decideActivation({
         bot: currentBot,
         now: Date.now(),
-        isRunning: Boolean(
-          currentBot?.activeAssistantMessageId
-          || this.chatRunner?.runs?.has(bot.conversationId)
-        ),
+        isRunning: this.isBotBusy(currentBot),
       });
       if (decision.action === 'activate') {
         await this.activateBot(bot.id, { trigger: 'scheduler' });
@@ -928,14 +966,14 @@ export class BotManager {
   }
 
   async activateBot(botId, { trigger = 'scheduler', force = false, workQueueId, admitted = false } = {}) {
-    const bot = getBot(botId);
+    const bot = this.ensureBotConversation(getBot(botId));
     if (!bot) throw new Error('Bot not found.');
     if (workQueueId !== undefined && (!Number.isInteger(workQueueId) || workQueueId < 0 || workQueueId >= bot.workQueue.length)) {
       throw new Error('workQueueId must identify an existing work queue item.');
     }
     if (!bot.enabled && !force) return null;
     if (this.activating.has(bot.id)) return null;
-    if (bot.activeAssistantMessageId || this.chatRunner?.runs?.has(bot.conversationId)) {
+    if (this.isBotBusy(bot)) {
       updateBotScheduler(bot.id, {
         nextActivationAt: new Date(
           nextActivationFrom(bot.activationPeriodMinutes, Date.now()),

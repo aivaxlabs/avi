@@ -347,8 +347,7 @@
   .model-dialog,
   .search-dialog,
   .mcp-dialog,
-  .goal-dialog,
-  .permission-dialog {
+  .goal-dialog {
     padding: 12px;
     border-radius: var(--code-radius);
     box-shadow: 0 8px 24px rgb(0 0 0 / 32%);
@@ -361,10 +360,6 @@
   .dialog-search,
   .search-dialog .dialog-search kbd,
   .goal-dialog > textarea,
-  .permission-dialog dl,
-  .permission-dialog pre,
-  .permission-dialog-icon,
-  .permission-dialog-actions button,
   .mcp-dialog .mcp-dialog-icon,
   .mcp-dialog li,
   .mcp-status-list article,
@@ -419,9 +414,29 @@
     padding: 8px 10px;
   }
 
+  .approval-card-header,
+  .approval-card-call {
+    padding: 10px 12px;
+  }
+
+  .approval-card-footer {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .approval-card-input pre,
+  .approval-card-footer button {
+    border-radius: var(--code-radius-small);
+  }
+
+  .approval-card:focus-visible {
+    box-shadow: 0 0 0 1px var(--code-focus-border);
+  }
+
   .code-block,
   .subagent-report-card,
   .question-card,
+  .approval-card,
   .tool-call,
   .tool-result,
   .cross-thread-message-card,

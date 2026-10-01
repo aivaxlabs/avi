@@ -47,7 +47,8 @@ After saving the provider, select **Add model**. Configure:
 - enabled state;
 - input and output context limits;
 - Images, Audio, and PDF files capabilities;
-- supported reasoning efforts: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`.
+- supported reasoning efforts: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`;
+- media size limit: **Use Tuning setting** (default), 5 MB, 10 MB, 20 MB, 100 MB, or No limit. It overrides **Tuning → Media size limit** for chat attachments and `read_media_file`.
 
 Context limits, when provided, must be positive integers. Declare only capabilities that the endpoint supports because Avi uses them to accept attachments and serialize requests. Multiple configured variants can use the same model ID—for example, to expose different context limits—because Avi assigns each one a persistent internal instance ID.
 

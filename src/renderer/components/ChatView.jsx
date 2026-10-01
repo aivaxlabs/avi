@@ -1,10 +1,17 @@
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
+  CircleHelp,
+  Folder,
   MessageSquarePlus,
   MessagesSquare,
   Moon,
+  ShieldCheck,
+  ShieldQuestion,
   UploadCloud,
+  Wrench,
+  X,
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -30,6 +37,14 @@ import { Message } from './Message.jsx';
 
 const HISTORY_BATCH_SIZE = 4;
 const HISTORY_LOAD_THRESHOLD = 80;
+const QUESTION_MODE_HINTS = {
+  single_choice: 'Select one',
+  multiple_choice: 'Select all that apply',
+  free_text: 'Write your answer',
+};
+const QUESTION_MARKDOWN_COMPONENTS = {
+  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+};
 
 const MessageRow = memo(function MessageRow({
   message,
@@ -219,6 +234,8 @@ export const ChatView = memo(function ChatView({
   onImplementPlan,
   questionRequest,
   onAnswerQuestion,
+  approvalRequests = [],
+  onResolveApproval,
   onChooseModel,
   botMode = false,
   bots,
@@ -256,6 +273,7 @@ export const ChatView = memo(function ChatView({
   const emptyBackgroundRef = useRef(null);
   const dragDepthRef = useRef(0);
   const questionCardRef = useRef(null);
+  const approvalCardRef = useRef(null);
   const [fileDropActive, setFileDropActive] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState(null);
   const [selectionAction, setSelectionAction] = useState(null);
@@ -264,6 +282,7 @@ export const ChatView = memo(function ChatView({
   const [questionCustomAnswers, setQuestionCustomAnswers] = useState([]);
   const [questionCustomActive, setQuestionCustomActive] = useState([]);
   const [questionResolving, setQuestionResolving] = useState(false);
+  const [approvalResolving, setApprovalResolving] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [historyWindow, setHistoryWindow] = useState({
     conversationId: null,
@@ -272,6 +291,8 @@ export const ChatView = memo(function ChatView({
   const previousChatScrollTopRef = useRef(0);
   const modelName = getModelDisplayName(models, currentModel);
   const semaphoreCardTitleId = `semaphore-card-title-${currentConversation?.id ?? 'draft'}`;
+  const activeApproval = approvalRequests[0] ?? null;
+  const approvalInputEntries = Object.entries(activeApproval?.input ?? {});
   const pendingMessages = currentMessages
     .filter((message) => !message.hidden && ['queued', 'steered'].includes(message.status));
   const byQueuePosition = (a, b) => (
@@ -319,6 +340,7 @@ export const ChatView = memo(function ChatView({
     lastMessage?.updatedAt ?? '',
     String(lastMessage?.content ?? '').length,
     questionRequest?.questionId ?? '',
+    activeApproval?.approvalId ?? '',
   ].join(':');
   const Root = compact ? 'section' : 'main';
   const activeQuestion = questionRequest?.questions[questionIndex] ?? null;
@@ -463,6 +485,15 @@ export const ChatView = memo(function ChatView({
     });
     return () => cancelAnimationFrame(frame);
   }, [questionIndex, questionRequest?.questionId]);
+
+  useEffect(() => {
+    setApprovalResolving(false);
+    if (!activeApproval) return undefined;
+    const frame = requestAnimationFrame(() => (
+      approvalCardRef.current?.focus({ preventScroll: true })
+    ));
+    return () => cancelAnimationFrame(frame);
+  }, [activeApproval?.approvalId]);
 
   useEffect(() => {
     if (!chatAreaRef.current || !composerRef.current) return undefined;
@@ -760,6 +791,16 @@ export const ChatView = memo(function ChatView({
     }).catch(console.error);
   }
 
+  async function resolveApproval(decision) {
+    if (!activeApproval || approvalResolving) return;
+    setApprovalResolving(true);
+    try {
+      await onResolveApproval(activeApproval, decision);
+    } finally {
+      setApprovalResolving(false);
+    }
+  }
+
   async function resolveQuestion(cancelled) {
     if (!questionRequest || questionResolving) return;
     setQuestionResolving(true);
@@ -969,6 +1010,103 @@ export const ChatView = memo(function ChatView({
                 </section>
               </article>
             )}
+            {activeApproval && (
+              <article
+                className="message-row assistant-row approval-inline-row"
+                aria-live="polite"
+              >
+                <section
+                  key={activeApproval.approvalId}
+                  ref={approvalCardRef}
+                  className="approval-card"
+                  tabIndex={-1}
+                  aria-labelledby={`approval-card-title-${activeApproval.approvalId}`}
+                  aria-describedby={`approval-card-summary-${activeApproval.approvalId}`}
+                  aria-busy={approvalResolving}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Escape') return;
+                    event.preventDefault();
+                    resolveApproval('disallow');
+                  }}
+                >
+                  <header className="approval-card-header">
+                    <ShieldQuestion className="approval-card-icon" size={18} aria-hidden="true" />
+                    <div className="approval-card-copy">
+                      <div className="approval-card-title-row">
+                        <strong id={`approval-card-title-${activeApproval.approvalId}`}>
+                          Allow this tool call?
+                        </strong>
+                        {approvalRequests.length > 1 && (
+                          <span className="approval-card-queue">
+                            {approvalRequests.length - 1} more pending
+                          </span>
+                        )}
+                      </div>
+                      <p id={`approval-card-summary-${activeApproval.approvalId}`} className="approval-card-summary">
+                        {activeApproval.invocationSummary}
+                      </p>
+                    </div>
+                  </header>
+                  <div className="approval-card-call">
+                    <div className="approval-card-call-meta">
+                      <span title="Tool">
+                        <Wrench size={12} aria-hidden="true" />
+                        <code>{activeApproval.toolName}</code>
+                      </span>
+                      <span title="Folder">
+                        <Folder size={12} aria-hidden="true" />
+                        <span>{activeApproval.workspacePath || 'No folder'}</span>
+                      </span>
+                    </div>
+                    {approvalInputEntries.length > 0 && (
+                      <dl className="approval-card-input">
+                        {approvalInputEntries.map(([key, value]) => (
+                          <div key={key}>
+                            <dt>{key}</dt>
+                            <dd>
+                              <pre>{typeof value === 'string' ? value : JSON.stringify(value, null, 2)}</pre>
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                  </div>
+                  <footer className="approval-card-footer">
+                    <button
+                      className="approval-card-deny"
+                      type="button"
+                      disabled={approvalResolving}
+                      title="Deny (Esc)"
+                      onClick={() => resolveApproval('disallow')}
+                    >
+                      <X size={14} aria-hidden="true" />
+                      <span>Deny</span>
+                    </button>
+                    <div className="approval-card-actions">
+                      <button
+                        className="approval-card-always"
+                        type="button"
+                        disabled={approvalResolving}
+                        title="Allow now and remember this command for this folder"
+                        onClick={() => resolveApproval('allow_all')}
+                      >
+                        <ShieldCheck size={14} aria-hidden="true" />
+                        <span>Always allow</span>
+                      </button>
+                      <button
+                        className="approval-card-allow primary-mini"
+                        type="button"
+                        disabled={approvalResolving}
+                        onClick={() => resolveApproval('allow')}
+                      >
+                        <Check size={14} aria-hidden="true" />
+                        <span>{approvalResolving ? 'Resolving...' : 'Allow'}</span>
+                      </button>
+                    </div>
+                  </footer>
+                </section>
+              </article>
+            )}
             {questionRequest && activeQuestion && (
               <article
                 className="message-row assistant-row question-inline-row"
@@ -995,19 +1133,32 @@ export const ChatView = memo(function ChatView({
                   }}
                 >
                   <header className="question-card-header">
-                    <span className="question-card-progress">
-                      Question {questionIndex + 1} of {questionRequest.questions.length}
-                    </span>
-                    <div
-                      id={`question-card-title-${questionRequest.questionId}`}
-                      className="question-card-prompt"
-                    >
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {activeQuestion.question.replace(
-                          /\s+(?=1\.\s+)/,
-                          '\n\n',
-                        ).replace(/\s+(?=[2-9]\d*\.\s+)/g, '\n')}
-                      </ReactMarkdown>
+                    <CircleHelp className="question-card-icon" size={18} aria-hidden="true" />
+                    <div className="question-card-copy">
+                      <div className="question-card-meta">
+                        {questionRequest.questions.length > 1 && (
+                          <span>
+                            Question {questionIndex + 1} of {questionRequest.questions.length}
+                          </span>
+                        )}
+                        <span id={`question-card-hint-${questionRequest.questionId}`}>
+                          {QUESTION_MODE_HINTS[activeQuestion.type]}
+                        </span>
+                      </div>
+                      <div
+                        id={`question-card-title-${questionRequest.questionId}`}
+                        className="question-card-prompt"
+                      >
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={QUESTION_MARKDOWN_COMPONENTS}
+                        >
+                          {activeQuestion.question.replace(
+                            /\s+(?=1\.\s+)/,
+                            '\n\n',
+                          ).replace(/\s+(?=[2-9]\d*\.\s+)/g, '\n')}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   </header>
                   <fieldset className="question-card-field">
@@ -1017,6 +1168,7 @@ export const ChatView = memo(function ChatView({
                         data-question-control
                         value={questionAnswers[questionIndex] ?? ''}
                         rows={4}
+                        placeholder="Type your answer"
                         aria-label={activeQuestion.question}
                         disabled={questionResolving}
                         onChange={(event) => setQuestionAnswers((state) => {
@@ -1029,6 +1181,7 @@ export const ChatView = memo(function ChatView({
                       <div className="question-card-options">
                         {activeQuestion.options.map((option, optionIndex) => {
                           const inputId = `question-${questionRequest.questionId}-${questionIndex}-${optionIndex}`;
+                          const description = activeQuestion.optionDescriptions?.[optionIndex];
                           const checked = activeQuestion.type === 'multiple_choice'
                             ? questionAnswers[questionIndex]?.includes(option)
                             : questionAnswers[questionIndex] === option
@@ -1041,6 +1194,7 @@ export const ChatView = memo(function ChatView({
                             >
                               <input
                                 id={inputId}
+                                aria-describedby={description ? `${inputId}-description` : undefined}
                                 data-question-control={optionIndex === 0 ? '' : undefined}
                                 type={activeQuestion.type === 'multiple_choice'
                                   ? 'checkbox'
@@ -1074,12 +1228,27 @@ export const ChatView = memo(function ChatView({
                                 }}
                               />
                               <span className="question-card-option-copy">
-                                <ReactMarkdown
-                                  remarkPlugins={[remarkGfm]}
-                                  components={{ p: 'span' }}
-                                >
-                                  {option}
-                                </ReactMarkdown>
+                                <span className="question-card-option-label">
+                                  <ReactMarkdown
+                                    remarkPlugins={[remarkGfm]}
+                                    components={{ ...QUESTION_MARKDOWN_COMPONENTS, p: 'span' }}
+                                  >
+                                    {option}
+                                  </ReactMarkdown>
+                                </span>
+                                {description && (
+                                  <span
+                                    id={`${inputId}-description`}
+                                    className="question-card-option-description"
+                                  >
+                                    <ReactMarkdown
+                                      remarkPlugins={[remarkGfm]}
+                                      components={QUESTION_MARKDOWN_COMPONENTS}
+                                    >
+                                      {description}
+                                    </ReactMarkdown>
+                                  </span>
+                                )}
                               </span>
                             </label>
                           );
@@ -1099,7 +1268,9 @@ export const ChatView = memo(function ChatView({
                                 return next;
                               })}
                             />
-                            <span className="question-card-option-copy">Other</span>
+                            <span className="question-card-option-copy">
+                              <span className="question-card-option-label">Other</span>
+                            </span>
                           </label>
                           {questionCustomActive[questionIndex] && (
                             <input
@@ -1130,6 +1301,7 @@ export const ChatView = memo(function ChatView({
                     >
                       Cancel
                     </button>
+                    {questionRequest.questions.length > 1 && (
                     <nav
                       className="question-card-pagination"
                       aria-label="Question navigation"
@@ -1158,15 +1330,18 @@ export const ChatView = memo(function ChatView({
                         );
                       })}
                     </nav>
+                    )}
                     <div className="question-card-actions">
-                      <button
-                        type="button"
-                        disabled={questionResolving || questionIndex === 0}
-                        onClick={() => setQuestionIndex((index) => index - 1)}
-                      >
-                        <ChevronLeft size={14} aria-hidden="true" />
-                        <span>Previous</span>
-                      </button>
+                      {questionRequest.questions.length > 1 && (
+                        <button
+                          type="button"
+                          disabled={questionResolving || questionIndex === 0}
+                          onClick={() => setQuestionIndex((index) => index - 1)}
+                        >
+                          <ChevronLeft size={14} aria-hidden="true" />
+                          <span>Previous</span>
+                        </button>
+                      )}
                       {questionIndex < questionRequest.questions.length - 1 ? (
                         <button
                           className="primary-mini"
@@ -1183,7 +1358,9 @@ export const ChatView = memo(function ChatView({
                           type="submit"
                           disabled={questionResolving || !allQuestionsAnswered}
                         >
-                          {questionResolving ? 'Submitting...' : 'Submit answers'}
+                          {questionResolving
+                            ? 'Submitting...'
+                            : questionRequest.questions.length > 1 ? 'Submit answers' : 'Submit'}
                         </button>
                       )}
                     </div>

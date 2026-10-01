@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { mediaSizeLimitOptions } from '../shared/attachments.js';
 import { REASONING_EFFORTS, normalizeProviderHarness } from './provider-api.js';
 import { traceError, traceVerbose } from './trace-log.js';
 import { withRequestDiagnostics, reportRequestFailure, captureResponse } from './request-diagnostics.js';
@@ -664,6 +665,12 @@ export class ModelProviderRegistry {
             ) {
               throw new Error(`Context limits for "${modelName}" must be positive integers.`);
             }
+            if (
+              model?.mediaSizeLimit !== undefined
+              && !mediaSizeLimitOptions.some((option) => option.value === model.mediaSizeLimit)
+            ) {
+              throw new Error(`Choose a valid media size limit for "${modelName}".`);
+            }
 
             return {
               id,
@@ -681,6 +688,7 @@ export class ModelProviderRegistry {
                 output: outputContext,
               },
               reasoning: REASONING_EFFORTS.filter((effort) => model?.reasoning?.includes(effort)),
+              ...(model?.mediaSizeLimit !== undefined ? { mediaSizeLimit: model.mediaSizeLimit } : {}),
             };
           })
         : [];
