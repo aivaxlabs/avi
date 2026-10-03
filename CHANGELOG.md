@@ -6,6 +6,9 @@
 - Prepare the Computer Use `get-windows` native addon only on Windows, avoiding unnecessary native downloads/builds on macOS and Linux while preserving their existing backends and Windows source-build fallback.
 - Preserve agent authorship in model history and retries using the persisted `fromAgent` flag; automatic sub-agent final/error reports now retain that flag and explicitly identify themselves as coordination, not user instructions.
 
+### Docs
+- Document an isolated Electron smoke check and distinguish application startup failures from test-script assertions that exit with code 3.
+
 ### Tests
 - Run child-thread database tests under Electron and align tuning snapshots, personality IDs, semaphore mocks, and on-demand thread discovery with current contracts. Update bot Inbox/command tests and the bot Core API fixture to the required ORPC handshake and binary transport; production behavior is unchanged.
 
