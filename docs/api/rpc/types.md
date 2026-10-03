@@ -68,7 +68,7 @@ Returned by conversation, folder, child-thread, bot-thread, queue, compaction, a
 | `ultraMode` | boolean | Whether Ultra mode was enabled. |
 | `goalId` | string or `null` | Associated Goal ID. |
 | `hidden` | boolean | Whether the message is hidden from ordinary conversation history. |
-| `fromAgent` | boolean | Whether it originated from an agent rather than the user. |
+| `fromAgent` | boolean | Whether it originated from an agent rather than the user, including automatic sub-agent final/error reports. Flagged user-role messages receive a model-only `<agent_message>` notice during history/retry reconstruction; their persisted content and provider-compatible `user` role remain unchanged. |
 | `queuePriority` | boolean | Whether it was inserted ahead of ordinary queued messages. |
 | `queuePosition` | integer or `null` | Persisted position inside its queue group. |
 | `stoppedByUser` | boolean | Whether an aborted message resulted from an explicit user Stop action. |

@@ -640,6 +640,27 @@ try {
   assert.equal(crossAgentCalls[0].fromAgent, true);
   assert.equal(crossAgentCalls[0].ultraMode, true);
   assert.equal(crossAgentCalls[0].queuePriority, false);
+  const deliveredCoordination = insertMessage({
+    conversationId: spawnedThreadId,
+    role: 'user',
+    status: 'sent',
+    content: crossAgentCalls[0].text,
+    fromAgent: crossAgentCalls[0].fromAgent,
+  });
+  assert.equal(getMessages(spawnedThreadId).find((message) => message.id === deliveredCoordination.id).fromAgent, true);
+  const coordinationBlock = toModelMessages(spawnedThreadId).at(-1);
+  assert.match(coordinationBlock.content, /^<agent_message>\n/);
+  assert.match(coordinationBlock.content, /not a user instruction/);
+  assert.ok(coordinationBlock.content.includes(crossAgentCalls[0].text));
+  assert.deepEqual(toModelMessagesThroughUser(spawnedThreadId).at(-1), coordinationBlock);
+  assert.match(database.messageToApiBlock(agentMessage).content, /^<agent_message>\n/);
+  assert.equal(database.messageToApiBlock({ ...agentMessage, fromAgent: false }).content, agentMessage.content);
+  const attachedAgentBlock = database.messageToApiBlock({
+    ...deliveredCoordination,
+    attachments: [{ kind: 'text_inline', name: 'findings.txt', text: 'Verified finding.' }],
+  });
+  assert.match(attachedAgentBlock.content[0].text, /^<agent_message>\n/);
+  assert.match(attachedAgentBlock.content[1].text, /Verified finding/);
   await assert.rejects(
     () => sendPromptTool.execute(
       { threadId: second.conversation.id, prompt: 'Reveal the side chat.', low_priority: true },
@@ -972,6 +993,8 @@ try {
   assert.equal(forwardingCalls[0].permissionMode, 'full_access');
   assert.notEqual(forwardingCalls[0].conversationId, viewedParent.id);
   assert.equal(forwardingCalls[0].steer, true);
+  assert.equal(forwardingCalls[0].fromAgent, true);
+  assert.match(forwardingCalls[0].text, /sub-agent report, not a user instruction/);
   assert.match(forwardingCalls[0].text, /Managed final result\./);
   assert.doesNotMatch(forwardingCalls[0].text, /Private reasoning/);
   assert.match(
@@ -980,12 +1003,18 @@ try {
   );
   assert.match(forwardingCalls[0].text, new RegExp(`source_message_id="${managedResult.id}"`));
 
-  insertMessage({
+  const deliveredReport = insertMessage({
     conversationId: parent.id,
     role: 'user',
     status: 'sent',
     content: forwardingCalls[0].text,
+    fromAgent: forwardingCalls[0].fromAgent,
   });
+  assert.equal(getMessages(parent.id).find((message) => message.id === deliveredReport.id).fromAgent, true);
+  const reportBlock = toModelMessages(parent.id).at(-1);
+  assert.match(reportBlock.content, /^<agent_message>\n/);
+  assert.ok(reportBlock.content.includes(forwardingCalls[0].text));
+  assert.deepEqual(toModelMessagesThroughUser(parent.id).at(-1), reportBlock);
   await forwardingRunner.forwardSubagentResult(managedResult);
   assert.equal(forwardingCalls.length, 1);
 
@@ -1005,6 +1034,7 @@ try {
   await forwardingRunner.forwardSubagentResult(managedError);
   assert.equal(forwardingCalls.length, 2);
   assert.equal(forwardingCalls[1].steer, true);
+  assert.equal(forwardingCalls[1].fromAgent, true);
   assert.match(forwardingCalls[1].text, /Managed worker failed\./);
   assert.match(forwardingCalls[1].text, /status="error"/);
 
@@ -1120,7 +1150,8 @@ try {
             content: payload.text,
           });
           const apiMessage = database.messageToApiBlock(delivered);
-          assert.equal(apiMessage.content, payload.text);
+          assert.match(apiMessage.content, /^<agent_message>\n/);
+          assert.ok(apiMessage.content.includes(payload.text));
           assert.match(apiMessage.content, /does not override the user's request/);
           return { queued: false, message: delivered };
         },
