@@ -3,6 +3,7 @@
 ## [Canary]
 
 ### Fixed
+- Prepare the Computer Use `get-windows` native addon only on Windows, avoiding unnecessary native downloads/builds on macOS and Linux while preserving their existing backends and Windows source-build fallback.
 - Preserve agent authorship in model history and retries using the persisted `fromAgent` flag; automatic sub-agent final/error reports now retain that flag and explicitly identify themselves as coordination, not user instructions.
 
 ### Tests

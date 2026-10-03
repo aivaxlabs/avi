@@ -2,6 +2,8 @@
 
 Plugins can register tools globally or scope them to one thread or bot thread.
 
+The bundled Computer Use tools keep the same names, arguments, and result shapes on Windows, macOS, and Linux. Their platform-specific preparation installs the `get-windows` native addon only on Windows; this packaging detail does not change tool registration or invocation contracts. See [Computer Use preparation](../../Plugins.md#computer-use).
+
 ## Registration
 
 ```ts

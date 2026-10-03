@@ -16,7 +16,6 @@
   "trustedDependencies": [
     "electron",
     "sharp",
-    "get-windows",
     "uiohook-napi",
     "@nut-tree-fork/libnut",
   ],

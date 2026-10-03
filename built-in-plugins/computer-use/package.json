@@ -10,5 +10,5 @@
     "sharp": "0.34.5",
     "uiohook-napi": "1.5.5"
   },
-  "trustedDependencies": ["electron", "@nut-tree-fork/libnut", "uiohook-napi", "sharp", "get-windows"]
+  "trustedDependencies": ["electron", "@nut-tree-fork/libnut", "uiohook-napi", "sharp"]
 }
