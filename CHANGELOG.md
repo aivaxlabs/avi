@@ -2,6 +2,9 @@
 
 ## [Canary]
 
+### Tests
+- Run child-thread database tests under Electron and align tuning snapshots, personality IDs, semaphore mocks, and on-demand thread discovery with current contracts. Update bot Inbox/command tests and the bot Core API fixture to the required ORPC handshake and binary transport; production behavior is unchanged.
+
 ## [0.7.0] — 2026-10-01
 
 ### Added

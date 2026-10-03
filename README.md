@@ -206,6 +206,8 @@ With an installed or packaged Windows executable:
 
 No environment variables are required for normal development. Providers and MCP servers are configured inside the application.
 
+Focused orchestration checks: `bun run test:side-chat` runs database and child-thread tests under Electron; `bun run test:rubber-duck` checks the current 20-turn default and 10–500 bounds. `bun run test:bots` covers bot scheduling, Inbox, persistence, tools, and Core API; `bun scripts/test-bot-composer.mjs` checks the shared command catalog separately. Bot RPC tests use the required binary ORPC transport, not legacy JSON-RPC WebSocket messages.
+
 ## Provider setup
 
 Open **Settings → Providers**, then choose one of the supported connection types:

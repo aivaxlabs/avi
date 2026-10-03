@@ -23,7 +23,7 @@ try {
   const render = (overrides = {}) => renderToStaticMarkup(React.createElement(AuxiliaryPanel, { ...props, ...overrides }));
   const { OrchestrationPage } = await vite.ssrLoadModule('/src/renderer/components/OrchestrationPage.jsx');
   const dashboard = renderToStaticMarkup(React.createElement(OrchestrationPage, { models: [], bots: props.bots, botDataByBot: props.botDataByBot }));
-  assert.match(dashboard, /<h1>Overview<\/h1>/);
+  assert.match(dashboard, /<h1>Inbox<\/h1>/);
   assert.match(dashboard, /role="tab"[^>]*aria-selected="true"[^>]*>Inbox · 2/);
   assert.match(dashboard, /All bots Inbox/);
   assert.match(dashboard, /<img src="https:\/\/orb\.aivax\.net\/bot-1" width="30" height="30" alt=""\/>/);
@@ -115,7 +115,8 @@ try {
   assert.match(failed, /<details[\s\S]*Invalid inbox.json/);
   const runtime = readFileSync(new URL('../src/main/runtime.js', import.meta.url), 'utf8');
   assert.match(runtime, /botDataByBot\[bot\.id\]\?\.inbox[\s\S]*?filter\(hasOpenBotUserAction\)\.length/);
-  const taskFilter = runtime.match(/const conversations = allConversations\s*\.filter\((\(conversation\) => [^;]+)\);/);
+  const overviewSource = readFileSync(new URL('../src/main/overview-core.js', import.meta.url), 'utf8');
+  const taskFilter = overviewSource.match(/const conversations = allConversations\s*\.filter\((\(conversation\) => [^;]+)\);/);
   assert.ok(taskFilter, 'Overview filters task histories before classification');
   const includeTask = new Function(`return ${taskFilter[1]}`)();
   assert.deepEqual([

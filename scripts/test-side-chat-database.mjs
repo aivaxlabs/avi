@@ -47,6 +47,7 @@ try {
     terminalShell: 'auto',
     terminalTimeoutSeconds: 30,
     maxConcurrentSubagents: 128,
+    rubberDuckMaxTurns: 20,
     logLevel: 'minimal',
   });
   assert.deepEqual(setTuningSettings({
@@ -56,11 +57,13 @@ try {
     continuationRepliesEnabled: false,
     automaticCompactionThreshold: 0.8,
     toolOutputLimit: null,
+    mediaSizeLimit: 10 * 1024 * 1024,
     defaultPermissionMode: 'ask_for_approval',
     messageDeliveryMode: 'steer',
     terminalShell: 'pwsh',
     terminalTimeoutSeconds: 45,
     maxConcurrentSubagents: 4,
+    rubberDuckMaxTurns: 20,
     logLevel: 'verbose',
   }), {
     personality: 'friendly',
@@ -69,11 +72,13 @@ try {
     continuationRepliesEnabled: false,
     automaticCompactionThreshold: 0.8,
     toolOutputLimit: null,
+    mediaSizeLimit: 10 * 1024 * 1024,
     defaultPermissionMode: 'ask_for_approval',
     messageDeliveryMode: 'steer',
     terminalShell: 'pwsh',
     terminalTimeoutSeconds: 45,
     maxConcurrentSubagents: 4,
+    rubberDuckMaxTurns: 20,
     logLevel: 'verbose',
   });
   assert.equal(getPreferences().tuning.personality, 'friendly');
@@ -124,7 +129,7 @@ try {
   assert.throws(
     () => setTuningSettings({
       ...getPreferences().tuning,
-      personality: 'invalid',
+      personality: 'invalid personality',
     }),
     /outside their allowed range/,
   );
@@ -233,12 +238,18 @@ try {
   const inspectThreadTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_inspect_thread');
   const interruptThreadTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_interrupt_thread');
   const visibleThreads = await listThreadsTool.execute({}, {
-    chatRunner: { runs: new Map() },
+    chatRunner: {
+      runs: new Map(),
+      semaphores: { waitSnapshot: () => null, holdings: () => [] },
+    },
     conversationId: parent.id,
   });
   assert.doesNotMatch(visibleThreads, new RegExp(`ID: ${first.conversation.id}`));
   const sideChatThreads = await listThreadsTool.execute({}, {
-    chatRunner: { runs: new Map() },
+    chatRunner: {
+      runs: new Map(),
+      semaphores: { waitSnapshot: () => null, holdings: () => [] },
+    },
     conversationId: first.conversation.id,
   });
   assert.match(sideChatThreads, new RegExp(`ID: ${second.conversation.id}`));
@@ -734,8 +745,16 @@ try {
         provider: {
           getContributions: () => ({ tools: [] }),
           stream: async ({ invocationContext }) => {
-            subagentContexts.push(invocationContext.subagents);
-            threadContexts.push(invocationContext.threads);
+            assert.equal(invocationContext.hasSubagents, true);
+            assert.equal(invocationContext.hasThreads, true);
+            assert.equal(invocationContext.subagents, undefined);
+            assert.equal(invocationContext.threads, undefined);
+            const context = await CLIENT_TOOLS
+              .find((tool) => tool.name === 'chat_list_thread_context')
+              .execute({}, { chatRunner: runtimeRunner, conversationId: invocationContext.conversationId });
+            const threads = context.threads.map((thread) => ({ ...thread, threadId: thread.id }));
+            threadContexts.push(threads);
+            subagentContexts.push(threads.filter((thread) => thread.role === 'subagent'));
             return { assistantContent: '', continuation: [], toolCalls: [] };
           },
         },
@@ -842,6 +861,7 @@ try {
   while (runtimeRunner.runs.has(parent.id)) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 10));
   }
+  assert.ok(threadContexts.length > 0, getMessages(parent.id).at(-1)?.content);
   assert.deepEqual(
     threadContexts[0].map(({ threadId }) => threadId),
     [subagent.conversation.id, spawnedThreadId, failedSubagent.conversation.id],

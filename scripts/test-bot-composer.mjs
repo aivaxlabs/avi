@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { composerCommands } from '../src/shared/composer-commands.js';
 
 const composerSource = readFileSync(
   new URL('../src/renderer/components/Composer.jsx', import.meta.url),
@@ -7,9 +8,9 @@ const composerSource = readFileSync(
 );
 
 for (const commandId of ['ultra', 'plan', 'goal', 'efforts', 'models']) {
-  assert.match(
-    composerSource,
-    new RegExp(`id: '${commandId}',[\\s\\S]*?availableInBot: false,`),
+  assert.equal(
+    composerCommands.find(({ id }) => id === commandId)?.availableInBot,
+    false,
     `/${commandId} should be unavailable in bot conversations.`,
   );
 }

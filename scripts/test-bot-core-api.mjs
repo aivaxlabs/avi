@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import WebSocket from 'ws';
+import { randomUUID } from 'node:crypto';
+import { OrpcPeer, ORPC_PROTOCOL } from '../src/shared/orpc.js';
 
 const timestamp = `${new Date().toISOString().slice(0, 16).replace('T', '-').replace(':', '-')}-UTC`;
 const testRoot = join(tmpdir(), '.avi', 'visualizations', timestamp, 'bot-core-api');
@@ -144,17 +146,26 @@ try {
     },
   });
   await server.start(0);
-  socket = new WebSocket(`ws://127.0.0.1:${server.port}/rpc`, { headers: { Authorization: 'Bearer bot-inbox-test-key' } });
+  socket = new WebSocket(`ws://127.0.0.1:${server.port}/rpc`, ORPC_PROTOCOL, { headers: { Authorization: 'Bearer bot-inbox-test-key' } });
   await once(socket, 'open');
-  let requestId = 0;
-  const rpc = async (method, params) => {
-    const response = once(socket, 'message', { signal: AbortSignal.timeout(5000) });
-    socket.send(JSON.stringify({ jsonrpc: '2.0', id: ++requestId, method, params }));
-    const [data] = await response;
-    const result = JSON.parse(data.toString());
-    assert.equal(result.id, requestId);
-    return result;
-  };
+  const peer = new OrpcPeer({
+    integrity: true,
+    send: (frame) => socket.send(Buffer.from(frame)),
+    isOpen: () => socket.readyState === WebSocket.OPEN,
+    bufferedAmount: () => socket.bufferedAmount,
+  });
+  socket.on('message', (data, isBinary) => {
+    if (isBinary) peer.receive(data);
+  });
+  socket.once('close', () => peer.terminate());
+  const rpc = async (method, params) => JSON.parse(new TextDecoder().decode(await peer.call(
+    method.replace(':', '.'),
+    new TextEncoder().encode(JSON.stringify({
+      operationId: randomUUID(),
+      expiresAt: Date.now() + 60_000,
+      params,
+    })),
+  )));
   const discovery = await rpc('rpc:discover');
   assert.ok(discovery.result.methods.includes('bots:reply-pendency'));
   assert.ok(discovery.result.methods.includes('bots:complete-pendency'));
