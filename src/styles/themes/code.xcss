@@ -103,7 +103,6 @@
   .settings-add-provider,
   .settings-provider-empty .primary-mini,
   .settings-actions .primary-mini,
-  .models-editor-header button,
   .icon-button,
   .round-button,
   .recent-filter-button,

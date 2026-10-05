@@ -27,6 +27,7 @@ import {
   Plus,
   RadioTower,
   Save,
+  ScanSearch,
   Search,
   Server,
   Share2,
@@ -404,6 +405,9 @@ export function SettingsPage({
   const [providerImportDialog, setProviderImportDialog] = useState(null);
   const [providerShareDialog, setProviderShareDialog] = useState(null);
   const providerImportRef = useRef(null);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [modelScanDialog, setModelScanDialog] = useState(null);
+  const modelMenuRef = useRef(null);
   const [contextFolders, setContextFolders] = useState([]);
   const [selectedContextFolder, setSelectedContextFolder] = useState(initialContextFolder);
   const [contextFolder, setContextFolder] = useState(null);
@@ -505,6 +509,23 @@ export function SettingsPage({
       document.removeEventListener('keydown', closeOnKeyDown);
     };
   }, [providerImportOpen]);
+
+  useEffect(() => {
+    if (!modelMenuOpen) return undefined;
+
+    const closeOnPointerDown = (event) => {
+      if (!modelMenuRef.current?.contains(event.target)) setModelMenuOpen(false);
+    };
+    const closeOnKeyDown = (event) => {
+      if (event.key === 'Escape') setModelMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnPointerDown);
+    document.addEventListener('keydown', closeOnKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnPointerDown);
+      document.removeEventListener('keydown', closeOnKeyDown);
+    };
+  }, [modelMenuOpen]);
 
   useEffect(() => {
     if (view !== 'routers') return undefined;
@@ -740,6 +761,42 @@ export function SettingsPage({
     });
     setError('');
     setView('model');
+  }
+
+  function openNewModelEditor(id = '') {
+    setModelMenuOpen(false);
+    setModelIndex(-1);
+    setModelDraft({
+      id,
+      instanceId: crypto.randomUUID(),
+      name: '',
+      enabled: true,
+      capabilities: { images: false, video: false, audio: false, pdfFiles: false },
+      context: { input: '', output: '' },
+      reasoning: [],
+    });
+    setError('');
+    setView('model');
+  }
+
+  async function scanProviderModels() {
+    const requestId = crypto.randomUUID();
+    setModelMenuOpen(false);
+    setModelScanDialog({ requestId, status: 'loading', models: [], filter: '', error: '' });
+    try {
+      const models = await window.chatApp.providers.availableModels(selectedProvider.id);
+      setModelScanDialog((current) => current?.requestId === requestId
+        ? { ...current, status: 'ready', models }
+        : current);
+    } catch (scanError) {
+      setModelScanDialog((current) => current?.requestId === requestId
+        ? {
+            ...current,
+            status: 'error',
+            error: scanError instanceof Error ? scanError.message : String(scanError),
+          }
+        : current);
+    }
   }
 
   function updateModelDraft(patch) {
@@ -2786,23 +2843,44 @@ export function SettingsPage({
                       </p>
                     </div>
                     {selectedProvider && selectedType?.models === 'custom' && (
-                      <button type="button" onClick={() => {
-                        setModelIndex(-1);
-                        setModelDraft({
-                          id: '',
-                          instanceId: crypto.randomUUID(),
-                          name: '',
-                          enabled: true,
-                          capabilities: { images: false, video: false, audio: false, pdfFiles: false },
-                          context: { input: '', output: '' },
-                          reasoning: [],
-                        });
-                        setError('');
-                        setView('model');
-                      }}>
-                        <Plus size={14} />
-                        Add model
-                      </button>
+                      <div
+                        className={classNames(selectedType.supportsModelListing && 'settings-add-provider-group')}
+                        ref={modelMenuRef}
+                      >
+                        <button
+                          className="primary-mini settings-add-provider"
+                          type="button"
+                          onClick={() => openNewModelEditor()}
+                        >
+                          <Plus size={14} />
+                          Add model
+                        </button>
+                        {selectedType.supportsModelListing && (
+                          <>
+                            <button
+                              className="primary-mini settings-add-provider-menu-trigger"
+                              type="button"
+                              aria-label="More model actions"
+                              aria-haspopup="menu"
+                              aria-expanded={modelMenuOpen}
+                              onClick={() => setModelMenuOpen((open) => !open)}
+                            >
+                              <ChevronDown size={14} />
+                            </button>
+                            {modelMenuOpen && (
+                              <DropdownMenu className="settings-add-provider-menu" role="menu">
+                                <DropdownMenuItem
+                                  icon={<ScanSearch size={14} />}
+                                  role="menuitem"
+                                  onClick={scanProviderModels}
+                                >
+                                  Scan models
+                                </DropdownMenuItem>
+                              </DropdownMenu>
+                            )}
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
                   {selectedType?.models === 'managed' ? (
@@ -3237,6 +3315,109 @@ export function SettingsPage({
                     Include API key
                   </button>
                 )}
+              </div>
+            </footer>
+          </div>
+        </div>
+      )}
+      {modelScanDialog && (
+        <div
+          className="dialog-backdrop provider-import-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setModelScanDialog(null);
+          }}
+        >
+          <div
+            className="provider-import-dialog provider-model-scan-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="provider-model-scan-title"
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return;
+              event.preventDefault();
+              setModelScanDialog(null);
+            }}
+          >
+            <header className="dialog-header">
+              <div>
+                <h2 id="provider-model-scan-title">Scan models</h2>
+                <p>Models reported by {selectedProvider?.name || 'this provider'}. Choose one to configure it.</p>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                aria-label="Close model scan dialog"
+                onClick={() => setModelScanDialog(null)}
+              >
+                <X size={16} />
+              </button>
+            </header>
+
+            <label className="provider-import-url-field" htmlFor="provider-model-scan-filter">
+              <span>Filter</span>
+              <input
+                id="provider-model-scan-filter"
+                type="search"
+                autoFocus
+                placeholder="Search model IDs"
+                value={modelScanDialog.filter}
+                onChange={(event) => setModelScanDialog({
+                  ...modelScanDialog,
+                  filter: event.target.value,
+                })}
+              />
+            </label>
+
+            {modelScanDialog.status === 'loading' ? (
+              <p className="provider-model-scan-status" role="status">Scanning models...</p>
+            ) : modelScanDialog.status === 'error' ? (
+              <div className="provider-import-error" role="alert">{modelScanDialog.error}</div>
+            ) : (() => {
+              const filter = modelScanDialog.filter.trim().toLowerCase();
+              const visibleModels = modelScanDialog.models.filter((model) => (
+                model.id.toLowerCase().includes(filter)
+              ));
+              return visibleModels.length ? (
+                <ul className="provider-model-scan-list" aria-label="Available models">
+                  {visibleModels.map((model) => (
+                    <li key={model.id}>
+                      <span>
+                        <strong title={model.id}>{model.id}</strong>
+                        {selectedProvider?.models.some((item) => item.id === model.id) && (
+                          <small>Already configured</small>
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setModelScanDialog(null);
+                          openNewModelEditor(model.id);
+                        }}
+                      >
+                        <Plus size={13} />
+                        Add model
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="provider-model-scan-status" role="status">
+                  {modelScanDialog.models.length ? 'No models match this filter.' : 'The provider reported no models.'}
+                </p>
+              );
+            })()}
+
+            <footer className="dialog-footer">
+              <span>
+                {modelScanDialog.status === 'ready'
+                  ? `${modelScanDialog.models.length} ${modelScanDialog.models.length === 1 ? 'model' : 'models'} found`
+                  : 'Uses the saved provider URL and API key.'}
+              </span>
+              <div>
+                {modelScanDialog.status === 'error' && (
+                  <button type="button" onClick={scanProviderModels}>Retry</button>
+                )}
+                <button type="button" onClick={() => setModelScanDialog(null)}>Close</button>
               </div>
             </footer>
           </div>

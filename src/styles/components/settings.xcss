@@ -1262,6 +1262,87 @@
     width: min(520px, 100%);
   }
 
+  .provider-model-scan-dialog {
+    width: min(560px, 100%);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    overflow: hidden;
+  }
+
+  .provider-model-scan-status {
+    margin: 0;
+    padding: 18px 0;
+    color: var(--text-3);
+    font-size: .9rem;
+    text-align: center;
+  }
+
+  .provider-model-scan-list {
+    min-height: 0;
+    display: grid;
+    align-content: start;
+    gap: 1px;
+    margin: 0;
+    padding: 1px;
+    overflow: auto;
+    list-style: none;
+    background: var(--border-color);
+    border-radius: 8px;
+
+    li {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 7px 8px 7px 11px;
+      background: var(--background-3);
+
+      > span {
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+
+      strong {
+        overflow: hidden;
+        color: var(--text-1);
+        font-size: .9rem;
+        font-weight: 400;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      small {
+        color: var(--text-3);
+        font-size: .8rem;
+      }
+
+      button {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        padding: 5px 10px;
+        color: var(--text-2);
+        background: var(--background-4);
+        font-size: .85rem;
+        white-space: nowrap;
+
+        svg {
+          margin: 0 4px 0 0;
+        }
+
+        &:hover {
+          background: var(--item-hover);
+        }
+
+        &:focus-visible {
+          outline: 2px solid var(--text-3);
+          outline-offset: 1px;
+        }
+      }
+    }
+  }
+
   .provider-share-dialog {
     width: min(470px, 100%);
     gap: 18px;
@@ -2297,23 +2378,6 @@
     margin-top: 2px;
     color: var(--text-3);
     font-size: .9rem;
-  }
-
-  .models-editor-header button {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 30px;
-    padding: 6px 9px;
-    color: var(--text-2);
-    background: var(--background-3);
-    border: 1px solid var(--border-color);
-    border-radius: 7px;
-    font-size: .9rem;
-
-    &:hover {
-      background: var(--item-hover);
-    }
   }
 
   .model-editor-card {

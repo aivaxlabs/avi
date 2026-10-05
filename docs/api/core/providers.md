@@ -45,6 +45,12 @@ avi.providers.types.register({
 });
 ```
 
+## Model listing
+
+Set `descriptor.supportsModelListing: true` and implement `listAvailableModels({ provider, services })` to let users scan the provider's remote catalog from Settings. The handler returns `Array<{ id: string }>`; Avi trims IDs, drops empty values and duplicates, and sorts the result. Registration fails with `VALIDATION_FAILED` when `supportsModelListing` is true but the handler is missing. `types.list()` always returns `supportsModelListing` as a boolean. Built-in OpenAI Compatible types request `GET /v1/models` with the configured API key.
+
+Scanning only discovers IDs; it never changes the saved configuration. Read the list through `provider.listAvailableModels()`, which requires `providers.read` and rejects when the type does not support listing.
+
 `eventsFrom(payload, state)` receives an optional mutable state object isolated to one streaming attempt; it is reset for retries and never shared across concurrent streams. Existing one-argument handlers remain supported. Managed connection state may expose `connection.input` (`id`, `label`, `description`, opaque `sessionId`) for a masked secret field, such as an authorization code or API key, submitted to the primary action, and `connection.secondaryAction` (`id`, `label`) for cancellation. Never return PKCE verifiers, tokens, or keys in renderer-facing state.
 
 `descriptor.id`, `createBody`, `request`, and `eventsFrom` are required. Dynamic provider types participate in ModelProviderRegistry immediately and are removed on dispose.
@@ -77,6 +83,7 @@ Value types `ProviderSnapshot`, `ModelSnapshot`, and `ProviderTypeDescriptor` ar
 provider.id: string
 provider.getSnapshot(): Promise<ProviderSnapshot | null>
 provider.getState(): Promise<object>
+provider.listAvailableModels(): Promise<Array<{ id: string }>>
 provider.update(patch): Promise<ProviderSnapshot>
 provider.remove(): Promise<void>
 provider.invokeAction(action, input?): Promise<JsonValue>

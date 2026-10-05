@@ -352,7 +352,7 @@ function createBotHandle({ runtime, record, botId, storage }) {
     },
     async activate(options = {}) {
       runtime.require(record, 'bots.run');
-      await runtime.services.botManager.activateBot(botId, { trigger: options.trigger ?? 'plugin' });
+      await runtime.services.botManager.activateBot(botId, { trigger: options.trigger ?? 'plugin', force: true });
       return createThreadHandle({ runtime, record, threadId: read().conversationId, storage });
     },
     async pause() {
@@ -394,8 +394,9 @@ function createBotHandle({ runtime, record, botId, storage }) {
       async reply(pendencyId, message) {
         runtime.require(record, 'bots.manage');
         read();
+        const { content, attachments } = clonePluginValue(message) ?? {};
         return clonePluginValue(await runtime.services.botManager.replyToPendency(
-          botId, pendencyId, clonePluginValue(message),
+          botId, pendencyId, { content, attachments },
         ));
       },
       async complete(pendencyId) {
@@ -532,6 +533,10 @@ export function createPluginDomainApi({ runtime, record, storage }) {
       runtime.require(record, 'providers.read');
       return clonePluginValue(await runtime.services.providerRegistry.getState(id));
     },
+    async listAvailableModels() {
+      runtime.require(record, 'providers.read');
+      return clonePluginValue(await runtime.services.providerRegistry.listAvailableModels(id));
+    },
     async update(patch) {
       runtime.require(record, 'providers.manage');
       const hasApiKey = Object.hasOwn(patch ?? {}, 'apiKey');
@@ -580,6 +585,9 @@ export function createPluginDomainApi({ runtime, record, storage }) {
         const id = requirePluginId(definition?.descriptor?.id, 'Provider type ID');
         if (typeof definition.createBody !== 'function' || typeof definition.request !== 'function' || typeof definition.eventsFrom !== 'function') {
           throw new AviError('VALIDATION_FAILED', `Provider type "${id}" requires createBody, request, and eventsFrom.`);
+        }
+        if (definition.descriptor.supportsModelListing === true && typeof definition.listAvailableModels !== 'function') {
+          throw new AviError('VALIDATION_FAILED', `Provider type "${id}" supports model listing but does not implement listAvailableModels.`);
         }
         try {
           normalizeProviderHarness(definition.descriptor.harness);

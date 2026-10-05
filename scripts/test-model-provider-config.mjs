@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { ModelProviderRegistry } from '../src/main/model-provider.js';
+import { defineProvider } from '../src/main/provider-api.js';
 import {
   chatCompletionsApi,
   openAiCompatibleProviderTypes,
@@ -161,9 +162,8 @@ for (const [model, id, name, serviceTier] of [
   assert.equal(variantBody.service_tier, serviceTier);
 }
 
-for (const family of ['sol', 'luna']) {
+for (const modelId of ['gpt-6-sol', 'gpt-6-luna', 'gpt-6.1-sol']) {
   for (const suffix of ['', '-fast', '-1m', '-1m-fast']) {
-    const modelId = `gpt-6-${family}`;
     const model = subscriptionProvider.listModels().find(
       (entry) => entry.id === `subscription:${modelId}${suffix}`,
     );
@@ -257,5 +257,66 @@ assert.throws(
   }),
   /Model instance ID "duplicated-instance" is duplicated/,
 );
+
+assert.throws(
+  () => defineProvider({
+    descriptor: { id: 'listing-without-handler', name: 'Listing', supportsModelListing: true },
+    createBody() {},
+    request() {},
+    eventsFrom() {},
+  }),
+  /listAvailableModels/,
+);
+
+const originalFetch = globalThis.fetch;
+const listingRequests = [];
+globalThis.fetch = async (url, options) => {
+  listingRequests.push({ url: String(url), authorization: options.headers.Authorization });
+  return new Response(JSON.stringify({
+    data: [{ id: 'zeta' }, { id: 'alpha' }, { id: 'alpha' }, { id: '' }, {}],
+  }), { status: 200 });
+};
+try {
+  const listingProviders = [
+    { ...normalized, id: 'chat-root', baseUrl: 'https://example.com', apiKey: 'secret' },
+    { ...normalized, id: 'chat-v1', baseUrl: 'https://example.com/v1/' },
+    { ...normalized, id: 'chat-full', baseUrl: 'https://example.com/v1/chat/completions' },
+    { ...normalized, id: 'responses-full', interface: 'responses', baseUrl: 'https://example.com/api/v1/responses' },
+  ];
+  const listingRegistry = new ModelProviderRegistry({
+    getProviders: () => listingProviders,
+    providerTypes: openAiCompatibleProviderTypes,
+    services: {},
+  });
+  assert.equal(listingRegistry.listTypes().every((type) => type.supportsModelListing === true), true);
+  assert.deepEqual(await listingRegistry.listAvailableModels('chat-root'), [{ id: 'alpha' }, { id: 'zeta' }]);
+  await listingRegistry.listAvailableModels('chat-v1');
+  await listingRegistry.listAvailableModels('chat-full');
+  await listingRegistry.listAvailableModels('responses-full');
+  assert.deepEqual(listingRequests.map((request) => request.url), [
+    'https://example.com/v1/models',
+    'https://example.com/v1/models',
+    'https://example.com/v1/models',
+    'https://example.com/api/v1/models',
+  ]);
+  assert.equal(listingRequests[0].authorization, 'Bearer secret');
+  assert.equal(listingRequests[1].authorization, undefined);
+
+  globalThis.fetch = async () => new Response('denied', { status: 401 });
+  await assert.rejects(() => listingRegistry.listAvailableModels('chat-root'), /HTTP 401/);
+
+  const subscriptionListingRegistry = new ModelProviderRegistry({
+    getProviders: () => [{ id: 'subscription', interface: openAiSubscriptionProviderType.descriptor.id }],
+    providerTypes: [openAiSubscriptionProviderType],
+    services: {},
+  });
+  assert.equal(subscriptionListingRegistry.listTypes()[0].supportsModelListing, false);
+  await assert.rejects(
+    () => subscriptionListingRegistry.listAvailableModels('subscription'),
+    /does not support model listing/,
+  );
+} finally {
+  globalThis.fetch = originalFetch;
+}
 
 console.log('model provider config tests passed');

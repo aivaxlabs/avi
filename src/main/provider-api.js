@@ -53,6 +53,9 @@ export function defineProvider(provider) {
   ) {
     throw new Error('Invalid model provider contract.');
   }
+  if (provider.descriptor.supportsModelListing === true && typeof provider.listAvailableModels !== 'function') {
+    throw new Error('Providers that support model listing must implement listAvailableModels.');
+  }
   normalizeProviderHarness(provider.descriptor.harness);
   return Object.freeze(provider);
 }

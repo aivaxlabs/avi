@@ -481,10 +481,12 @@ export const openAiCompatibleProviderTypes = [
       icon: 'server',
       connection: 'custom',
       models: 'custom',
+      supportsModelListing: true,
       fields: [reasoningFormatField, ...inferenceParameterFields],
     },
     ...responsesApi,
     request: (context) => requestOpenAiCompatible(context, '/v1/responses'),
+    listAvailableModels: (context) => listOpenAiCompatibleModels(context, '/v1/responses'),
   }),
   defineProvider({
     descriptor: {
@@ -495,10 +497,12 @@ export const openAiCompatibleProviderTypes = [
       icon: 'server',
       connection: 'custom',
       models: 'custom',
+      supportsModelListing: true,
       fields: [reasoningFormatField, ...inferenceParameterFields],
     },
     ...chatCompletionsApi,
     request: (context) => requestOpenAiCompatible(context, '/v1/chat/completions'),
+    listAvailableModels: (context) => listOpenAiCompatibleModels(context, '/v1/chat/completions'),
   }),
 ];
 
@@ -534,15 +538,34 @@ function reasoningRequestFields(reasoningEffort, format = 'default') {
   }[format];
 }
 
-function requestOpenAiCompatible({ provider, model, body, signal }, interfacePath) {
-  const baseUrl = provider.baseUrl.replace(/\/+$/, '');
-  const endpoint = baseUrl.endsWith(interfacePath)
-    ? baseUrl
-    : baseUrl.endsWith('/v1')
-      ? `${baseUrl}${interfacePath.slice(3)}`
-      : `${baseUrl}${interfacePath}`;
+function openAiCompatibleEndpoint(baseUrl, interfacePath, path) {
+  const trimmedUrl = baseUrl.replace(/\/+$/, '');
+  const rootUrl = trimmedUrl.endsWith(interfacePath)
+    ? trimmedUrl.slice(0, -interfacePath.length)
+    : trimmedUrl;
 
-  return sendJsonRequest(endpoint, {
+  return rootUrl.endsWith('/v1')
+    ? `${rootUrl}${path.slice(3)}`
+    : `${rootUrl}${path}`;
+}
+
+async function listOpenAiCompatibleModels({ provider }, interfacePath) {
+  const response = await fetch(openAiCompatibleEndpoint(provider.baseUrl, interfacePath, '/v1/models'), {
+    headers: {
+      Accept: 'application/json',
+      ...(provider.apiKey ? { Authorization: `Bearer ${provider.apiKey}` } : {}),
+    },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`Model listing failed with HTTP ${response.status}.`);
+
+  const payload = await response.json().catch(() => null);
+  if (!Array.isArray(payload?.data)) throw new Error('The provider returned an invalid model list.');
+  return payload.data.map((model) => ({ id: model?.id }));
+}
+
+function requestOpenAiCompatible({ provider, model, body, signal }, interfacePath) {
+  return sendJsonRequest(openAiCompatibleEndpoint(provider.baseUrl, interfacePath, interfacePath), {
     headers: {
       Accept: 'text/event-stream',
       'Content-Type': 'application/json',

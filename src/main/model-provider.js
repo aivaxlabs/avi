@@ -593,6 +593,7 @@ export class ModelProviderRegistry {
   listTypes() {
     return [...this.providerTypes.values()].map((type) => ({
       ...type.descriptor,
+      supportsModelListing: type.descriptor.supportsModelListing === true,
       harness: normalizeProviderHarness(type.descriptor.harness),
     }));
   }
@@ -801,6 +802,29 @@ export class ModelProviderRegistry {
           services: this.services,
         })
       : {};
+  }
+
+  async listAvailableModels(providerId) {
+    const config = this.getProviders().find((provider) => provider.id === providerId);
+    if (!config) throw new Error('Provider not found.');
+    const provider = this.createProvider(config);
+    if (
+      provider.implementation.descriptor.supportsModelListing !== true
+      || typeof provider.implementation.listAvailableModels !== 'function'
+    ) {
+      throw new Error('This provider does not support model listing.');
+    }
+
+    const models = await provider.implementation.listAvailableModels({
+      provider: provider.config,
+      services: this.services,
+    });
+    if (!Array.isArray(models)) throw new Error('The provider returned an invalid model list.');
+    return [...new Set(models
+      .map((model) => String(model?.id ?? '').trim())
+      .filter(Boolean))]
+      .sort((left, right) => left.localeCompare(right))
+      .map((id) => ({ id }));
   }
 
   async invokeAction(providerId, action, input) {

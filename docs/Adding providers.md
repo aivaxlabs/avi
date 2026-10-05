@@ -50,6 +50,8 @@ After saving the provider, select **Add model**. Configure:
 - supported reasoning efforts: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`;
 - media size limit: **Use Tuning setting** (default), 5 MB, 10 MB, 20 MB, 100 MB, or No limit. It overrides **Tuning → Media size limit** for chat attachments and `read_media_file`.
 
+Providers that can list their models show a dropdown next to **Add model**. Choose **Scan models** to request the provider's `/v1/models` endpoint with the saved base URL and API key. The dialog lists the reported model IDs, which you can filter, and marks IDs that are already configured. Select **Add model** next to an ID to open a new model editor with that ID filled in, then complete the remaining fields and save. Both OpenAI Compatible interfaces support scanning.
+
 Context limits, when provided, must be positive integers. Declare only capabilities that the endpoint supports because Avi uses them to accept attachments and serialize requests. Multiple configured variants can use the same model ID—for example, to expose different context limits—because Avi assigns each one a persistent internal instance ID.
 
 The global model identifier is `<provider-id>:<model-instance-id>`. The instance ID is generated and managed internally; the configured model ID is sent unchanged to the provider API.
