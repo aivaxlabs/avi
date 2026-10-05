@@ -1,6 +1,6 @@
 # Avi Changelog
 
-## [Canary]
+## [0.8.0] — 2026-10-05
 
 ### Added
 - **Quick questions** — select text in a chat, side chat, or bot Inbox work log, code in a Files preview or Git Review diff, or use the Files and Git Review tree context menus, then choose **Quick question** to ask about it in a small popover answered by the Quick chat model. The question receives the selection and its source context (folder, thread, bot work log, file text, folder listing, or Git diff), supports follow-ups, and can use only read-only tools. **Fork to thread** continues the conversation as an ordinary thread; **Close** discards it. The main window uses `window.chatApp.quickQuestion` (`quick-question:open`, `ask`, `fork`, `close`, and `quick-question:event`).
