@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { CLIENT_TOOLS, decorateToolsForInvocation } from '../src/main/client-tools.js';
 import { registerPluginTool } from '../src/main/plugin-domain-api.js';
 import { QuickChatRunner } from '../src/main/quick-chat-runner.js';
@@ -312,6 +314,76 @@ assert.equal(events.some((event) => (
   && event.message.attachments?.[0]?.id === generatedAttachment.id
 )), true);
 runner.close(imageSession.id);
+
+const questionDirectory = mkdtempSync(join(tmpdir(), 'avi-quick-question-'));
+const questionFile = join(questionDirectory, 'notes.md');
+writeFileSync(questionFile, 'Quick question file body');
+let questionTools = null;
+let questionMessages = null;
+let questionContext = null;
+provider.getContributions = () => ({
+  tools: [{
+    name: 'provider_write',
+    description: 'Mutating provider tool.',
+    inputSchema: { type: 'object', properties: {} },
+    execute: async () => 'written',
+  }],
+});
+provider.stream = async ({ tools, messages, invocationContext, onEvent }) => {
+  questionTools = tools.map((tool) => tool.name);
+  questionMessages = messages;
+  questionContext = invocationContext;
+  onEvent({ type: 'content', text: 'It is a note.' });
+  return { assistantContent: 'It is a note.', continuation: [], toolCalls: [] };
+};
+await assert.rejects(
+  runner.createQuestionSession({ source: 'unknown' }),
+  /Unsupported Quick question source/,
+);
+const questionSession = await runner.createQuestionSession({
+  source: 'files',
+  workspacePath: questionDirectory,
+  attachments: [{
+    kind: 'context_marker',
+    markerType: 'file_reference',
+    name: 'notes.md',
+    filepath: questionFile,
+    text: `<file-reference filepath="${questionFile}"></file-reference>`,
+  }, {
+    kind: 'context_marker',
+    markerType: 'directory_reference',
+    name: 'folder',
+    filepath: questionDirectory,
+    text: '<directory-reference></directory-reference>',
+  }],
+});
+await runner.send({ sessionId: questionSession.id, text: 'What is this?', attachments: [] });
+while (runner.state(questionSession.id).running) {
+  await new Promise((resolve) => setTimeout(resolve, 1));
+}
+assert.equal(questionContext.quickQuestion, true);
+assert.equal(questionContext.workspacePath, questionDirectory);
+assert.ok(questionTools.includes('read_file'));
+for (const name of ['run_in_terminal', 'write_file', 'chat_send_prompt', 'provider_write', 'ask_question']) {
+  assert.equal(questionTools.includes(name), false, name);
+}
+const questionPrompt = JSON.stringify(questionMessages);
+assert.match(questionPrompt, /quick_question_context source=\\"files\\"/);
+assert.match(questionPrompt, /Quick question file body/);
+assert.match(questionPrompt, /directory-listing/);
+assert.match(questionPrompt, /notes\.md/);
+await runner.send({ sessionId: questionSession.id, text: 'And then?', attachments: [] });
+while (runner.state(questionSession.id).running) {
+  await new Promise((resolve) => setTimeout(resolve, 1));
+}
+const followUp = runner.state(questionSession.id).messages;
+assert.equal(followUp.length, 4);
+assert.equal(followUp[2].attachments.length, 0);
+assert.equal(
+  JSON.stringify(questionMessages).match(/Quick question file body/g).length,
+  1,
+);
+rmSync(questionDirectory, { recursive: true, force: true });
 
 preferences.defaultModels.quickChat = null;
 assert.throws(() => runner.createSession(), /Choose a Quick chat model/);

@@ -4,6 +4,7 @@ import {
   ChevronRight,
   CircleHelp,
   Folder,
+  MessageCircleQuestionMark,
   MessageSquarePlus,
   MessagesSquare,
   Moon,
@@ -219,6 +220,7 @@ export const ChatView = memo(function ChatView({
   onCreateSideChat,
   onMentionSelection,
   onAskSelection,
+  onQuickQuestion,
   subagents,
   tasks = [],
   onOpenTasks,
@@ -721,7 +723,7 @@ export const ChatView = memo(function ChatView({
   const updateSelectionAction = () => {
     const selection = window.getSelection();
     if (
-      (!onMentionSelection && !onAskSelection)
+      (!onMentionSelection && !onAskSelection && !onQuickQuestion)
       || !selection
       || selection.rangeCount === 0
       || selection.isCollapsed
@@ -757,7 +759,7 @@ export const ChatView = memo(function ChatView({
     }
 
     const rect = range.getBoundingClientRect();
-    const width = onMentionSelection ? 362 : 276;
+    const width = (onMentionSelection ? 362 : 276) + (onQuickQuestion ? 130 : 0);
     const height = 34;
     const above = rect.top - height - 8;
     setSelectionAction({
@@ -1496,6 +1498,25 @@ export const ChatView = memo(function ChatView({
             <button type="button" onClick={() => useSelection(onAskSelection)}>
               <MessagesSquare size={13} aria-hidden="true" />
               <span>Ask in Side Chat</span>
+            </button>
+          )}
+          {onQuickQuestion && (
+            <button
+              type="button"
+              onClick={() => useSelection((attachment) => onQuickQuestion({
+                label: selectionAction.content,
+                left: selectionAction.left,
+                top: selectionAction.top,
+                context: {
+                  source: 'chat',
+                  workspacePath: currentProject?.path,
+                  threadId: currentConversation?.id,
+                  attachments: [attachment],
+                },
+              }))}
+            >
+              <MessageCircleQuestionMark size={13} aria-hidden="true" />
+              <span>Quick question</span>
             </button>
           )}
         </div>

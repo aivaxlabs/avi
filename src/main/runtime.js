@@ -241,6 +241,7 @@ function synchronizeRemoteRelay() {
 let reloadSnapshot = null;
 let forcedCleanupRunning = false;
 const quickChatWindows = new Map();
+const quickQuestionSessions = new Set();
 let shutdownStarted = false;
 let shutdownReady = false;
 let isQuitting = false;
@@ -334,7 +335,9 @@ app.on('before-quit', (event) => {
   memoryTraceProcess?.kill();
   clearInterval(threadSearchSyncInterval);
   botManager?.stop();
-  for (const sessionId of quickChatWindows.keys()) quickChatRunner?.close(sessionId);
+  for (const sessionId of [...quickChatWindows.keys(), ...quickQuestionSessions]) {
+    quickChatRunner?.close(sessionId);
+  }
   remoteRelay.update()
     .then(() => pluginManager.deactivateAll('shutdown'))
     .then(() => chatRunner?.shutdown())
@@ -727,6 +730,10 @@ function openMainView(payload) {
 }
 
 function sendQuickChatEvent(sessionId, payload) {
+  if (quickQuestionSessions.has(sessionId)) {
+    sendRendererEvent('quick-question:event', payload);
+    return;
+  }
   const quickWindow = quickChatWindows.get(sessionId);
   if (quickWindow && !quickWindow.isDestroyed()) {
     quickWindow.webContents.send('quick-chat:event', payload);
@@ -830,7 +837,17 @@ function createWindow() {
       mainWindow.hide();
     }
   });
-  mainWindow.on('closed', () => { mainWindow = null; });
+  const closeQuickQuestions = () => {
+    for (const sessionId of quickQuestionSessions) quickChatRunner?.close(sessionId);
+    quickQuestionSessions.clear();
+  };
+  mainWindow.webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) closeQuickQuestions();
+  });
+  mainWindow.on('closed', () => {
+    closeQuickQuestions();
+    mainWindow = null;
+  });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
@@ -1280,6 +1297,41 @@ function registerIpc() {
       sessionId: ownedQuickChatSession(event, payload?.sessionId),
     })
   ));
+  const assertMainWindow = (event) => {
+    if (!event?.sender || event.sender !== mainWindow?.webContents) {
+      throw new Error('Quick questions are only available in the main window.');
+    }
+  };
+  const ownedQuickQuestion = (event, sessionId) => {
+    assertMainWindow(event);
+    if (!quickQuestionSessions.has(sessionId)) {
+      throw new Error('Quick question session is no longer available.');
+    }
+    return sessionId;
+  };
+  applicationIpc.handle('quick-question:open', async (event, context = {}) => {
+    assertMainWindow(event);
+    initializeServices();
+    const session = await quickChatRunner.createQuestionSession(context);
+    quickQuestionSessions.add(session.id);
+    return session;
+  });
+  applicationIpc.handle('quick-question:ask', (event, payload = {}) => quickChatRunner.send({
+    sessionId: ownedQuickQuestion(event, payload.sessionId),
+    text: String(payload.text ?? ''),
+    attachments: [],
+  }));
+  applicationIpc.handle('quick-question:close', (event, sessionId) => {
+    assertMainWindow(event);
+    if (!quickQuestionSessions.delete(sessionId)) return false;
+    quickChatRunner.close(sessionId);
+    return true;
+  });
+  applicationIpc.handle('quick-question:fork', async (event, sessionId) => {
+    const conversation = quickChatRunner.forkQuestion(ownedQuickQuestion(event, sessionId));
+    quickQuestionSessions.delete(sessionId);
+    return { conversation: await refreshConversationProject(conversation) };
+  });
 
 
   applicationIpc.handle('sidebar:mark-seen', (_event, conversationId) => (
@@ -1913,7 +1965,7 @@ function registerIpc() {
   ));
   applicationIpc.handle('bots:full-reset', (_event, botId) => botManager.fullResetBot(botId));
   applicationIpc.handle('bots:activate', (_event, botId) => (
-    botManager.activateBot(botId, { trigger: 'manual' })
+    botManager.activateBot(botId, { trigger: 'manual', force: true })
   ));
   applicationIpc.handle('bots:resolve-approval', (_event, payload = {}) => (
     botManager.resolveApproval(payload.approvalId, payload.decision)
@@ -2212,6 +2264,9 @@ function registerIpc() {
     return saved;
   });
   applicationIpc.handle('providers:state', (_event, providerId) => providerRegistry.getState(providerId));
+  applicationIpc.handle('providers:available-models', (_event, providerId) => (
+    providerRegistry.listAvailableModels(providerId)
+  ));
   applicationIpc.handle('providers:action', (_event, payload = {}) => (
     providerRegistry.invokeAction(payload.providerId, payload.action, payload.input)
   ));
@@ -2537,41 +2592,41 @@ function registerIpc() {
     chatRunner.stop(conversationId, { includeSubagents: true, stoppedByUser: true });
     return true;
   });
+  const resolveGitReviewProject = ({ conversationId, projectPath } = {}) => {
+    const path = conversationId ? getConversation(conversationId)?.projectPath : projectPath;
+    if (!path) throw new Error(conversationId ? 'Conversation not found.' : 'Choose a project folder before opening Git Review.');
+    return path;
+  };
   applicationIpc.handle('git-review:state', (_event, conversationId) => {
     const conversation = getConversation(conversationId);
     if (!conversation) throw new Error('Start a conversation before opening Git Review.');
     return reviewGitWorkspace(conversation.projectPath);
   });
   applicationIpc.handle('git-review:repositories', (_event, payload = {}) => {
-    const conversation = getConversation(payload.conversationId);
-    if (!conversation) throw new Error('Conversation not found.');
-    return listGitRepositories(conversation.projectPath, { refresh: payload.refresh === true });
+    const projectPath = resolveGitReviewProject(payload);
+    return listGitRepositories(projectPath, { refresh: payload.refresh === true });
   });
   applicationIpc.handle('git-review:index', (_event, payload = {}) => {
-    const conversation = getConversation(payload.conversationId);
-    if (!conversation) throw new Error('Conversation not found.');
-    return readGitRepositoryIndex(conversation.projectPath, payload.repositoryPath, { refresh: payload.refresh === true });
+    const projectPath = resolveGitReviewProject(payload);
+    return readGitRepositoryIndex(projectPath, payload.repositoryPath, { refresh: payload.refresh === true });
   });
   applicationIpc.handle('git-review:file', (_event, payload = {}) => {
-    const conversation = getConversation(payload.conversationId);
-    if (!conversation) throw new Error('Conversation not found.');
-    return readGitReviewFile(conversation.projectPath, payload.repositoryPath, payload.filePath, { staged: payload.staged === true, unstaged: payload.unstaged === true });
+    const projectPath = resolveGitReviewProject(payload);
+    return readGitReviewFile(projectPath, payload.repositoryPath, payload.filePath, { staged: payload.staged === true, unstaged: payload.unstaged === true });
   });
   applicationIpc.handle('git-review:mutate', (_event, payload = {}) => {
-    const conversation = getConversation(payload.conversationId);
-    if (!conversation) throw new Error('Conversation not found.');
-    return mutateGitRepository(conversation.projectPath, payload.repositoryPath, payload);
+    const projectPath = resolveGitReviewProject(payload);
+    return mutateGitRepository(projectPath, payload.repositoryPath, payload);
   });
   applicationIpc.handle('git-review:plan', async (_event, payload = {}) => {
-    const conversation = getConversation(payload.conversationId);
-    if (!conversation) throw new Error('Conversation not found.');
+    const projectPath = resolveGitReviewProject(payload);
     if (payload.messageOnly === true) {
-      const index = await readGitRepositoryIndex(conversation.projectPath, payload.repositoryPath, { refresh: true });
+      const index = await readGitRepositoryIndex(projectPath, payload.repositoryPath, { refresh: true });
       const stagedFiles = index.files.filter((file) => file.staged);
       if (!stagedFiles.length) throw new Error('Stage changes before generating a commit message.');
       if (stagedFiles.length > 100) throw new Error('Too many staged files to generate a commit message. Use Generate commits instead.');
       const files = await Promise.all(stagedFiles.map(async (file) => {
-        const preview = await readGitReviewFile(conversation.projectPath, payload.repositoryPath, file.path, { staged: true });
+        const preview = await readGitReviewFile(projectPath, payload.repositoryPath, file.path, { staged: true });
         if (preview.message) throw new Error(`Cannot generate a message from an incomplete preview: ${file.path}`);
         return { ...file, agentDiff: preview.diff || 'Binary or metadata-only change' };
       }));
@@ -2580,7 +2635,7 @@ function registerIpc() {
       }
       return chatRunner.createCommitPlan({ model: payload.model, repository: { ...index, files }, messageOnly: true });
     }
-    const review = await reviewGitWorkspace(conversation.projectPath, payload.repositoryPath);
+    const review = await reviewGitWorkspace(projectPath, payload.repositoryPath);
     const repository = review.repositories.find((item) => item.path === payload.repositoryPath);
     if (!repository) throw new Error('Repository not found. Refresh Git Review.');
     if (!repository.commitPlanAvailable) {
@@ -2589,18 +2644,16 @@ function registerIpc() {
     return chatRunner.createCommitPlan({ model: payload.model, repository });
   });
   applicationIpc.handle('git-review:commit', (_event, payload = {}) => {
-    const conversation = getConversation(payload.conversationId);
-    if (!conversation) throw new Error('Conversation not found.');
+    const projectPath = resolveGitReviewProject(payload);
     return commitGitPlan(
-      conversation.projectPath,
+      projectPath,
       payload.repositoryPath,
       payload.commits,
     );
   });
   applicationIpc.handle('git-review:push', (_event, payload = {}) => {
-    const conversation = getConversation(payload.conversationId);
-    if (!conversation) throw new Error('Conversation not found.');
-    return pushGitRepository(conversation.projectPath, payload.repositoryPath);
+    const projectPath = resolveGitReviewProject(payload);
+    return pushGitRepository(projectPath, payload.repositoryPath);
   });
   applicationIpc.handle('goals:start', async (_event, payload = {}) => {
     const result = await chatRunner.startGoal({

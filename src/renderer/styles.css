@@ -155,7 +155,7 @@ body.panel-resizing * {
     cursor: col-resize !important;
 }
 
-.nav-actions button, .settings-button, .dialog-footer button, .code-block-header button, .continuations button, .project-picker, .model-pill, .recording-bar button.primary-mini, .settings-back, .settings-navigation button, .settings-inline-back, .settings-add-provider, .settings-provider-empty .primary-mini, .settings-actions .primary-mini, .models-editor-header button {
+.nav-actions button, .settings-button, .dialog-footer button, .code-block-header button, .continuations button, .project-picker, .model-pill, .recording-bar button.primary-mini, .settings-back, .settings-navigation button, .settings-inline-back, .settings-add-provider, .settings-provider-empty .primary-mini, .settings-actions .primary-mini {
     border-radius: 9999px;
     padding: 4px 10px;
 }
@@ -3517,6 +3517,87 @@ body.panel-resizing * {
     width: min(520px, 100%);
 }
 
+.settings-page .provider-model-scan-dialog {
+    width: min(560px, 100%);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    overflow: hidden;
+}
+
+.settings-page .provider-model-scan-status {
+    margin: 0;
+    padding: 18px 0;
+    color: var(--text-3);
+    font-size: .9rem;
+    text-align: center;
+}
+
+.settings-page .provider-model-scan-list {
+    min-height: 0;
+    display: grid;
+    align-content: start;
+    gap: 1px;
+    margin: 0;
+    padding: 1px;
+    overflow: auto;
+    list-style: none;
+    background: var(--border-color);
+    border-radius: 8px;
+}
+
+.settings-page .provider-model-scan-list li {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 8px 7px 11px;
+    background: var(--background-3);
+}
+
+.settings-page .provider-model-scan-list li > span {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.settings-page .provider-model-scan-list li strong {
+    overflow: hidden;
+    color: var(--text-1);
+    font-size: .9rem;
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-page .provider-model-scan-list li small {
+    color: var(--text-3);
+    font-size: .8rem;
+}
+
+.settings-page .provider-model-scan-list li button {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    color: var(--text-2);
+    background: var(--background-4);
+    font-size: .85rem;
+    white-space: nowrap;
+}
+
+.settings-page .provider-model-scan-list li button svg {
+    margin: 0 4px 0 0;
+}
+
+.settings-page .provider-model-scan-list li button:hover {
+    background: var(--item-hover);
+}
+
+.settings-page .provider-model-scan-list li button:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 1px;
+}
+
 .settings-page .provider-share-dialog {
     width: min(470px, 100%);
     gap: 18px;
@@ -4429,23 +4510,6 @@ body.panel-resizing * {
     margin-top: 2px;
     color: var(--text-3);
     font-size: .9rem;
-}
-
-.settings-page .models-editor-header button {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 30px;
-    padding: 6px 9px;
-    color: var(--text-2);
-    background: var(--background-3);
-    border: 1px solid var(--border-color);
-    border-radius: 7px;
-    font-size: .9rem;
-}
-
-.settings-page .models-editor-header button:hover {
-    background: var(--item-hover);
 }
 
 .settings-page .model-editor-card {
@@ -5939,6 +6003,12 @@ button svg {
     top: -4px;
     left: calc(100% + 6px);
     width: 190px;
+}
+
+.bot-submenu-holder > .bot-submenu.flip-left {
+    left: auto;
+    right: calc(100% + 6px);
+    transform-origin: top right;
 }
 
 .bot-submenu-holder > .bot-work-queue-menu {
@@ -10302,6 +10372,45 @@ html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #roo
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+}
+
+.quick-question-popover {
+    width: min(440px, calc(100vw - 16px));
+    grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+}
+
+.quick-question-popover > .quick-question-messages {
+    min-height: 0;
+    max-height: 340px;
+    overflow-y: auto;
+    padding: 0 4px;
+    font-size: var(--font-sm);
+}
+
+.quick-question-popover > .quick-question-messages:empty {
+    display: none;
+}
+
+.quick-question-popover > .quick-question-messages .message-row {
+    width: 100%;
+}
+
+.quick-question-popover > .quick-question-messages .message-row + .message-row {
+    margin-top: .9em;
+}
+
+.quick-question-popover > .quick-question-messages .message-action-icon[title="Fork"] {
+    display: none;
+}
+
+.quick-question-popover > .quick-question-error {
+    margin: 0;
+    color: var(--danger-color);
+    font-size: var(--font-sm);
+}
+
+.quick-question-popover > textarea {
+    min-height: 52px;
 }
 /* components\reasoning.xcss */
 .thinking-group {
@@ -17956,7 +18065,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --item-active: #37373d;
 }
 
-[data-theme="code"] button, [data-theme="code"] .nav-actions button, [data-theme="code"] .settings-button, [data-theme="code"] .dialog-footer button, [data-theme="code"] .code-block-header button, [data-theme="code"] .continuations button, [data-theme="code"] .project-picker, [data-theme="code"] .model-pill, [data-theme="code"] .recording-bar button.primary-mini, [data-theme="code"] .settings-back, [data-theme="code"] .settings-navigation button, [data-theme="code"] .settings-inline-back, [data-theme="code"] .settings-add-provider, [data-theme="code"] .settings-provider-empty .primary-mini, [data-theme="code"] .settings-actions .primary-mini, [data-theme="code"] .models-editor-header button, [data-theme="code"] .icon-button, [data-theme="code"] .round-button, [data-theme="code"] .recent-filter-button, [data-theme="code"] .user-message-action, [data-theme="code"] .favorite-button, [data-theme="code"] .sidebar-toggle, [data-theme="code"] .attachment-chip button {
+[data-theme="code"] button, [data-theme="code"] .nav-actions button, [data-theme="code"] .settings-button, [data-theme="code"] .dialog-footer button, [data-theme="code"] .code-block-header button, [data-theme="code"] .continuations button, [data-theme="code"] .project-picker, [data-theme="code"] .model-pill, [data-theme="code"] .recording-bar button.primary-mini, [data-theme="code"] .settings-back, [data-theme="code"] .settings-navigation button, [data-theme="code"] .settings-inline-back, [data-theme="code"] .settings-add-provider, [data-theme="code"] .settings-provider-empty .primary-mini, [data-theme="code"] .settings-actions .primary-mini, [data-theme="code"] .icon-button, [data-theme="code"] .round-button, [data-theme="code"] .recent-filter-button, [data-theme="code"] .user-message-action, [data-theme="code"] .favorite-button, [data-theme="code"] .sidebar-toggle, [data-theme="code"] .attachment-chip button {
     border-radius: var(--code-radius);
 }
 

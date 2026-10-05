@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, MessageSquarePlus, MessagesSquare, PencilLine } from 'lucide-react';
+import { ChevronDown, ChevronUp, MessageCircleQuestionMark, MessageSquarePlus, MessagesSquare, PencilLine } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Prism from 'prismjs';
@@ -41,7 +41,7 @@ const DiffRows = memo(function DiffRows({ rows, language, onExpand, onSelection 
   </div>;
 });
 
-export const GitReviewDiff = memo(function GitReviewDiff({ repository, file, onAddToChat, onAskInSideChat }) {
+export const GitReviewDiff = memo(function GitReviewDiff({ repository, file, onAddToChat, onAskInSideChat, onQuickQuestion }) {
   const model = useMemo(() => buildGitDiff(file), [file]);
   const [expanded, setExpanded] = useState({});
   const [selection, setSelection] = useState(null);
@@ -154,6 +154,10 @@ export const GitReviewDiff = memo(function GitReviewDiff({ repository, file, onA
       <button type="button" disabled={!onAddToChat} onClick={() => setSelection((current) => ({ ...current, annotating: true }))}><PencilLine size={13} />Annotate</button>
       <button type="button" disabled={!onAddToChat} onClick={() => { onAddToChat(gitReviewAttachment(repository, file.path, selection.content, '', selection.range)); setSelection(null); }}><MessageSquarePlus size={13} />Add to chat</button>
       {onAskInSideChat && <button type="button" onClick={() => { onAskInSideChat(gitReviewAttachment(repository, file.path, selection.content, '', selection.range)); setSelection(null); }}><MessagesSquare size={13} />Side chat</button>}
+      {onQuickQuestion && <button type="button" onClick={() => {
+        onQuickQuestion({ label: `${file.path}:${selection.range}`, left: selection.left, top: selection.top, context: { source: 'git-review', workspacePath: repository.directory, attachments: [gitReviewAttachment(repository, file.path, selection.content, '', selection.range)] } });
+        setSelection(null);
+      }}><MessageCircleQuestionMark size={13} />Quick question</button>}
     </div>, document.body)}
   </div>;
 });

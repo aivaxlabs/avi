@@ -23,7 +23,7 @@ Sends a user message, steers or queues it behind an active run, or waits for an 
 
 `userInitiated` is always forced to `true`. Supplying a non-null `goalId` is rejected; start a Goal with `goals:start` or continue it with `workMode: "goal"`.
 
-Sending with `workMode: "goal"` reuses the existing Goal without auxiliary preparation or changes to its `specification` or `revision`. A user-initiated send after `completed`, `blocked`, or `cancelled` reactivates that same Goal, preserving its ID, objective, revision, start time, and accumulated active time while clearing the terminal result. Internal or agent-origin messages do not reactivate terminal Goals. A paused Goal remains paused; use `goals:change` with `resume` to resume automatic iterations. Use `goals:change` with `edit` to explicitly replace the specification. Follow-up criteria stay in conversation history and guide execution without rewriting the persisted objective. Goal instructions require executing unmet work, not merely assessing it, except when the user explicitly requests status-only reporting.
+Sending with `workMode: "goal"` reuses the existing Goal without auxiliary preparation or changes to its `specification` or `revision`. Sending a message never changes the Goal state: it does not start, resume, restart, pause, or stop an existing Goal. After `completed`, `blocked`, or `cancelled`, messages are sent as ordinary turns outside the Goal. A paused Goal remains paused; use `goals:change` with `resume` to resume automatic iterations. Use `goals:change` with `edit` to explicitly replace the specification. Follow-up criteria stay in conversation history and guide execution without rewriting the persisted objective. Goal instructions require executing unmet work, not merely assessing it, except when the user explicitly requests status-only reporting.
 
 The base prompt keeps the main implementation with the agent and encourages parallel delegation of independent exploration, research, analysis, and tests. It prefers multiple bounded assignments when several independent tasks exist, prohibits duplicating delegated work, and requires inspecting, guiding, and integrating sub-agent work. Session-specific instructions define any different division of work or scope restrictions. The effective Ultra mode additionally requires the orchestrator to retain the main and most demanding implementation, using sub-agents for bounded, less demanding supporting tasks and independent critique; Plan delegation remains read-only. Mode-specific responsibilities are injected only for the active mode. This is an instruction policy, not a tool-availability restriction; the request schema is unchanged.
 
@@ -54,7 +54,7 @@ The base prompt keeps the main implementation with the agent and encourages para
 
 ## `chat:replace-user-message`
 
-Replaces an editable user message, deletes subsequent run history, reconciles active Goal state, and sends the replacement. The replacement user message persists its model, reasoning effort, work mode, and Ultra flag; these parameters become the restored composer selection when the thread is reopened.
+Replaces an editable user message, deletes subsequent run history, and sends the replacement. An existing Goal keeps its state, specification, and revision; a new Goal is created only when `workMode` is `"goal"` and the thread has no Goal. The replacement user message persists its model, reasoning effort, work mode, and Ultra flag; these parameters become the restored composer selection when the thread is reopened.
 
 ### Params
 
@@ -154,6 +154,16 @@ Restarts the 60-second inactivity timeout of a pending structured question witho
 Returns `true` for a matching pending request, including Plan mode; `false` for a missing or differently scoped request. Resolved or expired questions are never reopened. Clients should report pointer movement, clicks, keyboard input, and scrolling inside the question UI, not unrelated page activity.
 
 Desktop bridge: `window.chatApp.chat.questionActivity({ conversationId, questionId })`. Quick Chat uses `window.chatApp.quickChat.questionActivity({ sessionId, questionId })` through the local-only `quick-chat:question-activity` channel, which enforces window ownership of the session and returns the same boolean result.
+
+Quick questions are Desktop-only and have no RPC, MCP, or Core API method. The main window uses `window.chatApp.quickQuestion`:
+
+| Method | Logical IPC | Description |
+| --- | --- | --- |
+| `open(context)` | `quick-question:open` | Creates an in-memory read-only session and returns its Quick Chat session state. `context` is `{ source, workspacePath?, threadId?, botId?, workLogId?, attachments? }`; `source` is `"chat"`, `"files"`, `"git-review"`, or `"inbox"`. Up to four `context_marker` attachments are kept; `file_reference` and `directory_reference` markers with an absolute `filepath` are expanded with file text or a directory listing. A missing or invalid `workspacePath` falls back to `$HOME`. |
+| `ask({ sessionId, text })` | `quick-question:ask` | Sends a question or follow-up. The first question carries the context. Returns `{ message, model }`; rejects while an answer is running. |
+| `fork(sessionId)` | `quick-question:fork` | Copies the session into a new ordinary thread in the workspace and closes the session. Returns `{ conversation }`. Rejects while running or before the first question. |
+| `close(sessionId)` | `quick-question:close` | Stops and discards the session. Returns `false` for an unknown session. |
+| `onEvent(callback)` | `quick-question:event` | Receives `message`, `run-state`, and `error` events with `sessionId`, in the same shapes as `quick-chat:event`. |
 
 ## `chat:answer-question`
 

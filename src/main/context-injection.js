@@ -37,6 +37,7 @@ const contextItemCache = new Map();
 const contextScanCache = new Map();
 const baseInstructions = readFileSync(new URL('../prompts/base-instructions.md', import.meta.url), 'utf8');
 const quickChatInstructions = readFileSync(new URL('../prompts/quick-chat-instructions.md', import.meta.url), 'utf8');
+const quickQuestionInstructions = readFileSync(new URL('../prompts/quick-question-instructions.md', import.meta.url), 'utf8');
 const botInstructions = readFileSync(new URL('../prompts/bot-instructions.md', import.meta.url), 'utf8');
 const candidPersonality = readFileSync(new URL('../prompts/personality/candid.md', import.meta.url), 'utf8');
 const cynicalPersonality = readFileSync(new URL('../prompts/personality/cynical.md', import.meta.url), 'utf8');
@@ -451,9 +452,11 @@ export async function resolveDynamicContextUsage(invocationContext = {}) {
         '</mcp_context>',
       ].join('\n').length,
     }));
-  const aviInstructions = invocationContext.quickChat
-    ? quickChatInstructions.length
-    : baseInstructions.length;
+  const aviInstructions = invocationContext.quickQuestion
+    ? quickQuestionInstructions.length
+    : invocationContext.quickChat
+      ? quickChatInstructions.length
+      : baseInstructions.length;
   const customInstructions = Math.max(
     0,
     context.length
@@ -476,9 +479,9 @@ export async function resolveDynamicContext(invocationContext = {}) {
   if (invocationContext.auxiliary) return '';
   if (invocationContext.quickChat) {
     return [
-      quickChatInstructions,
+      invocationContext.quickQuestion ? quickQuestionInstructions : quickChatInstructions,
       dynamicContextInjectors.get('verbosity')?.(invocationContext),
-      dynamicContextInjectors.get('memory')?.(invocationContext),
+      invocationContext.quickQuestion ? '' : dynamicContextInjectors.get('memory')?.(invocationContext),
       dynamicContextInjectors.get('mcp')?.(invocationContext),
       dynamicContextInjectors.get('environment')?.(invocationContext),
     ]
@@ -509,7 +512,7 @@ export async function resolveDynamicContext(invocationContext = {}) {
     ? 'subagent'
     : invocationContext.orchestrationRole === 'supervisor' ? null
       : invocationContext.bot ? 'bot'
-        : ['orchestrator', 'side_chat'].includes(invocationContext.orchestrationRole) ? 'main' : null;
+        : ['orchestrator', 'side_chat', 'subject'].includes(invocationContext.orchestrationRole) ? 'main' : null;
   const ruleModelIds = [...new Set([
     invocationContext.effectiveModelId,
     invocationContext.virtualModelId,

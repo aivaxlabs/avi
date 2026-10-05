@@ -16,6 +16,7 @@ import {
   FolderSymlink,
   GitBranch,
   LoaderCircle,
+  MessageCircleQuestionMark,
   MessageSquarePlus,
   MessagesSquare,
   RefreshCw,
@@ -135,6 +136,7 @@ export function FilesPanel({
   project,
   onAddToChat,
   onAskInSideChat,
+  onQuickQuestion,
   navigation,
   onNavigationConsumed,
 }) {
@@ -474,9 +476,9 @@ export function FilesPanel({
     event.preventDefault();
     contextTargetRef.current = event.currentTarget;
     const width = 190;
-    const height = node.type === 'file'
+    const height = (node.type === 'file'
       ? diffVisibleStatuses.has(node.status) ? 178 : 144
-      : 110;
+      : 110) + (onQuickQuestion ? 34 : 0);
     const rect = event.currentTarget.getBoundingClientRect();
     const clientX = event.clientX || rect.left + 8;
     const clientY = event.clientY || rect.bottom;
@@ -511,7 +513,7 @@ export function FilesPanel({
   const updateSelectionAction = () => {
     const selection = window.getSelection();
     if (
-      (!onAddToChat && !onAskInSideChat)
+      (!onAddToChat && !onAskInSideChat && !onQuickQuestion)
       || !preview?.content
       || !selection
       || selection.rangeCount === 0
@@ -583,7 +585,7 @@ export function FilesPanel({
     }
 
     const rect = range.getBoundingClientRect();
-    const width = 276;
+    const width = 276 + (onQuickQuestion ? 130 : 0);
     const height = 34;
     const above = rect.top - height - 8;
     setSelectionAction({
@@ -1074,6 +1076,12 @@ export function FilesPanel({
           {[
             [onAddToChat, MessageSquarePlus, 'Mention on Chat'],
             [onAskInSideChat, MessagesSquare, 'Ask in Side Chat'],
+            [onQuickQuestion && ((attachment) => onQuickQuestion({
+              label: `${attachment.name}: ${selectionAction.content}`,
+              left: selectionAction.left,
+              top: selectionAction.top,
+              context: { source: 'files', workspacePath: project.path, attachments: [attachment] },
+            })), MessageCircleQuestionMark, 'Quick question'],
           ].filter(([callback]) => callback).map(([callback, Icon, label]) => (
             <button
               key={label}
@@ -1122,34 +1130,45 @@ export function FilesPanel({
           aria-label={`Actions for ${contextMenu.node.name}`}
           style={{ left: contextMenu.left, top: contextMenu.top }}
         >
-          <DropdownMenuItem
-            icon={<MessageSquarePlus size={14} />}
-            role="menuitem"
-            disabled={!onAddToChat}
-            onClick={() => {
-              const absolutePath = absoluteWorkspacePath(
-                project.path,
-                contextMenu.node.path,
-              );
-              const referenceType = contextMenu.node.type === 'directory'
-                ? 'directory'
-                : 'file';
-              onAddToChat?.({
-                id: crypto.randomUUID(),
-                kind: 'context_marker',
-                markerType: `${referenceType}_reference`,
-                name: contextMenu.node.name,
-                size: 0,
-                filepath: absolutePath,
-                text: `<${referenceType}-reference filepath="${
-                  escapeXmlAttribute(absolutePath)
-                }"></${referenceType}-reference>`,
-              });
-              setContextMenu(null);
-            }}
-          >
-            Add to chat
-          </DropdownMenuItem>
+          {[
+            [onAddToChat, <MessageSquarePlus size={14} />, 'Add to chat'],
+            [onQuickQuestion && ((attachment) => onQuickQuestion({
+              label: contextMenu.node.path || contextMenu.node.name,
+              left: contextMenu.left,
+              top: contextMenu.top,
+              context: { source: 'files', workspacePath: project.path, attachments: [attachment] },
+            })), <MessageCircleQuestionMark size={14} />, 'Quick question'],
+          ].filter(([callback, , label]) => callback || label === 'Add to chat').map(([callback, icon, label]) => (
+            <DropdownMenuItem
+              key={label}
+              icon={icon}
+              role="menuitem"
+              disabled={!callback}
+              onClick={() => {
+                const absolutePath = absoluteWorkspacePath(
+                  project.path,
+                  contextMenu.node.path,
+                );
+                const referenceType = contextMenu.node.type === 'directory'
+                  ? 'directory'
+                  : 'file';
+                callback?.({
+                  id: crypto.randomUUID(),
+                  kind: 'context_marker',
+                  markerType: `${referenceType}_reference`,
+                  name: contextMenu.node.name,
+                  size: 0,
+                  filepath: absolutePath,
+                  text: `<${referenceType}-reference filepath="${
+                    escapeXmlAttribute(absolutePath)
+                  }"></${referenceType}-reference>`,
+                });
+                setContextMenu(null);
+              }}
+            >
+              {label}
+            </DropdownMenuItem>
+          ))}
           <DropdownMenuItem
             icon={<Copy size={14} />}
             role="menuitem"

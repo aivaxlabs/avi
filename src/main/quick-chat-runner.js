@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import { effectiveMediaSizeLimit } from '../shared/attachments.js';
-import { createConversation, messageToApiBlocks } from './database.js';
+import { createConversation, insertMessage, messageToApiBlocks } from './database.js';
 import { CLIENT_TOOLS, decorateToolsForInvocation, normalizeQuestions } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
 import { normalizeAttachmentsForModel } from './files.js';
@@ -16,6 +18,31 @@ import {
 import { traceError, traceVerbose } from './trace-log.js';
 
 const ASK_QUESTION_AFK_TIMEOUT_MS = 60_000;
+const QUICK_QUESTION_TOOL_NAMES = new Set([
+  'read_file',
+  'read_media_file',
+  'read_url',
+  'web_search',
+  'memory_search',
+  'chat_list_folders',
+  'chat_list_threads',
+  'chat_inspect_thread',
+  'bots_read_work_log',
+]);
+const QUICK_QUESTION_SOURCES = new Set(['chat', 'files', 'git-review', 'inbox']);
+const QUICK_QUESTION_MARKER_LIMIT = 60_000;
+const QUICK_QUESTION_FILE_LIMIT = 40_000;
+const QUICK_QUESTION_DIRECTORY_LIMIT = 200;
+
+const escapeXml = (value) => String(value)
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;');
+
+const truncateContext = (text, limit) => (text.length > limit
+  ? `${text.slice(0, limit)}\n[... ${text.length - limit} chars omitted; read the source for the rest]`
+  : text);
 
 export class QuickChatRunner {
   constructor({
@@ -56,6 +83,97 @@ export class QuickChatRunner {
     return this.state(id);
   }
 
+  async createQuestionSession({ source, workspacePath, threadId, botId, workLogId, attachments = [] } = {}) {
+    if (!QUICK_QUESTION_SOURCES.has(source)) throw new Error('Unsupported Quick question source.');
+    const workspaceStat = isAbsolute(String(workspacePath ?? ''))
+      ? await stat(workspacePath).catch(() => null)
+      : null;
+    const workspace = workspaceStat?.isDirectory() ? workspacePath : homedir();
+    const markers = await Promise.all(attachments
+      .filter((attachment) => attachment?.kind === 'context_marker' && typeof attachment.text === 'string')
+      .slice(0, 4)
+      .map(async (attachment) => ({
+        id: randomUUID(),
+        kind: 'context_marker',
+        markerType: String(attachment.markerType ?? 'citation'),
+        name: String(attachment.name ?? 'Context'),
+        size: 0,
+        ...(typeof attachment.filepath === 'string' ? { filepath: attachment.filepath } : {}),
+        text: truncateContext(
+          `${attachment.text}${await this.previewQuestionTarget(attachment)}`,
+          QUICK_QUESTION_MARKER_LIMIT,
+        ),
+      })));
+    const state = this.createSession();
+    this.sessions.get(state.id).question = {
+      workspacePath: workspace,
+      attachments: [{
+        id: randomUUID(),
+        kind: 'context_marker',
+        markerType: 'quick_question_context',
+        name: 'Quick question context',
+        size: 0,
+        text: `<quick_question_context source="${source}" workspace="${escapeXml(workspace)}"${
+          Object.entries({ 'thread-id': threadId, 'bot-id': botId, 'work-log-id': workLogId })
+            .filter(([, value]) => typeof value === 'string' && value)
+            .map(([name, value]) => ` ${name}="${escapeXml(value)}"`)
+            .join('')
+        } />`,
+      }, ...markers],
+    };
+    return state;
+  }
+
+  async previewQuestionTarget(attachment) {
+    const path = attachment.filepath;
+    if (!isAbsolute(String(path ?? ''))) return '';
+    if (attachment.markerType === 'directory_reference') {
+      const entries = await readdir(path, { withFileTypes: true }).catch(() => null);
+      if (!entries) return '';
+      const names = entries
+        .map((entry) => `${entry.name}${entry.isDirectory() ? '/' : ''}`)
+        .sort((left, right) => left.localeCompare(right));
+      return [
+        `\n<directory-listing path="${escapeXml(path)}" entries="${names.length}">`,
+        ...names.slice(0, QUICK_QUESTION_DIRECTORY_LIMIT),
+        ...(names.length > QUICK_QUESTION_DIRECTORY_LIMIT ? ['[... more entries omitted]'] : []),
+        '</directory-listing>',
+      ].join('\n');
+    }
+    if (attachment.markerType !== 'file_reference') return '';
+    const fileStat = await stat(path).catch(() => null);
+    if (!fileStat?.isFile() || fileStat.size > 4 * QUICK_QUESTION_FILE_LIMIT) return '';
+    const buffer = await readFile(path).catch(() => null);
+    if (!buffer || buffer.subarray(0, 8192).includes(0)) return '';
+    return `\n<file-content path="${escapeXml(path)}">\n${
+      truncateContext(buffer.toString('utf8'), QUICK_QUESTION_FILE_LIMIT)
+    }\n</file-content>`;
+  }
+
+  forkQuestion(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session?.question) throw new Error('Quick question session is no longer available.');
+    if (session.run) throw new Error('Wait for the answer to finish before forking.');
+    const firstQuestion = session.messages.find((message) => message.role === 'user')?.content ?? '';
+    if (!firstQuestion) throw new Error('Ask a question before forking.');
+    const conversation = createConversation({
+      title: firstQuestion.length > 80 ? `${firstQuestion.slice(0, 77)}...` : firstQuestion,
+      model: session.model,
+      projectPath: session.question.workspacePath,
+      titleStatus: 'generated',
+    });
+    const now = Date.now();
+    session.messages.forEach((message, index) => insertMessage({
+      ...message,
+      id: randomUUID(),
+      conversationId: conversation.id,
+      reasoningEffort: session.reasoningEffort,
+      createdAt: new Date(now + index).toISOString(),
+    }));
+    this.close(sessionId);
+    return conversation;
+  }
+
   state(id) {
     const session = this.sessions.get(id);
     if (!session) throw new Error('Quick chat session is no longer available.');
@@ -89,11 +207,14 @@ export class QuickChatRunner {
     session.reasoningEffort = reasoningEffort === undefined
       ? modelChanged ? null : session.reasoningEffort
       : reasoningEffort;
+    const questionContext = session.question && !session.messages.length
+      ? session.question.attachments
+      : [];
     const userMessage = this.createMessage({
       role: 'user',
       model: session.model,
       content: text.trim(),
-      attachments: normalizedAttachments,
+      attachments: [...questionContext, ...normalizedAttachments],
       status: 'sent',
     });
     session.messages.push(userMessage);
@@ -159,8 +280,9 @@ export class QuickChatRunner {
     });
 
     try {
-      const workspacePath = homedir();
-      const mcpRuntime = this.mcpManager
+      const question = Boolean(session.question);
+      const workspacePath = session.question?.workspacePath ?? homedir();
+      const mcpRuntime = this.mcpManager && !question
         ? await this.mcpManager.ensureWorkspace(workspacePath, controller.signal)
         : { tools: [], instructions: [] };
       const models = this.registry.listModels();
@@ -182,6 +304,7 @@ export class QuickChatRunner {
           .filter((tool) => !selectedProviderToolNames.has(tool.name)),
       ];
       const coreTools = CLIENT_TOOLS
+          .filter((tool) => !question || QUICK_QUESTION_TOOL_NAMES.has(tool.name))
           .filter((tool) => ![
             'invoke_rubber_duck',
             'rubber_duck_ask_agent',
@@ -234,11 +357,13 @@ export class QuickChatRunner {
             return tool;
           });
       const availableTools = decorateToolsForInvocation(
-        composeToolsWithPlugins(
-          coreTools,
-          pluginTools,
-          [...providerTools, ...mcpRuntime.tools],
-        ),
+        question
+          ? coreTools
+          : composeToolsWithPlugins(
+            coreTools,
+            pluginTools,
+            [...providerTools, ...mcpRuntime.tools],
+          ),
         'full_access',
       );
       const messages = session.messages
@@ -265,6 +390,7 @@ export class QuickChatRunner {
             permissionMode: 'full_access',
             orchestrationRole: 'orchestrator',
             quickChat: true,
+            quickQuestion: question,
             tuning: preferences.tuning,
             aivax,
           },

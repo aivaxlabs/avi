@@ -1,7 +1,7 @@
 import {
   AlertTriangle, Check, ChevronDown, ChevronRight, Copy, FileDiff, FileX,
   Folder, FolderOpen, GitBranch, GitCommitHorizontal, GitPullRequest, LoaderCircle,
-  MessageSquarePlus, Minus, MoreHorizontal, Plus, RefreshCw, Rocket,
+  MessageCircleQuestionMark, MessageSquarePlus, Minus, MoreHorizontal, Plus, RefreshCw, Rocket,
   RotateCcw, Sparkles, SquareArrowOutUpRight, X,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
@@ -96,7 +96,7 @@ function GitReviewDialog({ dialog, busy, onClose, onConfirm }) {
   </dialog>, document.body);
 }
 
-export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, model, project, onAddToChat, onAskInSideChat, onRunAgent }) {
+export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, model, project, onAddToChat, onAskInSideChat, onQuickQuestion, onRunAgent }) {
   const [catalog, setCatalog] = useState(null);
   const [repositoryPath, setRepositoryPath] = useState('');
   const [index, setIndex] = useState(null);
@@ -117,20 +117,21 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
   const operation = useRef(false);
   const indexCache = useRef(new Map());
   const selectedByRepository = useRef(new Map());
+  const target = useMemo(() => conversationId ? { conversationId } : { projectPath: project?.path }, [conversationId, project?.path]);
 
   useEffect(() => {
     let active = true;
     scope.current += 1;
     indexCache.current.clear(); selectedByRepository.current.clear();
     setCatalog(null); setIndex(null); setFile(null); setRepositoryPath(''); setSelected(''); setError(''); setMenu(null); setDialog(null);
-    if (!conversationId) return undefined;
+    if (!target.conversationId && !target.projectPath) return undefined;
     setLoading(true);
-    window.chatApp.gitReview.repositories({ conversationId }).then((result) => {
+    window.chatApp.gitReview.repositories(target).then((result) => {
       if (!active) return;
       setCatalog(result); setRepositoryPath(result.repositories[0]?.path ?? '');
     }).catch((failure) => { if (active) setError(failure.message); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; scope.current += 1; };
-  }, [conversationId, project?.path]);
+  }, [target]);
 
   useEffect(() => {
     if (!repositoryPath) return undefined;
@@ -138,7 +139,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
     const cached = indexCache.current.get(repositoryPath);
     setIndex(cached ?? null); setFile(null); setMenu(null); setDialog(null);
     setLoading(true); setError('');
-    window.chatApp.gitReview.index({ conversationId, repositoryPath, refresh: revision > 0 }).then((result) => {
+    window.chatApp.gitReview.index({ ...target, repositoryPath, refresh: revision > 0 }).then((result) => {
       if (!active) return;
       indexCache.current.set(repositoryPath, result);
       setIndex(result);
@@ -150,17 +151,17 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
       setStaged((current) => nextFile?.staged && (current || (!nextFile.unstaged && nextFile.status !== 'untracked')) ? true : false);
     }).catch((failure) => { if (active) setError(failure.message); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [conversationId, repositoryPath, revision]);
+  }, [target, repositoryPath, revision]);
 
   useEffect(() => {
     if (!index || index.path !== repositoryPath || !selected) { setFile(null); return undefined; }
     let active = true;
     setFileLoading(true); setFile(null);
-    window.chatApp.gitReview.file({ conversationId, repositoryPath, filePath: selected, staged, unstaged: !staged }).then((result) => {
+    window.chatApp.gitReview.file({ ...target, repositoryPath, filePath: selected, staged, unstaged: !staged }).then((result) => {
       if (active) setFile(result);
     }).catch((failure) => { if (active) setError(failure.message); }).finally(() => { if (active) setFileLoading(false); });
     return () => { active = false; };
-  }, [conversationId, repositoryPath, selected, staged, index, revision]);
+  }, [target, repositoryPath, selected, staged, index, revision]);
 
   useEffect(() => {
     if (!menu) return undefined;
@@ -181,7 +182,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
   const onMenu = useCallback((event, node) => {
     event.preventDefault();
     const rect = event.currentTarget.getBoundingClientRect();
-    setMenu({ node, opener: event.currentTarget, left: Math.max(8, Math.min(window.innerWidth - 245, event.clientX || rect.left)), top: Math.max(8, Math.min(window.innerHeight - 385, event.clientY || rect.bottom)) });
+    setMenu({ node, opener: event.currentTarget, left: Math.max(8, Math.min(window.innerWidth - 245, event.clientX || rect.left)), top: Math.max(8, Math.min(window.innerHeight - 420, event.clientY || rect.bottom)) });
   }, []);
   const perform = useCallback(async (action, node = { path: '.' }, extra = {}) => {
     if (operation.current || loading || !index || index.path !== repositoryPath) return;
@@ -193,13 +194,13 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
     setError(''); setNotice('');
     const currentScope = scope.current;
     try {
-      const result = await window.chatApp.gitReview.mutate({ conversationId, repositoryPath, action, path: node.path, version: index.version, ...extra });
+      const result = await window.chatApp.gitReview.mutate({ ...target, repositoryPath, action, path: node.path, version: index.version, ...extra });
       if (currentScope !== scope.current) return;
       if (action === 'commit') setMessage('');
       setNotice(result.trackedFilesRemainTracked ? 'Ignore rule added. Already tracked files remain tracked.' : `${action === 'commit' ? 'Commit created' : 'Git changes updated'}.`);
       if (extra.push) {
         setBusy('Pushing commits...');
-        const pushed = await window.chatApp.gitReview.push({ conversationId, repositoryPath });
+        const pushed = await window.chatApp.gitReview.push({ ...target, repositoryPath });
         if (currentScope !== scope.current) return;
         setNotice(pushed.pushed ? 'Commit created and pushed.' : `Commit created, but push failed: ${pushed.message}`);
       }
@@ -210,14 +211,14 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
         setDialog((value) => value ? { ...value, error: failure.message } : null);
       }
     } finally { operation.current = false; setBusy(false); }
-  }, [conversationId, repositoryPath, index, loading]);
+  }, [target, repositoryPath, index, loading]);
 
   async function generatePlan() {
     if (operation.current) return;
     operation.current = true; setBusy('Generating commit message...'); setError('');
     const currentScope = scope.current;
     try {
-      const plan = await window.chatApp.gitReview.plan({ conversationId, repositoryPath, model, messageOnly: true });
+      const plan = await window.chatApp.gitReview.plan({ ...target, repositoryPath, model, messageOnly: true });
       if (currentScope === scope.current) setMessage(plan.commits[0].message);
     } catch (failure) { if (currentScope === scope.current) setError(failure.message); }
     finally { operation.current = false; setBusy(false); }
@@ -230,9 +231,21 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
     } catch (failure) { setError(failure.message); }
   }
 
-  if (!conversationId) return <div className="git-review-empty"><GitPullRequest size={22} /><strong>Start a conversation</strong><span>Git Review uses the conversation workspace.</span></div>;
+  if (!target.conversationId && !target.projectPath) return <div className="git-review-empty"><GitPullRequest size={22} /><strong>Choose a project folder</strong><span>Git Review uses the current project workspace.</span></div>;
   const activeIndex = index?.path === repositoryPath ? index : null;
   const stagedCount = activeIndex?.files.filter((item) => item.staged).length ?? 0;
+
+  async function generateCommits(push) {
+    setMenu(null);
+    setBusy('Opening commit planning chat...');
+    try {
+      const text = `Execute the multi-commit workflow now, only in the selected Git repository ${JSON.stringify(activeIndex.directory ?? repositoryPath)} (workspace-relative path: ${JSON.stringify(repositoryPath)}). Inspect its changes, organize them into coherent local commits, and create those commits. Do not touch other repositories or nested repositories. ${push ? 'After all commits are created, push the current branch to its upstream remote; never force-push, and report the push result.' : 'Do not push.'} Never stage credentials or sensitive configuration. Report the created hashes and messages.`;
+      const attachments = [{ id: crypto.randomUUID(), kind: 'context_marker', markerType: 'workflow', commandName: 'multi-commit', name: '/multi-commit', size: 0, text: 'Read and execute the multi-commit workflow for the selected repository only.' }];
+      await (onAskInSideChat ? onAskInSideChat({ initialPrompt: text, attachments }) : onRunAgent({ text, attachments }));
+    } catch (failure) { setError(failure.message); }
+    finally { setBusy(false); }
+  }
+
   return <div className="git-review-panel" aria-busy={Boolean(busy || loading || fileLoading)}>
     <header className="git-review-topbar"><GitBranch size={16} /><select aria-label="Git repository" value={repositoryPath} disabled={busy || !catalog} onChange={(event) => { setRepositoryPath(event.target.value); setSelected(''); setMessage(''); setStaged(false); }}>
       {!catalog?.repositories.length && <option value="">{loading ? 'Finding repositories...' : 'No repositories found'}</option>}
@@ -242,7 +255,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
         setLoading(true); setError('');
         const currentScope = scope.current;
         try {
-          const result = await window.chatApp.gitReview.repositories({ conversationId, refresh: true });
+          const result = await window.chatApp.gitReview.repositories({ ...target, refresh: true });
           if (currentScope !== scope.current) return;
           setCatalog(result);
           if (!result.repositories.some((item) => item.path === repositoryPath)) setRepositoryPath(result.repositories[0]?.path ?? '');
@@ -272,7 +285,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
       </aside>
       <section className="git-review-detail">
         <header className="git-review-file-header"><strong title={selected}>{selected || 'Changes'}</strong><select aria-label="Diff scope" value={staged ? 'staged' : 'all'} onChange={(event) => setStaged(event.target.value === 'staged')}><option value="all">Unstaged</option><option value="staged">Staged changes</option></select></header>
-        {fileLoading ? <div className="git-review-empty" role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" />Loading file changes...</div> : file && activeIndex ? <GitReviewDiff key={`${repositoryPath}:${selected}:${staged}:${revision}`} repository={activeIndex} file={file} onAddToChat={onAddToChat} onAskInSideChat={onAskInSideChat} />
+        {fileLoading ? <div className="git-review-empty" role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" />Loading file changes...</div> : file && activeIndex ? <GitReviewDiff key={`${repositoryPath}:${selected}:${staged}:${revision}`} repository={activeIndex} file={file} onAddToChat={onAddToChat} onAskInSideChat={onAskInSideChat} onQuickQuestion={onQuickQuestion} />
           : <div className="git-review-empty"><GitBranch size={22} /><strong>{activeIndex?.files.length ? 'Select a changed file' : 'Working tree clean'}</strong></div>}
       </section>
     </div>
@@ -287,17 +300,8 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
       {menu.type === 'generate' ? <>
         <DropdownMenuItem icon={<Sparkles size={14} />} role="menuitem" disabled={busy || !stagedCount} onClick={() => { setMenu(null); generatePlan(); }}>Generate commit message</DropdownMenuItem>
         <hr className="dropdown-menu-divider" />
-        <DropdownMenuItem icon={<GitCommitHorizontal size={14} />} role="menuitem" disabled={busy || !onAskInSideChat} onClick={async () => {
-          setMenu(null);
-          setBusy('Opening commit planning chat...');
-          try {
-            await onAskInSideChat({
-              initialPrompt: `Execute the multi-commit workflow now, only in the selected Git repository ${JSON.stringify(activeIndex.directory ?? repositoryPath)} (workspace-relative path: ${JSON.stringify(repositoryPath)}). Inspect its changes, organize them into coherent local commits, and create those commits. Do not touch other repositories or nested repositories. Do not push. Never stage credentials or sensitive configuration. Report the created hashes and messages.`,
-              attachments: [{ id: crypto.randomUUID(), kind: 'context_marker', markerType: 'workflow', commandName: 'multi-commit', name: '/multi-commit', size: 0, text: 'Read and execute the multi-commit workflow for the selected repository only.' }],
-            });
-          } catch (failure) { setError(failure.message); }
-          finally { setBusy(false); }
-        }}>Generate commits</DropdownMenuItem>
+        <DropdownMenuItem icon={<GitCommitHorizontal size={14} />} role="menuitem" disabled={busy || !(onAskInSideChat || onRunAgent)} onClick={() => generateCommits(false)}>Generate commits</DropdownMenuItem>
+        <DropdownMenuItem icon={<Rocket size={14} />} role="menuitem" disabled={busy || !(onAskInSideChat || onRunAgent)} onClick={() => generateCommits(true)}>Generate commits + push</DropdownMenuItem>
       </> : <>
       <DropdownMenuItem icon={<Plus size={14} />} role="menuitem" disabled={busy || loading} onClick={() => { perform('stage', menu.node); setMenu(null); }}>{menu.node.path === '.' ? 'Stage all' : 'Stage changes'}</DropdownMenuItem>
       <DropdownMenuItem icon={<Minus size={14} />} role="menuitem" disabled={busy || loading} onClick={() => { perform('unstage', menu.node); setMenu(null); }}>Unstage changes</DropdownMenuItem>
@@ -305,13 +309,26 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
       {menu.node.path !== '.' && <DropdownMenuItem icon={<FileX size={14} />} role="menuitem" disabled={busy || loading} onClick={() => { perform('ignore', menu.node); setMenu(null); }}>Add to .gitignore</DropdownMenuItem>}
       <hr className="dropdown-menu-divider" />
       <DropdownMenuItem icon={<MessageSquarePlus size={14} />} role="menuitem" disabled={!onAddToChat} onClick={() => { onAddToChat(gitReviewAttachment(activeIndex, menu.node.path, '', 'Review the Git changes in this path.')); setMenu(null); }}>Annotate for AI · mention in chat</DropdownMenuItem>
+      {onQuickQuestion && <DropdownMenuItem icon={<MessageCircleQuestionMark size={14} />} role="menuitem" onClick={async () => {
+        const { node, left, top } = menu;
+        const nodeStaged = node.group === 'staged';
+        setMenu(null);
+        const prefix = node.path === '.' ? '' : `${node.path}/`;
+        const content = node.directory
+          ? activeIndex.files.filter((item) => !prefix || item.path.startsWith(prefix)).filter((item) => nodeStaged ? item.staged : item.unstaged || item.status === 'untracked')
+            .slice(0, 300).map((item) => `${item.status}\t${item.path}`).join('\n')
+          : await window.chatApp.gitReview.file({ ...target, repositoryPath, filePath: node.path, staged: nodeStaged, unstaged: !nodeStaged })
+            .then((result) => result.diff || result.message || (result.binary ? 'Binary file changed.' : 'No textual changes.'))
+            .catch((failure) => `Diff unavailable: ${failure.message}`);
+        onQuickQuestion({ label: `${node.path === '.' ? activeIndex.name : node.path} · ${nodeStaged ? 'staged' : 'unstaged'}`, left, top, context: { source: 'git-review', workspacePath: activeIndex.directory, attachments: [gitReviewAttachment(activeIndex, node.path, content, '', nodeStaged ? 'staged' : 'unstaged')] } });
+      }}>Quick question</DropdownMenuItem>}
       <hr className="dropdown-menu-divider" />
       <DropdownMenuItem icon={menu.node.directory ? <FolderOpen size={14} /> : <SquareArrowOutUpRight size={14} />} role="menuitem" onClick={() => fileAction('open', menu.node)}>Open {menu.node.directory ? 'folder' : 'file'}</DropdownMenuItem>
       <DropdownMenuItem icon={<FolderOpen size={14} />} role="menuitem" onClick={() => fileAction('reveal', menu.node)}>Show in file explorer</DropdownMenuItem>
       <DropdownMenuItem icon={<Copy size={14} />} role="menuitem" onClick={() => fileAction('copyPath', menu.node)}>Copy path</DropdownMenuItem>
       {menu.node.path === '.' && <><hr className="dropdown-menu-divider" /><DropdownMenuItem icon={<Rocket size={14} />} role="menuitem" disabled={busy} onClick={async () => {
         setMenu(null); if (operation.current) return; operation.current = true; setBusy('Pushing commits...');
-        try { const result = await window.chatApp.gitReview.push({ conversationId, repositoryPath }); setNotice(result.pushed ? 'Pushed successfully.' : `Push failed: ${result.message}`); } catch (failure) { setError(failure.message); } finally { operation.current = false; setBusy(false); }
+        try { const result = await window.chatApp.gitReview.push({ ...target, repositoryPath }); setNotice(result.pushed ? 'Pushed successfully.' : `Push failed: ${result.message}`); } catch (failure) { setError(failure.message); } finally { operation.current = false; setBusy(false); }
       }}>Push repository</DropdownMenuItem><DropdownMenuItem icon={<GitPullRequest size={14} />} role="menuitem" disabled={!onRunAgent} onClick={() => {
         onRunAgent({ text: `Run a read-only code review of the current Git changes in repository ${repositoryPath}. Report prioritized findings; do not modify files.`, attachments: [] }); setMenu(null);
       }}>Code review with agent</DropdownMenuItem></>}

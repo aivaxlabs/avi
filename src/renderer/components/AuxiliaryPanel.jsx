@@ -13,6 +13,7 @@ import {
   GitPullRequest,
   Inbox,
   BookOpen,
+  MessageCircleQuestionMark,
   MessageSquarePlus,
   Maximize2,
   Minimize2,
@@ -20,6 +21,7 @@ import {
   Moon,
   Network,
   Paperclip,
+  PencilLine,
   Plus,
   Send,
   Shield,
@@ -193,6 +195,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   onCreateSideChat,
   onAddToChat,
   onAskInSideChat,
+  onQuickQuestion,
   onRunAgent,
   pendingSideChatAttachment,
   onPendingSideChatAttachmentConsumed,
@@ -237,6 +240,8 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   const [pendencyFeedback, setPendencyFeedback] = useState({});
   const [pendencyBusy, setPendencyBusy] = useState(false);
   const [pendencyMenu, setPendencyMenu] = useState(null);
+  const [selectionAction, setSelectionAction] = useState(null);
+  const [selectionAnnotation, setSelectionAnnotation] = useState('');
   const pendencyMenuRef = useRef(null);
   const pendencyMenuTriggerRef = useRef(null);
   const pendencyBusyRef = useRef(false);
@@ -287,6 +292,76 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   useEffect(() => {
     if (selectedPendency?.id && botPanelTab === 'inbox') pendencyHeadingRef.current?.focus();
   }, [selectedPendency?.id, botPanelTab]);
+
+  useEffect(() => {
+    setSelectionAction(null);
+  }, [draftKey, selectedPendency?.status]);
+
+  useEffect(() => {
+    if (!selectionAction) return undefined;
+    const controller = new AbortController();
+    window.addEventListener('pointerdown', (event) => {
+      if (event.target.closest?.('.selection-action-group, .git-review-annotation')) return;
+      setSelectionAction(null);
+    }, { signal: controller.signal });
+    window.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      setSelectionAction(null);
+      window.getSelection()?.removeAllRanges();
+    }, { signal: controller.signal });
+    window.addEventListener('resize', () => setSelectionAction(null), { once: true, signal: controller.signal });
+    return () => {
+      controller.abort();
+      setSelectionAnnotation('');
+    };
+  }, [selectionAction]);
+
+  function updateSelectionAction() {
+    const selection = window.getSelection();
+    if ((selectedPendency?.status !== 'open' && !onQuickQuestion) || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      setSelectionAction(null);
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const elementOf = (node) => node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    const startMessage = elementOf(range.startContainer)?.closest?.('.bot-inbox-messages > li');
+    const content = selection.toString().trim();
+    if (!startMessage || startMessage !== elementOf(range.endContainer)?.closest?.('.bot-inbox-messages > li') || !content) {
+      setSelectionAction(null);
+      return;
+    }
+
+    const rect = range.getBoundingClientRect();
+    const width = (selectedPendency.status === 'open' ? 230 : 0) + (onQuickQuestion ? 130 : 0);
+    const height = 34;
+    const above = rect.top - height - 8;
+    setSelectionAction({
+      content,
+      left: Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 8)),
+      top: above >= 8 ? above : Math.min(window.innerHeight - height - 8, rect.bottom + 8),
+    });
+  }
+
+  function mentionSelection(annotation = '') {
+    if (!selectionAction) return;
+    const escape = (value) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+    updatePendencyDraft({
+      attachments: [...draft.attachments, {
+        id: crypto.randomUUID(),
+        kind: 'context_marker',
+        markerType: annotation ? 'citation_annotation' : 'citation',
+        name: annotation ? 'Inbox annotation' : 'Inbox citation',
+        size: 0,
+        text: annotation
+          ? `<citation>${escape(selectionAction.content)}</citation>\n<annotation>${escape(annotation)}</annotation>`
+          : `<citation>${escape(selectionAction.content)}</citation>`,
+      }],
+    });
+    setSelectionAction(null);
+    window.getSelection()?.removeAllRanges();
+    document.getElementById('bot-pendency-reply')?.focus();
+  }
 
   function updatePendencyDraft(patch) {
     setPendencyDrafts((current) => ({
@@ -370,10 +445,8 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
       label: 'Git Review',
       description: 'Review changes and create commits',
       icon: GitPullRequest,
-      disabled: !canCreateSideChat,
-      title: canCreateSideChat
-        ? 'Review Git changes'
-        : 'Start a conversation before opening Git Review',
+      disabled: false,
+      title: 'Review Git changes',
       onOpen: onOpenGitReviewTab,
     },
     {
@@ -791,12 +864,13 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                           </>}
                         </header>
                         <h2 id="bot-pendency-title" ref={pendencyHeadingRef} tabIndex={-1}>{selectedPendency.title}</h2>
-                        <ol className="bot-inbox-messages">
+                        <ol className="bot-inbox-messages" onMouseUp={updateSelectionAction} onKeyUp={updateSelectionAction}>
                           {selectedPendency.messages.toSorted((left, right) => new Date(right.createdAt) - new Date(left.createdAt)).map((message) => (
                             <li key={message.id} className={`from-${message.role}`}>
                               <header data-bot-message-id={message.role === 'bot' ? message.id : undefined}>
-                                {message.role !== 'user' && <span className="bot-avatar" aria-hidden="true"><img src={`https://orb.aivax.net/${encodeURIComponent(selectedBot.id)}`} width={22} height={22} alt="" /></span>}
-                                <strong>{message.role === 'user' ? 'You' : selectedBot.name}</strong>
+                                {message.role !== 'user' && <span className="bot-avatar" aria-hidden="true"><img src={`https://orb.aivax.net/${encodeURIComponent(message.role === 'agent' ? message.sender.botId : selectedBot.id)}`} width={22} height={22} alt="" /></span>}
+                                <strong>{message.role === 'user' ? 'You' : message.role === 'agent' ? message.sender.name : selectedBot.name}</strong>
+                                {message.role === 'agent' && <span className="bot-message-response-indicator">Sent by another bot</span>}
                                 {message.role === 'bot' && <span className="bot-message-response-indicator">{message.requiresUserResponse !== false ? 'Requires your response' : 'No response required'}</span>}
                                 <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleString()}</time>
                               </header>
@@ -827,6 +901,86 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                             <footer><button type="button" disabled={pendencyBusy} onClick={() => attachToPendency()}><Paperclip size={15} aria-hidden="true" />Attach</button><button type="submit" disabled={pendencyBusy || (!draft.content.trim() && !draft.attachments.length)}><Send size={14} aria-hidden="true" />{pendencyBusy ? 'Sending...' : 'Send reply'}</button></footer>
                           </form>
                         )}
+                        {selectionAction && createPortal(selectionAction.annotating ? (
+                          <form
+                            className="git-review-annotation"
+                            aria-label="Annotate selected text"
+                            style={{
+                              left: Math.max(8, Math.min(selectionAction.left, window.innerWidth - 348)),
+                              top: Math.max(8, Math.min(selectionAction.top, window.innerHeight - 200)),
+                            }}
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              if (selectionAnnotation.trim()) mentionSelection(selectionAnnotation.trim());
+                            }}
+                          >
+                            <blockquote title={selectionAction.content}>{selectionAction.content}</blockquote>
+                            <textarea
+                              autoFocus
+                              aria-label="Annotation"
+                              value={selectionAnnotation}
+                              onChange={(event) => setSelectionAnnotation(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return;
+                                event.preventDefault();
+                                event.currentTarget.form.requestSubmit();
+                              }}
+                              placeholder="Add an annotation..."
+                              rows={3}
+                            />
+                            <footer>
+                              <small>Ctrl+Enter to add</small>
+                              <button type="button" onClick={() => setSelectionAction(null)}>Cancel</button>
+                              <button type="submit" className="primary-mini" disabled={!selectionAnnotation.trim()}>Add to reply</button>
+                            </footer>
+                          </form>
+                        ) : (
+                          <div
+                            className="selection-action-group"
+                            role="toolbar"
+                            aria-label="Selected text actions"
+                            style={{ left: selectionAction.left, top: selectionAction.top }}
+                            onMouseDown={(event) => event.preventDefault()}
+                          >
+                            {selectedPendency.status === 'open' && <>
+                              <button type="button" onClick={() => mentionSelection()}>
+                                <MessageSquarePlus size={13} aria-hidden="true" />
+                                <span>Mention on Chat</span>
+                              </button>
+                              <button type="button" onClick={() => setSelectionAction((current) => ({ ...current, annotating: true }))}>
+                                <PencilLine size={13} aria-hidden="true" />
+                                <span>Annotate</span>
+                              </button>
+                            </>}
+                            {onQuickQuestion && (
+                              <button type="button" onClick={() => {
+                                const escape = (value) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+                                onQuickQuestion({
+                                  label: selectionAction.content,
+                                  left: selectionAction.left,
+                                  top: selectionAction.top,
+                                  context: {
+                                    source: 'inbox',
+                                    workspacePath: selectedBot.resolvedWorkingFolder,
+                                    botId: selectedBot.id,
+                                    workLogId: selectedPendency.id,
+                                    attachments: [{
+                                      kind: 'context_marker',
+                                      markerType: 'citation',
+                                      name: 'Inbox citation',
+                                      text: `<inbox-citation bot="${escape(selectedBot.name)}" work-log="${escape(selectedPendency.title)}">${escape(selectionAction.content)}</inbox-citation>`,
+                                    }],
+                                  },
+                                });
+                                setSelectionAction(null);
+                                window.getSelection()?.removeAllRanges();
+                              }}>
+                                <MessageCircleQuestionMark size={13} aria-hidden="true" />
+                                <span>Quick question</span>
+                              </button>
+                            )}
+                          </div>
+                        ), document.body)}
                         {feedback && <p className={`bot-inbox-feedback${feedback.error ? ' error' : ''}`} role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
                       </section>
                     ) : filteredInbox.length === 0 ? (
@@ -871,6 +1025,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
               project={project}
               onAddToChat={onAddToChat}
               onAskInSideChat={onAskInSideChat}
+              onQuickQuestion={onQuickQuestion}
               navigation={fileNavigation}
               onNavigationConsumed={onFileNavigationConsumed}
             />
@@ -881,6 +1036,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
               project={project}
               onAddToChat={onAddToChat}
               onAskInSideChat={canCreateSideChat ? onAskInSideChat : undefined}
+              onQuickQuestion={onQuickQuestion}
               onRunAgent={onRunAgent}
             />
           ) : activeProviderPanel ? (
@@ -1000,6 +1156,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
               onCompress={() => onCompress(activeThread.id, currentModel)}
               onMentionSelection={onAddToChat}
               onAskSelection={activeThread.isSubagent || activeThread.isRubberDuck ? undefined : onAskInSideChat}
+              onQuickQuestion={onQuickQuestion}
               onFork={(conversationId, throughMessageId) => onFork(
                 conversationId,
                 throughMessageId,

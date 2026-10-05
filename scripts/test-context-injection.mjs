@@ -586,6 +586,18 @@ try {
   assert.ok(quickChatVerbosityContext.includes(highVerbosity.trim()));
   assert.ok(!quickChatVerbosityContext.includes(mediumVerbosity.trim()));
 
+  const quickQuestionContext = await resolveDynamicContext({
+    quickChat: true,
+    quickQuestion: true,
+    tuning: { verbosity: 'low' },
+    aivax: { connected: true, memoryEnabled: true, memoryCollectionId: 'memory' },
+  });
+  assert.ok(quickQuestionContext.includes('You are answering a Quick question'));
+  assert.ok(quickQuestionContext.includes('This session is read-only'));
+  assert.ok(!quickQuestionContext.includes('Quick Chat is not read-only'));
+  assert.ok(!quickQuestionContext.includes('memory_write'));
+  assert.ok(quickQuestionContext.includes(lowVerbosity.trim()));
+
   const friendlyContext = await resolveDynamicContext({
     workspacePath: root,
     tuning: { personality: 'friendly' },

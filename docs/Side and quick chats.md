@@ -38,9 +38,25 @@ Quick Chat can create ordinary threads or sub-agents and can keep Tasks or Goal 
 
 Model rules do not apply to Quick Chat. Side Chat is a full chat for rule matching and uses the `main` role.
 
+## Quick questions
+
+A Quick question is a small popover for asking about something you selected, answered by the **Quick chat model**. It is available from:
+
+- Text selected in a chat or side chat.
+- Code selected in a Files preview, and the **Quick question** item in the Files tree context menu for a file or folder.
+- Code selected in a Git Review diff, and the **Quick question** item in the Git Review tree context menu for a changed file, folder, or repository root.
+- Text selected in a bot Inbox work log, including completed ones.
+
+The question receives the selection plus where it came from: the folder, the source thread, or the bot and work log. File references include the file's text (up to 40,000 characters), folder references include a listing, and Git Review tree items include the file diff or the list of changed files. Press **Enter** to ask and **Shift+Enter** for a new line. You can keep asking follow-ups in the same popover; the selection stays in context.
+
+Quick questions are read-only. Instructions favor short, direct, accurate answers, and the model can use only `read_file`, `read_media_file`, `read_url`, `web_search`, `memory_search`, `chat_list_folders`, `chat_list_threads`, `chat_inspect_thread`, and `bots_read_work_log` when the selection is not enough. Availability of media, web, and memory tools follows the same rules as Quick Chat. MCP, plugin, and provider tools are not offered.
+
+**Fork to thread** creates an ordinary thread in the source folder with the questions, answers, and selected context, then opens it so you can continue with full tools. **Close** or **Esc** stops any answer and discards the session. Unforked sessions are never saved and are discarded when the main window reloads or closes.
+
 ## Which one to use
 
 - Use **Side Chat** for a question or alternative that depends on the current conversation.
+- Use a **Quick question** for a short read-only question about a selection.
 - Use **Quick Chat** for a short independent interaction that should not enter history.
 - Use **New chat** for work that must persist in the Sidebar, search, and Archive.
 

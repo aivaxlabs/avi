@@ -91,6 +91,13 @@ contextBridge.exposeInMainWorld('chatApp', {
     answerQuestion: (payload) => invoke('quick-chat:answer-question', payload),
     onEvent: (callback) => subscribe('quick-chat:event', callback),
   },
+  quickQuestion: {
+    open: (context) => invoke('quick-question:open', context),
+    ask: (payload) => invoke('quick-question:ask', payload),
+    close: (sessionId) => invoke('quick-question:close', sessionId),
+    fork: (sessionId) => invoke('quick-question:fork', sessionId),
+    onEvent: (callback) => subscribe('quick-question:event', callback),
+  },
   appearance: {
     selectBackground: () => invoke('appearance:select-background'),
     background: (fileName) => invoke('appearance:background', fileName),
@@ -194,6 +201,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     save: (provider) => invoke('providers:save', provider),
     remove: (providerId) => invoke('providers:remove', providerId),
     state: (providerId) => invoke('providers:state', providerId),
+    availableModels: (providerId) => invoke('providers:available-models', providerId),
     action: (payload) => invoke('providers:action', payload),
     usages: () => invoke('providers:usages'),
     usage: (usageProviderId) => invoke('providers:usage', usageProviderId),

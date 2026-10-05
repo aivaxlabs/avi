@@ -17,6 +17,7 @@ import { OrchestrationPage } from './components/OrchestrationPage.jsx';
 import { AuxiliaryPanel } from './components/AuxiliaryPanel.jsx';
 import { BotSettingsDialog } from './components/BotSettingsDialog.jsx';
 import { PanelResizer } from './components/PanelResizer.jsx';
+import { QuickQuestionPopover } from './components/QuickQuestionPopover.jsx';
 import {
   applyTheme,
   onSystemSchemeChange,
@@ -205,6 +206,7 @@ export default function App() {
   const [activeSubagentId, setActiveSubagentId] = useState(null);
   const [pendingComposerAttachment, setPendingComposerAttachment] = useState(null);
   const [pendingSideChatAttachment, setPendingSideChatAttachment] = useState(null);
+  const [quickQuestion, setQuickQuestion] = useState(null);
   const [fileNavigation, setFileNavigation] = useState(null);
   const [mcpState, setMcpState] = useState(null);
   const [mcpWaiting, setMcpWaiting] = useState({});
@@ -671,16 +673,6 @@ export default function App() {
       ));
     });
   }), []);
-
-  useEffect(() => {
-    if (
-      workMode === 'plan'
-      && currentConversation?.goal
-      && ['active', 'paused'].includes(currentConversation.goal.status)
-    ) {
-      changeWorkMode(null, currentConversation.id);
-    }
-  }, [currentConversation?.goal?.status, currentConversation?.id, workMode]);
 
   useEffect(() => api.app.onNavigate(async ({ view, conversationId, project, draftText }) => {
     setFoldersOpen(false);
@@ -1260,7 +1252,8 @@ export default function App() {
       || appState?.tuning?.defaultPermissionMode
       || 'approve_for_me',
     workMode: messageWorkMode = (
-      currentConversation?.goal
+      workMode !== 'plan'
+      && currentConversation?.goal
       && ['active', 'paused'].includes(currentConversation.goal.status)
         ? 'goal'
         : workMode
@@ -1472,14 +1465,6 @@ export default function App() {
         .find((conversation) => conversation.id === conversationId)
       : null;
     if (target?.isSubagent || target?.isRubberDuck) return false;
-    if (
-      normalizedWorkMode === 'plan'
-      && target?.goal
-      && ['active', 'paused'].includes(target.goal.status)
-    ) {
-      const stopped = await changeGoal(conversationId, 'stop');
-      if (!stopped) return false;
-    }
     const orchestrationMode = normalizedWorkMode === 'plan'
       ? 'plan'
       : target?.orchestrationMode === 'plan'
@@ -1995,6 +1980,13 @@ export default function App() {
     setActiveAuxiliaryTab('subagents');
   });
   const chatOnFork = useStableCallback(forkConversation);
+  const chatOnQuickQuestion = useStableCallback((request) => {
+    if (!appState?.defaultModels?.quickChat?.modelId) {
+      setError('Choose a Quick chat model in Settings before asking a Quick question.');
+      return;
+    }
+    setQuickQuestion({ ...request, id: crypto.randomUUID() });
+  });
   const chatOnRetry = useStableCallback(retryAssistantMessage);
   const chatOnResume = useStableCallback((messageId, model) => retryAssistantMessage(
     messageId,
@@ -2313,9 +2305,9 @@ export default function App() {
     await loadInitialMessagePage(id);
   });
   const auxiliaryOnSend = useStableCallback((thread, model, payload) => sendMessage({
-    workMode: ['active', 'paused'].includes(thread.goal?.status)
-      ? 'goal'
-      : thread.orchestrationMode === 'plan' ? 'plan' : null,
+    workMode: thread.orchestrationMode === 'plan'
+      ? 'plan'
+      : ['active', 'paused'].includes(thread.goal?.status) ? 'goal' : null,
     ultraMode: thread.orchestrationMode === 'ultra',
     ...payload,
     conversationId: thread.id,
@@ -2656,6 +2648,7 @@ export default function App() {
               onCreateSideChat={currentConversation ? chatOnCreateSideChat : undefined}
               onMentionSelection={setPendingComposerAttachment}
               onAskSelection={currentConversation ? chatOnCreateSideChat : undefined}
+              onQuickQuestion={chatOnQuickQuestion}
               subagents={subagentStatusList}
               tasks={tasksByConversation[selectedId] ?? emptyList}
               onOpenTasks={chatOnOpenTasks}
@@ -2758,6 +2751,7 @@ export default function App() {
                 onReplyBotPendency={auxiliaryOnReplyBotPendency}
                 onCompleteBotPendency={auxiliaryOnCompleteBotPendency}
                 onMarkBotPendencyRead={auxiliaryOnMarkBotPendencyRead}
+                onQuickQuestion={chatOnQuickQuestion}
                 onClosePanel={() => setOverviewInboxNavigation(null)}
               />
             )}
@@ -2817,6 +2811,7 @@ export default function App() {
                 onCreateSideChat={chatOnCreateSideChat}
                 onAddToChat={setPendingComposerAttachment}
                 onAskInSideChat={chatOnCreateSideChat}
+                onQuickQuestion={chatOnQuickQuestion}
                 onRunAgent={auxiliaryOnRunAgent}
                 pendingSideChatAttachment={pendingSideChatAttachment}
                 onPendingSideChatAttachmentConsumed={auxiliaryOnPendingSideChatAttachmentConsumed}
@@ -2860,6 +2855,18 @@ export default function App() {
         <SearchDialog
           onClose={() => setSearchOpen(false)}
           onSelect={selectConversation}
+        />
+      )}
+      {quickQuestion && (
+        <QuickQuestionPopover
+          key={quickQuestion.id}
+          request={quickQuestion}
+          models={models}
+          onClose={() => setQuickQuestion(null)}
+          onForked={(conversation) => {
+            setConversations((state) => upsertById(state, conversation).sort(sortByUpdatedAt));
+            void selectConversation(conversation.id);
+          }}
         />
       )}
       {botSettingsTarget && (

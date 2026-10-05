@@ -451,14 +451,14 @@ async function idle() { await wait_for(() => q('.git-review-panel') && q('.git-r
   check('no AI/rede path was used (plan/commit mocks untouched)', window.__calls.plan.length === 0 && window.__calls.commit.length === 0, 'plan=' + window.__calls.plan.length + ' commit=' + window.__calls.commit.length);
   await wait_for(() => !q('[aria-label="Generate commit with AI"]').disabled, 5000, 'AI menu ready');
   q('[aria-label="Generate commit with AI"]').click();
-  await wait_for(() => qa('.git-review-menu [role="menuitem"]').length === 2, 3000, 'AI dropdown');
-  check('AI dropdown offers message and commits', qa('.git-review-menu [role="menuitem"]').map((item) => item.textContent).join('|') === 'Generate commit message|Generate commits');
+  await wait_for(() => qa('.git-review-menu [role="menuitem"]').length === 3, 3000, 'AI dropdown');
+  check('AI dropdown offers message and commits', qa('.git-review-menu [role="menuitem"]').map((item) => item.textContent).join('|') === 'Generate commit message|Generate commits|Generate commits + push');
   qa('.git-review-menu [role="menuitem"]')[0].click();
   await wait_for(() => q('#git-commit-message').value === 'feat: staged message', 3000, 'generated message');
   check('message generation is staged-only and does not commit', window.__calls.plan.at(-1).messageOnly === true && window.__calls.commit.length === 0);
   await idle();
   q('[aria-label="Generate commit with AI"]').click();
-  await wait_for(() => qa('.git-review-menu [role="menuitem"]').length === 2, 3000, 'AI dropdown reopened');
+  await wait_for(() => qa('.git-review-menu [role="menuitem"]').length === 3, 3000, 'AI dropdown reopened');
   qa('.git-review-menu [role="menuitem"]')[1].click();
   await wait_for(() => window.__events.side.some((event) => event.initialPrompt), 3000, 'multi-commit side chat');
   const request = window.__events.side.find((event) => event.initialPrompt);
