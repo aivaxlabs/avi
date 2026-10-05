@@ -543,7 +543,7 @@ export function OrchestrationPage({ models, onOpenThread, bots = emptyBots, botD
                     <span className="orchestration-inbox-dot" aria-label={status} title={status} />
                     <img src={`https://orb.aivax.net/${encodeURIComponent(bot.id)}`} width={30} height={30} alt="" />
                     <strong className="orchestration-inbox-sender">{bot.name}</strong>
-                    <span className="orchestration-inbox-copy"><strong>{pendency.title}</strong><span>{latest?.role === 'user' ? 'You: ' : ''}{latest?.content ? `${latest.content.slice(0, 240)}${latest.content.length > 240 ? '...' : ''}` : 'Attachment'}</span></span>
+                    <span className="orchestration-inbox-copy"><strong>{pendency.title}</strong><span>{latest?.role === 'user' ? 'You: ' : latest?.role === 'agent' ? `${latest.sender.name}: ` : ''}{latest?.content ? `${latest.content.slice(0, 240)}${latest.content.length > 240 ? '...' : ''}` : 'Attachment'}</span></span>
                     {pendency.messages.some((message) => message.attachments?.length) && <Paperclip size={14} aria-label="Has attachments" />}
                     <time dateTime={pendency.updatedAt} title={`${updated.toLocaleString()} · ${status}`}>{day === today.toLocaleDateString() ? updated.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : dateLabel.format(updated)}</time>
                   </button>

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { BOT_PENDENCY_COMPLETION_REASONS } from '../shared/bot-work-items.js';
 
 export const BOT_PENDENCY_STATUSES = new Set(['open', 'completed']);
-export const BOT_MESSAGE_ROLES = new Set(['bot', 'user']);
+export const BOT_MESSAGE_ROLES = new Set(['bot', 'user', 'agent']);
 export const BOT_ACTIVITY_CATEGORIES = new Set(['progress', 'discovery', 'decision', 'completed', 'failure']);
 export const BOT_WORK_STATE_FILES = Object.freeze({
   inbox: 'inbox.json',
@@ -67,6 +67,12 @@ function validateMessage(message) {
   if (typeof message !== 'object' || message === null) throw new Error('Invalid message: expected object');
   requireString(message.id, 'message.id');
   if (!BOT_MESSAGE_ROLES.has(message.role)) throw new Error(`Invalid message role: ${message.role}`);
+  if (message.role === 'agent') {
+    requireString(message.sender?.botId, 'message.sender.botId');
+    requireString(message.sender?.name, 'message.sender.name');
+  } else if (message.sender !== undefined) {
+    throw new Error('Invalid message sender: only agent messages have a sender');
+  }
   if (typeof message.content !== 'string') throw new Error('Invalid message content: expected string');
   if (!Array.isArray(message.attachments)) throw new Error('Invalid message attachments: expected array');
   validateAttachments(message.attachments);
@@ -276,7 +282,7 @@ export async function attachBotPendencyApproval(dataFolder, input, now) {
 }
 
 export async function appendBotPendencyMessage(dataFolder, input, now) {
-  const { pendencyId, role, content, attachments = [], requiresUserResponse = true } = input;
+  const { pendencyId, role, content, attachments = [], requiresUserResponse = true, sender } = input;
   if (typeof requiresUserResponse !== 'boolean') throw new Error('Invalid requiresUserResponse: expected boolean');
   requireString(pendencyId, 'pendencyId');
   if (!BOT_MESSAGE_ROLES.has(role)) throw new Error(`Invalid message role: ${role}`);
@@ -292,7 +298,7 @@ export async function appendBotPendencyMessage(dataFolder, input, now) {
     const idx = inbox.findIndex((entry) => entry.id === pendencyId);
     if (idx === -1) throw new Error(`Pendency not found: ${pendencyId}`);
     const existing = inbox[idx];
-    if (role === 'user' && existing.status === 'completed') {
+    if (role !== 'bot' && existing.status === 'completed') {
       throw new Error('Pendency is completed; the bot must reopen it with a new message first.');
     }
 
@@ -307,6 +313,7 @@ export async function appendBotPendencyMessage(dataFolder, input, now) {
         attachments: messageAttachments,
         createdAt: ts,
         ...(role === 'bot' ? { requiresUserResponse, readAt: null } : {}),
+        ...(role === 'agent' ? { sender: { botId: sender?.botId, name: sender?.name } } : {}),
       }],
       updatedAt: ts,
     };

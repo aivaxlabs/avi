@@ -66,7 +66,7 @@ await run([
   }),
   test('constants: statuses, roles, categories', async () => {
     assert.deepEqual(BOT_PENDENCY_STATUSES, new Set(['open', 'completed']));
-    assert.deepEqual(BOT_MESSAGE_ROLES, new Set(['bot', 'user']));
+    assert.deepEqual(BOT_MESSAGE_ROLES, new Set(['bot', 'user', 'agent']));
     assert.deepEqual(BOT_ACTIVITY_CATEGORIES, new Set(['progress', 'discovery', 'decision', 'completed', 'failure']));
   }),
 ]);
@@ -321,6 +321,28 @@ await run([
       () => appendBotPendencyMessage(d, { pendencyId: item.id, role: 'assistant', content: 'x' }, T2),
       /Invalid message role/,
     );
+  }),
+  test('message: agent messages require a sender and wait for the bot', async () => {
+    const d = sub('message-agent');
+    const item = await createBotPendency(d, { title: 'T', content: 'C' }, T);
+    await assert.rejects(
+      () => appendBotPendencyMessage(d, { pendencyId: item.id, role: 'agent', content: 'x' }, T2),
+      /message\.sender\.botId/,
+    );
+    const updated = await appendBotPendencyMessage(d, {
+      pendencyId: item.id,
+      role: 'agent',
+      content: 'From a peer.',
+      sender: { botId: 'peer-id', name: 'Peer' },
+    }, T2);
+    assert.deepEqual(updated.messages.at(-1).sender, { botId: 'peer-id', name: 'Peer' });
+    assert.equal(updated.messages.at(-1).readAt, undefined);
+    assert.equal(hasOpenBotUserAction(updated), false);
+    assert.equal(getBotPendencyStatusLabel(updated), 'Waiting for bot');
+    const userMessage = await appendBotPendencyMessage(d, {
+      pendencyId: item.id, role: 'user', content: 'Mine.', sender: { botId: 'x', name: 'x' },
+    }, T2);
+    assert.equal(userMessage.messages.at(-1).sender, undefined);
   }),
 ]);
 

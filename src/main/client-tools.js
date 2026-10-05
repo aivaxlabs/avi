@@ -22,6 +22,7 @@ import {
   createConversation,
   deleteConversation,
   forkConversation,
+  getBotSettings,
   getConversation,
   getMessages,
   listAllConversations,
@@ -48,17 +49,23 @@ const TERMINAL_INPUT_IDLE_MS = 1_500;
 const MAX_INSPECTED_TURNS = 4;
 const MAX_ASSISTANT_MESSAGES_BEFORE_FINAL = 6;
 const ANSI_ESCAPE_SEQUENCE = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
+function assertCrossBotInboxAllowed(botRuntime) {
+  if (botRuntime && !getBotSettings().crossBotInbox) {
+    throw new Error('Cross-bot Inbox access is disabled in Settings → Bots.');
+  }
+}
+
 const BOT_CONFIG_PROPERTIES = Object.freeze({
   name: { type: 'string', minLength: 1, description: 'Bot display name and thread title.' },
   iconSeed: { type: 'string', minLength: 1, description: 'Optional stable seed for the bot avatar.' },
-  personality: { type: ['string', 'null'], description: 'Optional personality ID, or null to inherit the global personality.' },
-  workingFolder: { type: ['string', 'null'], description: 'Absolute working folder, or null to use the bot\'s dedicated default folder.' },
+  personality: { type: 'string', description: 'Optional personality ID, or an empty string to inherit the global personality.' },
+  workingFolder: { type: 'string', description: 'Absolute working folder, or an empty string to use the bot\'s dedicated default folder.' },
   model: { type: 'string', minLength: 1, description: 'Configured model ID used for every activation.' },
-  reasoningEffort: { type: ['string', 'null'], description: 'Reasoning effort supported by the selected model, or null for its default.' },
-  contextSize: { type: ['integer', 'null'], minimum: 1, description: 'Optional model context-window override.' },
+  reasoningEffort: { type: 'string', description: 'Reasoning effort supported by the selected model, or an empty string for its default.' },
+  contextSize: { type: 'integer', minimum: 0, description: 'Optional model context-window override, or 0 to use the model default.' },
   activationPeriodMinutes: { type: 'integer', minimum: 1, description: 'Minutes between automatic activation checks.' },
   activationMode: { type: 'string', enum: ['static', 'smart'], description: 'Static activates every period; smart can idle when no useful work remains.' },
-  executionMode: { type: ['string', 'null'], enum: ['direct', 'orchestrator', null], description: 'Null inherits the global execution mode.' },
+  executionMode: { type: 'string', enum: ['inherit', 'direct', 'orchestrator'], description: 'Use inherit for the global execution mode.' },
   maxActivations: { type: 'integer', minimum: 0, description: 'Consecutive activation limit before a cooldown; 0 disables the limit.' },
   activationWindow: {
     type: 'object',
@@ -67,11 +74,10 @@ const BOT_CONFIG_PROPERTIES = Object.freeze({
       days: {
         type: 'array',
         items: { type: 'integer', minimum: 0, maximum: 6 },
-        uniqueItems: true,
         description: 'Allowed weekdays, where 0 is Sunday and 6 is Saturday.',
       },
-      startMinute: { type: ['integer', 'null'], minimum: 0, maximum: 1439 },
-      endMinute: { type: ['integer', 'null'], minimum: 0, maximum: 1439 },
+      startMinute: { type: 'integer', minimum: 0, maximum: 1439, description: 'Omit for no start bound.' },
+      endMinute: { type: 'integer', minimum: 0, maximum: 1439, description: 'Omit for no end bound.' },
     },
     additionalProperties: false,
   },
@@ -91,6 +97,16 @@ const BOT_UPDATE_PROPERTIES = Object.freeze({
     description: 'Zero-based queue item to run on the next activation.',
   },
 });
+
+function normalizeBotConfigInput(input) {
+  const normalized = { ...input };
+  for (const key of ['personality', 'workingFolder', 'reasoningEffort']) {
+    if (normalized[key] === '') normalized[key] = null;
+  }
+  if (normalized.contextSize === 0) normalized.contextSize = null;
+  if (normalized.executionMode === 'inherit') normalized.executionMode = null;
+  return normalized;
+}
 const terminals = new Map();
 
 function appendTerminalOutput(terminal, chunk) {
@@ -540,7 +556,7 @@ export const CLIENT_TOOLS = Object.freeze([
                 enum: ['pending', 'completed', 'inconclusive'],
                 description: 'Use inconclusive only when a concrete blocker prevents completion.',
               },
-              result: { type: ['string', 'null'], maxLength: 4000 },
+              result: { type: 'string', maxLength: 4000, description: 'Empty string when there is no result yet.' },
             },
             required: ['title', 'description', 'done', 'result'],
             additionalProperties: false,
@@ -681,9 +697,8 @@ export const CLIENT_TOOLS = Object.freeze([
                 maxItems: 6,
                 description: 'Required for single_choice (up to 3) and multiple_choice (up to 6). Omit for free_text. Answers are returned as option labels.',
                 items: {
-                  type: ['string', 'object'],
-                  minLength: 1,
-                  description: 'A label string, or an object with a label and an optional description.',
+                  type: 'object',
+                  description: 'An option with a label and an optional description.',
                   properties: {
                     label: { type: 'string', minLength: 1, description: 'Short option text returned as the answer.' },
                     description: { type: 'string', description: 'Optional Markdown shown under the label.' },
@@ -733,8 +748,9 @@ export const CLIENT_TOOLS = Object.freeze([
       properties: {},
       additionalProperties: false,
     },
-    execute: async (_input, { botManager, chatRunner }) => {
+    execute: async (_input, { botManager, chatRunner, botRuntime }) => {
       if (!botManager) throw new Error('Bot management is not available.');
+      assertCrossBotInboxAllowed(botRuntime);
       return {
         bots: botManager.describeBots().map((bot) => ({
           id: bot.id,
@@ -785,8 +801,9 @@ export const CLIENT_TOOLS = Object.freeze([
       required: ['name', 'model'],
       additionalProperties: false,
     },
-    execute: async (input, { botManager, models }) => {
+    execute: async (rawInput, { botManager, models }) => {
       if (!botManager) throw new Error('Bot management is not available.');
+      const input = normalizeBotConfigInput(rawInput);
       if (!models.some((model) => model.id === input.model)) {
         throw new Error(`Model "${input.model}" is not configured.`);
       }
@@ -809,15 +826,17 @@ export const CLIENT_TOOLS = Object.freeze([
         changes: {
           type: 'object',
           properties: BOT_UPDATE_PROPERTIES,
-          minProperties: 1,
+          description: 'At least one field to change.',
           additionalProperties: false,
         },
       },
       required: ['id', 'changes'],
       additionalProperties: false,
     },
-    execute: async ({ id, changes }, { botManager, models }) => {
+    execute: async ({ id, changes: rawChanges }, { botManager, models }) => {
       if (!botManager) throw new Error('Bot management is not available.');
+      if (!rawChanges || Object.keys(rawChanges).length === 0) throw new Error('changes must contain at least one field.');
+      const changes = normalizeBotConfigInput(rawChanges);
       if (changes.model && !models.some((model) => model.id === changes.model)) {
         throw new Error(`Model "${changes.model}" is not configured.`);
       }
@@ -864,8 +883,9 @@ export const CLIENT_TOOLS = Object.freeze([
       required: ['id'],
       additionalProperties: false,
     },
-    execute: async ({ id, workLogId, status = 'all' }, { botManager }) => {
+    execute: async ({ id, workLogId, status = 'all' }, { botManager, botRuntime }) => {
       if (!botManager) throw new Error('Bot management is not available.');
+      assertCrossBotInboxAllowed(botRuntime);
       if (!['all', 'open', 'completed'].includes(status)) throw new Error('Invalid status.');
       const data = (await botManager.listBotDataByBot(id))[id];
       if (workLogId && !data.error && !data.inbox.some((item) => item.id === workLogId)) {
@@ -880,7 +900,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'bots_send_work_log_message',
-    description: 'Append a message to an existing bot inbox work log and deliver it to the bot’s main thread. Returns the persisted item and delivery status; does not resolve pending approvals.',
+    description: 'Append a message to an existing bot inbox work log and deliver it to the bot’s main thread. Returns the persisted item and delivery status; does not resolve pending approvals. When a bot calls this tool, the message is recorded and delivered as written by that bot, not by the user.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -893,14 +913,18 @@ export const CLIENT_TOOLS = Object.freeze([
       required: ['id', 'workLogId', 'message'],
       additionalProperties: false,
     },
-    execute: async ({ id, workLogId, message }, { botManager }) => {
+    execute: async ({ id, workLogId, message }, { botManager, botRuntime }) => {
       if (!botManager) throw new Error('Bot management is not available.');
-      return botManager.replyToPendency(id, workLogId, { content: message });
+      assertCrossBotInboxAllowed(botRuntime);
+      return botManager.replyToPendency(id, workLogId, {
+        content: message,
+        senderBotId: botRuntime?.bot.id ?? null,
+      });
     },
   },
   {
     name: 'bots_activate',
-    description: 'Request a bot activation, bypassing individual automatic enabled, period, idle, window, and activation-limit rules. Global activation hours and FIFO capacity still apply. Existing work is never blocked. With an empty work queue, the bot reviews its full scope. Does not start duplicate runs.',
+    description: 'Activate a bot immediately. Explicit activation ignores every automatic scheduling rule: enabled state, period, idle, individual and global activation hours, Snoozes, activation limit, and FIFO capacity. With an empty work queue, the bot reviews its full scope. Does not start duplicate runs.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -918,10 +942,7 @@ export const CLIENT_TOOLS = Object.freeze([
       return {
         id,
         activated: activated === true,
-        status: activated === true
-          ? 'started'
-          : activated?.queued ? activated.reason : 'already_running_or_start_failed',
-        ...(activated?.queued ? { queued: true } : {}),
+        status: activated === true ? 'started' : 'already_running_or_start_failed',
       };
     },
   },
@@ -1040,11 +1061,12 @@ export const CLIENT_TOOLS = Object.freeze([
           description: 'Optional absolute folder path used to filter threads.',
         },
         type: { type: 'string', enum: ['all', 'user', 'agent'], default: 'all', description: 'Filter by the persisted creator of the thread.' },
-        parentThreadId: { type: ['string', 'null'], minLength: 1, description: 'Exact parent ID, or null for root threads. Omit for any parent.' },
+        parentThreadId: { type: 'string', description: 'Exact parent ID, or an empty string for root threads. Omit for any parent.' },
       },
     },
-    execute: async ({ folderPath, type = 'all', parentThreadId }, { chatRunner, botManager, conversationId }) => {
+    execute: async ({ folderPath, type = 'all', parentThreadId: rawParentThreadId }, { chatRunner, botManager, conversationId }) => {
       if (!['all', 'user', 'agent'].includes(type)) throw new Error('Invalid thread type.');
+      const parentThreadId = rawParentThreadId === '' ? null : rawParentThreadId;
       if (folderPath && !isAbsolute(String(folderPath))) {
         throw new Error('folderPath must be absolute.');
       }
@@ -1390,8 +1412,8 @@ export const CLIENT_TOOLS = Object.freeze([
       type: 'object',
       properties: {
         context: {
-          type: ['string', 'null'],
-          description: 'Optional focus for the judgment. Use null to let the supervisor decide what to scrutinize.',
+          type: 'string',
+          description: 'Optional focus for the judgment. Use an empty string to let the supervisor decide what to scrutinize.',
         },
       },
       required: ['context'],
@@ -1421,7 +1443,7 @@ export const CLIENT_TOOLS = Object.freeze([
   },
   {
     name: 'rubber_duck_ask_agent',
-    description: 'Ask the subject agent one focused interview question and receive its read-only answer.',
+    description: 'Ask the subject agent one focused interview question. The subject agent answers in its own interview thread with its full context and tools, may inspect evidence, and is instructed not to change anything.',
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
@@ -1437,8 +1459,18 @@ export const CLIENT_TOOLS = Object.freeze([
       required: ['question'],
       additionalProperties: false,
     },
-    execute: ({ question }, { chatRunner, conversationId, signal }) => (
-      chatRunner.askRubberDuckSubject({ conversationId, question, signal })
+    execute: ({ question }, {
+      chatRunner,
+      conversationId,
+      permissionMode,
+      signal,
+    }) => (
+      chatRunner.askRubberDuckSubject({
+        conversationId,
+        question,
+        permissionMode,
+        signal,
+      })
     ),
   },
   {
@@ -2221,11 +2253,19 @@ export const CLIENT_TOOLS = Object.freeze([
           items: { type: 'string' },
           description: 'One or more search terms describing the file or knowledge to retrieve.',
         },
+        filter: {
+          type: 'string',
+          minLength: 1,
+          description: [
+            'Optional AIVAX filter expression applied before the semantic search. Fields: name, content, tags, createdAt, updatedAt, metadata.<key>.',
+            'Examples: `tags has "decision"`, `tags in ("avi", "aivax") and not tags has "draft"`, `name startswith "avi/"`, `updatedAt >= now-7d`.',
+          ].join(' '),
+        },
       },
       required: ['search_terms'],
       additionalProperties: false,
     },
-    execute: async ({ search_terms }, { aivax, signal }) => {
+    execute: async ({ search_terms, filter }, { aivax, signal }) => {
       const results = await requestAivax('/api/v1/query', {
         body: {
           terms: search_terms,
@@ -2234,6 +2274,7 @@ export const CLIENT_TOOLS = Object.freeze([
           includeReferences: false,
           reranker: 'rrf',
           minScore: 0.2,
+          ...(filter === undefined ? {} : { filter }),
         },
         responseType: 'array',
         signal,
@@ -2307,9 +2348,8 @@ export const CLIENT_TOOLS = Object.freeze([
         names: {
           type: 'array',
           minItems: 1,
-          uniqueItems: true,
           items: { type: 'string', minLength: 1 },
-          description: 'One or more exact file names to delete from memory.',
+          description: 'One or more exact, distinct file names to delete from memory.',
         },
       },
       required: ['names'],
@@ -2320,7 +2360,7 @@ export const CLIENT_TOOLS = Object.freeze([
       const deleted = [];
       const notFound = [];
 
-      for (const name of names) {
+      for (const name of new Set(names)) {
         const documents = await requestAivax(
           `${collectionPath}?filter=${encodeURIComponent(name)}`,
           { responseType: 'array', signal },
@@ -2748,9 +2788,9 @@ export const CLIENT_TOOLS = Object.freeze([
           enum: ['active', 'blocked'],
         },
         summary: {
-          type: ['string', 'null'],
+          type: 'string',
           maxLength: 4000,
-          description: 'Concrete blocker requiring user intervention. Required when status is blocked.',
+          description: 'Concrete blocker requiring user intervention. Required when status is blocked; use an empty string when active.',
         },
       },
       required: ['name', 'status', 'summary'],

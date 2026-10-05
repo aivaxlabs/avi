@@ -420,7 +420,6 @@ try {
   assert.equal(memoryDelete.canPerformDestructiveActions, true);
   assert.deepEqual(memoryDelete.inputSchema.required, ['names']);
   assert.equal(memoryDelete.inputSchema.properties.names.minItems, 1);
-  assert.equal(memoryDelete.inputSchema.properties.names.uniqueItems, true);
 
   response = (url, options) => {
     if (options.method === 'DELETE') return new Response('', { status: 200 });

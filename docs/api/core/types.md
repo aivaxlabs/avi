@@ -56,6 +56,8 @@ interface ThreadSnapshot {
 
 `workStatus` is `blocked` when the Goal is blocked, an internal task is inconclusive, or an owned semaphore is blocked. It is otherwise `null`.
 
+`needsAttention` is `true` when the latest message is an error, an interruption not caused by the user, streaming residue, or unanswered user input, and the conversation has not been acknowledged since that message last changed. Acknowledgements are persisted.
+
 ### ThreadTaskSnapshot
 
 Returned in `ThreadSnapshot.tasks` and by `thread.tasks.list()` / `thread.tasks.replace()`.
@@ -257,7 +259,8 @@ interface BotApproval {
 ```ts
 interface BotPendencyMessage {
   id: string;
-  role: 'bot' | 'user';
+  role: 'bot' | 'user' | 'agent';
+  sender?: { botId: string; name: string };
   content: string;
   attachments: Attachment[];
   createdAt: string;
@@ -266,7 +269,7 @@ interface BotPendencyMessage {
 }
 ```
 
-`createdAt` is an ISO 8601 timestamp including the date and time. Attachments use the existing [Attachment](../rpc/types.md#attachment) descriptor. A message requires non-empty content or an attachment.
+`role: 'agent'` marks a reply written by another bot; only those messages have `sender`. `createdAt` is an ISO 8601 timestamp including the date and time. Attachments use the existing [Attachment](../rpc/types.md#attachment) descriptor. A message requires non-empty content or an attachment.
 
 ### BotPendency
 
@@ -365,6 +368,7 @@ interface ProviderTypeDescriptor {
   name: string;
   connection: string;
   models?: 'managed' | unknown;
+  supportsModelListing?: boolean;
   fields?: Array<{
     id: string;
     label: string;

@@ -4,9 +4,9 @@ Bots are autonomous AI teammates. Each bot lives in a persistent thread, is acti
 
 ## Global activation settings and statistics
 
-Open **Settings → Bots**. **Activation settings** adds an optional local-time day/hour window and a simultaneous-activation limit (1–128, default 2). These rules complement each bot's own schedule. No selected days means every day; empty times allow the full day; overnight ranges are supported. Equal start/end times are rejected. The global execution mode is inherited only by bots without an individual override.
+Open **Settings → Bots**. **Cross-bot Inbox access** (off by default) lets bots read every bot's Inbox and reply in other bots' pendencies; see [Cross-bot Inbox access](#cross-bot-inbox-access). **Activation settings** adds an optional local-time day/hour window and a simultaneous-activation limit (1–128, default 2). These rules complement each bot's own schedule. No selected days means every day; empty times allow the full day; overnight ranges are supported. Equal start/end times are rejected. The global execution mode is inherited only by bots without an individual override.
 
-New activations wait in FIFO order among eligible bots. A queued request does not create a chat message, consume its recurring task, or display Thinking. The global window also applies to explicit manual/agent activations; the agent force option bypasses only individual automatic rules. The clock means **Activation queued**; the moon with **Outside activation hours** means the window is closed. Running work takes precedence in the indicator.
+New activations wait in FIFO order among eligible bots. A queued request does not create a chat message, consume its recurring task, or display Thinking. Only automatic scheduled activations are queued; explicit activations from **Activate now**, `bots_activate`, RPC, or plugins start immediately, outside every window, Snooze, and capacity limit. The clock means **Activation queued**; the moon with **Outside activation hours** means the window is closed. Running work takes precedence in the indicator.
 
 These controls admit new activations only. Existing turns, replies, restart resumptions, and descendant work threads continue independently, even outside hours or above a newly reduced limit. Active bot turns occupy admission capacity, but are never suspended to satisfy it. Pending requests are in-memory, deduplicated per bot, and cleared on restart, disable, deletion, or reset. Scheduled work is reconsidered on subsequent scheduler ticks. Window-blocked requests do not hold execution slots.
 
@@ -22,7 +22,13 @@ Agents can read inbox messages and activity with `bots_read_work_log`, and reply
 
 Agents in normal threads and Quick Chat can also manage bots with `bots_list`, `bots_create`, `bots_update`, `bots_delete`, and `bots_activate`. Select `/create-bot` in the composer for a guided setup that checks existing bots, defines the purpose and schedule, creates the bot, verifies its configuration, and optionally starts its first activation. Autonomous bot conversations do not receive these management tools and cannot create or control other bots.
 
-`bots_activate` is an explicit one-time call: it ignores individual automatic enabled, period, idle, activation-window, and activation-limit rules, but still respects the global activation window and FIFO admission limit, while refusing to start a duplicate run when the bot is already active. The sidebar's **Activate now** action keeps the normal enabled-state behavior. Both paths can activate a bot with an empty Work queue; that activation reviews the bot's full scope without a specific recurring focus.
+### Cross-bot Inbox access
+
+When **Settings → Bots → Cross-bot Inbox access** is enabled, bot conversations also receive `bots_list`, `bots_read_work_log`, and `bots_send_work_log_message`. A bot can then read every bot's Inbox and Activity and reply in an open pendency of another bot. Its own Inbox still uses the `bot_pendency_*` tools. The setting is checked again when the tool runs, so disabling it takes effect immediately.
+
+A reply written by a bot is stored with role `agent` and a `sender` (`botId`, `name`). The Inbox shows the sender's Orb and name with **Sent by another bot**, and the list preview prefixes the sender's name. The receiving bot gets `<bot-pendency-update from="bot" from-bot-id="..." from-bot-name="...">` with a note that it is coordination context, not a user reply or authorization. User replies carry `from="user"`. Bot replies do not count as user interaction, cannot reopen completed pendencies, and never resolve approvals.
+
+`bots_activate` and the sidebar's **Activate now** are explicit one-time activations: they ignore every automatic scheduling rule — enabled state, period, idle, individual and global activation hours, Snoozes, activation limit, and FIFO capacity — and only refuse to start a duplicate run when the bot is already active. Both paths can activate a bot with an empty Work queue; that activation reviews the bot's full scope without a specific recurring focus.
 
 ## Bot settings
 
@@ -52,7 +58,7 @@ Settings are organized by the decisions they control:
 
 **Schedule — when it runs and pauses**
 
-- **Enable bot** — controls whether the bot may be activated. Disabled bots remain available in the sidebar but do not run automatically or through **Activate now**.
+- **Enable bot** — controls whether the bot may be activated. Disabled bots remain available in the sidebar and do not run automatically, but **Activate now** still runs them once.
 - **Frequency** — the interval between activations, set in minutes, hours, or days.
 - **Pause behavior**:
   - **Always on schedule** — runs at every interval while allowed.

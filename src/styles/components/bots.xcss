@@ -101,6 +101,12 @@
     top: -4px;
     left: calc(100% + 6px);
     width: 190px;
+
+    &.flip-left {
+      left: auto;
+      right: calc(100% + 6px);
+      transform-origin: top right;
+    }
   }
 
   > .bot-work-queue-menu {

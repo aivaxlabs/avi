@@ -97,7 +97,7 @@ try {
     botQueueIndexBeforeSnooze,
     'bot Snooze does not advance the target work queue',
   );
-  assert.equal(await manager.activateBot(bot.id, { trigger: 'manual' }), true);
+  assert.equal(await manager.activateBot(bot.id, { trigger: 'manual', force: true }), true);
   assert.equal(
     activationRequests.at(-1)?.conversationId,
     bot.conversationId,
@@ -144,7 +144,7 @@ try {
   assert.equal(activationRequests.length, 0, 'Snooze blocks scheduled activations');
   assert.equal(getBot(bot.id).workQueueIndex, queueIndexBeforeSnooze, 'Snooze does not advance the work queue');
 
-  assert.equal(await manager.activateBot(bot.id, { trigger: 'manual' }), true);
+  assert.equal(await manager.activateBot(bot.id, { trigger: 'manual', force: true }), true);
   assert.equal(activationRequests.length, 1, 'manual activation remains available during Snooze');
   assert.equal(getBot(bot.id).workQueueIndex, 0, 'manual activation keeps the existing queue order');
 

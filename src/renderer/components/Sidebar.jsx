@@ -1041,8 +1041,6 @@ const BotItem = memo(function BotItem({
               <DropdownMenuItem
                 className="bot-submenu-trigger"
                 icon={<Play size={14} />}
-                disabled={bot.enabled === false}
-                title={bot.enabled === false ? 'Enable this bot in Schedule first' : undefined}
                 aria-haspopup="menu"
                 aria-expanded={activateMenuOpen}
                 onClick={() => {
@@ -1056,7 +1054,7 @@ const BotItem = memo(function BotItem({
                 </>
               </DropdownMenuItem>
               {activateMenuOpen && (
-                <DropdownMenu className="bot-submenu bot-work-queue-menu" role="menu" aria-label={`Activate ${bot.name}`}>
+                <DropdownMenu className="bot-submenu bot-work-queue-menu" submenu role="menu" aria-label={`Activate ${bot.name}`}>
                   <DropdownMenuItem role="menuitem" onClick={() => {
                     setMenuOpen(false);
                     onActivate(bot.id);
@@ -1084,8 +1082,6 @@ const BotItem = memo(function BotItem({
           ) : (
             <DropdownMenuItem
               icon={<Play size={14} />}
-              disabled={bot.enabled === false}
-              title={bot.enabled === false ? 'Enable this bot in Schedule first' : undefined}
               onClick={() => {
                 setMenuOpen(false);
                 onActivate(bot.id);
@@ -1111,7 +1107,7 @@ const BotItem = memo(function BotItem({
               </>
             </DropdownMenuItem>
             {snoozeMenuOpen && (
-              <DropdownMenu className="bot-submenu" role="menu" aria-label={`Snooze ${bot.name}`}>
+              <DropdownMenu className="bot-submenu" submenu role="menu" aria-label={`Snooze ${bot.name}`}>
                 <DropdownMenuItem icon={<Clock size={14} />} role="menuitem" onClick={() => {
                   setMenuOpen(false);
                   onSnooze(bot.id, { durationMinutes: 60 });

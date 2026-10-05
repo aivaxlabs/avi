@@ -453,6 +453,49 @@ try {
   assert.equal(sentWorkLog.item.messages.at(-1).content, 'Continue this task.');
   await assert.rejects(() => tool('bots_read_work_log').execute({ id: 'missing' }, context), /Bot not found/);
   await assert.rejects(() => tool('bots_read_work_log').execute({ id: created.bot.id, workLogId: 'missing' }, context), /Work log not found/);
+  assert.match(activationRequests.at(-1).text, /<bot-pendency-update [^>]*from="user">/);
+  assert.equal(sentWorkLog.item.messages.at(-1).role, 'user');
+
+  const peer = await tool('bots_create').execute({
+    name: 'Peer "auditor"',
+    model: model.id,
+    workingFolder: workspace,
+    enabled: false,
+  }, context);
+  const peerContext = { ...context, botRuntime: botManager.getBotRuntimeContext(peer.bot.conversationId) };
+  assert.equal(database.getBotSettings().crossBotInbox, false);
+  for (const name of ['bots_list', 'bots_read_work_log', 'bots_send_work_log_message']) {
+    await assert.rejects(
+      () => tool(name).execute({ id: created.bot.id, workLogId: contentOnlyPendency.id, message: 'x' }, peerContext),
+      /Cross-bot Inbox access is disabled/,
+    );
+  }
+  database.setBotSettings({ crossBotInbox: true });
+  assert.throws(() => database.setBotSettings({ crossBotInbox: 'yes' }), /boolean/);
+  assert.equal((await tool('bots_read_work_log').execute({ id: created.bot.id }, peerContext)).id, created.bot.id);
+  const crossReply = await tool('bots_send_work_log_message').execute({
+    id: created.bot.id,
+    workLogId: contentOnlyPendency.id,
+    message: 'I can take the audit part.',
+  }, peerContext);
+  assert.equal(crossReply.delivered, true);
+  assert.deepEqual(crossReply.item.messages.at(-1).sender, { botId: peer.bot.id, name: 'Peer "auditor"' });
+  assert.equal(crossReply.item.messages.at(-1).role, 'agent');
+  const crossEnvelope = activationRequests.at(-1);
+  assert.equal(crossEnvelope.conversationId, created.bot.conversationId);
+  assert.match(crossEnvelope.text, new RegExp(`from="bot" from-bot-id="${peer.bot.id}" from-bot-name="Peer &quot;auditor&quot;"`));
+  assert.match(crossEnvelope.text, /written by another bot, not by the user/);
+  await assert.rejects(
+    () => tool('bots_send_work_log_message').execute({ id: peer.bot.id, workLogId: 'any', message: 'Self.' }, peerContext),
+    /own Inbox/,
+  );
+  await botManager.completePendency(created.bot.id, contentOnlyPendency.id);
+  await assert.rejects(
+    () => tool('bots_send_work_log_message').execute({ id: created.bot.id, workLogId: contentOnlyPendency.id, message: 'Late.' }, peerContext),
+    /Pendency is completed/,
+  );
+  database.setBotSettings({ crossBotInbox: false });
+  await tool('bots_delete').execute({ id: peer.bot.id }, context);
   await tool('bots_update').execute({ id: created.bot.id, changes: { workQueue: ['Explicit queue item', 'Other item'] } }, context);
   const cursorBefore = getBot(created.bot.id).workQueueIndex;
   await tool('bots_activate').execute({ id: created.bot.id, workQueueId: 1 }, context);

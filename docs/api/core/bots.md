@@ -4,7 +4,7 @@ The bots namespace delegates all state changes to BotManager, preserving schedul
 
 ## Activation admission
 
-Global activation hours and simultaneous-activation capacity complement individual schedules. They gate only new activations: existing turns, replies, restart resumptions and descendant threads continue. The RPC/MCP bot listing exposes `queued`, `scheduleState` (`queued` or `outside-window` when admission is deferred), and `effectiveExecutionMode`; Core handles retain the persisted snapshot shape. Create/update accepts `executionMode: 'direct' | 'orchestrator' | null`; null inherits the global default. Global settings and consumption statistics are available through the [Bots RPC methods](../rpc/bots.md).
+Global activation hours and simultaneous-activation capacity complement individual schedules. They gate only new automatic activations: explicit `activate()` calls start immediately, and existing turns, replies, restart resumptions and descendant threads continue. The RPC/MCP bot listing exposes `queued`, `scheduleState` (`queued` or `outside-window` when admission is deferred), and `effectiveExecutionMode`; Core handles retain the persisted snapshot shape. Create/update accepts `executionMode: 'direct' | 'orchestrator' | null`; null inherits the global default. Global settings and consumption statistics are available through the [Bots RPC methods](../rpc/bots.md).
 
 ## Namespace
 

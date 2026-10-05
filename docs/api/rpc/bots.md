@@ -4,8 +4,8 @@ Bot methods are available only on the global `WS /rpc` endpoint. Scalar bot IDs 
 
 ## Global activation settings and statistics
 
-- `bots:settings` (no payload): returns `{ maxConcurrentBots, executionMode, activationWindow }` from the existing `botSettings` preferences.
-- `bots:save-settings`: accepts partial settings. `maxConcurrentBots` is an integer 1–128; `executionMode` is `direct` or `orchestrator`; `activationWindow` is null or `{ days: number[], startMinute: number | null, endMinute: number | null }`. Days are 0–6, minutes 0–1439, equal bounds are invalid. Returns normalized settings and reevaluates pending activations without interrupting work.
+- `bots:settings` (no payload): returns `{ maxConcurrentBots, executionMode, activationWindow, crossBotInbox }` from the existing `botSettings` preferences.
+- `bots:save-settings`: accepts partial settings. `maxConcurrentBots` is an integer 1–128; `executionMode` is `direct` or `orchestrator`; `crossBotInbox` is a boolean (default `false`) that gives bot conversations `bots_list`, `bots_read_work_log`, and `bots_send_work_log_message`; `activationWindow` is null or `{ days: number[], startMinute: number | null, endMinute: number | null }`. Days are 0–6, minutes 0–1439, equal bounds are invalid. Returns normalized settings and reevaluates pending activations without interrupting work.
 - `bots:statistics`: accepts `{ days: 1 | 7 | 30 }` (default 7). Returns `{ days, from, to, totals, bots, timeline }`. Bot rows include `id`, `name`, `conversationId`, `descendants`, `scheduleState`, `running`, and `totals`. Totals include tokens, input/cached/output/reasoning tokens, responses, createdThreads, cost, pricedResponses and unpricedResponses. Timeline entries contain UTC date, usageMessages, tokens, cost and per-bot consumption. Costs are null for incomplete pricing; timestamps describe response usage, not activation duration. Archived descendants with retained messages are included.
 
 `bots:list` additionally exposes `queued`, `effectiveExecutionMode`, and distinct `scheduleState` values `queued` and `outside-window`. These are activation admission states, not model inference. `bots:activate` can return `{ queued: true, reason }` instead of true when deferred; null means it did not start. Requests are deduplicated and do not create assistant placeholders until admitted. Global restrictions never gate existing work or restart resumptions. Pending requests are in-memory and do not survive restart.
@@ -93,7 +93,8 @@ The **Overview** page opens on **Inbox** by default. This view aggregates `botDa
 | Field | Type | Description |
 | --- | --- | --- |
 | `id` | string | Message ID. |
-| `role` | `"bot"` \| `"user"` | Sender. |
+| `role` | `"bot"` \| `"user"` \| `"agent"` | Sender. `agent` is a reply written by another bot through `bots_send_work_log_message`. |
+| `sender` | `{ botId: string, name: string }`, optional | Present only on `agent` messages; identifies the sending bot. |
 | `content` | string | Message text. |
 | `attachments` | [`Attachment[]`](types.md#attachment) | Files, images, and inline content using the chat attachment format. |
 | `createdAt` | ISO 8601 string | Date and time the message was sent. |
@@ -308,7 +309,7 @@ Performs a destructive bot reset: stops descendant work, clears pending approval
 
 ## `bots:activate`
 
-Requests immediate activation, bypassing enabled, schedule-window, period, idle, and activation-limit checks. It does not start a duplicate run.
+Starts an immediate activation, bypassing enabled, individual and global activation-window, Snooze, period, idle, activation-limit, and FIFO capacity checks. It does not start a duplicate run.
 
 ### Params
 
@@ -318,7 +319,7 @@ Requests immediate activation, bypassing enabled, schedule-window, period, idle,
 
 ### Result
 
-`true` when activation started; `null` when the bot is disabled, already running, or activation fails to start.
+`true` when activation started; `null` when the bot is already running or activation fails to start.
 
 ### Errors
 

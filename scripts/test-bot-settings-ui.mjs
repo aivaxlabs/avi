@@ -21,7 +21,7 @@ import '/src/renderer/styles.css';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-const seedSettings = { maxConcurrentBots: 3, executionMode: 'orchestrator', activationWindow: null };
+const seedSettings = { maxConcurrentBots: 3, executionMode: 'orchestrator', activationWindow: null, crossBotInbox: false };
 const statsFor = (days) => ({
   totals: {
     tokens: days * 1000,
@@ -224,9 +224,15 @@ const checks = `(async () => {
   check('Loaded consumption disappears after switching back to Activation settings',
     document.getElementById('bots-panel-statistics').getClientRects().length === 0);
   window.__test.mode = 'success';
+  const crossBotToggle = [...document.querySelectorAll('#bots-panel-activation .settings-toggle-row')]
+    .find((row) => row.textContent.includes('Cross-bot Inbox access'))?.querySelector('input[type="checkbox"]');
+  check('Cross-bot Inbox access starts disabled', crossBotToggle && !crossBotToggle.checked);
+  crossBotToggle.click();
+  await wait(() => crossBotToggle.checked, 'cross-bot toggle');
   button('Save changes', document.querySelector('footer.settings-actions')).click();
   await wait(() => document.querySelector('footer.settings-actions').textContent.includes('Activation settings saved.'), 'successful save');
   check('Save success persists the edited draft', window.__test.saves.length === 1
+    && window.__test.saves[0].crossBotInbox === true
     && window.__test.saves[0].maxConcurrentBots === 8
     && window.__test.saves[0].executionMode === 'direct'
     && window.__test.saves[0].activationWindow.startMinute === 540);

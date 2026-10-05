@@ -118,6 +118,11 @@ export function BotSettingsPage({ footerTarget }) {
                 <small>{key === 'startMinute' ? 'Local time. Empty times allow the full day.' : 'Overnight ranges are supported. Start and end must differ.'}</small>
               </label>)}
             </>}
+            <label className="settings-toggle-row">
+              <span><strong>Cross-bot Inbox access</strong><small>Lets bots read every bot's Inbox and reply in other bots' pendencies. Replies are identified as written by the sending bot.</small></span>
+              <input type="checkbox" className="appearance-desktop-switch" disabled={busy} checked={draft.crossBotInbox}
+                onChange={(event) => { setNotice(''); setDraft({ ...draft, crossBotInbox: event.target.checked }); }} />
+            </label>
           </div>
         )}
       </section>

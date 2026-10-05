@@ -32,7 +32,7 @@ try {
   }
   const outside = { days: [(new Date().getDay() + 1) % 7], startMinute: null, endMinute: null };
   database.setBotSettings({ maxConcurrentBots: 1, activationWindow: outside });
-  await manager.activateBot(bots[0].id, { force: true, trigger: 'manual' });
+  await manager.activateBot(bots[0].id);
   assert.equal(requests.length, 0);
   assert.equal(database.getMessages(bots[0].conversationId).length, 0);
   assert.equal(manager.describeBots()[0].scheduleState, 'outside-window');
@@ -41,9 +41,9 @@ try {
   database.setBotSettings({ activationWindow: null });
   await manager.drainActivationQueue();
   assert.equal(requests.length, 1);
-  await manager.activateBot(bots[1].id, { force: true });
-  await manager.activateBot(bots[2].id, { force: true });
-  await manager.activateBot(bots[1].id, { force: true });
+  await manager.activateBot(bots[1].id);
+  await manager.activateBot(bots[2].id);
+  await manager.activateBot(bots[1].id);
   assert.equal(manager.activationQueue.size, 2);
   assert.equal(manager.describeBots()[1].scheduleState, 'queued');
   assert.equal(manager.describeBots()[1].running, false);
@@ -74,7 +74,7 @@ try {
   assert.equal(manager.describeBots().find((bot) => bot.id === bots[1].id).effectiveExecutionMode, 'direct');
   database.updateBot(bots[1].id, { executionMode: null });
   assert.equal(manager.describeBots().find((bot) => bot.id === bots[1].id).effectiveExecutionMode, 'orchestrator');
-  await manager.activateBot(bots[1].id, { force: true });
+  await manager.activateBot(bots[1].id);
   assert.equal(manager.activationQueue.has(bots[1].id), true);
   await manager.updateBotConfig(bots[1].id, { enabled: false });
   assert.equal(manager.activationQueue.has(bots[1].id), false);
@@ -156,8 +156,28 @@ try {
   const modelMessages = database.toModelMessages(activationBot.conversationId);
   assert.equal(modelMessages.some((message) => JSON.stringify(message).includes(previousTurn.content)), false);
 
+  const explicitBot = await manager.createBotFromConfig({
+    name: 'Explicit activation',
+    model: 'test:model',
+    workQueue: ['Work'],
+    workingFolder: join(process.env.USERPROFILE, 'work'),
+    activationWindow: outside,
+  });
+  database.setBotSettings({ activationWindow: outside, maxConcurrentBots: 1 });
+  manager.setSchedulerSnooze({ untilRestart: true });
+  manager.setBotSnooze(explicitBot.id, { untilRestart: true });
+  await manager.activateBot(explicitBot.id);
+  assert.equal(manager.activationQueue.has(explicitBot.id), true);
+  await manager.updateBotConfig(explicitBot.id, { enabled: false });
+  const explicitRequests = requests.length;
+  assert.equal(await manager.activateBot(explicitBot.id, { trigger: 'manual', force: true }), true);
+  assert.equal(requests.length, explicitRequests + 1);
+  assert.equal(requests.at(-1).conversationId, explicitBot.conversationId);
+  assert.equal(manager.activationQueue.has(explicitBot.id), false);
+  manager.setSchedulerSnooze({ reset: true });
+
   manager.stop();
-  console.log('Bot activation admission: passed (window, FIFO, no phantom messages, ongoing/resumed work, busy workers, thread recreation, activation context reset, validation).');
+  console.log('Bot activation admission: passed (window, FIFO, no phantom messages, ongoing/resumed work, busy workers, thread recreation, activation context reset, explicit activation bypass, validation).');
 } finally {
   database.closeDatabase();
 }
