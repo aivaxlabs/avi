@@ -62,6 +62,8 @@ Semaphore owners and wait queues persist in SQLite across Avi restarts. Archivin
 
 Messages sent by `chat_send_prompt` are persisted and delivered inside a `<cross-message>` envelope. Avi supplies `from_thread_id`, `from_role` (the source thread type: `thread`, `subagent`, `side`, `rubber_duck`, or `bot`), and `from_name` when a title is available. Attribute values are escaped. The envelope explicitly identifies agent-to-agent coordination, not a user instruction or a change to the user's request. This applies to prioritized and queued messages and survives history reconstruction. Existing messages are not rewritten.
 
+Automatic final/error reports also persist `fromAgent: true` and identify themselves as sub-agent reports, not user instructions. When reconstructing model input (including retries), Avi wraps every persisted `fromAgent` user-role message in an `<agent_message>` notice. The transport role remains `user` for provider compatibility; it does not represent human authorship. Attachments and the original source envelope are preserved. Existing rows are not migrated: previously flagged messages gain the model-only notice, but old unflagged final reports are not retroactively reclassified.
+
 Calls without a source thread, such as global MCP calls, use `from_thread_id="external"` and `from_role="external_agent"`, with no name. The caller cannot supply origin fields through the tool arguments.
 
 ## Plan and Ultra teams

@@ -24,11 +24,18 @@
 
 ### Fixed
 - Nested dropdown submenus — Model and Effort in the composer, and bot **Activate now** and **Snooze** — now open to the left, shift up, or scroll instead of extending beyond the window.
+- Prepare the Computer Use `get-windows` native addon only on Windows, avoiding unnecessary native downloads/builds on macOS and Linux while preserving their existing backends and Windows source-build fallback.
+- Preserve agent authorship in model history and retries using the persisted `fromAgent` flag; automatic sub-agent final/error reports now retain that flag and explicitly identify themselves as coordination, not user instructions.
+
+### Docs
+- Document an isolated Electron smoke check and distinguish application startup failures from test-script assertions that exit with code 3.
 
 ### Tests
 - `test:goal` covers Goal state preservation across Plan mode and message edits.
 - `test:rubber-duck` covers the interview thread's tools, context, history, reuse, and Rubber Duck numbering.
 - `test:quick-question` covers Quick question context expansion, the read-only tool set, follow-ups, and forking into an isolated database; `test:context` covers the Quick question prompt.
+- Run child-thread database tests under Electron and align tuning snapshots, personality IDs, semaphore mocks, and on-demand thread discovery with current contracts. Update bot Inbox/command tests and the bot Core API fixture to the required ORPC handshake and binary transport; production behavior is unchanged.
+
 
 ## [0.7.0] — 2026-10-01
 

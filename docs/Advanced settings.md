@@ -50,7 +50,7 @@ Side chats also run quick compaction automatically before a response when their 
 
 **Max concurrent sub-agents per thread** accepts 1–128 and defaults to 128. Despite the UI label, the current runtime counts active sub-agents globally across the Avi process.
 
-**Rubber Duck max turns** accepts 10–500 and bounds each rubber-duck analysis started with `/rubber-duck`. The analysis presents its critique to the conversation and proposes a plan; it does not act on the report by itself.
+**Rubber Duck max turns** defaults to 20, accepts integers from 10–500, and bounds each rubber-duck analysis started with `/rubber-duck`. The analysis presents its critique to the conversation and proposes a plan; it does not act on the report by itself.
 
 ## Tuning → Diagnostics
 

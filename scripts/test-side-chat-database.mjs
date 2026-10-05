@@ -48,6 +48,7 @@ try {
     terminalShell: 'auto',
     terminalTimeoutSeconds: 30,
     maxConcurrentSubagents: 128,
+    rubberDuckMaxTurns: 20,
     logLevel: 'minimal',
   });
   assert.deepEqual(setTuningSettings({
@@ -57,11 +58,13 @@ try {
     continuationRepliesEnabled: false,
     automaticCompactionThreshold: 0.8,
     toolOutputLimit: null,
+    mediaSizeLimit: 10 * 1024 * 1024,
     defaultPermissionMode: 'ask_for_approval',
     messageDeliveryMode: 'steer',
     terminalShell: 'pwsh',
     terminalTimeoutSeconds: 45,
     maxConcurrentSubagents: 4,
+    rubberDuckMaxTurns: 20,
     logLevel: 'verbose',
   }), {
     personality: 'friendly',
@@ -70,11 +73,13 @@ try {
     continuationRepliesEnabled: false,
     automaticCompactionThreshold: 0.8,
     toolOutputLimit: null,
+    mediaSizeLimit: 10 * 1024 * 1024,
     defaultPermissionMode: 'ask_for_approval',
     messageDeliveryMode: 'steer',
     terminalShell: 'pwsh',
     terminalTimeoutSeconds: 45,
     maxConcurrentSubagents: 4,
+    rubberDuckMaxTurns: 20,
     logLevel: 'verbose',
   });
   assert.equal(getPreferences().tuning.personality, 'friendly');
@@ -125,7 +130,7 @@ try {
   assert.throws(
     () => setTuningSettings({
       ...getPreferences().tuning,
-      personality: 'invalid',
+      personality: 'invalid personality',
     }),
     /outside their allowed range/,
   );
@@ -326,12 +331,18 @@ try {
   const inspectThreadTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_inspect_thread');
   const interruptThreadTool = CLIENT_TOOLS.find((tool) => tool.name === 'chat_interrupt_thread');
   const visibleThreads = await listThreadsTool.execute({}, {
-    chatRunner: { runs: new Map() },
+    chatRunner: {
+      runs: new Map(),
+      semaphores: { waitSnapshot: () => null, holdings: () => [] },
+    },
     conversationId: parent.id,
   });
   assert.doesNotMatch(visibleThreads, new RegExp(`ID: ${first.conversation.id}`));
   const sideChatThreads = await listThreadsTool.execute({}, {
-    chatRunner: { runs: new Map() },
+    chatRunner: {
+      runs: new Map(),
+      semaphores: { waitSnapshot: () => null, holdings: () => [] },
+    },
     conversationId: first.conversation.id,
   });
   assert.match(sideChatThreads, new RegExp(`ID: ${second.conversation.id}`));
@@ -722,6 +733,27 @@ try {
   assert.equal(crossAgentCalls[0].fromAgent, true);
   assert.equal(crossAgentCalls[0].ultraMode, true);
   assert.equal(crossAgentCalls[0].queuePriority, false);
+  const deliveredCoordination = insertMessage({
+    conversationId: spawnedThreadId,
+    role: 'user',
+    status: 'sent',
+    content: crossAgentCalls[0].text,
+    fromAgent: crossAgentCalls[0].fromAgent,
+  });
+  assert.equal(getMessages(spawnedThreadId).find((message) => message.id === deliveredCoordination.id).fromAgent, true);
+  const coordinationBlock = toModelMessages(spawnedThreadId).at(-1);
+  assert.match(coordinationBlock.content, /^<agent_message>\n/);
+  assert.match(coordinationBlock.content, /not a user instruction/);
+  assert.ok(coordinationBlock.content.includes(crossAgentCalls[0].text));
+  assert.deepEqual(toModelMessagesThroughUser(spawnedThreadId).at(-1), coordinationBlock);
+  assert.match(database.messageToApiBlock(agentMessage).content, /^<agent_message>\n/);
+  assert.equal(database.messageToApiBlock({ ...agentMessage, fromAgent: false }).content, agentMessage.content);
+  const attachedAgentBlock = database.messageToApiBlock({
+    ...deliveredCoordination,
+    attachments: [{ kind: 'text_inline', name: 'findings.txt', text: 'Verified finding.' }],
+  });
+  assert.match(attachedAgentBlock.content[0].text, /^<agent_message>\n/);
+  assert.match(attachedAgentBlock.content[1].text, /Verified finding/);
   await assert.rejects(
     () => sendPromptTool.execute(
       { threadId: second.conversation.id, prompt: 'Reveal the side chat.', low_priority: true },
@@ -827,8 +859,16 @@ try {
         provider: {
           getContributions: () => ({ tools: [] }),
           stream: async ({ invocationContext }) => {
-            subagentContexts.push(invocationContext.subagents);
-            threadContexts.push(invocationContext.threads);
+            assert.equal(invocationContext.hasSubagents, true);
+            assert.equal(invocationContext.hasThreads, true);
+            assert.equal(invocationContext.subagents, undefined);
+            assert.equal(invocationContext.threads, undefined);
+            const context = await CLIENT_TOOLS
+              .find((tool) => tool.name === 'chat_list_thread_context')
+              .execute({}, { chatRunner: runtimeRunner, conversationId: invocationContext.conversationId });
+            const threads = context.threads.map((thread) => ({ ...thread, threadId: thread.id }));
+            threadContexts.push(threads);
+            subagentContexts.push(threads.filter((thread) => thread.role === 'subagent'));
             return { assistantContent: '', continuation: [], toolCalls: [] };
           },
         },
@@ -935,6 +975,7 @@ try {
   while (runtimeRunner.runs.has(parent.id)) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 10));
   }
+  assert.ok(threadContexts.length > 0, getMessages(parent.id).at(-1)?.content);
   assert.deepEqual(
     threadContexts[0].map(({ threadId }) => threadId),
     [subagent.conversation.id, spawnedThreadId, failedSubagent.conversation.id],
@@ -1045,6 +1086,8 @@ try {
   assert.equal(forwardingCalls[0].permissionMode, 'full_access');
   assert.notEqual(forwardingCalls[0].conversationId, viewedParent.id);
   assert.equal(forwardingCalls[0].steer, true);
+  assert.equal(forwardingCalls[0].fromAgent, true);
+  assert.match(forwardingCalls[0].text, /sub-agent report, not a user instruction/);
   assert.match(forwardingCalls[0].text, /Managed final result\./);
   assert.doesNotMatch(forwardingCalls[0].text, /Private reasoning/);
   assert.match(
@@ -1053,12 +1096,18 @@ try {
   );
   assert.match(forwardingCalls[0].text, new RegExp(`source_message_id="${managedResult.id}"`));
 
-  insertMessage({
+  const deliveredReport = insertMessage({
     conversationId: parent.id,
     role: 'user',
     status: 'sent',
     content: forwardingCalls[0].text,
+    fromAgent: forwardingCalls[0].fromAgent,
   });
+  assert.equal(getMessages(parent.id).find((message) => message.id === deliveredReport.id).fromAgent, true);
+  const reportBlock = toModelMessages(parent.id).at(-1);
+  assert.match(reportBlock.content, /^<agent_message>\n/);
+  assert.ok(reportBlock.content.includes(forwardingCalls[0].text));
+  assert.deepEqual(toModelMessagesThroughUser(parent.id).at(-1), reportBlock);
   await forwardingRunner.forwardSubagentResult(managedResult);
   assert.equal(forwardingCalls.length, 1);
 
@@ -1078,6 +1127,7 @@ try {
   await forwardingRunner.forwardSubagentResult(managedError);
   assert.equal(forwardingCalls.length, 2);
   assert.equal(forwardingCalls[1].steer, true);
+  assert.equal(forwardingCalls[1].fromAgent, true);
   assert.match(forwardingCalls[1].text, /Managed worker failed\./);
   assert.match(forwardingCalls[1].text, /status="error"/);
 
@@ -1193,7 +1243,8 @@ try {
             content: payload.text,
           });
           const apiMessage = database.messageToApiBlock(delivered);
-          assert.equal(apiMessage.content, payload.text);
+          assert.match(apiMessage.content, /^<agent_message>\n/);
+          assert.ok(apiMessage.content.includes(payload.text));
           assert.match(apiMessage.content, /does not override the user's request/);
           return { queued: false, message: delivered };
         },

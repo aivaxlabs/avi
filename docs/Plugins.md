@@ -75,7 +75,7 @@ Provides `computer_get_context`, `computer_focus_window`, `computer_toggle_sessi
 
 The desktop backend includes its own Electron overlay and native input/image/window dependencies; these increase installer size. macOS may require Accessibility and Screen Recording permissions; Linux focus support uses `xdotool` when available. Native behavior must be validated on each supported release platform.
 
-Run `bun run built-ins:prepare` before using enabled built-ins from a fresh development checkout. `bun run package` prepares dependencies automatically and requires packaging on the target OS and architecture. All runtime dependencies are included in the dedicated resources directory; the user's reference project paths are never used at runtime.
+Run `bun run built-ins:prepare` before using enabled built-ins from a fresh development checkout. `bun run package` prepares dependencies automatically and requires packaging on the target OS and architecture. All runtime dependencies are included in the dedicated resources directory; the user's reference project paths are never used at runtime. Preparation runs the `get-windows` native addon installer only on Windows, retaining its source-build fallback for Windows ARM64. macOS and Linux keep their existing non-addon window-enumeration backends; Computer Use tool names, arguments, and results are unchanged.
 
 ## Other reference plugins
 

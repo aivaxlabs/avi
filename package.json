@@ -49,7 +49,7 @@
     "test:mentions": "bun scripts/test-composer-invocation.mjs && bun scripts/test-workspace-mentions.mjs",
     "test:fork-checkpoints": "electron --no-sandbox scripts/test-fork-checkpoints.mjs",
     "test:quick-question": "electron --no-sandbox scripts/test-quick-chat.mjs && electron --no-sandbox scripts/test-quick-question-fork.mjs",
-    "test:side-chat": "bun scripts/test-side-chat-database.mjs",
+    "test:side-chat": "electron --no-sandbox scripts/test-side-chat-database.mjs",
     "test:rubber-duck": "electron --no-sandbox scripts/test-rubber-duck.mjs",
     "test:archive": "electron --no-sandbox scripts/test-archive-database.mjs",
     "test:export-thread": "electron --no-sandbox scripts/test-export-thread.mjs",

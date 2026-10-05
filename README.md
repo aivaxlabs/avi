@@ -206,6 +206,23 @@ With an installed or packaged Windows executable:
 
 No environment variables are required for normal development. Providers and MCP servers are configured inside the application.
 
+Focused orchestration checks: `bun run test:side-chat` runs database and child-thread tests under Electron; `bun run test:rubber-duck` checks the current 20-turn default and 10–500 bounds. `bun run test:bots` covers bot scheduling, Inbox, persistence, tools, and Core API; `bun scripts/test-bot-composer.mjs` checks the shared command catalog separately. Bot RPC tests use the required binary ORPC transport, not legacy JSON-RPC WebSocket messages.
+
+### Isolated Electron smoke check
+
+Build the renderer with `bun run build`, then run the smoke in a disposable profile when another Avi instance is open. In Git Bash on Windows:
+
+```bash
+smoke="$(cygpath -u "$TEMP")/.avi/visualizations/$(date +%Y-%m-%d-%H-%M-%Z)/avi-smoke"
+mkdir -p "$smoke/profile" "$smoke/electron"
+USERPROFILE="$(cygpath -w "$smoke/profile")" HOME="$(cygpath -w "$smoke/profile")" \
+  CHAT_APP_SMOKE_TEST=1 bun x electron . --skip-single-instance \
+  --user-data-dir="$(cygpath -w "$smoke/electron")"
+echo "Smoke exit: $?"
+```
+
+Require both `Avi smoke test passed.` and exit code 0. Keep the profile for diagnosis; its application trace, when emitted, is under `profile/.aivax/trace.log`. Electron exit code 3 alone does not identify the cause: a failed assertion while loading an Electron test script also produces `App threw an error during load` and code 3. Inspect stderr and distinguish the test entrypoint from `electron .` before changing startup code.
+
 ## Provider setup
 
 Open **Settings → Providers**, then choose one of the supported connection types:
