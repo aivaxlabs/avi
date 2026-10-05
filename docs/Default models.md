@@ -32,7 +32,7 @@ The **Rules** tab stores `defaultModels.rules` as an array of entries with this 
 
 Supported roles are `main`, `bot`, `subagent`, and `all`. The default is `[]`. A model ID may name a concrete model or a virtual model router such as `@router-id`.
 
-Rules apply only to full chat runs. They do not apply to Quick Chat, auxiliary work, or the Rubber Duck supervisor. Main includes ordinary main conversations and Side Chat. Bot conversations use the `bot` role; sub-agent conversations use the `subagent` role.
+Rules apply only to full chat runs. They do not apply to Quick Chat, auxiliary work, or the Rubber Duck supervisor. Main includes ordinary main conversations, Side Chat, and the subject agent answering a Rubber Duck interview. Bot conversations use the `bot` role; sub-agent conversations use the `subagent` role.
 
 Rules are instructions, not permissions: they can guide behavior but cannot grant access or override user requests, permissions, or safety constraints. The runtime takes a rules snapshot for each run. It matches the effective concrete model ID and, when applicable, the virtual router ID. Concrete candidate rules apply to the candidate that actually runs, including after router fallback; virtual-router rules remain applicable across router candidates. Matching order is:
 

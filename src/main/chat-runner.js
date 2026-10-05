@@ -16,9 +16,11 @@ import {
   forkConversation,
   getConversation,
   getGoal,
+  getBotSettings,
   getGoalForConversation,
   getMessage,
   getMessages,
+  getSideChatHistoryStart,
   hydratePersistedMediaContent,
   getPreferences as readPreferences,
   insertGoal,
@@ -26,6 +28,7 @@ import {
   insertMessage,
   listAllConversations,
   listContinuingGoals,
+  listRubberDucks,
   listSubagents,
   listTasks,
   messageToApiBlock,
@@ -77,6 +80,12 @@ const AUXILIARY_PROMPT_CONTEXT_TURN_COUNT = 8;
 const AUXILIARY_CONTINUATION_CONTEXT_TURN_COUNT = 8;
 const MAX_CONTINUATION_COUNT = 4;
 const MAX_CONSECUTIVE_CONTEXT_COMPACTION_FAILURES = 3;
+const SIDE_CHAT_QUICK_COMPRESSION_MARGIN = 0.1;
+const CROSS_BOT_INBOX_TOOL_NAMES = new Set([
+  'bots_list',
+  'bots_read_work_log',
+  'bots_send_work_log_message',
+]);
 const PLAN_TOOL_NAMES = new Set([
   'ask_question',
   'chat_inspect_thread',
@@ -410,6 +419,7 @@ export class ChatRunner {
     this.continuationGenerations = new Map();
     this.pendingCompletionNotifications = new Map();
     this.rubberDuckReports = new Map();
+    this.rubberDuckInterviews = new Map();
     this.shuttingDown = false;
     this.semaphores = new SemaphoreManager({
       onChanged: (waits) => {
@@ -870,75 +880,94 @@ export class ChatRunner {
     }
   }
 
-  async askRubberDuckSubject({ conversationId, question, signal }) {
+  async askRubberDuckSubject({
+    conversationId,
+    question,
+    permissionMode = 'approve_for_me',
+    signal,
+  }) {
     const rubberDuck = getConversation(conversationId);
-    if (!rubberDuck?.isRubberDuck || !rubberDuck.parentConversationId) {
+    if (rubberDuck?.conversationType !== 'rubber_duck' || !rubberDuck.parentConversationId) {
       throw new Error('This tool is only available inside a Rubber Duck thread.');
     }
     const normalizedQuestion = String(question ?? '').trim();
     if (!normalizedQuestion) throw new Error('question is required.');
     const subject = getConversation(rubberDuck.parentConversationId);
     if (!subject) throw new Error('The subject thread no longer exists.');
-    const selection = this.registry.resolve(subject.model);
-    if (!selection) throw new Error('The subject agent model is unavailable.');
+    if (!this.registry.resolve(subject.model)) throw new Error('The subject agent model is unavailable.');
 
-    const copiedMessages = getMessages(conversationId);
-    const sourceEndIndex = copiedMessages.findIndex((message) => (
-      message.hidden && message.content === '<rubber-duck-source-end />'
-    ));
-    const sourceMessages = copiedMessages
-      .slice(0, sourceEndIndex < 0 ? copiedMessages.length : sourceEndIndex)
-      .filter((message) => (
-        ['user', 'assistant'].includes(message.role)
-        && ['completed', 'sent', 'aborted'].includes(message.status)
-      ))
-      .flatMap((message) => messageToApiBlocks(message, selection.model.capabilities));
-    let usage = null;
-    const turn = await selection.provider.stream({
-      model: selection.model,
-      messages: [
-        {
-          role: 'system',
-          content: [
-            'You are the subject agent being interviewed about the execution shown below.',
-            'Answer the supervisor’s question directly and truthfully using the available history.',
-            'Do not perform work, call tools, modify anything, or propose pretending that unverified work was verified.',
-            'State uncertainty, assumptions, blockers, and missing validation explicitly.',
+    // The supervisor may ask several questions in one parallel tool round; the subject thread answers them one at a time.
+    const previousQuestion = this.rubberDuckInterviews.get(rubberDuck.id) ?? Promise.resolve();
+    const answer = previousQuestion.catch(() => {}).then(async () => {
+      if (signal?.aborted) throw signal.reason ?? new Error('Rubber Duck was interrupted.');
+      let subjectThread = listRubberDucks(rubberDuck.id).find((conversation) => (
+        conversation.conversationType === 'rubber_duck_subject'
+        && conversation.parentConversationId === rubberDuck.id
+      ));
+      if (!subjectThread) {
+        const sourceEnd = getMessages(rubberDuck.id).find((message) => (
+          message.hidden && message.content === '<rubber-duck-source-end />'
+        ));
+        const result = forkConversation(rubberDuck.id, {
+          rubberDuckSubject: true,
+          throughMessageId: sourceEnd?.id ?? null,
+        });
+        if (!result) throw new Error('The Rubber Duck interview thread could not be created.');
+        subjectThread = updateConversation(result.conversation.id, { model: subject.model });
+        let rootSubject = subject;
+        while (rootSubject.isRubberDuck && rootSubject.parentConversationId) {
+          rootSubject = getConversation(rootSubject.parentConversationId) ?? rootSubject;
+          if (!rootSubject.isRubberDuck) break;
+        }
+        this.emit(subject.id, {
+          type: 'rubber-duck-created',
+          rubberDuck: subjectThread,
+          rootConversationId: rootSubject.id,
+        });
+      }
+
+      const stopSubject = () => this.stop(subjectThread.id, { pauseGoal: false });
+      signal?.addEventListener('abort', stopSubject, { once: true });
+      try {
+        const result = await this.send({
+          conversationId: subjectThread.id,
+          model: subject.model,
+          reasoningEffort: getMessages(subject.id).findLast((message) => (
+            message.role === 'assistant' && message.reasoningEffort
+          ))?.reasoningEffort ?? null,
+          permissionMode,
+          text: [
+            '<rubber_duck_question>',
+            normalizedQuestion,
+            '</rubber_duck_question>',
           ].join('\n'),
-        },
-        ...sourceMessages,
-        { role: 'user', content: normalizedQuestion },
-      ],
-      tools: [],
-      toolHistory: [],
-      reasoningEffort: getMessages(subject.id).findLast((message) => (
-        message.role === 'assistant' && message.reasoningEffort
-      ))?.reasoningEffort ?? null,
-      invocationContext: {
-        conversationId: subject.id,
-        workspacePath: subject.projectPath,
-        traceOperation: 'rubber-duck-interview',
-        orchestrationRole: 'subject',
-      },
-      signal: AbortSignal.any([
-        signal ?? new AbortController().signal,
-        AbortSignal.timeout(AUXILIARY_MODEL_TIMEOUT_MS),
-      ]),
-      onEvent: (event) => {
-        if (event.type === 'usage') usage = event.usage;
-      },
-    });
-    if (turn.toolCalls.length > 0) throw new Error('The subject agent attempted to call a tool.');
-    if (usage) {
-      insertInferenceUsage({
-        type: 'supervision',
-        model: selection.model.id,
-        projectPath: subject.projectPath,
-        usage,
-      });
-    }
+          fromAgent: true,
+          project: { path: subjectThread.projectPath },
+        });
+        const run = this.runs.get(subjectThread.id);
+        if (result.queued || !run) throw new Error('The subject agent is busy and could not answer.');
+        await run.completion;
+        if (signal?.aborted) throw signal.reason ?? new Error('Rubber Duck was interrupted.');
 
-    return turn.assistantContent.trim() || 'The subject agent returned no answer.';
+        const answerMessage = getMessage(run.assistantMessageId);
+        if (answerMessage?.status !== 'completed') {
+          const failure = answerMessage?.segments.findLast((segment) => segment.type === 'error')?.message;
+          throw new Error(failure || 'The subject agent did not finish its answer.');
+        }
+        return answerTextFromTextualBlocks(answerMessage.content).trim()
+          || 'The subject agent returned no answer.';
+      } finally {
+        signal?.removeEventListener('abort', stopSubject);
+      }
+    });
+    this.rubberDuckInterviews.set(rubberDuck.id, answer);
+    try {
+      return await answer;
+    } finally {
+      if (this.rubberDuckInterviews.get(rubberDuck.id) === answer) {
+        this.rubberDuckInterviews.delete(rubberDuck.id);
+      }
+    }
   }
 
   submitRubberDuckReport({ conversationId, report }) {
@@ -1079,7 +1108,6 @@ export class ChatRunner {
     action,
     specification,
     summary,
-    stopRun = true,
   }) {
     const goal = getGoalForConversation(conversationId);
     if (!goal) {
@@ -1165,22 +1193,7 @@ export class ChatRunner {
     this.emitConversation(conversationId);
 
     if (action === 'stop') {
-      if (stopRun) {
-        this.stop(conversationId, { includeSubagents: true });
-      } else {
-        const run = this.runs.get(conversationId);
-        if (run) {
-          const cancelledItems = run.queue.filter((item) => item.goalId === goal.id);
-          run.queue = run.queue.filter((item) => item.goalId !== goal.id);
-          for (const item of cancelledItems) {
-            deleteMessage(item.userMessageId);
-            this.emit(conversationId, {
-              type: 'message-delete',
-              messageId: item.userMessageId,
-            });
-          }
-        }
-      }
+      this.stop(conversationId, { includeSubagents: true });
       for (const message of getMessages(conversationId)) {
         if (
           message.goalId === goal.id
@@ -1344,7 +1357,7 @@ export class ChatRunner {
       const clearedMessage = updateMessage(message.id, { continuations: [] });
       this.emit(conversation.id, { type: 'message', message: clearedMessage });
     }
-    let activeGoal = getGoalForConversation(conversation.id);
+    const activeGoal = getGoalForConversation(conversation.id);
     if (!hidden && text && !activeGoal) {
       void this.prepareInitialPrompt(conversation, text).catch((error) => {
         traceError('auxiliary.title-generation-error', {
@@ -1353,34 +1366,7 @@ export class ChatRunner {
         });
       });
     }
-    if (workMode === 'plan' && activeGoal && CONTINUING_GOAL_STATUSES.has(activeGoal.status)) {
-      await this.changeGoal({
-        conversationId: conversation.id,
-        action: 'stop',
-        stopRun: false,
-      });
-      steer = this.runs.has(conversation.id);
-    }
     if (workMode === 'goal') {
-      if (
-        userInitiated && !hidden && !fromAgent && !goalId
-        && activeGoal && TERMINAL_GOAL_STATUSES.has(activeGoal.status)
-      ) {
-        const now = new Date().toISOString();
-        activeGoal = updateGoalRecord({
-          ...activeGoal,
-          status: 'active',
-          model,
-          reasoningEffort,
-          permissionMode,
-          resumedAt: now,
-          resultSummary: null,
-          tokensTransacted: null,
-          endedAt: null,
-          updatedAt: now,
-        });
-        this.emitConversation(conversation.id);
-      }
       goalId = goalId ?? (
         activeGoal && CONTINUING_GOAL_STATUSES.has(activeGoal.status)
           ? activeGoal.id
@@ -1624,7 +1610,7 @@ export class ChatRunner {
       continuation?.controller.abort('replace-message');
       this.continuationGenerations.delete(conversationId);
       this.cancelSemaphore(conversationId);
-      this.stop(conversationId, { includeSubagents: true, stoppedByUser: true });
+      this.stop(conversationId, { includeSubagents: true, stoppedByUser: true, pauseGoal: false });
       await Promise.allSettled(activeRuns.map((run) => run.completion));
       for (const id of conversationIds) this.pausedQueues.delete(id);
 
@@ -1636,43 +1622,18 @@ export class ChatRunner {
         });
       }
       this.emit(conversationId, queueOrderEvent(pendingOrder([])));
-      const activeGoal = getGoalForConversation(conversationId);
-      let goalId = null;
-      if (workMode === 'goal') {
-        if (
-          activeGoal
-          && CONTINUING_GOAL_STATUSES.has(activeGoal.status)
-          && message.goalId === activeGoal.id
-        ) {
-          updateGoalRecord({
-            ...activeGoal,
-            specification: String(text ?? '').trim(),
-            revision: activeGoal.revision + 1,
+      const existingGoal = getGoalForConversation(conversationId);
+      const goalId = workMode === 'goal' && (!existingGoal || existingGoal.status === 'discarded')
+        ? (await this.startGoal({
+            conversationId,
             model,
+            specification: text,
             reasoningEffort,
             permissionMode,
-            updatedAt: new Date().toISOString(),
-          });
-          this.emitConversation(conversationId);
-        }
-        goalId = activeGoal && CONTINUING_GOAL_STATUSES.has(activeGoal.status)
-          ? activeGoal.id
-          : (await this.startGoal({
-              conversationId,
-              model,
-              specification: text,
-              reasoningEffort,
-              permissionMode,
-              project: { path: getConversation(conversationId)?.projectPath },
-              ultraMode,
-            })).goal.id;
-      } else if (activeGoal && CONTINUING_GOAL_STATUSES.has(activeGoal.status)) {
-        await this.changeGoal({
-          conversationId,
-          action: 'stop',
-          stopRun: false,
-        });
-      }
+            project: { path: getConversation(conversationId)?.projectPath },
+            ultraMode,
+          })).goal.id
+        : null;
       updateConversation(conversationId, {
         orchestrationMode: workMode === 'plan' ? 'plan' : ultraMode ? 'ultra' : null,
       });
@@ -2011,7 +1972,7 @@ export class ChatRunner {
       conversation,
       workspacePath: conversation.projectPath,
     };
-    const rubberDuckMode = conversation.isRubberDuck === true;
+    const rubberDuckMode = conversation.conversationType === 'rubber_duck';
     const selectedProviderTools = workMode === 'plan' || rubberDuckMode
       ? []
       : selection.provider.getContributions(providerContext).tools;
@@ -2040,15 +2001,17 @@ export class ChatRunner {
         || selection.model.capabilities?.pdfFiles
         || (preferences.aivax?.connected && preferences.aivax.mediaDescriptionsEnabled)
       ))
+      .filter((tool) => (
+        !botRuntime
+        || !CROSS_BOT_INBOX_TOOL_NAMES.has(tool.name)
+        || getBotSettings().crossBotInbox
+      ))
       .filter((tool) => !botRuntime || ![
         'memory_search',
         'memory_write',
         'memory_delete',
         'chat_spawn_subagent',
-        'bots_read_work_log',
-        'bots_send_work_log_message',
         'chat_overview',
-        'bots_list',
         'bots_create',
         'bots_update',
         'bots_delete',
@@ -2092,7 +2055,8 @@ export class ChatRunner {
       modelRules: preferences.defaultModels?.rules ?? [],
       orchestrationRole: conversation.isSubagent ? 'subagent'
         : conversation.isSideChat ? 'side_chat'
-          : conversation.isRubberDuck ? 'supervisor' : 'orchestrator',
+          : conversation.conversationType === 'rubber_duck' ? 'supervisor'
+            : conversation.conversationType === 'rubber_duck_subject' ? 'subject' : 'orchestrator',
       conversationId: conversation.id,
       workspacePath: conversation.projectPath,
       mcpInstructions: mcpRuntime.instructions,
@@ -2160,10 +2124,10 @@ export class ChatRunner {
     });
   }
 
-  compressQuick({ conversationId }) {
+  compressQuick({ conversationId, automatic = false }) {
     const conversation = getConversation(conversationId);
     if (!conversation) throw new Error('Conversation not found.');
-    if (this.runs.has(conversation.id)) {
+    if (!automatic && this.runs.has(conversation.id)) {
       throw new Error('Wait for the current response to finish before compressing context.');
     }
 
@@ -2173,7 +2137,11 @@ export class ChatRunner {
     const messages = compacted.updates.map((update) => (
       updateMessage(update.id, { segments: update.segments })
     ));
-    for (const message of messages) this.emit(conversation.id, { type: 'message', message });
+    const historyStart = getSideChatHistoryStart(conversation.id);
+    for (const message of messages) {
+      if (historyStart && message.createdAt <= historyStart.createdAt) continue;
+      this.emit(conversation.id, { type: 'message', message });
+    }
     const contextTokens = Math.max(
       0,
       conversation.contextTokens - Math.ceil(compacted.charactersRemoved / 4),
@@ -2803,6 +2771,28 @@ export class ChatRunner {
       }
       traceSelection = selection;
 
+      const preferences = this.getPreferences();
+      const tuning = preferences.tuning;
+      const aivax = preferences.aivax;
+      const contextLimit = botRuntime?.bot.contextSize > 0
+        ? botRuntime.bot.contextSize
+        : selection.model.context.input;
+      const contextTokensAtStart = getConversation(conversationId)?.contextTokens ?? 0;
+      if (
+        !retryMessages
+        && conversationAtStart?.isSideChat
+        && contextLimit
+        && contextTokensAtStart / contextLimit
+          > tuning.automaticCompactionThreshold - SIDE_CHAT_QUICK_COMPRESSION_MARGIN
+      ) {
+        const compacted = this.compressQuick({ conversationId, automatic: true });
+        traceVerbose('chat.side-chat-quick-compression', traceContext(conversationId, selection, {
+          context_tokens: contextTokensAtStart,
+          context_limit: contextLimit,
+          replaced_results: compacted.replacedResults,
+          characters_removed: compacted.charactersRemoved,
+        }));
+      }
       let messages = retryMessages
         ?? toModelMessages(conversationId, {
           excludeMessageId: assistantMessage.id,
@@ -2812,13 +2802,7 @@ export class ChatRunner {
       const currentConversation = getConversation(conversationId);
       const currentGoal = goalId ? getGoal(goalId) : getGoalForConversation(conversationId);
       const goalContinues = currentGoal && CONTINUING_GOAL_STATUSES.has(currentGoal.status);
-      const preferences = this.getPreferences();
-      const tuning = preferences.tuning;
-      const aivax = preferences.aivax;
-      const contextLimit = botRuntime?.bot.contextSize > 0
-        ? botRuntime.bot.contextSize
-        : selection.model.context.input;
-      const rubberDuckMode = currentConversation?.isRubberDuck === true;
+      const rubberDuckMode = currentConversation?.conversationType === 'rubber_duck';
       const pluginTools = workMode === 'plan' || rubberDuckMode ? [] : this.getPluginTools(conversationId);
       const providerContributionContext = {
         model: selection.model,
@@ -2847,7 +2831,13 @@ export class ChatRunner {
                 'read_file',
                 'read_url',
               ].includes(tool.name)
-            : !['rubber_duck_ask_agent', 'rubber_duck_submit_report'].includes(tool.name))
+            : ![
+                'rubber_duck_ask_agent',
+                'rubber_duck_submit_report',
+                ...(currentConversation?.conversationType === 'rubber_duck_subject'
+                  ? ['invoke_rubber_duck', 'start_goal', 'update_goal_status']
+                  : []),
+              ].includes(tool.name))
           .filter((tool) => (
             tool.name !== 'read_media_file'
             || selection.model.capabilities?.images
@@ -2865,15 +2855,17 @@ export class ChatRunner {
           ))
           .filter((tool) => tool.name !== 'start_goal' || !goalContinues)
           .filter((tool) => tool.name !== 'update_goal_status' || goalContinues)
+          .filter((tool) => (
+            !botRuntime
+            || !CROSS_BOT_INBOX_TOOL_NAMES.has(tool.name)
+            || getBotSettings().crossBotInbox
+          ))
           .filter((tool) => !botRuntime || ![
             'memory_search',
             'memory_write',
             'memory_delete',
             'chat_spawn_subagent',
-            'bots_read_work_log',
-            'bots_send_work_log_message',
             'chat_overview',
-            'bots_list',
             'bots_create',
             'bots_update',
             'bots_delete',
@@ -3088,7 +3080,7 @@ export class ChatRunner {
           { honorExplicitAuthorization: Boolean(botRuntime) },
         );
         const latestGoal = goalId ? getGoal(goalId) : getGoalForConversation(conversationId);
-        const goalContext = latestGoal && CONTINUING_GOAL_STATUSES.has(latestGoal.status)
+        const goalContext = workMode !== 'plan' && latestGoal && CONTINUING_GOAL_STATUSES.has(latestGoal.status)
           ? latestGoal
           : null;
         const teamRootId = currentConversation?.isSubagent || currentConversation?.isSideChat
@@ -3139,9 +3131,11 @@ export class ChatRunner {
                 ? 'subagent'
                 : currentConversation?.isSideChat
                   ? 'side_chat'
-                  : currentConversation?.isRubberDuck
+                  : currentConversation?.conversationType === 'rubber_duck'
                     ? 'supervisor'
-                    : 'orchestrator',
+                    : currentConversation?.conversationType === 'rubber_duck_subject'
+                      ? 'subject'
+                      : 'orchestrator',
               goal: goalContext,
               tasks: listTasks(conversationId),
               semaphoreHoldings: this.semaphores.holdings(conversationId),

@@ -691,7 +691,12 @@ try {
   assert.ok(followUpHistory.some((message) => message.content === 'Does it run without intervention? Verify two consecutive runs.'));
   assert.ok(followUpHistory.some((message) => message.content === 'Keep existing exports intact.'));
 
-  for (const action of ['completed', 'blocked', 'stop']) {
+  for (const [action, expectedStatus] of [
+    ['pause', 'paused'],
+    ['completed', 'completed'],
+    ['blocked', 'blocked'],
+    ['stop', 'cancelled'],
+  ]) {
     let finishFollowUp;
     const resumedCalls = [];
     const resumedProvider = {
@@ -730,6 +735,7 @@ try {
       action,
       summary: 'Previous iteration result.',
     });
+    const changedGoal = getGoalForConversation(resumedConversation.id);
     await resumedRunner.send({
       conversationId: resumedConversation.id,
       model: model.id,
@@ -738,19 +744,20 @@ try {
       userInitiated: true,
     });
     await waitFor(() => Boolean(finishFollowUp));
-    const resumedGoal = getGoalForConversation(resumedConversation.id);
-    assert.equal(resumedGoal.id, initial.goal.id);
-    assert.equal(resumedGoal.specification, initial.goal.specification);
-    assert.equal(resumedGoal.revision, 1);
-    assert.equal(resumedGoal.status, 'active');
-    assert.equal(resumedGoal.startedAt, initial.goal.startedAt);
-    assert.equal(resumedGoal.endedAt, null);
-    assert.equal(resumedGoal.resultSummary, null);
-    assert.equal(resumedCalls[0].invocationContext.goal.id, initial.goal.id);
+    assert.equal(changedGoal.id, initial.goal.id);
+    assert.equal(changedGoal.status, expectedStatus);
+    assert.deepEqual(getGoalForConversation(resumedConversation.id), changedGoal);
+    assert.equal(
+      resumedCalls[0].invocationContext.goal?.id ?? null,
+      expectedStatus === 'paused' ? initial.goal.id : null,
+    );
     assert.equal(auxiliaryFollowUpCalls, 0);
-    await resumedRunner.changeGoal({ conversationId: resumedConversation.id, action: 'pause' });
     finishFollowUp();
     await waitFor(() => !resumedRunner.runs.has(resumedConversation.id));
+    assert.deepEqual(getGoalForConversation(resumedConversation.id), changedGoal);
+    assert.ok(!getMessages(resumedConversation.id).some((message) => (
+      message.content.includes('<goal_continuation')
+    )));
   }
 
   const planSwitchCalls = [];
@@ -764,7 +771,12 @@ try {
           finishGoalBeforePlan = () => resolveStream({ assistantContent: '', toolCalls: [] });
         });
       }
-      return { assistantContent: '<execution-plan>Plan after Goal</execution-plan>', toolCalls: [] };
+      if (planSwitchCalls.length === 2) {
+        return { assistantContent: '<execution-plan>Plan alongside Goal</execution-plan>', toolCalls: [] };
+      }
+      return new Promise((_resolveStream, rejectStream) => {
+        request.signal.addEventListener('abort', () => rejectStream(new Error('Stopped.')), { once: true });
+      });
     },
   };
   const { runner: planSwitchRunner } = buildRunner(planSwitchProvider);
@@ -775,10 +787,11 @@ try {
   await planSwitchRunner.startGoal({
     conversationId: planSwitchConversation.id,
     model: model.id,
-    specification: 'Goal replaced by Plan mode.',
+    specification: 'Goal preserved across Plan mode.',
     sendInitialPrompt: true,
   });
   await waitFor(() => planSwitchCalls.length === 1);
+  const goalBeforePlan = getGoalForConversation(planSwitchConversation.id);
   const switchedPlan = await planSwitchRunner.send({
     conversationId: planSwitchConversation.id,
     model: model.id,
@@ -786,12 +799,53 @@ try {
     workMode: 'plan',
   });
   assert.equal(switchedPlan.queued, true);
+  assert.deepEqual(getGoalForConversation(planSwitchConversation.id), goalBeforePlan);
   finishGoalBeforePlan();
-  await waitFor(() => !planSwitchRunner.runs.has(planSwitchConversation.id));
-  assert.equal(getGoalForConversation(planSwitchConversation.id).status, 'cancelled');
-  assert.equal(planSwitchCalls.length, 2);
+  await waitFor(() => planSwitchCalls.length >= 2);
   assert.equal(planSwitchCalls[1].invocationContext.workMode, 'plan');
   assert.equal(planSwitchCalls[1].invocationContext.goal, null);
+  await waitFor(() => planSwitchCalls.length >= 3);
+  assert.equal(getGoalForConversation(planSwitchConversation.id).status, 'active');
+  assert.equal(getGoalForConversation(planSwitchConversation.id).revision, goalBeforePlan.revision);
+  assert.equal(getGoalForConversation(planSwitchConversation.id).specification, goalBeforePlan.specification);
+  await planSwitchRunner.changeGoal({ conversationId: planSwitchConversation.id, action: 'stop' });
+  await waitFor(() => !planSwitchRunner.runs.has(planSwitchConversation.id));
+
+  const editGoalCalls = [];
+  const editGoalProvider = {
+    getContributions: () => ({ tools: [] }),
+    stream: async (request) => {
+      editGoalCalls.push(request);
+      return new Promise((_resolveStream, rejectStream) => {
+        request.signal.addEventListener('abort', () => rejectStream(new Error('Stopped.')), { once: true });
+      });
+    },
+  };
+  const { runner: editGoalRunner } = buildRunner(editGoalProvider);
+  const editGoalConversation = createConversation({ model: model.id, projectPath: process.cwd() });
+  await editGoalRunner.startGoal({
+    conversationId: editGoalConversation.id,
+    model: model.id,
+    specification: 'Goal preserved across message edits.',
+    sendInitialPrompt: true,
+  });
+  await waitFor(() => editGoalCalls.length === 1);
+  const goalBeforeEdit = getGoalForConversation(editGoalConversation.id);
+  const editedMessage = getMessages(editGoalConversation.id)
+    .find((message) => message.role === 'user' && !message.hidden);
+  for (const workMode of [null, 'goal']) {
+    await editGoalRunner.replaceUserMessage({
+      conversationId: editGoalConversation.id,
+      messageId: getMessages(editGoalConversation.id)
+        .findLast((message) => message.role === 'user' && !message.hidden)?.id ?? editedMessage.id,
+      model: model.id,
+      text: `Edited message (${workMode ?? 'none'}).`,
+      workMode,
+    });
+    assert.deepEqual(getGoalForConversation(editGoalConversation.id), goalBeforeEdit);
+  }
+  await editGoalRunner.changeGoal({ conversationId: editGoalConversation.id, action: 'stop' });
+  await waitFor(() => !editGoalRunner.runs.has(editGoalConversation.id));
 
   const selfStartedCalls = [];
   const selfStartedProvider = {

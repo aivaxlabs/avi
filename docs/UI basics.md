@@ -45,7 +45,7 @@ The resizable right panel can show:
 - **Tasks** — the current thread checklist;
 - panels contributed by enabled providers.
 
-Side chats open as separate private conversation panels.
+Side chats open as separate private conversation panels. The forked parent history remains in the side chat's model context but is not displayed; the panel shows only messages sent after the fork. When a side chat's context is within 10 percentage points of the automatic compaction threshold, Avi runs quick compaction before the next response.
 
 Use **Expand auxiliary panel**, between **+** and close, to widen it toward 80% of the window and temporarily compact the sidebar. The chat stays visible; the expansion reserves 320 px for it where the window permits. **Restore panel width** restores your normal layout without overwriting saved widths.
 
@@ -55,7 +55,7 @@ Choose **Git Review** from **+**, then select one repository above the changed-f
 
 The tree marks added, modified, deleted, renamed, untracked, and conflicted files; a dot marks staged changes. Folders do not display change counts; those with more than 100 changed files still start collapsed. Context menus group actions with icons and separators. Right-click a file/folder for stage, unstage, confirmed discard, add to `.gitignore`, mention in chat, open, show in explorer, and copy path. Root menus also offer stage/unstage, confirmed discard, push, and agent code review. Discard explicitly confirms removal of both staged and unstaged changes for the selected path. Ignore rules do not stop tracking already tracked files.
 
-The tree has **Unstaged** and **Staged changes** roots. Partially staged files appear in both; selecting an entry opens its corresponding diff. Commits use staged changes only. The diff offers **Unstaged** against the index and **Staged changes** against HEAD, with syntax highlighting for recognized languages using Avi's shared light/dark code palette. Arrows reveal 20 unchanged lines from either edge of a **hidden lines** block; clicking its count reveals the entire block. The right-hand map jumps to changed blocks. Select code to add a comment, mention it in chat, or send it to a side chat; annotations preserve the highlighted selection.
+The tree has **Unstaged** and **Staged changes** roots. Partially staged files appear in both; selecting an entry opens its corresponding diff. Commits use staged changes only. The diff offers **Unstaged** against the index and **Staged changes** against HEAD, with syntax highlighting for recognized languages using Avi's shared light/dark code palette. Arrows reveal 20 unchanged lines from either edge of a **hidden lines** block; clicking its count reveals the entire block. The right-hand map jumps to changed blocks. Select code to add a comment, mention it in chat, send it to a side chat, or ask a [Quick question](Side%20and%20quick%20chats.md#quick-questions); annotations preserve the highlighted selection.
 
 Commit controls adapt to the navigation column width; the action buttons wrap into separate rows in narrow panels. **Commit** and **Commit + push** commit staged changes only. A failed push does not undo a successful local commit. The sparkle dropdown offers **Generate commit message**, which fills the message from staged changes without committing, and **Generate commits**, which forks a side chat and immediately asks the model to execute the multi-commit workflow only in the selected repository. The latter authorizes staging and creating local commits, not pushing. AI generation may incur model costs.
 
@@ -98,7 +98,7 @@ Normal mode executes the request under the active instructions and permission mo
 
 Plan is strictly read-only, including under Full access. It disables MCP and provider tools, restricts terminal commands to investigation, and permits only read-only Plan orchestration. A completed plan is written to `.agents/plannings/<timestamp>/<title>.md`.
 
-Plan persists on the conversation, is incompatible with Ultra, and cancels an active or paused Goal when enabled.
+Plan persists on the conversation and is incompatible with Ultra. Enabling Plan or sending Plan messages does not change an existing Goal; Plan turns run without the Goal contract, and the Goal keeps its state.
 
 ### Goal
 

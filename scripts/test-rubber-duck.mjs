@@ -91,8 +91,13 @@ try {
       resolve: () => ({
         model: subjectModel,
         provider: {
+          getContributions: () => ({ tools: [] }),
           stream: async (request) => {
             subjectCalls.push(request);
+            request.onEvent({
+              type: 'content',
+              text: 'I chose this approach because it matched the existing pattern.',
+            });
             return {
               assistantContent: 'I chose this approach because it matched the existing pattern.',
               continuation: [],
@@ -103,6 +108,7 @@ try {
       }),
       listModels: () => [subjectModel],
     },
+    mcpManager: null,
     sendEvent: () => {},
   });
   const answer = await runner.askRubberDuckSubject({
@@ -111,9 +117,44 @@ try {
     signal: new AbortController().signal,
   });
   assert.match(answer, /existing pattern/);
-  assert.deepEqual(subjectCalls[0].tools, []);
-  assert.deepEqual(subjectCalls[0].toolHistory, []);
-  assert.equal(subjectCalls[0].messages.at(-1).content, 'Why did you choose this approach?');
+  const interviewThreads = listRubberDucks(first.conversation.id)
+    .filter(({ conversationType }) => conversationType === 'rubber_duck_subject');
+  assert.equal(interviewThreads.length, 1);
+  assert.equal(interviewThreads[0].parentConversationId, first.conversation.id);
+  assert.equal(interviewThreads[0].isRubberDuck, true);
+  const subjectToolNames = subjectCalls[0].tools.map(({ name }) => name);
+  for (const name of ['read_file', 'run_in_terminal', 'chat_inspect_thread']) {
+    assert.ok(subjectToolNames.includes(name), `${name} must be available to the subject agent`);
+  }
+  for (const name of ['rubber_duck_ask_agent', 'rubber_duck_submit_report', 'invoke_rubber_duck', 'start_goal']) {
+    assert.ok(!subjectToolNames.includes(name), `${name} must not be available to the subject agent`);
+  }
+  assert.equal(subjectCalls[0].invocationContext.orchestrationRole, 'subject');
+  assert.equal(subjectCalls[0].invocationContext.traceOperation, 'chat');
+  const interviewContext = subjectCalls[0].messages[0].content;
+  assert.match(interviewContext, /thread_type: rubber_duck_subject/);
+  assert.match(interviewContext, /Rubber Duck supervisor is interviewing you/);
+  assert.match(interviewContext, /DO NOT CHANGE ANYTHING/);
+  assert.ok(subjectCalls[0].messages.some(({ content }) => content === 'Implemented and tested the feature.'));
+  assert.ok(!subjectCalls[0].messages.some(({ content }) => content === '<rubber-duck-source-end />'));
+  assert.match(subjectCalls[0].messages.at(-1).content, /<rubber_duck_question>\nWhy did you choose this approach\?/);
+
+  assert.equal(forkConversation(subject.id, { rubberDuck: true }).conversation.title, 'Rubber Duck 4');
+
+  await runner.askRubberDuckSubject({
+    conversationId: first.conversation.id,
+    question: 'What did you validate?',
+    signal: new AbortController().signal,
+  });
+  assert.equal(listRubberDucks(first.conversation.id)
+    .filter(({ conversationType }) => conversationType === 'rubber_duck_subject').length, 1);
+  assert.ok(subjectCalls[1].messages.some(({ content }) => (
+    content === 'I chose this approach because it matched the existing pattern.'
+  )));
+  await assert.rejects(() => runner.askRubberDuckSubject({
+    conversationId: interviewThreads[0].id,
+    question: 'Nested?',
+  }), /only available inside a Rubber Duck thread/);
 
   runner.runs.set(first.conversation.id, {});
   assert.equal(runner.submitRubberDuckReport({

@@ -93,7 +93,7 @@ Every event includes `type` and `conversationId`; the table lists its additional
 | `question-request` | `questionId`: string; `questions`: [`Question[]`](types.md#question) | Structured user input is required. Answer with [`chat:answer-question`](chat.md#chatanswer-question). |
 | `question-cancelled` | `questionId`: string; `reason`?: `"afk"` | A pending question request was cancelled. |
 | `subagent-created` | `subagent`: [`Conversation`](types.md#conversation) | A sub-agent conversation was created for this parent. |
-| `rubber-duck-created` | `rubberDuck`: [`Conversation`](types.md#conversation); `rootConversationId`: string | A Rubber Duck conversation was created for this root thread. |
+| `rubber-duck-created` | `rubberDuck`: [`Conversation`](types.md#conversation); `rootConversationId`: string | A Rubber Duck conversation or its interview thread (`rubber_duck_subject`) was created for this root thread. |
 
 `semaphore-state` is a global internal chat event without `conversationId`. It is deliberately **not** forwarded to conversation WebSockets. Recover the current owned wait and global semaphore snapshot through [`conversations:context`](conversations.md#conversationscontext).
 

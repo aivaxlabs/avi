@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { OrpcPeer, utf8Text, ORPC_PROTOCOL, ORPC_LIMITS } from '../shared/orpc.js';
-import { remoteOperationStatements } from './database.js';
+import { markConversationAttentionSeen, remoteOperationStatements } from './database.js';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -181,11 +181,9 @@ export class RemoteMcpServer {
     this.webSocketServer = null;
     this.port = null;
     this.completedUnseenConversationIds = new Set();
-    this.attentionSeenConversationIds = new Set();
     this.rpcOperations = new Map();
     this.subscribeChatEvents((event) => {
       if (event?.type !== 'run-state' || !event.conversationId) return;
-      if (event.running) this.attentionSeenConversationIds.delete(event.conversationId);
       if (event.running || event.stoppedByUser) {
         this.completedUnseenConversationIds.delete(event.conversationId);
       } else if (!event.sleeping) {
@@ -526,13 +524,6 @@ export class RemoteMcpServer {
       }
       const payload = preparePayload(request.method, rawPayload);
       let result = await this.invokeApplicationRequest(request.method, payload);
-      if (request.method === 'conversations:list' && Array.isArray(result)) {
-        result = result.map((conversation) => (
-          this.attentionSeenConversationIds.has(conversation.id)
-            ? { ...conversation, needsAttention: false }
-            : conversation
-        ));
-      }
       if (request.method === 'context:commands') {
         result = result.filter((command) => command.type !== 'interceptor');
       }
@@ -562,7 +553,7 @@ export class RemoteMcpServer {
 
   markSeen(conversationId) {
     this.completedUnseenConversationIds.delete(conversationId);
-    this.attentionSeenConversationIds.add(conversationId);
+    markConversationAttentionSeen(conversationId);
   }
 
   sidebarStatus() {

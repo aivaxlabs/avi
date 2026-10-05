@@ -80,6 +80,6 @@ Available on both sockets.
 
 **Global params:** scalar subject/parent ID in `params.payload`. **Conversation-socket params:** none.
 
-**Result:** `Conversation[]` containing non-archived Rubber Duck sessions in the subject's recursive Rubber Duck tree, ordered by creation time.
+**Result:** `Conversation[]` containing non-archived Rubber Duck sessions and their interview threads (`conversationType: "rubber_duck_subject"`) in the subject's recursive Rubber Duck tree, ordered by creation time.
 
 RPC can list these sessions but does not create them. Creation is performed through Avi's orchestration tools.

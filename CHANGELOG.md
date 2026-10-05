@@ -2,6 +2,34 @@
 
 ## [Canary]
 
+### Added
+- **Quick questions** — select text in a chat, side chat, or bot Inbox work log, code in a Files preview or Git Review diff, or use the Files and Git Review tree context menus, then choose **Quick question** to ask about it in a small popover answered by the Quick chat model. The question receives the selection and its source context (folder, thread, bot work log, file text, folder listing, or Git diff), supports follow-ups, and can use only read-only tools. **Fork to thread** continues the conversation as an ordinary thread; **Close** discards it. The main window uses `window.chatApp.quickQuestion` (`quick-question:open`, `ask`, `fork`, `close`, and `quick-question:event`).
+- **Scan provider models** — the provider editor's **Add model** is now a split button that matches **Add provider**. For providers that support model listing, its dropdown includes **Scan models**, which reads the provider's `/v1/models` and opens a filterable dialog. Each listed model has an **Add model** action that opens a new model editor with the ID filled in. OpenAI Compatible (Responses and Chat completions) supports scanning. The renderer reads the list through `providers:available-models`.
+- **Cross-bot Inbox access** — a global Settings → Bots option (off by default) gives bots `bots_list`, `bots_read_work_log`, and `bots_send_work_log_message`, so they can read every bot's Inbox and reply in other bots' pendencies. Bot replies are stored as role `agent` with a `sender`, shown with the sender's Orb and **Sent by another bot**, and delivered as `<bot-pendency-update from="bot" from-bot-id="..." from-bot-name="...">`; user replies now carry `from="user"`. `bots:settings` returns `crossBotInbox`.
+- **OpenAI Subscription models** — added GPT-6.1 Sol in standard and 1M-context versions, including Fast variants for both context sizes.
+- **Annotate selections** — the chat selection toolbar has **Annotate** next to **Mention on Chat**, which adds the selected text with a note to the composer, like Git Review annotations. The annotation box previews the selection, adds with **Ctrl+Enter**, opens with the dropdown animation (disabled under reduced motion), and stays inside the window; Git Review annotations share the new look.
+- **Inbox selection actions** — selecting text in a bot Inbox work log offers **Mention on Chat** and **Annotate**, which add the selection, with an optional note, to the work log reply.
+- **Generate commits + push** — Git Review's AI dropdown runs the same multi-commit workflow as **Generate commits** and then pushes the current branch to its configured remote, without force-pushing.
+
+### Changed
+- Chats stopped manually no longer show the attention indicator, and viewing a failed chat — in the Desktop window or through `sidebar:mark-seen` — is now persisted, so the indicator stays cleared after restarting Avi until the chat changes again. `conversations:list` and remote clients such as Avi Workspace report the same `needsAttention` state.
+- Explicit bot activations — **Activate now**, `bots_activate`, `bots:activate`, and plugin `activate()` — now start immediately for disabled bots and ignore individual and global activation hours, Snoozes, and FIFO capacity. These rules now gate only automatic scheduled activations, and a deferred automatic request no longer blocks explicit ones.
+- Side chats no longer display the forked parent history; it remains available to the model, and `conversations:messages` pages for side chats start after the fork.
+- Side chats run quick compaction automatically before a response when context is within 10 percentage points of the automatic compaction threshold.
+- Sending or editing a message never changes the Goal state: it does not start, resume, restart, pause, or cancel the Goal. Plan mode no longer cancels an active Goal, and editing keeps its specification and revision; a new Goal is created only when the edit is sent in Goal mode and the conversation has none.
+- Git Review works without an open conversation, using the selected project folder; Git Review IPC accepts `projectPath` when no `conversationId` is given. Without a project, the panel asks to choose a project folder. **Generate commits** and **Generate commits + push** run in a side chat when a conversation is open and in a new conversation otherwise.
+- Built-in tool schemas no longer use `null` for optional values: `bots_create` and `bots_update` take an empty string for `personality`, `workingFolder`, and `reasoningEffort`, `0` for `contextSize`, and `inherit` for `executionMode`, and omit activation window bounds; `chat_list_threads` takes an empty `parentThreadId` for root threads; `invoke_rubber_duck` takes an empty `context`; `update_tasks` takes an empty `result`; and `ask_question` options are `{ label, description? }` objects only. `bots_update` rejects empty `changes`.
+- Bot instructions now state that Inbox messages and Activity descriptions render rich Markdown Directives.
+- The agent interviewed by a Rubber Duck now answers in its own inspectable interview thread (`rubber_duck_subject`, listed by `rubber-ducks:list`) as a normal chat, with its full instructions, skills, MCP servers, model rules, tools, and the subject history after any context checkpoint. Previously it answered from an isolated, tool-less model call with only the copied messages. Its context identifies the Rubber Duck interview and forbids any change; tool approvals follow the invoking conversation's permission mode. Questions from one Rubber Duck reuse the same thread and are answered one at a time.
+
+### Fixed
+- Nested dropdown submenus — Model and Effort in the composer, and bot **Activate now** and **Snooze** — now open to the left, shift up, or scroll instead of extending beyond the window.
+
+### Tests
+- `test:goal` covers Goal state preservation across Plan mode and message edits.
+- `test:rubber-duck` covers the interview thread's tools, context, history, reuse, and Rubber Duck numbering.
+- `test:quick-question` covers Quick question context expansion, the read-only tool set, follow-ups, and forking into an isolated database; `test:context` covers the Quick question prompt.
+
 ## [0.7.0] — 2026-10-01
 
 ### Added

@@ -495,18 +495,25 @@ try {
     completedUnseenConversationIds: [],
   });
   assert.deepEqual(seenConversations, ['rpc-thread']);
-  assert.deepEqual((await callRpc(globalSocket, 'conversations:list')).result, [{ id: 'rpc-thread', needsAttention: false }]);
-  for (const listener of chatEventListeners) {
-    listener({ type: 'run-state', conversationId: 'rpc-thread', running: true });
-  }
-  assert.deepEqual((await callRpc(globalSocket, 'conversations:list')).result, [{ id: 'rpc-thread', needsAttention: true }]);
-  for (const listener of chatEventListeners) {
-    listener({ type: 'run-state', conversationId: 'rpc-thread', running: false });
-  }
   server.markSeen('rpc-thread');
   assert.deepEqual(server.sidebarStatus().completedUnseenConversationIds, []);
   assert.deepEqual(seenConversations, ['rpc-thread'], 'desktop acknowledgements must not echo to the renderer');
-  assert.deepEqual((await callRpc(globalSocket, 'conversations:list')).result, [{ id: 'rpc-thread', needsAttention: false }]);
+
+  const failedThread = database.createConversation({ title: 'Failed thread' });
+  const failedMessage = database.insertMessage({
+    conversationId: failedThread.id,
+    role: 'assistant',
+    status: 'error',
+  });
+  assert.equal(database.getConversation(failedThread.id).needsAttention, true);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
+  server.markSeen(failedThread.id);
+  assert.equal(database.getConversation(failedThread.id).needsAttention, false, 'seen attention must persist');
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
+  database.updateMessage(failedMessage.id, { status: 'error' });
+  assert.equal(database.getConversation(failedThread.id).needsAttention, true, 'newer failures must surface again');
+  database.updateMessage(failedMessage.id, { status: 'aborted', stoppedByUser: true });
+  assert.equal(database.getConversation(failedThread.id).needsAttention, false, 'manual stops must not need attention');
   assert.match((await callRpc(globalSocket, 'sidebar:mark-seen', {})).error.data.message, /^sidebar:mark-seen requires/);
   for (const listener of chatEventListeners) {
     listener({ type: 'run-state', conversationId: 'tracker-thread', running: false });

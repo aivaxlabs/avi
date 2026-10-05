@@ -40,7 +40,6 @@ import {
 } from 'lucide-react';
 import {
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -93,19 +92,6 @@ function writePersistedReasoningEffort(modelId, effort) {
   } catch {}
 }
 
-function useSubmenuFlip(ref, open) {
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!open || !el) return;
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      el.classList.toggle('flip-left', rect.right > window.innerWidth - 8);
-    };
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, [ref, open]);
-}
 const permissionModes = [
   {
     id: 'ask_for_approval',
@@ -211,10 +197,6 @@ export function Composer({
   const [advancedPickerOpen, setAdvancedPickerOpen] = useState(false);
   const [advancedModelSubmenuOpen, setAdvancedModelSubmenuOpen] = useState(false);
   const [advancedEffortSubmenuOpen, setAdvancedEffortSubmenuOpen] = useState(false);
-  const modelSubmenuRef = useRef(null);
-  const effortSubmenuRef = useRef(null);
-  useSubmenuFlip(modelSubmenuRef, advancedModelSubmenuOpen);
-  useSubmenuFlip(effortSubmenuRef, advancedEffortSubmenuOpen);
   const [intelligencePreviewIndex, setIntelligencePreviewIndex] = useState(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [commandStage, setCommandStage] = useState(null);
@@ -476,7 +458,7 @@ export function Composer({
   const activeGoal = goal && ['active', 'paused'].includes(goal.status) ? goal : null;
   const finishedGoal = goal && ['completed', 'blocked', 'cancelled'].includes(goal.status) ? goal : null;
   const visibleGoal = activeGoal ?? finishedGoal;
-  const effectiveWorkMode = activeGoal ? 'goal' : botMode ? null : workMode;
+  const effectiveWorkMode = botMode ? null : workMode === 'plan' ? 'plan' : activeGoal ? 'goal' : workMode;
   const effectiveUltraMode = botMode ? false : ultraMode;
   const canSend = !goalPreparation && !promptExpanding && !commandMode && (
     effectiveWorkMode === 'goal' && !activeGoal
@@ -1814,14 +1796,14 @@ export function Composer({
               ? 'Filter models...'
               : commandMode === 'efforts'
                 ? 'Filter reasoning efforts...'
-                : activeGoal?.status === 'paused'
-                  ? 'Goal paused...'
-                  : activeGoal
-                    ? 'Guide the active Goal...'
-                    : effectiveWorkMode === 'goal'
-                      ? 'Describe the Goal...'
-                      : effectiveWorkMode === 'plan'
-                        ? 'Describe your task to generate a plan...'
+                : effectiveWorkMode === 'plan'
+                  ? 'Describe your task to generate a plan...'
+                  : activeGoal?.status === 'paused'
+                    ? 'Goal paused...'
+                    : activeGoal
+                      ? 'Guide the active Goal...'
+                      : effectiveWorkMode === 'goal'
+                        ? 'Describe the Goal...'
                         : effectiveUltraMode
                           ? 'Describe the objective for the Ultra team...'
                           : `Message ${modelName || 'model'}`}
@@ -1947,7 +1929,7 @@ export function Composer({
                 </DropdownMenu>
               )}
             </div>
-            {workMode && !activeGoal && (
+            {(workMode === 'plan' || (workMode && !activeGoal)) && (
               <button
                 className="work-mode-chip"
                 type="button"
@@ -2102,7 +2084,7 @@ export function Composer({
                     </>
                   </DropdownMenuItem>
                   {advancedModelSubmenuOpen && (
-                    <DropdownMenu ref={modelSubmenuRef} className="model-reasoning-submenu">
+                    <DropdownMenu className="model-reasoning-submenu" submenu>
                       {favoriteModels.slice(0, 5).map((model) => {
                         const { name, isFast } = splitFastModelName(model.name || model.id);
                         return (
@@ -2189,7 +2171,7 @@ export function Composer({
                       </>
                     </DropdownMenuItem>
                     {advancedEffortSubmenuOpen && (
-                      <DropdownMenu ref={effortSubmenuRef} className="model-reasoning-submenu">
+                      <DropdownMenu className="model-reasoning-submenu" submenu>
                         {currentModelConfig.reasoning.map((effort) => (
                           <DropdownMenuItem
                             key={effort}

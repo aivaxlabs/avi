@@ -621,6 +621,9 @@ if (!conversationColumns.some((column) => column.name === 'tags')) {
 if (!conversationColumns.some((column) => column.name === 'created_by')) {
   db.exec("ALTER TABLE conversations ADD COLUMN created_by TEXT NOT NULL DEFAULT 'user'");
 }
+if (!conversationColumns.some((column) => column.name === 'attention_seen_at')) {
+  db.exec('ALTER TABLE conversations ADD COLUMN attention_seen_at TEXT');
+}
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_conversations_parent
     ON conversations(parent_conversation_id, conversation_type, created_at);
@@ -807,6 +810,9 @@ const statements = {
     SET next_subagent_name_index = ?, updated_at = ?
     WHERE id = ?
   `),
+  markConversationAttentionSeen: db.prepare(`
+    UPDATE conversations SET attention_seen_at = ? WHERE id = ?
+  `),
   listConversations: db.prepare(`
     SELECT c.*,
       COALESCE((
@@ -814,27 +820,25 @@ const statements = {
         WHERE conversation_id = c.id AND role = 'user' AND hidden = 0
         ORDER BY created_at LIMIT 1
       ), '') AS first_prompt,
-      (
-        SELECT role FROM messages
-        WHERE conversation_id = c.id AND hidden = 0
-          AND status NOT IN ('queued', 'steered')
-        ORDER BY created_at DESC, rowid DESC LIMIT 1
-      ) AS last_message_role,
-      (
-        SELECT status FROM messages
-        WHERE conversation_id = c.id AND hidden = 0
-          AND status NOT IN ('queued', 'steered')
-        ORDER BY created_at DESC, rowid DESC LIMIT 1
-      ) AS last_message_status
+      latest.role AS last_message_role,
+      latest.status AS last_message_status,
+      latest.updated_at AS last_message_updated_at,
+      latest.stopped_by_user AS last_message_stopped_by_user
     FROM conversations c
-    WHERE deleted_at IS NULL
-      AND archived_at IS NULL
-      AND conversation_type = 'thread'
+    LEFT JOIN messages latest ON latest.id = (
+      SELECT id FROM messages
+      WHERE conversation_id = c.id AND hidden = 0
+        AND status NOT IN ('queued', 'steered')
+      ORDER BY created_at DESC, rowid DESC LIMIT 1
+    )
+    WHERE c.deleted_at IS NULL
+      AND c.archived_at IS NULL
+      AND c.conversation_type = 'thread'
       AND EXISTS (
         SELECT 1 FROM messages
         WHERE conversation_id = c.id AND hidden = 0
       )
-    ORDER BY updated_at DESC
+    ORDER BY c.updated_at DESC
   `),
   listSideChats: db.prepare(`
     SELECT c.*,
@@ -867,11 +871,11 @@ const statements = {
   listRubberDucks: db.prepare(`
     WITH RECURSIVE rubber_duck_threads AS (
       SELECT * FROM conversations
-      WHERE parent_conversation_id = ? AND conversation_type = 'rubber_duck'
+      WHERE parent_conversation_id = ? AND conversation_type IN ('rubber_duck', 'rubber_duck_subject')
       UNION ALL
       SELECT c.* FROM conversations c
       JOIN rubber_duck_threads parent ON c.parent_conversation_id = parent.id
-      WHERE c.conversation_type = 'rubber_duck'
+      WHERE c.conversation_type IN ('rubber_duck', 'rubber_duck_subject')
     )
     SELECT c.*,
       COALESCE(c.initial_prompt, '') AS first_prompt
@@ -882,6 +886,7 @@ const statements = {
   listAllConversations: db.prepare(`
     SELECT c.*, latest.role AS last_message_role,
       latest.status AS last_message_status, latest.updated_at AS last_message_updated_at,
+      latest.stopped_by_user AS last_message_stopped_by_user,
       COALESCE((
         SELECT content FROM messages
         WHERE conversation_id = c.id AND role = 'user' AND hidden = 0
@@ -958,20 +963,18 @@ const statements = {
   `),
   getConversation: db.prepare(`
     SELECT c.*,
-      (
-        SELECT role FROM messages
-        WHERE conversation_id = c.id AND hidden = 0
-          AND status NOT IN ('queued', 'steered')
-        ORDER BY created_at DESC, rowid DESC LIMIT 1
-      ) AS last_message_role,
-      (
-        SELECT status FROM messages
-        WHERE conversation_id = c.id AND hidden = 0
-          AND status NOT IN ('queued', 'steered')
-        ORDER BY created_at DESC, rowid DESC LIMIT 1
-      ) AS last_message_status
+      latest.role AS last_message_role,
+      latest.status AS last_message_status,
+      latest.updated_at AS last_message_updated_at,
+      latest.stopped_by_user AS last_message_stopped_by_user
     FROM conversations c
-    WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL
+    LEFT JOIN messages latest ON latest.id = (
+      SELECT id FROM messages
+      WHERE conversation_id = c.id AND hidden = 0
+        AND status NOT IN ('queued', 'steered')
+      ORDER BY created_at DESC, rowid DESC LIMIT 1
+    )
+    WHERE c.id = ? AND c.deleted_at IS NULL AND c.archived_at IS NULL
   `),
   getComposerState: db.prepare(`
     SELECT * FROM conversation_composer_states WHERE conversation_id = ?
@@ -1125,7 +1128,8 @@ const statements = {
   hardDeleteConversation: db.prepare('DELETE FROM conversations WHERE id = ?'),
   hardDeleteChildConversations: db.prepare(`
     DELETE FROM conversations
-    WHERE conversation_type IN ('side', 'subagent', 'rubber_duck') AND parent_conversation_id = ?
+    WHERE conversation_type IN ('side', 'subagent', 'rubber_duck', 'rubber_duck_subject')
+      AND parent_conversation_id = ?
   `),
   hardDeleteConversationDescendants: db.prepare(`
     WITH RECURSIVE descendants(id) AS (
@@ -1167,7 +1171,7 @@ const statements = {
     SELECT COUNT(*) AS total FROM conversations
     WHERE deleted_at IS NULL
       AND archived_at IS NOT NULL
-      AND conversation_type IN ('side', 'subagent', 'rubber_duck')
+      AND conversation_type IN ('side', 'subagent', 'rubber_duck', 'rubber_duck_subject')
   `),
   deleteAllArchived: db.prepare(`
     DELETE FROM conversations
@@ -1176,7 +1180,7 @@ const statements = {
   deleteExpiredDisposable: db.prepare(`
     DELETE FROM conversations
     WHERE deleted_at IS NULL
-      AND conversation_type IN ('side', 'subagent', 'rubber_duck')
+      AND conversation_type IN ('side', 'subagent', 'rubber_duck', 'rubber_duck_subject')
       AND updated_at < ?
   `),
   listForcedCleanupConversationIds: db.prepare(`
@@ -1321,9 +1325,19 @@ const statements = {
     WHERE conversation_id = ?
     ORDER BY created_at ASC
   `),
+  getSideChatHistoryStart: db.prepare(`
+    SELECT m.rowid AS row_id, m.created_at
+    FROM messages m
+    JOIN conversations c ON c.id = m.conversation_id
+    WHERE m.conversation_id = ? AND c.conversation_type = 'side'
+      AND m.hidden = 1 AND m.content LIKE '<side-chat-instructions>%'
+    ORDER BY m.rowid DESC
+    LIMIT 1
+  `),
   getMessagePage: db.prepare(`
     SELECT * FROM messages
     WHERE conversation_id = @conversationId
+      AND rowid > @historyStartRowId
       AND (
         @beforeMessageId IS NULL
         OR rowid < (
@@ -1563,12 +1577,20 @@ export function setBotSettings(value) {
 }
 
 function normalizeBotSettings(value) {
-  const { maxConcurrentBots = 2, executionMode = 'orchestrator', activationWindow = null } = value ?? {};
+  const {
+    maxConcurrentBots = 2,
+    executionMode = 'orchestrator',
+    activationWindow = null,
+    crossBotInbox = false,
+  } = value ?? {};
   if (!Number.isInteger(maxConcurrentBots) || maxConcurrentBots < 1 || maxConcurrentBots > 128) {
     throw new Error('Simultaneous activations must be an integer from 1 to 128.');
   }
   if (!['direct', 'orchestrator'].includes(executionMode)) {
     throw new Error('Bot execution mode must be direct or orchestrator.');
+  }
+  if (typeof crossBotInbox !== 'boolean') {
+    throw new Error('Cross-bot Inbox access must be a boolean.');
   }
   if (activationWindow !== null) {
     if (typeof activationWindow !== 'object' || Array.isArray(activationWindow)
@@ -1586,6 +1608,7 @@ function normalizeBotSettings(value) {
     maxConcurrentBots,
     executionMode,
     activationWindow: activationWindow === null ? null : normalizeActivationWindow(activationWindow),
+    crossBotInbox,
   };
 }
 
@@ -2043,6 +2066,10 @@ export function updateConversationProject(id, projectPath) {
 
 export function listConversations() {
   return statements.listConversations.all().map(mapConversation);
+}
+
+export function markConversationAttentionSeen(id) {
+  statements.markConversationAttentionSeen.run(timestamp(), id);
 }
 
 export function listAllConversations({ includeLatestReasoningEffort = false } = {}) {
@@ -2660,6 +2687,11 @@ export function getPendingMessages(conversationId) {
   return statements.getPendingMessages.all(conversationId).map(mapMessage);
 }
 
+export function getSideChatHistoryStart(conversationId) {
+  const row = statements.getSideChatHistoryStart.get(conversationId);
+  return row ? { rowId: row.row_id, createdAt: row.created_at } : null;
+}
+
 export function getMessagePage(conversationId, { beforeMessageId = null, limit = 100 } = {}) {
   if (
     beforeMessageId !== null
@@ -2669,6 +2701,7 @@ export function getMessagePage(conversationId, { beforeMessageId = null, limit =
   }
   const rows = statements.getMessagePage.all({
     conversationId,
+    historyStartRowId: getSideChatHistoryStart(conversationId)?.rowId ?? 0,
     beforeMessageId,
     limit: limit + 1,
   });
@@ -2709,18 +2742,20 @@ export function forkConversation(id, {
   sideChat = false,
   subagent = false,
   rubberDuck = false,
+  rubberDuckSubject = false,
   subagentPrompt = null,
   rubberDuckContext = null,
   orchestrationMode = null,
   autoForwardToParent = false,
 } = {}) {
   const source = getConversation(id);
-  const childThread = sideChat || subagent || rubberDuck;
+  const childThread = sideChat || subagent || rubberDuck || rubberDuckSubject;
   if (
     !source
-    || [sideChat, subagent, rubberDuck].filter(Boolean).length > 1
+    || [sideChat, subagent, rubberDuck, rubberDuckSubject].filter(Boolean).length > 1
     || ((sideChat || subagent) && (source.isSideChat || source.isSubagent || source.isRubberDuck))
     || (rubberDuck && (source.isSideChat || source.isSubagent))
+    || (rubberDuckSubject && source.conversationType !== 'rubber_duck')
   ) {
     return null;
   }
@@ -2742,7 +2777,9 @@ export function forkConversation(id, {
     : -1;
   const subagentName = subagentNameIndex >= 0 ? subagentNames[subagentNameIndex] : null;
   if (subagent && !subagentName) return null;
-  const rubberDuckNumber = rubberDuck ? listRubberDucks(source.id).length + 1 : null;
+  const rubberDuckNumber = rubberDuck
+    ? listRubberDucks(source.id).filter(({ conversationType }) => conversationType === 'rubber_duck').length + 1
+    : null;
   const target = createConversation({
     title: sideChat
       ? `Side chat ${childNumber}`
@@ -2750,17 +2787,22 @@ export function forkConversation(id, {
         ? subagentName
         : rubberDuck
           ? `Rubber Duck ${rubberDuckNumber}`
-          : `${source.title} - Copy`,
+          : rubberDuckSubject
+            ? `${source.title} · Subject`
+            : `${source.title} - Copy`,
     model: source.model,
     projectPath: source.projectPath,
     gitBranch: source.gitBranch,
-    conversationType: sideChat ? 'side' : subagent ? 'subagent' : rubberDuck ? 'rubber_duck' : 'thread',
+    conversationType: sideChat ? 'side'
+      : subagent ? 'subagent'
+        : rubberDuck ? 'rubber_duck'
+          : rubberDuckSubject ? 'rubber_duck_subject' : 'thread',
     parentConversationId: childThread ? source.id : null,
     initialPrompt: subagent
       ? String(subagentPrompt ?? '').trim() || null
       : rubberDuck
         ? String(rubberDuckContext ?? '').trim() || null
-        : null,
+        : rubberDuckSubject ? 'Subject agent answering the Rubber Duck interview' : null,
     orchestrationMode: subagent ? orchestrationMode : null,
     autoForwardToParent: subagent && autoForwardToParent,
     titleStatus: childThread ? 'generated' : 'pending',
@@ -2796,6 +2838,7 @@ export function forkConversation(id, {
         id: messageId,
         conversationId: target.id,
         goalId: null,
+        ...(sideChat ? { continuations: [] } : {}),
         status: messages[index].status === 'streaming'
           ? 'completed'
           : messages[index].status,
@@ -2846,7 +2889,29 @@ export function setFavorite(modelId, favorited) {
 }
 
 function childThreadContext(conversation) {
-  if (!['side', 'subagent', 'rubber_duck'].includes(conversation?.conversation_type)) return [];
+  if (!['side', 'subagent', 'rubber_duck', 'rubber_duck_subject'].includes(conversation?.conversation_type)) {
+    return [];
+  }
+
+  if (conversation.conversation_type === 'rubber_duck_subject') {
+    const rubberDuck = statements.getConversation.get(conversation.parent_conversation_id);
+    return [{
+      role: 'system',
+      content: [
+        '<thread_context>',
+        'thread_type: rubber_duck_subject',
+        `thread_id: ${conversation.id}`,
+        `rubber_duck_thread_id: ${conversation.parent_conversation_id}`,
+        `subject_thread_id: ${rubberDuck?.parent_conversation_id ?? 'Unknown'}`,
+        'You are the agent that executed the work in the forked subject-thread history of this conversation.',
+        'A Rubber Duck supervisor is interviewing you to judge that execution. Each <rubber_duck_question> message is a supervisor question, not a user request or a new task.',
+        'Answer each question directly, truthfully, and concisely. You may use the available tools to inspect files, diffs, history, threads, and other evidence so your answer is grounded, rather than answering only from memory.',
+        'DO NOT CHANGE ANYTHING. Do not edit, write, move, or delete files; do not run commands that install, build, write, commit, push, start services, or otherwise change state; do not mutate data or external systems; do not send prompts to, interrupt, approve, or create threads, bots, or sub-agents; and do not perform implementation work, even when a question reveals a defect. Describe the fix you would make instead of applying it.',
+        'State uncertainty, assumptions, blockers, and missing validation explicitly. Never claim that unverified work was verified.',
+        '</thread_context>',
+      ].join('\n'),
+    }];
+  }
 
   if (conversation.conversation_type === 'rubber_duck') {
     const parent = statements.getConversation.get(conversation.parent_conversation_id);
@@ -3579,7 +3644,7 @@ function mapConversation(row) {
     conversationType: row.conversation_type,
     isSideChat: row.conversation_type === 'side',
     isSubagent: row.conversation_type === 'subagent',
-    isRubberDuck: row.conversation_type === 'rubber_duck',
+    isRubberDuck: ['rubber_duck', 'rubber_duck_subject'].includes(row.conversation_type),
     isBot: row.conversation_type === 'bot',
     createdBy: row.created_by === 'agent' ? 'agent' : 'user',
     parentConversationId: row.parent_conversation_id || null,
@@ -3599,10 +3664,14 @@ function mapConversation(row) {
     lastMessageRole: row.last_message_role ?? null,
     lastMessageStatus: row.last_message_status ?? null,
     lastMessageUpdatedAt: row.last_message_updated_at ?? null,
-    needsAttention: ['error', 'aborted', 'streaming'].includes(row.last_message_status)
-      || (
-        row.last_message_role === 'user'
-        && ['sent', 'waiting_mcp'].includes(row.last_message_status)
+    needsAttention: !row.last_message_stopped_by_user
+      && !(row.attention_seen_at && row.attention_seen_at >= row.last_message_updated_at)
+      && (
+        ['error', 'aborted', 'streaming'].includes(row.last_message_status)
+        || (
+          row.last_message_role === 'user'
+          && ['sent', 'waiting_mcp'].includes(row.last_message_status)
+        )
       ),
     createdAt: row.created_at,
     updatedAt: row.updated_at,

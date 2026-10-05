@@ -38,6 +38,8 @@ The dialog offers two manual modes:
 - **Quick compaction** replaces tool results before the latest four user turns with `[output truncated due to context compress - invoke this tool again]`, removes associated tool media/provider continuation data, and does not call a model. Use `/quick-compress` to run it from the composer;
 - **Full compaction** runs the same detailed checkpoint flow as `/compress`.
 
+Side chats also run quick compaction automatically before a response when their context exceeds the automatic compaction threshold minus 10 percentage points (for example, 80% with the default 90% threshold). Full automatic compaction still applies afterwards if the threshold is crossed.
+
 ## Tuning → Tool execution
 
 - **Tool output length** — 4,096, 8,192 (default), 32,768 characters, or Disabled/No limit. The UI estimates tokens as characters divided by four. A tool definition can set `forcedTruncationLength` in estimated tokens to override this setting for its own output, including when global truncation is disabled. Disabling truncation can exhaust the model context window.

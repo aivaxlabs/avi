@@ -231,7 +231,7 @@ The re-read [`ComposerState`](types.md#composerstate).
 
 ## `conversations:messages`
 
-Returns a bounded page of persisted messages for the URL conversation. The initial page contains the newest messages in chronological order. Reading can migrate legacy video attachments.
+Returns a bounded page of persisted messages for the URL conversation. The initial page contains the newest messages in chronological order. Reading can migrate legacy video attachments. For side chats, pages start after the hidden side-chat instruction message, so the parent history copied by the fork is omitted from display while remaining in the model context.
 
 ### Params
 

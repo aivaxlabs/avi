@@ -8,7 +8,7 @@ RPC results are detached JSON values. Timestamps are ISO 8601 strings unless a f
 |---|---|
 | `PermissionMode` | `"ask_for_approval"`, `"approve_for_me"`, or `"full_access"`. |
 | `WorkMode` | `"plan"`, `"goal"`, or `null`. |
-| `ConversationType` | `"thread"`, `"side"`, `"subagent"`, `"rubber_duck"`, or `"bot"`. |
+| `ConversationType` | `"thread"`, `"side"`, `"subagent"`, `"rubber_duck"`, `"rubber_duck_subject"`, or `"bot"`. `rubber_duck_subject` is the thread where the subject agent answers a Rubber Duck interview. |
 | `GoalStatus` | `"active"`, `"paused"`, `"completed"`, `"blocked"`, `"cancelled"`, or `"discarded"`. |
 
 ## `Conversation`
@@ -29,7 +29,7 @@ Returned by conversation, folder, child-thread, bot-thread, queue, compaction, a
 | `conversationType` | `ConversationType` | Thread category. |
 | `isSideChat` | boolean | Whether `conversationType` is `side`. |
 | `isSubagent` | boolean | Whether `conversationType` is `subagent`. |
-| `isRubberDuck` | boolean | Whether `conversationType` is `rubber_duck`. |
+| `isRubberDuck` | boolean | Whether `conversationType` is `rubber_duck` or `rubber_duck_subject`. |
 | `isBot` | boolean | Whether `conversationType` is `bot`. |
 | `createdBy` | `"user"` or `"agent"` | Originator. |
 | `parentConversationId` | string or `null` | Parent ID for child conversations. |
@@ -48,7 +48,7 @@ Returned by conversation, folder, child-thread, bot-thread, queue, compaction, a
 | `firstPrompt` | string | First visible user prompt, or an empty string. |
 | `lastMessageRole` | string or `null` | Role of the latest visible message. |
 | `lastMessageStatus` | string or `null` | Status of the latest visible message. |
-| `needsAttention` | boolean | Whether the latest message indicates an error, interruption, streaming residue, or unanswered user input. In `conversations:list`, `sidebar:mark-seen` or viewing the conversation in the Desktop window reports `false` until the conversation runs again; acknowledgements reset when Avi restarts. |
+| `needsAttention` | boolean | Whether the latest message indicates an error, interruption, streaming residue, or unanswered user input. Runs stopped by the user never need attention. After `sidebar:mark-seen` or viewing the conversation in the Desktop window, it reports `false` until the latest message changes again; the acknowledgement is persisted and survives restarts. |
 | `createdAt` | string | Creation time. |
 | `updatedAt` | string | Last update time. |
 | `archivedAt` | string or `null` | Archive time. |

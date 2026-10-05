@@ -68,7 +68,7 @@ function mapConversation(row, goal) {
     conversationType: row.conversation_type,
     isSideChat: row.conversation_type === 'side',
     isSubagent: row.conversation_type === 'subagent',
-    isRubberDuck: row.conversation_type === 'rubber_duck',
+    isRubberDuck: ['rubber_duck', 'rubber_duck_subject'].includes(row.conversation_type),
     isBot: row.conversation_type === 'bot',
     createdBy: row.created_by === 'agent' ? 'agent' : 'user',
     parentConversationId: row.parent_conversation_id || null,
@@ -88,10 +88,14 @@ function mapConversation(row, goal) {
     lastMessageRole: row.last_message_role ?? null,
     lastMessageStatus: row.last_message_status ?? null,
     lastMessageUpdatedAt: row.last_message_updated_at ?? null,
-    needsAttention: ['error', 'aborted', 'streaming'].includes(row.last_message_status)
-      || (
-        row.last_message_role === 'user'
-        && ['sent', 'waiting_mcp'].includes(row.last_message_status)
+    needsAttention: !row.last_message_stopped_by_user
+      && !(row.attention_seen_at && row.attention_seen_at >= row.last_message_updated_at)
+      && (
+        ['error', 'aborted', 'streaming'].includes(row.last_message_status)
+        || (
+          row.last_message_role === 'user'
+          && ['sent', 'waiting_mcp'].includes(row.last_message_status)
+        )
       ),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -109,10 +113,11 @@ function collectOverview({ databasePath, range, configuredModels, modelCatalog, 
         c.conversation_type, c.created_by, c.parent_conversation_id, c.initial_prompt,
         c.orchestration_mode, c.auto_forward_to_parent, c.next_subagent_name_index,
         c.context_checkpoint, c.checkpoint_message_id, c.context_tokens, c.tasks, c.tags,
-        c.created_at, c.updated_at, c.archived_at,
+        c.created_at, c.updated_at, c.archived_at, c.attention_seen_at,
         latest.role AS last_message_role,
         latest.status AS last_message_status,
         latest.updated_at AS last_message_updated_at,
+        latest.stopped_by_user AS last_message_stopped_by_user,
         COALESCE((
           SELECT content FROM messages
           WHERE conversation_id = c.id AND role = 'user' AND hidden = 0

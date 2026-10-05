@@ -76,6 +76,8 @@ See [Default models](Default%20models.md) for model inheritance and Small/Medium
 
 **Rubber Duck max turns** in the same section bounds each rubber-duck analysis. A running analysis appears as its own inspectable child thread in the auxiliary Sub-agents panel, and its critique is reported back to the conversation without automatic follow-up work.
 
+The supervisor's questions are answered by the subject agent in a separate interview thread (`rubber_duck_subject`) that also appears in the Sub-agents panel. That thread starts from the subject thread's history and runs as a normal chat with the subject's model, instructions, skills, MCP servers, and tools, so it can inspect files, diffs, and threads before answering. Its context states that a Rubber Duck supervisor is interviewing it and that it must not change anything: no edits, state-changing commands, data mutations, or thread coordination. Tool approvals still follow the permission mode of the conversation that invoked the Rubber Duck. Each Rubber Duck reuses one interview thread, so later answers build on earlier ones.
+
 ## UI and persistence
 
 The **Sub-agents** auxiliary tab shows working, finished, failed, or waiting status. Opening a parent lists its sub-agents and Rubber Ducks without loading their histories; selecting one loads its recent messages and fetches older pages as you scroll upward. Compact child-thread composers omit workspace and Git branch controls. These operational indicators continue updating while the panel is closed without re-rendering the main conversation for text-only sub-agent streaming updates. Sub-agent conversations are persisted as child threads in SQLite and appear in team context, but not in the normal Sidebar conversation list.

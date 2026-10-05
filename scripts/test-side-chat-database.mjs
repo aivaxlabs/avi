@@ -21,6 +21,7 @@ try {
     deleteConversation,
     forkConversation,
     getConversation,
+    getMessagePage,
     getMessages,
     getPreferences,
     insertMessage,
@@ -215,6 +216,98 @@ try {
   );
   assert.equal(retryModelMessages[0].content, sideChatModelMessages[0].content);
   assert.equal(retryModelMessages.at(-1).content, firstMessages.at(-1).content);
+  assert.deepEqual(
+    getMessagePage(first.conversation.id).messages.map((message) => message.id),
+    [sideChatReply.id],
+  );
+  assert.equal(getMessagePage(parent.id).messages.length, 2);
+
+  const quickModel = {
+    id: 'test/quick',
+    modelId: 'quick',
+    providerName: 'Test',
+    interface: 'responses',
+    reasoning: [],
+    capabilities: {},
+    context: { input: 1_000, output: 100 },
+  };
+  const quickRequests = [];
+  const quickEvents = [];
+  const quickRunner = new ChatRunner({
+    registry: {
+      resolve: () => ({
+        model: quickModel,
+        provider: {
+          getContributions: () => ({ tools: [] }),
+          stream: async ({ messages }) => {
+            quickRequests.push(messages);
+            return { assistantContent: 'Quick answer', continuation: [], toolCalls: [] };
+          },
+        },
+      }),
+      listModels: () => [quickModel],
+    },
+    getPreferences: () => ({
+      ...getPreferences(),
+      tuning: { ...getPreferences().tuning, automaticCompactionThreshold: 0.9 },
+    }),
+    sendEvent: (event) => quickEvents.push(event),
+  });
+  const quickParent = createConversation({ model: quickModel.id, projectPath: process.cwd() });
+  for (let turn = 0; turn < 5; turn += 1) {
+    insertMessage({
+      conversationId: quickParent.id,
+      role: 'user',
+      status: 'sent',
+      content: `Parent turn ${turn}`,
+    });
+    insertMessage({
+      conversationId: quickParent.id,
+      role: 'assistant',
+      status: 'completed',
+      content: '',
+      segments: [{
+        type: 'tool-call',
+        key: `round:0:call-${turn}`,
+        callId: `call-${turn}`,
+        name: 'read_file',
+        argumentsText: '{}',
+        resultText: 'x'.repeat(2_000),
+        status: 'completed',
+      }],
+    });
+  }
+  updateConversation(quickParent.id, { contextTokens: 850 });
+  const quickSideChat = forkConversation(quickParent.id, { sideChat: true }).conversation;
+  const forkedMessageIds = new Set(getMessages(quickSideChat.id).map((message) => message.id));
+  await quickRunner.send({
+    conversationId: quickSideChat.id,
+    model: quickModel.id,
+    text: 'Summarize the parent direction.',
+  });
+  while (quickRunner.runs.has(quickSideChat.id)) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+  }
+  const { QUICK_COMPRESSION_MARKER } = await import('../src/main/context-usage.js');
+  const quickToolResults = getMessages(quickSideChat.id)
+    .flatMap((message) => message.segments ?? [])
+    .filter((segment) => segment.type === 'tool-call')
+    .map((segment) => segment.resultText);
+  assert.equal(quickToolResults[0], QUICK_COMPRESSION_MARKER);
+  assert.equal(quickToolResults.at(-1), 'x'.repeat(2_000));
+  assert.ok(JSON.stringify(quickRequests[0]).includes(QUICK_COMPRESSION_MARKER));
+  assert.ok(getMessages(quickParent.id).every((message) => (
+    message.segments.every((segment) => segment.resultText !== QUICK_COMPRESSION_MARKER)
+  )));
+  assert.equal(quickEvents.some((event) => (
+    event.type === 'message' && forkedMessageIds.has(event.message.id)
+  )), false);
+  assert.ok(getConversation(quickSideChat.id).contextTokens < 850);
+  assert.deepEqual(
+    getMessagePage(quickSideChat.id).messages.map((message) => message.role),
+    ['user', 'assistant'],
+  );
+  deleteConversation(quickParent.id);
   assert.equal(
     toModelMessages(parent.id).some((message) => (
       message.role === 'system' && message.content.includes('thread_type: side_chat')
