@@ -7,6 +7,7 @@ import {
   MessageSquarePlus,
   MessagesSquare,
   Moon,
+  PencilLine,
   ShieldCheck,
   ShieldQuestion,
   UploadCloud,
@@ -277,6 +278,7 @@ export const ChatView = memo(function ChatView({
   const [fileDropActive, setFileDropActive] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState(null);
   const [selectionAction, setSelectionAction] = useState(null);
+  const [selectionAnnotation, setSelectionAnnotation] = useState('');
   const [questionIndex, setQuestionIndex] = useState(0);
   const [questionAnswers, setQuestionAnswers] = useState([]);
   const [questionCustomAnswers, setQuestionCustomAnswers] = useState([]);
@@ -698,7 +700,7 @@ export const ChatView = memo(function ChatView({
     if (!selectionAction) return undefined;
     const controller = new AbortController();
     window.addEventListener('pointerdown', (event) => {
-      if (event.target.closest?.('.selection-action-group')) return;
+      if (event.target.closest?.('.selection-action-group, .git-review-annotation')) return;
       setSelectionAction(null);
     }, { signal: controller.signal });
     window.addEventListener('keydown', (event) => {
@@ -710,7 +712,10 @@ export const ChatView = memo(function ChatView({
       once: true,
       signal: controller.signal,
     });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      setSelectionAnnotation('');
+    };
   }, [selectionAction]);
 
   const updateSelectionAction = () => {
@@ -752,7 +757,7 @@ export const ChatView = memo(function ChatView({
     }
 
     const rect = range.getBoundingClientRect();
-    const width = 276;
+    const width = onMentionSelection ? 362 : 276;
     const height = 34;
     const above = rect.top - height - 8;
     setSelectionAction({
@@ -765,19 +770,21 @@ export const ChatView = memo(function ChatView({
     });
   };
 
-  const useSelection = (callback) => {
+  const useSelection = (callback, annotation = '') => {
     if (!selectionAction || !callback) return;
-    const escapedContent = selectionAction.content
+    const escape = (value) => value
       .replaceAll('&', '&amp;')
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;');
     callback({
       id: crypto.randomUUID(),
       kind: 'context_marker',
-      markerType: 'citation',
-      name: 'Chat citation',
+      markerType: annotation ? 'citation_annotation' : 'citation',
+      name: annotation ? 'Chat annotation' : 'Chat citation',
       size: 0,
-      text: `<citation>${escapedContent}</citation>`,
+      text: annotation
+        ? `<citation>${escape(selectionAction.content)}</citation>\n<annotation>${escape(annotation)}</annotation>`
+        : `<citation>${escape(selectionAction.content)}</citation>`,
     });
     setSelectionAction(null);
     window.getSelection()?.removeAllRanges();
@@ -1422,7 +1429,47 @@ export const ChatView = memo(function ChatView({
         botMode={botMode}
         onShowBotInPanel={onShowBotInPanel}
       />
-      {selectionAction && createPortal(
+      {selectionAction && createPortal(selectionAction.annotating ? (
+        <form
+          className="git-review-annotation"
+          aria-label="Annotate selected text"
+          style={{
+            left: Math.max(8, Math.min(selectionAction.left, window.innerWidth - 348)),
+            top: Math.max(8, Math.min(selectionAction.top, window.innerHeight - 200)),
+          }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!selectionAnnotation.trim()) return;
+            useSelection(onMentionSelection, selectionAnnotation.trim());
+          }}
+        >
+          <blockquote title={selectionAction.content}>{selectionAction.content}</blockquote>
+          <textarea
+            autoFocus
+            aria-label="Annotation"
+            value={selectionAnnotation}
+            onChange={(event) => setSelectionAnnotation(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return;
+              event.preventDefault();
+              event.currentTarget.form.requestSubmit();
+            }}
+            placeholder="Add an annotation..."
+            rows={3}
+          />
+          <footer>
+            <small>Ctrl+Enter to add</small>
+            <button type="button" onClick={() => setSelectionAction(null)}>Cancel</button>
+            <button
+              type="submit"
+              className="primary-mini"
+              disabled={!selectionAnnotation.trim()}
+            >
+              Add to chat
+            </button>
+          </footer>
+        </form>
+      ) : (
         <div
           className="selection-action-group"
           role="toolbar"
@@ -1436,15 +1483,23 @@ export const ChatView = memo(function ChatView({
               <span>Mention on Chat</span>
             </button>
           )}
+          {onMentionSelection && (
+            <button
+              type="button"
+              onClick={() => setSelectionAction((current) => ({ ...current, annotating: true }))}
+            >
+              <PencilLine size={13} aria-hidden="true" />
+              <span>Annotate</span>
+            </button>
+          )}
           {onAskSelection && (
             <button type="button" onClick={() => useSelection(onAskSelection)}>
               <MessagesSquare size={13} aria-hidden="true" />
               <span>Ask in Side Chat</span>
             </button>
           )}
-        </div>,
-        document.body,
-      )}
+        </div>
+      ), document.body)}
     </Root>
   );
 }, (previous, next) => {

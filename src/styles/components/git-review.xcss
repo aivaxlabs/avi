@@ -460,39 +460,110 @@
 
 .git-review-annotation {
   position: fixed;
-  z-index: 120;
-  width: min(310px, calc(100vw - 16px));
-  padding: 9px;
-  color: var(--text-1);
-  background: var(--background-1);
-  border: 1px solid var(--border-color);
-  border-radius: 7px;
-  box-shadow: 0 8px 26px #0003;
+  z-index: 125;
+  width: min(340px, calc(100vw - 16px));
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+  color: --text-1;
+  background: --background-1;
+  border: 1px solid --border-color;
+  border-radius: 14px;
+  box-shadow: 0 8px 28px #0000001f;
+  transform-origin: top center;
+  animation: dropdown-menu-in var(--duration-fast) var(--ease-smooth-out);
+
+  > blockquote {
+    margin: 0;
+    padding: 2px 0 2px 10px;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    color: --text-3;
+    font-size: var(--font-sm);
+    line-height: 1.45;
+    border-left: 2px solid --primary-color;
+  }
 
   > textarea {
     width: 100%;
+    min-height: 72px;
+    max-height: 220px;
     resize: vertical;
-    padding: 7px;
+    padding: 8px 10px;
     font: inherit;
-    color: var(--text-1);
-    background: var(--background-2);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
+    line-height: 1.45;
+    color: --text-1;
+    background: --background-2;
+    border: 1px solid --border-color;
+    border-radius: 10px;
+    outline: 3px solid transparent;
+    transition: border-color var(--duration-fast) var(--ease-smooth-out),
+      outline-color var(--duration-fast) var(--ease-smooth-out);
+
+    &::placeholder {
+      color: --text-4;
+    }
+
+    &:focus {
+      background: --background-0;
+      border-color: --primary-color;
+      outline-color: --primary-color-opaque;
+    }
   }
 
   > footer {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
     gap: 6px;
-    margin-top: 6px;
+
+    > small {
+      margin-right: auto;
+      padding-left: 2px;
+      color: --text-4;
+      font-size: var(--font-xs);
+    }
 
     > button {
-      padding: 4px 8px;
+      padding: 4px 12px;
       font: inherit;
-      color: var(--text-1);
-      background: var(--background-2);
-      border: 1px solid var(--border-color);
-      border-radius: 4px;
+      color: --text-2;
+      background: --background-3;
+      border: 0;
+      border-radius: 9999px;
+      cursor: pointer;
+      transition: background var(--duration-fast) var(--ease-smooth-out),
+        opacity var(--duration-fast) var(--ease-smooth-out),
+        transform var(--duration-fast) var(--ease-smooth-out);
+
+      &:hover:not(:disabled) {
+        background: --item-active;
+      }
+
+      &:active:not(:disabled) {
+        transform: scale(var(--scale-medium));
+      }
+
+      &:focus-visible {
+        outline: 2px solid --text-3;
+        outline-offset: 2px;
+      }
+
+      &:disabled {
+        opacity: .5;
+        cursor: default;
+      }
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+
+    > textarea,
+    > footer > button {
+      transition: none;
     }
   }
 }
