@@ -112,6 +112,7 @@ const reasoningFormatField = {
     { value: 'modern', label: 'Modern ($.reasoning.effort)' },
     { value: 'anthropic', label: 'Anthropic ($.reasoning.max_tokens)' },
     { value: 'qwen', label: 'Qwen ($.enable_thinking + $.thinking_budget)' },
+    { value: 'mistral', label: 'Mistral ($.reasoning_effort + thinking chunks)' },
   ],
 };
 const inferenceParameterFields = [
@@ -349,14 +350,14 @@ export const chatCompletionsApi = {
         ...(prepared.dynamicContext
           ? [{ role: 'system', content: prepared.dynamicContext }]
           : []),
-        ...messages.map((message) => ({
+        ...messages.map((message) => toChatReasoningMessage({
           ...message,
           content: Array.isArray(message.content)
             ? toChatContent(message.content)
             : message.content,
-        })),
+        }, provider.reasoningFormat)),
         ...toolHistory.flatMap((round) => [
-          {
+          toChatReasoningMessage({
             role: 'assistant',
             content: round.assistantContent || null,
             ...(round.reasoningContent ? { reasoning_content: round.reasoningContent } : {}),
@@ -372,7 +373,7 @@ export const chatCompletionsApi = {
                   })),
                 }
               : {}),
-          },
+          }, provider.reasoningFormat),
           ...round.results.map((result) => ({
             role: 'tool',
             tool_call_id: result.callId,
@@ -427,13 +428,28 @@ export const chatCompletionsApi = {
           .filter(Boolean)
           .join('')
         : '';
-      const reasoning = reasoningDetails || delta.reasoning || delta.reasoning_content || '';
+      const contentParts = Array.isArray(delta.content) ? delta.content : [];
+      const partsReasoning = contentParts
+        .filter((part) => part?.type === 'thinking')
+        .flatMap((part) => Array.isArray(part.thinking) ? part.thinking : [part.thinking])
+        .map((item) => typeof item === 'string' ? item : item?.text ?? '')
+        .join('');
+      const reasoning = reasoningDetails
+        || delta.reasoning
+        || delta.reasoning_content
+        || partsReasoning;
+      const content = typeof delta.content === 'string'
+        ? delta.content
+        : contentParts
+          .filter((part) => part?.type === 'text')
+          .map((part) => part.text ?? '')
+          .join('');
 
       if (reasoning) {
         events.push({ type: 'reasoning', text: reasoning });
       }
-      if (typeof delta.content === 'string' && delta.content) {
-        events.push({ type: 'content', text: delta.content });
+      if (content) {
+        events.push({ type: 'content', text: content });
       }
       for (const toolCall of delta.tool_calls ?? []) {
         if (!Number.isInteger(toolCall.index) || toolCall.index < 0) {
@@ -535,7 +551,25 @@ function reasoningRequestFields(reasoningEffort, format = 'default') {
       enable_thinking: budget > 0,
       thinking_budget: budget,
     },
+    mistral: { reasoning_effort: reasoningEffort },
   }[format];
+}
+
+function toChatReasoningMessage({ reasoning_content: reasoning, ...message }, reasoningFormat) {
+  if (!reasoning) return message;
+  if (reasoningFormat !== 'mistral') return { ...message, reasoning_content: reasoning };
+
+  return {
+    ...message,
+    content: [
+      { type: 'thinking', thinking: [{ type: 'text', text: reasoning }], closed: true },
+      ...(Array.isArray(message.content)
+        ? message.content
+        : message.content
+          ? [{ type: 'text', text: message.content }]
+          : []),
+    ],
+  };
 }
 
 function openAiCompatibleEndpoint(baseUrl, interfacePath, path) {
