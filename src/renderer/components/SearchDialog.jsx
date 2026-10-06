@@ -1,6 +1,7 @@
 import { LoaderCircle, MessageSquareText, Search } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { formatAge } from '../lib/format.js';
+import { Overlay } from './Overlay.jsx';
 
 export function SearchDialog({ onClose, onSelect }) {
   const [query, setQuery] = useState('');
@@ -45,7 +46,7 @@ export function SearchDialog({ onClose, onSelect }) {
   };
 
   return (
-    <div className="dialog-backdrop search-dialog-backdrop" onMouseDown={onClose}>
+    <Overlay className="dialog-backdrop search-dialog-backdrop" onMouseDown={onClose}>
       <section
         className="search-dialog"
         role="dialog"
@@ -143,6 +144,6 @@ export function SearchDialog({ onClose, onSelect }) {
           </div>
         )}
       </section>
-    </div>
+    </Overlay>
   );
 }

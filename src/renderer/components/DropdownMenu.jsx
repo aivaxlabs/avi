@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle, useLayoutEffect, useRef } from 'react';
 import { classNames } from '../lib/format.js';
+import { Overlay } from './Overlay.jsx';
 
 const viewportMargin = 8;
 
@@ -48,14 +49,14 @@ export const DropdownMenu = forwardRef(function DropdownMenu({
   }, [submenu]);
 
   return (
-    <div
+    <Overlay
       ref={menuRef}
       {...props}
       className={classNames('dropdown-menu', fixed && 'fixed', className)}
       style={style}
     >
       {children}
-    </div>
+    </Overlay>
   );
 });
 

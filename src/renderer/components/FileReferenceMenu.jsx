@@ -2,6 +2,7 @@ import { Copy, FileText, FolderSearch } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
+import { Presence } from './Overlay.jsx';
 
 export function useFileReferenceMenu(onOpen, onAction) {
   const [menu, setMenu] = useState(null);
@@ -34,7 +35,7 @@ export function useFileReferenceMenu(onOpen, onAction) {
       top: Math.max(8, Math.min(event.clientY || rect.bottom, window.innerHeight - 120)),
     });
   }, []);
-  return [openMenu, menu && createPortal(
+  return [openMenu, <Presence key="menu" when={menu}>{(menu) => createPortal(
     <DropdownMenu
       ref={menuRef}
       className="file-reference-context-menu"
@@ -74,5 +75,5 @@ export function useFileReferenceMenu(onOpen, onAction) {
       ))}
     </DropdownMenu>,
     document.body,
-  )];
+  )}</Presence>];
 }

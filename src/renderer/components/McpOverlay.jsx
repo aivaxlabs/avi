@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { classNames } from '../lib/format.js';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const statusLabels = {
   idle: 'Not started',
@@ -66,8 +67,8 @@ export function McpOverlay({
         </div>
       )}
 
-      {alert && (
-        <div className="dialog-backdrop mcp-dialog-backdrop">
+      <Presence when={alert}>{(alert) => (
+        <Overlay className="dialog-backdrop mcp-dialog-backdrop">
           <section
             ref={dialogRef}
             className="mcp-dialog"
@@ -137,11 +138,11 @@ export function McpOverlay({
               )}
             </div>
           </section>
-        </div>
-      )}
+        </Overlay>
+      )}</Presence>
 
-      {workspaceServers && !alert && (
-        <div className="dialog-backdrop mcp-dialog-backdrop" onMouseDown={onCloseWorkspace}>
+      <Presence when={!alert && workspaceServers}>{(workspaceServers) => (
+        <Overlay className="dialog-backdrop mcp-dialog-backdrop" onMouseDown={onCloseWorkspace}>
           <section
             ref={dialogRef}
             className="mcp-dialog mcp-status-dialog"
@@ -191,8 +192,8 @@ export function McpOverlay({
               </button>
             </div>
           </section>
-        </div>
-      )}
+        </Overlay>
+      )}</Presence>
     </>
   );
 }

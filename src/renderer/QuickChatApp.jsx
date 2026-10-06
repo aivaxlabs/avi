@@ -9,6 +9,7 @@ import { ModelPicker } from './components/ModelPicker.jsx';
 import { applyTheme, readAppearance } from './lib/apply-theme.js';
 import { useStreamingAutoScroll } from './lib/use-streaming-auto-scroll.js';
 import { setPluginThemes } from './lib/themes.js';
+import { Presence } from './components/Overlay.jsx';
 
 const api = window.chatApp;
 const sessionId = new URLSearchParams(window.location.search).get('session');
@@ -320,7 +321,7 @@ function QuickComposer({
           {running ? <Square size={15} /> : <ArrowUp size={18} />}
         </button>
       </div>
-      {pickerOpen && (
+      <Presence when={pickerOpen}>{() => (
         <ModelPicker
           models={models}
           favorites={favorites}
@@ -329,7 +330,7 @@ function QuickComposer({
           onChoose={onChooseModel}
           onToggleFavorite={onToggleFavorite}
         />
-      )}
+      )}</Presence>
     </footer>
   );
 }

@@ -60,6 +60,7 @@ import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { ModelPicker } from './ModelPicker.jsx';
 import { WorkspaceDialog } from './WorkspaceDialog.jsx';
 import { ProviderUsages } from './ProviderUsages.jsx';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const composerDraftKey = 'aivax.composer.draft';
 const commandResultLimit = 30;
@@ -873,7 +874,7 @@ export function Composer({
       const container = textAreaRef.current?.closest('.composer-wrap');
       const focused = document.activeElement?.closest('.composer-wrap');
       const target = focused ?? document.querySelector('.chat-area:not(.auxiliary-chat-view) .composer-wrap, .quick-chat-window .composer-wrap');
-      if (!container || container !== target || document.querySelector('[role="dialog"], .dialog-backdrop')) return;
+      if (!container || container !== target || document.querySelector(':is([role="dialog"], .dialog-backdrop):not([data-closing], [data-closing] *)')) return;
       const direction = id.endsWith('.next') ? 1 : -1;
       if (id.startsWith('model.')) {
         if (hasIntelligenceSlider) commitIntelligencePreview(Math.max(0, Math.min(maxIntelligenceIndex, committedIntelligenceIndex + direction)));
@@ -1245,7 +1246,7 @@ export function Composer({
       ref={containerRef}
       className={`composer-wrap${inline ? ' inline-composer-wrap' : ''}`}
     >
-      {workspaceCreating && <WorkspaceDialog onClose={() => setWorkspaceCreating(false)} onSave={onChooseProject} />}
+      <Presence when={workspaceCreating}>{() => <WorkspaceDialog onClose={() => setWorkspaceCreating(false)} onSave={onChooseProject} />}</Presence>
       {botMode && onShowBotInPanel && (
         <ComposerChip
           as="button"
@@ -1580,7 +1581,7 @@ export function Composer({
           </ol>
         </ComposerStrip>
       ))}
-      {queuedMenu && createPortal(
+      <Presence when={queuedMenu}>{(queuedMenu) => createPortal(
         <DropdownMenu
           className="queued-message-actions-menu"
           fixed
@@ -1625,7 +1626,7 @@ export function Composer({
           </DropdownMenuItem>
         </DropdownMenu>,
         document.body,
-      )}
+      )}</Presence>
       <div className={`composer${promptExpanding ? ' prompt-optimizing' : ''}`} aria-busy={promptExpanding}>
         {commandMode && (
           <section
@@ -1823,7 +1824,7 @@ export function Composer({
             >
               <Plus size={18} />
             </button>
-            {plusOpen && (
+            <Presence when={plusOpen}>{() => (
               <DropdownMenu className="attachment-dropdown-menu" role="menu">
                 {!botMode && (
                   <>
@@ -1883,7 +1884,7 @@ export function Composer({
                   Attach from computer
                 </DropdownMenuItem>
               </DropdownMenu>
-            )}
+            )}</Presence>
           </div>
           {!botMode && (
           <div className="composer-mode-controls">
@@ -1902,7 +1903,7 @@ export function Composer({
                 <span>{activePermissionMode?.label}</span>
                 <ChevronDown size={13} />
               </button>
-              {permissionMenuOpen && (
+              <Presence when={permissionMenuOpen}>{() => (
                 <DropdownMenu className="permission-mode-menu" role="menu">
                   {permissionModes.map((mode) => (
                     <DropdownMenuItem
@@ -1927,7 +1928,7 @@ export function Composer({
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenu>
-              )}
+              )}</Presence>
             </div>
             {(workMode === 'plan' || (workMode && !activeGoal)) && (
               <button
@@ -2004,7 +2005,7 @@ export function Composer({
               <ChevronDown size={14} />
             </button>
             )}
-            {modelMenuOpen && (!hasIntelligenceSlider || advancedPickerOpen) && (
+            <Presence when={modelMenuOpen && (!hasIntelligenceSlider || advancedPickerOpen)}>{() => (
               <DropdownMenu
                 className="model-input-menu"
                 role="menu"
@@ -2083,7 +2084,7 @@ export function Composer({
                       </span>
                     </>
                   </DropdownMenuItem>
-                  {advancedModelSubmenuOpen && (
+                  <Presence when={advancedModelSubmenuOpen}>{() => (
                     <DropdownMenu className="model-reasoning-submenu" submenu>
                       {favoriteModels.slice(0, 5).map((model) => {
                         const { name, isFast } = splitFastModelName(model.name || model.id);
@@ -2115,7 +2116,7 @@ export function Composer({
                         Explore models
                       </DropdownMenuItem>
                     </DropdownMenu>
-                  )}
+                  )}</Presence>
                 </div>
                 {currentModelConfig?.reasoning.length > 0 && (
                   <div
@@ -2170,7 +2171,7 @@ export function Composer({
                         </span>
                       </>
                     </DropdownMenuItem>
-                    {advancedEffortSubmenuOpen && (
+                    <Presence when={advancedEffortSubmenuOpen}>{() => (
                       <DropdownMenu className="model-reasoning-submenu" submenu>
                         {currentModelConfig.reasoning.map((effort) => (
                           <DropdownMenuItem
@@ -2191,12 +2192,12 @@ export function Composer({
                           </DropdownMenuItem>
                         ))}
                       </DropdownMenu>
-                    )}
+                    )}</Presence>
                   </div>
                 )}
               </DropdownMenu>
-            )}
-            {modelMenuOpen && hasIntelligenceSlider && !advancedPickerOpen && (
+            )}</Presence>
+            <Presence when={modelMenuOpen && hasIntelligenceSlider && !advancedPickerOpen}>{() => (
               <DropdownMenu
                 className="intelligence-menu"
                 role="dialog"
@@ -2295,7 +2296,7 @@ export function Composer({
                   </>
                 </DropdownMenuItem>
               </DropdownMenu>
-            )}
+            )}</Presence>
           </div>
           {inline && (
             <button
@@ -2389,8 +2390,8 @@ export function Composer({
           )}
           {projectLocked && <LockKeyhole className="project-picker-lock" size={12} />}
           </button>
-          {projectMenuOpen && !projectLocked && (
-            <div
+          <Presence when={projectMenuOpen && !projectLocked}>{() => (
+            <Overlay
               className="project-picker-menu"
               role="dialog"
               aria-label="Choose project folder"
@@ -2471,8 +2472,8 @@ export function Composer({
                 <span>Don't use a project</span>
                 {project?.displayPath === '~/' && <Check size={14} aria-label="Selected" />}
               </button>
-            </div>
-          )}
+            </Overlay>
+          )}</Presence>
         </div>}
         <div className="composer-usage-indicators">
           <ProviderUsages
@@ -2508,8 +2509,8 @@ export function Composer({
         onOpenChange={setContextUsageOpen}
         onCompress={onCompress}
       />
-      {goalDialogOpen && createPortal(
-        <div
+      <Presence when={goalDialogOpen}>{() => createPortal(
+        <Overlay
           className="dialog-backdrop goal-dialog-backdrop"
           onMouseDown={(event) => {
             if (event.target !== event.currentTarget || goalAction) return;
@@ -2596,10 +2597,10 @@ export function Composer({
               </div>
             </footer>
           </form>
-        </div>,
+        </Overlay>,
         document.body,
-      )}
-      {modelPickerOpen && (
+      )}</Presence>
+      <Presence when={modelPickerOpen}>{() => (
         <ModelPicker
           models={models}
           favorites={favorites}
@@ -2608,7 +2609,7 @@ export function Composer({
           onChoose={chooseModel}
           onToggleFavorite={onToggleFavorite}
         />
-      )}
+      )}</Presence>
     </section>
   );
 }

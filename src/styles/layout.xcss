@@ -97,7 +97,8 @@ body.panel-resizing {
   cursor: col-resize;
   user-select: none;
 
-  .app-shell {
+  .app-shell,
+  .home-composer {
     transition: none;
   }
 
@@ -125,7 +126,8 @@ body.panel-resizing {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .panel-resizer::before {
+  .panel-resizer::before,
+  .app-composer > .home-composer {
     transition: none;
   }
 }

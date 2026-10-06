@@ -473,6 +473,10 @@
   transform-origin: top center;
   animation: dropdown-menu-in var(--duration-fast) var(--ease-smooth-out);
 
+  &[data-closing] {
+    animation: dropdown-menu-out var(--duration-quick) var(--ease-smooth-out) forwards;
+  }
+
   > blockquote {
     margin: 0;
     padding: 2px 0 2px 10px;
@@ -559,7 +563,10 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    animation: none;
+    &,
+    &[data-closing] {
+      animation: none;
+    }
 
     > textarea,
     > footer > button {
@@ -576,9 +583,28 @@
   background: var(--background-1);
   border: 1px solid var(--border-color);
   border-radius: 10px;
+  animation: dialog-surface-in var(--duration-fast) var(--ease-smooth-out);
 
   &::backdrop {
     background: #0006;
+    animation: dialog-backdrop-in var(--duration-fast) var(--ease-smooth-out);
+  }
+
+  &[data-closing] {
+    animation: dialog-surface-out var(--duration-quick) var(--ease-smooth-out) forwards;
+
+    &::backdrop {
+      animation: dialog-backdrop-out var(--duration-quick) var(--ease-smooth-out) forwards;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &,
+    &::backdrop,
+    &[data-closing],
+    &[data-closing]::backdrop {
+      animation: none;
+    }
   }
 
   > .git-review-dialog-body {

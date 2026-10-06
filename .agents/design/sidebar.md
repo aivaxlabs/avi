@@ -43,6 +43,8 @@ Reuse `DropdownMenu` and existing row-menu callers for conversation, folder, tag
 
 - Reuse `PanelResizer`: a 9px pointer target with a 1px visual rule, `role="separator"`, and keyboard support.
 - Preserve 16px arrow steps, 48px Shift+arrow steps, and Home/End minimum/maximum behavior.
+- Collapse and expand transition the `.home-composer` grid columns (expand 400ms, collapse 350ms); keep three tracks in both states so the change interpolates. The expanded `.sidebar` keeps `min-width: var(--sidebar-width)` so it is revealed by clipping instead of reflowing.
+- Conversation rows, group headers, and Show more toggles carry `data-flip-id`; `Sidebar` animates moves (FLIP), entries (fade + blur), and removals (fading ghost clone). Title changes use a 150ms exit/enter text swap in `ConversationItem`.
 - Disable grid transitions and text selection during drag.
 - Stop spinner and non-essential transitions under `prefers-reduced-motion`.
 

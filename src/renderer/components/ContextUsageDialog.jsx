@@ -13,6 +13,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const numberFormatter = new Intl.NumberFormat();
 const percentFormatter = new Intl.NumberFormat(undefined, {
@@ -80,8 +81,6 @@ export function ContextUsageDialog({
     return () => controller.abort();
   }, [busy, compressionMenuOpen, onOpenChange, open]);
 
-  if (!open) return null;
-
   const usedRatio = snapshot?.limit
     ? Math.min(1, Math.max(0, snapshot.tokens / snapshot.limit))
     : snapshot ? 1 : 0;
@@ -140,8 +139,8 @@ export function ContextUsageDialog({
     }
   };
 
-  return createPortal(
-    <div
+  return <Presence when={open}>{() => createPortal(
+    <Overlay
       className="dialog-backdrop context-usage-backdrop"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onOpenChange(false);
@@ -301,7 +300,7 @@ export function ContextUsageDialog({
               Compaction
               <ChevronDown size={13} aria-hidden="true" />
             </button>
-            {compressionMenuOpen && (
+            <Presence when={compressionMenuOpen}>{() => (
               <DropdownMenu
                 id="context-compression-menu"
                 className="context-compression-dropdown"
@@ -323,11 +322,11 @@ export function ContextUsageDialog({
                   Full compaction
                 </DropdownMenuItem>
               </DropdownMenu>
-            )}
+            )}</Presence>
           </div>
         </footer>
       </section>
-    </div>,
+    </Overlay>,
     document.body,
-  );
+  )}</Presence>;
 }

@@ -126,6 +126,11 @@
   padding: 48px;
   background: rgb(0 0 0 / 82%);
   backdrop-filter: blur(8px);
+  animation: dialog-backdrop-in var(--duration-fast) var(--ease-smooth-out);
+
+  &[data-closing] {
+    animation: dialog-backdrop-out var(--duration-quick) var(--ease-smooth-out) forwards;
+  }
 
   > img,
   > video {
@@ -1368,7 +1373,10 @@
 
   .messages-column > .message-row:last-child,
   .assistant-placeholder-label,
-  .message-usage-popover {
+  .message-usage-popover,
+  .message-usage-popover[data-closing],
+  .attachment-lightbox,
+  .attachment-lightbox[data-closing] {
     animation: none;
   }
 }
@@ -1484,6 +1492,10 @@
   backdrop-filter: blur(18px);
   transform-origin: bottom left;
   animation: dropdown-menu-in var(--duration-fast) var(--ease-smooth-out);
+
+  &[data-closing] {
+    animation: dropdown-menu-out var(--duration-quick) var(--ease-smooth-out) forwards;
+  }
 
   dl {
     display: grid;

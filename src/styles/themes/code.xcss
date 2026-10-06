@@ -529,11 +529,12 @@
   }
 
   .auxiliary-panel {
-    grid-template-rows: 38px minmax(0, 1fr);
+    grid-template-rows: minmax(38px, auto) minmax(0, 1fr);
 
     .auxiliary-panel-header {
+      align-self: start;
       padding: 0 4px;
-      height: 32px;
+      min-height: 32px;
     }
 
     .auxiliary-tabs-row,

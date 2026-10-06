@@ -36,6 +36,7 @@ import {
 } from '../lib/message-actions.js';
 import { useStreamingAutoScroll } from '../lib/use-streaming-auto-scroll.js';
 import { Message } from './Message.jsx';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const HISTORY_BATCH_SIZE = 4;
 const HISTORY_LOAD_THRESHOLD = 80;
@@ -1431,8 +1432,9 @@ export const ChatView = memo(function ChatView({
         botMode={botMode}
         onShowBotInPanel={onShowBotInPanel}
       />
-      {selectionAction && createPortal(selectionAction.annotating ? (
-        <form
+      <Presence when={selectionAction}>{(selectionAction) => createPortal(selectionAction.annotating ? (
+        <Overlay
+          as="form"
           className="git-review-annotation"
           aria-label="Annotate selected text"
           style={{
@@ -1470,9 +1472,9 @@ export const ChatView = memo(function ChatView({
               Add to chat
             </button>
           </footer>
-        </form>
+        </Overlay>
       ) : (
-        <div
+        <Overlay
           className="selection-action-group"
           role="toolbar"
           aria-label="Selected text actions"
@@ -1519,8 +1521,8 @@ export const ChatView = memo(function ChatView({
               <span>Quick question</span>
             </button>
           )}
-        </div>
-      ), document.body)}
+        </Overlay>
+      ), document.body)}</Presence>
     </Root>
   );
 }, (previous, next) => {

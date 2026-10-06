@@ -72,6 +72,7 @@ import {
   answerTextFromTextualBlocks,
   executionPlansFromTextualBlocks,
 } from '../../shared/textual-blocks.js';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const compactTokenFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
@@ -225,7 +226,7 @@ function AttachmentLightbox({ attachment, onClose }) {
 
   const isVideo = attachment?.kind === 'video_url';
   return createPortal(
-    <div
+    <Overlay
       className="attachment-lightbox"
       role="dialog"
       aria-modal="true"
@@ -248,7 +249,7 @@ function AttachmentLightbox({ attachment, onClose }) {
       >
         <X size={18} />
       </button>
-    </div>,
+    </Overlay>,
     document.body,
   );
 }
@@ -401,12 +402,12 @@ function UserMessage({ message, editing, onEdit, editor }) {
           </button>
         </div>
       </div>
-      {lightboxAttachment && (
+      <Presence when={lightboxAttachment}>{(lightboxAttachment) => (
         <AttachmentLightbox
           attachment={lightboxAttachment}
           onClose={() => setLightboxAttachment(null)}
         />
-      )}
+      )}</Presence>
     </article>
   );
 }
@@ -579,13 +580,13 @@ function AssistantMessage({
             ))}
           </div>
         )}
-        {lightboxAttachment && (
+        <Presence when={lightboxAttachment}>{(lightboxAttachment) => (
           <AttachmentLightbox
             attachment={lightboxAttachment}
             onClose={() => setLightboxAttachment(null)}
           />
-        )}
-        {imageContextMenu && createPortal(
+        )}</Presence>
+        <Presence when={imageContextMenu}>{(imageContextMenu) => createPortal(
           <DropdownMenu
             className="generated-image-context-menu"
             fixed
@@ -644,7 +645,7 @@ function AssistantMessage({
             </DropdownMenuItem>
           </DropdownMenu>,
           document.body,
-        )}
+        )}</Presence>
         {activelyStreaming && !questionPending && (
           <div className="assistant-placeholder" aria-live="polite">
             <span key={thinkingLabel} className="assistant-placeholder-label">
@@ -728,8 +729,8 @@ function AssistantMessage({
                   >
                     <Info size={15} />
                   </button>
-                  {usageOpen && (
-                    <div className="message-usage-popover" role="dialog" aria-label="Response usage details">
+                  <Presence when={usageOpen}>{() => (
+                    <Overlay className="message-usage-popover" role="dialog" aria-label="Response usage details">
                       <dl>
                         <div>
                           <dt>Input</dt>
@@ -770,8 +771,8 @@ function AssistantMessage({
                           <dd>{formatMetricDuration(message.usage?.durationMs)}</dd>
                         </div>
                       </dl>
-                    </div>
-                  )}
+                    </Overlay>
+                  )}</Presence>
                 </div>
               )}
               {canResumeFromFailure && (
@@ -1003,7 +1004,7 @@ export const MarkdownSegment = memo(function MarkdownSegment({
                 >
                   <ChevronDown size={14} />
                 </button>
-                {planMenuOpen && (
+                <Presence when={planMenuOpen}>{() => (
                   <DropdownMenu className="implement-plan-menu" role="menu">
                     <DropdownMenuItem
                       role="menuitem"
@@ -1045,7 +1046,7 @@ export const MarkdownSegment = memo(function MarkdownSegment({
                       Copy plan
                     </DropdownMenuItem>
                   </DropdownMenu>
-                )}
+                )}</Presence>
               </div>
             )}
           </CopyablePanel>
@@ -1192,8 +1193,8 @@ function createMarkdownComponents(finalized, onOpenFileReference, onFileReferenc
     'avi-copy': function CopyDirective({ label, value }) {
       return <RichContent part={{ type: 'copy', label, value }} />;
     },
-    'avi-callout': function CalloutDirective({ children, kind, title }) {
-      return <RichContent part={{ type: 'callout', kind, title }}>{children}</RichContent>;
+    'avi-callout': function CalloutDirective({ children, kind, title, inline }) {
+      return <RichContent part={{ type: 'callout', kind, title, inline: Boolean(inline) }}>{children}</RichContent>;
     },
     'avi-finding': function FindingDirective({ children, level, title }) {
       return <RichContent part={{ type: 'finding', level, title }}>{children}</RichContent>;

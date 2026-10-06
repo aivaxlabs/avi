@@ -12,6 +12,7 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { classNames } from '../lib/format.js';
+import { Overlay } from './Overlay.jsx';
 
 export function ModelPicker({
   models,
@@ -72,7 +73,7 @@ export function ModelPicker({
     ?? selectedModel;
 
   return createPortal(
-    <div className="dialog-backdrop" onMouseDown={onClose}>
+    <Overlay className="dialog-backdrop" onMouseDown={onClose}>
       <section className="model-dialog" onMouseDown={(event) => event.stopPropagation()}>
         <div className="dialog-header">
           <div>
@@ -235,7 +236,7 @@ export function ModelPicker({
           </div>
         </footer>
       </section>
-    </div>,
+    </Overlay>,
     document.body,
   );
 }

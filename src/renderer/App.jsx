@@ -31,6 +31,7 @@ import {
   deriveAuxiliaryThreadStatusList,
   updateAuxiliaryMessageStates,
 } from './lib/auxiliary-thread-status.js';
+import { Overlay, Presence, usePresence } from './components/Overlay.jsx';
 
 const api = window.chatApp;
 const sidebarWidthStorageKey = 'aivax.layout.sidebar-width';
@@ -42,6 +43,7 @@ const savedAuxiliaryPanelWidth = Number(
 window.localStorage.removeItem('aivax.composer.work-mode');
 window.localStorage.removeItem('aivax.composer.ultra-mode');
 const minimumAuxiliaryPanelWidth = 280;
+const auxiliaryPanelCloseDuration = 350;
 const minimumMainContentWidth = 320;
 const MESSAGE_PAGE_SIZE = 100;
 const emptyList = Object.freeze([]);
@@ -2284,7 +2286,7 @@ export default function App() {
       );
     }
   });
-  const auxiliaryOnClosePanel = useStableCallback(() => { setAuxiliaryPanelVisible(false); setAuxiliaryExpanded(false); });
+  const auxiliaryOnClosePanel = useStableCallback(() => setAuxiliaryPanelVisible(false));
   const auxiliaryOnToggleExpanded = useStableCallback(() => setAuxiliaryExpanded((value) => !value));
   const auxiliaryOnRunAgent = useStableCallback((payload) => sendMessage({
     ...payload,
@@ -2346,8 +2348,20 @@ export default function App() {
   ));
 
   const overviewInboxVisible = orchestrationOpen && Boolean(overviewInboxNavigation);
+  const [renderedInboxNavigation] = usePresence(
+    overviewInboxVisible ? overviewInboxNavigation : null,
+    auxiliaryPanelCloseDuration,
+  );
+  const [auxiliaryPanelRendered] = usePresence(
+    auxiliaryPanelVisible,
+    auxiliaryPanelCloseDuration,
+  );
+  const sidePanelRendered = orchestrationOpen
+    ? Boolean(renderedInboxNavigation)
+    : Boolean(auxiliaryPanelRendered);
   const sidePanelVisible = orchestrationOpen ? overviewInboxVisible : auxiliaryPanelVisible;
-  const auxiliaryExpansionActive = auxiliaryExpanded && !orchestrationOpen && auxiliaryPanelVisible;
+  const auxiliaryExpansionActive = auxiliaryExpanded && !orchestrationOpen && Boolean(auxiliaryPanelRendered);
+  if (!auxiliaryPanelRendered && auxiliaryExpanded) setAuxiliaryExpanded(false);
   const narrowWindow = windowWidth <= 700;
   const effectiveSidebarCollapsed = narrowWindow || sidebarCollapsed || auxiliaryExpansionActive;
   const sidebarWidthMax = Math.max(
@@ -2581,10 +2595,13 @@ export default function App() {
               )}
             />
           )}
+          {effectiveSidebarCollapsed && !orchestrationOpen && <div aria-hidden="true" />}
           <div
-            className={`chat-workspace${sidePanelVisible
-              ? ' with-auxiliary-panel'
-              : ''}`}
+            className={[
+              'chat-workspace',
+              sidePanelRendered && 'with-auxiliary-panel',
+              sidePanelRendered && !sidePanelVisible && 'auxiliary-closing',
+            ].filter(Boolean).join(' ')}
           >
             {orchestrationOpen && (
               <div className="orchestration-container">
@@ -2701,7 +2718,9 @@ export default function App() {
                 )}
               />
             )}
-            {auxiliaryExpansionActive && <div aria-hidden="true" />}
+            {(auxiliaryExpansionActive || (sidePanelRendered && !sidePanelVisible)) && (
+              <div aria-hidden="true" />
+            )}
             {!orchestrationOpen && !auxiliaryPanelVisible && (
               <button
                 className="auxiliary-panel-toggle"
@@ -2734,17 +2753,18 @@ export default function App() {
                 <PanelRightOpen size={17} />
               </button>
             )}
-            {overviewInboxVisible && (
+            {orchestrationOpen && renderedInboxNavigation && (
               <AuxiliaryPanel
                 inboxOnly
+                closing={!overviewInboxVisible}
                 sideChats={emptyList}
                 subagents={emptyList}
                 models={models}
                 bots={bots}
                 botDataByBot={botDataByBot}
                 botsLoading={botsLoading}
-                selectedBotId={overviewInboxNavigation.botId}
-                inboxNavigation={overviewInboxNavigation}
+                selectedBotId={renderedInboxNavigation.botId}
+                inboxNavigation={renderedInboxNavigation}
                 activeTab="bot-queue"
                 botQueueTabOpen
                 onResolveBotApproval={auxiliaryOnResolveBotApproval}
@@ -2755,8 +2775,9 @@ export default function App() {
                 onClosePanel={() => setOverviewInboxNavigation(null)}
               />
             )}
-            {!orchestrationOpen && auxiliaryPanelVisible && (
+            {!orchestrationOpen && auxiliaryPanelRendered && (
               <AuxiliaryPanel
+                closing={!auxiliaryPanelVisible}
                 expanded={auxiliaryExpanded}
                 onToggleExpanded={auxiliaryOnToggleExpanded}
                 sideChats={sideChats}
@@ -2851,13 +2872,13 @@ export default function App() {
           </div>
         </div>
       </div>
-      {!settingsOpen && searchOpen && (
+      <Presence when={!settingsOpen && searchOpen}>{() => (
         <SearchDialog
           onClose={() => setSearchOpen(false)}
           onSelect={selectConversation}
         />
-      )}
-      {quickQuestion && (
+      )}</Presence>
+      <Presence when={quickQuestion}>{(quickQuestion) => (
         <QuickQuestionPopover
           key={quickQuestion.id}
           request={quickQuestion}
@@ -2868,8 +2889,8 @@ export default function App() {
             void selectConversation(conversation.id);
           }}
         />
-      )}
-      {botSettingsTarget && (
+      )}</Presence>
+      <Presence when={botSettingsTarget}>{(botSettingsTarget) => (
         <BotSettingsDialog
           bot={bots.find((bot) => bot.id === botSettingsTarget) ?? null}
           models={models}
@@ -2889,9 +2910,10 @@ export default function App() {
           onFullReset={fullResetBot}
           onDeleteBot={deleteBot}
         />
-      )}
-      {(error || currentConversationError) && (
-        <button
+      )}</Presence>
+      <Presence when={error || currentConversationError} duration={350}>{(message) => (
+        <Overlay
+          as="button"
           className="toast"
           type="button"
           onClick={() => {
@@ -2906,9 +2928,9 @@ export default function App() {
             });
           }}
         >
-          {error || currentConversationError}
-        </button>
-      )}
+          {message}
+        </Overlay>
+      )}</Presence>
       <McpOverlay
         state={mcpState}
         waitingCount={Object.values(mcpWaiting).filter(Boolean).length}

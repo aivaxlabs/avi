@@ -8,6 +8,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { formatTimeRemaining } from '../lib/provider-usages.js';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
@@ -93,8 +94,8 @@ export function ProviderUsages({ providers, open, onOpenChange }) {
         <span>{providers.length}</span>
       </button>
 
-      {open && createPortal(
-        <div className="dialog-backdrop provider-usages-backdrop">
+      <Presence when={open}>{() => createPortal(
+        <Overlay className="dialog-backdrop provider-usages-backdrop">
           <section
             className="provider-usages-dialog"
             role="dialog"
@@ -227,12 +228,12 @@ export function ProviderUsages({ providers, open, onOpenChange }) {
               {message && <p className="provider-usages-message" role="status">{message}</p>}
             </div>
           </section>
-        </div>,
+        </Overlay>,
         document.body,
-      )}
+      )}</Presence>
 
-      {resetsFor && createPortal(
-        <div className="dialog-backdrop provider-resets-backdrop">
+      <Presence when={resetsFor}>{(resetsFor) => createPortal(
+        <Overlay className="dialog-backdrop provider-resets-backdrop">
           <section
             className="provider-resets-dialog"
             role="dialog"
@@ -324,9 +325,9 @@ export function ProviderUsages({ providers, open, onOpenChange }) {
               {error && <p className="provider-usages-error" role="alert">{error}</p>}
             </div>
           </section>
-        </div>,
+        </Overlay>,
         document.body,
-      )}
+      )}</Presence>
     </>
   );
 }

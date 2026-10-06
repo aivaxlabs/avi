@@ -43,6 +43,7 @@ import iconTheme from '../../../assets/fileicons/studio-icons.json';
 import { createFileEditDiff } from '../lib/file-edits.js';
 import { formatBytes } from '../lib/files.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const iconAssets = import.meta.glob('../../../assets/fileicons/images/*.svg', {
   eager: true,
@@ -1065,8 +1066,8 @@ export function FilesPanel({
         )}
       </div>
 
-      {selectionAction && createPortal(
-        <div
+      <Presence when={selectionAction}>{(selectionAction) => createPortal(
+        <Overlay
           className="selection-action-group"
           role="toolbar"
           aria-label="Selected code actions"
@@ -1118,11 +1119,11 @@ export function FilesPanel({
               <span>{label}</span>
             </button>
           ))}
-        </div>,
+        </Overlay>,
         document.body,
-      )}
+      )}</Presence>
 
-      {contextMenu && createPortal(
+      <Presence when={contextMenu}>{(contextMenu) => createPortal(
         <DropdownMenu
           className="files-context-menu"
           fixed
@@ -1229,7 +1230,7 @@ export function FilesPanel({
           </DropdownMenuItem>
         </DropdownMenu>,
         document.body,
-      )}
+      )}</Presence>
     </section>
   );
 }

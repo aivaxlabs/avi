@@ -55,6 +55,7 @@ import { McpSettings } from './McpSettings.jsx';
 import { PluginsSettings } from './PluginsSettings.jsx';
 import { KeyboardShortcutSettings } from './KeyboardShortcuts.jsx';
 import { RemoteSettings } from './RemoteSettings.jsx';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const reasoningEfforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const capabilityOptions = [
@@ -145,7 +146,7 @@ function MultiSelect({ label, onChange, options, values }) {
         </span>
         <ChevronDown size={14} />
       </button>
-      {open && (
+      <Presence when={open}>{() => (
         <DropdownMenu
           className="model-multiselect-menu"
           role="listbox"
@@ -170,7 +171,7 @@ function MultiSelect({ label, onChange, options, values }) {
             );
           })}
         </DropdownMenu>
-      )}
+      )}</Presence>
     </div>
   );
 }
@@ -315,7 +316,7 @@ function ActionMenu({
       >
         <Ellipsis size={16} />
       </button>
-      {open && position && createPortal(
+      <Presence when={open && position}>{(position) => createPortal(
         <div
           ref={menuRef}
           className="settings-action-menu"
@@ -348,7 +349,7 @@ function ActionMenu({
           </DropdownMenu>
         </div>,
         document.body,
-      )}
+      )}</Presence>
     </>
   );
 }
@@ -1200,7 +1201,7 @@ export function SettingsPage({
                   >
                     <ChevronDown size={14} />
                   </button>
-                  {providerImportOpen && (
+                  <Presence when={providerImportOpen}>{() => (
                     <DropdownMenu className="settings-add-provider-menu" role="menu">
                       <DropdownMenuItem
                         icon={<ClipboardPaste size={14} />}
@@ -1227,7 +1228,7 @@ export function SettingsPage({
                         Import from URL
                       </DropdownMenuItem>
                     </DropdownMenu>
-                  )}
+                  )}</Presence>
                 </div>
               )}
               {view === 'routers' && (
@@ -2867,7 +2868,7 @@ export function SettingsPage({
                             >
                               <ChevronDown size={14} />
                             </button>
-                            {modelMenuOpen && (
+                            <Presence when={modelMenuOpen}>{() => (
                               <DropdownMenu className="settings-add-provider-menu" role="menu">
                                 <DropdownMenuItem
                                   icon={<ScanSearch size={14} />}
@@ -2877,7 +2878,7 @@ export function SettingsPage({
                                   Scan models
                                 </DropdownMenuItem>
                               </DropdownMenu>
-                            )}
+                            )}</Presence>
                           </>
                         )}
                       </div>
@@ -3226,8 +3227,8 @@ export function SettingsPage({
           </footer>
         )}
       </main>
-      {providerShareDialog && (
-        <div
+      <Presence when={providerShareDialog}>{(providerShareDialog) => (
+        <Overlay
           className="dialog-backdrop provider-import-dialog-backdrop"
           onMouseDown={(event) => {
             if (event.target !== event.currentTarget || busy) return;
@@ -3318,10 +3319,10 @@ export function SettingsPage({
               </div>
             </footer>
           </div>
-        </div>
-      )}
-      {modelScanDialog && (
-        <div
+        </Overlay>
+      )}</Presence>
+      <Presence when={modelScanDialog}>{(modelScanDialog) => (
+        <Overlay
           className="dialog-backdrop provider-import-dialog-backdrop"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) setModelScanDialog(null);
@@ -3421,10 +3422,10 @@ export function SettingsPage({
               </div>
             </footer>
           </div>
-        </div>
-      )}
-      {providerImportDialog && (
-        <div
+        </Overlay>
+      )}</Presence>
+      <Presence when={providerImportDialog}>{(providerImportDialog) => (
+        <Overlay
           className="dialog-backdrop provider-import-dialog-backdrop"
           onMouseDown={(event) => {
             if (event.target !== event.currentTarget || busy) return;
@@ -3638,8 +3639,8 @@ export function SettingsPage({
               </div>
             </footer>
           </form>
-        </div>
-      )}
+        </Overlay>
+      )}</Presence>
     </section>
   );
 }

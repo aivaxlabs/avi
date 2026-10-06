@@ -16,6 +16,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatPrice } from '../lib/format.js';
 import { getBotPendencyStatusLabel, hasOpenBotUserAction } from '../../shared/bot-work-items.js';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const emptyBots = [];
 const emptyBotData = {};
@@ -418,8 +419,8 @@ export function OrchestrationPage({ models, onOpenThread, bots = emptyBots, botD
             <ChevronDown size={14} />
           </button>
         )}
-        {activeTab === 'models' && rangeOpen && (
-          <div className="orchestration-range-popover" role="dialog" aria-label="Select time range">
+        <Presence when={activeTab === 'models' && rangeOpen}>{() => (
+          <Overlay className="orchestration-range-popover" role="dialog" aria-label="Select time range">
             <div className="orchestration-range-fields">
               <label>
                 <span>From</span>
@@ -477,8 +478,8 @@ export function OrchestrationPage({ models, onOpenThread, bots = emptyBots, botD
                 </button>
               ))}
             </div>
-          </div>
-        )}
+          </Overlay>
+        )}</Presence>
         <button
           className="orchestration-refresh"
           type="button"

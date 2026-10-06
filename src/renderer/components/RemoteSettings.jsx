@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
+import { Presence } from './Overlay.jsx';
 
 const REMOTE_MCP_PUBLIC_URL = 'https://avi-relay.projpw.workers.dev/mcp';
 
@@ -263,7 +264,7 @@ export function RemoteSettings() {
               >
                 <MoreVertical size={14} />
               </button>
-              {openMenuId === key.id && (
+              <Presence when={openMenuId === key.id}>{() => (
                 <DropdownMenu role="menu" aria-label="API key actions">
                   <DropdownMenuItem
                     icon={<Copy size={14} />}
@@ -295,7 +296,7 @@ export function RemoteSettings() {
                     Delete
                   </DropdownMenuItem>
                 </DropdownMenu>
-              )}
+              )}</Presence>
             </div>
           </div>
         ))}

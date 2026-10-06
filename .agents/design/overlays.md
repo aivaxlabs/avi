@@ -12,9 +12,18 @@
 
 There is no generic `Modal`, `Popover`, or `Flyover` component. Specialized dialogs are reusable for their own domain, not shells for unrelated content. Follow their markup/style families when a genuinely new dialog is needed; do not add a general overlay framework as part of an ordinary feature.
 
+## Exit presence contract
+
+Every overlay animates out through `src/renderer/components/Overlay.jsx`:
+
+- Render conditional overlays as `<Presence when={value}>{(value) => ...}</Presence>` instead of `{value && ...}`. `Presence` keeps the last truthy `value` mounted for 150ms (`duration` prop; the toast uses 350ms; 0 with reduced motion), so the render function can still read it after the state is cleared. `when` must be referentially stable state or a primitive, never an inline object.
+- The overlay root must be `Overlay` (`as="form"`, `as="dialog"`, and so on for non-`div` roots). `DropdownMenu` already renders one. While closing it gets `data-closing` and `inert`; nested `Presence` blocks inherit the closing state from their parent.
+- Styles must pair the open animation with a `[data-closing]` rule that uses `forwards` and covers it in the reduced-motion block: dropdowns and popovers use `dropdown-menu-out` (`--duration-quick`, `--scale-tiny`); dialogs use `dialog-backdrop-out` / `dialog-surface-out` (also on `::backdrop` for native dialogs); the toast uses `toast-out`.
+- `data-closing` is an attribute, not a class, so React does not overwrite imperative classes such as `.flip-left`. DOM queries that test for an open overlay must exclude `[data-closing]`, and tests must not assume immediate unmount.
+
 ## Dropdown contract
 
-`DropdownMenu` accepts `children`, `className`, `style`, `fixed`, a forwarded ref, and DOM props. It renders a `div`; `fixed` only adds the fixed-position class. It does **not** portal, calculate position, manage open state, dismiss, move focus, or implement keyboard navigation.
+`DropdownMenu` accepts `children`, `className`, `style`, `fixed`, `submenu`, a forwarded ref, and DOM props. It renders an `Overlay` `div`; `fixed` only adds the fixed-position class. It does **not** portal, calculate position, manage open state, dismiss, move focus, or implement keyboard navigation.
 
 `DropdownMenuItem` renders a `button type="button"`, with optional `icon`, `active`, `className`, and DOM props such as `disabled`, `onClick`, and ARIA attributes. Its children sit inside a label `span`; do not nest interactive controls inside it. `active` is visual, not an ARIA selection state.
 

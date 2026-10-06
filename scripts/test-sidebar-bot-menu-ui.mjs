@@ -79,7 +79,7 @@ function menuItem(text, root) {
 
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   await sleep(50);
-  check('Escape closes the nested menu first', !q('.bot-work-queue-menu') && Boolean(q('.dropdown-menu.fixed')));
+  check('Escape closes the nested menu first', !q('.bot-work-queue-menu:not([data-closing])') && Boolean(q('.dropdown-menu.fixed:not([data-closing])')));
 
   click(menuItem('Activate now', q('.dropdown-menu.fixed')));
   click(menuItem('Next work item', await waitFor(() => q('.bot-work-queue-menu'), 'reopened submenu')));
