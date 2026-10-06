@@ -35,6 +35,16 @@ Use a `callout` leaf directive as a short visual heading. Put supporting Markdow
 - The label supports inline Markdown and must remain concise.
 - Do not use a container `:::callout`; it is not supported.
 
+Use the inline `callout` text directive, with a single colon, to highlight a short phrase inside a sentence, list item, or table cell:
+
+```markdown
+The build passed, but :callout[E2E tests were not run]{kind="warning"}.
+```
+
+- It accepts the same `kind` values and renders as a colored inline badge.
+- Keep the label to a few words; use the leaf form for anything that deserves its own line.
+- A `:callout` alone in its paragraph renders as the block form.
+
 ## Charts and progress
 
 Use the `avi-chart` leaf directive for bar, line, pie, or progress charts. Use single quotes around `data` so its JSON can retain double quotes.

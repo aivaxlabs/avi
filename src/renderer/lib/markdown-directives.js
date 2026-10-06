@@ -56,7 +56,7 @@ function transformDirective(node, file, processor) {
   const transformed = node.name.toLowerCase() === 'fileref'
     ? transformFileReference(node)
     : node.type === 'textDirective'
-      ? null
+      ? (node.name.toLowerCase() === 'callout' ? transformHeader(node, 'callout', true) : null)
       : transformRichDirective(node, file);
   return transformed ?? { type: 'text', value: sourceForNode(node, file) };
 }
@@ -154,7 +154,7 @@ function transformCopy(node, file) {
   return withElement(node, 'avi-copy', { label, value });
 }
 
-function transformHeader(node, type) {
+function transformHeader(node, type, inline = false) {
   const title = node.attributes?.label?.trim()
     || node.attributes?.title?.trim()
     || toString(node).trim();
@@ -162,7 +162,9 @@ function transformHeader(node, type) {
   if (node.type === 'containerDirective') node.children = [];
   if (type === 'callout') {
     const kind = node.attributes?.kind?.toLowerCase() || 'info';
-    return CALLOUT_KINDS.has(kind) ? withElement(node, 'avi-callout', { kind, title }) : null;
+    return CALLOUT_KINDS.has(kind)
+      ? withElement(node, 'avi-callout', { kind, title, inline: inline || undefined })
+      : null;
   }
   const level = node.attributes?.level?.toUpperCase();
   return /^P[0-3]$/.test(level) ? withElement(node, 'avi-finding', { level, title }) : null;

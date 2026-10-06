@@ -23,6 +23,15 @@ const CALLOUT_ICONS = Object.freeze({
 export function RichContent({ part, onOpenFileReference, onFileReferenceContextMenu, children }) {
   if (part.type === 'chart') return <RichChart chart={part} />;
   if (part.type === 'copy') return <CopyablePanel label={part.label} value={part.value} />;
+  if (part.type === 'callout' && part.inline) {
+    const Icon = CALLOUT_ICONS[part.kind];
+    return (
+      <span className={`inline-callout callout-${part.kind}`}>
+        <Icon size={13} aria-hidden="true" />
+        <span>{children || part.title}</span>
+      </span>
+    );
+  }
   if (part.type === 'callout') {
     return <DirectiveHeader className={`callout-heading callout-${part.kind}`} kind={part.kind} title={part.title}>{children}</DirectiveHeader>;
   }
