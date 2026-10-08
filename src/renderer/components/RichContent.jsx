@@ -4,13 +4,16 @@ import {
   Copy,
   FileText,
   Info,
+  Maximize2,
   TriangleAlert,
+  X,
 } from 'lucide-react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-diff';
 import { useEffect, useId, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 
-import { mermaidSvgWithTextLabels } from '../lib/mermaid-svg';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const chartValueFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 const CALLOUT_ICONS = Object.freeze({
@@ -101,6 +104,17 @@ function DiffPanel({ diff }) {
 function AsyncVisualization({ part }) {
   const id = useId().replaceAll(':', '');
   const [state, setState] = useState({ html: '', imageSrc: '', error: '' });
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setExpanded(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [expanded]);
+
   useEffect(() => {
     let active = true;
     setState({ html: '', imageSrc: '', error: '' });
@@ -115,11 +129,11 @@ function AsyncVisualization({ part }) {
           mermaid.initialize({
             startOnLoad: false,
             securityLevel: 'strict',
-            theme: 'dark',
-            flowchart: { htmlLabels: false },
+            theme: document.documentElement.dataset.colorScheme === 'dark' ? 'dark' : 'neutral',
+            htmlLabels: false,
           });
           const rendered = (await mermaid.render(`avi-mermaid-${id}`, part.source)).svg;
-          const sanitized = DOMPurify.sanitize(mermaidSvgWithTextLabels(rendered), {
+          const sanitized = DOMPurify.sanitize(rendered, {
             USE_PROFILES: { svg: true, svgFilters: true },
             FORBID_TAGS: ['foreignObject', 'script'],
             FORBID_ATTR: ['href', 'xlink:href'],
@@ -160,7 +174,43 @@ function AsyncVisualization({ part }) {
     );
   }
   if (state.imageSrc) {
-    return <img className="async-visualization mermaid-visualization" src={state.imageSrc} alt={label} />;
+    return (
+      <figure className="async-visualization mermaid-visualization">
+        <img src={state.imageSrc} alt={label} />
+        <button
+          type="button"
+          className="mermaid-expand"
+          aria-label="Expand Mermaid diagram"
+          title="Expand"
+          onClick={() => setExpanded(true)}
+        >
+          <Maximize2 size={14} />
+        </button>
+        <Presence when={expanded ? state.imageSrc : ''}>{(imageSrc) => createPortal(
+          <Overlay
+            className="attachment-lightbox mermaid-lightbox"
+            role="dialog"
+            aria-modal="true"
+            aria-label={label}
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setExpanded(false);
+            }}
+          >
+            <img src={imageSrc} alt={label} />
+            <button
+              type="button"
+              aria-label="Close diagram preview"
+              title="Close"
+              autoFocus
+              onClick={() => setExpanded(false)}
+            >
+              <X size={18} />
+            </button>
+          </Overlay>,
+          document.body,
+        )}</Presence>
+      </figure>
+    );
   }
   if (!state.html) {
     return <div className={`async-visualization ${part.type}-visualization is-loading`} aria-label={`Rendering ${label}`} />;

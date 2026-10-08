@@ -158,7 +158,7 @@ function transformHeader(node, type, inline = false) {
   const title = node.attributes?.label?.trim()
     || node.attributes?.title?.trim()
     || toString(node).trim();
-  if (!title || title.length > MAX_TITLE_LENGTH) return null;
+  if (!title) return null;
   if (node.type === 'containerDirective') node.children = [];
   if (type === 'callout') {
     const kind = node.attributes?.kind?.toLowerCase() || 'info';
