@@ -10,6 +10,7 @@ import {
   Menu,
   nativeImage,
   Notification,
+  powerMonitor,
   protocol,
   shell,
   Tray,
@@ -231,6 +232,7 @@ const remoteRelay = new RemoteRelay({
   name: hostname().slice(0, 128),
   createLocalSocket: (path, identity) => remoteMcpServer.createRelaySocket(path, identity),
   handleMcpRequest: (request, instanceKey) => remoteMcpServer.handleMcpRequest(request, instanceKey),
+  trace: traceInfo,
 });
 
 function synchronizeRemoteRelay() {
@@ -361,6 +363,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' && !getPreferences().desktop?.closeToTray) app.quit();
 });
 await app.whenReady();
+for (const event of ['resume', 'unlock-screen']) powerMonitor.on(event, () => remoteRelay.resume());
 if (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin) startHidden = true;
 await initializeSecureStorage();
 runArchiveMaintenance();

@@ -14,22 +14,26 @@ const CONVERSATION_STREAM_PATTERN = /^\/rpc\/conversations\/streams\/([^/]+)$/;
 const MAX_CHANNEL_BYTES = 1024 * 1024;
 const MAX_ENVELOPE_BYTES = 2 * 1024 * 1024 + 1024;
 const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+const MAX_OUTBOX_BYTES = 8 * 1024 * 1024;
 const MAX_OPEN_PATH_LENGTH = 512;
 const RATE_WINDOW_MS = 1_000;
-const RATE_MAX_MESSAGES = 128;
-const RATE_MAX_BYTES = 4 * 1024 * 1024;
+const RATE_SOFT_MESSAGES = 80;
+const RATE_SOFT_BYTES = 2 * 1024 * 1024;
+const RATE_MAX_MESSAGES = 100;
+const RATE_MAX_BYTES = 3 * 1024 * 1024;
 const PING_INTERVAL_MS = 30_000;
 const PONG_TIMEOUT_MS = 60_000;
+const RESUME_PROBE_MS = 5_000;
 const RETRY_MAX_DELAY_MS = 30_000;
+const SEVERE_RETRY_ATTEMPT = 4;
 const TEARDOWN_TIMEOUT_MS = 2_000;
 const CHANNEL_LIMIT = 32;
-const PERMANENT_CLOSE_CODES = new Set([1008, 1009, 4003]);
-const PERMANENT_CLOSE_MESSAGES = new Map([
-  [1008, 'The relay closed the session for a policy or rate violation; Remote stopped.'],
-  [1009, 'The relay rejected an oversized payload; Remote stopped.'],
-  [4003, 'The relay reported an invalid channel close; Remote stopped.'],
+const SEVERE_CLOSE_MESSAGES = new Map([
+  [1008, 'The relay closed the session for a policy or rate violation; retrying.'],
+  [1009, 'The relay rejected an oversized payload; retrying.'],
+  [4003, 'The relay reported an invalid channel close; retrying.'],
 ]);
-const CREDENTIAL_ERROR = 'The relay rejected the AIVAX credential. Sign in to or repair the AIVAX integration to use Remote.';
+const CREDENTIAL_ERROR = 'The relay rejected the AIVAX credential; retrying. Sign in to or repair the AIVAX integration if this persists.';
 
 export class RemoteRelay {
   constructor({
@@ -43,8 +47,8 @@ export class RemoteRelay {
     createRelaySocket = null,
     retryBaseMs = 1_000,
     retryStableMs = 30_000,
-    revocationCheckMs = 15_000,
     handshakeTimeoutMs = 10_000,
+    trace = () => {},
   } = {}) {
     this.deviceId = typeof deviceId === 'string' ? deviceId : '';
     this.instanceId = typeof instanceId === 'string' && /^[a-z0-9]{10}$/.test(instanceId) ? instanceId : null;
@@ -67,8 +71,8 @@ export class RemoteRelay {
     this.relayBaseUrlAllowed = relayBaseUrlAllowed;
     this.retryBaseMs = retryBaseMs;
     this.retryStableMs = retryStableMs;
-    this.revocationCheckMs = revocationCheckMs;
     this.handshakeTimeoutMs = handshakeTimeoutMs;
+    this.trace = trace;
     this.accessToken = null;
     this.localPort = null;
     this.enabled = true;
@@ -77,19 +81,48 @@ export class RemoteRelay {
     this.generation = 0;
     this.socket = null;
     this.channels = new Map();
-    this.timers = { ping: null, revocation: null };
+    this.timers = { ping: null };
     this.ticketAbort = null;
     this.cancelRetryWait = null;
+    this.resetBackoff = false;
     this.teardown = Promise.resolve();
-    this.fatal = false;
+    this.severe = false;
     this.connectedAt = 0;
     this.stableDurationMs = 0;
     this.hasConnected = false;
-    this.tickRelayBuffered = 0;
     this.lastPongAt = 0;
-    this.rateWindowStart = 0;
-    this.rateMessages = 0;
+    this.resetOutbound();
+  }
+
+  resetOutbound() {
+    clearTimeout(this.outboxTimer);
+    this.outboxTimer = null;
+    this.outbox = [];
+    this.outboxBytes = 0;
+    this.rateLog = [];
     this.rateBytes = 0;
+  }
+
+  pruneRate(now) {
+    while (this.rateLog.length > 0 && this.rateLog[0].at <= now - RATE_WINDOW_MS) {
+      this.rateBytes -= this.rateLog.shift().bytes;
+    }
+  }
+
+  resume() {
+    if (this.cancelRetryWait) {
+      this.cancelRetryWait();
+      return;
+    }
+    const socket = this.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    const probedAt = Date.now();
+    socket.ping();
+    setTimeout(() => {
+      if (this.socket !== socket || this.lastPongAt >= probedAt) return;
+      this.resetBackoff = true;
+      socket.terminate();
+    }, RESUME_PROBE_MS);
   }
 
   snapshot() {
@@ -142,7 +175,8 @@ export class RemoteRelay {
 
   async stopSession() {
     this.generation += 1;
-    this.fatal = false;
+    this.severe = false;
+    this.resetBackoff = false;
     this.clearTimers();
     this.cancelRetryWait?.();
     this.cancelRetryWait = null;
@@ -153,12 +187,10 @@ export class RemoteRelay {
     for (const channel of channels.values()) this.discardChannel(channel);
     const socket = this.socket;
     this.socket = null;
-    this.rateMessages = 0;
-    this.rateBytes = 0;
+    this.resetOutbound();
     this.connectedAt = 0;
     this.stableDurationMs = 0;
     this.hasConnected = false;
-    this.tickRelayBuffered = 0;
     if (!socket || socket.readyState === WebSocket.CLOSED) return;
     await new Promise((resolve) => {
       const guard = setTimeout(() => {
@@ -176,9 +208,7 @@ export class RemoteRelay {
 
   clearTimers() {
     clearInterval(this.timers.ping);
-    clearInterval(this.timers.revocation);
     this.timers.ping = null;
-    this.timers.revocation = null;
   }
 
   waitRetry(delay) {
@@ -207,11 +237,21 @@ export class RemoteRelay {
         this.setTransientError('The relay session failed unexpectedly; retrying.');
         outcome = 'transient';
       }
-      if (this.generation !== generation || outcome === 'permanent' || outcome === 'aborted') return;
+      if (this.generation !== generation || outcome === 'aborted') return;
       attempt = this.stableDurationMs >= this.retryStableMs ? 0 : attempt + 1;
+      if (outcome === 'severe') attempt = Math.max(attempt, SEVERE_RETRY_ATTEMPT);
+      if (this.resetBackoff) attempt = 0;
+      this.resetBackoff = false;
       this.stableDurationMs = 0;
       const raw = Math.min(RETRY_MAX_DELAY_MS, this.retryBaseMs * 2 ** attempt);
-      await this.waitRetry(raw / 2 + Math.random() * (raw / 2));
+      const delay = raw / 2 + Math.random() * (raw / 2);
+      this.trace('remote.relay-retry', {
+        attempt,
+        retry_after_ms: Math.round(delay),
+        status: this.status,
+        error: this.error,
+      });
+      await this.waitRetry(delay);
     }
   }
 
@@ -221,11 +261,10 @@ export class RemoteRelay {
   }
 
   async connectOnce(generation) {
-    this.fatal = false;
+    this.severe = false;
     const ticket = await this.acquireTicket(generation);
     if (this.generation !== generation) return 'aborted';
-    if (ticket === 'aborted') return 'aborted';
-    if (ticket === 'transient' || ticket === 'permanent') return ticket;
+    if (typeof ticket === 'string') return ticket;
 
     this.accountId = new URL(ticket.websocketUrl).pathname.split('/')[3];
     const socket = this.createRelaySocket(ticket.websocketUrl, [RELAY_PROTOCOL, `avi-relay-ticket.${ticket.secret}`], {
@@ -262,22 +301,19 @@ export class RemoteRelay {
       socket.on('error', () => {});
       socket.terminate();
       if (this.socket === socket) this.socket = null;
-      this.status = 'error';
-      this.error = 'The relay did not select the expected subprotocol; Remote stopped.';
-      return 'permanent';
+      this.setTransientError('The relay did not select the expected subprotocol; retrying.');
+      return 'severe';
     }
 
     this.channels = new Map();
-    this.fatal = false;
+    this.severe = false;
     this.connectedAt = Date.now();
     this.hasConnected = true;
-    this.tickRelayBuffered = 0;
     this.lastPongAt = Date.now();
-    this.rateWindowStart = Date.now();
-    this.rateMessages = 0;
-    this.rateBytes = 0;
+    this.resetOutbound();
     this.status = 'connected';
     this.error = '';
+    this.trace('remote.relay-connected', { status: this.status });
 
     socket.on('pong', () => {
       if (this.socket !== socket) return;
@@ -289,32 +325,32 @@ export class RemoteRelay {
     socket.on('message', (data, isBinary) => {
       if (this.generation !== generation || this.socket !== socket) return;
       if (isBinary) {
-        this.failSession(socket, 'The relay sent an unexpected binary frame; Remote stopped.');
+        this.failSession(socket, 'The relay sent an unexpected binary frame; retrying.');
         return;
       }
       this.handleEnvelope(socket, generation, data.toString('utf8'));
     });
     socket.on('close', (code) => {
       if (this.generation !== generation || this.socket !== socket) return;
+      const durationMs = this.connectedAt > 0 ? Date.now() - this.connectedAt : 0;
       if (this.connectedAt > 0) {
-        this.stableDurationMs = Date.now() - this.connectedAt;
+        this.stableDurationMs = durationMs;
         this.connectedAt = 0;
       }
       this.clearTimers();
       this.teardownChannels();
+      this.resetOutbound();
       this.socket = null;
-      if (this.fatal) return;
-      if (PERMANENT_CLOSE_CODES.has(code)) {
-        this.status = 'error';
-        this.error = PERMANENT_CLOSE_MESSAGES.get(code);
-        return;
+      if (SEVERE_CLOSE_MESSAGES.has(code)) {
+        this.severe = true;
+        this.setTransientError(SEVERE_CLOSE_MESSAGES.get(code));
+      } else if (!this.severe) {
+        this.setTransientError('The relay connection was lost; reconnecting automatically.');
       }
-      this.setTransientError('The relay connection was lost; reconnecting automatically.');
+      this.trace('remote.relay-closed', { code, duration_ms: durationMs, status: this.status, error: this.error });
     });
 
     this.timers.ping = setInterval(() => {
-      if (this.generation !== generation || this.socket !== socket) return;
-      this.runPeriodicChecks(socket, generation);
       if (this.generation !== generation || this.socket !== socket) return;
       if (Date.now() - this.lastPongAt > PONG_TIMEOUT_MS) {
         socket.terminate();
@@ -322,31 +358,9 @@ export class RemoteRelay {
       }
       socket.ping();
     }, PING_INTERVAL_MS);
-    this.timers.revocation = setInterval(() => {
-      if (this.generation !== generation || this.socket !== socket) return;
-      this.runPeriodicChecks(socket, generation);
-    }, this.revocationCheckMs);
 
-    const closeCode = await new Promise((resolve) => socket.once('close', (code) => resolve(code)));
-    if (this.fatal || PERMANENT_CLOSE_CODES.has(closeCode)) return 'permanent';
-    return 'transient';
-  }
-
-  runPeriodicChecks(socket, generation) {
-    if (this.tickRelayBuffered > 0 && socket.bufferedAmount >= this.tickRelayBuffered) {
-      socket.terminate();
-      return;
-    }
-    this.tickRelayBuffered = socket.bufferedAmount;
-    for (const channel of [...this.channels.values()]) {
-      const local = channel.local;
-      if (!channel.ready || !local || local.readyState !== WebSocket.OPEN) continue;
-      if (channel.tickBuffered !== null && channel.tickBuffered > 0 && local.bufferedAmount >= channel.tickBuffered) {
-        local.terminate();
-        continue;
-      }
-      channel.tickBuffered = local.bufferedAmount;
-    }
+    await new Promise((resolve) => socket.once('close', resolve));
+    return this.severe ? 'severe' : 'transient';
   }
 
   async acquireTicket(generation) {
@@ -376,18 +390,16 @@ export class RemoteRelay {
     if (response.status === 401 || response.status === 403) {
       this.status = 'unauthorized';
       this.error = CREDENTIAL_ERROR;
-      return 'permanent';
+      return 'severe';
     }
     if (response.status === 409 && response.headers.get('x-avi-error') === 'instance_conflict') {
-      this.status = 'error';
-      this.error = 'This public instance ID belongs to another AIVAX account or device. Reconnect the original account; Remote stopped.';
-      return 'permanent';
+      this.setTransientError('This public instance ID belongs to another AIVAX account or device; retrying. Reconnect the original account if this persists.');
+      return 'severe';
     }
     if (response.status !== 201) {
       if (response.status === 400 || response.status === 413 || response.status === 426) {
-        this.status = 'error';
-        this.error = 'The relay rejected the session ticket request; Remote stopped.';
-        return 'permanent';
+        this.setTransientError('The relay rejected the session ticket request; retrying.');
+        return 'severe';
       }
       this.setTransientError(
         response.status === 409
@@ -397,9 +409,8 @@ export class RemoteRelay {
       return 'transient';
     }
     if (!this.isTicketShapeValid(ticket)) {
-      this.status = 'error';
-      this.error = 'The relay returned an unexpected session ticket; Remote stopped.';
-      return 'permanent';
+      this.setTransientError('The relay returned an unexpected session ticket; retrying.');
+      return 'severe';
     }
     if (ticket.expiresAt <= Date.now()) {
       this.setTransientError('The relay issued an already expired session ticket; retrying.');
@@ -438,11 +449,8 @@ export class RemoteRelay {
 
   failSession(socket, message) {
     if (this.socket !== socket) return;
-    this.fatal = true;
-    this.status = 'error';
-    this.error = message;
-    this.clearTimers();
-    this.teardownChannels();
+    this.severe = true;
+    this.setTransientError(message);
     socket.terminate();
   }
 
@@ -459,7 +467,6 @@ export class RemoteRelay {
     channel.cancelOpening?.();
     channel.cancelOpening = null;
     channel.path = null;
-    channel.tickBuffered = null;
     channel.local?.terminate();
     channel.local = null;
   }
@@ -469,29 +476,48 @@ export class RemoteRelay {
     const json = JSON.stringify(envelope);
     const bytes = Buffer.byteLength(json, 'utf8');
     if (bytes > MAX_ENVELOPE_BYTES) return 'oversize';
-    const now = Date.now();
-    if (now - this.rateWindowStart >= RATE_WINDOW_MS) {
-      this.rateWindowStart = now;
-      this.rateMessages = 0;
-      this.rateBytes = 0;
-    }
-    if (this.rateMessages + 1 > RATE_MAX_MESSAGES || this.rateBytes + bytes > RATE_MAX_BYTES) {
-      this.failSession(socket, 'The relay outbound message rate would be exceeded; Remote stopped to protect the service limit.');
-      return 'rate';
-    }
-    if (socket.bufferedAmount + bytes > MAX_BUFFERED_BYTES) {
-      socket.terminate();
+    if (this.outboxBytes + bytes > MAX_OUTBOX_BYTES) {
+      this.failSession(socket, 'The relay could not drain outbound traffic in time; retrying.');
       return 'slow';
     }
-    this.rateMessages += 1;
-    this.rateBytes += bytes;
-    try {
-      socket.send(json);
-    } catch {
-      socket.terminate();
-      return 'failed';
-    }
+    this.outbox.push({ json, bytes });
+    this.outboxBytes += bytes;
+    this.flushOutbox(socket);
     return 'sent';
+  }
+
+  flushOutbox(socket) {
+    clearTimeout(this.outboxTimer);
+    this.outboxTimer = null;
+    while (this.outbox.length > 0) {
+      if (this.socket !== socket || socket.readyState !== WebSocket.OPEN) return;
+      const now = Date.now();
+      this.pruneRate(now);
+      const { json, bytes } = this.outbox[0];
+      const rateFull = this.rateLog.length >= RATE_MAX_MESSAGES || this.rateBytes + bytes > RATE_MAX_BYTES;
+      if (rateFull || socket.bufferedAmount + bytes > MAX_BUFFERED_BYTES) {
+        const wait = rateFull && this.rateLog.length > 0 ? this.rateLog[0].at + RATE_WINDOW_MS - now + 1 : 10;
+        this.outboxTimer = setTimeout(() => this.flushOutbox(socket), Math.max(1, wait));
+        return;
+      }
+      this.outbox.shift();
+      this.outboxBytes -= bytes;
+      this.rateLog.push({ at: now, bytes });
+      this.rateBytes += bytes;
+      try {
+        socket.send(json);
+      } catch {
+        socket.terminate();
+        return;
+      }
+    }
+  }
+
+  outboundSaturated() {
+    this.pruneRate(Date.now());
+    return this.outbox.length > 0
+      || this.rateLog.length >= RATE_SOFT_MESSAGES
+      || this.rateBytes >= RATE_SOFT_BYTES;
   }
 
   sendChannelData(socket, generation, channel, payload) {
@@ -527,25 +553,25 @@ export class RemoteRelay {
     try {
       envelope = JSON.parse(text);
     } catch {
-      this.failSession(socket, 'The relay sent a malformed envelope; Remote stopped.');
+      this.failSession(socket, 'The relay sent a malformed envelope; retrying.');
       return;
     }
     const channelId = typeof envelope?.channelId === 'string' ? envelope.channelId : null;
     if (envelope?.type === 'open') {
       if (channelId === null || !CHANNEL_ID_PATTERN.test(channelId)) {
-        this.failSession(socket, 'The relay sent a malformed envelope; Remote stopped.');
+        this.failSession(socket, 'The relay sent a malformed envelope; retrying.');
         return;
       }
       if (this.channels.has(channelId)) {
-        this.failSession(socket, 'The relay reused an active channel id; Remote stopped.');
+        this.failSession(socket, 'The relay reused an active channel id; retrying.');
         return;
       }
       if (this.channels.size >= CHANNEL_LIMIT) {
-        const overflow = { id: channelId, path: null, local: null, ready: false, dead: false, openTimer: null, cancelOpening: null, tickBuffered: null };
+        const overflow = { id: channelId, path: null, local: null, ready: false, dead: false, openTimer: null, cancelOpening: null };
         this.closeChannel(socket, generation, overflow, { errorCode: 'unavailable' });
         return;
       }
-      const channel = { id: channelId, path: null, local: null, ready: false, dead: false, openTimer: null, cancelOpening: null, tickBuffered: null };
+      const channel = { id: channelId, path: null, local: null, ready: false, dead: false, openTimer: null, cancelOpening: null };
       channel.openTimer = setTimeout(() => {
         channel.openTimer = null;
         if (!channel.dead && !channel.ready) this.closeChannel(socket, generation, channel);
@@ -558,7 +584,7 @@ export class RemoteRelay {
       if (!channel) return;
       if (envelope.encoding === 'text') {
         if (typeof envelope.data !== 'string') {
-          this.failSession(socket, 'The relay sent a malformed envelope; Remote stopped.');
+          this.failSession(socket, 'The relay sent a malformed envelope; retrying.');
           return;
         }
         this.handleChannelText(socket, generation, channel, envelope.data);
@@ -566,7 +592,7 @@ export class RemoteRelay {
       }
       if (envelope.encoding === 'base64') {
         if (typeof envelope.data !== 'string') {
-          this.failSession(socket, 'The relay sent a malformed envelope; Remote stopped.');
+          this.failSession(socket, 'The relay sent a malformed envelope; retrying.');
           return;
         }
         if (!channel.ready) {
@@ -585,12 +611,12 @@ export class RemoteRelay {
         this.sendToLocal(channel, payload);
         return;
       }
-      this.failSession(socket, 'The relay sent a malformed envelope; Remote stopped.');
+      this.failSession(socket, 'The relay sent a malformed envelope; retrying.');
       return;
     }
     if (envelope?.type === 'close') {
       if (channelId === null) {
-        this.failSession(socket, 'The relay sent a malformed envelope; Remote stopped.');
+        this.failSession(socket, 'The relay sent a malformed envelope; retrying.');
         return;
       }
       const channel = this.channels.get(channelId);
@@ -598,7 +624,7 @@ export class RemoteRelay {
       this.closeChannel(socket, generation, channel, { notifyRelay: false });
       return;
     }
-    this.failSession(socket, 'The relay sent a malformed envelope; Remote stopped.');
+    this.failSession(socket, 'The relay sent a malformed envelope; retrying.');
   }
 
   handleChannelText(socket, generation, channel, text) {
@@ -639,11 +665,6 @@ export class RemoteRelay {
   sendToLocal(channel, payload) {
     const local = channel.local;
     if (!local || local.readyState !== WebSocket.OPEN) return;
-    const size = typeof payload === 'string' ? Buffer.byteLength(payload, 'utf8') : payload.length;
-    if (local.bufferedAmount + size > MAX_BUFFERED_BYTES) {
-      local.terminate();
-      return;
-    }
     try {
       local.send(payload);
     } catch {
@@ -737,11 +758,9 @@ export class RemoteRelay {
     let local;
     try {
       local = this.createLocalSocket(path, `relay:${this.accountId}`);
-      Object.defineProperty(local, 'bufferedAmount', { configurable: true, get: () => {
-        const rateBlocked = Date.now() - this.rateWindowStart < RATE_WINDOW_MS
-          && (this.rateMessages >= 96 || this.rateBytes >= 2 * 1024 * 1024);
-        return rateBlocked ? MAX_BUFFERED_BYTES : socket.bufferedAmount;
-      } });
+      Object.defineProperty(local, 'bufferedAmount', { configurable: true, get: () => (
+        this.outboundSaturated() ? MAX_BUFFERED_BYTES : socket.bufferedAmount
+      ) });
     } catch {
       this.closeChannel(socket, generation, channel, { errorCode: 'unavailable' });
       return;

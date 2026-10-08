@@ -21,6 +21,7 @@ class MockRelay {
     this.validTickets = new Set();
     this.publishers = new Set();
     this.envelopes = [];
+    this.arrivals = new WeakMap();
     this.waiters = [];
     this.upgrades = 0;
     this.lastProtocols = null;
@@ -105,6 +106,7 @@ class MockRelay {
         client.on('message', (data, isBinary) => {
           if (isBinary) return;
           const envelope = JSON.parse(data.toString('utf8'));
+          this.arrivals.set(envelope, Date.now());
           this.envelopes.push(envelope);
           for (const waiter of [...this.waiters]) waiter(envelope);
         });
@@ -226,11 +228,16 @@ const createRelay = ({ relay, local, ...overrides } = {}) => new RemoteRelay({
   relayBaseUrl: relay.baseUrl,
   retryBaseMs: 20,
   retryStableMs: 150,
-  revocationCheckMs: 40,
   handshakeTimeoutMs: 400,
   ...(local ? { createLocalSocket: (path) => new WebSocket(`ws://127.0.0.1:${local.port}${path}`) } : {}),
   ...overrides,
 });
+
+async function waitForError(relay, pattern, timeoutMs = 2_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!pattern.test(relay.snapshot().error) && Date.now() < deadline) await sleep(10);
+  assert.match(relay.snapshot().error, pattern);
+}
 
 async function waitForStatus(relay, status, timeoutMs = 2_000) {
   const deadline = Date.now() + timeoutMs;
@@ -338,7 +345,7 @@ test('starts from the token alone, keeps localPort null, and requests a publishe
   }
 });
 
-test('stops with unauthorized status on ticket 401 and never retries or upgrades', async () => {
+test('reports unauthorized on ticket 401, backs off, and reconnects once the credential is accepted', async () => {
   const relayServer = new MockRelay();
   await relayServer.listen();
   const relay = createRelay({ relay: relayServer, local: undefined });
@@ -348,22 +355,42 @@ test('stops with unauthorized status on ticket 401 and never retries or upgrades
     await waitForStatus(relay, 'unauthorized');
     assert.match(relay.snapshot().error, /AIVAX credential/);
     await sleep(80);
-    assert.equal(relayServer.requests.length, 1);
+    assert.equal(relayServer.requests.length, 1, 'credential rejections use the longer backoff');
     assert.equal(relayServer.upgrades, 0);
     expectNoSecrets(relay);
+    await waitForStatus(relay, 'connected', 3_000);
+    assert.equal(relayServer.requests.length, 2);
   } finally {
     await closeAll({ relayServer, local: new MockLocal(), relay });
   }
 });
 
-test('stops with unauthorized status on ticket 403', async () => {
+test('reports unauthorized on ticket 403 and keeps retrying', async () => {
   const relayServer = new MockRelay();
   await relayServer.listen();
   const relay = createRelay({ relay: relayServer, local: undefined });
   try {
-    relayServer.script.push({ status: 403, body: {} });
+    relayServer.script.push({ status: 403, body: {} }, { status: 403, body: {} });
     await relay.update({ accessToken: TOKEN });
     await waitForStatus(relay, 'unauthorized');
+    await waitForStatus(relay, 'connected', 3_000);
+    assert.equal(relayServer.requests.length, 3);
+  } finally {
+    await closeAll({ relayServer, local: new MockLocal(), relay });
+  }
+});
+
+for (const status of [400, 413, 426]) test(`retries a ticket ${status} rejection with the longer backoff`, async () => {
+  const relayServer = new MockRelay();
+  await relayServer.listen();
+  const relay = createRelay({ relay: relayServer, local: undefined });
+  try {
+    relayServer.script.push({ status, body: {} });
+    await relay.update({ accessToken: TOKEN });
+    await waitForError(relay, /rejected the session ticket request; retrying/);
+    assert.equal(relay.snapshot().status, 'connecting');
+    await waitForStatus(relay, 'connected', 3_000);
+    assert.equal(relayServer.requests.length, 2);
   } finally {
     await closeAll({ relayServer, local: new MockLocal(), relay });
   }
@@ -400,7 +427,7 @@ test('rejects redirect responses on ticket acquisition as transient', async () =
   }
 });
 
-test('rejects malformed or mismatched ticket shapes permanently without contacting the relay socket', async () => {
+test('rejects malformed or mismatched ticket shapes without contacting the relay socket and retries with a fresh ticket', async () => {
   const relayServer = new MockRelay();
   await relayServer.listen();
   const relay = createRelay({ relay: relayServer, local: undefined });
@@ -418,14 +445,16 @@ test('rejects malformed or mismatched ticket shapes permanently without contacti
       relayServer.ticketBody({ websocketUrl: `ws://127.0.0.1:${relayServer.port}/v1/relays/${ACCOUNT_ID}/other-device/connect` }),
     ];
     for (const [index, body] of variants.entries()) {
-      relayServer.script.push({ status: 201, body });
+      relayServer.script.push({ status: 201, body }, { status: 503, body: {} });
       await relay.update({ accessToken: TOKEN });
-      await waitForStatus(relay, 'error');
-      assert.match(relay.snapshot().error, /unexpected session ticket/);
-      assert.equal(relayServer.requests.length, index + 1);
+      await waitForError(relay, /unexpected session ticket; retrying/);
+      assert.equal(relay.snapshot().status, 'connecting');
+      assert.equal(relayServer.requests.length, index * 2 + 1);
       assert.equal(relayServer.upgrades, 0);
+      const deadline = Date.now() + 3_000;
+      while (relayServer.requests.length < index * 2 + 2 && Date.now() < deadline) await sleep(10);
+      assert.equal(relayServer.requests.length, index * 2 + 2, 'a rejected ticket shape must be retried');
       await relay.update({ enabled: false });
-      await relay.update({ accessToken: TOKEN });
     }
   } finally {
     await closeAll({ relayServer, local: new MockLocal(), relay });
@@ -807,25 +836,25 @@ test('caps active channels at 32 and refuses the 33rd without touching existing 
   }
 });
 
-test('fails closed on a duplicated channel open and does not blind-retry', async () => {
+test('drops the session on a duplicated channel open and reconnects after the longer backoff', async () => {
   const { relayServer, local, relay } = await establishChannel();
   try {
     const channelId = await openReadyChannel(relayServer, local, newChannelId());
+    const tickets = relayServer.requests.length;
     relayServer.sendToPublisher({ type: 'open', channelId });
     await sleep(60);
-    assert.equal(relayServer.publishers.size, 0);
-    assert.equal(relay.snapshot().status, 'error');
+    assert.equal(relay.snapshot().status, 'reconnecting');
     assert.match(relay.snapshot().error, /reused an active channel/);
-    const tickets = relayServer.requests.length;
-    await sleep(100);
-    assert.equal(relayServer.requests.length, tickets);
     assert.equal(local.sockets.length, 0);
+    assert.equal(relayServer.requests.length, tickets, 'severe failures do not reconnect immediately');
+    await waitForStatus(relay, 'connected', 3_000);
+    assert.equal(relayServer.requests.length, tickets + 1);
   } finally {
     await closeAll({ relayServer, local, relay });
   }
 });
 
-test('reconnects with cleanup after a 4001 session expiry and honors 1009 as permanent', async () => {
+test('reconnects with cleanup after a 4001 session expiry and after 1008, 1009, and 4003 closes', async () => {
   const handles = await establishChannel();
   const { relayServer, local, relay } = handles;
   try {
@@ -838,20 +867,20 @@ test('reconnects with cleanup after a 4001 session expiry and honors 1009 as per
     assert.equal(relay.snapshot().error, '');
     await openReadyChannel(relayServer, local, newChannelId());
 
-    relayServer.closePublisher(1009);
-    await waitForStatus(relay, 'error');
-    assert.match(relay.snapshot().error, /oversized payload/);
-    const tickets = relayServer.requests.length;
-    await sleep(120);
-    assert.equal(relayServer.requests.length, tickets);
-    await relay.update({ accessToken: TOKEN });
-    assert.equal(relayServer.requests.length, tickets, 'same-config update must not restart after a terminal error');
+    for (const [code, message] of [[1008, /policy or rate/], [1009, /oversized payload/], [4003, /invalid channel close/]]) {
+      const tickets = relayServer.requests.length;
+      relayServer.closePublisher(code);
+      await waitForStatus(relay, 'reconnecting');
+      assert.match(relay.snapshot().error, message);
+      await waitForStatus(relay, 'connected', 3_000);
+      assert.equal(relayServer.requests.length, tickets + 1, `close ${code} must reconnect with a fresh ticket`);
+    }
   } finally {
     await closeAll(handles);
   }
 });
 
-test('fails closed on the outbound rate limit instead of retrying into a 1008 violation', async () => {
+test('paces an outbound burst below the relay rate limit without dropping the session or data', async () => {
   const { relayServer, local, relay } = await establishChannel();
   try {
     const channelId = newChannelId();
@@ -859,13 +888,38 @@ test('fails closed on the outbound rate limit instead of retrying into a 1008 vi
       for (let index = 0; index < 200; index += 1) socket.send(`burst-${index}`);
     };
     await openReadyChannel(relayServer, local, channelId);
-    await waitForStatus(relay, 'error');
-    assert.match(relay.snapshot().error, /rate/);
-    const tickets = relayServer.requests.length;
-    await sleep(120);
-    assert.equal(relayServer.requests.length, tickets);
+    const received = [];
+    for (let index = 0; index < 200; index += 1) {
+      received.push(await relayServer.takeEnvelope((envelope) => envelope.channelId === channelId
+        && envelope.encoding === 'text' && envelope.data.startsWith('burst-'), 4_000));
+    }
+    assert.deepEqual(received.map((envelope) => envelope.data), Array.from({ length: 200 }, (_, index) => `burst-${index}`));
+    const times = received.map((envelope) => relayServer.arrivals.get(envelope));
+    for (let index = 100; index < times.length; index += 1) {
+      assert.ok(times[index] - times[index - 100] >= 990, 'no more than 100 envelopes may leave within one second');
+    }
+    assert.equal(relay.snapshot().status, 'connected');
+    assert.equal(relayServer.requests.length, 1);
   } finally {
     await closeAll({ relayServer, local, relay });
+  }
+});
+
+test('resume after a suspended retry wait reconnects immediately', async () => {
+  const relayServer = new MockRelay();
+  await relayServer.listen();
+  const relay = createRelay({ relay: relayServer, local: undefined, retryBaseMs: 60_000 });
+  try {
+    relayServer.script.push({ status: 503, body: {} });
+    await relay.update({ accessToken: TOKEN });
+    await waitForError(relay, /not issuing session tickets/);
+    await sleep(50);
+    assert.equal(relayServer.requests.length, 1);
+    relay.resume();
+    await waitForStatus(relay, 'connected');
+    assert.equal(relayServer.requests.length, 2);
+  } finally {
+    await closeAll({ relayServer, local: new MockLocal(), relay });
   }
 });
 
@@ -965,7 +1019,6 @@ test('supports injectable fetch and relay socket factories', async () => {
     relayBaseUrl: relayServer.baseUrl,
     retryBaseMs: 20,
     retryStableMs: 150,
-    revocationCheckMs: 40,
     handshakeTimeoutMs: 400,
     fetchImpl: async (url, init) => {
       fetchCalls.push({ url, init });
