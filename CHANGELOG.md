@@ -1,5 +1,26 @@
 # Avi Changelog
 
+## [Canary]
+
+### Changed
+- The `memory_search` tool's `filter` argument description now lists the filter fields, how to combine conditions, practical examples, and common pitfalls, and links to the [AIVAX document filter documentation](https://docs.aivax.net/docs/filters/document-filters).
+- The built-in instructions and the `rich-chat-visualization` skill now ask for callout labels of a few words (such as `Not tested` or `Assumption`), with the explanation in the following paragraph, instead of whole sentences inside the callout.
+
+### Fixed
+- **Remote relay reconnects after every failure.** The AIVAX Remote bridge no longer stops permanently, which previously left Avi disconnected until Remote was toggled or Avi restarted. Relay closes `1008`, `1009`, and `4003`, ticket rejections (including HTTP 401/403, shown as unauthorized), unexpected tickets or subprotocols, and malformed relay frames now retry with a longer backoff.
+- The relay publisher no longer causes the `1008` traffic closes it was meant to prevent. Outbound envelopes are queued and paced to 100 messages / 3 MiB per sliding second across all channels, instead of ending the session at a fixed-window budget that could exceed the relay's own window under network jitter.
+- The relay connection is no longer dropped every 30 seconds when its send buffer is momentarily non-empty. Dead connections are detected by the 60-second pong deadline, and consumer channels are no longer terminated when their local buffer is busy.
+- Waking the computer or unlocking the screen reconnects the relay immediately when it was waiting to retry, and replaces an open connection that does not answer a ping within 5 seconds.
+- Relay connections, closes (with close code and duration), and retries are written to the diagnostic log as `remote.relay-connected`, `remote.relay-closed`, and `remote.relay-retry`.
+- New-thread composer drafts now keep attachments, model, reasoning effort, permission mode, and Plan/Goal/Ultra selection when you switch threads or tabs, not only the text. Drafts are stored per working folder under the key `<folder>/00000000-0000-0000-0000-000000000000`, so each folder keeps its own draft before a thread exists. Attachments are kept as references, not copies; when a draft or thread composer is reopened, attachments whose local file no longer exists are removed. The renderer uses `window.chatApp.composerDraft` (`composer-draft:get` and `composer-draft:save`), also available on the global RPC socket. Side Chat and sub-agent composers no longer keep separate localStorage text drafts.
+- Callouts and findings with labels longer than 240 characters now render instead of showing the raw `::callout[...]` directive text.
+- `rpc:discover` now reports the installed Avi version as `appVersion` instead of a hard-coded `0.7.0`.
+- The chat no longer goes blank when a sub-agent report, cross-thread message, or other agent message arrives while the assistant is working. Earlier work in the turn stays visible while the assistant responds and is collapsed into **Worked for** only after the final response completes.
+
+### Tests
+- `test-composer-state.mjs` covers per-folder drafts and removal of missing attachments; `test:remote` lists the new global RPC methods and checks `appVersion` against `package.json`; its dispatched-operation list no longer expects the `conversations:list` calls removed with persisted attention.
+- `test-rich-content.mjs` covers callouts with long labels.
+
 ## [0.8.0] — 2026-10-05
 
 ### Added
