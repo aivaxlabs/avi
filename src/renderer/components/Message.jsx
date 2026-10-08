@@ -525,7 +525,17 @@ function AssistantMessage({
       <div className="assistant-message">
         {timeline.length > 0 || workedMessages.length > 0 ? (
           <div className="assistant-timeline">
-            {(timelinePartition.workedItems.length > 0 || workedMessages.length > 0) && (
+            {activelyStreaming && workedMessages.map((workedMessage) => (
+              <WorkedMessage
+                key={workedMessage.id}
+                message={workedMessage}
+                onOpenFileReference={onOpenFileReference}
+                onFileReferenceAction={onFileReferenceAction}
+              />
+            ))}
+            {!activelyStreaming && (
+              timelinePartition.workedItems.length > 0 || workedMessages.length > 0
+            ) && (
               <WorkedBlock
                 key={workedBlockKey(timelinePartition, workedMessages)}
                 items={timelinePartition.workedItems}
@@ -651,6 +661,8 @@ function AssistantMessage({
             <span key={thinkingLabel} className="assistant-placeholder-label">
               {thinkingLabel}
             </span>
+            <span className="assistant-placeholder-time" aria-hidden="true">·</span>
+            <ThinkingElapsed startedAt={workedStartedAt ?? message.createdAt} />
           </div>
         )}
         {!activelyStreaming && message.status === 'completed' && edits.length > 0 && (
@@ -1401,6 +1413,24 @@ function WorkedBlock({ items, messages, label, onOpenFileReference, onFileRefere
   );
 }
 
+function ThinkingElapsed({ startedAt }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const seconds = Math.max(0, Math.floor((now - Date.parse(startedAt)) / 1000) || 0);
+  const label = [
+    seconds >= 3_600 ? `${Math.floor(seconds / 3_600)}h` : null,
+    seconds >= 60 ? `${Math.floor((seconds % 3_600) / 60)}m` : null,
+    `${seconds % 60}s`,
+  ].filter(Boolean).join(' ');
+
+  return <span className="assistant-placeholder-time">{label}</span>;
+}
+
 function ThinkingGroup({ items, streaming, trailing }) {
   const [manualOpen, setManualOpen] = useState(null);
   const open = manualOpen ?? (streaming && trailing);
@@ -1430,8 +1460,10 @@ function ThinkingGroup({ items, streaming, trailing }) {
 
 function MutedSegment({ segment }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsMounted, setDetailsMounted] = useState(false);
   const [loadedDetails, setLoadedDetails] = useState(null);
   const [detailsError, setDetailsError] = useState('');
+  const isTool = ['tool', 'server-tool', 'tool-call'].includes(segment.type);
 
   useEffect(() => {
     if (!detailsOpen || !segment.detailsAvailable) return undefined;
@@ -1464,30 +1496,30 @@ function MutedSegment({ segment }) {
     };
   }, [detailsOpen, segment.conversationId, segment.detailsAvailable, segment.hasResult, segment.id, segment.messageId]);
 
-  let formattedDetails = null;
-  if (detailsOpen && ['tool', 'server-tool', 'tool-call'].includes(segment.type)) {
-    if (detailsError) {
-      formattedDetails = { error: detailsError };
-    } else if (segment.detailsAvailable && !loadedDetails) {
-      formattedDetails = { loading: true };
-    } else {
-      const rawInput = String(loadedDetails?.argumentsText ?? segment.argumentsText ?? '');
-      const hasResult = loadedDetails?.hasResult
-        ?? segment.hasResult
-        ?? Object.hasOwn(segment, 'resultText');
-      const rawOutput = hasResult
-        ? String(loadedDetails?.resultText ?? segment.resultText ?? '')
-        : '';
-      let input = rawInput;
-      let output = rawOutput;
-      try {
-        input = JSON.stringify(JSON.parse(rawInput), null, 2);
-      } catch { }
-      try {
-        output = JSON.stringify(JSON.parse(rawOutput), null, 2);
-      } catch { }
-      formattedDetails = { input, output, hasResult };
-    }
+  const formattedDetails = useMemo(() => {
+    if (!detailsMounted || !isTool) return null;
+    if (detailsError) return { error: detailsError };
+    if (segment.detailsAvailable && !loadedDetails) return { loading: true };
+
+    const hasResult = loadedDetails?.hasResult
+      ?? segment.hasResult
+      ?? Object.hasOwn(segment, 'resultText');
+
+    return {
+      input: formatToolPayload(
+        String(loadedDetails?.argumentsText ?? segment.argumentsText ?? ''),
+        { omitMetaParameters: true },
+      ),
+      output: hasResult
+        ? formatToolPayload(String(loadedDetails?.resultText ?? segment.resultText ?? ''))
+        : null,
+      hasResult,
+    };
+  }, [detailsError, detailsMounted, isTool, loadedDetails, segment]);
+
+  function toggleDetails() {
+    setDetailsMounted(true);
+    setDetailsOpen(!detailsOpen);
   }
 
   if (segment.type === 'reasoning') {
@@ -1505,7 +1537,7 @@ function MutedSegment({ segment }) {
     );
   }
 
-  if (segment.type === 'tool' || segment.type === 'server-tool' || segment.type === 'tool-call') {
+  if (isTool) {
     const name = segment.name || segment.toolType || 'tool';
     const ToolIcon = segment.isMcp || name.startsWith('mcp_')
       ? SquareFunction
@@ -1519,7 +1551,7 @@ function MutedSegment({ segment }) {
           type="button"
           className="tool-line"
           aria-expanded={detailsOpen}
-          onClick={() => setDetailsOpen(!detailsOpen)}
+          onClick={toggleDetails}
         >
           {!hasResult && (
             <LoaderCircle
@@ -1539,32 +1571,36 @@ function MutedSegment({ segment }) {
           </span>
           <ChevronRight className="tool-line-chevron" size={13} aria-hidden="true" />
         </button>
-        {formattedDetails && (
-          <div className="tool-details">
-            {formattedDetails.loading ? (
-              <span role="status">Loading tool details...</span>
-            ) : formattedDetails.error ? (
+        <div className="tool-details" inert={!detailsOpen || undefined}>
+          <div className="tool-details-inner">
+            {formattedDetails?.loading ? (
+              <span className="tool-details-pending" role="status">
+                <LoaderCircle className="tool-line-spinner" size={13} aria-hidden="true" />
+                Loading tool details...
+              </span>
+            ) : formattedDetails?.error ? (
               <span role="alert">Could not load tool details: {formattedDetails.error}</span>
-            ) : (
+            ) : formattedDetails && (
               <>
                 <section>
                   <span>Input</span>
-                  <pre><code>{formattedDetails.input || '(empty input)'}</code></pre>
+                  <ToolPayload payload={formattedDetails.input} emptyLabel="(empty input)" />
                 </section>
                 <section>
                   <span>Output</span>
-                  <pre>
-                    <code>
-                      {formattedDetails.hasResult
-                        ? formattedDetails.output || '(empty output)'
-                        : '(waiting for output)'}
-                    </code>
-                  </pre>
+                  {formattedDetails.hasResult ? (
+                    <ToolPayload payload={formattedDetails.output} emptyLabel="(empty output)" />
+                  ) : (
+                    <pre className="tool-details-pending" role="status">
+                      <LoaderCircle className="tool-line-spinner" size={13} aria-hidden="true" />
+                      Waiting for output...
+                    </pre>
+                  )}
                 </section>
               </>
             )}
           </div>
-        )}
+        </div>
       </div>
     );
   }
@@ -1612,6 +1648,41 @@ function workedBlockKey({ workedItems, finalItems }, messages) {
     workedItems.at(-1)?.id ?? 'none',
     finalItems[0]?.id ?? 'none',
   ].join(':');
+}
+
+const AVI_META_PARAMETERS = new Set(['__invocation_goal', '__requires_human_approval']);
+
+function formatToolPayload(text, { omitMetaParameters = false } = {}) {
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { text, html: '' };
+  }
+
+  if (omitMetaParameters && value && typeof value === 'object' && !Array.isArray(value)) {
+    value = Object.fromEntries(
+      Object.entries(value).filter(([key]) => !AVI_META_PARAMETERS.has(key)),
+    );
+  }
+
+  const formatted = JSON.stringify(value, null, 2);
+  return {
+    text: formatted,
+    html: Prism.highlight(formatted, Prism.languages.json, 'json'),
+  };
+}
+
+function ToolPayload({ payload, emptyLabel }) {
+  if (payload.html) {
+    return (
+      <pre className="language-json">
+        <code className="language-json" dangerouslySetInnerHTML={{ __html: payload.html }} />
+      </pre>
+    );
+  }
+
+  return <pre><code>{payload.text || emptyLabel}</code></pre>;
 }
 
 function toolReason(segment) {

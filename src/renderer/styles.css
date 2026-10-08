@@ -1507,6 +1507,8 @@ body.panel-resizing * {
 }
 
 .assistant-placeholder {
+    display: flex;
+    gap: 6px;
     width: fit-content;
     overflow: clip;
     color: transparent;
@@ -1529,6 +1531,12 @@ body.panel-resizing * {
 .assistant-placeholder-label {
     display: block;
     animation: thinking-label-swap 180ms var(--base-transition);
+}
+
+.assistant-placeholder-time {
+    color: var(--text-3);
+    -webkit-text-fill-color: var(--text-3);
+    font-variant-numeric: tabular-nums;
 }
 
 .assistant-timeline + .assistant-placeholder {
@@ -5936,665 +5944,6 @@ button svg {
         transition: none;
     }
 }
-/* components\files-panel.xcss */
-.files-panel {
-    height: 100%;
-    min-width: 0;
-    min-height: 0;
-    display: grid;
-    grid-template-columns: minmax(190px, 38%) minmax(0, 1fr);
-    overflow: hidden;
-    container-type: inline-size;
-}
-
-.files-panel .files-explorer, .files-panel .files-preview {
-    min-width: 0;
-    min-height: 0;
-}
-
-.files-panel .files-explorer {
-    display: grid;
-    grid-template-rows: 48px 38px minmax(0, 1fr);
-    border-right: 1px solid var(--border-color);
-}
-
-.files-panel .files-explorer-header, .files-panel .files-preview-header {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.files-panel .files-explorer-header > span, .files-panel .files-preview-header > span {
-    min-width: 0;
-    flex: 1;
-    display: grid;
-    gap: 2px;
-}
-
-.files-panel .files-explorer-header strong, .files-panel .files-explorer-header small, .files-panel .files-preview-header strong, .files-panel .files-preview-header small {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.files-panel .files-explorer-header strong, .files-panel .files-preview-header strong {
-    color: var(--text-1);
-    font-weight: 600;
-}
-
-.files-panel .files-explorer-header small, .files-panel .files-preview-header small {
-    color: var(--text-3);
-    font-size: .9rem;
-}
-
-.files-panel .files-explorer-header button, .files-panel .files-preview-back {
-    width: 28px;
-    height: 28px;
-    display: grid;
-    place-items: center;
-    flex: 0 0 auto;
-    padding: 0;
-    color: var(--text-3);
-    background: transparent;
-    border-radius: 7px;
-    transition: color 180ms var(--base-transition),
-      background 180ms var(--base-transition),
-      transform 180ms var(--base-transition);
-}
-
-.files-panel .files-explorer-header button:hover:not(:disabled), .files-panel .files-preview-back:hover:not(:disabled), .files-panel .files-explorer-header button.active, .files-panel .files-preview-back.active {
-    color: var(--text-1);
-    background: var(--item-hover);
-}
-
-.files-panel .files-explorer-header button.active, .files-panel .files-preview-back.active {
-    box-shadow: inset 0 0 0 1px var(--border-color);
-}
-
-.files-panel .files-explorer-header button:active:not(:disabled), .files-panel .files-preview-back:active:not(:disabled) {
-    transform: scale(.94);
-}
-
-.files-panel .files-explorer-header button:focus-visible, .files-panel .files-preview-back:focus-visible {
-    outline: 2px solid var(--text-3);
-    outline-offset: -2px;
-}
-
-.files-panel .files-explorer-header button:disabled, .files-panel .files-preview-back:disabled {
-    opacity: .45;
-}
-
-.files-panel .files-preview-back {
-    display: none;
-}
-
-.files-panel .files-search {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: 14px minmax(0, 1fr) 20px;
-    align-items: center;
-    gap: 5px;
-    margin: 6px 7px 4px;
-    padding: 0 6px;
-    color: var(--text-3);
-    background: var(--background-2);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-}
-
-.files-panel .files-search:focus-within {
-    color: var(--text-2);
-    border-color: var(--text-3);
-    box-shadow: 0 0 0 1px var(--text-3);
-}
-
-.files-panel .files-search input {
-    min-width: 0;
-    height: 25px;
-    padding: 0;
-    color: var(--text-1);
-    background: transparent;
-    border: 0;
-    outline: 0;
-}
-
-.files-panel .files-search input::placeholder {
-    color: var(--text-3);
-}
-
-.files-panel .files-search input::-webkit-search-cancel-button {
-    display: none;
-}
-
-.files-panel .files-search-clear {
-    width: 20px;
-    height: 20px;
-    display: grid;
-    place-items: center;
-    padding: 0;
-    color: var(--text-3);
-    background: transparent;
-    border-radius: 4px;
-}
-
-.files-panel .files-search-clear:hover {
-    color: var(--text-1);
-    background: var(--item-hover);
-}
-
-.files-panel .files-search-clear:focus-visible {
-    outline: 2px solid var(--text-3);
-    outline-offset: -2px;
-}
-
-.files-panel .files-tree {
-    min-width: 0;
-    min-height: 0;
-    padding: 7px 4px 12px;
-    overflow: auto;
-}
-
-.files-panel .files-root {
-    min-width: max-content;
-}
-
-.files-panel .files-root-label {
-    height: 26px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 8px;
-    color: var(--text-1);
-    font-size: .9rem;
-    font-weight: 600;
-}
-
-.files-panel .files-root-label span {
-    max-width: 220px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.files-panel .files-tree-entry {
-    min-width: 0;
-}
-
-.files-panel .files-tree-node {
-    width: 100%;
-    min-width: max-content;
-    height: 27px;
-    display: grid;
-    grid-template-columns: 14px 16px minmax(80px, 1fr) auto auto;
-    align-items: center;
-    gap: 4px;
-    padding: 0 7px 0 calc(7px + var(--files-depth) * 14px);
-    color: var(--text-2);
-    background: transparent;
-    border-radius: 5px;
-    text-align: left;
-    transition: color 140ms var(--base-transition),
-      background 140ms var(--base-transition);
-}
-
-.files-panel .files-tree-node:hover {
-    color: var(--text-1);
-    background: var(--item-hover);
-}
-
-.files-panel .files-tree-node:active {
-    background: var(--item-active);
-}
-
-.files-panel .files-tree-node:focus-visible {
-    outline: 2px solid var(--text-3);
-    outline-offset: -2px;
-}
-
-.files-panel .files-tree-node.selected {
-    color: var(--text-1);
-    background: var(--item-active);
-}
-
-.files-panel .files-tree-node.status-untracked .files-node-name, .files-panel .files-tree-node.status-untracked .files-status {
-    color: var(--git-untracked-status-color);
-}
-
-.files-panel .files-tree-node.status-modified .files-node-name, .files-panel .files-tree-node.status-modified .files-status {
-    color: var(--git-modified-status-color);
-}
-
-.files-panel .files-tree-node.status-conflict .files-node-name, .files-panel .files-tree-node.status-conflict .files-status {
-    color: var(--git-conflict-status-color);
-}
-
-.files-panel .files-tree-node.status-ignored .files-node-name, .files-panel .files-tree-node.status-ignored .files-status {
-    color: var(--git-ignored-status-color);
-}
-
-.files-panel .files-tree-node.status-ignored {
-    opacity: .62;
-}
-
-.files-panel .files-node-chevron, .files-panel .files-node-icon {
-    width: 14px;
-    height: 14px;
-    display: grid;
-    place-items: center;
-    flex: 0 0 auto;
-}
-
-.files-panel img.files-node-icon {
-    object-fit: contain;
-}
-
-.files-panel .files-node-name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 1rem;
-}
-
-.files-panel .files-repository-mark {
-    color: var(--text-3);
-}
-
-.files-panel .files-status {
-    min-width: 12px;
-    color: var(--text-3);
-    font-size: .9rem;
-    font-weight: 600;
-    text-align: right;
-}
-
-.files-panel .files-tree-message {
-    height: 25px;
-    display: flex;
-    align-items: center;
-    padding-left: calc(41px + var(--files-depth) * 14px);
-    color: var(--text-3);
-    font-size: .9rem;
-}
-
-.files-panel .files-search-results {
-    min-width: 0;
-    height: 100%;
-}
-
-.files-panel .files-search-results section + section {
-    margin-top: 7px;
-    padding-top: 5px;
-    border-top: 1px solid var(--border-color);
-}
-
-.files-panel .files-search-results h3 {
-    margin: 0;
-    padding: 3px 8px 5px;
-    color: var(--text-3);
-    font-size: .9rem;
-    font-weight: 600;
-    letter-spacing: .04em;
-    text-transform: uppercase;
-}
-
-.files-panel .files-search-result {
-    width: 100%;
-    min-width: 0;
-    min-height: 34px;
-    display: grid;
-    grid-template-columns: 16px minmax(0, 1fr) 14px;
-    align-items: center;
-    gap: 5px;
-    padding: 3px 7px;
-    color: var(--text-2);
-    background: transparent;
-    border-radius: 5px;
-    text-align: left;
-}
-
-.files-panel .files-search-result:hover {
-    color: var(--text-1);
-    background: var(--item-hover);
-}
-
-.files-panel .files-search-result:active {
-    background: var(--item-active);
-}
-
-.files-panel .files-search-result:focus-visible {
-    outline: 2px solid var(--text-3);
-    outline-offset: -2px;
-}
-
-.files-panel .files-search-result > span:not(.files-status) {
-    min-width: 0;
-    display: grid;
-    gap: 1px;
-}
-
-.files-panel .files-search-result strong, .files-panel .files-search-result small {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.files-panel .files-search-result strong {
-    color: inherit;
-    font-weight: 500;
-}
-
-.files-panel .files-search-result small {
-    color: var(--text-3);
-    font-size: .9rem;
-}
-
-.files-panel .files-search-result.status-untracked strong, .files-panel .files-search-result.status-untracked .files-status {
-    color: var(--git-untracked-status-color);
-}
-
-.files-panel .files-search-result.status-modified strong, .files-panel .files-search-result.status-modified .files-status {
-    color: var(--git-modified-status-color);
-}
-
-.files-panel .files-search-result.status-conflict strong, .files-panel .files-search-result.status-conflict .files-status {
-    color: var(--git-conflict-status-color);
-}
-
-.files-panel .files-search-result.status-ignored strong, .files-panel .files-search-result.status-ignored .files-status {
-    color: var(--git-ignored-status-color);
-}
-
-.files-panel .files-search-result.status-ignored {
-    opacity: .62;
-}
-
-.files-panel .files-search-content-result {
-    min-height: 39px;
-}
-
-.files-panel .files-search-limit {
-    margin: 8px;
-    padding: 7px 8px;
-    color: var(--text-3);
-    background: var(--background-3);
-    border-radius: 6px;
-    font-size: .9rem;
-    line-height: 1.45;
-}
-
-.files-panel .files-preview {
-    display: grid;
-    grid-template-rows: 48px minmax(0, 1fr);
-    background: var(--background-0);
-}
-
-.files-panel .files-preview > .files-panel-state {
-    grid-row: 1 / -1;
-}
-
-.files-panel .files-preview-breadcrumb {
-    cursor: context-menu;
-}
-
-.files-panel .files-preview-breadcrumb:focus-visible {
-    border-radius: 3px;
-    outline: 2px solid var(--text-3);
-    outline-offset: 1px;
-}
-
-.files-panel .files-preview-content {
-    min-width: 0;
-    min-height: 0;
-    overflow: hidden;
-}
-
-.files-panel .files-code {
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    padding: 8px 0 24px;
-    overflow: auto;
-    color: var(--text-1);
-    background: var(--background-0);
-    font-family: var(--font-code);
-    font-size: .9rem;
-    line-height: 1.55;
-    tab-size: 2;
-}
-
-.files-panel .files-code:focus-visible {
-    outline: 2px solid var(--text-3);
-    outline-offset: -2px;
-}
-
-.files-panel .files-code-line {
-    min-width: max-content;
-    display: grid;
-    grid-template-columns: 42px minmax(0, 1fr);
-}
-
-.files-panel .files-code-line > span {
-    padding-right: 10px;
-    color: var(--text-3);
-    text-align: right;
-    user-select: none;
-}
-
-.files-panel .files-code-line code {
-    padding-right: 20px;
-    color: inherit;
-    font: inherit;
-    white-space: pre;
-}
-
-.files-panel .files-code-line.target-line {
-    background: var(--background-3);
-    box-shadow: inset 2px 0 var(--text-3);
-}
-
-.files-panel .files-diff {
-    display: block;
-}
-
-.files-panel .files-diff > code {
-    min-width: max-content;
-    display: block;
-    padding: 0 16px;
-    color: inherit;
-    font: inherit;
-    white-space: pre;
-}
-
-.files-panel .files-diff > code .token.deleted:not(.prefix) {
-    background-color: var(--diff-removed-bg);
-}
-
-.files-panel .files-diff > code .token.inserted:not(.prefix) {
-    background-color: var(--diff-added-bg);
-}
-
-.files-panel .files-diff > code .token.deleted-sign .token.prefix, .files-panel .files-diff > code .token.inserted-sign .token.prefix {
-    background-color: var(--diff-relative-margin-bg);
-}
-
-.files-panel .files-edit-empty {
-    display: block;
-    padding: 20px;
-    color: var(--text-2);
-    font-family: inherit;
-    font-style: italic;
-    text-align: center;
-}
-
-.files-panel .files-image-preview {
-    width: 100%;
-    height: 100%;
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: 10px;
-    padding: 20px;
-    overflow: auto;
-    background: linear-gradient(45deg, var(--background-3) 25%, transparent 25%),
-      linear-gradient(-45deg, var(--background-3) 25%, transparent 25%),
-      linear-gradient(45deg, transparent 75%, var(--background-3) 75%),
-      linear-gradient(-45deg, transparent 75%, var(--background-3) 75%);
-    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
-    background-size: 16px 16px;
-}
-
-.files-panel .files-image-preview img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-    box-shadow: 0 4px 18px rgb(0 0 0 / 12%);
-}
-
-.files-panel .files-image-preview span {
-    padding: 3px 7px;
-    color: var(--text-3);
-    background: var(--background-2);
-    border-radius: 5px;
-    font-size: .9rem;
-}
-
-.selection-action-group {
-    position: fixed;
-    height: 30px;
-    display: inline-flex;
-    align-items: stretch;
-    z-index: 125;
-    color: var(--text-1);
-    background: var(--background-1);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    box-shadow: 0 2px 16px #00000011;
-    white-space: nowrap;
-    transform-origin: top center;
-    animation: dropdown-menu-in var(--duration-fast) var(--ease-smooth-out);
-}
-
-.selection-action-group[data-closing] {
-    animation: dropdown-menu-out var(--duration-quick) var(--ease-smooth-out) forwards;
-}
-
-.selection-action-group button {
-    min-width: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    padding: 0 8px;
-    color: inherit;
-    background: transparent;
-    border: 0;
-    border-radius: 5px;
-    font: inherit;
-    font-size: .95rem;
-    cursor: pointer;
-    transition: color 180ms var(--base-transition),
-      background 180ms var(--base-transition),
-      transform 180ms var(--base-transition);
-}
-
-.selection-action-group button + button {
-    border-left: 1px solid var(--border-color);
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-}
-
-.selection-action-group button:hover {
-    background: var(--item-hover);
-}
-
-.selection-action-group button:active {
-    transform: scale(.97);
-}
-
-.selection-action-group button:focus-visible {
-    outline: 2px solid var(--text-3);
-    outline-offset: -1px;
-}
-
-.selection-action-group button svg {
-    flex: 0 0 auto;
-    color: var(--text-3);
-}
-
-.files-panel-state, .files-loading {
-    height: 100%;
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: 6px;
-    padding: 24px;
-    color: var(--text-3);
-    text-align: center;
-}
-
-.files-panel-state strong, .files-loading strong {
-    color: var(--text-1);
-    font-size: .9rem;
-    font-weight: 500;
-}
-
-.files-panel-state span, .files-loading span {
-    max-width: 260px;
-    font-size: .9rem;
-    line-height: 1.5;
-}
-
-.files-panel-error {
-    margin: 8px;
-    padding: 8px 9px;
-    color: var(--text-1);
-    background: var(--background-3);
-    border-radius: 7px;
-    font-size: .9rem;
-    line-height: 1.45;
-}
-
-.files-context-menu {
-    width: 190px;
-}
-
-@container (max-width: 520px) {
-    .files-panel .files-explorer {
-        grid-column: 1 / -1;
-    }
-
-    .files-panel .files-preview {
-        display: none;
-    }
-
-    .files-panel.has-preview .files-explorer {
-        display: none;
-    }
-
-    .files-panel.has-preview .files-preview {
-        display: grid;
-        grid-column: 1 / -1;
-    }
-
-    .files-panel.has-preview .files-preview-back {
-        display: grid;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .selection-action-group, .selection-action-group[data-closing] {
-        animation: none;
-    }
-
-    .selection-action-group button, .files-panel .files-tree-node, .files-panel .files-search-clear, .files-panel .files-search-result, .files-panel .files-explorer-header button, .files-panel .files-preview-back {
-        transition: none;
-    }
-}
 /* components\bots.xcss */
 .bot-settings-page .bot-activation-days {
     grid-template-columns: minmax(0, 1fr);
@@ -8365,6 +7714,665 @@ button svg {
 
     .bot-settings-days {
         grid-template-columns: repeat(4, minmax(44px, 1fr));
+    }
+}
+/* components\files-panel.xcss */
+.files-panel {
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(190px, 38%) minmax(0, 1fr);
+    overflow: hidden;
+    container-type: inline-size;
+}
+
+.files-panel .files-explorer, .files-panel .files-preview {
+    min-width: 0;
+    min-height: 0;
+}
+
+.files-panel .files-explorer {
+    display: grid;
+    grid-template-rows: 48px 38px minmax(0, 1fr);
+    border-right: 1px solid var(--border-color);
+}
+
+.files-panel .files-explorer-header, .files-panel .files-preview-header {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.files-panel .files-explorer-header > span, .files-panel .files-preview-header > span {
+    min-width: 0;
+    flex: 1;
+    display: grid;
+    gap: 2px;
+}
+
+.files-panel .files-explorer-header strong, .files-panel .files-explorer-header small, .files-panel .files-preview-header strong, .files-panel .files-preview-header small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.files-panel .files-explorer-header strong, .files-panel .files-preview-header strong {
+    color: var(--text-1);
+    font-weight: 600;
+}
+
+.files-panel .files-explorer-header small, .files-panel .files-preview-header small {
+    color: var(--text-3);
+    font-size: .9rem;
+}
+
+.files-panel .files-explorer-header button, .files-panel .files-preview-back {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    padding: 0;
+    color: var(--text-3);
+    background: transparent;
+    border-radius: 7px;
+    transition: color 180ms var(--base-transition),
+      background 180ms var(--base-transition),
+      transform 180ms var(--base-transition);
+}
+
+.files-panel .files-explorer-header button:hover:not(:disabled), .files-panel .files-preview-back:hover:not(:disabled), .files-panel .files-explorer-header button.active, .files-panel .files-preview-back.active {
+    color: var(--text-1);
+    background: var(--item-hover);
+}
+
+.files-panel .files-explorer-header button.active, .files-panel .files-preview-back.active {
+    box-shadow: inset 0 0 0 1px var(--border-color);
+}
+
+.files-panel .files-explorer-header button:active:not(:disabled), .files-panel .files-preview-back:active:not(:disabled) {
+    transform: scale(.94);
+}
+
+.files-panel .files-explorer-header button:focus-visible, .files-panel .files-preview-back:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: -2px;
+}
+
+.files-panel .files-explorer-header button:disabled, .files-panel .files-preview-back:disabled {
+    opacity: .45;
+}
+
+.files-panel .files-preview-back {
+    display: none;
+}
+
+.files-panel .files-search {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr) 20px;
+    align-items: center;
+    gap: 5px;
+    margin: 6px 7px 4px;
+    padding: 0 6px;
+    color: var(--text-3);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+}
+
+.files-panel .files-search:focus-within {
+    color: var(--text-2);
+    border-color: var(--text-3);
+    box-shadow: 0 0 0 1px var(--text-3);
+}
+
+.files-panel .files-search input {
+    min-width: 0;
+    height: 25px;
+    padding: 0;
+    color: var(--text-1);
+    background: transparent;
+    border: 0;
+    outline: 0;
+}
+
+.files-panel .files-search input::placeholder {
+    color: var(--text-3);
+}
+
+.files-panel .files-search input::-webkit-search-cancel-button {
+    display: none;
+}
+
+.files-panel .files-search-clear {
+    width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    color: var(--text-3);
+    background: transparent;
+    border-radius: 4px;
+}
+
+.files-panel .files-search-clear:hover {
+    color: var(--text-1);
+    background: var(--item-hover);
+}
+
+.files-panel .files-search-clear:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: -2px;
+}
+
+.files-panel .files-tree {
+    min-width: 0;
+    min-height: 0;
+    padding: 7px 4px 12px;
+    overflow: auto;
+}
+
+.files-panel .files-root {
+    min-width: max-content;
+}
+
+.files-panel .files-root-label {
+    height: 26px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px;
+    color: var(--text-1);
+    font-size: .9rem;
+    font-weight: 600;
+}
+
+.files-panel .files-root-label span {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.files-panel .files-tree-entry {
+    min-width: 0;
+}
+
+.files-panel .files-tree-node {
+    width: 100%;
+    min-width: max-content;
+    height: 27px;
+    display: grid;
+    grid-template-columns: 14px 16px minmax(80px, 1fr) auto auto;
+    align-items: center;
+    gap: 4px;
+    padding: 0 7px 0 calc(7px + var(--files-depth) * 14px);
+    color: var(--text-2);
+    background: transparent;
+    border-radius: 5px;
+    text-align: left;
+    transition: color 140ms var(--base-transition),
+      background 140ms var(--base-transition);
+}
+
+.files-panel .files-tree-node:hover {
+    color: var(--text-1);
+    background: var(--item-hover);
+}
+
+.files-panel .files-tree-node:active {
+    background: var(--item-active);
+}
+
+.files-panel .files-tree-node:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: -2px;
+}
+
+.files-panel .files-tree-node.selected {
+    color: var(--text-1);
+    background: var(--item-active);
+}
+
+.files-panel .files-tree-node.status-untracked .files-node-name, .files-panel .files-tree-node.status-untracked .files-status {
+    color: var(--git-untracked-status-color);
+}
+
+.files-panel .files-tree-node.status-modified .files-node-name, .files-panel .files-tree-node.status-modified .files-status {
+    color: var(--git-modified-status-color);
+}
+
+.files-panel .files-tree-node.status-conflict .files-node-name, .files-panel .files-tree-node.status-conflict .files-status {
+    color: var(--git-conflict-status-color);
+}
+
+.files-panel .files-tree-node.status-ignored .files-node-name, .files-panel .files-tree-node.status-ignored .files-status {
+    color: var(--git-ignored-status-color);
+}
+
+.files-panel .files-tree-node.status-ignored {
+    opacity: .62;
+}
+
+.files-panel .files-node-chevron, .files-panel .files-node-icon {
+    width: 14px;
+    height: 14px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+}
+
+.files-panel img.files-node-icon {
+    object-fit: contain;
+}
+
+.files-panel .files-node-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 1rem;
+}
+
+.files-panel .files-repository-mark {
+    color: var(--text-3);
+}
+
+.files-panel .files-status {
+    min-width: 12px;
+    color: var(--text-3);
+    font-size: .9rem;
+    font-weight: 600;
+    text-align: right;
+}
+
+.files-panel .files-tree-message {
+    height: 25px;
+    display: flex;
+    align-items: center;
+    padding-left: calc(41px + var(--files-depth) * 14px);
+    color: var(--text-3);
+    font-size: .9rem;
+}
+
+.files-panel .files-search-results {
+    min-width: 0;
+    height: 100%;
+}
+
+.files-panel .files-search-results section + section {
+    margin-top: 7px;
+    padding-top: 5px;
+    border-top: 1px solid var(--border-color);
+}
+
+.files-panel .files-search-results h3 {
+    margin: 0;
+    padding: 3px 8px 5px;
+    color: var(--text-3);
+    font-size: .9rem;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.files-panel .files-search-result {
+    width: 100%;
+    min-width: 0;
+    min-height: 34px;
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) 14px;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 7px;
+    color: var(--text-2);
+    background: transparent;
+    border-radius: 5px;
+    text-align: left;
+}
+
+.files-panel .files-search-result:hover {
+    color: var(--text-1);
+    background: var(--item-hover);
+}
+
+.files-panel .files-search-result:active {
+    background: var(--item-active);
+}
+
+.files-panel .files-search-result:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: -2px;
+}
+
+.files-panel .files-search-result > span:not(.files-status) {
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+}
+
+.files-panel .files-search-result strong, .files-panel .files-search-result small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.files-panel .files-search-result strong {
+    color: inherit;
+    font-weight: 500;
+}
+
+.files-panel .files-search-result small {
+    color: var(--text-3);
+    font-size: .9rem;
+}
+
+.files-panel .files-search-result.status-untracked strong, .files-panel .files-search-result.status-untracked .files-status {
+    color: var(--git-untracked-status-color);
+}
+
+.files-panel .files-search-result.status-modified strong, .files-panel .files-search-result.status-modified .files-status {
+    color: var(--git-modified-status-color);
+}
+
+.files-panel .files-search-result.status-conflict strong, .files-panel .files-search-result.status-conflict .files-status {
+    color: var(--git-conflict-status-color);
+}
+
+.files-panel .files-search-result.status-ignored strong, .files-panel .files-search-result.status-ignored .files-status {
+    color: var(--git-ignored-status-color);
+}
+
+.files-panel .files-search-result.status-ignored {
+    opacity: .62;
+}
+
+.files-panel .files-search-content-result {
+    min-height: 39px;
+}
+
+.files-panel .files-search-limit {
+    margin: 8px;
+    padding: 7px 8px;
+    color: var(--text-3);
+    background: var(--background-3);
+    border-radius: 6px;
+    font-size: .9rem;
+    line-height: 1.45;
+}
+
+.files-panel .files-preview {
+    display: grid;
+    grid-template-rows: 48px minmax(0, 1fr);
+    background: var(--background-0);
+}
+
+.files-panel .files-preview > .files-panel-state {
+    grid-row: 1 / -1;
+}
+
+.files-panel .files-preview-breadcrumb {
+    cursor: context-menu;
+}
+
+.files-panel .files-preview-breadcrumb:focus-visible {
+    border-radius: 3px;
+    outline: 2px solid var(--text-3);
+    outline-offset: 1px;
+}
+
+.files-panel .files-preview-content {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.files-panel .files-code {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 8px 0 24px;
+    overflow: auto;
+    color: var(--text-1);
+    background: var(--background-0);
+    font-family: var(--font-code);
+    font-size: .9rem;
+    line-height: 1.55;
+    tab-size: 2;
+}
+
+.files-panel .files-code:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: -2px;
+}
+
+.files-panel .files-code-line {
+    min-width: max-content;
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+}
+
+.files-panel .files-code-line > span {
+    padding-right: 10px;
+    color: var(--text-3);
+    text-align: right;
+    user-select: none;
+}
+
+.files-panel .files-code-line code {
+    padding-right: 20px;
+    color: inherit;
+    font: inherit;
+    white-space: pre;
+}
+
+.files-panel .files-code-line.target-line {
+    background: var(--background-3);
+    box-shadow: inset 2px 0 var(--text-3);
+}
+
+.files-panel .files-diff {
+    display: block;
+}
+
+.files-panel .files-diff > code {
+    min-width: max-content;
+    display: block;
+    padding: 0 16px;
+    color: inherit;
+    font: inherit;
+    white-space: pre;
+}
+
+.files-panel .files-diff > code .token.deleted:not(.prefix) {
+    background-color: var(--diff-removed-bg);
+}
+
+.files-panel .files-diff > code .token.inserted:not(.prefix) {
+    background-color: var(--diff-added-bg);
+}
+
+.files-panel .files-diff > code .token.deleted-sign .token.prefix, .files-panel .files-diff > code .token.inserted-sign .token.prefix {
+    background-color: var(--diff-relative-margin-bg);
+}
+
+.files-panel .files-edit-empty {
+    display: block;
+    padding: 20px;
+    color: var(--text-2);
+    font-family: inherit;
+    font-style: italic;
+    text-align: center;
+}
+
+.files-panel .files-image-preview {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 10px;
+    padding: 20px;
+    overflow: auto;
+    background: linear-gradient(45deg, var(--background-3) 25%, transparent 25%),
+      linear-gradient(-45deg, var(--background-3) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, var(--background-3) 75%),
+      linear-gradient(-45deg, transparent 75%, var(--background-3) 75%);
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+    background-size: 16px 16px;
+}
+
+.files-panel .files-image-preview img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    box-shadow: 0 4px 18px rgb(0 0 0 / 12%);
+}
+
+.files-panel .files-image-preview span {
+    padding: 3px 7px;
+    color: var(--text-3);
+    background: var(--background-2);
+    border-radius: 5px;
+    font-size: .9rem;
+}
+
+.selection-action-group {
+    position: fixed;
+    height: 30px;
+    display: inline-flex;
+    align-items: stretch;
+    z-index: 125;
+    color: var(--text-1);
+    background: var(--background-1);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 2px 16px #00000011;
+    white-space: nowrap;
+    transform-origin: top center;
+    animation: dropdown-menu-in var(--duration-fast) var(--ease-smooth-out);
+}
+
+.selection-action-group[data-closing] {
+    animation: dropdown-menu-out var(--duration-quick) var(--ease-smooth-out) forwards;
+}
+
+.selection-action-group button {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 0 8px;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+    font: inherit;
+    font-size: .95rem;
+    cursor: pointer;
+    transition: color 180ms var(--base-transition),
+      background 180ms var(--base-transition),
+      transform 180ms var(--base-transition);
+}
+
+.selection-action-group button + button {
+    border-left: 1px solid var(--border-color);
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+.selection-action-group button:hover {
+    background: var(--item-hover);
+}
+
+.selection-action-group button:active {
+    transform: scale(.97);
+}
+
+.selection-action-group button:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: -1px;
+}
+
+.selection-action-group button svg {
+    flex: 0 0 auto;
+    color: var(--text-3);
+}
+
+.files-panel-state, .files-loading {
+    height: 100%;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 6px;
+    padding: 24px;
+    color: var(--text-3);
+    text-align: center;
+}
+
+.files-panel-state strong, .files-loading strong {
+    color: var(--text-1);
+    font-size: .9rem;
+    font-weight: 500;
+}
+
+.files-panel-state span, .files-loading span {
+    max-width: 260px;
+    font-size: .9rem;
+    line-height: 1.5;
+}
+
+.files-panel-error {
+    margin: 8px;
+    padding: 8px 9px;
+    color: var(--text-1);
+    background: var(--background-3);
+    border-radius: 7px;
+    font-size: .9rem;
+    line-height: 1.45;
+}
+
+.files-context-menu {
+    width: 190px;
+}
+
+@container (max-width: 520px) {
+    .files-panel .files-explorer {
+        grid-column: 1 / -1;
+    }
+
+    .files-panel .files-preview {
+        display: none;
+    }
+
+    .files-panel.has-preview .files-explorer {
+        display: none;
+    }
+
+    .files-panel.has-preview .files-preview {
+        display: grid;
+        grid-column: 1 / -1;
+    }
+
+    .files-panel.has-preview .files-preview-back {
+        display: grid;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .selection-action-group, .selection-action-group[data-closing] {
+        animation: none;
+    }
+
+    .selection-action-group button, .files-panel .files-tree-node, .files-panel .files-search-clear, .files-panel .files-search-result, .files-panel .files-explorer-header button, .files-panel .files-preview-back {
+        transition: none;
     }
 }
 /* components\dialog.xcss */
@@ -10656,6 +10664,15 @@ html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #roo
     transition: transform 180ms var(--base-transition);
 }
 
+.tool-entry {
+    margin-bottom: -10px;
+    transition: 180ms var(--base-transition);
+}
+
+.tool-entry.open {
+    margin-bottom: 0;
+}
+
 .tool-entry.open .tool-line-chevron {
     transform: rotate(90deg);
 }
@@ -10684,22 +10701,38 @@ html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #roo
 
 .tool-details {
     display: grid;
-    gap: 8px;
-    padding: 3px 0 8px 14px;
+    grid-template-rows: 0fr;
+    overflow: hidden;
+    opacity: 0;
+    transition: grid-template-rows 180ms var(--base-transition),
+    opacity 140ms var(--base-transition);
 }
 
-.tool-details section {
+.tool-entry.open .tool-details {
+    grid-template-rows: 1fr;
+    opacity: 1;
+}
+
+.tool-details-inner {
+    overflow: hidden;
+    display: grid;
+    gap: 8px;
+    padding: 3px 0 8px 14px;
+    min-height: 0;
+}
+
+.tool-details-inner section {
     min-width: 0;
 }
 
-.tool-details section > span {
+.tool-details-inner section > span {
     display: block;
     margin-bottom: 4px;
     color: var(--text-3);
     font-size: .9rem;
 }
 
-.tool-details pre {
+.tool-details-inner pre {
     max-height: 260px;
     margin: 0;
     padding: 8px;
@@ -10711,6 +10744,13 @@ html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #roo
     font: .9rem/1.45 var(--font-code);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+
+.tool-details-pending {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-3);
 }
 
 .error-line {
@@ -10726,6 +10766,10 @@ html.quick-chat-window, html.quick-chat-window body, html.quick-chat-window #roo
 @media (prefers-reduced-motion: reduce) {
     .tool-line-spinner {
         animation-duration: 1.6s;
+    }
+
+    .tool-details {
+        transition: none;
     }
 }
 /* components\input.xcss */
@@ -11615,7 +11659,7 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 1.75em 0 .65em;
+    margin: 1.75em 0 .45em;
     color: var(--text-1);
     font-size: 1rem;
     font-weight: 600;
@@ -11734,17 +11778,56 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     color: var(--text-2);
 }
 
-.markdown-body img.mermaid-visualization {
+.markdown-body .mermaid-visualization {
+    position: relative;
+    overflow: visible;
+}
+
+.markdown-body .mermaid-visualization > img {
     width: auto;
+    max-width: 100%;
     max-height: min(680px, 75vh);
     display: block;
     margin-inline: auto;
     object-fit: contain;
 }
 
+.markdown-body .mermaid-visualization .mermaid-expand {
+    position: absolute;
+    top: 8px;
+    right: 0;
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    color: var(--text-3);
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    transition: background var(--duration-quick) var(--ease-smooth-out), color var(--duration-quick) var(--ease-smooth-out);
+}
+
+.markdown-body .mermaid-visualization .mermaid-expand:hover, .markdown-body .mermaid-visualization .mermaid-expand:focus-visible {
+    color: var(--text-1);
+    background: var(--item-active);
+}
+
+.markdown-body .mermaid-visualization .mermaid-expand:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: 1px;
+}
+
 .markdown-body .latex-visualization {
     color: var(--text-1);
     text-align: center;
+}
+
+.attachment-lightbox.mermaid-lightbox > img {
+    width: calc(100vw - 96px);
+    height: calc(100vh - 96px);
+    box-sizing: border-box;
+    padding: 24px;
+    background: var(--background-0);
 }
 
 @keyframes visualization-loading {
@@ -11760,6 +11843,10 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
 @media (prefers-reduced-motion: reduce) {
     .markdown-body .async-visualization.is-loading {
         animation: none;
+    }
+
+    .markdown-body .mermaid-expand {
+        transition: none;
     }
 }
 /* components\project-picker.xcss */
@@ -16922,55 +17009,55 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     --prism-class: #ffa657;
 }
 
-.code-block, .files-code, .git-diff-lines {
+.code-block, .files-code, .git-diff-lines, .tool-details pre {
     font-family: var(--font-code);
 }
 
-.code-block .token.comment, .files-code .token.comment, .git-diff-lines .token.comment, .code-block .token.prolog, .files-code .token.prolog, .git-diff-lines .token.prolog, .code-block .token.doctype, .files-code .token.doctype, .git-diff-lines .token.doctype, .code-block .token.cdata, .files-code .token.cdata, .git-diff-lines .token.cdata {
+.code-block .token.comment, .files-code .token.comment, .git-diff-lines .token.comment, .tool-details pre .token.comment, .code-block .token.prolog, .files-code .token.prolog, .git-diff-lines .token.prolog, .tool-details pre .token.prolog, .code-block .token.doctype, .files-code .token.doctype, .git-diff-lines .token.doctype, .tool-details pre .token.doctype, .code-block .token.cdata, .files-code .token.cdata, .git-diff-lines .token.cdata, .tool-details pre .token.cdata {
     color: var(--prism-comment);
 }
 
-.code-block .token.punctuation, .files-code .token.punctuation, .git-diff-lines .token.punctuation {
+.code-block .token.punctuation, .files-code .token.punctuation, .git-diff-lines .token.punctuation, .tool-details pre .token.punctuation {
     color: var(--prism-punctuation);
 }
 
-.code-block .token.property, .files-code .token.property, .git-diff-lines .token.property, .code-block .token.tag, .files-code .token.tag, .git-diff-lines .token.tag, .code-block .token.boolean, .files-code .token.boolean, .git-diff-lines .token.boolean, .code-block .token.constant, .files-code .token.constant, .git-diff-lines .token.constant, .code-block .token.symbol, .files-code .token.symbol, .git-diff-lines .token.symbol, .code-block .token.deleted, .files-code .token.deleted, .git-diff-lines .token.deleted {
+.code-block .token.property, .files-code .token.property, .git-diff-lines .token.property, .tool-details pre .token.property, .code-block .token.tag, .files-code .token.tag, .git-diff-lines .token.tag, .tool-details pre .token.tag, .code-block .token.boolean, .files-code .token.boolean, .git-diff-lines .token.boolean, .tool-details pre .token.boolean, .code-block .token.constant, .files-code .token.constant, .git-diff-lines .token.constant, .tool-details pre .token.constant, .code-block .token.symbol, .files-code .token.symbol, .git-diff-lines .token.symbol, .tool-details pre .token.symbol, .code-block .token.deleted, .files-code .token.deleted, .git-diff-lines .token.deleted, .tool-details pre .token.deleted {
     color: var(--prism-property);
 }
 
-.code-block .token.selector, .files-code .token.selector, .git-diff-lines .token.selector, .code-block .token.attr-name, .files-code .token.attr-name, .git-diff-lines .token.attr-name, .code-block .token.char, .files-code .token.char, .git-diff-lines .token.char, .code-block .token.builtin, .files-code .token.builtin, .git-diff-lines .token.builtin, .code-block .token.inserted, .files-code .token.inserted, .git-diff-lines .token.inserted {
+.code-block .token.selector, .files-code .token.selector, .git-diff-lines .token.selector, .tool-details pre .token.selector, .code-block .token.attr-name, .files-code .token.attr-name, .git-diff-lines .token.attr-name, .tool-details pre .token.attr-name, .code-block .token.char, .files-code .token.char, .git-diff-lines .token.char, .tool-details pre .token.char, .code-block .token.builtin, .files-code .token.builtin, .git-diff-lines .token.builtin, .tool-details pre .token.builtin, .code-block .token.inserted, .files-code .token.inserted, .git-diff-lines .token.inserted, .tool-details pre .token.inserted {
     color: var(--prism-selector);
 }
 
-.code-block .token.operator, .files-code .token.operator, .git-diff-lines .token.operator, .code-block .token.entity, .files-code .token.entity, .git-diff-lines .token.entity, .code-block .token.url, .files-code .token.url, .git-diff-lines .token.url, .code-block .language-css .token.string, .files-code .language-css .token.string, .git-diff-lines .language-css .token.string, .code-block .style .token.string, .files-code .style .token.string, .git-diff-lines .style .token.string {
+.code-block .token.operator, .files-code .token.operator, .git-diff-lines .token.operator, .tool-details pre .token.operator, .code-block .token.entity, .files-code .token.entity, .git-diff-lines .token.entity, .tool-details pre .token.entity, .code-block .token.url, .files-code .token.url, .git-diff-lines .token.url, .tool-details pre .token.url, .code-block .language-css .token.string, .files-code .language-css .token.string, .git-diff-lines .language-css .token.string, .tool-details pre .language-css .token.string, .code-block .style .token.string, .files-code .style .token.string, .git-diff-lines .style .token.string, .tool-details pre .style .token.string {
     color: var(--prism-operator);
 }
 
-.code-block .token.atrule, .files-code .token.atrule, .git-diff-lines .token.atrule, .code-block .token.attr-value, .files-code .token.attr-value, .git-diff-lines .token.attr-value, .code-block .token.keyword, .files-code .token.keyword, .git-diff-lines .token.keyword {
+.code-block .token.atrule, .files-code .token.atrule, .git-diff-lines .token.atrule, .tool-details pre .token.atrule, .code-block .token.attr-value, .files-code .token.attr-value, .git-diff-lines .token.attr-value, .tool-details pre .token.attr-value, .code-block .token.keyword, .files-code .token.keyword, .git-diff-lines .token.keyword, .tool-details pre .token.keyword {
     color: var(--prism-keyword);
 }
 
-.code-block .token.function, .files-code .token.function, .git-diff-lines .token.function {
+.code-block .token.function, .files-code .token.function, .git-diff-lines .token.function, .tool-details pre .token.function {
     color: var(--prism-function);
 }
 
-.code-block .token.regex, .files-code .token.regex, .git-diff-lines .token.regex, .code-block .token.important, .files-code .token.important, .git-diff-lines .token.important, .code-block .token.variable, .files-code .token.variable, .git-diff-lines .token.variable, .code-block .token.string, .files-code .token.string, .git-diff-lines .token.string {
+.code-block .token.regex, .files-code .token.regex, .git-diff-lines .token.regex, .tool-details pre .token.regex, .code-block .token.important, .files-code .token.important, .git-diff-lines .token.important, .tool-details pre .token.important, .code-block .token.variable, .files-code .token.variable, .git-diff-lines .token.variable, .tool-details pre .token.variable, .code-block .token.string, .files-code .token.string, .git-diff-lines .token.string, .tool-details pre .token.string {
     color: var(--prism-string);
 }
 
-.code-block .token.number, .files-code .token.number, .git-diff-lines .token.number {
+.code-block .token.number, .files-code .token.number, .git-diff-lines .token.number, .tool-details pre .token.number {
     color: var(--prism-number);
 }
 
-.code-block .token.class-name, .files-code .token.class-name, .git-diff-lines .token.class-name {
+.code-block .token.class-name, .files-code .token.class-name, .git-diff-lines .token.class-name, .tool-details pre .token.class-name {
     color: var(--prism-class);
 }
 
-.code-block .token.important, .files-code .token.important, .git-diff-lines .token.important, .code-block .token.bold, .files-code .token.bold, .git-diff-lines .token.bold {
+.code-block .token.important, .files-code .token.important, .git-diff-lines .token.important, .tool-details pre .token.important, .code-block .token.bold, .files-code .token.bold, .git-diff-lines .token.bold, .tool-details pre .token.bold {
     font-weight: 500;
 }
 
-.code-block .token.italic, .files-code .token.italic, .git-diff-lines .token.italic {
+.code-block .token.italic, .files-code .token.italic, .git-diff-lines .token.italic, .tool-details pre .token.italic {
     font-style: italic;
 }
 /* components\appearance.xcss */

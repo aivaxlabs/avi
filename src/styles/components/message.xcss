@@ -1179,6 +1179,8 @@
 }
 
 .assistant-placeholder {
+  display: flex;
+  gap: 6px;
   width: fit-content;
   overflow: clip;
   color: transparent;
@@ -1201,6 +1203,12 @@
 .assistant-placeholder-label {
   display: block;
   animation: thinking-label-swap 180ms var(--base-transition);
+}
+
+.assistant-placeholder-time {
+  color: var(--text-3);
+  -webkit-text-fill-color: var(--text-3);
+  font-variant-numeric: tabular-nums;
 }
 
 .assistant-timeline + .assistant-placeholder {

@@ -176,9 +176,16 @@
   transition: transform 180ms var(--base-transition);
 }
 
-.tool-entry.open {
-  .tool-line-chevron {
-    transform: rotate(90deg);
+.tool-entry {
+  margin-bottom: -10px;
+  transition: 180ms --base-transition;
+
+  & .open {
+    margin-bottom: 0;
+
+    .tool-line-chevron {
+      transform: rotate(90deg);
+    }
   }
 }
 
@@ -208,8 +215,24 @@
 
 .tool-details {
   display: grid;
+  grid-template-rows: 0fr;
+  overflow: hidden;
+  opacity: 0;
+  transition: grid-template-rows 180ms var(--base-transition),
+    opacity 140ms var(--base-transition);
+}
+
+.tool-entry.open .tool-details {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.tool-details-inner {
+  overflow: hidden;
+  display: grid;
   gap: 8px;
   padding: 3px 0 8px 14px;
+  min-height: 0;
 
   section {
     min-width: 0;
@@ -237,6 +260,13 @@
   }
 }
 
+.tool-details-pending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+}
+
 .error-line {
   color: var(--text-1);
 }
@@ -250,5 +280,9 @@
 @media (prefers-reduced-motion: reduce) {
   .tool-line-spinner {
     animation-duration: 1.6s;
+  }
+
+  .tool-details {
+    transition: none;
   }
 }
