@@ -431,6 +431,12 @@ db.exec(`
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS composer_drafts (
+    draft_key TEXT PRIMARY KEY,
+    state TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
     ON messages(conversation_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_inference_usage_created
@@ -1015,6 +1021,14 @@ const statements = {
       ultra_mode = excluded.ultra_mode,
       draft_text = excluded.draft_text,
       attachments = excluded.attachments,
+      updated_at = excluded.updated_at
+  `),
+  getComposerDraft: db.prepare('SELECT state, updated_at FROM composer_drafts WHERE draft_key = ?'),
+  upsertComposerDraft: db.prepare(`
+    INSERT INTO composer_drafts (draft_key, state, updated_at)
+    VALUES (@draftKey, @state, @updatedAt)
+    ON CONFLICT(draft_key) DO UPDATE SET
+      state = excluded.state,
       updated_at = excluded.updated_at
   `),
   archiveConversation: db.prepare(`
@@ -2377,26 +2391,55 @@ export function getComposerState(conversationId, { restoreLastMessage = false } 
 
 export function setComposerState(conversationId, state = {}) {
   if (!getConversation(conversationId)) throw new Error('Conversation not found.');
-  const permissionMode = ['ask_for_approval', 'approve_for_me', 'full_access']
-    .includes(state.permissionMode)
-    ? state.permissionMode
-    : 'approve_for_me';
-  const workMode = ['plan', 'goal'].includes(state.workMode) ? state.workMode : null;
-  const ultraMode = workMode === 'plan' ? false : Boolean(state.ultraMode);
+  const normalized = normalizeComposerState(state);
   statements.upsertComposerState.run({
     conversationId,
-    permissionMode,
-    model: typeof state.model === 'string' ? state.model : '',
-    reasoningEffort: typeof state.reasoningEffort === 'string'
-      ? state.reasoningEffort
-      : null,
-    workMode,
-    ultraMode: ultraMode ? 1 : 0,
-    draftText: typeof state.draftText === 'string' ? state.draftText : '',
-    attachments: stringify(Array.isArray(state.attachments) ? state.attachments : []),
+    ...normalized,
+    ultraMode: normalized.ultraMode ? 1 : 0,
+    attachments: stringify(normalized.attachments),
     updatedAt: timestamp(),
   });
   return getComposerState(conversationId);
+}
+
+const emptyThreadId = '00000000-0000-0000-0000-000000000000';
+
+export function getComposerDraft(projectPath) {
+  const row = statements.getComposerDraft.get(composerDraftKey(projectPath));
+  return row
+    ? { projectPath, ...parse(row.state, {}), updatedAt: row.updated_at }
+    : null;
+}
+
+export function setComposerDraft(projectPath, state = {}) {
+  statements.upsertComposerDraft.run({
+    draftKey: composerDraftKey(projectPath),
+    state: stringify(normalizeComposerState(state)),
+    updatedAt: timestamp(),
+  });
+  return getComposerDraft(projectPath);
+}
+
+function composerDraftKey(projectPath) {
+  if (typeof projectPath !== 'string' || !isAbsolute(projectPath)) {
+    throw new Error('An absolute projectPath is required.');
+  }
+  return `${resolve(projectPath)}/${emptyThreadId}`;
+}
+
+function normalizeComposerState(state) {
+  const workMode = ['plan', 'goal'].includes(state.workMode) ? state.workMode : null;
+  return {
+    permissionMode: ['ask_for_approval', 'approve_for_me', 'full_access'].includes(state.permissionMode)
+      ? state.permissionMode
+      : 'approve_for_me',
+    model: typeof state.model === 'string' ? state.model : '',
+    reasoningEffort: typeof state.reasoningEffort === 'string' ? state.reasoningEffort : null,
+    workMode,
+    ultraMode: workMode === 'plan' ? false : Boolean(state.ultraMode),
+    draftText: typeof state.draftText === 'string' ? state.draftText : '',
+    attachments: Array.isArray(state.attachments) ? state.attachments : [],
+  };
 }
 
 export function archiveConversation(id) {

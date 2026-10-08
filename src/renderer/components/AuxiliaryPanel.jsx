@@ -1255,8 +1255,6 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
               messageDeliveryMode={messageDeliveryMode}
               defaultPermissionMode={defaultPermissionMode}
               continuationRepliesEnabled={continuationRepliesEnabled}
-              draftKey={`aivax.composer.${activeThread.isSubagent ? 'subagent' : 'side'
-                }.${activeThread.id}`}
             />
           ) : null}
         </div>

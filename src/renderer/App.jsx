@@ -681,7 +681,14 @@ export default function App() {
     setOrchestrationOpen(false);
     setSearchOpen(false);
     if (view === 'new-conversation') {
-      window.localStorage.setItem('aivax.composer.draft', String(draftText ?? ''));
+      if (draftText != null && project?.path) {
+        const draft = await api.composerDraft.get(project.path).catch(() => null);
+        await api.composerDraft.save({
+          ...draft,
+          projectPath: project.path,
+          draftText: String(draftText),
+        }).catch(() => {});
+      }
       setSettingsContextFolder(null);
       setSettingsInitialView(null);
       setSettingsOpen(false);

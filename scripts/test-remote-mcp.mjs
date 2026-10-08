@@ -436,7 +436,7 @@ try {
 
   const globalSocket = await openSocket('/rpc');
   const globalDiscovery = (await callRpc(globalSocket, 'rpc:discover')).result;
-  assert.equal(globalDiscovery.appVersion, '0.6.0');
+  assert.equal(globalDiscovery.appVersion, JSON.parse(readFileSync(resolve('package.json'), 'utf8')).version);
   assert.deepEqual(globalDiscovery.versions, {
     core: 2,
     rpc: 1,
@@ -459,6 +459,7 @@ try {
     'bots:activate', 'bots:clear-thread', 'bots:complete-pendency', 'bots:create', 'bots:delete', 'bots:full-reset',
     'bots:list', 'bots:reply-pendency', 'bots:resolve-approval', 'bots:save-settings', 'bots:settings',
     'bots:snooze', 'bots:snooze-one', 'bots:statistics', 'bots:update',
+    'composer-draft:get', 'composer-draft:save',
     'conversations:archive', 'conversations:create', 'conversations:delete',
     'conversations:fork', 'conversations:list', 'conversations:search', 'conversations:set-tags',
     'conversations:update', 'folders:list', 'folders:save-color', 'folders:threads', 'models:list',
@@ -674,9 +675,6 @@ try {
     { channel: 'conversations:list', payload: undefined },
     { channel: 'tags:list', payload: undefined },
     { channel: 'tags:save', payload: { tags: [{ id: 'kept', name: 'Kept', color: '#FFAA00' }] } },
-    { channel: 'conversations:list', payload: undefined },
-    { channel: 'conversations:list', payload: undefined },
-    { channel: 'conversations:list', payload: undefined },
     { channel: 'conversations:messages', payload: { limit: 2, cursor: undefined, conversationId: 'rpc-thread' } },
     {
       channel: 'conversations:messages',

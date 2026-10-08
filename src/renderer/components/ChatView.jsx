@@ -265,7 +265,6 @@ export const ChatView = memo(function ChatView({
   defaultPermissionMode = 'approve_for_me',
   continuationRepliesEnabled = true,
   compact = false,
-  draftKey,
   emptyBackgroundEnabled = true,
   emptyBackgroundThemeKey,
   backgroundUrl = null,
@@ -1426,7 +1425,6 @@ export const ChatView = memo(function ChatView({
         pendingAttachment={pendingAttachment}
         onPendingAttachmentConsumed={onPendingAttachmentConsumed}
         messageDeliveryMode={messageDeliveryMode}
-        draftKey={draftKey}
         autoFocus={!currentConversation || Boolean(currentConversation.isSideChat)}
         defaultPermissionMode={defaultPermissionMode}
         botMode={botMode}

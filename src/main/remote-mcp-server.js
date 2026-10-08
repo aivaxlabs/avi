@@ -17,6 +17,7 @@ import {
 import WebSocket, { WebSocketServer } from 'ws';
 import { CLIENT_TOOLS } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
+import packageMetadata from '../../package.json' with { type: 'json' };
 
 const REMOTE_TOOL_NAMES = new Set([
   'bots_list',
@@ -67,6 +68,8 @@ const GLOBAL_RPC_METHODS = new Set([
   'conversations:fork',
   'conversations:search',
   'conversations:set-tags',
+  'composer-draft:get',
+  'composer-draft:save',
   'folders:list',
   'folders:threads',
   'folders:save-color',
@@ -128,13 +131,28 @@ const CONVERSATION_SCALAR_METHODS = new Set([
   'tasks:list',
 ]);
 const remoteTools = CLIENT_TOOLS.filter((tool) => REMOTE_TOOL_NAMES.has(tool.name));
+
+function assertRemoteUploadSizes(attachments) {
+  if (!Array.isArray(attachments)) return;
+  for (const attachment of attachments) {
+    let bytes = 0;
+    if (typeof attachment?.text === 'string') bytes = Buffer.byteLength(attachment.text, 'utf8');
+    else if (typeof attachment?.base64 === 'string') bytes = Buffer.from(attachment.base64, 'base64').length;
+    else if (typeof attachment?.dataUrl === 'string') {
+      const comma = attachment.dataUrl.indexOf(',');
+      if (comma >= 0) bytes = attachment.dataUrl.slice(0, comma).endsWith(';base64')
+        ? Buffer.from(attachment.dataUrl.slice(comma + 1), 'base64').length
+        : Buffer.byteLength(decodeURIComponent(attachment.dataUrl.slice(comma + 1)), 'utf8');
+    }
+    if (bytes > 10 * 1024 * 1024) throw new Error('Each uploaded file must be 10 MB or smaller.');
+  }
+}
 const REMOTE_MCP_INSTRUCTIONS = readFileSync(new URL('../prompts/mgmt-instructions.md', import.meta.url), 'utf8');
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 const MAX_WEBSOCKET_PAYLOAD_BYTES = 1024 * 1024;
 const RPC_PROTOCOL = ORPC_PROTOCOL;
 const RPC_API_KEY_PROTOCOL_PREFIX = 'avi-api-key.';
 const RPC_API_VERSION = 1;
-const APP_VERSION = '0.7.0';
 
 const rpcError = (id, code, message, data) => ({
   error: { code, message, ...(data === undefined ? {} : { data }) },
@@ -388,7 +406,10 @@ export class RemoteMcpServer {
     this.attachRpcSocket(socket, {
       scope: 'global',
       methods: GLOBAL_RPC_METHODS,
-      preparePayload: (_method, payload) => payload,
+      preparePayload: (method, payload) => {
+        if (method === 'composer-draft:save') assertRemoteUploadSizes(payload?.attachments);
+        return payload;
+      },
     });
   }
 
@@ -569,7 +590,7 @@ export class RemoteMcpServer {
 
   rpcDiscovery(scope, methods) {
     return {
-      appVersion: APP_VERSION,
+      appVersion: packageMetadata.version,
       versions: {
         core: 2,
         rpc: RPC_API_VERSION,
@@ -654,19 +675,8 @@ export class RemoteMcpServer {
       }
       return { ...next, id: conversationId };
     }
-    if (['chat:send', 'goals:start', 'composer-state:save'].includes(method) && Array.isArray(next.attachments)) {
-      for (const attachment of next.attachments) {
-        let bytes = 0;
-        if (typeof attachment?.text === 'string') bytes = Buffer.byteLength(attachment.text, 'utf8');
-        else if (typeof attachment?.base64 === 'string') bytes = Buffer.from(attachment.base64, 'base64').length;
-        else if (typeof attachment?.dataUrl === 'string') {
-          const comma = attachment.dataUrl.indexOf(',');
-          if (comma >= 0) bytes = attachment.dataUrl.slice(0, comma).endsWith(';base64')
-            ? Buffer.from(attachment.dataUrl.slice(comma + 1), 'base64').length
-            : Buffer.byteLength(decodeURIComponent(attachment.dataUrl.slice(comma + 1)), 'utf8');
-        }
-        if (bytes > 10 * 1024 * 1024) throw new Error('Each uploaded file must be 10 MB or smaller.');
-      }
+    if (['chat:send', 'goals:start', 'composer-state:save'].includes(method)) {
+      assertRemoteUploadSizes(next.attachments);
     }
     if (method === 'side-chats:create') return { ...next, parentConversationId: conversationId };
     if (method === 'chat:send' && next.goalId !== undefined && next.goalId !== null) {

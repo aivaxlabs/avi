@@ -70,6 +70,7 @@ import {
   getArchiveStats,
   getAivaxAccessToken,
   getAivaxSettings,
+  getComposerDraft,
   getComposerState,
   getConversation,
   getFolderColors,
@@ -105,6 +106,7 @@ import {
   setAivaxSettings,
   getChatTags,
   setChatTags,
+  setComposerDraft,
   setComposerState,
   setConversationTags,
   setDefaultModels,
@@ -139,6 +141,7 @@ import {
 } from './context-injection.js';
 import {
   createVideoFileResponse,
+  dropMissingAttachments,
   filePathToAttachment,
   inspectWorkspaceFiles,
   materializeLegacyVideoAttachments,
@@ -1786,8 +1789,11 @@ function registerIpc() {
   const loadComposerState = async (conversationId) => {
     const state = getComposerState(conversationId, { restoreLastMessage: true });
     if (!state) return null;
-    const attachments = await materializeLegacyVideoAttachments(state.attachments);
-    return attachments.some((attachment, index) => attachment !== state.attachments[index])
+    const attachments = await dropMissingAttachments(
+      await materializeLegacyVideoAttachments(state.attachments),
+    );
+    return attachments.length !== state.attachments.length
+      || attachments.some((attachment, index) => attachment !== state.attachments[index])
       ? setComposerState(conversationId, { ...state, attachments })
       : state;
   };
@@ -1921,6 +1927,17 @@ function registerIpc() {
   applicationIpc.handle('composer-state:get', (_event, conversationId) => loadComposerState(conversationId));
   applicationIpc.handle('composer-state:save', (_event, payload = {}) => (
     setComposerState(payload.conversationId, payload)
+  ));
+  applicationIpc.handle('composer-draft:get', async (_event, projectPath) => {
+    const draft = getComposerDraft(projectPath);
+    if (!draft) return null;
+    const attachments = await dropMissingAttachments(draft.attachments);
+    return attachments.length === draft.attachments.length
+      ? draft
+      : setComposerDraft(projectPath, { ...draft, attachments });
+  });
+  applicationIpc.handle('composer-draft:save', (_event, payload = {}) => (
+    setComposerDraft(payload.projectPath, payload)
   ));
   applicationIpc.handle('tasks:list', (_event, conversationId) => listTasks(conversationId));
   applicationIpc.handle('bots:list', async () => {

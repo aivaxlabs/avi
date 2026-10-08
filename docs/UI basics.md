@@ -63,6 +63,8 @@ Discard removes the selected staged, unstaged, and untracked changes after confi
 
 ## Composer
 
+Before a thread exists, the composer keeps one draft per working folder: text, attachments, model, reasoning effort, permission mode, and Plan/Goal/Ultra selection survive switching threads, tabs, or restarting Avi, and selecting that folder again restores them. Attachments are references to the original files, not copies; an attachment whose file was moved or deleted is removed when the draft is reopened. The same rule applies to unsent thread attachments.
+
 Opening a thread restores the model, reasoning effort, Plan/Goal mode, and Ultra selection from its latest user message, including a confirmed edit or a queued message. Unsent text and attachments remain saved separately; changing a selection without sending does not override the last message when reopening the thread. Rubber Duck is a separate thread type and remains unchanged. In a Side Chat, the parent's copied messages do not restore its Goal, Plan, or Ultra selection; only the Side Chat's own later messages can do so. Bot threads retain their configured model and mode restrictions.
 
 Editing a message keeps model changes local until you send the replacement. Cancelling the edit does not change the thread's model. Sending the edit saves the selected parameters on the replacement message.
