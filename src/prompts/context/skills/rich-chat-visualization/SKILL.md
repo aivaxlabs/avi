@@ -24,16 +24,18 @@ See :fileref{path="./src/main/runtime.js" line-from="120" line-to="128"}.
 
 ## Callouts
 
-Use a `callout` leaf directive as a short visual heading. Put supporting Markdown in the following paragraphs.
+Use a `callout` leaf directive as a short visual marker: a few words that name the status, such as `Not tested`, `Blocked by credentials`, `Assumption`, or `Breaking change`. Never put a full sentence or explanation in the label; write it in the following paragraph.
 
 ```markdown
-::callout[Back up the database before continuing.]{kind="warning"}
+::callout[Backup required]{kind="warning"}
+
+Back up the database before running the migration; it rewrites the `orders` table in place.
 ```
 
 - `kind` is optional and defaults to `info`.
 - Supported kinds: `info`, `success`, `warning`, and `danger`.
-- The label supports inline Markdown and must remain concise.
-- Do not use a container `:::callout`; it is not supported.
+- The label is required, supports inline Markdown, and should have only a few words.
+- The callout has no body. Do not use a bare `::callout` followed by content, and do not use a container `:::callout`; neither renders the following content inside the callout.
 
 Use the inline `callout` text directive, with a single colon, to highlight a short phrase inside a sentence, list item, or table cell:
 
@@ -42,7 +44,7 @@ The build passed, but :callout[E2E tests were not run]{kind="warning"}.
 ```
 
 - It accepts the same `kind` values and renders as a colored inline badge.
-- Keep the label to a few words; use the leaf form for anything that deserves its own line.
+- Keep the label to a few words, such as `not run`, `unverified`, or `breaking`; the rest of the sentence carries the explanation.
 - A `:callout` alone in its paragraph renders as the block form.
 
 ## Charts and progress

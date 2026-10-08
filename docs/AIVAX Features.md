@@ -18,7 +18,7 @@ All AIVAX features are disabled by default. To enable memory:
 2. select an existing **Memory collection** or create one;
 3. enable **Enable memory features**.
 
-The memory toggle remains unavailable without both an account and a collection. When enabled, agents receive memory guidance and the memory search and write tools become available. Store only knowledge that should remain useful beyond the current conversation.
+The memory toggle remains unavailable without both an account and a collection. When enabled, agents receive memory guidance and the memory search and write tools become available. Memory search accepts an optional [document filter](https://docs.aivax.net/docs/filters/document-filters), such as `tags has "decision" and updatedAt >= now-7d`, to restrict results by tags, name, content, or dates. Store only knowledge that should remain useful beyond the current conversation.
 
 ## Web and media utilities
 
