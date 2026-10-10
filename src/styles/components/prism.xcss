@@ -26,7 +26,8 @@
 
 .code-block,
 .files-code,
-.git-diff-lines {
+.git-diff-lines,
+.tool-details pre {
   font-family: var(--font-code);
 
   .token.comment,

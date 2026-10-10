@@ -17,13 +17,15 @@ Provider contributions use the existing provider-panel path and `ProviderPanel`;
 
 ## Anatomy and containment
 
-Keep the resizable right-hand `aside`, fixed 44px tab header, optional 38px contextual toolbar, and independently scrollable body. Nested complex views own their content scrolling without moving the shell header. Preserve `min-width: 0` and `min-height: 0` throughout grid/flex descendants.
+Keep the resizable right-hand `aside`, a tab header of at least 44px that grows with wrapped tab rows, optional 38px contextual toolbar, and independently scrollable body. Opening and closing animate the grid column (push drawer); `App` keeps the panel mounted with `closing` until the close animation ends. Nested complex views own their content scrolling without moving the shell header. Preserve `min-width: 0` and `min-height: 0` throughout grid/flex descendants.
 
 The current layout uses `--auxiliary-panel-width`, roughly 42% by default and 50% at 860px and below, with a 280px panel minimum and at least 320px reserved for main content. `App` calculates and persists resize bounds. Reuse `PanelResizer` in the existing inverse direction: dragging left grows the right panel. Keep its separator label, controlled ID, values, pointer capture, and 16px arrow / 48px Shift+arrow / Home–End behavior. The closed-panel opener remains 32×32px.
 
+At 700px and below, the auxiliary and Inbox panels are fixed over the whole window instead of taking a grid column; `App` omits the resizer and the expand control, and the navigation menu button stays hidden while the panel covers the window.
+
 ## Tabs and add menu
 
-Tabs stay on one horizontally scrolling row with icon, truncated label, optional operational indicator, and a separate close button. Retain the shared active `tabpanel`, matching tab/panel IDs, `aria-selected`, `aria-controls`, and `aria-labelledby` relationships. Only the active tab is in normal tab order; the current tab handler cycles with Left/Right Arrow. Do not describe the resizer's Home/End behavior as already implemented for tabs.
+Tabs wrap onto up to three rows (then scroll vertically) with icon, truncated label, optional operational indicator, and a separate close button. Opening and closing a tab animate its width; closing by pointer freezes the remaining tab widths until the pointer leaves the header, so repeated closes keep the next close button under the cursor. Retain the shared active `tabpanel`, matching tab/panel IDs, `aria-selected`, `aria-controls`, and `aria-labelledby` relationships. Only the active tab is in normal tab order; the current tab handler cycles with Left/Right Arrow. Do not describe the resizer's Home/End behavior as already implemented for tabs.
 
 The 30×30px add control opens the existing compact menu, focuses its first enabled item, and returns focus on Escape. Follow [Overlays](./overlays.md) when changing its behavior; `DropdownMenu` alone supplies no focus logic. Keep unavailable choices disabled with an explanation when useful. Distinguish Close tab from Close panel in labels and behavior.
 

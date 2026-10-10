@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const testProfile = mkdtempSync(join(tmpdir(), 'avi-aivax-test-'));
@@ -15,7 +15,7 @@ const {
   requestAivax,
 } = await import('../src/main/aivax-client.js');
 const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
-const { closeDatabase } = await import('../src/main/database.js');
+const { closeDatabase, getRemoteSettings } = await import('../src/main/database.js');
 
 const originalFetch = globalThis.fetch;
 const requests = [];
@@ -413,6 +413,80 @@ try {
       userAttachments: [{ kind: 'video_url', mime: 'video/mp4', path: mediaFixtures[1].path }],
     }),
     /returned no skill instructions/,
+  );
+
+  const memorySearch = CLIENT_TOOLS.find((tool) => tool.name === 'memory_search');
+  reply({
+    message: null,
+    data: [{
+      documentId: 'document-id',
+      collectionId: 'collection-id',
+      documentName: 'decisao-de-arquitetura',
+      documentContent: 'Stored memory',
+      metadata: { thread_role: 'orchestrator' },
+      timestamps: { createdAt: '2026-10-01T10:00:00', updatedAt: '2026-10-02T11:00:00' },
+      score: 0.8,
+      referencedDocuments: [],
+    }],
+  });
+  assert.deepEqual(JSON.parse(await memorySearch.execute({
+    search_terms: ['architecture'],
+    filter: 'metadata.thread_role = "orchestrator"',
+    detailed: true,
+  }, {
+    aivax: { memoryCollectionId: 'collection-id' },
+    signal: new AbortController().signal,
+  })), [{
+    id: 'document-id',
+    name: 'decisao-de-arquitetura',
+    createdAt: '2026-10-01T10:00:00',
+    updatedAt: '2026-10-02T11:00:00',
+    score: 0.8,
+    metadata: { thread_role: 'orchestrator' },
+    content: 'Stored memory',
+  }]);
+  assert.equal(JSON.parse(requests.at(-1).options.body).filter, 'metadata.thread_role = "orchestrator"');
+  reply({ message: null, data: [] });
+  assert.equal(await memorySearch.execute({ search_terms: ['nothing'], detailed: true }, {
+    aivax: { memoryCollectionId: 'collection-id' },
+    signal: new AbortController().signal,
+  }), '[]');
+
+  const memoryWrite = CLIENT_TOOLS.find((tool) => tool.name === 'memory_write');
+  assert.deepEqual(memoryWrite.inputSchema.required, ['title', 'contents']);
+  reply({ message: null, data: {} });
+  assert.equal(await memoryWrite.execute({
+    title: '  Decisão de Arquitetura: API v2!  ',
+    contents: 'Body',
+    tags: ['decision'],
+  }, {
+    aivax: { memoryCollectionId: 'collection/id' },
+    signal: new AbortController().signal,
+    workspacePath: 'C:\\Code\\repo',
+    model: 'provider:claude',
+    models: [{ id: 'provider:claude', modelId: 'claude-sonnet' }],
+    conversationId: 'quick-session-id',
+  }), 'Memory file written: decisao-de-arquitetura-api-v2.');
+  assert.equal(requests.at(-1).url, 'https://inference.aivax.net/api/v1/collections/collection%2Fid/documents');
+  assert.equal(requests.at(-1).options.method, 'PUT');
+  assert.deepEqual(JSON.parse(requests.at(-1).options.body), {
+    name: 'decisao-de-arquitetura-api-v2',
+    contents: 'Body',
+    tags: ['decision'],
+    metadata: {
+      directory: 'C:\\Code\\repo',
+      model_name: 'claude-sonnet',
+      task_title: null,
+      thread_id: 'quick-session-id',
+      thread_role: 'quick_chat',
+      parent_thread_id: null,
+      device_name: hostname(),
+      device_id: getRemoteSettings().relayDeviceId,
+    },
+  });
+  await assert.rejects(
+    memoryWrite.execute({ title: '!!!', contents: 'Body' }, { aivax: { memoryCollectionId: 'collection-id' } }),
+    /title must contain at least one letter or digit/,
   );
 
   const memoryDelete = CLIENT_TOOLS.find((tool) => tool.name === 'memory_delete');

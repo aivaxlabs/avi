@@ -36,6 +36,7 @@ import { FilesPanel } from './FilesPanel.jsx';
 import { GitReviewPanel } from './GitReviewPanel.jsx';
 import { MarkdownSegment } from './Message.jsx';
 import { ProviderPanel } from './ProviderPanel.jsx';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const emptyList = Object.freeze([]);
 const emptyObject = Object.freeze({});
@@ -44,6 +45,7 @@ const filesTabId = 'files';
 const gitReviewTabId = 'git-review';
 const tasksTabId = 'tasks';
 const botQueueTabId = 'bot-queue';
+const tabCloseDuration = 150;
 const botPanelTabs = [
   { id: 'inbox', label: 'Inbox' },
   { id: 'activity', label: 'Activity' },
@@ -107,7 +109,7 @@ function AuxiliaryAddMenu({ panels }) {
       >
         <Plus size={15} />
       </button>
-      {open && (
+      <Presence when={open}>{() => (
         <DropdownMenu
           id="auxiliary-add-menu"
           className="auxiliary-add-menu"
@@ -133,7 +135,7 @@ function AuxiliaryAddMenu({ panels }) {
             );
           })}
         </DropdownMenu>
-      )}
+      )}</Presence>
     </div>
   );
 }
@@ -190,6 +192,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   onOpenProviderPanel,
   onCloseProviderPanel,
   onClosePanel,
+  closing = false,
   expanded = false,
   onToggleExpanded,
   onCreateSideChat,
@@ -242,6 +245,8 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   const [pendencyMenu, setPendencyMenu] = useState(null);
   const [selectionAction, setSelectionAction] = useState(null);
   const [selectionAnnotation, setSelectionAnnotation] = useState('');
+  const [closingTabIds, setClosingTabIds] = useState(emptyList);
+  const [lockedTabWidths, setLockedTabWidths] = useState(null);
   const pendencyMenuRef = useRef(null);
   const pendencyMenuTriggerRef = useRef(null);
   const pendencyBusyRef = useRef(false);
@@ -598,11 +603,22 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
   ), [activeThread?.id, approvalRequests]);
 
   const hasActiveTab = tabs.some((tab) => tab.id === activeTab);
+  const tabIds = new Set(tabs.map((tab) => tab.id));
+  const [settledTabIds, setSettledTabIds] = useState(tabIds);
+  if (!settledTabIds.isSubsetOf(tabIds)) {
+    setSettledTabIds(settledTabIds.intersection(tabIds));
+  }
+  const closingTabIdSet = new Set(closingTabIds);
 
   return (
     <>
-      <aside className="auxiliary-panel" id="auxiliary-panel" aria-label={inboxOnly ? 'Inbox conversation' : 'Auxiliary panel'}>
-        <header className="auxiliary-panel-header">
+      <aside
+        className={`auxiliary-panel${closing ? ' closing' : ''}`}
+        id="auxiliary-panel"
+        aria-label={inboxOnly ? 'Inbox conversation' : 'Auxiliary panel'}
+        inert={closing}
+      >
+        <header className="auxiliary-panel-header" onPointerLeave={() => setLockedTabWidths(null)}>
           {inboxOnly ? (
             <div className="auxiliary-empty-header">
               <span>{selectedBot?.name ?? 'Inbox'}</span>
@@ -612,11 +628,28 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
             </div>
           ) : tabs.length > 0 ? (
             <div className="auxiliary-tabs-row">
-              <div className="auxiliary-tabs" role="tablist" aria-label="Auxiliary panel tabs">
-                {tabs.map((tab, index) => (
+              <div
+                className={`auxiliary-tabs${lockedTabWidths ? ' widths-locked' : ''}`}
+                role="tablist"
+                aria-label="Auxiliary panel tabs"
+              >
+                {tabs.map((tab, index) => {
+                  const tabClosing = closingTabIdSet.has(tab.id);
+                  const lockedWidth = lockedTabWidths?.[tab.id];
+                  const tabClassName = [
+                    'auxiliary-tab',
+                    tab.id === activeTab && 'active',
+                    !settledTabIds.has(tab.id) && 'entering',
+                    tabClosing && 'closing',
+                  ].filter(Boolean).join(' ');
+
+                  return (
                   <div
                     key={tab.id}
-                    className={`auxiliary-tab ${tab.id === activeTab ? 'active' : ''}`}
+                    data-tab-id={tab.id}
+                    className={tabClassName}
+                    style={lockedWidth ? { flex: `0 0 ${lockedWidth}px` } : undefined}
+                    inert={tabClosing}
                   >
                     <button
                       id={`auxiliary-tab-${tab.id}`}
@@ -669,26 +702,40 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                       title={tab.type === 'subagents'
                         ? 'Close Sub-agents tab'
                         : `Close ${tab.label}`}
-                      onClick={() => (
-                        tab.type === 'tasks'
-                          ? onCloseTasksTab()
-                          : tab.type === 'subagents'
-                            ? onCloseSubagentsTab()
-                            : tab.type === 'bot-queue'
-                              ? onCloseBotQueueTab()
-                              : tab.type === 'files'
-                                ? onCloseFilesTab()
-                                : tab.type === 'git-review'
-                                  ? onCloseGitReviewTab()
-                                  : tab.type === 'provider'
-                                    ? onCloseProviderPanel(tab.id)
-                                    : onCloseSideChat(tab.id)
-                      )}
+                      onClick={(event) => {
+                        if (event.detail > 0) {
+                          const tabElements = event.currentTarget.closest('[role="tablist"]').children;
+                          setLockedTabWidths(Object.fromEntries([...tabElements].map((element) => [
+                            element.dataset.tabId,
+                            parseFloat(getComputedStyle(element).width),
+                          ])));
+                        }
+
+                        setClosingTabIds((ids) => [...ids, tab.id]);
+                        window.setTimeout(() => {
+                          Promise.resolve().then(() => (
+                            tab.type === 'tasks'
+                              ? onCloseTasksTab()
+                              : tab.type === 'subagents'
+                                ? onCloseSubagentsTab()
+                                : tab.type === 'bot-queue'
+                                  ? onCloseBotQueueTab()
+                                  : tab.type === 'files'
+                                    ? onCloseFilesTab()
+                                    : tab.type === 'git-review'
+                                      ? onCloseGitReviewTab()
+                                      : tab.type === 'provider'
+                                        ? onCloseProviderPanel(tab.id)
+                                        : onCloseSideChat(tab.id)
+                          )).finally(() => setClosingTabIds((ids) => ids.filter((id) => id !== tab.id)));
+                        }, window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : tabCloseDuration);
+                      }}
                     >
                       <X size={13} />
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <AuxiliaryAddMenu panels={availablePanels} />
               {onToggleExpanded && <button className="auxiliary-tab-close" type="button" aria-label={expanded ? 'Restore panel width' : 'Expand auxiliary panel'} title={expanded ? 'Restore panel width' : 'Expand auxiliary panel'} aria-pressed={expanded} onClick={onToggleExpanded}>
@@ -833,7 +880,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                                 });
                               }}
                             ><Ellipsis size={16} aria-hidden="true" /></button>
-                            {pendencyMenu?.key === draftKey && createPortal(
+                            <Presence when={pendencyMenu?.key === draftKey && pendencyMenu}>{(pendencyMenu) => createPortal(
                               <DropdownMenu
                                 ref={pendencyMenuRef}
                                 className="bot-inbox-completion-menu"
@@ -860,7 +907,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                                 ))}
                               </DropdownMenu>,
                               document.body,
-                            )}
+                            )}</Presence>
                           </>}
                         </header>
                         <h2 id="bot-pendency-title" ref={pendencyHeadingRef} tabIndex={-1}>{selectedPendency.title}</h2>
@@ -901,8 +948,9 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                             <footer><button type="button" disabled={pendencyBusy} onClick={() => attachToPendency()}><Paperclip size={15} aria-hidden="true" />Attach</button><button type="submit" disabled={pendencyBusy || (!draft.content.trim() && !draft.attachments.length)}><Send size={14} aria-hidden="true" />{pendencyBusy ? 'Sending...' : 'Send reply'}</button></footer>
                           </form>
                         )}
-                        {selectionAction && createPortal(selectionAction.annotating ? (
-                          <form
+                        <Presence when={selectionAction}>{(selectionAction) => createPortal(selectionAction.annotating ? (
+                          <Overlay
+                            as="form"
                             className="git-review-annotation"
                             aria-label="Annotate selected text"
                             style={{
@@ -933,9 +981,9 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                               <button type="button" onClick={() => setSelectionAction(null)}>Cancel</button>
                               <button type="submit" className="primary-mini" disabled={!selectionAnnotation.trim()}>Add to reply</button>
                             </footer>
-                          </form>
+                          </Overlay>
                         ) : (
-                          <div
+                          <Overlay
                             className="selection-action-group"
                             role="toolbar"
                             aria-label="Selected text actions"
@@ -979,8 +1027,8 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                                 <span>Quick question</span>
                               </button>
                             )}
-                          </div>
-                        ), document.body)}
+                          </Overlay>
+                        ), document.body)}</Presence>
                         {feedback && <p className={`bot-inbox-feedback${feedback.error ? ' error' : ''}`} role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
                       </section>
                     ) : filteredInbox.length === 0 ? (
@@ -1207,8 +1255,6 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
               messageDeliveryMode={messageDeliveryMode}
               defaultPermissionMode={defaultPermissionMode}
               continuationRepliesEnabled={continuationRepliesEnabled}
-              draftKey={`aivax.composer.${activeThread.isSubagent ? 'subagent' : 'side'
-                }.${activeThread.id}`}
             />
           ) : null}
         </div>

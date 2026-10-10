@@ -148,6 +148,43 @@ try {
   await compress();
   assert.equal(resetProviderCalls, 2);
   assert.equal(resetRun.consecutiveContextCompactionFailures, 0);
+  runner.runs.delete(resetConversation.id);
+
+  const terminalCompactionTools = [];
+  provider.stream = async ({ messages, tools, onEvent }) => {
+    if (messages.at(-1)?.content.includes('CONTEXT CHECKPOINT COMPACTION')) {
+      terminalCompactionTools.push(tools);
+      return { assistantContent: 'Terminal checkpoint.', continuation: [], toolCalls: [] };
+    }
+    onEvent({ type: 'usage', usage: { inputTokens: 95_000, outputTokens: 10 } });
+    onEvent({ type: 'content', text: 'Done.' });
+    return { assistantContent: 'Done.', continuation: [], toolCalls: [] };
+  };
+  const terminalConversation = database.createConversation({
+    model: model.id,
+    projectPath: testProfile,
+  });
+  const terminalEventStart = events.length;
+  await runner.send({
+    conversationId: terminalConversation.id,
+    model: model.id,
+    text: 'Finish above the compaction threshold.',
+  });
+  const terminalDeadline = Date.now() + 5_000;
+  while (runner.runs.has(terminalConversation.id)) {
+    if (Date.now() >= terminalDeadline) throw new Error('Timed out waiting for terminal compaction.');
+    await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+  }
+  assert.equal(terminalCompactionTools.length, 1);
+  assert.ok(!events.slice(terminalEventStart).some((event) => (
+    event.type === 'error' && /availableTools/.test(event.message)
+  )));
+  assert.equal(
+    database.getMessages(terminalConversation.id)
+      .findLast((message) => message.role === 'assistant' && message.content === 'Done.')
+      ?.status,
+    'completed',
+  );
 
   database.closeDatabase();
   database = null;

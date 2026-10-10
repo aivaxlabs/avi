@@ -20,7 +20,7 @@ Use the moon button beside **+** to snooze scheduled bot activations for 1 hour,
 
 Agents can read inbox messages and activity with `bots_read_work_log`, and reply to existing work logs with `bots_send_work_log_message`. `chat_overview` summarizes active threads, recently finished turns, and open bot inbox items. `bots_list` includes `workQueueItems` with zero-based IDs; pass `workQueueId` to `bots_activate` to focus that item once without advancing the recurring cursor. Refresh IDs after queue edits. Replies do not resolve approvals, and failed delivery may still leave a persisted message.
 
-Agents in normal threads and Quick Chat can also manage bots with `bots_list`, `bots_create`, `bots_update`, `bots_delete`, and `bots_activate`. Select `/create-bot` in the composer for a guided setup that checks existing bots, defines the purpose and schedule, creates the bot, verifies its configuration, and optionally starts its first activation. Autonomous bot conversations do not receive these management tools and cannot create or control other bots.
+Agents in normal threads, Quick Chat, and bot conversations can also manage bots with `bots_list`, `bots_create`, `bots_update`, `bots_delete`, and `bots_activate`. Select `/create-bot` in the composer for a guided setup that checks existing bots, defines the purpose and schedule, creates the bot, verifies its configuration, and optionally starts its first activation. `bots_delete` always requires approval, including in bot conversations.
 
 ### Cross-bot Inbox access
 

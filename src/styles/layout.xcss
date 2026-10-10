@@ -36,6 +36,26 @@ body,
       linear-gradient(135deg, --background-1, --background-2);
   }
 
+  &.narrow-window {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+}
+
+.navigation-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+  background: rgb(0 0 0 / 44%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-medium) var(--ease-smooth-out);
+
+  .navigation-open > & {
+    opacity: 1;
+    pointer-events: auto;
+    transition-duration: var(--duration-slow);
+  }
 }
 
 .panel-resizer {
@@ -97,7 +117,8 @@ body.panel-resizing {
   cursor: col-resize;
   user-select: none;
 
-  .app-shell {
+  .app-shell,
+  .home-composer {
     transition: none;
   }
 
@@ -125,7 +146,9 @@ body.panel-resizing {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .panel-resizer::before {
+  .panel-resizer::before,
+  .app-composer > .home-composer,
+  .navigation-scrim {
     transition: none;
   }
 }

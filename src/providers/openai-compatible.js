@@ -1,5 +1,5 @@
 import { fileBase64JsonValue, sendJsonRequest } from '../main/json-request-body.js';
-import { defineProvider, prepareProviderInvocation } from '../main/provider-api.js';
+import { applyCustomJson, defineProvider, prepareProviderInvocation } from '../main/provider-api.js';
 
 function resolveMediaContent(item) {
   const media = item[item.type];
@@ -112,6 +112,7 @@ const reasoningFormatField = {
     { value: 'modern', label: 'Modern ($.reasoning.effort)' },
     { value: 'anthropic', label: 'Anthropic ($.reasoning.max_tokens)' },
     { value: 'qwen', label: 'Qwen ($.enable_thinking + $.thinking_budget)' },
+    { value: 'mistral', label: 'Mistral ($.reasoning_effort + thinking chunks)' },
   ],
 };
 const inferenceParameterFields = [
@@ -128,6 +129,13 @@ const inferenceParameterFields = [
     description: 'Sent as top_k only when set.',
   },
 ];
+const customJsonField = {
+  id: 'customJson',
+  label: 'Custom JSON',
+  type: 'json',
+  placeholder: '{\n  "service_tier": "priority"\n}',
+  description: 'Object recursively merged into every request body. Model custom JSON is merged after it.',
+};
 const reasoningBudgets = {
   none: 0,
   minimal: 0,
@@ -160,7 +168,7 @@ export const responsesApi = {
     const prepared = await prepareProviderInvocation(invocationContext);
     const serializedTools = serializeTools(tools);
 
-    return {
+    return applyCustomJson({
       model: model.modelId,
       ...inferenceRequestFields(provider),
       ...(model.context?.output ? { max_output_tokens: model.context.output } : {}),
@@ -225,7 +233,7 @@ export const responsesApi = {
       store: false,
       ...reasoningRequestFields(reasoningEffort, provider.reasoningFormat ?? 'modern'),
       ...(model.serviceTier ? { service_tier: model.serviceTier } : {}),
-    };
+    }, provider, model);
   },
   eventsFrom(payload) {
     if (payload?.type === 'response.output_text.delta' && payload.delta) {
@@ -319,7 +327,8 @@ export const responsesApi = {
       const error = payload.response?.error ?? payload.error ?? payload;
       return [{
         type: 'error',
-        code: error?.code ?? 'stream_error',
+        code: error?.code
+          ?? (error?.type === 'overloaded_error' ? 'server_is_overloaded' : 'stream_error'),
         message: error?.message ?? error?.error ?? 'The provider returned an error while streaming.',
         status: error?.status ?? error?.status_code ?? payload?.status,
       }];
@@ -341,7 +350,7 @@ export const chatCompletionsApi = {
     const prepared = await prepareProviderInvocation(invocationContext);
     const serializedTools = serializeTools(tools);
 
-    return {
+    return applyCustomJson({
       model: model.modelId,
       ...inferenceRequestFields(provider),
       ...(model.context?.output ? { max_completion_tokens: model.context.output } : {}),
@@ -349,14 +358,14 @@ export const chatCompletionsApi = {
         ...(prepared.dynamicContext
           ? [{ role: 'system', content: prepared.dynamicContext }]
           : []),
-        ...messages.map((message) => ({
+        ...messages.map((message) => toChatReasoningMessage({
           ...message,
           content: Array.isArray(message.content)
             ? toChatContent(message.content)
             : message.content,
-        })),
+        }, provider.reasoningFormat)),
         ...toolHistory.flatMap((round) => [
-          {
+          toChatReasoningMessage({
             role: 'assistant',
             content: round.assistantContent || null,
             ...(round.reasoningContent ? { reasoning_content: round.reasoningContent } : {}),
@@ -372,7 +381,7 @@ export const chatCompletionsApi = {
                   })),
                 }
               : {}),
-          },
+          }, provider.reasoningFormat),
           ...round.results.map((result) => ({
             role: 'tool',
             tool_call_id: result.callId,
@@ -403,7 +412,7 @@ export const chatCompletionsApi = {
       stream: true,
       stream_options: { include_usage: true },
       ...reasoningRequestFields(reasoningEffort, provider.reasoningFormat),
-    };
+    }, provider, model);
   },
   eventsFrom(payload) {
     const events = [];
@@ -411,7 +420,8 @@ export const chatCompletionsApi = {
     if (payload?.error) {
       events.push({
         type: 'error',
-        code: payload.error.code ?? 'stream_error',
+        code: payload.error.code
+          ?? (payload.error.type === 'overloaded_error' ? 'server_is_overloaded' : 'stream_error'),
         message: payload.error.message ?? payload.error.error ?? String(payload.error),
         status: payload.error.status ?? payload.error.status_code ?? payload.status,
       });
@@ -427,13 +437,28 @@ export const chatCompletionsApi = {
           .filter(Boolean)
           .join('')
         : '';
-      const reasoning = reasoningDetails || delta.reasoning || delta.reasoning_content || '';
+      const contentParts = Array.isArray(delta.content) ? delta.content : [];
+      const partsReasoning = contentParts
+        .filter((part) => part?.type === 'thinking')
+        .flatMap((part) => Array.isArray(part.thinking) ? part.thinking : [part.thinking])
+        .map((item) => typeof item === 'string' ? item : item?.text ?? '')
+        .join('');
+      const reasoning = reasoningDetails
+        || delta.reasoning
+        || delta.reasoning_content
+        || partsReasoning;
+      const content = typeof delta.content === 'string'
+        ? delta.content
+        : contentParts
+          .filter((part) => part?.type === 'text')
+          .map((part) => part.text ?? '')
+          .join('');
 
       if (reasoning) {
         events.push({ type: 'reasoning', text: reasoning });
       }
-      if (typeof delta.content === 'string' && delta.content) {
-        events.push({ type: 'content', text: delta.content });
+      if (content) {
+        events.push({ type: 'content', text: content });
       }
       for (const toolCall of delta.tool_calls ?? []) {
         if (!Number.isInteger(toolCall.index) || toolCall.index < 0) {
@@ -482,7 +507,7 @@ export const openAiCompatibleProviderTypes = [
       connection: 'custom',
       models: 'custom',
       supportsModelListing: true,
-      fields: [reasoningFormatField, ...inferenceParameterFields],
+      fields: [reasoningFormatField, ...inferenceParameterFields, customJsonField],
     },
     ...responsesApi,
     request: (context) => requestOpenAiCompatible(context, '/v1/responses'),
@@ -498,7 +523,7 @@ export const openAiCompatibleProviderTypes = [
       connection: 'custom',
       models: 'custom',
       supportsModelListing: true,
-      fields: [reasoningFormatField, ...inferenceParameterFields],
+      fields: [reasoningFormatField, ...inferenceParameterFields, customJsonField],
     },
     ...chatCompletionsApi,
     request: (context) => requestOpenAiCompatible(context, '/v1/chat/completions'),
@@ -535,7 +560,25 @@ function reasoningRequestFields(reasoningEffort, format = 'default') {
       enable_thinking: budget > 0,
       thinking_budget: budget,
     },
+    mistral: { reasoning_effort: reasoningEffort },
   }[format];
+}
+
+function toChatReasoningMessage({ reasoning_content: reasoning, ...message }, reasoningFormat) {
+  if (!reasoning) return message;
+  if (reasoningFormat !== 'mistral') return { ...message, reasoning_content: reasoning };
+
+  return {
+    ...message,
+    content: [
+      { type: 'thinking', thinking: [{ type: 'text', text: reasoning }], closed: true },
+      ...(Array.isArray(message.content)
+        ? message.content
+        : message.content
+          ? [{ type: 'text', text: message.content }]
+          : []),
+    ],
+  };
 }
 
 function openAiCompatibleEndpoint(baseUrl, interfacePath, path) {

@@ -16,6 +16,10 @@
   box-shadow: 0 18px 50px rgb(0 0 0 / 30%);
   z-index: 80;
   animation: toast-in var(--duration-medium) var(--ease-smooth-out);
+
+  &[data-closing] {
+    animation: toast-out var(--duration-medium) var(--ease-smooth-out) forwards;
+  }
 }
 
 @keyframes toast-in {
@@ -25,8 +29,16 @@
   }
 }
 
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(var(--distance-micro)) scale(var(--scale-medium));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .toast {
+  .toast,
+  .toast[data-closing] {
     animation: none;
   }
 }

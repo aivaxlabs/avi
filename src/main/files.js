@@ -224,6 +224,19 @@ export async function materializeLegacyVideoAttachments(attachments) {
   )));
 }
 
+export async function dropMissingAttachments(attachments) {
+  const present = await Promise.all(attachments.map(async (attachment) => {
+    if (typeof attachment?.path !== 'string' || !isAbsolute(attachment.path)) return true;
+    try {
+      await stat(attachment.path);
+      return true;
+    } catch {
+      return false;
+    }
+  }));
+  return attachments.filter((_attachment, index) => present[index]);
+}
+
 export async function createVideoFileResponse(path, rangeHeader = null) {
   const file = await stat(path);
   const size = file.size;

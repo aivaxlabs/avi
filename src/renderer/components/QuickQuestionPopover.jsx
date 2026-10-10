@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Message } from './Message.jsx';
 import { useStreamingAutoScroll } from '../lib/use-streaming-auto-scroll.js';
+import { Overlay } from './Overlay.jsx';
 
 const emptyList = [];
 
@@ -91,7 +92,8 @@ export function QuickQuestionPopover({ request, models, onClose, onForked }) {
   const hint = error ? '' : !sessionId ? 'Preparing context...' : running ? 'Answering...' : 'Enter to ask';
 
   return createPortal(
-    <form
+    <Overlay
+      as="form"
       className="git-review-annotation quick-question-popover"
       role="dialog"
       aria-label="Quick question"
@@ -146,7 +148,7 @@ export function QuickQuestionPopover({ request, models, onClose, onForked }) {
         </button>
         <button type="button" onClick={onClose}>Close</button>
       </footer>
-    </form>,
+    </Overlay>,
     document.body,
   );
 }

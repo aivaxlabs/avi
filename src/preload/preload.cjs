@@ -160,6 +160,10 @@ contextBridge.exposeInMainWorld('chatApp', {
     get: (conversationId) => invoke('composer-state:get', conversationId),
     save: (payload) => invoke('composer-state:save', payload),
   },
+  composerDraft: {
+    get: (projectPath) => invoke('composer-draft:get', projectPath),
+    save: (payload) => invoke('composer-draft:save', payload),
+  },
   orchestration: {
     overview: (range) => invoke('orchestration:overview', range),
   },

@@ -1,6 +1,7 @@
 import { Folder, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Overlay } from './Overlay.jsx';
 
 export function WorkspaceDialog({ project = null, onClose, onSave }) {
   const dialogRef = useRef(null);
@@ -31,7 +32,7 @@ export function WorkspaceDialog({ project = null, onClose, onSave }) {
   }, [project]);
 
   return createPortal(
-    <dialog ref={dialogRef} className="workspace-dialog" aria-labelledby="workspace-dialog-title"
+    <Overlay as="dialog" ref={dialogRef} className="workspace-dialog" aria-labelledby="workspace-dialog-title"
       onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
       <form onSubmit={async (event) => {
         event.preventDefault();
@@ -102,7 +103,7 @@ export function WorkspaceDialog({ project = null, onClose, onSave }) {
           </button>
         </div>
       </form>
-    </dialog>,
+    </Overlay>,
     document.body,
   );
 }

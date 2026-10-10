@@ -20,6 +20,21 @@ All AIVAX features are disabled by default. To enable memory:
 
 The memory toggle remains unavailable without both an account and a collection. When enabled, agents receive memory guidance and the memory search and write tools become available. Store only knowledge that should remain useful beyond the current conversation.
 
+`memory_write` receives a document title and stores it under a normalized name: accents are removed, the text is lowercased, and every run of characters other than ASCII letters and digits becomes a hyphen (`Decisão de Arquitetura` becomes `decisao-de-arquitetura`, up to 120 characters). Writing the same title again updates that memory. Every write also records these metadata keys, with `null` when a value is unavailable:
+
+| Key | Value |
+| --- | --- |
+| `directory` | Working folder of the writing thread. |
+| `model_name` | Provider model identifier of the writing thread. |
+| `task_title` | Thread title at write time. |
+| `thread_id` | Thread ID, or the Quick Chat session ID. |
+| `thread_role` | `orchestrator`, `subagent`, `side_chat`, or `quick_chat`. |
+| `parent_thread_id` | Parent thread of a sub-agent or side chat. |
+| `device_name` | Computer host name. |
+| `device_id` | Stable Avi device ID, shared with Remote relay. |
+
+`memory_search` accepts an optional [document filter](https://docs.aivax.net/docs/filters/document-filters), such as `tags has "decision" and updatedAt >= now-7d` or `metadata.thread_role = "subagent"`, to restrict results by tags, name, content, dates, or metadata. The bundled `memory-filters` skill teaches agents the complete filter syntax and the Avi metadata keys. With `detailed: true`, the search returns a JSON array with `id`, `name`, `createdAt`, `updatedAt`, `score`, `metadata`, and `content` for each result instead of the plain-text listing.
+
 ## Web and media utilities
 
 - **AIVAX advanced fetch** — expanded extraction for HTML, images, documents, and OCR;

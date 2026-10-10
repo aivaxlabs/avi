@@ -88,6 +88,44 @@ const body = await provider.implementation.createBody({
 assert.equal(body.model, 'gpt-5.6-sol');
 assert.equal(body.temperature, 0.7);
 assert.equal(body.top_k, 40);
+assert.equal(normalized.customJson, '');
+
+for (const customJson of ['{', '[]', 'null']) {
+  assert.throws(() => registry.normalizeConfig({ ...providerInput, customJson }), /Custom JSON/);
+  assert.throws(() => registry.normalizeConfig({
+    ...providerInput,
+    models: [{ ...providerInput.models[0], customJson }],
+  }), /Custom JSON for "GPT-5.6 Sol — 400K"/);
+}
+
+const customProvider = registry.createProvider(registry.normalizeConfig({
+  ...providerInput,
+  customJson: '{"temperature":0.2,"stream_options":{"chunk":1},"metadata":{"a":1,"list":[1,2]},"__proto__":{"polluted":true}}',
+  models: [{
+    ...providerInput.models[0],
+    customJson: '{"metadata":{"b":2,"list":[3]},"model":"override"}',
+  }],
+}));
+for (const api of [chatCompletionsApi, responsesApi]) {
+  const customBody = await api.createBody({
+    provider: customProvider.config,
+    model: customProvider.listModels()[0],
+    messages: [{ role: 'user', content: 'Hello' }],
+    reasoningEffort: null,
+    tools: [],
+    toolHistory: [],
+    invocationContext: { auxiliary: true },
+  });
+  assert.equal(customBody.model, 'override');
+  assert.equal(customBody.temperature, 0.2);
+  assert.deepEqual(customBody.metadata, { a: 1, list: [3], b: 2 });
+  assert.equal(customBody.stream, true);
+  if (api === chatCompletionsApi) {
+    assert.deepEqual(customBody.stream_options, { include_usage: true, chunk: 1 });
+  }
+  assert.equal(Object.getPrototypeOf(customBody), Object.prototype);
+  assert.equal({}.polluted, undefined);
+}
 
 const subscriptionRegistry = new ModelProviderRegistry({
   getProviders: () => [],

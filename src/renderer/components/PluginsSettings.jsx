@@ -17,6 +17,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { PluginSettingsEditor } from './PluginSettingsEditor.jsx';
+import { Presence } from './Overlay.jsx';
 
 export function PluginsSettings() {
   const [state, setState] = useState(null);
@@ -114,13 +115,13 @@ export function PluginsSettings() {
             >
               <Wrench size={14} />Developer tools<ChevronDown size={13} />
             </button>
-            {developerToolsOpen && (
+            <Presence when={developerToolsOpen}>{() => (
               <DropdownMenu role="menu" aria-label="Plugin developer tools">
                 <DropdownMenuItem icon={<RefreshCw size={14} />} role="menuitem" onClick={() => runDeveloperTool('restartAvi')}>Restart Avi</DropdownMenuItem>
                 <DropdownMenuItem icon={<BookOpen size={14} />} role="menuitem" onClick={() => runDeveloperTool('docs')}>Open plugin docs</DropdownMenuItem>
                 <DropdownMenuItem icon={<FileCode2 size={14} />} role="menuitem" onClick={() => runDeveloperTool('create')}>Create plugin</DropdownMenuItem>
               </DropdownMenu>
-            )}
+            )}</Presence>
           </div>
         </div>
         {state?.restartRequired && <div className="plugins-restart"><AlertTriangle size={15} />Restart Avi to apply plugin changes.</div>}

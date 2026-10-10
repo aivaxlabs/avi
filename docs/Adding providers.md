@@ -24,9 +24,12 @@ Choose **OpenAI Compatible · Responses API** or **OpenAI Compatible · Chat com
 - **API key**, optional for unauthenticated local endpoints;
 - **Reasoning format**;
 - optional **Temperature** and **Top K** inference hyperparameters;
+- optional **Custom JSON**;
 - **Enabled**.
 
 Temperature and Top K are sent as numeric `temperature` and `top_k` request fields. Leave either value empty to omit that field from inference requests.
+
+**Custom JSON** must be a JSON object. Avi merges it recursively into every request body after building it, so it can add fields or override fields that Avi generates. Nested objects are merged key by key; arrays and other values replace the existing value. A model's own **Custom JSON** is merged after the provider's, so model values win. The Responses, Chat completions, and Messages request formats all apply both.
 
 Avi appends `/v1/responses` or `/v1/chat/completions` when the endpoint path is not already present.
 
@@ -48,7 +51,8 @@ After saving the provider, select **Add model**. Configure:
 - input and output context limits;
 - Images, Audio, and PDF files capabilities;
 - supported reasoning efforts: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`;
-- media size limit: **Use Tuning setting** (default), 5 MB, 10 MB, 20 MB, 100 MB, or No limit. It overrides **Tuning → Media size limit** for chat attachments and `read_media_file`.
+- media size limit: **Use Tuning setting** (default), 5 MB, 10 MB, 20 MB, 100 MB, or No limit. It overrides **Tuning → Media size limit** for chat attachments and `read_media_file`;
+- optional **Custom JSON**, a JSON object recursively merged into this model's request bodies after the provider's Custom JSON.
 
 Providers that can list their models show a dropdown next to **Add model**. Choose **Scan models** to request the provider's `/v1/models` endpoint with the saved base URL and API key. The dialog lists the reported model IDs, which you can filter, and marks IDs that are already configured. Select **Add model** next to an ID to open a new model editor with that ID filled in, then complete the remaining fields and save. Both OpenAI Compatible interfaces support scanning.
 

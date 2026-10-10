@@ -23,6 +23,14 @@
     animation: dialog-surface-in var(--duration-fast) var(--ease-smooth-out);
   }
 
+  &[data-closing] {
+    animation: dialog-backdrop-out var(--duration-quick) var(--ease-smooth-out) forwards;
+
+    > :is(section, form, div) {
+      animation: dialog-surface-out var(--duration-quick) var(--ease-smooth-out) forwards;
+    }
+  }
+
   @media (max-width: 700px) {
     padding: 0;
   }
@@ -192,9 +200,19 @@
   border: 1px solid --border-color;
   border-radius: 12px;
   box-shadow: 0 16px 56px rgb(0 0 0 / 22%);
+  animation: dialog-surface-in var(--duration-fast) var(--ease-smooth-out);
 
   &::backdrop {
     background: rgb(0 0 0 / 32%);
+    animation: dialog-backdrop-in var(--duration-fast) var(--ease-smooth-out);
+  }
+
+  &[data-closing] {
+    animation: dialog-surface-out var(--duration-quick) var(--ease-smooth-out) forwards;
+
+    &::backdrop {
+      animation: dialog-backdrop-out var(--duration-quick) var(--ease-smooth-out) forwards;
+    }
   }
 
   > form {
@@ -1041,6 +1059,19 @@
   }
 }
 
+@keyframes dialog-backdrop-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes dialog-surface-out {
+  to {
+    opacity: 0;
+    transform: scale(var(--scale-large));
+  }
+}
+
 @keyframes search-dialog-spin {
   to {
     transform: rotate(360deg);
@@ -1050,7 +1081,13 @@
 @media (prefers-reduced-motion: reduce) {
 
   .dialog-backdrop,
-  .dialog-backdrop > :is(section, form, div) {
+  .dialog-backdrop > :is(section, form, div),
+  .dialog-backdrop[data-closing],
+  .dialog-backdrop[data-closing] > :is(section, form, div),
+  .workspace-dialog,
+  .workspace-dialog::backdrop,
+  .workspace-dialog[data-closing],
+  .workspace-dialog[data-closing]::backdrop {
     animation: none;
   }
 

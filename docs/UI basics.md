@@ -12,7 +12,7 @@ Context and file search follow symlinks everywhere, retaining existing exclusion
 
 ## Sidebar
 
-The Activity Bar provides **Home**, **Inbox**, and **Folders**, with **Settings** fixed at the bottom. Home is the default and keeps **New chat**, **Quick chat**, conversation search, bots, and chronological/model/folder grouping in the existing Sidebar. Collapsing the chat Sidebar leaves its main action icons beneath the expand button. Switching Activity Bar destinations keeps the current chat mounted, including its unsent message.
+The Activity Bar provides **Home**, **Inbox**, and **Folders**, with **Settings** fixed at the bottom. Home is the default and keeps **New chat**, **Quick chat**, conversation search, bots, and chronological/model/folder grouping in the existing Sidebar. Collapsing the chat Sidebar leaves its main action icons beneath the expand button. In windows 700 px wide or narrower, the Activity Bar and Sidebar are hidden behind a menu button at the top left. The button opens them as an opaque drawer over the chat without moving it; select a destination or conversation, click outside the drawer, press Escape, or press `Control+B` to close it. The Sidebar cannot be resized in this mode. Switching Activity Bar destinations keeps the current chat mounted, including its unsent message.
 
 **Folders** lists known working folders, with **Global** pinned above the scrolling list. **Filter folders** searches names and paths without hiding Global; long names truncate, and only the folder list scrolls. Open a folder to access **MCP Servers**, **Context**, **Threads**, and **Archive**. Global uses the home folder for threads and MCP servers and `~/.agents` for context. Threads and Archive show only the selected folder; global retention and cleanup remain in Settings → Maintenance. Use **All folders** to return to the list.
 
@@ -49,6 +49,8 @@ Side chats open as separate private conversation panels. The forked parent histo
 
 Use **Expand auxiliary panel**, between **+** and close, to widen it toward 80% of the window and temporarily compact the sidebar. The chat stays visible; the expansion reserves 320 px for it where the window permits. **Restore panel width** restores your normal layout without overwriting saved widths.
 
+In windows 700 px wide or narrower, the auxiliary panel and the Inbox panel open over the whole window. Resizing and **Expand auxiliary panel** are unavailable there; close the panel to return to the chat.
+
 ### Git Review
 
 Choose **Git Review** from **+**, then select one repository above the changed-file tree. Discovery includes nested repositories and linked workspace folders, up to three directory levels and 20 repositories, excluding dependency/generated folders. Only the active repository's index and selected file's diff are loaded. Refresh rescans the catalog and active index. A spinner and action-specific status appear while Git operations run, then change to the result after the index refresh. File previews also show a loading spinner.
@@ -62,6 +64,8 @@ Commit controls adapt to the navigation column width; the action buttons wrap in
 Discard removes the selected staged, unstaged, and untracked changes after confirmation. Nested repositories are independent. Symbolic links/submodules and sensitive configuration (`.env`, `.env.*`, `appservice.ini`) require separate handling; back up sensitive configuration first. Binary files, working files larger than 2 MiB, and previews exceeding 10,000 combined content/diff lines show an explicit notice instead of rendering a potentially blocking text view.
 
 ## Composer
+
+Before a thread exists, the composer keeps one draft per working folder: text, attachments, model, reasoning effort, permission mode, and Plan/Goal/Ultra selection survive switching threads, tabs, or restarting Avi, and selecting that folder again restores them. Attachments are references to the original files, not copies; an attachment whose file was moved or deleted is removed when the draft is reopened. The same rule applies to unsent thread attachments.
 
 Opening a thread restores the model, reasoning effort, Plan/Goal mode, and Ultra selection from its latest user message, including a confirmed edit or a queued message. Unsent text and attachments remain saved separately; changing a selection without sending does not override the last message when reopening the thread. Rubber Duck is a separate thread type and remains unchanged. In a Side Chat, the parent's copied messages do not restore its Goal, Plan, or Ultra selection; only the Side Chat's own later messages can do so. Bot threads retain their configured model and mode restrictions.
 

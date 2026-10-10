@@ -33,13 +33,14 @@ import {
   Zap,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import aviIconUrl from '../../../assets/icon/avi.png';
 import { classNames } from '../lib/format.js';
 import { presetColors } from '../lib/palette.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { TagsManagerDialog } from './TagsManagerDialog.jsx';
 import { WorkspaceDialog } from './WorkspaceDialog.jsx';
+import { Presence } from './Overlay.jsx';
 
 const GROUP_LIMIT = 5;
 const emptyList = Object.freeze([]);
@@ -109,6 +110,8 @@ export const Sidebar = memo(function Sidebar({
   const filterButtonRef = useRef(null);
   const snoozeButtonRef = useRef(null);
   const folderMenuButtonRef = useRef(null);
+  const conversationListRef = useRef(null);
+  const conversationLayoutRef = useRef(new Map());
   const chronologicalDayStart = conversationGrouping === 'chronological'
     ? new Date(now).setHours(0, 0, 0, 0)
     : null;
@@ -342,6 +345,69 @@ export const Sidebar = memo(function Sidebar({
     };
   }, [folderMenu]);
 
+  useLayoutEffect(() => {
+    const list = conversationListRef.current;
+    const previous = conversationLayoutRef.current;
+    const next = new Map();
+    conversationLayoutRef.current = next;
+    if (!list.offsetParent) return;
+
+    const listStyle = getComputedStyle(list);
+    const easing = listStyle.getPropertyValue('--ease-smooth-out').trim();
+    const blur = listStyle.getPropertyValue('--blur-small').trim();
+    const moveDuration = parseFloat(listStyle.getPropertyValue('--duration-fast'));
+    const exitDuration = parseFloat(listStyle.getPropertyValue('--duration-quick'));
+    const animate = previous.size > 0
+      && moveDuration > 0
+      && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const listTop = list.getBoundingClientRect().top;
+
+    for (const element of list.querySelectorAll('[data-flip-id]')) {
+      const layout = {
+        element,
+        top: element.offsetTop,
+        left: element.offsetLeft,
+        width: element.offsetWidth,
+      };
+      const before = previous.get(element.dataset.flipId);
+      next.set(element.dataset.flipId, layout);
+      if (!animate) continue;
+
+      if (!before) {
+        element.animate(
+          [{ opacity: 0, filter: `blur(${blur})` }, {}],
+          { duration: moveDuration, easing },
+        );
+      } else if (before.top !== layout.top) {
+        const offset = before.top - layout.top + element.getBoundingClientRect().top - listTop - layout.top;
+        for (const running of element.getAnimations()) running.cancel();
+        if (Math.abs(offset) < 1) continue;
+        element.animate(
+          [{ transform: `translateY(${offset}px)` }, { transform: 'none' }],
+          { duration: moveDuration, easing },
+        );
+      }
+    }
+
+    if (!animate) return;
+    for (const [id, layout] of previous) {
+      if (next.has(id)) continue;
+      const ghost = layout.element.cloneNode(true);
+      ghost.removeAttribute('data-flip-id');
+      ghost.classList.add('sidebar-flip-ghost');
+      ghost.setAttribute('aria-hidden', 'true');
+      ghost.inert = true;
+      Object.assign(ghost.style, {
+        top: `${layout.top}px`,
+        left: `${layout.left}px`,
+        width: `${layout.width}px`,
+      });
+      list.append(ghost);
+      ghost.animate([{}, { opacity: 0 }], { duration: exitDuration, easing })
+        .finished.finally(() => ghost.remove());
+    }
+  });
+
   function toggleFilterMenu() {
     const rect = filterButtonRef.current.getBoundingClientRect();
     setFilterMenuPosition({
@@ -476,7 +542,7 @@ export const Sidebar = memo(function Sidebar({
           )}
         </span>
       </div>
-      {snoozeMenuOpen && snoozeMenuPosition && createPortal(
+      <Presence when={snoozeMenuOpen && snoozeMenuPosition}>{(snoozeMenuPosition) => createPortal(
         <DropdownMenu
           className="bot-snooze-menu"
           fixed
@@ -506,7 +572,7 @@ export const Sidebar = memo(function Sidebar({
           )}
         </DropdownMenu>,
         document.body,
-      )}
+      )}</Presence>
       <div className="sidebar-bots">
         {bots.length === 0 ? (
           <p className="sidebar-bots-empty">
@@ -546,7 +612,7 @@ export const Sidebar = memo(function Sidebar({
           <Filter size={13} />
         </button>
       </div>
-      {filterMenuOpen && filterMenuPosition && createPortal(
+      <Presence when={filterMenuOpen && filterMenuPosition}>{(filterMenuPosition) => createPortal(
         <DropdownMenu
           className="conversation-filter-menu"
           fixed
@@ -610,8 +676,8 @@ export const Sidebar = memo(function Sidebar({
           )}
         </DropdownMenu>,
         document.body,
-      )}
-      <div className="conversation-list">
+      )}</Presence>
+      <div ref={conversationListRef} className="conversation-list">
         {activeTagIds.size > 0 && conversationGroups.length === 0 && (
           <div className="conversation-filter-empty">
             <span>No chats with the selected tags.</span>
@@ -630,10 +696,11 @@ export const Sidebar = memo(function Sidebar({
           return (
             <section key={group.key} className="conversation-group">
               {group.showFoldersLabel && (
-                <div className="conversation-group-header">Folders</div>
+                <div className="conversation-group-header" data-flip-id="folders-label">Folders</div>
               )}
               <div
                 className="conversation-group-header"
+                data-flip-id={`group:${group.key}`}
                 onContextMenu={conversationGrouping === 'folder' && !group.isHome && !group.isTaskGroup
                   ? (event) => {
                     event.preventDefault();
@@ -692,7 +759,7 @@ export const Sidebar = memo(function Sidebar({
                   </div>
                 )}
               </div>
-              {folderMenu?.key === group.key && createPortal(
+              <Presence when={folderMenu?.key === group.key && folderMenu}>{(folderMenu) => createPortal(
                 <DropdownMenu
                   className="conversation-folder-menu"
                   fixed
@@ -788,8 +855,8 @@ export const Sidebar = memo(function Sidebar({
                   </DropdownMenuItem>
                 </DropdownMenu>,
                 document.body,
-              )}
-              {folderMenu?.key === group.key && folderMenu.colorMenu && createPortal(
+              )}</Presence>
+              <Presence when={folderMenu?.key === group.key && folderMenu.colorMenu && folderMenu}>{(folderMenu) => createPortal(
                 <DropdownMenu
                   className="conversation-folder-menu folder-color-menu"
                   fixed
@@ -827,7 +894,7 @@ export const Sidebar = memo(function Sidebar({
                   </div>
                 </DropdownMenu>,
                 document.body,
-              )}
+              )}</Presence>
               {visibleItems.map((conversation) => {
                 const updatedTime = new Date(conversation.updatedAt).getTime();
                 const ageHours = Number.isFinite(updatedTime)
@@ -836,6 +903,7 @@ export const Sidebar = memo(function Sidebar({
                 return (
                   <ConversationItem
                     key={conversation.id}
+                    flipId={`${group.key}:${conversation.id}`}
                     conversation={conversation}
                     active={conversation.id === selectedId}
                     running={Boolean(running[conversation.id])}
@@ -859,6 +927,7 @@ export const Sidebar = memo(function Sidebar({
               {group.items.length > GROUP_LIMIT && (
                 <button
                   className="conversation-show-toggle"
+                  data-flip-id={`toggle:${group.key}`}
                   type="button"
                   onClick={() => setExpandedGroups((state) => ({
                     ...state,
@@ -873,8 +942,8 @@ export const Sidebar = memo(function Sidebar({
         })}
       </div>
       </div>
-      {editingWorkspace && <WorkspaceDialog project={editingWorkspace} onClose={() => setEditingWorkspace(null)} />}
-      {tagsManagerOpen && createPortal(
+      <Presence when={editingWorkspace}>{(editingWorkspace) => <WorkspaceDialog project={editingWorkspace} onClose={() => setEditingWorkspace(null)} />}</Presence>
+      <Presence when={tagsManagerOpen}>{() => createPortal(
         <TagsManagerDialog
           tags={chatTags}
           busy={tagsSaving}
@@ -882,7 +951,7 @@ export const Sidebar = memo(function Sidebar({
           onClose={() => setTagsManagerOpen(false)}
         />,
         document.body,
-      )}
+      )}</Presence>
     </aside>
   );
 });
@@ -1028,7 +1097,7 @@ const BotItem = memo(function BotItem({
       >
         <MoreHorizontal size={15} />
       </button>
-      {menuOpen && menuPosition && createPortal(
+      <Presence when={menuOpen && menuPosition}>{(menuPosition) => createPortal(
         <DropdownMenu fixed style={{ top: menuPosition.top, left: menuPosition.left }}>
           <DropdownMenuItem icon={<Settings size={14} />} onClick={() => {
             setMenuOpen(false);
@@ -1053,7 +1122,7 @@ const BotItem = memo(function BotItem({
                   <ChevronRight size={13} />
                 </>
               </DropdownMenuItem>
-              {activateMenuOpen && (
+              <Presence when={activateMenuOpen}>{() => (
                 <DropdownMenu className="bot-submenu bot-work-queue-menu" submenu role="menu" aria-label={`Activate ${bot.name}`}>
                   <DropdownMenuItem role="menuitem" onClick={() => {
                     setMenuOpen(false);
@@ -1077,7 +1146,7 @@ const BotItem = memo(function BotItem({
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenu>
-              )}
+              )}</Presence>
             </div>
           ) : (
             <DropdownMenuItem
@@ -1106,7 +1175,7 @@ const BotItem = memo(function BotItem({
                 <ChevronRight size={13} />
               </>
             </DropdownMenuItem>
-            {snoozeMenuOpen && (
+            <Presence when={snoozeMenuOpen}>{() => (
               <DropdownMenu className="bot-submenu" submenu role="menu" aria-label={`Snooze ${bot.name}`}>
                 <DropdownMenuItem icon={<Clock size={14} />} role="menuitem" onClick={() => {
                   setMenuOpen(false);
@@ -1144,7 +1213,7 @@ const BotItem = memo(function BotItem({
                   </>
                 )}
               </DropdownMenu>
-            )}
+            )}</Presence>
           </div>
           <DropdownMenuItem icon={<Trash2 size={14} />} onClick={() => {
             setMenuOpen(false);
@@ -1154,12 +1223,13 @@ const BotItem = memo(function BotItem({
           </DropdownMenuItem>
         </DropdownMenu>,
         document.body,
-      )}
+      )}</Presence>
     </div>
   );
 });
 
 const ConversationItem = memo(function ConversationItem({
+  flipId,
   conversation,
   active,
   running,
@@ -1189,6 +1259,21 @@ const ConversationItem = memo(function ConversationItem({
   const menuButtonRef = useRef(null);
   const itemRef = useRef(null);
   const tooltipTimerRef = useRef(null);
+  const title = conversation.title || conversation.firstPrompt || 'New chat';
+  const [titleSwap, setTitleSwap] = useState({ shown: title, phase: null });
+  if (title !== titleSwap.shown && titleSwap.phase !== 'exit') {
+    setTitleSwap(window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      ? { shown: title, phase: null }
+      : { shown: titleSwap.shown, phase: 'exit' });
+  }
+  const titleRef = useRef(null);
+  const advanceTitleSwap = () => setTitleSwap((swap) => (
+    swap.phase === 'exit' ? { shown: title, phase: 'enter' } : { shown: swap.shown, phase: null }
+  ));
+
+  useLayoutEffect(() => {
+    if (titleSwap.phase && !titleRef.current.getAnimations().length) advanceTitleSwap();
+  });
   const status = approvalPending
     ? { icon: TriangleAlert, className: 'attention-indicator', label: 'Awaiting approval', size: 13 }
     : inputPending
@@ -1361,6 +1446,7 @@ const ConversationItem = memo(function ConversationItem({
     <div
       ref={itemRef}
       className={classNames('conversation-item', active && 'active', menuOpen && 'menu-open')}
+      data-flip-id={flipId}
       onMouseEnter={scheduleTooltip}
       onMouseLeave={closeTooltip}
       onContextMenu={(event) => {
@@ -1379,7 +1465,13 @@ const ConversationItem = memo(function ConversationItem({
         onFocus={openTooltip}
         onBlur={closeTooltip}
       >
-        <span className="conversation-title">{conversation.title || conversation.firstPrompt || 'New chat'}</span>
+        <span
+          ref={titleRef}
+          className={classNames('conversation-title', titleSwap.phase && `title-${titleSwap.phase}`)}
+          onAnimationEnd={advanceTitleSwap}
+        >
+          {titleSwap.shown}
+        </span>
         {conversation.createdBy === 'agent' && (
           <Bot
             className="agent-thread-icon"
@@ -1407,7 +1499,7 @@ const ConversationItem = memo(function ConversationItem({
       <button ref={menuButtonRef} className="icon-button tiny" type="button" onClick={toggleMenu}>
         <MoreHorizontal size={15} />
       </button>
-      {menuOpen && menuPosition && createPortal(
+      <Presence when={menuOpen && menuPosition}>{(menuPosition) => createPortal(
         <DropdownMenu fixed style={{ top: menuPosition.top, left: menuPosition.left }}>
           <DropdownMenuItem
             icon={<CopyPlus size={14} />}
@@ -1433,8 +1525,8 @@ const ConversationItem = memo(function ConversationItem({
           </DropdownMenuItem>
         </DropdownMenu>,
         document.body,
-      )}
-      {tagsMenuOpen && tagsMenuPosition && createPortal(
+      )}</Presence>
+      <Presence when={tagsMenuOpen && tagsMenuPosition}>{(tagsMenuPosition) => createPortal(
         <DropdownMenu
           className="conversation-tags-menu"
           fixed
@@ -1469,7 +1561,7 @@ const ConversationItem = memo(function ConversationItem({
           </DropdownMenuItem>
         </DropdownMenu>,
         document.body,
-      )}
+      )}</Presence>
       {tooltipPosition && createPortal(
         <div className="conversation-tooltip" style={tooltipPosition} role="tooltip">
           <div className="conversation-tooltip-title">

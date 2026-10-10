@@ -14,7 +14,7 @@ Keep the top and footer outside the independently scrolling list. Do not make th
 
 - Use `--sidebar-width` with a 222px default and a persisted 180–420px resize range.
 - Preserve at least 320px for main content when calculating the maximum width.
-- Keep the collapsed column at 58px. At 700px and below, use the existing collapsed desktop layout rather than inventing a drawer.
+- Keep the collapsed column at 58px. At 700px and below (`narrowWindowWidth` in `App`), hide the Activity Bar and Sidebar behind the top-left menu button and open both as an opaque drawer over the chat (`.narrow-window`, `.navigation-open`, `.navigation-scrim`), as explicitly requested by the user. The drawer does not push the chat, cannot be resized, forces opaque transparency mode, closes on navigation, Escape, scrim click, or widening, and is not a `role="dialog"` so composer shortcuts keep working.
 - In collapsed mode, center visible controls and hide labels, bot lists, conversation groups, and per-conversation actions.
 - Any control that remains icon-only after collapse must have an explicit accessible name, tooltip, and visible focus state. Do not rely on a text `<span>` that CSS hides.
 
@@ -43,6 +43,8 @@ Reuse `DropdownMenu` and existing row-menu callers for conversation, folder, tag
 
 - Reuse `PanelResizer`: a 9px pointer target with a 1px visual rule, `role="separator"`, and keyboard support.
 - Preserve 16px arrow steps, 48px Shift+arrow steps, and Home/End minimum/maximum behavior.
+- Collapse and expand transition the `.home-composer` grid columns (expand 400ms, collapse 350ms); keep three tracks in both states so the change interpolates. The expanded `.sidebar` keeps `min-width: var(--sidebar-width)` so it is revealed by clipping instead of reflowing.
+- Conversation rows, group headers, and Show more toggles carry `data-flip-id`; `Sidebar` animates moves (FLIP), entries (fade + blur), and removals (fading ghost clone). Title changes use a 150ms exit/enter text swap in `ConversationItem`.
 - Disable grid transitions and text selection during drag.
 - Stop spinner and non-essential transitions under `prefers-reduced-motion`.
 

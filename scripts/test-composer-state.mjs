@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -294,6 +294,45 @@ try {
     assert.equal(reloadedSubject.id, subject.id);
     assert.equal(reloadedSubject.isRubberDuck, false);
     assert.equal(reloadedSubject.conversationType, 'thread');
+  }
+
+  // New-thread drafts are scoped per folder and keep the full composer state.
+  {
+    const { getComposerDraft, setComposerDraft } = database;
+    const { dropMissingAttachments } = await import('../src/main/files.js');
+    const folderA = mkdtempSync(join(suiteDir, 'folder-a-'));
+    const folderB = mkdtempSync(join(suiteDir, 'folder-b-'));
+    const existingFile = join(folderA, 'image.png');
+    writeFileSync(existingFile, 'png');
+    const attachments = [
+      { id: 'present', kind: 'image_url', name: 'image.png', path: existingFile },
+      { id: 'missing', kind: 'file_reference', name: 'gone.pdf', path: join(folderA, 'gone.pdf') },
+      { id: 'inline', kind: 'text_inline', name: 'pasted.txt', text: 'hello' },
+    ];
+
+    assert.equal(getComposerDraft(folderA), null);
+    assert.throws(() => setComposerDraft('relative/path', {}), /absolute projectPath/);
+    const saved = setComposerDraft(folderA, {
+      permissionMode: 'full_access',
+      model: 'test:draft-model',
+      reasoningEffort: 'high',
+      workMode: 'plan',
+      ultraMode: true,
+      draftText: 'folder A draft',
+      attachments,
+    });
+    assert.equal(saved.projectPath, folderA);
+    assert.equal(saved.permissionMode, 'full_access');
+    assert.equal(saved.model, 'test:draft-model');
+    assert.equal(saved.reasoningEffort, 'high');
+    assert.equal(saved.workMode, 'plan');
+    assert.equal(saved.ultraMode, false);
+    assert.equal(saved.draftText, 'folder A draft');
+    assert.deepEqual(saved.attachments, attachments);
+    assert.equal(getComposerDraft(folderB), null);
+
+    const kept = await dropMissingAttachments(saved.attachments);
+    assert.deepEqual(kept.map((attachment) => attachment.id), ['present', 'inline']);
   }
 
   console.log('Composer state regression tests passed.');

@@ -2,14 +2,15 @@
   "manifest_version": 3,
   "minimum_chrome_version": "116",
   "name": "Avi Chrome Integration",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Connect real Chrome tabs to the Chrome Integration built-in plugin in Avi.",
   "permissions": [
     "alarms",
     "debugger",
     "offscreen",
     "storage",
-    "tabs"
+    "tabs",
+    "webNavigation"
   ],
   "host_permissions": ["<all_urls>"],
   "background": {

@@ -31,6 +31,8 @@ The **Maintenance** settings page also contains a **Semaphores** tab for inspect
 
 ## Maintenance
 
+Screenshots and other media returned by tools are kept per thread in `~/.aivax/media/<thread ID>`. When a thread is archived, manually or by the retention policy, its media moves to the temporary folder (`$TEMP/.avi/archived-media/<thread ID>`); restoring the thread moves it back, and deleting the thread removes it. Because archived media lives in temporary storage, **Delete temporary storage** or the operating system's temp cleanup also removes it; the archived thread stays readable, but those images are no longer available to the model.
+
 Archive maintenance runs once at Avi startup. Startup maintenance applies the configured age limits to ordinary archived and disposable conversations and prunes bot history.
 
 **Run forced cleanup** is intentionally more destructive. It first archives ordinary threads eligible under the automatic archive policy, then permanently deletes the entire archive, including side chats and sub-agents that are archived with their parent thread. Active, non-archived side chats and sub-agents are preserved. It also prunes bot conversation history using the configured retention window. Bot definitions and their most recent retained conversation round remain available.

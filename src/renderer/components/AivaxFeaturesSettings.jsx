@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import aivaxLogoUrl from '../../../assets/aivax.png';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const currencyFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -122,8 +123,8 @@ export function AivaxFeaturesSettings() {
           </dl>
         </section>
 
-        {loginDialogOpen && (
-          <div
+        <Presence when={loginDialogOpen}>{() => (
+          <Overlay
             className="dialog-backdrop aivax-login-dialog-backdrop"
             onMouseDown={() => !busy && closeLoginDialog()}
           >
@@ -210,8 +211,8 @@ export function AivaxFeaturesSettings() {
                 </div>
               </form>
             </section>
-          </div>
-        )}
+          </Overlay>
+        )}</Presence>
       </div>
     );
   }
@@ -357,8 +358,8 @@ export function AivaxFeaturesSettings() {
         </div>
       </section>
 
-      {collectionPickerTarget && (
-        <div className="dialog-backdrop aivax-collection-dialog-backdrop" onMouseDown={() => !busy && setCollectionPickerTarget(null)}>
+      <Presence when={collectionPickerTarget}>{(collectionPickerTarget) => (
+        <Overlay className="dialog-backdrop aivax-collection-dialog-backdrop" onMouseDown={() => !busy && setCollectionPickerTarget(null)}>
           <section
             className="aivax-collection-dialog"
             role="dialog"
@@ -448,11 +449,11 @@ export function AivaxFeaturesSettings() {
               Create new collection
             </button>
           </section>
-        </div>
-      )}
+        </Overlay>
+      )}</Presence>
 
-      {collectionCreateTarget && (
-        <div className="dialog-backdrop aivax-collection-dialog-backdrop" onMouseDown={() => !busy && setCollectionCreateTarget(null)}>
+      <Presence when={collectionCreateTarget}>{(collectionCreateTarget) => (
+        <Overlay className="dialog-backdrop aivax-collection-dialog-backdrop" onMouseDown={() => !busy && setCollectionCreateTarget(null)}>
           <section
             className="aivax-collection-dialog aivax-collection-create-dialog"
             role="dialog"
@@ -521,8 +522,8 @@ export function AivaxFeaturesSettings() {
               </div>
             </form>
           </section>
-        </div>
-      )}
+        </Overlay>
+      )}</Presence>
 
       <section className="settings-section">
         <div className="settings-section-heading">

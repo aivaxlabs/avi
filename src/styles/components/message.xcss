@@ -126,6 +126,11 @@
   padding: 48px;
   background: rgb(0 0 0 / 82%);
   backdrop-filter: blur(8px);
+  animation: dialog-backdrop-in var(--duration-fast) var(--ease-smooth-out);
+
+  &[data-closing] {
+    animation: dialog-backdrop-out var(--duration-quick) var(--ease-smooth-out) forwards;
+  }
 
   > img,
   > video {
@@ -1174,6 +1179,8 @@
 }
 
 .assistant-placeholder {
+  display: flex;
+  gap: 6px;
   width: fit-content;
   overflow: clip;
   color: transparent;
@@ -1196,6 +1203,12 @@
 .assistant-placeholder-label {
   display: block;
   animation: thinking-label-swap 180ms var(--base-transition);
+}
+
+.assistant-placeholder-time {
+  color: var(--text-3);
+  -webkit-text-fill-color: var(--text-3);
+  font-variant-numeric: tabular-nums;
 }
 
 .assistant-timeline + .assistant-placeholder {
@@ -1368,7 +1381,10 @@
 
   .messages-column > .message-row:last-child,
   .assistant-placeholder-label,
-  .message-usage-popover {
+  .message-usage-popover,
+  .message-usage-popover[data-closing],
+  .attachment-lightbox,
+  .attachment-lightbox[data-closing] {
     animation: none;
   }
 }
@@ -1484,6 +1500,10 @@
   backdrop-filter: blur(18px);
   transform-origin: bottom left;
   animation: dropdown-menu-in var(--duration-fast) var(--ease-smooth-out);
+
+  &[data-closing] {
+    animation: dropdown-menu-out var(--duration-quick) var(--ease-smooth-out) forwards;
+  }
 
   dl {
     display: grid;

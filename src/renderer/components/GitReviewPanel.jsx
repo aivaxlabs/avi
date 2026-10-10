@@ -9,6 +9,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { GitReviewDiff, gitReviewAttachment } from './GitReviewDiff.jsx';
 import { buildGitTree, flattenGitTree } from '../lib/git-review.js';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const badges = { added: 'A', deleted: 'D', modified: 'M', renamed: 'R', untracked: 'U', conflict: 'C' };
 
@@ -86,14 +87,14 @@ function GitReviewDialog({ dialog, busy, onClose, onConfirm }) {
     ref.current.showModal();
     return () => previous?.isConnected && previous.focus();
   }, []);
-  return createPortal(<dialog ref={ref} className="git-review-dialog" aria-labelledby="git-dialog-title" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
+  return createPortal(<Overlay as="dialog" ref={ref} className="git-review-dialog" aria-labelledby="git-dialog-title" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
     <header className="dialog-header"><h2 id="git-dialog-title">Discard changes?</h2><button className="icon-button" type="button" disabled={busy} onClick={onClose} aria-label="Close"><X size={16} /></button></header>
     <div className="git-review-dialog-body">
       <p>This permanently discards staged and unstaged changes in <strong>{dialog.path}</strong> in <strong>{dialog.repositoryName}</strong>, including untracked files.</p><p>This cannot be undone. Nested repositories are not discarded.</p>
       {dialog.error && <p role="alert">{dialog.error}</p>}
     </div>
     <footer className="dialog-footer"><button type="button" disabled={busy} onClick={onClose}>Cancel</button><button type="button" className="danger" disabled={busy} onClick={onConfirm}>{busy ? <><LoaderCircle className="spin" size={14} aria-hidden="true" />Discarding changes...</> : 'Discard permanently'}</button></footer>
-  </dialog>, document.body);
+  </Overlay>, document.body);
 }
 
 export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, model, project, onAddToChat, onAskInSideChat, onQuickQuestion, onRunAgent }) {
@@ -289,7 +290,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
           : <div className="git-review-empty"><GitBranch size={22} /><strong>{activeIndex?.files.length ? 'Select a changed file' : 'Working tree clean'}</strong></div>}
       </section>
     </div>
-    {menu && activeIndex && createPortal(<DropdownMenu ref={menuRef} className="git-review-menu" fixed role="menu" style={{ left: menu.left, top: menu.top }} onKeyDown={(event) => {
+    <Presence when={activeIndex && menu}>{(menu) => createPortal(<DropdownMenu ref={menuRef} className="git-review-menu" fixed role="menu" style={{ left: menu.left, top: menu.top }} onKeyDown={(event) => {
       const buttons = [...menuRef.current.querySelectorAll('button:not(:disabled)')];
       if (event.key === 'Escape' || event.key === 'Tab') { if (event.key === 'Escape') event.preventDefault(); setMenu(null); menu.opener?.focus(); }
       if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
@@ -333,7 +334,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
         onRunAgent({ text: `Run a read-only code review of the current Git changes in repository ${repositoryPath}. Report prioritized findings; do not modify files.`, attachments: [] }); setMenu(null);
       }}>Code review with agent</DropdownMenuItem></>}
       </>}
-    </DropdownMenu>, document.body)}
-    {dialog && <GitReviewDialog dialog={dialog} busy={busy} onClose={() => setDialog(null)} onConfirm={() => perform('discard', { path: dialog.path }, { confirmed: true, version: dialog.version })} />}
+    </DropdownMenu>, document.body)}</Presence>
+    <Presence when={dialog}>{(dialog) => <GitReviewDialog dialog={dialog} busy={busy} onClose={() => setDialog(null)} onConfirm={() => perform('discard', { path: dialog.path }, { confirmed: true, version: dialog.version })} />}</Presence>
   </div>;
 });

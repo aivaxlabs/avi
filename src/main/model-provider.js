@@ -29,6 +29,22 @@ const CONNECTION_ERROR_CODES = new Set([
 const isConnectionError = (error) => [error, error?.cause]
   .some((candidate) => candidate && CONNECTION_ERROR_CODES.has(candidate.code));
 
+function normalizeCustomJson(value, label) {
+  const json = String(value ?? '').trim();
+  if (!json) return '';
+
+  let parsed;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error(`${label} must be valid JSON.`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${label} must be a JSON object.`);
+  }
+  return json;
+}
+
 export class ModelProvider {
   constructor(config, implementation, services) {
     this.config = config;
@@ -147,6 +163,7 @@ export class ModelProvider {
       let streamBytes = 0;
       let sseEventCount = 0;
       let receivedDoneMarker = false;
+      let receivedOutput = false;
       let receivedTerminalEvent = this.implementation.requiresTerminalEvent !== true;
       let completionEvent = receivedTerminalEvent ? 'not-required' : 'missing';
       const attemptToolKeys = new Set();
@@ -233,7 +250,6 @@ export class ModelProvider {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let receivedOutput = false;
         let receivedReasoning = false;
         let activeItemType = null;
         const abortReader = () => {
@@ -319,7 +335,7 @@ export class ModelProvider {
                   && (
                     event.code === 'server_error'
                     || event.code === 'provider_error'
-                    || (event.code === 'server_is_overloaded' && !receivedOutput)
+                    || event.code === 'server_is_overloaded'
                   )
                 ) {
                   retryError = event;
@@ -450,12 +466,6 @@ export class ModelProvider {
           }
         }
 
-        if (retryError && receivedOutput) {
-          const error = new Error(retryError.message);
-          error.code = retryError.code;
-          throw error;
-        }
-
         if (!retryError && !receivedTerminalEvent) {
           traceError('provider.stream-incomplete', {
             thread_id: invocationContext.conversationId,
@@ -538,12 +548,18 @@ export class ModelProvider {
         throw error;
       }
 
+      // The next attempt regenerates the turn from scratch, so partial output from this one is dropped.
+      assistantContent = '';
+      completedContinuation = null;
+      continuationItems.clear();
+      toolCalls.clear();
       onEvent({
         type: 'retry',
         code: retryError.code,
         message: retryError.message,
         attempt,
         maxAttempts: displayedMaxAttempts,
+        discardOutput: receivedOutput,
       });
       retryVisible = true;
 
@@ -672,6 +688,7 @@ export class ModelProviderRegistry {
             ) {
               throw new Error(`Choose a valid media size limit for "${modelName}".`);
             }
+            const customJson = normalizeCustomJson(model?.customJson, `Custom JSON for "${modelName}"`);
 
             return {
               id,
@@ -690,11 +707,14 @@ export class ModelProviderRegistry {
               },
               reasoning: REASONING_EFFORTS.filter((effort) => model?.reasoning?.includes(effort)),
               ...(model?.mediaSizeLimit !== undefined ? { mediaSizeLimit: model.mediaSizeLimit } : {}),
+              ...(customJson ? { customJson } : {}),
             };
           })
         : [];
     const fields = Object.fromEntries((implementation.descriptor.fields ?? []).map((field) => {
-      const fieldValue = String(provider[field.id] ?? field.default ?? '');
+      const fieldValue = field.type === 'json'
+        ? normalizeCustomJson(provider[field.id], field.label)
+        : String(provider[field.id] ?? field.default ?? '');
       if (
         Array.isArray(field.options)
         && !field.options.some((option) => option.value === fieldValue)

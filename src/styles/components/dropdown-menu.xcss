@@ -14,6 +14,10 @@
   transform-origin: top left;
   animation: dropdown-menu-in var(--duration-fast) var(--ease-smooth-out);
 
+  &[data-closing] {
+    animation: dropdown-menu-out var(--duration-quick) var(--ease-smooth-out) forwards;
+  }
+
   &.fixed {
     transform-origin: top right;
     position: fixed;
@@ -103,8 +107,16 @@
   }
 }
 
+@keyframes dropdown-menu-out {
+  to {
+    opacity: 0;
+    transform: scale(var(--scale-tiny));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .dropdown-menu {
+  .dropdown-menu,
+  .dropdown-menu[data-closing] {
     animation: none;
   }
 }

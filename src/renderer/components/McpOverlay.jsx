@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { classNames } from '../lib/format.js';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const statusLabels = {
   idle: 'Not started',
@@ -22,6 +23,7 @@ const statusLabels = {
 export function McpOverlay({
   state,
   waitingCount,
+  capacityWaitingCount = 0,
   alert,
   workspaceServers,
   onCloseAlert,
@@ -55,19 +57,24 @@ export function McpOverlay({
 
   return (
     <>
-      {(state?.loadingCount > 0 || waitingCount > 0) && (
+      {(state?.loadingCount > 0 || waitingCount > 0 || capacityWaitingCount > 0) && (
         <div className="mcp-progress" role="status" aria-live="polite">
           <LoaderCircle size={15} />
           <span>
-            {waitingCount > 0
-              ? `Waiting for MCP servers before sending ${waitingCount === 1 ? 'a message' : `${waitingCount} messages`}...`
-              : `Starting ${state.loadingCount} MCP ${state.loadingCount === 1 ? 'server' : 'servers'}...`}
+            {(state?.loadingCount > 0 || waitingCount > 0) && (
+              waitingCount > 0
+                ? `Waiting for MCP servers before sending ${waitingCount === 1 ? 'a message' : `${waitingCount} messages`}...`
+                : `Starting ${state.loadingCount} MCP ${state.loadingCount === 1 ? 'server' : 'servers'}...`
+            )}
+            {capacityWaitingCount > 0 && (
+              `${state?.loadingCount > 0 || waitingCount > 0 ? ' ' : ''}Waiting for a free thread slot (${capacityWaitingCount} ${capacityWaitingCount === 1 ? 'thread' : 'threads'} queued)...`
+            )}
           </span>
         </div>
       )}
 
-      {alert && (
-        <div className="dialog-backdrop mcp-dialog-backdrop">
+      <Presence when={alert}>{(alert) => (
+        <Overlay className="dialog-backdrop mcp-dialog-backdrop">
           <section
             ref={dialogRef}
             className="mcp-dialog"
@@ -137,11 +144,11 @@ export function McpOverlay({
               )}
             </div>
           </section>
-        </div>
-      )}
+        </Overlay>
+      )}</Presence>
 
-      {workspaceServers && !alert && (
-        <div className="dialog-backdrop mcp-dialog-backdrop" onMouseDown={onCloseWorkspace}>
+      <Presence when={!alert && workspaceServers}>{(workspaceServers) => (
+        <Overlay className="dialog-backdrop mcp-dialog-backdrop" onMouseDown={onCloseWorkspace}>
           <section
             ref={dialogRef}
             className="mcp-dialog mcp-status-dialog"
@@ -191,8 +198,8 @@ export function McpOverlay({
               </button>
             </div>
           </section>
-        </div>
-      )}
+        </Overlay>
+      )}</Presence>
     </>
   );
 }

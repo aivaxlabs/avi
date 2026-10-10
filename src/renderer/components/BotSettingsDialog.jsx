@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { classNames } from '../lib/format.js';
 import { McpSettings } from './McpSettings.jsx';
+import { Overlay } from './Overlay.jsx';
 
 const builtInPersonalities = ['candid', 'cynical', 'friendly', 'pragmatic', 'quirky'];
 const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -202,7 +203,7 @@ export function BotSettingsDialog({
   }
 
   return createPortal(
-    <div className="dialog-backdrop bot-settings-backdrop" onMouseDown={onClose}>
+    <Overlay className="dialog-backdrop bot-settings-backdrop" onMouseDown={onClose}>
       <section
         className="bot-settings-dialog"
         role="dialog"
@@ -804,7 +805,7 @@ export function BotSettingsDialog({
           </div>
         </footer>
       </section>
-    </div>,
+    </Overlay>,
     document.body,
   );
 }

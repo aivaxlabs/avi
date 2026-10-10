@@ -100,9 +100,9 @@ export class StreamAccumulator {
         last.status = 'completed';
       }
 
-      const existing = this.segments.find(
-        (segment) => segment.type === 'tool-call' && segment.key === event.key,
-      );
+      const existing = this.segments.find((segment) => (
+        !segment.compacted && segment.type === 'tool-call' && segment.key === event.key
+      ));
       if (existing) {
         existing.callId = typeof event.callId === 'string' && event.callId.trim()
           ? event.callId
@@ -139,9 +139,9 @@ export class StreamAccumulator {
       return;
     }
     if (event.type === 'tool-result') {
-      const toolCall = this.segments.find(
-        (segment) => segment.type === 'tool-call' && segment.callId === event.callId,
-      );
+      const toolCall = this.segments.find((segment) => (
+        !segment.compacted && segment.type === 'tool-call' && segment.callId === event.callId
+      ));
       if (toolCall) {
         toolCall.status = event.isError ? 'error' : 'completed';
         toolCall.resultText = event.output;

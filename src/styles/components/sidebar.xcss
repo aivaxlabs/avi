@@ -9,6 +9,7 @@
   z-index: 55;
   display: flex;
   flex-direction: column;
+  min-width: var(--sidebar-width, 222px);
   min-height: 0;
   color: var(--text-1);
   background: var(--sidebar-background);
@@ -253,6 +254,7 @@
   }
 
   .conversation-list {
+    position: relative;
     min-height: 0;
     display: grid;
     align-content: start;
@@ -381,6 +383,20 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+
+    &.title-exit {
+      animation: sidebar-title-out var(--duration-quick) ease-in-out forwards;
+    }
+
+    &.title-enter {
+      animation: sidebar-title-in var(--duration-quick) ease-in-out;
+    }
+  }
+
+  .conversation-list > .sidebar-flip-ghost {
+    position: absolute;
+    margin: 0;
+    pointer-events: none;
   }
 
   .conversation-tag-dots {
@@ -615,6 +631,7 @@
 }
 
 .sidebar-collapsed .sidebar {
+  min-width: 0;
   padding-inline: 0;
   background-color: transparent;
   border-right-color: transparent;
@@ -667,6 +684,22 @@
 .sidebar-collapsed .settings-button,
 .sidebar-collapsed .conversation-main {
   padding: 9px 0;
+}
+
+@keyframes sidebar-title-out {
+  to {
+    opacity: 0;
+    filter: blur(var(--blur-small));
+    transform: translateY(calc(var(--distance-micro) * -1));
+  }
+}
+
+@keyframes sidebar-title-in {
+  from {
+    opacity: 0;
+    filter: blur(var(--blur-small));
+    transform: translateY(var(--distance-micro));
+  }
 }
 
 @keyframes sidebar-run-spin {

@@ -60,6 +60,29 @@ export function defineProvider(provider) {
   return Object.freeze(provider);
 }
 
+function isJsonObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function mergeJson(target, source) {
+  if (!isJsonObject(target) || !isJsonObject(source)) return source;
+
+  // Object.fromEntries defines own properties, so keys such as "__proto__" never change prototypes.
+  return Object.fromEntries([
+    ...Object.entries(target).map(([key, value]) => [
+      key,
+      Object.hasOwn(source, key) ? mergeJson(value, source[key]) : value,
+    ]),
+    ...Object.entries(source).filter(([key]) => !Object.hasOwn(target, key)),
+  ]);
+}
+
+export function applyCustomJson(body, provider, model) {
+  return [provider?.customJson, model?.customJson]
+    .filter((json) => typeof json === 'string' && json.trim())
+    .reduce((merged, json) => mergeJson(merged, JSON.parse(json)), body);
+}
+
 export async function prepareProviderInvocation(invocationContext) {
   return {
     dynamicContext: await resolveDynamicContext(invocationContext),

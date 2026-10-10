@@ -4,7 +4,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 1.75em 0 .65em;
+    margin: 1.75em 0 .45em;
     color: var(--text-1);
     font-size: 1rem;
     font-weight: 600;
@@ -55,6 +55,41 @@
     }
   }
 
+  .inline-callout {
+    padding: 1px 5px;
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    border-radius: 4px;
+    font-weight: 600;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+
+    > svg {
+      margin-right: 4px;
+      vertical-align: -2px;
+    }
+
+    &.callout-info {
+      color: var(--primary-color);
+    }
+
+    &.callout-success {
+      color: var(--success-color);
+    }
+
+    &.callout-warning {
+      color: var(--warn-color);
+    }
+
+    &.callout-danger {
+      color: var(--danger-color);
+    }
+
+    strong,
+    code {
+      color: inherit;
+    }
+  }
+
   .avi-diff-code {
     max-height: min(520px, 60vh);
     margin: 0;
@@ -96,18 +131,58 @@
     }
   }
 
-  img.mermaid-visualization {
-    width: auto;
-    max-height: min(680px, 75vh);
-    display: block;
-    margin-inline: auto;
-    object-fit: contain;
+  .mermaid-visualization {
+    position: relative;
+    overflow: visible;
+
+    > img {
+      width: auto;
+      max-width: 100%;
+      max-height: min(680px, 75vh);
+      display: block;
+      margin-inline: auto;
+      object-fit: contain;
+    }
+
+    .mermaid-expand {
+      position: absolute;
+      top: 8px;
+      right: 0;
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      color: var(--text-3);
+      background: var(--background-2);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      transition: background var(--duration-quick) var(--ease-smooth-out), color var(--duration-quick) var(--ease-smooth-out);
+
+      &:hover,
+      &:focus-visible {
+        color: var(--text-1);
+        background: var(--item-active);
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--text-3);
+        outline-offset: 1px;
+      }
+    }
   }
 
   .latex-visualization {
     color: var(--text-1);
     text-align: center;
   }
+}
+
+.attachment-lightbox.mermaid-lightbox > img {
+  width: calc(100vw - 96px);
+  height: calc(100vh - 96px);
+  box-sizing: border-box;
+  padding: 24px;
+  background: var(--background-0);
 }
 
 @keyframes visualization-loading {
@@ -123,5 +198,9 @@
 @media (prefers-reduced-motion: reduce) {
   .markdown-body .async-visualization.is-loading {
     animation: none;
+  }
+
+  .markdown-body .mermaid-expand {
+    transition: none;
   }
 }

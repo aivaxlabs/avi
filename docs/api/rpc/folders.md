@@ -73,3 +73,21 @@ Sets or clears the color associated with a folder.
 ```
 
 The corresponding result entry is `"#ffaa00"`.
+
+## `composer-draft:get`
+
+Returns the new-thread composer draft for a working folder. Drafts are keyed internally as `<resolved folder path>/00000000-0000-0000-0000-000000000000`, the zero thread ID representing a thread that does not exist yet. Attachments with an absolute local `path` that no longer exists are removed and the draft is re-saved.
+
+**Params:** `payload` is the absolute folder path.
+
+**Result:** `null` when no draft exists, otherwise `{ projectPath, permissionMode, model, reasoningEffort, workMode, ultraMode, draftText, attachments, updatedAt }` with the same field semantics as [`ComposerState`](types.md#composerstate).
+
+## `composer-draft:save`
+
+Replaces the new-thread composer draft for a working folder. Attachments are stored as given; local files are referenced by `path`, never copied. Remote calls accept embedded attachments up to 10 MiB per file, as for `composer-state:save`.
+
+**Params:** `{ projectPath: string, permissionMode?, model?, reasoningEffort?, workMode?, ultraMode?, draftText?, attachments? }`. `projectPath` must be absolute; other fields are normalized like [`composer-state:save`](conversations.md#composer-statesave).
+
+**Result:** the re-read draft, as returned by `composer-draft:get`.
+
+**Errors:** `An absolute projectPath is required.`

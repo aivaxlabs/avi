@@ -40,6 +40,12 @@ The dialog offers two manual modes:
 
 Side chats also run quick compaction automatically before a response when their context exceeds the automatic compaction threshold minus 10 percentage points (for example, 80% with the default 90% threshold). Full automatic compaction still applies afterwards if the threshold is crossed.
 
+## Tuning → Resource limits
+
+**Maximum parallel threads** accepts integers from 1–1024. The default is four times the number of logical processors reported by the system (capped at 1024) and is saved on first launch. It limits how many model turns and context compactions stream at the same time across all threads, sub-agents, and bots. Short background calls, such as title, continuation, and Goal suggestions, are not counted. Extra turns wait in a FIFO queue, and the MCP status overlay shows how many threads are waiting for a slot. A thread waiting for a tool approval, a question, `sleep`, a sub-agent, or a semaphore does not hold a slot. Stopping a queued thread removes it from the queue, and raising the limit releases waiting threads immediately.
+
+**Stalled thread watchdog** offers Disabled, 0.5 s, 1 s (default), or 3 s. Avi checks every 250 ms how late its event loop responds, and records how much blocking time each thread spends handling stream events and saving messages. After three stalls longer than the selected value, each within 30 seconds of the previous one, Avi stops the running thread with the most blocking time. The message ends with a `watchdog_stopped` error, `trace.log` gets a `chat.watchdog-stopped` entry, and the thread's queue is paused. Other threads keep running. The watchdog acts only when the app responds again, so it cannot end a freeze that never returns control.
+
 ## Tuning → Tool execution
 
 - **Tool output length** — 4,096, 8,192 (default), 32,768 characters, or Disabled/No limit. The UI estimates tokens as characters divided by four. A tool definition can set `forcedTruncationLength` in estimated tokens to override this setting for its own output, including when global truncation is disabled. Disabling truncation can exhaust the model context window.
@@ -80,6 +86,6 @@ Full access removes the approval card but does not override higher-level runtime
 
 ## Persistence and validation
 
-Tuning and Desktop settings are stored locally. Values outside accepted ranges are rejected or normalized. **Save changes** is disabled when the selected shell is unavailable or terminal timeout, sub-agent concurrency, or Rubber Duck max turns values are invalid.
+Tuning and Desktop settings are stored locally. Values outside accepted ranges are rejected or normalized. **Save changes** is disabled when the selected shell is unavailable or terminal timeout, maximum parallel threads, sub-agent concurrency, or Rubber Duck max turns values are invalid.
 
 See [Themes](Themes.md), [Personalities](Personalities.md), [Archive](Archive.md), and [Remote control](Remote%20control.md).

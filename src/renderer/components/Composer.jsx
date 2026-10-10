@@ -60,8 +60,8 @@ import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { ModelPicker } from './ModelPicker.jsx';
 import { WorkspaceDialog } from './WorkspaceDialog.jsx';
 import { ProviderUsages } from './ProviderUsages.jsx';
+import { Overlay, Presence } from './Overlay.jsx';
 
-const composerDraftKey = 'aivax.composer.draft';
 const commandResultLimit = 30;
 const emptyIntelligenceLevels = Object.freeze([]);
 const composerReasoningEffortsKey = 'aivax.composer.reasoning-efforts';
@@ -170,7 +170,6 @@ export function Composer({
   pendingAttachment,
   onPendingAttachmentConsumed,
   messageDeliveryMode = 'queue',
-  draftKey = composerDraftKey,
   autoFocus = false,
   defaultPermissionMode = 'approve_for_me',
   initialState = null,
@@ -180,9 +179,7 @@ export function Composer({
   onShowBotInPanel,
   onCancel,
 }) {
-  const [text, setText] = useState(() => (
-    initialState?.text ?? window.localStorage.getItem(draftKey) ?? ''
-  ));
+  const [text, setText] = useState(initialState?.text ?? '');
   const [attachments, setAttachments] = useState(() => initialState?.attachments ?? []);
   const [currentModel, setCurrentModel] = useState(initialState?.model ?? initialModel);
   const [workMode, setWorkMode] = useState(initialState?.workMode ?? initialWorkMode);
@@ -237,12 +234,16 @@ export function Composer({
   const conversationIdRef = useRef(conversationId);
   const promptExpandingRef = useRef(false);
   const composerStatesRef = useRef(new Map());
-  const hydratedConversationIdRef = useRef(null);
+  const hydratedScopeRef = useRef(null);
   textRef.current = text;
   conversationIdRef.current = conversationId;
-  if (conversationId && persistState) {
-    composerStatesRef.current.set(conversationId, {
-      conversationId,
+  const draftProjectPath = conversationId ? null : project?.path ?? null;
+  const persistenceScope = persistState
+    ? conversationId ?? (draftProjectPath ? `draft:${draftProjectPath}` : null)
+    : null;
+  if (persistenceScope) {
+    composerStatesRef.current.set(persistenceScope, {
+      ...(conversationId ? { conversationId } : { projectPath: draftProjectPath }),
       permissionMode,
       model: currentModel,
       reasoningEffort,
@@ -513,9 +514,9 @@ export function Composer({
 
   useEffect(() => {
     let active = true;
-    hydratedConversationIdRef.current = null;
+    hydratedScopeRef.current = null;
     if (!persistState) return () => { active = false; };
-    setText(conversationId ? '' : window.localStorage.getItem(draftKey) ?? '');
+    setText('');
     setAttachments([]);
     setPermissionMode(defaultPermissionMode);
     setCurrentModel(initialModel);
@@ -523,11 +524,14 @@ export function Composer({
     setWorkMode(initialWorkMode);
     setUltraMode(initialUltraMode);
 
-    if (!conversationId) return () => { active = false; };
+    if (!persistenceScope) return () => { active = false; };
 
-    window.chatApp.composerState.get(conversationId)
+    (conversationId
+      ? window.chatApp.composerState.get(conversationId)
+      : window.chatApp.composerDraft.get(draftProjectPath))
       .then((state) => {
         if (!active) return;
+        const draftModel = models.some((model) => model.id === state?.model) ? state.model : null;
         setText(state?.draftText ?? '');
         setAttachments((items) => [
           ...(state?.attachments ?? []),
@@ -536,24 +540,27 @@ export function Composer({
           )),
         ]);
         setPermissionMode(state?.permissionMode ?? defaultPermissionMode);
-        setCurrentModel(botMode ? initialModel : state?.model || initialModel);
+        setCurrentModel(botMode ? initialModel : (conversationId ? state?.model : draftModel) || initialModel);
         setReasoningEffort(state?.reasoningEffort ?? null);
         setWorkMode(botMode || !state ? initialWorkMode : state.workMode);
         setUltraMode(botMode || !state ? initialUltraMode : state.ultraMode);
-        hydratedConversationIdRef.current = conversationId;
+        if (!conversationId && state) {
+          if (draftModel && draftModel !== initialModel) onChooseModel(draftModel);
+          onWorkModeChange?.(state.workMode);
+          onUltraModeChange?.(state.ultraMode);
+        }
+        hydratedScopeRef.current = persistenceScope;
       })
       .catch(() => {
-        if (active) hydratedConversationIdRef.current = conversationId;
+        if (active) hydratedScopeRef.current = persistenceScope;
       });
 
     return () => {
       active = false;
-      const state = composerStatesRef.current.get(conversationId);
-      if (hydratedConversationIdRef.current === conversationId && state) {
-        window.chatApp.composerState.save(state).catch(() => {});
-      }
+      const state = composerStatesRef.current.get(persistenceScope);
+      if (hydratedScopeRef.current === persistenceScope && state) saveComposerSnapshot(state);
     };
-  }, [conversationId, persistState]);
+  }, [persistenceScope]);
 
   useEffect(() => {
     if (!persistState) return;
@@ -562,7 +569,7 @@ export function Composer({
   }, [initialUltraMode, initialWorkMode, persistState]);
 
   useEffect(() => {
-    if (!persistState) return;
+    if (!persistState || initialModel === currentModel) return;
     setCurrentModel(initialModel);
     setReasoningEffort(readPersistedReasoningEffort(initialModel) ?? null);
   }, [initialModel, persistState]);
@@ -574,17 +581,17 @@ export function Composer({
   }, [currentModel, currentModelConfig, persistState, reasoningEffort]);
 
   useEffect(() => {
-    if (!persistState || !conversationId || hydratedConversationIdRef.current !== conversationId) return undefined;
+    if (!persistenceScope || hydratedScopeRef.current !== persistenceScope) return undefined;
     const timer = window.setTimeout(() => {
-      const state = composerStatesRef.current.get(conversationId);
-      if (state) window.chatApp.composerState.save(state).catch(() => {});
+      const state = composerStatesRef.current.get(persistenceScope);
+      if (state) saveComposerSnapshot(state);
     }, 250);
     return () => window.clearTimeout(timer);
   }, [
     attachments,
-    conversationId,
     currentModel,
     permissionMode,
+    persistenceScope,
     reasoningEffort,
     text,
     ultraMode,
@@ -592,26 +599,14 @@ export function Composer({
   ]);
 
   useEffect(() => {
-    if (!persistState || conversationId) return undefined;
-    const timer = window.setTimeout(() => saveComposerDraft(draftKey, text), 250);
-    return () => window.clearTimeout(timer);
-  }, [conversationId, draftKey, text]);
-
-  useEffect(() => {
-    if (!persistState) return undefined;
+    if (!persistenceScope) return undefined;
     const saveOnClose = () => {
-      const state = conversationId
-        ? composerStatesRef.current.get(conversationId)
-        : null;
-      if (state && hydratedConversationIdRef.current === conversationId) {
-        window.chatApp.composerState.save(state).catch(() => {});
-      } else {
-        saveComposerDraft(draftKey, text);
-      }
+      const state = composerStatesRef.current.get(persistenceScope);
+      if (state && hydratedScopeRef.current === persistenceScope) saveComposerSnapshot(state);
     };
     window.addEventListener('beforeunload', saveOnClose);
     return () => window.removeEventListener('beforeunload', saveOnClose);
-  }, [conversationId, draftKey, text]);
+  }, [persistenceScope]);
 
   useEffect(() => {
     setGoalNow(Date.now());
@@ -836,8 +831,13 @@ export function Composer({
     }
     setText('');
     setCursorPosition(0);
-    window.localStorage.removeItem(draftKey);
     setAttachments([]);
+    const state = composerStatesRef.current.get(persistenceScope);
+    if (state) {
+      const cleared = { ...state, draftText: '', attachments: [] };
+      composerStatesRef.current.set(persistenceScope, cleared);
+      saveComposerSnapshot(cleared);
+    }
     await onSend(payload);
   }
 
@@ -873,7 +873,7 @@ export function Composer({
       const container = textAreaRef.current?.closest('.composer-wrap');
       const focused = document.activeElement?.closest('.composer-wrap');
       const target = focused ?? document.querySelector('.chat-area:not(.auxiliary-chat-view) .composer-wrap, .quick-chat-window .composer-wrap');
-      if (!container || container !== target || document.querySelector('[role="dialog"], .dialog-backdrop')) return;
+      if (!container || container !== target || document.querySelector(':is([role="dialog"], .dialog-backdrop):not([data-closing], [data-closing] *)')) return;
       const direction = id.endsWith('.next') ? 1 : -1;
       if (id.startsWith('model.')) {
         if (hasIntelligenceSlider) commitIntelligencePreview(Math.max(0, Math.min(maxIntelligenceIndex, committedIntelligenceIndex + direction)));
@@ -1245,7 +1245,7 @@ export function Composer({
       ref={containerRef}
       className={`composer-wrap${inline ? ' inline-composer-wrap' : ''}`}
     >
-      {workspaceCreating && <WorkspaceDialog onClose={() => setWorkspaceCreating(false)} onSave={onChooseProject} />}
+      <Presence when={workspaceCreating}>{() => <WorkspaceDialog onClose={() => setWorkspaceCreating(false)} onSave={onChooseProject} />}</Presence>
       {botMode && onShowBotInPanel && (
         <ComposerChip
           as="button"
@@ -1580,7 +1580,7 @@ export function Composer({
           </ol>
         </ComposerStrip>
       ))}
-      {queuedMenu && createPortal(
+      <Presence when={queuedMenu}>{(queuedMenu) => createPortal(
         <DropdownMenu
           className="queued-message-actions-menu"
           fixed
@@ -1625,7 +1625,7 @@ export function Composer({
           </DropdownMenuItem>
         </DropdownMenu>,
         document.body,
-      )}
+      )}</Presence>
       <div className={`composer${promptExpanding ? ' prompt-optimizing' : ''}`} aria-busy={promptExpanding}>
         {commandMode && (
           <section
@@ -1823,7 +1823,7 @@ export function Composer({
             >
               <Plus size={18} />
             </button>
-            {plusOpen && (
+            <Presence when={plusOpen}>{() => (
               <DropdownMenu className="attachment-dropdown-menu" role="menu">
                 {!botMode && (
                   <>
@@ -1883,7 +1883,7 @@ export function Composer({
                   Attach from computer
                 </DropdownMenuItem>
               </DropdownMenu>
-            )}
+            )}</Presence>
           </div>
           {!botMode && (
           <div className="composer-mode-controls">
@@ -1902,7 +1902,7 @@ export function Composer({
                 <span>{activePermissionMode?.label}</span>
                 <ChevronDown size={13} />
               </button>
-              {permissionMenuOpen && (
+              <Presence when={permissionMenuOpen}>{() => (
                 <DropdownMenu className="permission-mode-menu" role="menu">
                   {permissionModes.map((mode) => (
                     <DropdownMenuItem
@@ -1927,7 +1927,7 @@ export function Composer({
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenu>
-              )}
+              )}</Presence>
             </div>
             {(workMode === 'plan' || (workMode && !activeGoal)) && (
               <button
@@ -2004,7 +2004,7 @@ export function Composer({
               <ChevronDown size={14} />
             </button>
             )}
-            {modelMenuOpen && (!hasIntelligenceSlider || advancedPickerOpen) && (
+            <Presence when={modelMenuOpen && (!hasIntelligenceSlider || advancedPickerOpen)}>{() => (
               <DropdownMenu
                 className="model-input-menu"
                 role="menu"
@@ -2083,7 +2083,7 @@ export function Composer({
                       </span>
                     </>
                   </DropdownMenuItem>
-                  {advancedModelSubmenuOpen && (
+                  <Presence when={advancedModelSubmenuOpen}>{() => (
                     <DropdownMenu className="model-reasoning-submenu" submenu>
                       {favoriteModels.slice(0, 5).map((model) => {
                         const { name, isFast } = splitFastModelName(model.name || model.id);
@@ -2115,7 +2115,7 @@ export function Composer({
                         Explore models
                       </DropdownMenuItem>
                     </DropdownMenu>
-                  )}
+                  )}</Presence>
                 </div>
                 {currentModelConfig?.reasoning.length > 0 && (
                   <div
@@ -2170,7 +2170,7 @@ export function Composer({
                         </span>
                       </>
                     </DropdownMenuItem>
-                    {advancedEffortSubmenuOpen && (
+                    <Presence when={advancedEffortSubmenuOpen}>{() => (
                       <DropdownMenu className="model-reasoning-submenu" submenu>
                         {currentModelConfig.reasoning.map((effort) => (
                           <DropdownMenuItem
@@ -2191,12 +2191,12 @@ export function Composer({
                           </DropdownMenuItem>
                         ))}
                       </DropdownMenu>
-                    )}
+                    )}</Presence>
                   </div>
                 )}
               </DropdownMenu>
-            )}
-            {modelMenuOpen && hasIntelligenceSlider && !advancedPickerOpen && (
+            )}</Presence>
+            <Presence when={modelMenuOpen && hasIntelligenceSlider && !advancedPickerOpen}>{() => (
               <DropdownMenu
                 className="intelligence-menu"
                 role="dialog"
@@ -2295,7 +2295,7 @@ export function Composer({
                   </>
                 </DropdownMenuItem>
               </DropdownMenu>
-            )}
+            )}</Presence>
           </div>
           {inline && (
             <button
@@ -2389,8 +2389,8 @@ export function Composer({
           )}
           {projectLocked && <LockKeyhole className="project-picker-lock" size={12} />}
           </button>
-          {projectMenuOpen && !projectLocked && (
-            <div
+          <Presence when={projectMenuOpen && !projectLocked}>{() => (
+            <Overlay
               className="project-picker-menu"
               role="dialog"
               aria-label="Choose project folder"
@@ -2471,8 +2471,8 @@ export function Composer({
                 <span>Don't use a project</span>
                 {project?.displayPath === '~/' && <Check size={14} aria-label="Selected" />}
               </button>
-            </div>
-          )}
+            </Overlay>
+          )}</Presence>
         </div>}
         <div className="composer-usage-indicators">
           <ProviderUsages
@@ -2508,8 +2508,8 @@ export function Composer({
         onOpenChange={setContextUsageOpen}
         onCompress={onCompress}
       />
-      {goalDialogOpen && createPortal(
-        <div
+      <Presence when={goalDialogOpen}>{() => createPortal(
+        <Overlay
           className="dialog-backdrop goal-dialog-backdrop"
           onMouseDown={(event) => {
             if (event.target !== event.currentTarget || goalAction) return;
@@ -2596,10 +2596,10 @@ export function Composer({
               </div>
             </footer>
           </form>
-        </div>,
+        </Overlay>,
         document.body,
-      )}
-      {modelPickerOpen && (
+      )}</Presence>
+      <Presence when={modelPickerOpen}>{() => (
         <ModelPicker
           models={models}
           favorites={favorites}
@@ -2608,7 +2608,7 @@ export function Composer({
           onChoose={chooseModel}
           onToggleFavorite={onToggleFavorite}
         />
-      )}
+      )}</Presence>
     </section>
   );
 }
@@ -2626,12 +2626,10 @@ function ComposerStrip({
   );
 }
 
-function saveComposerDraft(key, text) {
-  if (text) {
-    window.localStorage.setItem(key, text);
-  } else {
-    window.localStorage.removeItem(key);
-  }
+function saveComposerSnapshot(state) {
+  (state.conversationId
+    ? window.chatApp.composerState.save(state)
+    : window.chatApp.composerDraft.save(state)).catch(() => {});
 }
 
 function AudioWave({ level, paused }) {

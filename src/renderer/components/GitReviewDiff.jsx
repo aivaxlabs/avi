@@ -12,6 +12,7 @@ import 'prismjs/components/prism-typescript';
 import 'prismjs/components/prism-tsx';
 import 'prismjs/components/prism-yaml';
 import { buildGitDiff, expandGitDiff } from '../lib/git-review.js';
+import { Overlay, Presence } from './Overlay.jsx';
 
 const languages = { js: 'javascript', mjs: 'javascript', jsx: 'jsx', ts: 'typescript', tsx: 'tsx', cs: 'csharp', css: 'css', xcss: 'css', html: 'markup', xml: 'markup', json: 'json', md: 'markdown', sh: 'bash', yml: 'yaml', yaml: 'yaml' };
 const escapeXml = (value) => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
@@ -142,7 +143,7 @@ export const GitReviewDiff = memo(function GitReviewDiff({ repository, file, onA
         onClick={() => scroller.current.querySelector(`[data-row-index="${marker.start}"]`)?.scrollIntoView({ block: 'center' })} />)}
       <div className="git-diff-map-thumb" ref={thumb} />
     </div>
-    {selection && createPortal(selection.annotating ? <form className="git-review-annotation" style={{ left: selection.left, top: selection.top }} onSubmit={(event) => {
+    <Presence when={selection}>{(selection) => createPortal(selection.annotating ? <Overlay as="form" className="git-review-annotation" style={{ left: selection.left, top: selection.top }} onSubmit={(event) => {
       event.preventDefault();
       if (!annotation.trim()) return;
       onAddToChat?.(gitReviewAttachment(repository, file.path, selection.content, annotation.trim(), selection.range));
@@ -150,7 +151,7 @@ export const GitReviewDiff = memo(function GitReviewDiff({ repository, file, onA
     }}>
       <textarea autoFocus aria-label="Review comment" value={annotation} onChange={(event) => setAnnotation(event.target.value)} placeholder="Add a review comment..." rows={3} />
       <footer><button type="button" onClick={() => { setSelection(null); setAnnotation(''); }}>Cancel</button><button type="submit" disabled={!annotation.trim()}>Add to chat</button></footer>
-    </form> : <div className="selection-action-group" role="toolbar" aria-label="Selected diff actions" style={{ left: selection.left, top: selection.top }} onPointerDown={(event) => event.preventDefault()}>
+    </Overlay> : <Overlay className="selection-action-group" role="toolbar" aria-label="Selected diff actions" style={{ left: selection.left, top: selection.top }} onPointerDown={(event) => event.preventDefault()}>
       <button type="button" disabled={!onAddToChat} onClick={() => setSelection((current) => ({ ...current, annotating: true }))}><PencilLine size={13} />Annotate</button>
       <button type="button" disabled={!onAddToChat} onClick={() => { onAddToChat(gitReviewAttachment(repository, file.path, selection.content, '', selection.range)); setSelection(null); }}><MessageSquarePlus size={13} />Add to chat</button>
       {onAskInSideChat && <button type="button" onClick={() => { onAskInSideChat(gitReviewAttachment(repository, file.path, selection.content, '', selection.range)); setSelection(null); }}><MessagesSquare size={13} />Side chat</button>}
@@ -158,6 +159,6 @@ export const GitReviewDiff = memo(function GitReviewDiff({ repository, file, onA
         onQuickQuestion({ label: `${file.path}:${selection.range}`, left: selection.left, top: selection.top, context: { source: 'git-review', workspacePath: repository.directory, attachments: [gitReviewAttachment(repository, file.path, selection.content, '', selection.range)] } });
         setSelection(null);
       }}><MessageCircleQuestionMark size={13} />Quick question</button>}
-    </div>, document.body)}
+    </Overlay>, document.body)}</Presence>
   </div>;
 });

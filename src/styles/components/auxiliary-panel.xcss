@@ -8,6 +8,11 @@
 
   &.with-auxiliary-panel {
     grid-template-columns: minmax(0, 1fr) 0 var(--auxiliary-panel-width, 42%);
+    animation: auxiliary-column-in var(--duration-slow) var(--ease-smooth-out);
+
+    &.auxiliary-closing {
+      animation: auxiliary-column-out var(--duration-medium) var(--ease-smooth-out) forwards;
+    }
   }
 }
 
@@ -46,15 +51,32 @@
 }
 
 .auxiliary-panel {
+  width: var(--auxiliary-panel-width, 100%);
   min-width: 0;
   min-height: 0;
   height: 100%;
   display: grid;
-  grid-template-rows: 44px minmax(0, 1fr);
+  grid-template-rows: minmax(44px, auto) minmax(0, 1fr);
   overflow: hidden;
   background: var(--background-transparent-1, --background-1);
   border-left: 1px solid --border-color;
   animation: auxiliary-panel-in var(--duration-slow) var(--ease-smooth-out);
+
+  &.closing {
+    animation: auxiliary-panel-out var(--duration-medium) var(--ease-smooth-out) forwards;
+  }
+
+  .app-shell.narrow-window .chat-workspace.with-auxiliary-panel & {
+    position: fixed;
+    inset: 0;
+    z-index: 57;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    background: --background-1;
+    border: none;
+    border-radius: 0;
+  }
 
   .auxiliary-panel-header {
     min-width: 0;
@@ -65,8 +87,12 @@
   .auxiliary-tabs-row {
     min-width: 0;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 4px;
+
+    > .auxiliary-tab-close {
+      margin-block: 1px;
+    }
   }
 
   .auxiliary-empty-header {
@@ -90,15 +116,17 @@
 
   .auxiliary-tabs {
     min-width: 0;
+    max-height: 98px;
     flex: 1;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 4px;
-    overflow-x: auto;
-    scrollbar-width: none;
+    overflow-y: auto;
+    scrollbar-width: thin;
 
-    &::-webkit-scrollbar {
-      display: none;
+    &.widths-locked > .auxiliary-tab {
+      transition-property: color, background, border-color;
     }
   }
 
@@ -160,15 +188,19 @@
 
   .auxiliary-tab {
     min-width: 0;
-    flex: 0 1 156px;
+    max-width: 200px;
+    flex: 1 1 120px;
     display: grid;
     grid-template-columns: minmax(0, 1fr) 28px;
     align-items: center;
+    overflow: hidden;
     color: --text-3;
     border-radius: 8px;
     transition: color 180ms --base-transition,
       background 180ms --base-transition,
-      border-color 180ms --base-transition;
+      border-color 180ms --base-transition,
+      flex-grow var(--duration-fast) var(--ease-smooth-out),
+      flex-basis var(--duration-fast) var(--ease-smooth-out);
 
     &:hover {
       color: --text-1;
@@ -179,6 +211,14 @@
       color: --text-1;
       background: --item-active;
       border-color: --border-color;
+    }
+
+    &.entering {
+      animation: auxiliary-tab-in var(--duration-fast) var(--ease-smooth-out);
+    }
+
+    &.closing {
+      animation: auxiliary-tab-out var(--duration-quick) var(--ease-smooth-out) forwards;
     }
 
     > button {
@@ -872,10 +912,46 @@
   }
 }
 
+@keyframes auxiliary-column-in {
+  from {
+    grid-template-columns: minmax(0, 1fr) 0 0px;
+  }
+}
+
+@keyframes auxiliary-column-out {
+  to {
+    grid-template-columns: minmax(0, 1fr) 0 0px;
+  }
+}
+
 @keyframes auxiliary-panel-in {
   from {
     opacity: 0;
-    transform: translateX(var(--distance-base));
+    filter: blur(var(--blur-small));
+  }
+}
+
+@keyframes auxiliary-panel-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes auxiliary-tab-in {
+  from {
+    flex-grow: 0;
+    flex-basis: 0;
+    margin-inline-end: -4px;
+    opacity: 0;
+  }
+}
+
+@keyframes auxiliary-tab-out {
+  to {
+    flex-grow: 0;
+    flex-basis: 0;
+    margin-inline-end: -4px;
+    opacity: 0;
   }
 }
 
@@ -898,12 +974,17 @@
 
 @media (prefers-reduced-motion: reduce) {
 
-  .auxiliary-panel {
+  .chat-workspace.with-auxiliary-panel,
+  .chat-workspace.with-auxiliary-panel.auxiliary-closing,
+  .auxiliary-panel,
+  .auxiliary-panel.closing,
+  .auxiliary-panel .auxiliary-tab.entering,
+  .auxiliary-panel .auxiliary-tab.closing {
     animation: none;
   }
 
   .auxiliary-panel-toggle,
-  .auxiliary-tab,
+  .auxiliary-panel .auxiliary-tab,
   .auxiliary-add-button,
   .auxiliary-empty button,
   .subagent-list-item {

@@ -67,6 +67,17 @@ for (const [kind, expectedClass] of [
   assert.match(markup, /<strong>Important<\/strong>/);
 }
 
+const longCallout = renderMessage(`::callout[${'Long label. '.repeat(40)}]{kind="warning"}\n\nAfter.`);
+assert.match(longCallout, /directive-heading callout-heading callout-warning/);
+assert.doesNotMatch(longCallout, /::callout/);
+
+const inlineCallout = renderMessage('Build passed, but :callout[**E2E** not run]{kind="warning"} yet.');
+assert.match(inlineCallout, /<p>Build passed, but <span class="inline-callout callout-warning">/);
+assert.match(inlineCallout, /<strong>E2E<\/strong> not run<\/span><\/span> yet\.<\/p>/);
+assert.doesNotMatch(inlineCallout, /directive-heading/);
+assert.match(renderMessage('Note :callout[default kind] here.'), /inline-callout callout-info/);
+assert.match(renderMessage('Bad :callout[kind]{kind="neutral"} here.'), /:callout\[kind\]/);
+
 const diff = renderMessage([
   ':::avi-diff{title="Focused change"}',
   '```diff',

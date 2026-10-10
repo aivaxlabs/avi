@@ -10,5 +10,8 @@
     "sharp": "0.34.5",
     "uiohook-napi": "1.5.5"
   },
+  "overrides": {
+    "node-gyp": "^13.1.0"
+  },
   "trustedDependencies": ["electron", "@nut-tree-fork/libnut", "uiohook-napi", "sharp"]
 }

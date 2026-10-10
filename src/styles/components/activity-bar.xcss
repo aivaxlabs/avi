@@ -92,11 +92,13 @@
     min-height: 0;
     display: grid;
     grid-template-columns: var(--sidebar-width, 222px) 0 minmax(0, 1fr);
+    transition: grid-template-columns var(--duration-slow) var(--ease-smooth-out);
 
     > .home-sidebar {
       min-width: 0;
       min-height: 0;
       display: grid;
+      overflow: hidden;
     }
   }
 
@@ -120,11 +122,91 @@
 }
 
 .app-shell.sidebar-collapsed .home-composer {
-  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-columns: 58px 0 minmax(0, 1fr);
+  transition-duration: var(--duration-medium);
 }
 
 .app-shell.inbox-active .home-composer {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.app-shell.narrow-window {
+  --navigation-drawer-width: min(var(--sidebar-width, 222px), calc(100vw - 112px));
+
+  .auxiliary-panel-toggle.navigation-toggle {
+    right: auto;
+    left: 10px;
+    z-index: 64;
+
+    &[aria-expanded="true"] {
+      opacity: 1;
+    }
+  }
+
+  > .activity-bar,
+  .home-composer > .home-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    z-index: 60;
+    background: --background-1;
+    visibility: hidden;
+    transform: translateX(calc(-52px - var(--navigation-drawer-width)));
+    transition: transform var(--duration-medium) var(--ease-smooth-out),
+      visibility 0s linear var(--duration-medium);
+  }
+
+  > .activity-bar {
+    left: 0;
+    width: 52px;
+    padding-top: 48px;
+  }
+
+  .home-composer > .home-sidebar {
+    left: 52px;
+    width: var(--navigation-drawer-width);
+    border-left: 1px solid --border-color;
+
+    > .sidebar {
+      min-width: 0;
+    }
+
+    .sidebar-toggle {
+      display: none;
+    }
+  }
+
+  &.navigation-open {
+    > .activity-bar,
+    .home-composer > .home-sidebar {
+      visibility: visible;
+      transform: none;
+      box-shadow: 16px 0 32px -16px rgb(0 0 0 / 24%);
+      transition: transform var(--duration-slow) var(--ease-smooth-out);
+    }
+  }
+
+  .app-composer {
+    border-left: none;
+
+    > .home-composer,
+    .chat-workspace {
+      grid-template-columns: minmax(0, 1fr);
+      animation: none;
+    }
+  }
+
+  .settings-sidebar-titlebar {
+    flex-basis: 48px;
+  }
+
+  .chat-view-slot .chat-scroll {
+    padding-top: 48px;
+  }
+
+  .chat-workspace > .orchestration-container > .orchestration-page {
+    padding-top: 56px;
+  }
 }
 
 .folders-page {
@@ -208,5 +290,14 @@
         }
       }
     }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell.narrow-window > .activity-bar,
+  .app-shell.narrow-window .home-composer > .home-sidebar,
+  .app-shell.narrow-window.navigation-open > .activity-bar,
+  .app-shell.narrow-window.navigation-open .home-composer > .home-sidebar {
+    transition: none;
   }
 }

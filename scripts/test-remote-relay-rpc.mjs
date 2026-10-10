@@ -522,7 +522,6 @@ try {
     relayBaseUrl: `http://127.0.0.1:${mockRelay.address().port}`,
     retryBaseMs: 20,
     retryStableMs: 150,
-    revocationCheckMs: 40,
     handshakeTimeoutMs: 400,
     createLocalSocket: (path) => server.createRelaySocket(path),
   });

@@ -1173,7 +1173,11 @@ try {
               })}`,
               '',
             ].join('\n\n')
-          : 'data: [DONE]\n\n', { status: 200 });
+          : [
+              `data: ${JSON.stringify({ type: 'content', text: 'Final answer' })}`,
+              'data: [DONE]',
+              '',
+            ].join('\n\n'), { status: 200 });
       },
       (payload) => [payload],
     ),
@@ -1184,13 +1188,9 @@ try {
   assert.equal(serverErrorAttempts, 2);
   assert.equal(serverErrorEvents.filter((event) => event.type === 'retry').length, 1);
   assert.equal(serverErrorEvents.filter((event) => event.type === 'error').length, 0);
-  assert.equal(serverErrorResult.assistantContent, 'Partial answer');
-  assert.deepEqual(serverErrorResult.toolCalls, [{
-    key: 'partial-tool',
-    callId: 'partial-tool',
-    name: 'partial_tool',
-    argumentsText: '{\"partial\":true}',
-  }]);
+  assert.equal(serverErrorEvents.find((event) => event.type === 'retry').discardOutput, true);
+  assert.equal(serverErrorResult.assistantContent, 'Final answer');
+  assert.deepEqual(serverErrorResult.toolCalls, []);
 
   async function waitFor(predicate) {
     const deadline = Date.now() + 5_000;
@@ -2141,13 +2141,28 @@ try {
   );
   const contextMessages = database.getMessages(contextConversation.id);
   const contextAssistant = contextMessages.findLast((message) => message.role === 'assistant');
-  assert.equal(contextAssistant?.content, 'Recovered after compaction.');
+  assert.match(contextAssistant?.content, /Working context before the tool call\./);
+  assert.match(contextAssistant?.content, /Recovered after compaction\.$/);
   assert.deepEqual(
-    contextAssistant?.segments.map((segment) => segment.type),
-    ['context-compression', 'content'],
+    contextAssistant?.segments.map((segment) => [segment.type, Boolean(segment.compacted)]),
+    [
+      ['content', true],
+      ['tool-call', true],
+      ['content', true],
+      ['context-compression', false],
+      ['content', false],
+    ],
   );
-  assert.equal(contextAssistant?.segments[0].contentOffset, 0);
-  assert.equal(contextAssistant?.segments[0].status, 'completed');
+  const contextCompression = contextAssistant?.segments
+    .find((segment) => segment.type === 'context-compression');
+  assert.ok(contextCompression.contentOffset > 0);
+  assert.ok(contextAssistant.content.slice(0, contextCompression.contentOffset)
+    .includes('Partial streaming content before compaction.'));
+  assert.equal(contextCompression.status, 'completed');
+  assert.equal(
+    new Set(contextAssistant.segments.map((segment) => segment.id)).size,
+    contextAssistant.segments.length,
+  );
   assert.equal(
     contextMessages.find((message) => (
       message.role === 'system'
@@ -2173,12 +2188,11 @@ try {
       },
     ],
   );
-  const compressionMessage = database.getMessages(contextConversation.id)
-    .find((message) => message.segments.some((segment) => (
-      segment.type === 'context-compression'
-    )));
-  assert.equal(compressionMessage.segments[0].inputTokens, 90_000);
-  assert.equal(compressionMessage.segments[0].outputTokens, 500);
+  const compressionSegment = database.getMessages(contextConversation.id)
+    .flatMap((message) => message.segments)
+    .find((segment) => segment.type === 'context-compression');
+  assert.equal(compressionSegment.inputTokens, 90_000);
+  assert.equal(compressionSegment.outputTokens, 500);
 
   let thresholdAttempts = 0;
   let thresholdCompressionRequest;

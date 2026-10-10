@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
 for (const quick of [false, true]) {
-  const source = readFileSync(new URL(`../src/main/${quick ? 'quick-chat-runner' : 'chat-runner'}.js`, import.meta.url), 'utf8');
+  const source = readFileSync(new URL(`../src/main/${quick ? 'quick-chat-runner' : 'chat/interactions'}.js`, import.meta.url), 'utf8');
   const askStart = source.indexOf(quick ? '  askQuestion(sessionId,' : '  async askQuestion({');
   const askEnd = source.indexOf(quick ? '\n  updateAssistant(' : '\n  getPendingQuestion(', askStart);
   assert.ok(askStart > 0 && askEnd > askStart);
@@ -13,8 +13,8 @@ for (const quick of [false, true]) {
   let now = 0;
   let nextTimer = 0;
   const Runner = runInNewContext(`(class {
-${source.slice(askStart, askEnd)}
-${source.slice(activityStart, activityEnd)}
+${source.slice(askStart, askEnd).replace(/,\s*$/, '')}
+${source.slice(activityStart, activityEnd).replace(/,\s*$/, '')}
 })`, {
     Error,
     ASK_QUESTION_AFK_TIMEOUT_MS: 60_000,

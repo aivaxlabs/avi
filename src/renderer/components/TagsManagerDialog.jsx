@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { classNames } from '../lib/format.js';
 import { presetColors } from '../lib/palette.js';
+import { Overlay } from './Overlay.jsx';
 
 export function TagsManagerDialog({ tags, busy = false, onSave, onClose }) {
   const [draft, setDraft] = useState(() => tags.map((tag) => ({ ...tag })));
@@ -43,7 +44,7 @@ export function TagsManagerDialog({ tags, busy = false, onSave, onClose }) {
   }
 
   return createPortal(
-    <div className="dialog-backdrop tags-dialog-backdrop" onMouseDown={onClose}>
+    <Overlay className="dialog-backdrop tags-dialog-backdrop" onMouseDown={onClose}>
       <section
         className="tags-dialog"
         role="dialog"
@@ -121,7 +122,7 @@ export function TagsManagerDialog({ tags, busy = false, onSave, onClose }) {
           </div>
         </footer>
       </section>
-    </div>,
+    </Overlay>,
     document.body,
   );
 }

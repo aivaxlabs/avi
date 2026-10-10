@@ -314,6 +314,19 @@
     border: 1px solid var(--border-color);
     border-radius: 12px;
     box-shadow: 0 16px 40px rgba(0, 0, 0, .24);
+    transform-origin: top right;
+    animation: dropdown-menu-in var(--duration-fast) var(--ease-smooth-out);
+
+    &[data-closing] {
+      animation: dropdown-menu-out var(--duration-quick) var(--ease-smooth-out) forwards;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      &,
+      &[data-closing] {
+        animation: none;
+      }
+    }
   }
 
   .orchestration-range-fields {
