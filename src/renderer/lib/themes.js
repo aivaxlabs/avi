@@ -22,7 +22,7 @@ const builtInThemes = Object.freeze([
   {
     id: 'code',
     name: 'Code',
-    tagline: 'The familiar editor. Deep blue-gray surfaces with VS Code blue.',
+    tagline: 'Inspired by VS Code 2026. Inset editor surfaces, crisp menus, and VS Code blue.',
   },
   {
     id: 'goblin',

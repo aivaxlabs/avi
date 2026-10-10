@@ -10,7 +10,7 @@ Open **Settings → Personalization**. Under **Mode**, select a **Color mode**:
 - **Light** — keeps Avi in light mode;
 - **Dark** — keeps Avi in dark mode.
 
-Enable **Transparent sidebar** in the same section to use the active theme’s transparent surfaces over the operating system’s native window effect. Avi uses Tabbed Mica on Windows 11, requests Acrylic on Windows 10, uses native Sidebar vibrancy on macOS, and keeps the standard opaque sidebar on Linux. Electron only officially supports its Windows background-material API on Windows 11 22H2 and later, so Acrylic availability on Windows 10 depends on the operating system and Electron runtime.
+Enable **Transparent sidebar** in the same section to use the active theme’s transparent surfaces over the operating system’s native window effect. Avi uses Tabbed Mica on Windows 11, requests Acrylic on Windows 10, uses native Sidebar vibrancy on macOS, and keeps the standard opaque sidebar on Linux. Windows 700 px wide or narrower always use opaque surfaces, because the Sidebar opens as a drawer over the chat. Electron only officially supports its Windows background-material API on Windows 11 22H2 and later, so Acrylic availability on Windows 10 depends on the operating system and Electron runtime.
 
 ## Choose a theme
 
@@ -19,7 +19,7 @@ Available themes are:
 - **Axion** — default; neutral surfaces with a vivid green accent;
 - **Monokai** — charcoal surfaces with neon colors;
 - **Absolute** — warm paper and clay tones;
-- **Code** — deep blue-gray editor-inspired surfaces;
+- **Code** — based on the VS Code 2026 Light and Dark themes, with the chat, auxiliary panel, and settings content shown as rounded surfaces inset in the window chrome, and VS Code-style menus, composer, and code blocks;
 - **Goblin** — technical blue on crisp neutral surfaces.
 
 Theme and mode changes are applied immediately and stored in renderer `localStorage` under `aivax.appearance`. Invalid saved values fall back to Axion and System.

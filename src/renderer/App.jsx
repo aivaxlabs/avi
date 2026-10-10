@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { PanelRightOpen } from 'lucide-react';
+import { Menu, PanelRightOpen, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar.jsx';
 import { ActivityBar } from './components/ActivityBar.jsx';
 import { ChatView } from './components/ChatView.jsx';
@@ -45,6 +45,7 @@ window.localStorage.removeItem('aivax.composer.ultra-mode');
 const minimumAuxiliaryPanelWidth = 280;
 const auxiliaryPanelCloseDuration = 350;
 const minimumMainContentWidth = 320;
+const narrowWindowWidth = 700;
 const MESSAGE_PAGE_SIZE = 100;
 const emptyList = Object.freeze([]);
 const emptyObject = Object.freeze({});
@@ -172,8 +173,10 @@ export default function App() {
   const [error, setError] = useState('');
   const [conversationErrors, setConversationErrors] = useState({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const [auxiliaryExpanded, setAuxiliaryExpanded] = useState(false);
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  const narrowWindow = windowWidth <= narrowWindowWidth;
   const [sidebarWidth, setSidebarWidth] = useState(initialSidebarWidth);
   const [auxiliaryPanelWidth, setAuxiliaryPanelWidth] = useState(
     initialAuxiliaryPanelWidth,
@@ -212,6 +215,7 @@ export default function App() {
   const [fileNavigation, setFileNavigation] = useState(null);
   const [mcpState, setMcpState] = useState(null);
   const [mcpWaiting, setMcpWaiting] = useState({});
+  const [capacityWaiting, setCapacityWaiting] = useState({});
   const [mcpAlert, setMcpAlert] = useState(null);
   const [mcpWorkspaceServers, setMcpWorkspaceServers] = useState(null);
   const [approvalRequests, setApprovalRequests] = useState([]);
@@ -225,6 +229,7 @@ export default function App() {
   const auxiliaryConversationIdsRef = useRef(new Set());
   const inspectedConversationIdRef = useRef(null);
   const selectedConversationIdRef = useRef(null);
+  const navigationToggleRef = useRef(null);
 
   useLayoutEffect(() => {
     inspectedConversationIdRef.current = settingsOpen || foldersOpen || orchestrationOpen ? null : selectedId;
@@ -455,9 +460,10 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.transparencyMode = appState?.desktop?.sidebarTransparency
       && appState?.platform !== 'linux'
+      && !narrowWindow
       ? 'transparent'
       : 'opaque';
-  }, [appState?.desktop?.sidebarTransparency, appState?.platform]);
+  }, [appState?.desktop?.sidebarTransparency, appState?.platform, narrowWindow]);
 
   useEffect(() => {
     let active = true;
@@ -527,6 +533,9 @@ export default function App() {
         setApprovalRequests(nextChatState.approvals ?? []);
         setQuestionRequests(nextChatState.questions ?? []);
         setSemaphoreWaits(nextChatState.semaphoreWaits ?? []);
+        setCapacityWaiting(Object.fromEntries(
+          (nextChatState.capacityWaits ?? []).map((wait) => [wait.conversationId, wait.position]),
+        ));
         if (restoredReload) {
           await Promise.all(restoredReload.conversationIds.map((id) => loadMessagePage(id)));
           if (!active) return;
@@ -536,6 +545,10 @@ export default function App() {
           setApprovalRequests(completedReload.approvals);
           setQuestionRequests(completedReload.questions);
           setSemaphoreWaits(completedReload.semaphoreWaits ?? restoredReload.semaphoreWaits ?? []);
+          setCapacityWaiting(Object.fromEntries(
+            (completedReload.capacityWaits ?? restoredReload.capacityWaits ?? [])
+              .map((wait) => [wait.conversationId, wait.position]),
+          ));
         }
         const authServers = nextMcpState.servers
           .filter((server) => server.status === 'auth-required');
@@ -680,6 +693,7 @@ export default function App() {
     setFoldersOpen(false);
     setOrchestrationOpen(false);
     setSearchOpen(false);
+    setNavigationOpen(false);
     if (view === 'new-conversation') {
       if (draftText != null && project?.path) {
         const draft = await api.composerDraft.get(project.path).catch(() => null);
@@ -890,6 +904,15 @@ export default function App() {
         }
       } else if (event.type === 'semaphore-state') {
         setSemaphoreWaits(event.waits ?? []);
+      } else if (event.type === 'capacity-waiting') {
+        setCapacityWaiting((state) => {
+          if (event.waiting) {
+            return { ...state, [event.conversationId]: event.position };
+          }
+          const next = { ...state };
+          delete next[event.conversationId];
+          return next;
+        });
       } else if (event.type === 'mcp-waiting') {
         setMcpWaiting((state) => {
           if (event.waiting) {
@@ -1090,16 +1113,40 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    const syncWindowWidth = () => setWindowWidth(window.innerWidth);
+    const syncWindowWidth = () => {
+      setWindowWidth(window.innerWidth);
+      if (window.innerWidth > narrowWindowWidth) setNavigationOpen(false);
+    };
     syncWindowWidth();
     window.addEventListener('resize', syncWindowWidth);
     return () => window.removeEventListener('resize', syncWindowWidth);
   }, []);
 
+  useEffect(() => {
+    if (!navigationOpen) return undefined;
+    const toggle = navigationToggleRef.current;
+    if (!document.activeElement?.closest('.activity-bar, .home-sidebar, .navigation-toggle')) toggle?.focus();
+    const closeOnEscape = (event) => {
+      if (event.key !== 'Escape' || document.querySelector(
+        ':is([role="dialog"], [role="alertdialog"], .dropdown-menu, dialog[open]):not([data-closing], [data-closing] *)',
+      )) return;
+      setNavigationOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape, true);
+    return () => {
+      window.removeEventListener('keydown', closeOnEscape, true);
+      const focused = document.activeElement;
+      if (!focused || focused === document.body || focused.closest('.activity-bar, .home-sidebar')) {
+        toggle?.focus();
+      }
+    };
+  }, [navigationOpen]);
+
   async function selectConversation(id) {
     setSettingsOpen(false);
     setFoldersOpen(false);
     setOrchestrationOpen(false);
+    setNavigationOpen(false);
     const conversation = conversations.find((item) => item.id === id);
     if (conversation?.model) setDraftModel(conversation.model);
     inspectedConversationIdRef.current = id;
@@ -1698,6 +1745,7 @@ export default function App() {
     if (!id) return;
     const result = await api.conversations.fork({ conversationId: id, throughMessageId });
     if (!result) return;
+    setNavigationOpen(false);
     setConversations((state) => upsertById(state, result.conversation).sort(sortByUpdatedAt));
     setDraftModel(result.conversation.model);
     selectedConversationIdRef.current = result.conversation.id;
@@ -2087,6 +2135,7 @@ export default function App() {
     setSettingsOpen(false);
     setFoldersOpen(false);
     setOrchestrationOpen(false);
+    setNavigationOpen(false);
     selectedConversationIdRef.current = null;
     setSelectedId(null);
     setDraftProject(preset.project ?? currentProject ?? appState.defaultProject);
@@ -2107,10 +2156,15 @@ export default function App() {
   const sidebarOnFork = useStableCallback(forkConversation);
   const sidebarOnArchive = useStableCallback(archiveConversation);
   const sidebarOnSearch = useStableCallback(() => setSearchOpen(true));
+  const sidebarOnToggleCollapsed = useStableCallback(() => (
+    narrowWindow
+      ? setNavigationOpen((value) => !value)
+      : setSidebarCollapsed((value) => !value)
+  ));
   useEffect(() => {
     const onShortcut = ({ detail: id }) => {
       if (id === 'threads.search') setSearchOpen(true);
-      if (id === 'sidebar.toggle') setSidebarCollapsed((value) => !value);
+      if (id === 'sidebar.toggle') sidebarOnToggleCollapsed();
       if (id === 'panel.toggle') setAuxiliaryPanelVisible((value) => !value);
       if (id === 'thread.new' || id === 'thread.home') {
         setSettingsOpen(false);
@@ -2127,7 +2181,7 @@ export default function App() {
       window.removeEventListener('avi:shortcut', onShortcut);
       window.removeEventListener('avi:shortcut-error', onError);
     };
-  }, [appState?.defaultProject, sidebarOnNewChat]);
+  }, [appState?.defaultProject, sidebarOnNewChat, sidebarOnToggleCollapsed]);
   const sidebarOnOpenProject = useStableCallback(async (project) => {
     try {
       await api.context.open(project.path);
@@ -2162,6 +2216,7 @@ export default function App() {
     setFoldersOpen(Boolean(contextFolder));
     setSettingsOpen(!contextFolder);
     setOrchestrationOpen(false);
+    setNavigationOpen(false);
   });
   const onSelectActivity = useStableCallback(async (activity) => {
     if (settingsOpen || foldersOpen) {
@@ -2181,10 +2236,8 @@ export default function App() {
     setFoldersOpen(activity === 'folders');
     setOrchestrationOpen(activity === 'inbox');
     setSearchOpen(false);
+    setNavigationOpen(false);
   });
-  const sidebarOnToggleCollapsed = useStableCallback(() => (
-    setSidebarCollapsed((value) => !value)
-  ));
   const auxiliaryOnResolveBotApproval = useStableCallback(resolveBotApproval);
   const auxiliaryOnReplyBotPendency = useStableCallback(async (payload) => {
     const result = await api.bots.replyPendency(payload);
@@ -2369,9 +2422,8 @@ export default function App() {
   const sidePanelVisible = orchestrationOpen ? overviewInboxVisible : auxiliaryPanelVisible;
   const auxiliaryExpansionActive = auxiliaryExpanded && !orchestrationOpen && Boolean(auxiliaryPanelRendered);
   if (!auxiliaryPanelRendered && auxiliaryExpanded) setAuxiliaryExpanded(false);
-  const narrowWindow = windowWidth <= 700;
-  const effectiveSidebarCollapsed = narrowWindow || sidebarCollapsed || auxiliaryExpansionActive;
-  const sidebarWidthMax = Math.max(
+  const effectiveSidebarCollapsed = !narrowWindow && (sidebarCollapsed || auxiliaryExpansionActive);
+  const sidebarWidthMax = narrowWindow ? 420 : Math.max(
     180,
     Math.min(
       420,
@@ -2397,6 +2449,8 @@ export default function App() {
     'app-shell',
     appState?.platform && `platform-${appState.platform}`,
     effectiveSidebarCollapsed && 'sidebar-collapsed',
+    narrowWindow && 'narrow-window',
+    navigationOpen && 'navigation-open',
     (settingsOpen || foldersOpen) && 'settings-active',
     orchestrationOpen && 'inbox-active',
     appState?.tuning?.chatReasoningTraces === 'hidden' && 'reasoning-traces-hidden',
@@ -2452,18 +2506,38 @@ export default function App() {
         '--auxiliary-panel-width': `${effectiveAuxiliaryPanelWidth}px`,
       }}
     >
+      {narrowWindow && (navigationOpen || !sidePanelVisible || settingsOpen || foldersOpen) && (
+        <button
+          ref={navigationToggleRef}
+          className="auxiliary-panel-toggle navigation-toggle"
+          type="button"
+          aria-label={navigationOpen ? 'Close navigation' : 'Open navigation'}
+          title={navigationOpen ? 'Close navigation' : 'Open navigation'}
+          aria-expanded={navigationOpen}
+          onClick={() => setNavigationOpen((value) => !value)}
+        >
+          {navigationOpen ? <X size={17} /> : <Menu size={17} />}
+        </button>
+      )}
       <ActivityBar
         active={settingsOpen ? 'settings' : foldersOpen ? 'folders' : orchestrationOpen ? 'inbox' : 'home'}
         onSelect={onSelectActivity}
         counts={activityCounts}
         updateAvailable={updateState?.available === true}
       />
+      {narrowWindow && (
+        <div
+          className="navigation-scrim"
+          aria-hidden="true"
+          onClick={() => setNavigationOpen(false)}
+        />
+      )}
       <div className="app-composer">
       {[false, true].filter((folderMode) => folderMode
         ? foldersOpen || visitedFolders
         : settingsOpen || visitedSettings).map((folderMode) => (
         <div className="settings-composer" key={folderMode ? 'folders' : 'settings'}
-          hidden={folderMode ? !foldersOpen : !settingsOpen}>
+          hidden={folderMode ? !foldersOpen : !settingsOpen} inert={navigationOpen}>
         <SettingsPage
           key={folderMode === Boolean(settingsContextFolder)
             ? `${settingsInitialView ?? ''}:${settingsContextFolder?.path ?? ''}`
@@ -2586,7 +2660,7 @@ export default function App() {
             onToggleCollapsed={sidebarOnToggleCollapsed}
           />
           </div>
-          {!effectiveSidebarCollapsed && !orchestrationOpen && (
+          {!effectiveSidebarCollapsed && !orchestrationOpen && !narrowWindow && (
             <PanelResizer
               label="Resize sidebar"
               controls="main-sidebar"
@@ -2609,9 +2683,10 @@ export default function App() {
               sidePanelRendered && 'with-auxiliary-panel',
               sidePanelRendered && !sidePanelVisible && 'auxiliary-closing',
             ].filter(Boolean).join(' ')}
+            inert={navigationOpen}
           >
             {orchestrationOpen && (
-              <div className="orchestration-container">
+              <div className="orchestration-container" inert={narrowWindow && sidePanelVisible}>
                 <OrchestrationPage
                   bots={bots}
                   botDataByBot={botDataByBot}
@@ -2628,7 +2703,11 @@ export default function App() {
                 />
               </div>
             )}
-            <div className="chat-view-slot" hidden={orchestrationOpen}>
+            <div
+              className="chat-view-slot"
+              hidden={orchestrationOpen}
+              inert={narrowWindow && sidePanelVisible}
+            >
               <ChatView
               {...shell}
               historyHasMore={messagePagesByConversation[selectedId]?.hasMore ?? false}
@@ -2709,7 +2788,7 @@ export default function App() {
               continuationRepliesEnabled={appState.tuning.continuationRepliesEnabled}
               />
             </div>
-            {sidePanelVisible && !auxiliaryExpansionActive && (
+            {sidePanelVisible && !auxiliaryExpansionActive && !narrowWindow && (
               <PanelResizer
                 label={overviewInboxVisible ? 'Resize Inbox panel' : 'Resize auxiliary panel'}
                 controls="auxiliary-panel"
@@ -2725,7 +2804,7 @@ export default function App() {
                 )}
               />
             )}
-            {(auxiliaryExpansionActive || (sidePanelRendered && !sidePanelVisible)) && (
+            {(auxiliaryExpansionActive || (sidePanelRendered && !sidePanelVisible)) && !narrowWindow && (
               <div aria-hidden="true" />
             )}
             {!orchestrationOpen && !auxiliaryPanelVisible && (
@@ -2786,7 +2865,7 @@ export default function App() {
               <AuxiliaryPanel
                 closing={!auxiliaryPanelVisible}
                 expanded={auxiliaryExpanded}
-                onToggleExpanded={auxiliaryOnToggleExpanded}
+                onToggleExpanded={narrowWindow ? undefined : auxiliaryOnToggleExpanded}
                 sideChats={sideChats}
                 bots={bots}
                 botDataByBot={botDataByBot}
@@ -2941,6 +3020,7 @@ export default function App() {
       <McpOverlay
         state={mcpState}
         waitingCount={Object.values(mcpWaiting).filter(Boolean).length}
+        capacityWaitingCount={Object.keys(capacityWaiting).length}
         alert={mcpAlert}
         workspaceServers={mcpWorkspaceServers}
         onCloseAlert={() => setMcpAlert(null)}

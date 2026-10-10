@@ -66,6 +66,18 @@
     animation: auxiliary-panel-out var(--duration-medium) var(--ease-smooth-out) forwards;
   }
 
+  .app-shell.narrow-window .chat-workspace.with-auxiliary-panel & {
+    position: fixed;
+    inset: 0;
+    z-index: 57;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    background: --background-1;
+    border: none;
+    border-radius: 0;
+  }
+
   .auxiliary-panel-header {
     min-width: 0;
     padding: 5px 8px;

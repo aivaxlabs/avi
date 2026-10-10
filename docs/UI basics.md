@@ -12,7 +12,7 @@ Context and file search follow symlinks everywhere, retaining existing exclusion
 
 ## Sidebar
 
-The Activity Bar provides **Home**, **Inbox**, and **Folders**, with **Settings** fixed at the bottom. Home is the default and keeps **New chat**, **Quick chat**, conversation search, bots, and chronological/model/folder grouping in the existing Sidebar. Collapsing the chat Sidebar leaves its main action icons beneath the expand button. Switching Activity Bar destinations keeps the current chat mounted, including its unsent message.
+The Activity Bar provides **Home**, **Inbox**, and **Folders**, with **Settings** fixed at the bottom. Home is the default and keeps **New chat**, **Quick chat**, conversation search, bots, and chronological/model/folder grouping in the existing Sidebar. Collapsing the chat Sidebar leaves its main action icons beneath the expand button. In windows 700 px wide or narrower, the Activity Bar and Sidebar are hidden behind a menu button at the top left. The button opens them as an opaque drawer over the chat without moving it; select a destination or conversation, click outside the drawer, press Escape, or press `Control+B` to close it. The Sidebar cannot be resized in this mode. Switching Activity Bar destinations keeps the current chat mounted, including its unsent message.
 
 **Folders** lists known working folders, with **Global** pinned above the scrolling list. **Filter folders** searches names and paths without hiding Global; long names truncate, and only the folder list scrolls. Open a folder to access **MCP Servers**, **Context**, **Threads**, and **Archive**. Global uses the home folder for threads and MCP servers and `~/.agents` for context. Threads and Archive show only the selected folder; global retention and cleanup remain in Settings → Maintenance. Use **All folders** to return to the list.
 
@@ -48,6 +48,8 @@ The resizable right panel can show:
 Side chats open as separate private conversation panels. The forked parent history remains in the side chat's model context but is not displayed; the panel shows only messages sent after the fork. When a side chat's context is within 10 percentage points of the automatic compaction threshold, Avi runs quick compaction before the next response.
 
 Use **Expand auxiliary panel**, between **+** and close, to widen it toward 80% of the window and temporarily compact the sidebar. The chat stays visible; the expansion reserves 320 px for it where the window permits. **Restore panel width** restores your normal layout without overwriting saved widths.
+
+In windows 700 px wide or narrower, the auxiliary panel and the Inbox panel open over the whole window. Resizing and **Expand auxiliary panel** are unavailable there; close the panel to return to the chat.
 
 ### Git Review
 

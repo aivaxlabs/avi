@@ -14,7 +14,7 @@ Keep the top and footer outside the independently scrolling list. Do not make th
 
 - Use `--sidebar-width` with a 222px default and a persisted 180–420px resize range.
 - Preserve at least 320px for main content when calculating the maximum width.
-- Keep the collapsed column at 58px. At 700px and below, use the existing collapsed desktop layout rather than inventing a drawer.
+- Keep the collapsed column at 58px. At 700px and below (`narrowWindowWidth` in `App`), hide the Activity Bar and Sidebar behind the top-left menu button and open both as an opaque drawer over the chat (`.narrow-window`, `.navigation-open`, `.navigation-scrim`), as explicitly requested by the user. The drawer does not push the chat, cannot be resized, forces opaque transparency mode, closes on navigation, Escape, scrim click, or widening, and is not a `role="dialog"` so composer shortcuts keep working.
 - In collapsed mode, center visible controls and hide labels, bot lists, conversation groups, and per-conversation actions.
 - Any control that remains icon-only after collapse must have an explicit accessible name, tooltip, and visible focus state. Do not rely on a text `<span>` that CSS hides.
 
