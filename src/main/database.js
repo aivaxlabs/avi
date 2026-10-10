@@ -10,10 +10,11 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
+import { availableParallelism, homedir } from 'node:os';
 import {
   basename,
   isAbsolute,
@@ -25,6 +26,14 @@ import { defaultMediaSizeLimit, mediaSizeLimitOptions } from '../shared/attachme
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import { normalizeDefaultModels } from './default-models.js';
 import { searchChatsIn } from './search-core.js';
+import {
+  activeMediaDirectory,
+  archivedMediaDirectory,
+  listMediaConversationIds,
+  moveConversationMedia,
+  storeConversationMedia,
+  storesConversationMedia,
+} from './storage/media-store.js';
 import { traceError } from './trace-log.js';
 
 const storageDir = join(homedir(), '.aivax');
@@ -67,6 +76,8 @@ const defaultTuningSettings = Object.freeze({
   maxConcurrentSubagents: 128,
   rubberDuckMaxTurns: 20,
   logLevel: 'minimal',
+  maxParallelThreads: Math.min(1024, Math.max(1, availableParallelism() * 4)),
+  eventLoopWatchdogMs: 1_000,
 });
 const defaultRemoteSettings = Object.freeze({
   enabled: true,
@@ -811,6 +822,7 @@ const statements = {
         updated_at = @updatedAt
     WHERE id = @id
   `),
+  touchConversationUpdatedAt: db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?'),
   updateNextSubagentNameIndex: db.prepare(`
     UPDATE conversations
     SET next_subagent_name_index = ?, updated_at = ?
@@ -1395,9 +1407,20 @@ const statements = {
     ORDER BY c.id, m.created_at ASC, m.rowid ASC
   `),
   getMessage: db.prepare('SELECT * FROM messages WHERE id = ?'),
+  getMessageConversationId: db.prepare('SELECT conversation_id FROM messages WHERE id = ?'),
+  getMediaPlacement: db.prepare(`
+    SELECT deleted_at IS NOT NULL AS deleted, archived_at IS NOT NULL AS archived
+    FROM conversations WHERE id = ?
+  `),
+  replaceMessageMediaPaths: db.prepare(`
+    UPDATE messages
+    SET segments = replace(segments, @from, @to), attachments = replace(attachments, @from, @to)
+    WHERE conversation_id = @conversationId
+      AND (instr(segments, @from) > 0 OR instr(attachments, @from) > 0)
+  `),
   abortInterruptedMessages: db.prepare(`
     UPDATE messages
-    SET status = 'aborted', updated_at = CURRENT_TIMESTAMP
+    SET status = 'aborted', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
     WHERE status = 'streaming'
       AND role IN ('assistant', 'system')
       AND (
@@ -1424,10 +1447,13 @@ const statements = {
 };
 
 export function getPreferences() {
+  const storedTuning = readJson('tuningSettings');
+  const tuning = normalizeTuningSettings(storedTuning);
+  if (storedTuning?.maxParallelThreads === undefined) writeJson('tuningSettings', tuning);
   return {
     lastModel: readJson('lastModel'),
     defaultModels: normalizeDefaultModels(readJson('defaultModels')),
-    tuning: normalizeTuningSettings(readJson('tuningSettings')),
+    tuning,
     desktop: normalizeDesktopSettings(readJson('desktopSettings')),
     aivax: { ...getAivaxSettings(), connected: Boolean(getAivaxAccessToken()) },
     archive: getArchiveSettings(),
@@ -2446,12 +2472,14 @@ export function archiveConversation(id) {
   const conversation = getConversation(id);
   if (!conversation || conversation.conversationType !== 'thread') return false;
   statements.archiveConversation.run(id, timestamp());
+  reconcileConversationMedia();
   return true;
 }
 
 export function restoreConversation(id) {
   if (!statements.archivedConversationExists.get(id)) return false;
   statements.restoreConversation.run(id);
+  reconcileConversationMedia();
   return true;
 }
 
@@ -2461,11 +2489,12 @@ export function deleteConversation(id, { hard = false } = {}) {
   }
   if (hard) {
     statements.hardDeleteConversation.run(id);
-    return;
+  } else {
+    const now = timestamp();
+    statements.hardDeleteChildConversations.run(id);
+    statements.deleteConversation.run(now, now, id);
   }
-  const now = timestamp();
-  statements.hardDeleteChildConversations.run(id);
-  statements.deleteConversation.run(now, now, id);
+  reconcileConversationMedia();
 }
 
 export function listForcedCleanupConversationIds({ now = new Date() } = {}) {
@@ -2543,6 +2572,44 @@ export function runArchiveMaintenance({
     });
     throw error;
   }
+  reconcileConversationMedia();
+  return result;
+}
+
+export function reconcileConversationMedia() {
+  const result = { archived: 0, restored: 0, deleted: 0 };
+  for (const [root, archivedRoot] of [
+    [activeMediaDirectory(), false],
+    [archivedMediaDirectory(), true],
+  ]) {
+    for (const conversationId of listMediaConversationIds(root)) {
+      const placement = statements.getMediaPlacement.get(conversationId);
+      try {
+        if (!placement || placement.deleted) {
+          rmSync(join(root, conversationId), { recursive: true, force: true });
+          result.deleted += 1;
+          continue;
+        }
+        if (Boolean(placement.archived) === archivedRoot) continue;
+        const moved = moveConversationMedia(
+          conversationId,
+          root,
+          archivedRoot ? activeMediaDirectory() : archivedMediaDirectory(),
+        );
+        statements.replaceMessageMediaPaths.run({
+          conversationId,
+          from: JSON.stringify(moved.from).slice(1, -1),
+          to: JSON.stringify(moved.to).slice(1, -1),
+        });
+        result[archivedRoot ? 'restored' : 'archived'] += 1;
+      } catch (error) {
+        traceError('media.reconcile-error', {
+          thread_id: conversationId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
   return result;
 }
 
@@ -2592,6 +2659,7 @@ export function insertMessage(message) {
   const persistedMedia = normalizePersistedMessageMedia(
     message.segments ?? [],
     message.attachments ?? [],
+    message.conversationId,
   );
   const row = {
     id: message.id ?? crypto.randomUUID(),
@@ -2630,7 +2698,11 @@ export function insertMessage(message) {
 }
 
 export function updateMessage(id, patch, { touch = true } = {}) {
-  const persistedMedia = normalizePersistedMessageMedia(patch.segments, patch.attachments);
+  const persistedMedia = normalizePersistedMessageMedia(
+    patch.segments,
+    patch.attachments,
+    statements.getMessageConversationId.get(id)?.conversation_id,
+  );
   statements.updateMessage.run({
     id,
     status: patch.status ?? null,
@@ -2651,6 +2723,41 @@ export function updateMessage(id, patch, { touch = true } = {}) {
     touchConversation(message.conversationId);
   }
   return message;
+}
+
+export function messageSnapshot(conversationId, patch) {
+  const persistedMedia = normalizePersistedMessageMedia(
+    patch.segments,
+    patch.attachments,
+    conversationId,
+  );
+  return {
+    status: patch.status,
+    content: patch.content,
+    segments: structuredClone(persistedMedia.segments ?? []),
+    edits: structuredClone(patch.edits ?? []),
+    attachments: structuredClone(persistedMedia.attachments ?? []),
+    usage: structuredClone(patch.usage ?? {}),
+  };
+}
+
+export function checkpointMessage(id, conversationId, snapshot) {
+  const updatedAt = timestamp();
+  statements.updateMessage.run({
+    id,
+    status: snapshot.status,
+    stoppedByUser: null,
+    content: snapshot.content,
+    segments: stringify(snapshot.segments),
+    edits: stringify(snapshot.edits),
+    attachments: stringify(snapshot.attachments),
+    continuations: null,
+    usage: stringify(snapshot.usage),
+    createdAt: null,
+    updatedAt,
+  });
+  statements.touchConversationUpdatedAt.run(updatedAt, conversationId);
+  return updatedAt;
 }
 
 export function updateQueuedMessageOrder(conversationId, {
@@ -3127,11 +3234,15 @@ export function toModelMessagesThroughUser(
 export function messageToApiBlocks(message, capabilities = {}) {
   if (message.role !== 'assistant') return [messageToApiBlock(message, capabilities)];
 
-  const segments = Array.isArray(message.segments) ? message.segments : [];
+  const allSegments = Array.isArray(message.segments) ? message.segments : [];
+  const segments = allSegments.filter((segment) => !segment.compacted);
+  const fallbackBlocks = segments.length < allSegments.length
+    ? []
+    : [messageToApiBlock(message, capabilities)];
   const hasCanonicalSegments = segments.some((segment) => (
     ['content', 'reasoning', 'tool-call', 'provider-continuation'].includes(segment.type)
   ));
-  if (!hasCanonicalSegments) return [messageToApiBlock(message, capabilities)];
+  if (!hasCanonicalSegments) return fallbackBlocks;
 
   const blocks = [];
   let content = '';
@@ -3207,7 +3318,7 @@ export function messageToApiBlocks(message, capabilities = {}) {
     }
   }
   flush();
-  return blocks.length > 0 ? blocks : [messageToApiBlock(message, capabilities)];
+  return blocks.length > 0 ? blocks : fallbackBlocks;
 }
 
 export function messageToApiBlock(message, capabilities = {}) {
@@ -3306,7 +3417,7 @@ function unsupportedAttachmentToApiBlock(attachment) {
   };
 }
 
-function normalizePersistedMessageMedia(segments, attachments) {
+function normalizePersistedMessageMedia(segments, attachments, conversationId) {
   const persistedMediaReferences = new Map();
   const persistedAttachments = Array.isArray(attachments) ? attachments.map((attachment) => {
     if (
@@ -3330,13 +3441,10 @@ function normalizePersistedMessageMedia(segments, attachments) {
   const persistedSegments = Array.isArray(segments)
     ? segments.map((segment) => {
         if (!Array.isArray(segment?.mediaContent)) return segment;
-        const hasInlineMedia = segment.mediaContent.some((media) => (
-          typeof media?.image_url?.url === 'string'
-          || typeof media?.video_url?.url === 'string'
-          || typeof media?.input_audio?.data === 'string'
-          || typeof media?.file?.file_data === 'string'
-        ));
-        if (!hasInlineMedia) return segment;
+        if (!segment.mediaContent.some((media) => (
+          persistedMediaReferences.has(media?.image_url?.url)
+          || storesConversationMedia(media, conversationId)
+        ))) return segment;
 
         let toolMediaPath = null;
         if (segment.name === 'read_media_file') {
@@ -3357,7 +3465,12 @@ function normalizePersistedMessageMedia(segments, attachments) {
             changed = true;
             return { ...media, image_url: generatedReference };
           }
-          if (!toolMediaPath) return media;
+          if (!toolMediaPath) {
+            if (!conversationId) return media;
+            const stored = storeConversationMedia(media, conversationId);
+            if (stored !== media) changed = true;
+            return stored;
+          }
 
           if (media?.type === 'image_url' && typeof media.image_url?.url === 'string') {
             changed = true;
@@ -3609,6 +3722,8 @@ function normalizeTuningSettings(value, strict = false) {
   const terminalTimeoutSeconds = Number(tuning.terminalTimeoutSeconds);
   const maxConcurrentSubagents = Number(tuning.maxConcurrentSubagents);
   const rubberDuckMaxTurns = Number(tuning.rubberDuckMaxTurns);
+  const maxParallelThreads = Number(tuning.maxParallelThreads);
+  const eventLoopWatchdogMs = Number(tuning.eventLoopWatchdogMs);
 
   const normalized = {
     personality: typeof tuning.personality === 'string'
@@ -3664,6 +3779,14 @@ function normalizeTuningSettings(value, strict = false) {
     logLevel: ['verbose', 'minimal', 'disabled', 'requests'].includes(tuning.logLevel)
       ? tuning.logLevel
       : defaultTuningSettings.logLevel,
+    maxParallelThreads: Number.isInteger(maxParallelThreads)
+      && maxParallelThreads >= 1
+      && maxParallelThreads <= 1024
+      ? maxParallelThreads
+      : defaultTuningSettings.maxParallelThreads,
+    eventLoopWatchdogMs: [0, 500, 1_000, 3_000].includes(eventLoopWatchdogMs)
+      ? eventLoopWatchdogMs
+      : defaultTuningSettings.eventLoopWatchdogMs,
   };
 
   if (strict && Object.entries(normalized).some(([key, entry]) => entry !== tuning[key])) {

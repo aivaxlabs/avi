@@ -300,10 +300,10 @@ try {
   assert.match(lockContext, /name="implementation" count="1" max_count="1"/);
   assert.match(lockContext, /call release_semaphore/);
 
-  const runnerSource = readFileSync(
-    new URL('../src/main/chat-runner.js', import.meta.url),
+  const runnerSource = ['constants', 'run-loop', 'semaphores'].map((name) => readFileSync(
+    new URL(`../src/main/chat/${name}.js`, import.meta.url),
     'utf8',
-  );
+  )).join('\n');
   const runtimeSource = readFileSync(
     new URL('../src/main/runtime.js', import.meta.url),
     'utf8',

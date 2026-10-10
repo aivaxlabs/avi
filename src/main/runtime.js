@@ -1467,6 +1467,7 @@ function registerIpc() {
     }
     resolveTerminalShell(process.env, process.platform, tuning?.terminalShell);
     const saved = setTuningSettings(tuning);
+    chatRunner.grantThreadCapacity();
     setTraceLevel(memoryTraceEnabled && saved.logLevel === 'disabled' ? 'minimal' : saved.logLevel);
     traceVerbose('logging.configuration-changed', { log_level: saved.logLevel });
     return saved;
@@ -2464,6 +2465,7 @@ function registerIpc() {
       approvals: current.approvals.filter((request) => snapshotIds.has(request.conversationId)),
       questions: current.questions.filter((request) => snapshotIds.has(request.conversationId)),
       semaphoreWaits: current.semaphoreWaits,
+      capacityWaits: current.capacityWaits,
     };
   });
   applicationIpc.handle('plugins:create', async () => {

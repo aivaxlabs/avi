@@ -111,6 +111,7 @@ export function compactOldToolResults(messages, {
     if (message.role !== 'assistant' || !Array.isArray(message.segments)) return [];
     let changed = false;
     const segments = message.segments.flatMap((segment) => {
+      if (segment.compacted) return [segment];
       if (segment.type === 'provider-continuation') {
         changed = true;
         charactersRemoved += countSerializedCharacters(segment);

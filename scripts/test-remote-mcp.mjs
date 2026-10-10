@@ -515,6 +515,22 @@ try {
   assert.equal(database.getConversation(failedThread.id).needsAttention, true, 'newer failures must surface again');
   database.updateMessage(failedMessage.id, { status: 'aborted', stoppedByUser: true });
   assert.equal(database.getConversation(failedThread.id).needsAttention, false, 'manual stops must not need attention');
+
+  const interruptedThread = database.createConversation({ title: 'Interrupted thread' });
+  database.insertMessage({
+    conversationId: interruptedThread.id,
+    role: 'assistant',
+    status: 'streaming',
+  });
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
+  server.markSeen(interruptedThread.id);
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 5));
+  database.abortInterruptedMessages();
+  assert.equal(
+    database.getConversation(interruptedThread.id).needsAttention,
+    true,
+    'runs interrupted by an app restart must need attention',
+  );
   assert.match((await callRpc(globalSocket, 'sidebar:mark-seen', {})).error.data.message, /^sidebar:mark-seen requires/);
   for (const listener of chatEventListeners) {
     listener({ type: 'run-state', conversationId: 'tracker-thread', running: false });

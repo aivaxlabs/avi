@@ -3,7 +3,7 @@ import {
   mkdtempSync,
   rmSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { availableParallelism, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const testProfile = mkdtempSync(join(tmpdir(), 'aivax-side-chat-test-'));
@@ -50,6 +50,8 @@ try {
     maxConcurrentSubagents: 128,
     rubberDuckMaxTurns: 20,
     logLevel: 'minimal',
+    maxParallelThreads: Math.min(1024, availableParallelism() * 4),
+    eventLoopWatchdogMs: 1_000,
   });
   assert.deepEqual(setTuningSettings({
     personality: 'friendly',
@@ -66,6 +68,8 @@ try {
     maxConcurrentSubagents: 4,
     rubberDuckMaxTurns: 20,
     logLevel: 'verbose',
+    maxParallelThreads: 8,
+    eventLoopWatchdogMs: 3_000,
   }), {
     personality: 'friendly',
     verbosity: 'high',
@@ -81,8 +85,18 @@ try {
     maxConcurrentSubagents: 4,
     rubberDuckMaxTurns: 20,
     logLevel: 'verbose',
+    maxParallelThreads: 8,
+    eventLoopWatchdogMs: 3_000,
   });
   assert.equal(getPreferences().tuning.personality, 'friendly');
+  assert.equal(getPreferences().tuning.maxParallelThreads, 8);
+  assert.equal(getPreferences().tuning.eventLoopWatchdogMs, 3_000);
+  for (const invalid of [{ maxParallelThreads: 0 }, { maxParallelThreads: 1025 }, { eventLoopWatchdogMs: 300 }]) {
+    assert.throws(
+      () => setTuningSettings({ ...getPreferences().tuning, ...invalid }),
+      /outside their allowed range/,
+    );
+  }
   assert.equal(getPreferences().tuning.verbosity, 'high');
   assert.equal(getPreferences().tuning.chatReasoningTraces, 'hidden');
   assert.equal(getPreferences().tuning.continuationRepliesEnabled, false);
