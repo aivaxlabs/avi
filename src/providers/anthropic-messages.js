@@ -1,5 +1,5 @@
 import { fileBase64JsonValue } from '../main/json-request-body.js';
-import { prepareProviderInvocation } from '../main/provider-api.js';
+import { applyCustomJson, prepareProviderInvocation } from '../main/provider-api.js';
 
 const reasoningBudgets = { low: 1_024, medium: 4_096, high: 8_192, max: 32_768 };
 
@@ -54,7 +54,7 @@ function toMessage(message, model) {
 
 export const messagesApi = {
   requiresTerminalEvent: true,
-  async createBody({ model, messages, tools = [], toolHistory = [], reasoningEffort, invocationContext }) {
+  async createBody({ provider, model, messages, tools = [], toolHistory = [], reasoningEffort, invocationContext }) {
     const { dynamicContext } = await prepareProviderInvocation(invocationContext);
     const system = dynamicContext ? [{ type: 'text', text: dynamicContext }] : [];
     const input = [];
@@ -91,7 +91,7 @@ export const messagesApi = {
       else merged.push({ ...message, content: [...message.content] });
     }
     const maxTokens = model.context?.output || 64_000;
-    return {
+    return applyCustomJson({
       model: model.modelId,
       max_tokens: maxTokens,
       stream: true,
@@ -106,7 +106,7 @@ export const messagesApi = {
         : reasoningBudgets[reasoningEffort]
           ? { thinking: { type: 'enabled', budget_tokens: Math.min(reasoningBudgets[reasoningEffort], maxTokens - 1) } }
           : {}),
-    };
+    }, provider, model);
   },
   eventsFrom(payload, state) {
     const events = [];

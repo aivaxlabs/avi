@@ -340,8 +340,11 @@ interface ModelConfig {
   context: { input: number; output: number };
   reasoning: string[];
   mediaSizeLimit?: 5242880 | 10485760 | 20971520 | 104857600 | null;
+  customJson?: string;
 }
 ```
+
+`customJson` is an optional serialized JSON object. Provider normalization rejects invalid JSON or non-object values and omits empty values. Built-in request formats merge it recursively into the request body after the provider's `customJson` field; plugin provider types receive it on `model` and decide whether to apply it.
 
 ### ModelSnapshot
 
@@ -372,7 +375,7 @@ interface ProviderTypeDescriptor {
   fields?: Array<{
     id: string;
     label: string;
-    type?: 'text' | 'password' | 'select';
+    type?: 'text' | 'password' | 'select' | 'json';
     description?: string;
     placeholder?: string;
     default?: string;
@@ -380,7 +383,11 @@ interface ProviderTypeDescriptor {
   }>;
   harness?: ProviderHarness;
 }
+```
 
+A `json` field is edited as a multiline JSON object. Normalization trims it, rejects invalid JSON or non-object values, and stores the serialized string (empty when unset).
+
+```ts
 interface ProviderHarness {
   session: 'stateless' | 'stateful';
   retries: 'avi' | 'provider';

@@ -25,6 +25,15 @@ assert.equal(body.output_config.effort, 'xhigh');
 assert.equal(body.tools[0].input_schema.type, 'object');
 assert.equal(body.max_tokens, 64000);
 assert.equal((await messagesApi.createBody({ model, messages: [], invocationContext: {} })).output_config.effort, 'high');
+const customBody = await messagesApi.createBody({
+  provider: { customJson: '{"output_config":{"format":"json"},"max_tokens":1000}' },
+  model: { ...model, customJson: '{"max_tokens":2000}' },
+  messages: [],
+  reasoningEffort: 'low',
+  invocationContext: {},
+});
+assert.deepEqual(customBody.output_config, { effort: 'low', format: 'json' });
+assert.equal(customBody.max_tokens, 2000);
 
 const payloads = [
   { type: 'message_start', message: { usage: { input_tokens: 10, cache_creation_input_tokens: 20, cache_read_input_tokens: 30 } } },

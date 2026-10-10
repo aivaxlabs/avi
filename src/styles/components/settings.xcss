@@ -2220,6 +2220,41 @@
     color: var(--text-1);
   }
 
+  .settings-json-field {
+    grid-template-columns: minmax(0, 1fr);
+
+    > textarea {
+      grid-row: 2;
+      width: 100%;
+      min-width: 0;
+      padding: 8px 10px;
+      color: var(--text-1);
+      background: var(--background-2);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      outline: 0;
+      resize: vertical;
+      font-family: var(--font-code);
+      font-size: .9rem;
+      line-height: 1.5;
+      tab-size: 2;
+
+      &:focus {
+        border-color: var(--text-3);
+        background: var(--background-0);
+      }
+
+      &[aria-invalid="true"] {
+        border-color: var(--danger-color);
+      }
+    }
+
+    > small {
+      top: 0;
+      grid-row: 3;
+    }
+  }
+
   @media (max-width: 860px) {
     .default-model-field {
       grid-template-columns: minmax(0, 1fr);

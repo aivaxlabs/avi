@@ -78,6 +78,16 @@ const verbosityOptions = Object.freeze([
   { value: 'high', label: 'High', description: 'Thorough responses for audits, teaching, and hand-offs without repetition or filler.' },
 ]);
 
+function isInvalidJsonObject(value) {
+  if (!value?.trim()) return false;
+  try {
+    const parsed = JSON.parse(value);
+    return !parsed || typeof parsed !== 'object' || Array.isArray(parsed);
+  } catch {
+    return true;
+  }
+}
+
 function providerHarnessRows(harness) {
   const statefulSession = harness.session === 'stateful';
   return [
@@ -1713,7 +1723,9 @@ export function SettingsPage({
             {view === 'remote' && <RemoteSettings />}
             {view === 'plugins' && <PluginsSettings />}
             {view === 'aivax' && <AivaxFeaturesSettings />}
-            {view === 'maintenance' && <MaintenanceSettings onThreadsChange={onThreadsChange} />}
+            {view === 'maintenance' && (
+              <MaintenanceSettings onThreadsChange={onThreadsChange} />
+            )}
             {view === 'bots' && <BotSettingsPage footerTarget={botFooter} />}
             {view === 'mcp' && (
               <McpSettings
@@ -2297,6 +2309,51 @@ export function SettingsPage({
               <div className="settings-tuning">
                 <section className="settings-section">
                   <div className="settings-section-heading">
+                    <h3>Resource limits</h3>
+                    <p>Control concurrent model turns and stalled-thread protection.</p>
+                  </div>
+                  <div className="settings-section-card settings-form">
+                    <label className="settings-field settings-field-wide">
+                      <span>Maximum parallel threads</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="1024"
+                        step="1"
+                        value={tuningDraft.maxParallelThreads ?? ''}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            maxParallelThreads: Number(event.target.value),
+                          }));
+                        }}
+                      />
+                      <small>From 1 to 1024 simultaneous model turns. Extra turns wait in a FIFO queue.</small>
+                    </label>
+                    <label className="settings-field settings-field-wide">
+                      <span>Stalled thread watchdog</span>
+                      <select
+                        value={tuningDraft.eventLoopWatchdogMs ?? 0}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            eventLoopWatchdogMs: Number(event.target.value),
+                          }));
+                        }}
+                      >
+                        <option value={0}>Disabled</option>
+                        <option value={500}>Stop after 0.5 s of stalls</option>
+                        <option value={1000}>Stop after 1 s of stalls</option>
+                        <option value={3000}>Stop after 3 s of stalls</option>
+                      </select>
+                      <small>When Avi stops responding for this long several times in a row, the thread that used the most blocking time is stopped with an error.</small>
+                    </label>
+                  </div>
+                </section>
+                <section className="settings-section">
+                  <div className="settings-section-heading">
                     <h3>Context</h3>
                     <p>Choose when Avi compacts a conversation automatically.</p>
                   </div>
@@ -2711,9 +2768,27 @@ export function SettingsPage({
                             <small>{providerState.connection.description}</small>
                           )}
                           {(selectedType?.fields ?? []).map((field) => (
-                            <label className="settings-field settings-field-wide" key={field.id}>
+                            <label
+                              className={classNames(
+                                'settings-field settings-field-wide',
+                                field.type === 'json' && 'settings-json-field',
+                              )}
+                              key={field.id}
+                            >
                               <span>{field.label}</span>
-                              {field.type === 'select' ? (
+                              {field.type === 'json' ? (
+                                <textarea
+                                  rows={6}
+                                  spellCheck="false"
+                                  value={providerDraft[field.id] ?? ''}
+                                  placeholder={field.placeholder ?? ''}
+                                  aria-invalid={isInvalidJsonObject(providerDraft[field.id])}
+                                  onChange={(event) => setProviderDraft({
+                                    ...providerDraft,
+                                    [field.id]: event.target.value,
+                                  })}
+                                />
+                              ) : field.type === 'select' ? (
                                 <select
                                   value={providerDraft[field.id] ?? field.default ?? ''}
                                   onChange={(event) => setProviderDraft({
@@ -2771,9 +2846,27 @@ export function SettingsPage({
                             />
                           </label>
                           {(selectedType?.fields ?? []).map((field) => (
-                            <label className="settings-field settings-field-wide" key={field.id}>
+                            <label
+                              className={classNames(
+                                'settings-field settings-field-wide',
+                                field.type === 'json' && 'settings-json-field',
+                              )}
+                              key={field.id}
+                            >
                               <span>{field.label}</span>
-                              {field.type === 'select' ? (
+                              {field.type === 'json' ? (
+                                <textarea
+                                  rows={6}
+                                  spellCheck="false"
+                                  value={providerDraft[field.id] ?? ''}
+                                  placeholder={field.placeholder ?? ''}
+                                  aria-invalid={isInvalidJsonObject(providerDraft[field.id])}
+                                  onChange={(event) => setProviderDraft({
+                                    ...providerDraft,
+                                    [field.id]: event.target.value,
+                                  })}
+                                />
+                              ) : field.type === 'select' ? (
                                 <select
                                   value={providerDraft[field.id] ?? field.default ?? ''}
                                   onChange={(event) => setProviderDraft({
@@ -3112,6 +3205,18 @@ export function SettingsPage({
                       />
                     </div>
                   </div>
+                  <label className="settings-field settings-json-field">
+                    <span>Custom JSON</span>
+                    <textarea
+                      rows={6}
+                      spellCheck="false"
+                      value={modelDraft.customJson ?? ''}
+                      placeholder={'{\n  "reasoning": { "summary": "auto" }\n}'}
+                      aria-invalid={isInvalidJsonObject(modelDraft.customJson)}
+                      onChange={(event) => updateModelDraft({ customJson: event.target.value })}
+                    />
+                    <small>Object recursively merged into the request body after the provider custom JSON.</small>
+                  </label>
                 </div>
               </section>
             )}
@@ -3149,6 +3254,9 @@ export function SettingsPage({
                           || !Number.isInteger(tuningDraft.maxConcurrentSubagents)
                           || tuningDraft.maxConcurrentSubagents < 1
                           || tuningDraft.maxConcurrentSubagents > 128
+                          || !Number.isInteger(tuningDraft.maxParallelThreads)
+                          || tuningDraft.maxParallelThreads < 1
+                          || tuningDraft.maxParallelThreads > 1024
                           || !Number.isInteger(tuningDraft.rubberDuckMaxTurns)
                           || tuningDraft.rubberDuckMaxTurns < 10
                           || tuningDraft.rubberDuckMaxTurns > 500

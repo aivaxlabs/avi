@@ -1,5 +1,5 @@
 import { fileBase64JsonValue, sendJsonRequest } from '../main/json-request-body.js';
-import { defineProvider, prepareProviderInvocation } from '../main/provider-api.js';
+import { applyCustomJson, defineProvider, prepareProviderInvocation } from '../main/provider-api.js';
 
 function resolveMediaContent(item) {
   const media = item[item.type];
@@ -129,6 +129,13 @@ const inferenceParameterFields = [
     description: 'Sent as top_k only when set.',
   },
 ];
+const customJsonField = {
+  id: 'customJson',
+  label: 'Custom JSON',
+  type: 'json',
+  placeholder: '{\n  "service_tier": "priority"\n}',
+  description: 'Object recursively merged into every request body. Model custom JSON is merged after it.',
+};
 const reasoningBudgets = {
   none: 0,
   minimal: 0,
@@ -161,7 +168,7 @@ export const responsesApi = {
     const prepared = await prepareProviderInvocation(invocationContext);
     const serializedTools = serializeTools(tools);
 
-    return {
+    return applyCustomJson({
       model: model.modelId,
       ...inferenceRequestFields(provider),
       ...(model.context?.output ? { max_output_tokens: model.context.output } : {}),
@@ -226,7 +233,7 @@ export const responsesApi = {
       store: false,
       ...reasoningRequestFields(reasoningEffort, provider.reasoningFormat ?? 'modern'),
       ...(model.serviceTier ? { service_tier: model.serviceTier } : {}),
-    };
+    }, provider, model);
   },
   eventsFrom(payload) {
     if (payload?.type === 'response.output_text.delta' && payload.delta) {
@@ -342,7 +349,7 @@ export const chatCompletionsApi = {
     const prepared = await prepareProviderInvocation(invocationContext);
     const serializedTools = serializeTools(tools);
 
-    return {
+    return applyCustomJson({
       model: model.modelId,
       ...inferenceRequestFields(provider),
       ...(model.context?.output ? { max_completion_tokens: model.context.output } : {}),
@@ -404,7 +411,7 @@ export const chatCompletionsApi = {
       stream: true,
       stream_options: { include_usage: true },
       ...reasoningRequestFields(reasoningEffort, provider.reasoningFormat),
-    };
+    }, provider, model);
   },
   eventsFrom(payload) {
     const events = [];
@@ -498,7 +505,7 @@ export const openAiCompatibleProviderTypes = [
       connection: 'custom',
       models: 'custom',
       supportsModelListing: true,
-      fields: [reasoningFormatField, ...inferenceParameterFields],
+      fields: [reasoningFormatField, ...inferenceParameterFields, customJsonField],
     },
     ...responsesApi,
     request: (context) => requestOpenAiCompatible(context, '/v1/responses'),
@@ -514,7 +521,7 @@ export const openAiCompatibleProviderTypes = [
       connection: 'custom',
       models: 'custom',
       supportsModelListing: true,
-      fields: [reasoningFormatField, ...inferenceParameterFields],
+      fields: [reasoningFormatField, ...inferenceParameterFields, customJsonField],
     },
     ...chatCompletionsApi,
     request: (context) => requestOpenAiCompatible(context, '/v1/chat/completions'),
