@@ -1173,7 +1173,11 @@ try {
               })}`,
               '',
             ].join('\n\n')
-          : 'data: [DONE]\n\n', { status: 200 });
+          : [
+              `data: ${JSON.stringify({ type: 'content', text: 'Final answer' })}`,
+              'data: [DONE]',
+              '',
+            ].join('\n\n'), { status: 200 });
       },
       (payload) => [payload],
     ),
@@ -1184,13 +1188,9 @@ try {
   assert.equal(serverErrorAttempts, 2);
   assert.equal(serverErrorEvents.filter((event) => event.type === 'retry').length, 1);
   assert.equal(serverErrorEvents.filter((event) => event.type === 'error').length, 0);
-  assert.equal(serverErrorResult.assistantContent, 'Partial answer');
-  assert.deepEqual(serverErrorResult.toolCalls, [{
-    key: 'partial-tool',
-    callId: 'partial-tool',
-    name: 'partial_tool',
-    argumentsText: '{\"partial\":true}',
-  }]);
+  assert.equal(serverErrorEvents.find((event) => event.type === 'retry').discardOutput, true);
+  assert.equal(serverErrorResult.assistantContent, 'Final answer');
+  assert.deepEqual(serverErrorResult.toolCalls, []);
 
   async function waitFor(predicate) {
     const deadline = Date.now() + 5_000;

@@ -655,6 +655,9 @@ export const runLoopMethods = {
                 }
                 contextCompactionRequested = compactionNeeded;
               }
+              if (event.type === 'retry' && event.discardOutput) {
+                accumulator.segments.splice(roundSegmentStart);
+              }
               const eventTool = event.type === 'tool-call'
                 ? availableTools.find((tool) => tool.name === event.name)
                 : null;

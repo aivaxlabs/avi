@@ -327,7 +327,8 @@ export const responsesApi = {
       const error = payload.response?.error ?? payload.error ?? payload;
       return [{
         type: 'error',
-        code: error?.code ?? 'stream_error',
+        code: error?.code
+          ?? (error?.type === 'overloaded_error' ? 'server_is_overloaded' : 'stream_error'),
         message: error?.message ?? error?.error ?? 'The provider returned an error while streaming.',
         status: error?.status ?? error?.status_code ?? payload?.status,
       }];
@@ -419,7 +420,8 @@ export const chatCompletionsApi = {
     if (payload?.error) {
       events.push({
         type: 'error',
-        code: payload.error.code ?? 'stream_error',
+        code: payload.error.code
+          ?? (payload.error.type === 'overloaded_error' ? 'server_is_overloaded' : 'stream_error'),
         message: payload.error.message ?? payload.error.error ?? String(payload.error),
         status: payload.error.status ?? payload.error.status_code ?? payload.status,
       });

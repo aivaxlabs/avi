@@ -405,6 +405,9 @@ export class QuickChatRunner {
                 error: event.message,
               });
             }
+            if (event.type === 'retry' && event.discardOutput) {
+              accumulator.segments.splice(roundSegmentStart);
+            }
             if (['content', 'reasoning', 'tool-call', 'item-complete', 'retry', 'retry-clear', 'error', 'usage'].includes(event.type)) {
               const eventTool = event.type === 'tool-call'
                 ? availableTools.find((tool) => tool.name === event.name)

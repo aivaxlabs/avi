@@ -163,6 +163,7 @@ export class ModelProvider {
       let streamBytes = 0;
       let sseEventCount = 0;
       let receivedDoneMarker = false;
+      let receivedOutput = false;
       let receivedTerminalEvent = this.implementation.requiresTerminalEvent !== true;
       let completionEvent = receivedTerminalEvent ? 'not-required' : 'missing';
       const attemptToolKeys = new Set();
@@ -249,7 +250,6 @@ export class ModelProvider {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let receivedOutput = false;
         let receivedReasoning = false;
         let activeItemType = null;
         const abortReader = () => {
@@ -335,7 +335,7 @@ export class ModelProvider {
                   && (
                     event.code === 'server_error'
                     || event.code === 'provider_error'
-                    || (event.code === 'server_is_overloaded' && !receivedOutput)
+                    || event.code === 'server_is_overloaded'
                   )
                 ) {
                   retryError = event;
@@ -466,12 +466,6 @@ export class ModelProvider {
           }
         }
 
-        if (retryError && receivedOutput) {
-          const error = new Error(retryError.message);
-          error.code = retryError.code;
-          throw error;
-        }
-
         if (!retryError && !receivedTerminalEvent) {
           traceError('provider.stream-incomplete', {
             thread_id: invocationContext.conversationId,
@@ -554,12 +548,18 @@ export class ModelProvider {
         throw error;
       }
 
+      // The next attempt regenerates the turn from scratch, so partial output from this one is dropped.
+      assistantContent = '';
+      completedContinuation = null;
+      continuationItems.clear();
+      toolCalls.clear();
       onEvent({
         type: 'retry',
         code: retryError.code,
         message: retryError.message,
         attempt,
         maxAttempts: displayedMaxAttempts,
+        discardOutput: receivedOutput,
       });
       retryVisible = true;
 
