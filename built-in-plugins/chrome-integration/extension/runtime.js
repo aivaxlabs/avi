@@ -1,9 +1,12 @@
+const browserRuntimeVersion = 2;
+
 function createBrowserRuntimeScript(pendingDialogJson) {
   return `
 (() => {
   const pendingDialog = ${pendingDialogJson || "null"};
 
-  if (!window.__browserMcp) {
+  if (window.__browserMcpRuntimeVersion !== ${browserRuntimeVersion}) {
+    window.__browserMcpRuntimeVersion = ${browserRuntimeVersion};
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     const actionGapMs = 50;
     let actionChain = Promise.resolve();
@@ -25,44 +28,62 @@ function createBrowserRuntimeScript(pendingDialogJson) {
       return result;
     };
     const editableTags = new Set(["input", "textarea"]);
+    const maxSnapshotNodes = 160;
+    const snapshotSelector = "a, button, input, textarea, select, iframe, frame, [role], h1, h2, h3, label, summary, [onclick], [tabindex], [contenteditable='true']";
     const maxConsoleLogItems = 50;
     const consoleLevels = ["debug", "log", "info", "warn", "error"];
-    const buttonMask = button => button === 0 ? 1 : button === 2 ? 2 : 4;
-    const getPointTarget = (x, y) => document.elementFromPoint(x, y) || document.body || document.documentElement;
-    const eventInit = (x, y, button, buttons) => ({
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-      view: window,
-      detail: 1,
-      button,
-      buttons,
-      clientX: x,
-      clientY: y,
-      screenX: window.screenX + x,
-      screenY: window.screenY + y
-    });
-    const dispatchPointer = (target, type, x, y, button, buttons) => {
-      if (typeof PointerEvent === "function") {
-        target.dispatchEvent(new PointerEvent(type, {
-          ...eventInit(x, y, button, buttons),
-          pointerId: 1,
-          pointerType: "mouse",
-          isPrimary: true,
-          width: 1,
-          height: 1,
-          pressure: buttons ? 0.5 : 0
-        }));
+    const isFrame = element => element?.tagName === "IFRAME" || element?.tagName === "FRAME";
+    const frameDocument = frame => {
+      try {
+        return frame.contentDocument;
+      } catch {
+        return null;
       }
     };
-    const dispatchMouse = (target, type, x, y, button, buttons) =>
-      target.dispatchEvent(new MouseEvent(type, eventInit(x, y, button, buttons)));
-    const dispatchAt = (type, x, y, button = 0, buttons = 0) => {
-      const target = getPointTarget(x, y);
-      const pointerType = type === "mousemove" ? "pointermove" : type === "mousedown" ? "pointerdown" : type === "mouseup" ? "pointerup" : type;
-      dispatchPointer(target, pointerType, x, y, button, buttons);
-      dispatchMouse(target, type, x, y, button, buttons);
-      return target;
+    const viewportRect = element => {
+      const rect = element.getBoundingClientRect();
+      let x = rect.left;
+      let y = rect.top;
+      let frame = element.ownerDocument?.defaultView?.frameElement;
+      while (frame) {
+        const frameRect = frame.getBoundingClientRect();
+        x += frameRect.left + frame.clientLeft;
+        y += frameRect.top + frame.clientTop;
+        frame = frame.ownerDocument?.defaultView?.frameElement;
+      }
+
+      return { x, y, width: rect.width, height: rect.height, centerX: x + rect.width / 2, centerY: y + rect.height / 2 };
+    };
+    const getPointTarget = (x, y) => {
+      let root = document;
+      let target = null;
+      while (root) {
+        const origin = target ? viewportRect(target) : { x: 0, y: 0 };
+        const offsetX = target ? origin.x + target.clientLeft : 0;
+        const offsetY = target ? origin.y + target.clientTop : 0;
+        let element = root.elementFromPoint(x - offsetX, y - offsetY);
+        while (element?.shadowRoot) {
+          const inner = element.shadowRoot.elementFromPoint(x - offsetX, y - offsetY);
+          if (!inner || inner === element) break;
+          element = inner;
+        }
+
+        if (!element) break;
+        target = element;
+        root = isFrame(element) ? frameDocument(element) : null;
+      }
+
+      return target || document.body || document.documentElement;
+    };
+    const deepActiveElement = () => {
+      let active = document.activeElement;
+      while (active) {
+        const inner = active.shadowRoot?.activeElement || (isFrame(active) ? frameDocument(active)?.activeElement : null);
+        if (!inner || inner === active) break;
+        active = inner;
+      }
+
+      return active;
     };
     const describeElement = element => {
       if (!element) {
@@ -285,71 +306,22 @@ function createBrowserRuntimeScript(pendingDialogJson) {
         label.style.opacity = "0";
       }, 800);
     };
-    const click = async (x, y, button, duration = 0) => {
-      showInteraction(x, y, button === 2 ? "right click" : "click");
-      const target = dispatchAt("mousemove", x, y, button, 0);
-      target.focus?.({ preventScroll: true });
-      dispatchAt("mousedown", x, y, button, buttonMask(button));
-      if (duration > 0) {
-        await sleep(duration);
-      }
-      dispatchAt("mouseup", x, y, button, 0);
-      dispatchMouse(target, button === 2 ? "contextmenu" : "click", x, y, button, 0);
+    const pointerAction = async (label, input) => {
+      showInteraction(input.x, input.y, label);
+      const target = getPointTarget(input.x, input.y);
+      await requireHost().mouse(input);
       return { ok: true, target: describeElement(target), url: location.href };
     };
-    const hover = (x, y) => {
-      showInteraction(x, y, "hover");
-      const target = dispatchAt("mousemove", x, y, 0, 0);
-      if (window.__browserMcpLastHoverTarget !== target) {
-        if (window.__browserMcpLastHoverTarget) {
-          dispatchPointer(window.__browserMcpLastHoverTarget, "pointerout", x, y, 0, 0);
-          dispatchPointer(window.__browserMcpLastHoverTarget, "pointerleave", x, y, 0, 0);
-          dispatchMouse(window.__browserMcpLastHoverTarget, "mouseout", x, y, 0, 0);
-          dispatchMouse(window.__browserMcpLastHoverTarget, "mouseleave", x, y, 0, 0);
-        }
-
-        dispatchPointer(target, "pointerover", x, y, 0, 0);
-        dispatchPointer(target, "pointerenter", x, y, 0, 0);
-        dispatchMouse(target, "mouseover", x, y, 0, 0);
-        dispatchMouse(target, "mouseenter", x, y, 0, 0);
-        window.__browserMcpLastHoverTarget = target;
-      }
-      return { ok: true, target: describeElement(target), url: location.href };
-    };
-    const typeText = text => {
-      const active = document.activeElement;
-      if (!active) {
-        throw new Error("No focused element to type into.");
+    const typeText = async text => {
+      const active = deepActiveElement();
+      const tag = active?.tagName?.toLowerCase();
+      if (!active || (!editableTags.has(tag) && !active.isContentEditable && !isFrame(active))) {
+        throw new Error(\`Focused element is not editable: \${tag || "none"}. Click the input first.\`);
       }
 
-      const tag = active.tagName?.toLowerCase();
-      showInteraction(
-        Math.max(0, active.getBoundingClientRect().left),
-        Math.max(0, active.getBoundingClientRect().top),
-        "type"
-      );
-
-      for (const char of String(text)) {
-        active.dispatchEvent(new KeyboardEvent("keydown", { key: char, bubbles: true, cancelable: true }));
-        active.dispatchEvent(new KeyboardEvent("keypress", { key: char, bubbles: true, cancelable: true }));
-
-        if (editableTags.has(tag)) {
-          const start = active.selectionStart ?? active.value.length;
-          const end = active.selectionEnd ?? active.value.length;
-          active.value = active.value.slice(0, start) + char + active.value.slice(end);
-          active.selectionStart = active.selectionEnd = start + char.length;
-          active.dispatchEvent(new InputEvent("input", { data: char, inputType: "insertText", bubbles: true }));
-        } else if (active.isContentEditable) {
-          document.execCommand("insertText", false, char);
-          active.dispatchEvent(new InputEvent("input", { data: char, inputType: "insertText", bubbles: true }));
-        } else {
-          throw new Error(\`Focused element is not editable: \${tag || "unknown"}.\`);
-        }
-
-        active.dispatchEvent(new KeyboardEvent("keyup", { key: char, bubbles: true, cancelable: true }));
-      }
-
-      active.dispatchEvent(new Event("change", { bubbles: true }));
+      const rect = viewportRect(active);
+      showInteraction(Math.max(0, rect.x), Math.max(0, rect.y), "type");
+      await requireHost().insertText(String(text));
       return { ok: true, target: describeElement(active) };
     };
     const snapshot = () => {
@@ -368,23 +340,40 @@ function createBrowserRuntimeScript(pendingDialogJson) {
         ] : []),
         ""
       ];
-      const nodes = [...document.querySelectorAll("a, button, input, textarea, select, [role], h1, h2, h3, label, summary, [onclick], [tabindex], [contenteditable='true']")]
-        .filter(element => {
-          const rect = element.getBoundingClientRect();
+      const nodes = [];
+      const texts = [];
+      const collect = (root, depth) => {
+        for (const element of root.querySelectorAll("*")) {
+          if (element.shadowRoot) collect(element.shadowRoot, depth);
+          if (nodes.length >= maxSnapshotNodes || !element.matches(snapshotSelector)) continue;
+          const rect = viewportRect(element);
           const style = getComputedStyle(element);
-          return rect.width > 0 &&
+          const visible = rect.width > 0 &&
             rect.height > 0 &&
-            rect.bottom >= 0 &&
-            rect.right >= 0 &&
-            rect.top <= innerHeight &&
-            rect.left <= innerWidth &&
+            rect.y + rect.height >= 0 &&
+            rect.x + rect.width >= 0 &&
+            rect.y <= innerHeight &&
+            rect.x <= innerWidth &&
             style.visibility !== "hidden" &&
             style.display !== "none";
-        })
-        .slice(0, 120);
+          if (!visible) continue;
+          nodes.push({ element, rect, depth });
+          if (isFrame(element)) {
+            const inner = frameDocument(element);
+            if (inner?.documentElement) {
+              collect(inner, depth + 1);
+              const text = (inner.body?.innerText || "").trim();
+              if (text) texts.push(text);
+            }
+          }
+        }
+      };
+      collect(document, 0);
 
-      for (const element of nodes) {
-        const rect = element.getBoundingClientRect();
+      for (const { element, rect, depth } of nodes) {
+        const frameNote = isFrame(element)
+          ? frameDocument(element) ? " (frame)" : " (cross-origin frame: DOM unavailable; use screenshot and coordinate clicks)"
+          : "";
         const parts = [
           element.tagName.toLowerCase(),
           element.id ? \`#\${element.id}\` : "",
@@ -400,10 +389,11 @@ function createBrowserRuntimeScript(pendingDialogJson) {
           element.textContent ||
           ""
         ).trim().replace(/\\s+/g, " ").slice(0, 220);
-        lines.push(\`\${Math.round(rect.left)},\${Math.round(rect.top)} \${Math.round(rect.width)}x\${Math.round(rect.height)} \${parts.join("")}\${label ? \` "\${label}"\` : ""}\`);
+        const text = isFrame(element) ? element.getAttribute("title") || element.src || "" : label;
+        lines.push(\`\${"  ".repeat(depth)}\${Math.round(rect.x)},\${Math.round(rect.y)} \${Math.round(rect.width)}x\${Math.round(rect.height)} \${parts.join("")}\${text ? \` "\${text.slice(0, 220)}"\` : ""}\${frameNote}\`);
       }
 
-      const bodyText = (document.body?.innerText || "").trim().replace(/\\s+/g, " ").slice(0, 3000);
+      const bodyText = [document.body?.innerText || "", ...texts].join(" ").trim().replace(/\\s+/g, " ").slice(0, 4000);
       if (bodyText) {
         lines.push("", \`Text: \${bodyText}\`);
       }
@@ -434,35 +424,28 @@ function createBrowserRuntimeScript(pendingDialogJson) {
         window.__browserMcpPendingNavigation = url;
         return { ok: true, url };
       },
-      leftClick: (x, y, duration = 0) => withActionGap(() => click(x, y, 0, duration)),
-      rightClick: (x, y, duration = 0) => withActionGap(() => click(x, y, 2, duration)),
-      hover: (x, y) => withActionGap(() => hover(x, y)),
+      leftClick: (x, y, duration = 0) => withActionGap(() => pointerAction("click", { type: "click", x, y, button: "left", duration })),
+      rightClick: (x, y, duration = 0) => withActionGap(() => pointerAction("right click", { type: "click", x, y, button: "right", duration })),
+      doubleClick: (x, y) => withActionGap(() => pointerAction("double click", { type: "click", x, y, button: "left", clickCount: 2 })),
+      hover: (x, y) => withActionGap(() => pointerAction("hover", { type: "move", x, y })),
       drag: (fromX, fromY, toX, toY, duration = 500, isLeftClick = true) => withActionGap(async () => {
-        const button = isLeftClick ? 0 : 2;
-        const buttons = buttonMask(button);
         showInteraction(fromX, fromY, isLeftClick ? "drag" : "right drag");
-        dispatchAt("mousemove", fromX, fromY, button, 0);
-        dispatchAt("mousedown", fromX, fromY, button, buttons);
-        const steps = Math.max(8, Math.ceil(duration / 25));
-        for (let index = 1; index <= steps; index++) {
-          const x = fromX + ((toX - fromX) * index / steps);
-          const y = fromY + ((toY - fromY) * index / steps);
-          dispatchAt("mousemove", x, y, button, buttons);
-          await sleep(duration / steps);
-        }
-        const target = dispatchAt("mouseup", toX, toY, button, 0);
+        await requireHost().mouse({ type: "drag", x: fromX, y: fromY, toX, toY, duration, button: isLeftClick ? "left" : "right" });
         showInteraction(toX, toY, "drop");
-        return { ok: true, target: describeElement(target), url: location.href };
+        return { ok: true, target: describeElement(getPointTarget(toX, toY)), url: location.href };
       }),
-      scroll: (x, y, delta) => withActionGap(() => {
-        showInteraction(x, y, "scroll");
-        const target = getPointTarget(x, y);
-        target.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, clientX: x, clientY: y, deltaY: delta }));
-        const scroller = target.closest?.("[style*='overflow'], [role='region']") || document.scrollingElement || document.documentElement;
-        scroller.scrollBy({ top: delta, left: 0, behavior: "auto" });
-        return { ok: true, scrollX, scrollY, target: describeElement(target) };
-      }),
+      scroll: (x, y, delta) => withActionGap(() => pointerAction("scroll", { type: "scroll", x, y, delta })),
       type: text => withActionGap(() => typeText(text)),
+      press: key => withActionGap(async () => {
+        await requireHost().press(String(key));
+        return { ok: true, key: String(key), target: describeElement(deepActiveElement()) };
+      }),
+      rect: element => viewportRect(element),
+      frames: () => [...document.querySelectorAll("iframe, frame")].map(frame => ({
+        src: frame.src || null,
+        sameOrigin: Boolean(frameDocument(frame)),
+        rect: viewportRect(frame)
+      })),
       sleep,
       snapshot,
       screenshot: () => requireHost().screenshot(),
