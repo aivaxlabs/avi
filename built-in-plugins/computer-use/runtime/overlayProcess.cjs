@@ -72,6 +72,23 @@ function send(message) {
 	process.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
+// nut-js and get-windows use physical pixels on Windows and X11, but points (DIP) on macOS.
+function inputBounds(display) {
+	if (process.platform === 'darwin') {
+		return {...display.bounds};
+	}
+
+	const origin = process.platform === 'win32'
+		? screen.dipToScreenRect(null, display.bounds)
+		: display.nativeOrigin;
+	return {
+		x: origin.x,
+		y: origin.y,
+		width: Math.round(display.bounds.width * display.scaleFactor),
+		height: Math.round(display.bounds.height * display.scaleFactor),
+	};
+}
+
 function displays() {
 	const primaryId = String(screen.getPrimaryDisplay().id);
 	const currentDisplays = screen.getAllDisplays().map((display, index) => ({
@@ -83,6 +100,7 @@ function displays() {
 		width: display.bounds.width,
 		height: display.bounds.height,
 		scale_factor: display.scaleFactor,
+		input_bounds: inputBounds(display),
 		is_primary: String(display.id) === primaryId,
 	}));
 	debugLog('overlay', 'displays', {displays: currentDisplays});
@@ -401,6 +419,14 @@ async function handle(method, params = {}) {
 
 		case 'flash':
 			flash(String(params.displayId), Number(params.x), Number(params.y));
+			return {ok: true};
+		case 'escape_shortcut':
+			if (params.enabled === false) {
+				unregisterEscapeShortcut();
+			} else if (windows.size > 0) {
+				registerEscapeShortcut();
+			}
+
 			return {ok: true};
 		case 'screenshot':
 			return captureDisplay(String(params.displayId));

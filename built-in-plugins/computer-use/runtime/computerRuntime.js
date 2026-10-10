@@ -1,4 +1,4 @@
-import { Button, keyboard, mouse, Point, } from '@nut-tree-fork/nut-js';
+import { Button, Key, keyboard, mouse, Point, } from '@nut-tree-fork/nut-js';
 import { spawn, execFile, execFileSync, } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -143,9 +143,21 @@ function toMonitor(display) {
         width: display.width,
         height: display.height,
         scale_factor: display.scale_factor,
+        input_bounds: display.input_bounds ?? { x: display.x, y: display.y, width: display.width, height: display.height },
         is_primary: display.is_primary,
         visible_applications: [],
     };
+}
+function inputToLocal(monitor, x, y) {
+    const input = monitor.input_bounds;
+    return {
+        local_x: Math.round((x - input.x) * (monitor.width / input.width)),
+        local_y: Math.round((y - input.y) * (monitor.height / input.height)),
+    };
+}
+function containsInputPoint(monitor, x, y) {
+    const input = monitor.input_bounds;
+    return x >= input.x && x < input.x + input.width && y >= input.y && y < input.y + input.height;
 }
 function now() {
     return Date.now();
@@ -154,13 +166,12 @@ export function localToGlobal(monitor, coordinate, imageSize) {
     if (coordinate[0] < 0 || coordinate[1] < 0 || coordinate[0] >= imageSize.width || coordinate[1] >= imageSize.height) {
         throw new Error(`Coordinate (${coordinate[0]}, ${coordinate[1]}) is outside monitor ${monitor.monitor_id} coordinate space of ${imageSize.width}x${imageSize.height}`);
     }
-    const localX = Math.round(coordinate[0] * (monitor.width / imageSize.width));
-    const localY = Math.round(coordinate[1] * (monitor.height / imageSize.height));
+    const input = monitor.input_bounds;
     return {
-        x: monitor.x + localX,
-        y: monitor.y + localY,
-        local_x: localX,
-        local_y: localY,
+        x: input.x + Math.round(coordinate[0] * (input.width / imageSize.width)),
+        y: input.y + Math.round(coordinate[1] * (input.height / imageSize.height)),
+        local_x: Math.round(coordinate[0] * (monitor.width / imageSize.width)),
+        local_y: Math.round(coordinate[1] * (monitor.height / imageSize.height)),
     };
 }
 export class ElectronComputerDriver {
@@ -195,6 +206,9 @@ export class ElectronComputerDriver {
     async hideOverlay() {
         debugLog('electron-driver', 'hide-overlay');
         await this.request('hide');
+    }
+    async setEscapeShortcut(enabled) {
+        await this.request('escape_shortcut', { enabled });
     }
     async setOverlayStatus(status, text) {
         debugLog('electron-driver', 'set-overlay-status', { status, text });
@@ -420,7 +434,8 @@ export class ComputerSessionManager {
     async getContext() {
         const monitors = await this.listMonitors();
         const cursorPosition = await mouse.getPosition();
-        const monitor = monitors.find((candidate) => cursorPosition.x >= candidate.x && cursorPosition.x < candidate.x + candidate.width && cursorPosition.y >= candidate.y && cursorPosition.y < candidate.y + candidate.height);
+        const monitor = monitors.find((candidate) => containsInputPoint(candidate, cursorPosition.x, cursorPosition.y));
+        const local = monitor ? inputToLocal(monitor, cursorPosition.x, cursorPosition.y) : undefined;
         const context = {
             ok: true,
             system: {
@@ -432,8 +447,8 @@ export class ComputerSessionManager {
                 global_x: cursorPosition.x,
                 global_y: cursorPosition.y,
                 monitor_id: monitor?.monitor_id ?? null,
-                x: monitor ? cursorPosition.x - monitor.x : cursorPosition.x,
-                y: monitor ? cursorPosition.y - monitor.y : cursorPosition.y,
+                x: local?.local_x ?? null,
+                y: local?.local_y ?? null,
             },
             monitors: monitors.map((candidate) => ({
                 index: candidate.index,
@@ -444,6 +459,7 @@ export class ComputerSessionManager {
                     width: candidate.width,
                     height: candidate.height,
                 },
+                scale_factor: candidate.scale_factor,
                 windows: candidate.visible_applications.map((window) => ({
                     name: window.name,
                     pid: window.pid,
@@ -778,11 +794,22 @@ export class ComputerSessionManager {
             throw new Error('Text required for key');
         }
         debugLog('action', 'key-start', { session_id: sessionId, text: input.text });
-        await this.runAgentInput(async () => {
-            const keys = toKeys(input.text);
-            await keyboard.pressKey(...keys);
-            await keyboard.releaseKey(...keys);
-        });
+        const keys = toKeys(input.text);
+        const pressesEscape = keys.includes(Key.Escape);
+        if (pressesEscape) {
+            await this.driver.setEscapeShortcut(false);
+        }
+        try {
+            await this.runAgentInput(async () => {
+                await keyboard.pressKey(...keys);
+                await keyboard.releaseKey(...keys);
+            });
+        }
+        finally {
+            if (pressesEscape && this.session) {
+                await this.driver.setEscapeShortcut(true);
+            }
+        }
         debugLog('action', 'key-complete', { session_id: sessionId, text: input.text });
         return {
             data: { ok: true, action: input.action, text: input.text },
@@ -985,18 +1012,16 @@ export class ComputerSessionManager {
     }
     async cursorInMonitorImage(monitor, imageWidth, imageHeight) {
         const pos = await mouse.getPosition();
-        if (pos.x < monitor.x || pos.x >= monitor.x + monitor.width || pos.y < monitor.y || pos.y >= monitor.y + monitor.height) {
+        if (!containsInputPoint(monitor, pos.x, pos.y)) {
             return null;
         }
-        const localX = pos.x - monitor.x;
-        const localY = pos.y - monitor.y;
+        const input = monitor.input_bounds;
         return {
             global_x: pos.x,
             global_y: pos.y,
-            local_x: localX,
-            local_y: localY,
-            x: Math.round(localX * (imageWidth / monitor.width)),
-            y: Math.round(localY * (imageHeight / monitor.height)),
+            ...inputToLocal(monitor, pos.x, pos.y),
+            x: Math.round((pos.x - input.x) * (imageWidth / input.width)),
+            y: Math.round((pos.y - input.y) * (imageHeight / input.height)),
         };
     }
     async runAgentInput(callback) {
@@ -1045,15 +1070,14 @@ export class ComputerSessionManager {
         const target = {
             x: pos.x,
             y: pos.y,
-            local_x: pos.x - monitor.x,
-            local_y: pos.y - monitor.y,
+            ...inputToLocal(monitor, pos.x, pos.y),
             monitor,
         };
         debugLog('action', 'target-from-cursor', { target });
         return target;
     }
     monitorForGlobal(x, y) {
-        return this.session?.monitors.find((monitor) => x >= monitor.x && x < monitor.x + monitor.width && y >= monitor.y && y < monitor.y + monitor.height);
+        return this.session?.monitors.find((monitor) => containsInputPoint(monitor, x, y));
     }
     recordManualInput() {
         if (!this.session || this.isIgnoringInput()) {
@@ -1128,11 +1152,12 @@ export class ComputerSessionManager {
             for (const monitor of monitors) {
                 const seen = new Set();
                 const correlations = [];
+                const input = monitor.input_bounds;
                 for (const window of windows) {
-                    const left = Math.max(monitor.x, window.bounds.x);
-                    const top = Math.max(monitor.y, window.bounds.y);
-                    const right = Math.min(monitor.x + monitor.width, window.bounds.x + window.bounds.width);
-                    const bottom = Math.min(monitor.y + monitor.height, window.bounds.y + window.bounds.height);
+                    const left = Math.max(input.x, window.bounds.x);
+                    const top = Math.max(input.y, window.bounds.y);
+                    const right = Math.min(input.x + input.width, window.bounds.x + window.bounds.width);
+                    const bottom = Math.min(input.y + input.height, window.bounds.y + window.bounds.height);
                     const visibleArea = Math.max(0, right - left) * Math.max(0, bottom - top);
                     const windowArea = window.bounds.width * window.bounds.height;
                     const coverage = windowArea > 0 ? visibleArea / windowArea : 0;
@@ -1148,11 +1173,17 @@ export class ComputerSessionManager {
                     if (!accepted) {
                         continue;
                     }
+                    const origin = inputToLocal(monitor, window.bounds.x, window.bounds.y);
                     monitor.visible_applications.push({
                         name: window.name,
                         pid: window.pid,
                         title: window.title,
-                        bounds: window.bounds,
+                        bounds: {
+                            x: monitor.x + origin.local_x,
+                            y: monitor.y + origin.local_y,
+                            width: Math.round(window.bounds.width * (monitor.width / input.width)),
+                            height: Math.round(window.bounds.height * (monitor.height / input.height)),
+                        },
                     });
                     seen.add(window.id);
                     if (monitor.visible_applications.length >= maxVisibleApplicationsPerMonitor) {
