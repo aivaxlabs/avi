@@ -210,6 +210,7 @@ interface BotSnapshot {
   contextSize: number | null;
   activationPeriodMinutes: number;
   activationMode: 'static' | 'smart';
+  permissionMode: 'approve_for_me' | 'full_access';
   maxActivations: number;
   activationWindow: {
     days: number[];

@@ -18,6 +18,7 @@ const BOT_CONFIG_PROPERTIES = Object.freeze({
   activationPeriodMinutes: { type: 'integer', minimum: 1, description: 'Minutes between automatic activation checks.' },
   activationMode: { type: 'string', enum: ['static', 'smart'], description: 'Static activates every period; smart can idle when no useful work remains.' },
   executionMode: { type: 'string', enum: ['inherit', 'direct', 'orchestrator'], description: 'Use inherit for the global execution mode.' },
+  permissionMode: { type: 'string', enum: ['approve_for_me', 'full_access'], description: 'Tool approval mode. Defaults to approve_for_me; full_access runs tools without approval, including destructive actions.' },
   maxActivations: { type: 'integer', minimum: 0, description: 'Consecutive activation limit before a cooldown; 0 disables the limit.' },
   activationWindow: {
     type: 'object',
@@ -96,6 +97,7 @@ export const botTools = [
           scheduleState: bot.scheduleState,
           queued: bot.queued,
           executionMode: bot.executionMode,
+          permissionMode: bot.permissionMode,
           effectiveExecutionMode: bot.effectiveExecutionMode,
           activationMode: bot.activationMode,
           activationPeriodMinutes: bot.activationPeriodMinutes,

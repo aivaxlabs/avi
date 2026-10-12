@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 const testProfile = mkdtempSync(join(tmpdir(), 'avi-bot-enabled-test-'));
 const resolvedProfile = resolve(testProfile);
@@ -36,6 +37,22 @@ try {
     model: 'test/model',
   });
 
+  const invalidModeBot = createBot({
+    conversationId: createConversation({ model: 'test/model', projectPath: resolvedProfile }).id,
+    name: 'Invalid mode bot',
+    iconSeed: 'invalid-mode-bot',
+    model: 'test/model',
+    permissionMode: 'invalid',
+    enabled: false,
+  });
+  assert.equal(invalidModeBot.permissionMode, 'approve_for_me', 'invalid creation values use the safe default');
+  assert.equal(bot.permissionMode, 'approve_for_me', 'new bots retain the existing approval mode');
+  assert.equal(updateBot(bot.id, { permissionMode: 'full_access' }).permissionMode, 'full_access');
+  assert.equal(getBot(bot.id).permissionMode, 'full_access', 'permission mode survives a fresh read');
+  assert.equal(updateBot(bot.id, { name: bot.name }).permissionMode, 'full_access', 'unrelated changes preserve permission mode');
+  for (const permissionMode of ['invalid', 'ask_for_approval', null, 'approve_for_me']) {
+    assert.equal(updateBot(bot.id, { permissionMode }).permissionMode, 'approve_for_me');
+  }
   assert.equal(bot.enabled, true, 'new bots are enabled by default');
   assert.deepEqual(bot.workQueue, [], 'new bots have an empty work queue by default');
   const configured = updateBot(bot.id, {
@@ -167,7 +184,25 @@ try {
   );
   setBotSchedulerSnoozeUntil(null);
 
-  console.log('Bot enabled and Snooze database tests passed.');
+  database.closeDatabase();
+  const legacy = new DatabaseSync(join(resolvedProfile, '.aivax', 'aivax.sqlite'));
+  legacy.prepare('UPDATE bots SET permission_mode = ? WHERE id = ?').run('invalid', bot.id);
+  legacy.close();
+  database = await import('../src/main/database.js?permission-normalization');
+  assert.equal(database.getBot(bot.id).permissionMode, 'approve_for_me', 'invalid stored modes use the safe default');
+  database.closeDatabase();
+  const legacySchema = new DatabaseSync(join(resolvedProfile, '.aivax', 'aivax.sqlite'));
+  legacySchema.exec('ALTER TABLE bots DROP COLUMN permission_mode');
+  legacySchema.close();
+  database = await import('../src/main/database.js?permission-migration');
+  assert.equal(database.getBot(bot.id).permissionMode, 'approve_for_me', 'existing bots migrate to the safe default');
+  assert.equal(database.getBot(bot.id).name, bot.name, 'migration preserves existing configuration');
+  database.updateBot(bot.id, { permissionMode: 'full_access' });
+  database.closeDatabase();
+  database = await import('../src/main/database.js?permission-reopen');
+  assert.equal(database.getBot(bot.id).permissionMode, 'full_access', 'reopening preserves an explicit permission choice');
+
+  console.log('Bot enabled, Snooze, and permission migration database tests passed.');
 } finally {
   database?.closeDatabase();
   rmSync(resolvedProfile, { recursive: true, force: true });

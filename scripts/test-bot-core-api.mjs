@@ -45,10 +45,15 @@ try {
   const handle = await avi.bots.create({
     name: 'Inbox test',
     model: 'test:model',
+    permissionMode: 'full_access',
     workingFolder: join(profile, 'workspace'),
     enabled: false,
   });
   const bot = await handle.getSnapshot();
+  assert.equal(bot.permissionMode, 'full_access');
+  assert.equal((await handle.update({ permissionMode: 'approve_for_me' })).permissionMode, 'approve_for_me');
+  assert.equal((await handle.update({ permissionMode: 'full_access' })).permissionMode, 'full_access');
+  assert.equal((await handle.getSnapshot()).permissionMode, 'full_access');
   assert.equal(handle.workState, undefined);
   assert.deepEqual(await handle.inbox.list(), []);
   assert.deepEqual(await handle.activity.list(), []);
@@ -86,6 +91,7 @@ try {
   assert.equal(replied.item.messages.at(-1).role, 'user');
   assert.equal(requests[0].conversationId, bot.conversationId);
   assert.equal(requests[0].queuePriority, true);
+  assert.equal(requests[0].permissionMode, 'full_access');
   assert.deepEqual(requests[0].attachments, attachments);
   assert.deepEqual(replied.item.messages.at(-1).attachments, attachments);
   assert.match(requests[0].text, /<bot-pendency-update /);

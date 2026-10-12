@@ -95,12 +95,16 @@ try {
     workingFolder: workspace,
     instructions: 'Coordinate release readiness.',
     activationMode: 'smart',
+    permissionMode: 'full_access',
     activationPeriodMinutes: 15,
     workQueue: ['Review releases & risks', 'Triage failures'],
     enabled: false,
   }, context);
   assert.equal(created.bot.name, 'Release coordinator');
   assert.equal(created.bot.enabled, false);
+  assert.equal(created.bot.permissionMode, 'full_access');
+  assert.deepEqual(tool('bots_create').inputSchema.properties.permissionMode.enum, ['approve_for_me', 'full_access']);
+  assert.deepEqual(tool('bots_update').inputSchema.properties.changes.properties.permissionMode.enum, ['approve_for_me', 'full_access']);
   assert.deepEqual(created.bot.workQueue, ['Review releases & risks', 'Triage failures']);
   assert.equal(getConversation(created.bot.conversationId).conversationType, 'bot');
 
@@ -114,6 +118,19 @@ try {
   }, context);
   assert.equal(updated.bot.name, 'Release manager');
   assert.equal(updated.bot.maxActivations, 4);
+  assert.equal(updated.bot.permissionMode, 'full_access', 'unrelated tool updates preserve permissions');
+  for (const permissionMode of ['approve_for_me', 'full_access']) {
+    const changed = await tool('bots_update').execute({ id: created.bot.id, changes: { permissionMode } }, context);
+    assert.equal(changed.bot.permissionMode, permissionMode);
+  }
+  const retryRequests = [];
+  chatRunner.retry = async (request) => {
+    retryRequests.push(request);
+    return { queued: true };
+  };
+  assert.equal(await botManager.resumeInterruptedRun(getBot(created.bot.id)), true);
+  assert.equal(retryRequests[0].permissionMode, 'full_access');
+  assert.equal(botManager.describeInvocationBot(created.bot.conversationId).permissionMode, 'full_access');
   assert.equal(getConversation(created.bot.conversationId).title, 'Release manager');
 
   const threadList = await tool('chat_list_threads').execute({ folderPath: workspace }, context);
@@ -141,6 +158,7 @@ try {
 
   const listed = await tool('bots_list').execute({}, context);
   const listedBot = listed.bots.find((bot) => bot.id === created.bot.id);
+  assert.equal(listedBot.permissionMode, 'full_access');
   assert.equal(listedBot.name, 'Release manager');
   assert.equal(listedBot.workThreads.length, 1);
   assert.equal(listedBot.workThreads[0].id, workThreadId);
@@ -154,6 +172,7 @@ try {
   });
   assert.equal(activationRequests.length, 1, 'explicit activation must run a disabled bot');
   assert.equal(activationRequests[0].conversationId, created.bot.conversationId);
+  assert.equal(activationRequests[0].permissionMode, 'full_access');
   assert.match(
     activationRequests[0].text,
     /<focus-task>Review releases &amp; risks<\/focus-task>/,
@@ -328,6 +347,7 @@ try {
   assert.equal(replyResult.item.messages.at(-1).content, 'Please proceed carefully.');
   assert.deepEqual(replyResult.item.messages.at(-1).attachments, []);
   const replyRequest = activationRequests.at(-1);
+  assert.equal(replyRequest.permissionMode, 'full_access');
   assert.equal(replyRequest.queuePriority, true);
   assert.equal(replyRequest.fromAgent, true);
   assert.match(replyRequest.text, new RegExp(`<bot-pendency-update id="${protectedPendency.id}"`));
@@ -390,6 +410,7 @@ try {
   assert.equal(resolved.pendencyId, approvalPendency.id);
   assert.equal(botManager.approvals.has(approvalId), false);
   const resolveRequest = activationRequests.at(-1);
+  assert.equal(resolveRequest.permissionMode, 'full_access');
   assert.equal(resolveRequest.queuePriority, true);
   assert.match(
     resolveRequest.text,

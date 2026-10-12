@@ -2,6 +2,9 @@
 
 ## [Canary]
 
+### Added
+- **Per-bot tool permissions** — choose **Approve for me** (the default for new and existing bots) or **Full access** in Bot settings → Schedule. The persisted `permissionMode` is available through Core, RPC, and MCP bot create/update/list operations and used for activations, restart resumptions, Inbox continuations, and bot-composer messages.
+
 ## [0.8.0] — 2026-10-05
 
 ### Added

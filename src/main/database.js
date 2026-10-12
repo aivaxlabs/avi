@@ -554,6 +554,9 @@ const botColumns = db.prepare("PRAGMA table_info('bots')").all();
 if (!botColumns.some((column) => column.name === 'execution_mode')) {
   db.exec('ALTER TABLE bots ADD COLUMN execution_mode TEXT');
 }
+if (!botColumns.some((column) => column.name === 'permission_mode')) {
+  db.exec("ALTER TABLE bots ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'approve_for_me'");
+}
 if (!botColumns.some((column) => column.name === 'active_assistant_message_id')) {
   db.exec('ALTER TABLE bots ADD COLUMN active_assistant_message_id TEXT');
 }
@@ -1090,14 +1093,14 @@ const statements = {
   insertBot: db.prepare(`
     INSERT INTO bots (
       id, conversation_id, name, icon_seed, personality, working_folder, model,
-      reasoning_effort, context_size, activation_period_minutes, activation_mode, execution_mode,
+      reasoning_effort, context_size, activation_period_minutes, activation_mode, execution_mode, permission_mode,
       max_activations, activation_window, instructions, work_queue, enabled, status,
       next_activation_at, idle_until, activation_count, work_queue_index,
       active_assistant_message_id, snooze_until, created_at, updated_at
     )
     VALUES (
       @id, @conversationId, @name, @iconSeed, @personality, @workingFolder, @model,
-      @reasoningEffort, @contextSize, @activationPeriodMinutes, @activationMode, @executionMode,
+      @reasoningEffort, @contextSize, @activationPeriodMinutes, @activationMode, @executionMode, @permissionMode,
       @maxActivations, @activationWindow, @instructions, @workQueue, @enabled, @status,
       @nextActivationAt, @idleUntil, @activationCount, @workQueueIndex,
       @activeAssistantMessageId, @snoozeUntil, @createdAt, @updatedAt
@@ -1115,6 +1118,7 @@ const statements = {
         activation_period_minutes = COALESCE(@activationPeriodMinutes, activation_period_minutes),
         activation_mode = COALESCE(@activationMode, activation_mode),
         execution_mode = CASE WHEN @executionModeChanged = 1 THEN @executionMode ELSE execution_mode END,
+        permission_mode = COALESCE(@permissionMode, permission_mode),
         max_activations = COALESCE(@maxActivations, max_activations),
         activation_window = COALESCE(@activationWindow, activation_window),
         instructions = COALESCE(@instructions, instructions),
@@ -2228,6 +2232,7 @@ function mapBot(row) {
     maxActivations: Math.max(0, Number(row.max_activations) || 0),
     activationWindow: normalizeActivationWindow(row.activation_window),
     executionMode: row.execution_mode || null,
+    permissionMode: row.permission_mode === 'full_access' ? 'full_access' : 'approve_for_me',
     instructions: row.instructions || '',
     workQueue,
     workQueueIndex: workQueue.length > 0
@@ -2257,6 +2262,7 @@ export function createBot({
   activationPeriodMinutes = 10,
   activationMode = 'static',
   executionMode = null,
+  permissionMode = 'approve_for_me',
   maxActivations = 10,
   activationWindow = {},
   instructions = '',
@@ -2282,6 +2288,7 @@ export function createBot({
     activationPeriodMinutes: Math.max(1, Number(activationPeriodMinutes) || 10),
     activationMode: botActivationModes.includes(activationMode) ? activationMode : 'static',
     executionMode,
+    permissionMode: permissionMode === 'full_access' ? 'full_access' : 'approve_for_me',
     maxActivations: Math.max(0, Number(maxActivations) || 0),
     activationWindow: stringify(normalizeActivationWindow(activationWindow)),
     instructions: String(instructions ?? ''),
@@ -2328,6 +2335,9 @@ export function updateBot(id, changes = {}) {
     activationMode: changes.activationMode ?? null,
     executionMode: changes.executionMode ?? null,
     executionModeChanged: changed('executionMode'),
+    permissionMode: changes.permissionMode === undefined
+      ? null
+      : changes.permissionMode === 'full_access' ? 'full_access' : 'approve_for_me',
     maxActivations: changes.maxActivations ?? null,
     activationWindow: changes.activationWindow === undefined
       ? null

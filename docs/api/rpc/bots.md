@@ -10,7 +10,7 @@ Bot methods are available only on the global `WS /rpc` endpoint. Scalar bot IDs 
 
 `bots:list` additionally exposes `queued`, `effectiveExecutionMode`, and distinct `scheduleState` values `queued` and `outside-window`. These are activation admission states, not model inference. `bots:activate` can return `{ queued: true, reason }` instead of true when deferred; null means it did not start. Requests are deduplicated and do not create assistant placeholders until admitted. Global restrictions never gate existing work or restart resumptions. Pending requests are in-memory and do not survive restart.
 
-Bot create/update accepts `executionMode: "direct" | "orchestrator" | null`; null inherits the global default.
+Bot create/update accepts `executionMode: "direct" | "orchestrator" | null`; null inherits the global default. It also accepts `permissionMode: "approve_for_me" | "full_access"`; new/migrated bots and invalid values default to `approve_for_me`, and omitted update fields preserve the stored value. Full access skips automatic tool approvals, including destructive tools, for new activations, restart resumptions, Inbox continuations, and bot-composer messages. Existing turns and pending approvals are unchanged; generic `chat:send`/`chat:retry` retain their per-call permission contract.
 
 ## Bot response types
 
@@ -39,6 +39,7 @@ The stored bot record returned by `bots:create` and `bots:update`.
 | `contextSize` | number \| null | Context-window override. |
 | `activationPeriodMinutes` | number | Minutes between activation checks; at least 1. |
 | `activationMode` | `"static"` \| `"smart"` | Periodic activation strategy. |
+| `permissionMode` | `"approve_for_me"` \| `"full_access"` | Persisted tool approval mode; defaults to `"approve_for_me"`. |
 | `maxActivations` | number | Consecutive activation limit; 0 disables the limit. |
 | `activationWindow` | object | Local-time schedule window. `days` contains unique weekday numbers from 0 (Sunday) through 6; `startMinute` and `endMinute` are nullable minutes from midnight. |
 | `instructions` | string | Responsibilities and boundaries injected into activations. |
@@ -210,6 +211,7 @@ Creates a bot and its main thread.
 | `contextSize` | number \| null | No | Context-window override. |
 | `activationPeriodMinutes` | number | No | Minutes between checks. Defaults to 10 and must be at least 1. |
 | `activationMode` | `"static"` \| `"smart"` | No | Defaults to `"static"`. |
+| `permissionMode` | `"approve_for_me"` \| `"full_access"` | No | Defaults to `"approve_for_me"`; invalid values use the default. |
 | `maxActivations` | number | No | Consecutive activation limit. Defaults to 10; 0 disables it. |
 | `activationWindow` | object | No | Local-time schedule `{ days?, startMinute?, endMinute? }`. Weekdays are 0–6 and minutes are 0–1439 or `null`. |
 | `instructions` | string | No | Responsibilities, priorities, and boundaries. |

@@ -106,6 +106,7 @@ export const dynamicContextInjectors = new Map([
       `Bot data folder: ${bot.dataFolder}`,
       `Memory, Inbox, and Activity files: ${bot.workFiles.join(', ')} (in the bot data folder; manage JSON state only through bot_pendency_*, bot_pendencies_list, and bot_activity_append tools)`,
       `Activation mode: ${bot.activationMode} (every ${bot.activationPeriodMinutes} minutes)`,
+      `Permission mode: ${bot.permissionMode === 'full_access' ? 'Full access (run tool calls without approval)' : 'Approve for me (ask only before destructive actions)'}`,
       bot.executionMode === 'direct'
         ? 'Execution mode: direct. Perform most work in this bot conversation; delegate only independent supporting work.'
         : 'Execution mode: orchestrator. Delegate most implementation work to work threads and coordinate their results.',
