@@ -52,6 +52,9 @@ const BOT_UPDATE_PROPERTIES = Object.freeze({
 });
 
 function normalizeBotConfigInput(input) {
+  if (Object.prototype.hasOwnProperty.call(input, 'permissionMode')) {
+    throw new Error('Bot permission mode cannot be changed through agent tools. Use Bot settings.');
+  }
   const normalized = { ...input };
   for (const key of ['personality', 'workingFolder', 'reasoningEffort']) {
     if (normalized[key] === '') normalized[key] = null;
@@ -96,6 +99,7 @@ export const botTools = [
           scheduleState: bot.scheduleState,
           queued: bot.queued,
           executionMode: bot.executionMode,
+          permissionMode: bot.permissionMode,
           effectiveExecutionMode: bot.effectiveExecutionMode,
           activationMode: bot.activationMode,
           activationPeriodMinutes: bot.activationPeriodMinutes,

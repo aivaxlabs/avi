@@ -12,6 +12,8 @@ import {
   RotateCcw,
   Save,
   Server,
+  ShieldCheck,
+  ShieldOff,
   Trash2,
   UserRound,
   X,
@@ -86,6 +88,7 @@ export function BotSettingsDialog({
     activationPeriodUnit: initialPeriodUnit,
     activationMode: bot?.activationMode ?? 'static',
     executionMode: bot?.executionMode ?? '',
+    permissionMode: bot?.permissionMode === 'full_access' ? 'full_access' : 'approve_for_me',
     enabled: bot?.enabled !== false,
     maxActivationsEnabled: (bot?.maxActivations ?? 10) > 0,
     maxActivations: bot?.maxActivations > 0 ? bot.maxActivations : 10,
@@ -159,6 +162,7 @@ export function BotSettingsDialog({
         ),
         activationMode: draft.activationMode,
         executionMode: draft.executionMode || null,
+        permissionMode: draft.permissionMode,
         enabled: draft.enabled,
         maxActivations: draft.maxActivationsEnabled
           ? Math.max(1, Number(draft.maxActivations) || 10)
@@ -616,6 +620,34 @@ export function BotSettingsDialog({
                       </select>
                     </span>
                   </label>
+                </section>
+
+                <section className="bot-settings-section">
+                  <header>
+                    <h3>Tool permissions</h3>
+                    <p>Full access skips tool approvals, including destructive actions. Changes apply to new turns after saving.</p>
+                  </header>
+                  <fieldset className="bot-settings-choices" disabled={saving}>
+                    <legend className="sr-only">Permission mode</legend>
+                    {[
+                      { id: 'approve_for_me', label: 'Approve for me', description: 'Ask only before destructive actions', icon: ShieldCheck },
+                      { id: 'full_access', label: 'Full access', description: 'Run tool calls without approval', icon: ShieldOff },
+                    ].map(({ id, label, description, icon: Icon }) => (
+                      <label key={id} className={classNames('bot-settings-choice', draft.permissionMode === id && 'active')}>
+                        <input
+                          type="radio"
+                          name="bot-permission-mode"
+                          checked={draft.permissionMode === id}
+                          onChange={() => update({ permissionMode: id })}
+                        />
+                        <Icon size={16} aria-hidden="true" />
+                        <span>
+                          <strong>{label}</strong>
+                          <small>{description}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </fieldset>
                 </section>
 
                 <section className="bot-settings-section">

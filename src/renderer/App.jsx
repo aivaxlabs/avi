@@ -1346,7 +1346,7 @@ export default function App() {
     if (activeBot) {
       model = activeBot.model;
       reasoningEffort = activeBot.reasoningEffort;
-      permissionMode = 'approve_for_me';
+      permissionMode = activeBot.permissionMode;
       messageWorkMode = null;
       messageUltraMode = false;
     }

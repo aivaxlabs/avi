@@ -7,6 +7,9 @@ const composerSource = readFileSync(
   'utf8',
 );
 
+const appSource = readFileSync(new URL('../src/renderer/App.jsx', import.meta.url), 'utf8');
+assert.match(appSource, /permissionMode = activeBot\.permissionMode;/);
+
 for (const commandId of ['ultra', 'plan', 'goal', 'efforts', 'models']) {
   assert.equal(
     composerCommands.find(({ id }) => id === commandId)?.availableInBot,
@@ -41,4 +44,4 @@ assert.match(
 assert.doesNotMatch(composerSource, /tasks\.length > 0 && !botMode/);
 assert.doesNotMatch(composerSource, /subagents\.length > 0 && !botMode/);
 
-console.log('Bot composer strip and command availability tests passed.');
+console.log('Bot composer strip, permissions, and command availability tests passed.');

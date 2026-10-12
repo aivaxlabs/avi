@@ -6,6 +6,12 @@ The bots namespace delegates all state changes to BotManager, preserving schedul
 
 Global activation hours and simultaneous-activation capacity complement individual schedules. They gate only new automatic activations: explicit `activate()` calls start immediately, and existing turns, replies, restart resumptions and descendant threads continue. The RPC/MCP bot listing exposes `queued`, `scheduleState` (`queued` or `outside-window` when admission is deferred), and `effectiveExecutionMode`; Core handles retain the persisted snapshot shape. Create/update accepts `executionMode: 'direct' | 'orchestrator' | null`; null inherits the global default. Global settings and consumption statistics are available through the [Bots RPC methods](../rpc/bots.md).
 
+## Tool permissions
+
+Create/update accepts `permissionMode: 'approve_for_me' | 'full_access'`, exposed in bot snapshots. New and migrated bots default to `approve_for_me`; invalid values normalize to that default, while omitted update fields preserve the stored mode. `full_access` skips automatic tool approvals, including forced approvals for destructive tools. The setting applies to new activations, restart resumptions, Inbox continuations, and bot-composer messages; it does not change active turns or resolve pending approvals. Generic chat send/retry APIs retain their per-call permission contract.
+
+The Core API remains writable under `bots.manage`: installed plugins are trusted, unsandboxed main-process code, not untrusted agents. Plugins must not expose permission changes through model-callable tools or forward untrusted tool input to these methods. Built-in `bots_create`/`bots_update` reject `permissionMode`; the UI and authenticated application RPC retain write access.
+
 ## Namespace
 
 ```ts

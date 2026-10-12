@@ -17,6 +17,7 @@ const entry = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { SettingsPage } from '/src/renderer/components/SettingsPage.jsx';
+import { BotSettingsDialog } from '/src/renderer/components/BotSettingsDialog.jsx';
 import '/src/renderer/styles.css';
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -97,6 +98,17 @@ const rootNode = createRoot(document.getElementById('root'));
 window.__test.remount = () => {
   window.__test.renderKey += 1;
   rootNode.render(<SettingsPage key={window.__test.renderKey} {...settingsProps} />);
+};
+window.__test.botSaves = [];
+window.__test.mountBot = (permissionMode) => {
+  window.__test.renderKey += 1;
+  rootNode.render(<BotSettingsDialog
+    key={window.__test.renderKey}
+    bot={{ id: 'permission-test', name: 'Permission test', model: 'test:model', permissionMode }}
+    models={[{ id: 'test:model', name: 'Test model' }]}
+    onClose={() => {}}
+    onSave={async (config) => { window.__test.botSaves.push(config); }}
+  />);
 };
 window.__test.remount();
 `;
@@ -252,6 +264,32 @@ const checks = `(async () => {
   window.__test.remount();
   await wait(() => document.querySelector('#bots-panel-activation .settings-empty')?.textContent.includes('Settings data unavailable'), 'settings data error');
   check('Activation settings data error is exposed in the page', document.querySelector('#bots-panel-activation .settings-empty')?.textContent === 'Settings data unavailable');
+
+  window.__test.mountBot();
+  await wait(() => document.querySelector('#bot-settings-tab-schedule'), 'bot settings dialog');
+  document.querySelector('#bot-settings-tab-schedule').click();
+  await wait(() => document.querySelector('input[name="bot-permission-mode"]'), 'permission choices');
+  let choices = [...document.querySelectorAll('input[name="bot-permission-mode"]')];
+  check('New bot defaults to Approve for me', choices.length === 2 && choices[0].checked && !choices[1].checked);
+  choices[1].click();
+  await wait(() => choices[1].checked, 'Full access selection');
+  document.querySelector('#bot-settings-tab-profile').click();
+  document.querySelector('#bot-settings-tab-schedule').click();
+  await wait(() => document.querySelectorAll('input[name="bot-permission-mode"]')[1]?.checked, 'permission draft across tabs');
+  button('Save bot').click();
+  await wait(() => window.__test.botSaves.length === 1, 'bot save');
+  check('Save persists the selected Full access mode', window.__test.botSaves[0].permissionMode === 'full_access');
+  window.__test.mountBot(window.__test.botSaves[0].permissionMode);
+  await wait(() => document.querySelector('#bot-settings-tab-profile')?.getAttribute('aria-selected') === 'true', 'reopened bot dialog');
+  document.querySelector('#bot-settings-tab-schedule').click();
+  await wait(() => document.querySelector('input[name="bot-permission-mode"]'), 'reopened permission choices');
+  choices = [...document.querySelectorAll('input[name="bot-permission-mode"]')];
+  check('Reopening preserves Full access', choices[1].checked);
+  choices[0].click();
+  await wait(() => choices[0].checked, 'Approve for me selection');
+  button('Save bot').click();
+  await wait(() => window.__test.botSaves.length === 2, 'safe-mode save');
+  check('Bot can return to Approve for me', window.__test.botSaves[1].permissionMode === 'approve_for_me');
 
   return results;
 })()`;

@@ -429,6 +429,7 @@ try {
   for (const botOnlyMarker of [
     '--- BEGIN BOTS.md ---',
     `Bot data folder: ${path.join(root, '.avi-bots', 'bot-context-test')}`,
+    'Permission mode: Approve for me (ask only before destructive actions)',
     '# Global bot-only instructions',
     '# Avi bot-only instructions',
     'frontend/BOTS.md',
@@ -436,6 +437,19 @@ try {
   ]) {
     assert.ok(botInjected.includes(botOnlyMarker), `Bot context is missing: ${botOnlyMarker}`);
   }
+  const fullAccessBotContext = await resolveDynamicContext({
+    workspacePath: root,
+    installationContextPath: installationContextDirectory,
+    bot: {
+      id: 'full-access-bot',
+      name: 'Full access bot',
+      workingFolder: root,
+      dataFolder: root,
+      workFiles: [],
+      permissionMode: 'full_access',
+    },
+  });
+  assert.ok(fullAccessBotContext.includes('Permission mode: Full access (run tool calls without approval)'));
   for (const statusPolicyMarker of [
     'use `bot_pendencies_list` to read your Inbox',
     'When the activation contains `<focus-task>`',

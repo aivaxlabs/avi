@@ -20,7 +20,7 @@ Use the moon button beside **+** to snooze scheduled bot activations for 1 hour,
 
 Agents can read inbox messages and activity with `bots_read_work_log`, and reply to existing work logs with `bots_send_work_log_message`. `chat_overview` summarizes active threads, recently finished turns, and open bot inbox items. `bots_list` includes `workQueueItems` with zero-based IDs; pass `workQueueId` to `bots_activate` to focus that item once without advancing the recurring cursor. Refresh IDs after queue edits. Replies do not resolve approvals, and failed delivery may still leave a persisted message.
 
-Agents in normal threads, Quick Chat, and bot conversations can also manage bots with `bots_list`, `bots_create`, `bots_update`, `bots_delete`, and `bots_activate`. Select `/create-bot` in the composer for a guided setup that checks existing bots, defines the purpose and schedule, creates the bot, verifies its configuration, and optionally starts its first activation. `bots_delete` always requires approval, including in bot conversations.
+Agents in normal threads, Quick Chat, and bot conversations can also manage bots with `bots_list`, `bots_create`, `bots_update`, `bots_delete`, and `bots_activate`. Select `/create-bot` in the composer for a guided setup that checks existing bots, defines the purpose and schedule, creates the bot, verifies its configuration, and optionally starts its first activation. `bots_delete` requires approval unless the calling conversation uses **Full access**.
 
 ### Cross-bot Inbox access
 
@@ -60,6 +60,7 @@ Settings are organized by the decisions they control:
 
 - **Enable bot** — controls whether the bot may be activated. Disabled bots remain available in the sidebar and do not run automatically, but **Activate now** still runs them once.
 - **Frequency** — the interval between activations, set in minutes, hours, or days.
+- **Tool permissions** — **Approve for me** (default) preserves the existing approval behavior; **Full access** runs tool calls without approval, including destructive actions. Save to apply the choice to new activations, restart resumptions, Inbox continuations, and messages sent from the bot composer. Existing turns and pending approvals are not changed.
 - **Pause behavior**:
   - **Always on schedule** — runs at every interval while allowed.
   - **Pause when idle** — can sleep for four periods when there is no relevant work, too much waits for review, or too much waits for your approval.
@@ -121,7 +122,9 @@ The root bot acts as a central orchestrator and can supervise shared capacity ac
 
 ## Approvals and the Bots panel
 
-Bot permission handling is a special "approve for me" mode based on the authority already granted, not merely the category of work:
+Each bot has its own permission mode under **Bot settings → Schedule → Tool permissions**. Existing and new bots default to **Approve for me**. Agent tools can read the mode but cannot change it or create bots with Full access; choose it through Bot settings. **Full access** skips automatic tool approval prompts, including tools marked as requiring approval; it does not grant authority beyond the bot's instructions or resolve existing protected Inbox approvals.
+
+In **Approve for me**, permission handling is based on the authority already granted, not merely the category of work:
 
 - The user's current request and the bot's recurring owner instructions authorize the stated outcome and its ordinary local completion steps. Editing, rewriting, implementing, building, testing, regenerating, and validating within that scope do not require another approval.
 - The bot queues approval only for a materially new decision or action outside that authority with meaningful external, irreversible, financial, credential, privacy, production, or destructive impact, such as an unrequested publish, deploy, push, merge, external message, secret access, purchase, production mutation, or broad deletion.
