@@ -95,16 +95,29 @@ try {
     workingFolder: workspace,
     instructions: 'Coordinate release readiness.',
     activationMode: 'smart',
-    permissionMode: 'full_access',
     activationPeriodMinutes: 15,
     workQueue: ['Review releases & risks', 'Triage failures'],
     enabled: false,
   }, context);
   assert.equal(created.bot.name, 'Release coordinator');
   assert.equal(created.bot.enabled, false);
-  assert.equal(created.bot.permissionMode, 'full_access');
-  assert.deepEqual(tool('bots_create').inputSchema.properties.permissionMode.enum, ['approve_for_me', 'full_access']);
-  assert.deepEqual(tool('bots_update').inputSchema.properties.changes.properties.permissionMode.enum, ['approve_for_me', 'full_access']);
+  assert.equal(created.bot.permissionMode, 'approve_for_me');
+  assert.equal(tool('bots_create').inputSchema.properties.permissionMode, undefined);
+  assert.equal(tool('bots_update').inputSchema.properties.changes.properties.permissionMode, undefined);
+  const botCount = botManager.describeBots().length;
+  await assert.rejects(
+    () => tool('bots_create').execute({ name: 'Escalation', model: model.id, permissionMode: 'full_access' }, context),
+    /permission mode cannot be changed through agent tools/,
+  );
+  assert.equal(botManager.describeBots().length, botCount, 'rejected creation has no side effects');
+  for (const caller of [context, { ...context, botRuntime: { bot: created.bot } }]) {
+    await assert.rejects(
+      () => tool('bots_update').execute({ id: created.bot.id, changes: { permissionMode: 'full_access' } }, caller),
+      /permission mode cannot be changed through agent tools/,
+    );
+    assert.equal(getBot(created.bot.id).permissionMode, 'approve_for_me', 'agent tools cannot escalate permissions');
+  }
+  await botManager.updateBotConfig(created.bot.id, { permissionMode: 'full_access' });
   assert.deepEqual(created.bot.workQueue, ['Review releases & risks', 'Triage failures']);
   assert.equal(getConversation(created.bot.conversationId).conversationType, 'bot');
 
@@ -119,10 +132,6 @@ try {
   assert.equal(updated.bot.name, 'Release manager');
   assert.equal(updated.bot.maxActivations, 4);
   assert.equal(updated.bot.permissionMode, 'full_access', 'unrelated tool updates preserve permissions');
-  for (const permissionMode of ['approve_for_me', 'full_access']) {
-    const changed = await tool('bots_update').execute({ id: created.bot.id, changes: { permissionMode } }, context);
-    assert.equal(changed.bot.permissionMode, permissionMode);
-  }
   const retryRequests = [];
   chatRunner.retry = async (request) => {
     retryRequests.push(request);

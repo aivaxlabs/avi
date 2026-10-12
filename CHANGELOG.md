@@ -3,7 +3,10 @@
 ## [Canary]
 
 ### Added
-- **Per-bot tool permissions** — choose **Approve for me** (the default for new and existing bots) or **Full access** in Bot settings → Schedule. The persisted `permissionMode` is available through Core, RPC, and MCP bot create/update/list operations and used for activations, restart resumptions, Inbox continuations, and bot-composer messages.
+- **Per-bot tool permissions** — choose **Approve for me** (the default for new and existing bots) or **Full access** in Bot settings → Schedule. The persisted `permissionMode` is writable through Core/RPC and read-only through agent tools (MCP) and used for activations, restart resumptions, Inbox continuations, and bot-composer messages.
+
+### Fixed
+- Agent bot-management tools reject writes to `permissionMode`, preventing bots from granting Full access to themselves or other bots. The field remains readable; permission changes stay in Bot settings and trusted application APIs.
 
 ## [0.8.0] — 2026-10-05
 

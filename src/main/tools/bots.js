@@ -18,7 +18,6 @@ const BOT_CONFIG_PROPERTIES = Object.freeze({
   activationPeriodMinutes: { type: 'integer', minimum: 1, description: 'Minutes between automatic activation checks.' },
   activationMode: { type: 'string', enum: ['static', 'smart'], description: 'Static activates every period; smart can idle when no useful work remains.' },
   executionMode: { type: 'string', enum: ['inherit', 'direct', 'orchestrator'], description: 'Use inherit for the global execution mode.' },
-  permissionMode: { type: 'string', enum: ['approve_for_me', 'full_access'], description: 'Tool approval mode. Defaults to approve_for_me; full_access runs tools without approval, including destructive actions.' },
   maxActivations: { type: 'integer', minimum: 0, description: 'Consecutive activation limit before a cooldown; 0 disables the limit.' },
   activationWindow: {
     type: 'object',
@@ -53,6 +52,9 @@ const BOT_UPDATE_PROPERTIES = Object.freeze({
 });
 
 function normalizeBotConfigInput(input) {
+  if (Object.prototype.hasOwnProperty.call(input, 'permissionMode')) {
+    throw new Error('Bot permission mode cannot be changed through agent tools. Use Bot settings.');
+  }
   const normalized = { ...input };
   for (const key of ['personality', 'workingFolder', 'reasoningEffort']) {
     if (normalized[key] === '') normalized[key] = null;

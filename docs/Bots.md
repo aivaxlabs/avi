@@ -122,7 +122,7 @@ The root bot acts as a central orchestrator and can supervise shared capacity ac
 
 ## Approvals and the Bots panel
 
-Each bot has its own permission mode under **Bot settings → Schedule → Tool permissions**. Existing and new bots default to **Approve for me**. **Full access** skips automatic tool approval prompts, including tools marked as requiring approval; it does not grant authority beyond the bot's instructions or resolve existing protected Inbox approvals.
+Each bot has its own permission mode under **Bot settings → Schedule → Tool permissions**. Existing and new bots default to **Approve for me**. Agent tools can read the mode but cannot change it or create bots with Full access; choose it through Bot settings. **Full access** skips automatic tool approval prompts, including tools marked as requiring approval; it does not grant authority beyond the bot's instructions or resolve existing protected Inbox approvals.
 
 In **Approve for me**, permission handling is based on the authority already granted, not merely the category of work:
 
