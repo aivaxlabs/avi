@@ -1,4 +1,4 @@
-.dialog-footer button {
+.dialog-footer button:not(.button) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -76,15 +76,68 @@
 }
 
 .search-dialog {
-  width: min(700px, 100%);
-  max-height: min(680px, 80vh);
-  grid-template-rows: auto minmax(0, 1fr);
+  width: min(720px, 100%);
+  height: min(600px, 78vh);
+  max-height: min(600px, 78vh);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0;
   padding: 0;
   overflow: hidden;
   background: --background-1;
-  border-color: rgb(127 127 127 / 18%);
-  border-radius: 20px;
+  border-color: --border-color;
+  border-radius: 16px;
   box-shadow: 0 24px 64px rgb(0 0 0 / 24%), 0 2px 8px rgb(0 0 0 / 10%);
+
+  kbd {
+    min-width: 20px;
+    padding: 1px 5px;
+    color: --text-3;
+    background: --background-3;
+    border: 1px solid --border-color;
+    border-radius: 5px;
+    font-family: inherit;
+    font-size: --font-xs;
+    text-align: center;
+  }
+
+  .search-dialog-header {
+    display: grid;
+    gap: 8px;
+    padding: 10px 10px 10px;
+    border-bottom: 1px solid --border-color;
+  }
+
+  .search-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 0 2px;
+
+    .select {
+      max-width: 220px;
+    }
+  }
+
+  .search-dialog-footer {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 16px;
+    color: --text-3;
+    font-size: --font-xs;
+    border-top: 1px solid --border-color;
+
+    span {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    @media (max-width: 560px) {
+      display: none;
+    }
+  }
 }
 
 .dialog-header {
@@ -125,8 +178,8 @@
 }
 
 .search-dialog .dialog-search {
-  min-height: 52px;
-  margin: 10px;
+  min-height: 46px;
+  margin: 0;
   gap: 10px;
   padding: 0 14px;
   color: --text-3;
@@ -134,26 +187,20 @@
   border: 1px solid --border-color;
   border-radius: 11px;
 
+  &:focus-within {
+    border-color: --control-focus-ring;
+  }
+
   input {
     min-width: 0;
     height: 100%;
     color: --text-1;
-    font-size: 1.1rem;
+    font-size: --font-lg;
     caret-color: --text-1;
 
     &::placeholder {
       color: --text-3;
     }
-  }
-
-  kbd {
-    padding: 2px 6px;
-    color: --text-3;
-    background: --background-3;
-    border: 1px solid --border-color;
-    border-radius: 6px;
-    font-family: inherit;
-    font-size: .9rem;
   }
 
   .search-spinner {
@@ -246,22 +293,6 @@
         min-width: 0;
         font-size: --font-sm;
 
-        > input {
-          box-sizing: border-box;
-          width: 100%;
-          padding: 8px 10px;
-          color: --text-1;
-          background: --background-0;
-          border: 1px solid --border-color;
-          border-radius: 6px;
-          font: inherit;
-
-          &:focus-visible {
-            outline: 2px solid --text-3;
-            outline-offset: 2px;
-          }
-        }
-
         > span {
           overflow-wrap: anywhere;
           color: --text-3;
@@ -313,20 +344,6 @@
         > label {
           gap: 2px;
 
-          > input {
-            padding: 4px 6px;
-            margin-left: -7px;
-            background: transparent;
-            border-color: transparent;
-            font-weight: 500;
-
-            &:hover,
-            &:focus {
-              border-color: --border-color;
-              background: --background-0;
-            }
-          }
-
           > span {
             white-space: nowrap;
             overflow: hidden;
@@ -350,44 +367,8 @@
       padding: 12px 20px;
       border-top: 1px solid --border-color;
 
-      > button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        min-height: 32px;
-        padding: 6px 10px;
-        border: 1px solid transparent;
-        border-radius: 6px;
-        color: --text-2;
-        background: transparent;
-        font: inherit;
-        font-size: --font-sm;
-        cursor: pointer;
-
-        &:hover:not(:disabled) {
-          background: --item-hover;
-        }
-
-        &:disabled {
-          opacity: .5;
-          cursor: default;
-        }
-
-        &.workspace-add {
-          margin-right: auto;
-          border-color: --border-color;
-        }
-
-        &.workspace-submit {
-          background: --text-1;
-          color: --background-0;
-          font-weight: 500;
-
-          &:hover:not(:disabled) {
-            background: --text-2;
-          }
-        }
+      > .workspace-add {
+        margin-right: auto;
       }
     }
   }
@@ -424,22 +405,6 @@
   border: 1px solid --border-color;
   border-radius: 8px;
 
-  input {
-    width: 100%;
-    padding: 5px 8px;
-    color: --text-1;
-    background: --background-0;
-    border: 1px solid --border-color;
-    border-radius: 6px;
-    font: inherit;
-    font-size: 1rem;
-
-    &:focus-visible {
-      outline: 2px solid --text-3;
-      outline-offset: 1px;
-    }
-  }
-
   .icon-button.danger:hover {
     color: --danger-color;
     background: --item-hover;
@@ -475,30 +440,7 @@
 }
 
 .tags-dialog-add {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
   width: 100%;
-  padding: 8px;
-  color: --text-3;
-  background: transparent;
-  border: 1px dashed --border-color;
-  border-radius: 8px;
-  font-size: 1rem;
-  transition: color 180ms var(--base-transition),
-    background 180ms var(--base-transition);
-
-  &:hover,
-  &:focus-visible {
-    color: --text-1;
-    background: --item-hover;
-  }
-
-  &:focus-visible {
-    outline: 2px solid --text-3;
-    outline-offset: 1px;
-  }
 }
 
 .tags-dialog .dialog-footer {
@@ -507,11 +449,6 @@
   > div {
     display: flex;
     gap: 7px;
-  }
-
-  button:disabled {
-    opacity: .5;
-    cursor: wait;
   }
 }
 
@@ -625,26 +562,26 @@
   min-height: 0;
   display: grid;
   align-content: start;
-  gap: 4px;
-  padding: 0 10px 10px;
+  gap: 2px;
+  padding: 4px 8px 8px;
   overflow: auto;
 
   .search-results-label {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 8px 8px 5px;
+    gap: 6px;
+    padding: 8px 10px 4px;
     color: --text-3;
-    font-size: .9rem;
+    font-size: --font-xs;
     font-weight: 500;
 
     span {
       min-width: 20px;
-      padding: 1px 6px;
+      padding: 0 6px;
       background: --background-3;
       border-radius: 999px;
       text-align: center;
-      font-size: .9rem;
+      font-variant-numeric: tabular-nums;
     }
   }
 
@@ -652,27 +589,38 @@
     width: 100%;
     min-width: 0;
     display: grid;
-    grid-template-columns: 24px minmax(0, 1fr);
+    grid-template-columns: 18px minmax(0, 1fr);
     align-items: start;
     gap: 10px;
-    min-height: 62px;
-    padding: 10px 12px;
+    padding: 9px 10px;
     text-align: left;
     color: --text-1;
     background: transparent;
     border: 1px solid transparent;
     border-radius: 10px;
-    transition: background 120ms --base-transition, border-color 120ms --base-transition;
+    transition: background var(--duration-quick) var(--ease-smooth-out),
+      border-color var(--duration-quick) var(--ease-smooth-out);
 
-    &:hover,
     &.active {
       background: --item-hover;
       border-color: --border-color;
+
+      .search-result-icon {
+        color: --text-1;
+      }
+
+      .search-result-folder {
+        background: --background-4;
+      }
     }
 
     &:focus-visible {
-      outline: 2px solid --text-3;
+      outline: 2px solid --control-focus-ring;
       outline-offset: -2px;
+    }
+
+    mark {
+      border-radius: 3px;
     }
 
     .search-result-icon {
@@ -683,7 +631,7 @@
     .search-result-copy {
       min-width: 0;
       display: grid;
-      gap: 4px;
+      gap: 3px;
     }
 
     .search-result-heading {
@@ -695,32 +643,68 @@
       strong {
         min-width: 0;
         overflow: hidden;
-        font-size: 1rem;
-        font-weight: 600;
+        font-size: --font-md;
+        font-weight: 500;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
-      small {
+      .search-result-folder {
         flex: 0 1 auto;
-        max-width: 34%;
+        max-width: 30%;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
         overflow: hidden;
-        padding: 2px 6px;
+        padding: 0 7px;
         color: --text-3;
         background: --background-3;
         border-radius: 999px;
-        font-size: .9rem;
+        font-size: --font-xs;
         text-overflow: ellipsis;
         white-space: nowrap;
       }
 
-      .search-result-age {
+      .search-result-folder-dot {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-radius: 50%;
+      }
+
+      .search-result-meta {
         margin-left: auto;
         flex: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
         color: --text-3;
-        font-size: .9rem;
-        font-variant-numeric: tabular-nums;
+        font-size: --font-xs;
         white-space: nowrap;
+      }
+
+      .search-result-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+
+        &.completion-indicator {
+          color: --success-color;
+        }
+
+        &.attention-indicator {
+          color: --warn-color;
+        }
+
+        &.run-spinner svg {
+          animation: search-dialog-spin 800ms linear infinite;
+        }
+      }
+
+      .search-result-age {
+        min-width: 28px;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
       }
     }
 
@@ -728,8 +712,8 @@
       min-width: 0;
       overflow: hidden;
       color: --text-3;
-      font-size: .9rem;
-      line-height: 1.35;
+      font-size: --font-sm;
+      line-height: 1.4;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
@@ -737,23 +721,25 @@
 
   @media (max-width: 560px) {
     button {
-      grid-template-columns: 20px minmax(0, 1fr);
-      min-height: 58px;
-      padding-inline: 9px;
+      padding-inline: 8px;
+
+      .search-result-heading .search-result-status {
+        font-size: 0;
+      }
     }
   }
 }
 
 .search-dialog .empty-list {
-  min-height: 108px;
+  min-height: 160px;
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 22px;
   color: --text-3;
   text-align: center;
-  font-size: .9rem;
+  font-size: --font-sm;
 }
 
 .provider-usages-backdrop,
@@ -842,19 +828,6 @@
 
     button {
       flex: 0 0 auto;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 4px 12px;
-      background: --background-4;
-      border-radius: 32px;
-      font-weight: 500;
-      font-size: --font-sm;
-
-      &:hover {
-        color: --text-1;
-        background: --item-hover;
-      }
     }
   }
 
@@ -962,20 +935,6 @@
   background: --background-1;
   border: 1px solid --border-color;
   border-radius: 10px;
-
-  > button,
-  .provider-reset-confirmation button {
-    padding: 4px 12px;
-    background: --background-4;
-    border-radius: 32px;
-    font-weight: 500;
-    font-size: --font-sm;
-
-    &:hover:not(:disabled) {
-      color: --text-1;
-      background: --item-hover;
-    }
-  }
 }
 
 .provider-reset-confirmation {
@@ -986,11 +945,6 @@
   > span {
     display: flex;
     gap: 6px;
-  }
-
-  .primary-mini {
-    color: --background-1;
-    background: --text-1;
   }
 }
 
@@ -1046,6 +1000,62 @@
   }
 }
 
+.long-text-backdrop {
+  z-index: 120;
+}
+
+.long-text-dialog {
+  width: min(860px, 100%);
+  height: min(640px, 86vh);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 18px;
+  color: --text-1;
+  background: --background-2;
+  border: 1px solid --border-color;
+  border-radius: 14px;
+  box-shadow: 0 28px 90px rgb(0 0 0 / 30%);
+
+  > .dialog-header {
+    align-items: center;
+
+    h2 {
+      margin: 0;
+    }
+  }
+
+  > .dialog-footer {
+    margin-top: 0;
+
+    > div {
+      display: flex;
+      gap: 6px;
+    }
+  }
+
+  @media (max-width: 700px) {
+    height: 100vh;
+    border: none;
+    border-radius: 0;
+  }
+}
+
+.long-text-surface {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid --border-color;
+  border-radius: 10px;
+
+  &:focus-within {
+    border-color: --control-focus-ring;
+  }
+}
+
+.long-text-editor {
+  height: 100%;
+}
+
 @keyframes dialog-backdrop-in {
   from {
     opacity: 0;
@@ -1097,5 +1107,9 @@
 
   .search-dialog .dialog-search .search-spinner {
     animation-duration: 1.6s;
+  }
+
+  .search-dialog .search-results .search-result-status.run-spinner svg {
+    animation: none;
   }
 }

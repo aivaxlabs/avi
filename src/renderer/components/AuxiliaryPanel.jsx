@@ -801,7 +801,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                   <label className="bot-work-selector">
                     <Bot size={18} aria-hidden="true" />
                     <span>Bot</span>
-                    <select value={selectedBot?.id ?? ''} onChange={(event) => { setSelectedPendencyId(null); onSelectBot(event.target.value); }}>
+                    <select className="select" value={selectedBot?.id ?? ''} onChange={(event) => { setSelectedPendencyId(null); onSelectBot(event.target.value); }}>
                       {bots.map((bot) => <option key={bot.id} value={bot.id}>{bot.name}</option>)}
                     </select>
                   </label>
@@ -842,11 +842,11 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                     )}
                     {!inboxOnly && !selectedBotError && (botPanelTab === 'activity' || !selectedPendency) && (
                       <div className="bot-inbox-filters">
-                        <label><span>Search {botPanelTab === 'inbox' ? 'Inbox' : 'Activity'}</span><input type="search" placeholder="Search" value={botQuery} onChange={(event) => setBotQuery(event.target.value)} /></label>
+                        <label><span>Search {botPanelTab === 'inbox' ? 'Inbox' : 'Activity'}</span><input className="input" type="search" placeholder="Search" value={botQuery} onChange={(event) => setBotQuery(event.target.value)} /></label>
                         {botPanelTab === 'inbox' ? (
-                          <label><span>Status</span><select value={inboxFilter} onChange={(event) => setInboxFilter(event.target.value)}><option value="all">All messages</option><option value="needs-user">Needs you</option><option value="open">Open</option><option value="completed">Completed</option></select></label>
+                          <label><span>Status</span><select className="select" value={inboxFilter} onChange={(event) => setInboxFilter(event.target.value)}><option value="all">All messages</option><option value="needs-user">Needs you</option><option value="open">Open</option><option value="completed">Completed</option></select></label>
                         ) : (
-                          <label><span>Category</span><select value={activityFilter} onChange={(event) => setActivityFilter(event.target.value)}><option value="all">All categories</option>{['progress', 'discovery', 'decision', 'completed', 'failure'].map((category) => <option key={category} value={category}>{category[0].toUpperCase() + category.slice(1)}</option>)}</select></label>
+                          <label><span>Category</span><select className="select" value={activityFilter} onChange={(event) => setActivityFilter(event.target.value)}><option value="all">All categories</option>{['progress', 'discovery', 'decision', 'completed', 'failure'].map((category) => <option key={category} value={category}>{category[0].toUpperCase() + category.slice(1)}</option>)}</select></label>
                         )}
                       </div>
                     )}
@@ -855,16 +855,16 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                       <section className="bot-inbox-detail" aria-labelledby="bot-pendency-title">
                         <div className="bot-inbox-history" ref={pendencyHistoryRef}>
                         <header>
-                          {!inboxOnly && <button type="button" onClick={() => {
+                          {!inboxOnly && <button className="button" type="button" onClick={() => {
                             setSelectedPendencyId(null);
                             queueMicrotask(() => document.getElementById(pendencyOpenerIdRef.current)?.focus());
                           }}><ArrowLeft size={15} aria-hidden="true" />Inbox</button>}
                           <span>{getBotPendencyStatusLabel(selectedPendency)}</span>
                           {selectedPendency.status === 'open' && <>
-                            <button className="bot-inbox-complete" type="button" disabled={pendencyBusy || Boolean(selectedPendency.approval)} title={selectedPendency.approval ? 'Resolve the approval first.' : undefined} onClick={() => actOnPendency('complete')}><Check size={14} aria-hidden="true" />Complete</button>
+                            <button className="button bot-inbox-complete" type="button" disabled={pendencyBusy || Boolean(selectedPendency.approval)} title={selectedPendency.approval ? 'Resolve the approval first.' : undefined} onClick={() => actOnPendency('complete')}><Check size={14} aria-hidden="true" />Complete</button>
                             <button
                               ref={pendencyMenuTriggerRef}
-                              className="bot-inbox-completion-menu-trigger"
+                              className="button bot-inbox-completion-menu-trigger"
                               type="button"
                               aria-label="More completion options"
                               title={selectedPendency.approval ? 'Resolve the approval first.' : 'More completion options'}
@@ -931,7 +931,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                             <strong><Shield size={15} aria-hidden="true" />Approval required</strong>
                             <p>{selectedPendency.approval.prompt}</p>
                             {selectedPendency.approval.kind === 'tool' && <><p><strong>Tool:</strong> {selectedPendency.approval.toolName}</p><p><strong>Workspace:</strong> {selectedPendency.approval.workspacePath || 'Not specified'}</p><pre>{JSON.stringify(selectedPendency.approval.input ?? null, null, 2)}</pre></>}
-                            <div><button type="button" disabled={pendencyBusy} onClick={() => actOnPendency('approve')}>Approve</button><button type="button" disabled={pendencyBusy} onClick={() => actOnPendency('deny')}>Deny</button></div>
+                            <div><button className="button" type="button" disabled={pendencyBusy} onClick={() => actOnPendency('approve')}>Approve</button><button className="button" type="button" disabled={pendencyBusy} onClick={() => actOnPendency('deny')}>Deny</button></div>
                           </section>
                         )}
                         </div>
@@ -945,7 +945,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                               if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.metaKey && !event.isComposing) { event.preventDefault(); void actOnPendency('reply'); }
                             }} />
                             <BotAttachments attachments={draft.attachments} onRemove={pendencyBusy ? undefined : (id) => updatePendencyDraft({ attachments: draft.attachments.filter((attachment) => attachment.id !== id) })} />
-                            <footer><button type="button" disabled={pendencyBusy} onClick={() => attachToPendency()}><Paperclip size={15} aria-hidden="true" />Attach</button><button type="submit" disabled={pendencyBusy || (!draft.content.trim() && !draft.attachments.length)}><Send size={14} aria-hidden="true" />{pendencyBusy ? 'Sending...' : 'Send reply'}</button></footer>
+                            <footer><button className="button" type="button" disabled={pendencyBusy} onClick={() => attachToPendency()}><Paperclip size={15} aria-hidden="true" />Attach</button><button className="button primary" type="submit" disabled={pendencyBusy || (!draft.content.trim() && !draft.attachments.length)}><Send size={14} aria-hidden="true" />{pendencyBusy ? 'Sending...' : 'Send reply'}</button></footer>
                           </form>
                         )}
                         <Presence when={selectionAction}>{(selectionAction) => createPortal(selectionAction.annotating ? (

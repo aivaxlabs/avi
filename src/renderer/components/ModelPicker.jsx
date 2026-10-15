@@ -223,7 +223,7 @@ export function ModelPicker({
           <div>
             <button
               type="button"
-              className="primary-mini"
+              className="button primary"
               disabled={!selectedModel}
               onClick={() => {
                 onChoose(selectedModel.id);
@@ -232,7 +232,7 @@ export function ModelPicker({
             >
               Use model
             </button>
-            <button type="button" onClick={onClose}>Cancel</button>
+            <button className="button" type="button" onClick={onClose}>Cancel</button>
           </div>
         </footer>
       </section>

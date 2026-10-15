@@ -21,6 +21,7 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { classNames } from '../lib/format.js';
+import { LongTextField } from './LongTextField.jsx';
 import { McpSettings } from './McpSettings.jsx';
 import { Overlay } from './Overlay.jsx';
 
@@ -287,7 +288,7 @@ export function BotSettingsDialog({
                     </div>
                     <label className="bot-settings-control grow">
                       <span>Name</span>
-                      <input
+                      <input className="input"
                         type="text"
                         value={draft.name}
                         maxLength={60}
@@ -304,7 +305,7 @@ export function BotSettingsDialog({
                   </header>
                   <label className="bot-settings-control">
                     <span>Personality</span>
-                    <select
+                    <select className="select"
                       value={draft.personality}
                       onChange={(event) => update({ personality: event.target.value })}
                     >
@@ -326,12 +327,15 @@ export function BotSettingsDialog({
                   </header>
                   <label className="bot-settings-control">
                     <span>Instructions</span>
-                    <textarea
+                    <LongTextField
+                      label="Instructions"
+                      language="plaintext"
                       value={draft.instructions}
                       placeholder="Review open work, identify gaps, and coordinate tasks that need attention"
-                      onChange={(event) => update({ instructions: event.target.value })}
+                      onChange={(instructions) => update({ instructions })}
+                      describedBy="bot-instructions-help"
                     />
-                    <small>These instructions are included in every activation.</small>
+                    <small id="bot-instructions-help">These instructions are included in every activation.</small>
                   </label>
                 </section>
                 <section className="bot-settings-section">
@@ -346,7 +350,7 @@ export function BotSettingsDialog({
                           <label className="sr-only" htmlFor={`bot-work-queue-${index}`}>
                             Work queue item {index + 1}
                           </label>
-                          <input
+                          <input className="input"
                             id={`bot-work-queue-${index}`}
                             type="text"
                             value={item.value}
@@ -414,7 +418,7 @@ export function BotSettingsDialog({
                     </p>
                   )}
                   <button
-                    className="bot-settings-work-queue-add"
+                    className="button bot-settings-work-queue-add"
                     type="button"
                     onClick={() => update({
                       workQueue: [...draft.workQueue, { id: crypto.randomUUID(), value: '' }],
@@ -433,19 +437,20 @@ export function BotSettingsDialog({
                   <div className="bot-settings-control">
                     <span>Working folder</span>
                     <div className="bot-settings-folder">
-                      <input
+                      <input className="input"
                         type="text"
                         value={draft.workingFolder}
                         placeholder="Dedicated bot folder"
                         readOnly
                         aria-label="Working folder"
                       />
-                      <button type="button" onClick={chooseFolder}>
+                      <button className="button" type="button" onClick={chooseFolder}>
                         <FolderOpen size={14} aria-hidden="true" />
                         Choose
                       </button>
                       {draft.workingFolder && (
                         <button
+                          className="button"
                           type="button"
                           title="Use the dedicated folder in ~/.aivax/bots"
                           onClick={() => update({ workingFolder: '' })}
@@ -471,7 +476,7 @@ export function BotSettingsDialog({
                   <>
                     <div className="bot-settings-mcp-toolbar">
                       {mcpNavigation?.backLabel === 'Back to servers' && (
-                        <button type="button" autoFocus onClick={mcpNavigation.onBack}>
+                        <button className="button" type="button" autoFocus onClick={mcpNavigation.onBack}>
                           <ArrowLeft size={14} aria-hidden="true" />
                           {mcpNavigation.backLabel}
                         </button>
@@ -481,7 +486,7 @@ export function BotSettingsDialog({
                       </span>
                       {mcpNavigation?.onAction && (
                         <button
-                          className="primary-mini"
+                          className="button"
                           type="button"
                           onClick={mcpNavigation.onAction}
                         >
@@ -519,7 +524,7 @@ export function BotSettingsDialog({
                   <div className="bot-settings-grid">
                     <label className="bot-settings-control">
                       <span>Model</span>
-                      <select
+                      <select className="select"
                         value={draft.model}
                         onChange={(event) => update({ model: event.target.value, reasoningEffort: '' })}
                       >
@@ -536,7 +541,7 @@ export function BotSettingsDialog({
                     </label>
                     <label className="bot-settings-control">
                       <span>Reasoning</span>
-                      <select
+                      <select className="select"
                         value={draft.reasoningEffort}
                         onChange={(event) => update({ reasoningEffort: event.target.value })}
                       >
@@ -555,7 +560,7 @@ export function BotSettingsDialog({
                   </header>
                   <label className="bot-settings-control bot-settings-context-size">
                     <span>Context size</span>
-                    <input
+                    <input className="input"
                       type="number"
                       min={1000}
                       step={1000}
@@ -577,7 +582,7 @@ export function BotSettingsDialog({
                       <strong>Enable bot</strong>
                       <small>Allow scheduled and manual activations.</small>
                     </span>
-                    <input
+                    <input className="toggle"
                       type="checkbox"
                       checked={draft.enabled}
                       onChange={(event) => update({ enabled: event.target.checked })}
@@ -593,13 +598,13 @@ export function BotSettingsDialog({
                   <label className="bot-settings-control bot-settings-period">
                     <span>Every</span>
                     <span className="bot-settings-number-unit">
-                      <input
+                      <input className="input"
                         type="number"
                         min={1}
                         value={draft.activationPeriod}
                         onChange={(event) => update({ activationPeriod: event.target.value })}
                       />
-                      <select
+                      <select className="select"
                         aria-label="Activation period unit"
                         value={draft.activationPeriodUnit}
                         onChange={(event) => {
@@ -657,7 +662,7 @@ export function BotSettingsDialog({
                   </header>
                   <label className="settings-field settings-field-wide">
                     <span>Execution mode</span>
-                    <select value={draft.executionMode} onChange={(event) => update({ executionMode: event.target.value })}>
+                    <select className="select" value={draft.executionMode} onChange={(event) => update({ executionMode: event.target.value })}>
                       <option value="">Use global default</option>
                       <option value="orchestrator">Orchestrator</option>
                       <option value="direct">Direct</option>
@@ -695,7 +700,7 @@ export function BotSettingsDialog({
                       <strong>Pause after repeated activations</strong>
                       <small>Pauses for four activation periods, then resumes automatically.</small>
                     </span>
-                    <input
+                    <input className="toggle"
                       type="checkbox"
                       checked={draft.maxActivationsEnabled}
                       onChange={(event) => update({ maxActivationsEnabled: event.target.checked })}
@@ -704,7 +709,7 @@ export function BotSettingsDialog({
                   {draft.maxActivationsEnabled && (
                     <label className="bot-settings-control bot-settings-inline-detail">
                       <span>Activations before sleep</span>
-                      <input
+                      <input className="input"
                         type="number"
                         min={1}
                         value={draft.maxActivations}
@@ -724,7 +729,7 @@ export function BotSettingsDialog({
                       <strong>Use a schedule window</strong>
                       <small>Restrict activations by day and time.</small>
                     </span>
-                    <input
+                    <input className="toggle"
                       type="checkbox"
                       checked={scheduleWindowEnabled}
                       onChange={(event) => setScheduleWindowEnabled(event.target.checked)}
@@ -755,7 +760,7 @@ export function BotSettingsDialog({
                       <div className="bot-settings-grid">
                         <label className="bot-settings-control">
                           <span>From</span>
-                          <input
+                          <input className="input"
                             type="time"
                             value={draft.windowStart}
                             onChange={(event) => update({ windowStart: event.target.value })}
@@ -763,7 +768,7 @@ export function BotSettingsDialog({
                         </label>
                         <label className="bot-settings-control">
                           <span>To</span>
-                          <input
+                          <input className="input"
                             type="time"
                             value={draft.windowEnd}
                             onChange={(event) => update({ windowEnd: event.target.value })}
@@ -787,7 +792,7 @@ export function BotSettingsDialog({
                   <label className="bot-settings-control">
                     <span>Bot data folder</span>
                     <input
-                      className="bot-settings-path"
+                      className="input"
                       type="text"
                       value={bot?.resolvedDataFolder ?? ''}
                       readOnly
@@ -805,7 +810,7 @@ export function BotSettingsDialog({
                       <strong>Bot conversation</strong>
                       <small>Messages are removed permanently. Its working state is kept.</small>
                     </span>
-                    <button type="button" className="danger" onClick={clearThread}>
+                    <button className="button danger" type="button" onClick={clearThread}>
                       <Trash2 size={14} aria-hidden="true" />
                       Clear conversation
                     </button>
@@ -815,7 +820,7 @@ export function BotSettingsDialog({
                       <strong>Full reset</strong>
                       <small>Deletes all bot-owned history, tracking, memory, approvals, and files while keeping its settings.</small>
                     </span>
-                    <button type="button" className="danger" onClick={fullReset}>
+                    <button className="button danger" type="button" onClick={fullReset}>
                       <RotateCcw size={14} aria-hidden="true" />
                       Full reset
                     </button>
@@ -829,8 +834,8 @@ export function BotSettingsDialog({
         {error && <p className="bot-settings-error" role="alert">{error}</p>}
         <footer className="dialog-footer">
           <div>
-            <button type="button" onClick={onClose}>Cancel</button>
-            <button className="primary-mini" type="button" disabled={saving} onClick={save}>
+            <button className="button" type="button" onClick={onClose}>Cancel</button>
+            <button className="button primary" type="button" disabled={saving} onClick={save}>
               <Save size={14} aria-hidden="true" />
               {saving ? 'Saving' : 'Save bot'}
             </button>

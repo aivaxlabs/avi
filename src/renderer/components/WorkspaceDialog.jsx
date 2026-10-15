@@ -57,7 +57,7 @@ export function WorkspaceDialog({ project = null, onClose, onSave }) {
         </div>
         <div className="workspace-dialog-body">
           <label>Workspace name
-            <input value={name} required maxLength={120} disabled={busy || Boolean(project)}
+            <input className="input" value={name} required maxLength={120} disabled={busy || Boolean(project)}
               onChange={(event) => setName(event.target.value)} />
           </label>
           <p className="workspace-location">~/.aivax/workspaces/{name.trim() || 'workspace-name'}</p>
@@ -68,7 +68,7 @@ export function WorkspaceDialog({ project = null, onClose, onSave }) {
             <div className="workspace-folder-row" key={folder.path}>
               <Folder size={17} aria-hidden="true" />
               <label>
-                <input aria-label={`Link name for ${folder.path}`} title="Edit link name" value={folder.name} required disabled={busy}
+                <input className="input" aria-label={`Link name for ${folder.path}`} title="Edit link name" value={folder.name} required disabled={busy}
                   onChange={(event) => setFolders((items) => items.map((item, position) => (
                     position === index ? { ...item, name: event.target.value } : item
                   )))} />
@@ -84,7 +84,7 @@ export function WorkspaceDialog({ project = null, onClose, onSave }) {
         </div>
         <p className="workspace-note">Removing a link keeps the original folder untouched.</p>
         <div className="workspace-dialog-footer">
-          <button className="workspace-add" type="button" disabled={busy || loading} onClick={async () => {
+          <button className="button workspace-add" type="button" disabled={busy || loading} onClick={async () => {
             setBusy(true);
             setError('');
             try {
@@ -97,8 +97,8 @@ export function WorkspaceDialog({ project = null, onClose, onSave }) {
               setBusy(false);
             }
           }}><Plus size={14} /> Add folder</button>
-          <button type="button" disabled={busy} onClick={onClose}>Cancel</button>
-          <button type="submit" className="workspace-submit" disabled={busy || loading || !name.trim()}>
+          <button className="button" type="button" disabled={busy} onClick={onClose}>Cancel</button>
+          <button type="submit" className="button primary" disabled={busy || loading || !name.trim()}>
             {busy ? 'Saving...' : project ? 'Save workspace' : 'Create workspace'}
           </button>
         </div>

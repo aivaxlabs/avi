@@ -93,22 +93,6 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-
-  button {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--text-2);
-    background: var(--background-3);
-
-    &:hover {
-      background: var(--item-hover);
-    }
-
-    &:active {
-      background: var(--item-active);
-    }
-  }
 }
 
 .mcp-status-dialog {
@@ -122,24 +106,6 @@
     align-items: start;
     justify-content: space-between;
     gap: 16px;
-
-    button {
-      width: 30px;
-      height: 30px;
-      padding: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--text-3);
-      background: transparent;
-      border-radius: 99px;
-      box-sizing: border-box;
-
-      &:hover {
-        color: var(--text-1);
-        background: var(--item-hover);
-      }
-    }
   }
 
   .mcp-dialog-actions {
@@ -223,25 +189,6 @@
   .mcp-settings {
     display: grid;
     gap: 18px;
-  }
-
-  .settings-field textarea {
-    grid-column: 2;
-    width: 100%;
-    min-width: 0;
-    min-height: 88px;
-    padding: 9px;
-    resize: vertical;
-    color: var(--text-1);
-    background: var(--background-2);
-    border: 1px solid var(--border-color);
-    border-radius: 7px;
-    outline: 0;
-    font: .9rem/1.5 var(--font-code);
-
-    &:focus {
-      border-color: var(--text-3);
-    }
   }
 
   .mcp-editor-actions {
@@ -379,6 +326,7 @@
       input,
       select,
       textarea,
+      > .long-text-button,
       small {
         grid-column: 1;
       }
@@ -410,10 +358,8 @@
   font-size: .9rem;
 }
 
-.mcp-dialog button:focus-visible,
 .mcp-progress:focus-visible,
-.settings-page .mcp-server-actions button:focus-visible,
-.settings-page .settings-field textarea:focus-visible {
+.settings-page .mcp-server-actions button:focus-visible {
   outline: 2px solid var(--text-3);
   outline-offset: 2px;
 }

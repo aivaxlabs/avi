@@ -139,11 +139,11 @@ const checks = `(async () => {
   check('Activation loading state is visible', document.querySelector('#bots-panel-activation .settings-empty')?.textContent.includes('Loading activation settings'));
   await wait(() => document.querySelector('#bots-panel-activation input[type="number"]'), 'activation settings');
   check('Settings data loaded through the mocked bridge', window.__test.settingsCalls === 1);
-  check('Footer portal is mounted by SettingsPage', Boolean(document.querySelector('footer.settings-actions .primary-mini')));
+  check('Footer portal is mounted by SettingsPage', Boolean(document.querySelector('footer.settings-actions .button.primary')));
   check('Statistics is not rendered while Activation settings is selected',
     getComputedStyle(document.getElementById('bots-panel-statistics')).display === 'none'
     && document.getElementById('bots-panel-statistics').getClientRects().length === 0);
-  check('Save starts disabled for a clean draft', document.querySelector('footer.settings-actions .primary-mini').disabled);
+  check('Save starts disabled for a clean draft', document.querySelector('footer.settings-actions .button.primary').disabled);
 
   const concurrent = document.querySelector('#bots-panel-activation input[type="number"]');
   setValue(concurrent, '8');
@@ -155,8 +155,8 @@ const checks = `(async () => {
     .find((item) => item.textContent.trim() === 'Mon').getAttribute('aria-pressed') === 'true', 'active Monday');
   setValue([...document.querySelectorAll('#bots-panel-activation input[type="time"]')][0], '09:00');
   setValue([...document.querySelectorAll('#bots-panel-activation input[type="time"]')][1], '17:00');
-  await wait(() => !document.querySelector('footer.settings-actions .primary-mini').disabled, 'dirty activation draft');
-  check('Activation draft editing enables save', document.querySelector('footer.settings-actions .primary-mini').disabled === false);
+  await wait(() => !document.querySelector('footer.settings-actions .button.primary').disabled, 'dirty activation draft');
+  check('Activation draft editing enables save', document.querySelector('footer.settings-actions .button.primary').disabled === false);
   check('Edited activation values are rendered', concurrent.value === '8' && document.querySelector('#bots-panel-activation select').value === 'direct');
   check('Edited activation window is rendered', document.querySelector('#bots-panel-activation input[type="checkbox"]').checked
     && [...document.querySelectorAll('#bots-panel-activation [role="group"] button')].find((item) => item.textContent.trim() === 'Mon').getAttribute('aria-pressed') === 'true'
@@ -251,7 +251,7 @@ const checks = `(async () => {
   check('Save success notice is rendered', document.querySelector('footer.settings-actions').textContent.includes('Activation settings saved.'));
 
   setValue(document.querySelector('#bots-panel-activation input[type="number"]'), '9');
-  await wait(() => !document.querySelector('footer.settings-actions .primary-mini').disabled, 'dirty draft before failed save');
+  await wait(() => !document.querySelector('footer.settings-actions .button.primary').disabled, 'dirty draft before failed save');
   window.__test.mode = 'save-error';
   button('Save changes', document.querySelector('footer.settings-actions')).click();
   await wait(() => document.querySelector('footer.settings-actions [role="alert"]')?.textContent.includes('Save activation settings failed'), 'failed save');

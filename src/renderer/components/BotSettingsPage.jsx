@@ -76,13 +76,13 @@ export function BotSettingsPage({ footerTarget }) {
           <div className="settings-section-card settings-row-card">
             <label className="settings-field settings-field-wide">
               <span>Simultaneous activations</span>
-              <input type="number" min="1" max="128" step="1" disabled={busy} value={draft.maxConcurrentBots}
+              <input className="input" type="number" min="1" max="128" step="1" disabled={busy} value={draft.maxConcurrentBots}
                 onChange={(event) => { setNotice(''); setDraft({ ...draft, maxConcurrentBots: event.target.value === '' ? '' : Number(event.target.value) }); }} />
               <small>1–128. New activations wait in FIFO order while bot turns occupy the available slots. This never pauses existing work.</small>
             </label>
             <label className="settings-field settings-field-wide">
               <span>Default execution mode</span>
-              <select disabled={busy} value={draft.executionMode}
+              <select className="select" disabled={busy} value={draft.executionMode}
                 onChange={(event) => { setNotice(''); setDraft({ ...draft, executionMode: event.target.value }); }}>
                 <option value="orchestrator">Orchestrator</option>
                 <option value="direct">Direct</option>
@@ -91,7 +91,7 @@ export function BotSettingsPage({ footerTarget }) {
             </label>
             <label className="settings-toggle-row">
               <span><strong>Global activation window</strong><small>Complements each bot’s schedule, including manual new activations. It does not restrict ongoing work.</small></span>
-              <input type="checkbox" className="appearance-desktop-switch" disabled={busy} checked={windowDraft !== null}
+              <input type="checkbox" className="toggle" disabled={busy} checked={windowDraft !== null}
                 onChange={(event) => { setNotice(''); setDraft({ ...draft, activationWindow: event.target.checked ? { days: [], startMinute: null, endMinute: null } : null }); }} />
             </label>
             {windowDraft && <>
@@ -108,7 +108,7 @@ export function BotSettingsPage({ footerTarget }) {
               </div>
               {[['startMinute', 'From'], ['endMinute', 'To']].map(([key, label]) => <label key={key} className="settings-field settings-field-wide">
                 <span>{label}</span>
-                <input type="time" disabled={busy}
+                <input className="input" type="time" disabled={busy}
                   value={windowDraft[key] == null ? '' : `${String(Math.floor(windowDraft[key] / 60)).padStart(2, '0')}:${String(windowDraft[key] % 60).padStart(2, '0')}`}
                   onChange={(event) => {
                     const [hours, minutes] = event.target.value.split(':').map(Number);
@@ -120,7 +120,7 @@ export function BotSettingsPage({ footerTarget }) {
             </>}
             <label className="settings-toggle-row">
               <span><strong>Cross-bot Inbox access</strong><small>Lets bots read every bot's Inbox and reply in other bots' pendencies. Replies are identified as written by the sending bot.</small></span>
-              <input type="checkbox" className="appearance-desktop-switch" disabled={busy} checked={draft.crossBotInbox}
+              <input type="checkbox" className="toggle" disabled={busy} checked={draft.crossBotInbox}
                 onChange={(event) => { setNotice(''); setDraft({ ...draft, crossBotInbox: event.target.checked }); }} />
             </label>
           </div>
@@ -135,7 +135,7 @@ export function BotSettingsPage({ footerTarget }) {
         <div className="maintenance-tabs" role="group" aria-label="Statistics period">
           {[1, 7, 30].map((period) => <button key={period} type="button" aria-pressed={days === period}
             onClick={() => setDays(period)}>{period}d</button>)}
-          <button type="button" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>Refresh</button>
+          <button className="button" type="button" disabled={loading} onClick={() => setRefresh((value) => value + 1)}>Refresh</button>
         </div>
         {statisticsError && <p className="settings-error" role="alert">{statisticsError}</p>}
         {loading ? <p role="status">Loading statistics...</p> : statistics && <>
@@ -181,7 +181,7 @@ export function BotSettingsPage({ footerTarget }) {
       </section>
       {footerTarget && draft && createPortal(<>
         <span className="settings-error" role={error ? 'alert' : 'status'}>{error || notice || (dirty ? 'Unsaved activation settings' : '')}</span>
-        <div><button type="button" className="primary-mini" disabled={busy || !dirty}
+        <div><button type="button" className="button primary" disabled={busy || !dirty}
           onClick={async () => {
             setBusy(true); setError(''); setNotice('');
             try {

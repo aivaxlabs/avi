@@ -54,7 +54,7 @@ export function SemaphoreSettings() {
           <p>Named permits shared by every thread in the application. Reset a semaphore to release stuck permits and resume queued waiters.</p>
         </div>
         <button
-          className="semaphore-refresh"
+          className="button"
           type="button"
           disabled={loading}
           onClick={() => void load()}
@@ -92,7 +92,7 @@ export function SemaphoreSettings() {
               </span>
               <span className="archive-actions">
                 <button
-                  className="danger"
+                  className="button danger"
                   type="button"
                   disabled={busy || loading}
                   title="Release all held permits"

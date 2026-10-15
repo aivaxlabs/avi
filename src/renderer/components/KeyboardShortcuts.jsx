@@ -71,7 +71,7 @@ export function KeyboardShortcutSettings({ footer }) {
               <small>Default: <code>{item.defaultPattern || 'Disabled'}</code></small>
               {item.pluginId && <small className="shortcut-plugin">Plugin · {item.pluginId}</small>}
             </div>
-            <input id={`shortcut-${item.id}`} className="shortcut-pattern" aria-label={`${item.title} pattern`} aria-invalid={conflicts.has(item.id)} aria-describedby={conflicts.has(item.id) ? `shortcut-conflict-${item.id} shortcut-capture-help` : 'shortcut-capture-help'} placeholder="Press shortcut" readOnly value={item.pattern} disabled={busy} onKeyDown={(event) => {
+            <input id={`shortcut-${item.id}`} className="input shortcut-pattern" aria-label={`${item.title} pattern`} aria-invalid={conflicts.has(item.id)} aria-describedby={conflicts.has(item.id) ? `shortcut-conflict-${item.id} shortcut-capture-help` : 'shortcut-capture-help'} placeholder="Press shortcut" readOnly value={item.pattern} disabled={busy} onKeyDown={(event) => {
               const modified = event.ctrlKey || event.metaKey || event.altKey || event.shiftKey;
               if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) return;
               event.preventDefault();
@@ -89,13 +89,13 @@ export function KeyboardShortcutSettings({ footer }) {
               setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, pattern: clear ? '' : pattern, reset: false, error: null } : entry));
             }} />
             {item.supportsGlobal ? (
-              <select className="shortcut-scope" aria-label={`${item.title} scope`} value={item.global ? 'global' : 'app'} disabled={busy} onChange={(event) => { setSaved(''); setItems(items.map((entry) => entry.id === item.id ? { ...entry, global: event.target.value === 'global', reset: false, error: null } : entry)); }}>
+              <select className="select shortcut-scope" aria-label={`${item.title} scope`} value={item.global ? 'global' : 'app'} disabled={busy} onChange={(event) => { setSaved(''); setItems(items.map((entry) => entry.id === item.id ? { ...entry, global: event.target.value === 'global', reset: false, error: null } : entry)); }}>
                 <option value="app">In-App</option><option value="global">Global</option>
               </select>
             ) : <span className="shortcut-scope-label">In-App</span>}
             <div className="shortcut-actions">
-              <button type="button" aria-label={`Reset ${item.title}`} title="Reset default" disabled={busy} onClick={() => { setSaved(''); setItems(items.map((entry) => entry.id === item.id ? { ...entry, pattern: entry.defaultPattern, global: entry.defaultGlobal, reset: true, error: null } : entry)); }}><RotateCcw size={15} /></button>
-              <button type="button" aria-label={`Disable ${item.title}`} title="Disable shortcut" disabled={busy || !item.pattern} onClick={() => { setSaved(''); setItems(items.map((entry) => entry.id === item.id ? { ...entry, pattern: '', reset: false, error: null } : entry)); }}><CircleOff size={15} /></button>
+              <button className="icon-button tiny" type="button" aria-label={`Reset ${item.title}`} title="Reset default" disabled={busy} onClick={() => { setSaved(''); setItems(items.map((entry) => entry.id === item.id ? { ...entry, pattern: entry.defaultPattern, global: entry.defaultGlobal, reset: true, error: null } : entry)); }}><RotateCcw size={15} /></button>
+              <button className="icon-button tiny" type="button" aria-label={`Disable ${item.title}`} title="Disable shortcut" disabled={busy || !item.pattern} onClick={() => { setSaved(''); setItems(items.map((entry) => entry.id === item.id ? { ...entry, pattern: '', reset: false, error: null } : entry)); }}><CircleOff size={15} /></button>
             </div>
             {conflicts.has(item.id) && <p id={`shortcut-conflict-${item.id}`} className="shortcut-error" role="status">Conflicts with {conflicts.get(item.id)}.</p>}
             {!conflicts.has(item.id) && item.error && <p className="shortcut-error" role="status">{item.error}</p>}
@@ -104,7 +104,7 @@ export function KeyboardShortcutSettings({ footer }) {
       </div>
       {footer && createPortal(<>
         <span className="settings-error" role="status">{conflicts.size > 0 ? 'Resolve the highlighted conflicts before saving.' : error}</span>
-        <div><button type="button" className="primary-mini" disabled={busy || !items || conflicts.size > 0} onClick={async () => {
+        <div><button type="button" className="button primary" disabled={busy || !items || conflicts.size > 0} onClick={async () => {
           setBusy(true);
           setError('');
           setSaved('');

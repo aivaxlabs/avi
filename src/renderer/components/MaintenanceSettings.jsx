@@ -144,6 +144,7 @@ export function MaintenanceSettings({ folderPath, archiveOnly = false, onThreads
                 <label className="settings-field settings-field-wide">
                   <span>Automatically archive old conversations</span>
                   <select
+                    className="select"
                     disabled={busy}
                     value={state.settings.archiveAfterDays ?? 'never'}
                     onChange={(event) =>
@@ -168,6 +169,7 @@ export function MaintenanceSettings({ folderPath, archiveOnly = false, onThreads
                 <label className="settings-field settings-field-wide">
                   <span>Automatically delete archived conversations</span>
                   <select
+                    className="select"
                     disabled={busy}
                     value={state.settings.deleteArchivedAfterDays ?? 'never'}
                     onChange={(event) =>
@@ -192,6 +194,7 @@ export function MaintenanceSettings({ folderPath, archiveOnly = false, onThreads
                 <label className="settings-field settings-field-wide">
                   <span>Automatically delete disposable conversations</span>
                   <select
+                    className="select"
                     disabled={busy}
                     value={state.settings.deleteDisposableAfterDays ?? 'never'}
                     onChange={(event) =>
@@ -216,6 +219,7 @@ export function MaintenanceSettings({ folderPath, archiveOnly = false, onThreads
                 <label className="settings-field settings-field-wide">
                   <span>Keep bot conversation history</span>
                   <select
+                    className="select"
                     disabled={busy}
                     value={state.settings.botHistoryRetentionDays}
                     onChange={(event) =>
@@ -276,6 +280,7 @@ export function MaintenanceSettings({ folderPath, archiveOnly = false, onThreads
                     </span>
                     <span className="archive-actions">
                       <button
+                        className="button"
                         type="button"
                         disabled={busy}
                         title="Restore conversation"
@@ -285,7 +290,7 @@ export function MaintenanceSettings({ folderPath, archiveOnly = false, onThreads
                         Restore
                       </button>
                       <button
-                        className="danger"
+                        className="button danger"
                         type="button"
                         disabled={busy}
                         title="Delete permanently"
@@ -313,6 +318,7 @@ export function MaintenanceSettings({ folderPath, archiveOnly = false, onThreads
                 </span>
                 <span>
                   <button
+                    className="button"
                     type="button"
                     disabled={busy || listLoading || state.pagination.page === 1}
                     aria-label="Previous archive page"
@@ -322,6 +328,7 @@ export function MaintenanceSettings({ folderPath, archiveOnly = false, onThreads
                     Previous
                   </button>
                   <button
+                    className="button"
                     type="button"
                     disabled={busy || listLoading || state.pagination.page === state.pagination.totalPages}
                     aria-label="Next archive page"
@@ -378,7 +385,7 @@ export function MaintenanceSettings({ folderPath, archiveOnly = false, onThreads
                   </small>
                 </span>
                 <button
-                  className="danger"
+                  className="button danger"
                   type="button"
                   disabled={busy || !temporaryStorage?.bytes}
                   onClick={async () => {
@@ -412,7 +419,7 @@ export function MaintenanceSettings({ folderPath, archiveOnly = false, onThreads
                   <small>Archives eligible old threads, permanently deletes the entire archive including archived side chats and sub-agents, then prunes old bot history.</small>
                 </span>
                 <button
-                  className="danger"
+                  className="button danger"
                   type="button"
                   disabled={busy}
                   onClick={async () => {

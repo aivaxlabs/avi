@@ -39,7 +39,7 @@ export function McpOverlay({
     if (!dialogOpen) return undefined;
     const previousFocus = document.activeElement;
     const frame = requestAnimationFrame(() => (
-      dialogRef.current?.querySelector('.primary-mini, button')?.focus()
+      dialogRef.current?.querySelector('.button.primary, button')?.focus()
     ));
     const closeOnEscape = (event) => {
       if (event.key !== 'Escape') return;
@@ -116,6 +116,7 @@ export function McpOverlay({
               {alert.type === 'auth-required' ? (
                 <>
                   <button
+                    className="button"
                     type="button"
                     onClick={() => onDisable(alert.server.key)}
                   >
@@ -123,7 +124,7 @@ export function McpOverlay({
                     Disable
                   </button>
                   <button
-                    className="primary-mini"
+                    className="button primary"
                     type="button"
                     onClick={() => onAuthenticate(alert.server.key)}
                   >
@@ -133,10 +134,10 @@ export function McpOverlay({
                 </>
               ) : (
                 <>
-                  <button type="button" onClick={onCloseAlert}>
+                  <button className="button" type="button" onClick={onCloseAlert}>
                     Close
                   </button>
-                  <button className="primary-mini" type="button" onClick={onOpenSettings}>
+                  <button className="button primary" type="button" onClick={onOpenSettings}>
                     <FolderCog size={14} />
                     Open MCP settings
                   </button>
@@ -162,7 +163,7 @@ export function McpOverlay({
                 <h2 id="mcp-status-title">MCP servers in this conversation</h2>
                 <p>Global servers and servers configured for the current folder.</p>
               </div>
-              <button type="button" aria-label="Close" onClick={onCloseWorkspace}>
+              <button className="icon-button tiny" type="button" aria-label="Close" onClick={onCloseWorkspace}>
                 <X size={16} />
               </button>
             </header>
@@ -189,11 +190,11 @@ export function McpOverlay({
               )}
             </div>
             <div className="mcp-dialog-actions">
-              <button type="button" onClick={onOpenSettings}>
+              <button className="button" type="button" onClick={onOpenSettings}>
                 <FolderCog size={14} />
                 Manage servers
               </button>
-              <button className="primary-mini" type="button" onClick={onCloseWorkspace}>
+              <button className="button primary" type="button" onClick={onCloseWorkspace}>
                 Done
               </button>
             </div>

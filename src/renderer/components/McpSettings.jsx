@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { classNames } from '../lib/format.js';
+import { LongTextField } from './LongTextField.jsx';
 
 const statusLabels = {
   idle: 'Not started',
@@ -245,7 +246,7 @@ export function McpSettings({ initialFolder = null, botId = null, lockFolder = f
           <div className="settings-form">
             <label className="settings-field">
               <span>Name</span>
-              <input
+              <input className="input"
                 value={draft.name}
                 onChange={(event) => setDraft({ ...draft, name: event.target.value })}
                 placeholder="Contorso Inc"
@@ -253,7 +254,7 @@ export function McpSettings({ initialFolder = null, botId = null, lockFolder = f
             </label>
             <label className="settings-field">
               <span>Transport</span>
-              <select
+              <select className="select"
                 value={draft.type}
                 onChange={(event) => setDraft({ ...draft, type: event.target.value })}
               >
@@ -264,7 +265,7 @@ export function McpSettings({ initialFolder = null, botId = null, lockFolder = f
             </label>
             <label className="settings-field">
               <span>Lifecycle</span>
-              <select
+              <select className="select"
                 value={draft.lifecycle}
                 onChange={(event) => setDraft({ ...draft, lifecycle: event.target.value })}
               >
@@ -278,7 +279,7 @@ export function McpSettings({ initialFolder = null, botId = null, lockFolder = f
               <>
                 <label className="settings-field settings-field-wide">
                   <span>Executable</span>
-                  <input
+                  <input className="input"
                     value={draft.command}
                     onChange={(event) => setDraft({ ...draft, command: event.target.value })}
                     placeholder="bunx"
@@ -286,16 +287,19 @@ export function McpSettings({ initialFolder = null, botId = null, lockFolder = f
                 </label>
                 <label className="settings-field settings-field-wide">
                   <span>Arguments</span>
-                  <textarea
+                  <LongTextField
+                    label="Arguments"
+                    language="plaintext"
                     value={draft.args}
-                    onChange={(event) => setDraft({ ...draft, args: event.target.value })}
+                    onChange={(args) => setDraft({ ...draft, args })}
                     placeholder={'-y\n@contorso/mcp-server'}
+                    describedBy="mcp-arguments-help"
                   />
-                  <small>One argument per line.</small>
+                  <small id="mcp-arguments-help">One argument per line.</small>
                 </label>
                 <label className="settings-field settings-field-wide">
                   <span>Working directory</span>
-                  <input
+                  <input className="input"
                     value={draft.cwd}
                     onChange={(event) => setDraft({ ...draft, cwd: event.target.value })}
                     placeholder={selectedFolder.path}
@@ -303,20 +307,22 @@ export function McpSettings({ initialFolder = null, botId = null, lockFolder = f
                 </label>
                 <label className="settings-field settings-field-wide">
                   <span>Environment variables</span>
-                  <textarea
+                  <LongTextField
+                    label="Environment variables"
+                    language="plaintext"
                     value={draft.env}
-                    onChange={(event) => setDraft({ ...draft, env: event.target.value })}
+                    onChange={(env) => setDraft({ ...draft, env })}
                     placeholder="API_TOKEN=value"
-                    autoComplete="off"
+                    describedBy="mcp-environment-help"
                   />
-                  <small>One NAME=value pair per line.</small>
+                  <small id="mcp-environment-help">One NAME=value pair per line.</small>
                 </label>
               </>
             ) : (
               <>
                 <label className="settings-field settings-field-wide">
                   <span>URL</span>
-                  <input
+                  <input className="input"
                     type="url"
                     value={draft.url}
                     onChange={(event) => setDraft({ ...draft, url: event.target.value })}
@@ -325,7 +331,7 @@ export function McpSettings({ initialFolder = null, botId = null, lockFolder = f
                 </label>
                 <label className="settings-field">
                   <span>Authentication</span>
-                  <select
+                  <select className="select"
                     value={draft.authType}
                     onChange={(event) => setDraft({ ...draft, authType: event.target.value })}
                   >
@@ -338,7 +344,7 @@ export function McpSettings({ initialFolder = null, botId = null, lockFolder = f
                 {draft.authType === 'bearer' && (
                   <label className="settings-field">
                     <span>Bearer token</span>
-                    <input
+                    <input className="input"
                       type="password"
                       value={draft.token}
                       onChange={(event) => setDraft({ ...draft, token: event.target.value })}
@@ -350,7 +356,7 @@ export function McpSettings({ initialFolder = null, botId = null, lockFolder = f
                   <>
                     <label className="settings-field">
                       <span>Client ID</span>
-                      <input
+                      <input className="input"
                         value={draft.clientId}
                         onChange={(event) => setDraft({ ...draft, clientId: event.target.value })}
                         placeholder="Optional with dynamic registration"
@@ -358,7 +364,7 @@ export function McpSettings({ initialFolder = null, botId = null, lockFolder = f
                     </label>
                     <label className="settings-field">
                       <span>Client secret</span>
-                      <input
+                      <input className="input"
                         type="password"
                         value={draft.clientSecret}
                         onChange={(event) => setDraft({
@@ -372,13 +378,15 @@ export function McpSettings({ initialFolder = null, botId = null, lockFolder = f
                 )}
                 <label className="settings-field settings-field-wide">
                   <span>HTTP headers</span>
-                  <textarea
+                  <LongTextField
+                    label="HTTP headers"
+                    language="plaintext"
                     value={draft.headers}
-                    onChange={(event) => setDraft({ ...draft, headers: event.target.value })}
+                    onChange={(headers) => setDraft({ ...draft, headers })}
                     placeholder="X-Workspace=value"
-                    autoComplete="off"
+                    describedBy="mcp-headers-help"
                   />
-                  <small>One NAME=value pair per line.</small>
+                  <small id="mcp-headers-help">One NAME=value pair per line.</small>
                 </label>
               </>
             )}
@@ -387,7 +395,7 @@ export function McpSettings({ initialFolder = null, botId = null, lockFolder = f
         {error && <div className="settings-context-error" role="alert">{error}</div>}
         <div className="mcp-editor-actions">
           <button
-            className="primary-mini"
+            className="button primary"
             type="button"
             disabled={busy}
             onClick={async () => {

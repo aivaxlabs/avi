@@ -127,6 +127,7 @@ export function AppearanceSettings({
           <label className="settings-field settings-field-wide">
             <span>Color mode</span>
             <select
+              className="select"
               value={appearance.scheme}
               onChange={(event) => onChange({ ...appearance, scheme: event.target.value })}
             >
@@ -142,7 +143,7 @@ export function AppearanceSettings({
               <small>Use the operating system’s native transparency effect with the active theme surfaces.</small>
             </span>
             <input
-              className="appearance-desktop-switch"
+              className="toggle"
               type="checkbox"
               checked={desktop.sidebarTransparency}
               onChange={(event) => onDesktopChange({
@@ -224,6 +225,7 @@ export function AppearanceSettings({
             <label className="appearance-background-control">
               <span>Blend mode</span>
               <select
+                className="select"
                 value={appearance.backgroundBlendMode}
                 onChange={(event) => onChange({
                   ...appearance,
@@ -260,7 +262,7 @@ export function AppearanceSettings({
             <div className="appearance-background-actions">
               <button
                 type="button"
-                className="settings-button appearance-background-select"
+                className="button appearance-background-select"
                 disabled={backgroundBusy}
                 onClick={async () => {
                   setBackgroundBusy(true);
@@ -280,7 +282,7 @@ export function AppearanceSettings({
               {backgroundUrl && (
                 <button
                   type="button"
-                  className="appearance-background-remove"
+                  className="button danger"
                   disabled={backgroundBusy}
                   onClick={async () => {
                     setBackgroundBusy(true);

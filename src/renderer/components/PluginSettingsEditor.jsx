@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { LongTextField } from './LongTextField.jsx';
 
 const settingKey = (sectionIndex, optionIndex) => `${sectionIndex}:${optionIndex}`;
 
@@ -47,13 +48,12 @@ function ObjectJsonField({ value, onChange, label, fieldPath, onValidityChange }
   return (
     <label className="plugin-setting-json-field">
       <span>JSON value</span>
-      <textarea
-        aria-label={label}
-        aria-invalid={Boolean(error)}
-        spellCheck="false"
+      <LongTextField
+        label={label}
+        language="avi-json"
+        invalid={Boolean(error)}
         value={json}
-        onChange={(event) => {
-          const nextJson = event.target.value;
+        onChange={(nextJson) => {
           setJson(nextJson);
           try {
             const nextValue = JSON.parse(nextJson);
@@ -87,7 +87,7 @@ function SchemaField({
   if (schema.enum) {
     const selected = schema.enum.findIndex((item) => Object.is(item, value));
     return (
-      <select
+      <select className="select"
         aria-label={label}
         value={selected < 0 ? '' : String(selected)}
         onChange={(event) => onChange(structuredClone(schema.enum[Number(event.target.value)]))}
@@ -103,7 +103,7 @@ function SchemaField({
   if (schema.type === 'boolean') {
     return (
       <input
-        className="appearance-desktop-switch"
+        className="toggle"
         type="checkbox"
         aria-label={label}
         checked={Boolean(value)}
@@ -114,7 +114,7 @@ function SchemaField({
 
   if (schema.type === 'number' || schema.type === 'integer') {
     return (
-      <input
+      <input className="input"
         type="number"
         aria-label={label}
         min={schema.minimum}
@@ -135,7 +135,7 @@ function SchemaField({
 
   if (schema.type === 'string') {
     return (
-      <input
+      <input className="input"
         type="text"
         aria-label={label}
         minLength={schema.minLength}
@@ -155,7 +155,7 @@ function SchemaField({
             <div className="plugin-setting-array-item-heading">
               <strong>{schema.items.$label || `Item ${index + 1}`}</strong>
               <button
-                className="secondary-mini danger"
+                className="icon-button tiny danger"
                 type="button"
                 aria-label={`Remove ${schema.items.$label || `item ${index + 1}`}`}
                 onClick={() => {
@@ -180,7 +180,7 @@ function SchemaField({
           </div>
         ))}
         <button
-          className="secondary-mini"
+          className="button"
           type="button"
           disabled={schema.maxItems !== undefined && items.length >= schema.maxItems}
           onClick={() => {
@@ -320,7 +320,7 @@ export function PluginSettingsEditor({ plugin, onBack }) {
           <h3>{data?.name || plugin.name || plugin.id}</h3>
           <p>{data?.description || plugin.description || 'Configure this plugin.'}</p>
         </div>
-        <button className="secondary-mini" type="button" disabled={Boolean(busy)} onClick={load}>
+        <button className="button" type="button" disabled={Boolean(busy)} onClick={load}>
           <RefreshCw className={busy === 'load' ? 'spin' : undefined} size={14} />Refresh
         </button>
       </div>
@@ -328,7 +328,7 @@ export function PluginSettingsEditor({ plugin, onBack }) {
       {plugin.builtIn && plugin.id === 'chrome-integration' && <section className="settings-section-card">
         <h3>Chrome extension</h3>
         <p>Install the bundled extension in each Chrome profile: open chrome://extensions, turn on Developer mode, choose Load unpacked and select the extension folder opened by the button below. The folder path is copied to your clipboard.</p>
-        <button className="primary-mini" type="button" disabled={Boolean(busy)} onClick={async () => {
+        <button className="button" type="button" disabled={Boolean(busy)} onClick={async () => {
           setBusy('install');
           try { await window.chatApp.plugins.installChromeExtension(); }
           catch (error) { setErrors((current) => ({ ...current, load: error instanceof Error ? error.message : String(error) })); }
@@ -365,7 +365,7 @@ export function PluginSettingsEditor({ plugin, onBack }) {
                       onChange={(value) => updateValue(sectionIndex, optionIndex, value)}
                     />
                     <button
-                      className="primary-mini"
+                      className="button"
                       type="button"
                       disabled={!dirty || invalid || Boolean(busy)}
                       onClick={() => save(sectionIndex, optionIndex)}

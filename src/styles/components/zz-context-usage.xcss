@@ -30,12 +30,12 @@
     }
   }
 
-  button:focus-visible {
+  button:not(.button):focus-visible {
     outline: 2px solid --text-3;
     outline-offset: 2px;
   }
 
-  button:disabled {
+  button:not(.button):disabled {
     opacity: .55;
     cursor: wait;
   }
@@ -285,24 +285,6 @@
 .context-compression-menu {
   flex: 0 0 auto;
   position: relative;
-}
-
-.context-compression-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 12px;
-  color: --text-2;
-  background: --background-4;
-  border-radius: 32px;
-  font-weight: 500;
-  font-size: --font-sm;
-
-  &:hover:not(:disabled),
-  &[aria-expanded="true"] {
-    color: --text-1;
-    background: --item-hover;
-  }
 }
 
 .context-compression-dropdown {

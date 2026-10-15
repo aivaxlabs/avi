@@ -429,7 +429,7 @@ async function idle() { await wait_for(() => q('.git-review-panel') && q('.git-r
   await wait_for(() => !q('.git-review-dialog'), 5000, 'dialog closed');
   await sleep(400);
 
-  const commitBtn = q('.git-review-commit-actions .primary-mini');
+  const commitBtn = q('.git-review-commit-actions .button.primary');
   check('commit is disabled without a message', commitBtn.disabled === true);
   setNativeValue(q('#git-commit-message'), 'Review fix');
   await wait_for(() => commitBtn.disabled === false, 3000, 'commit enabled');

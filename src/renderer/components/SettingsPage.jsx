@@ -1,5 +1,6 @@
 import {
   ArrowDown,
+  ArrowDownUp,
   ArrowLeft,
   ArrowRight,
   ArrowUp,
@@ -48,15 +49,25 @@ import { AivaxFeaturesSettings } from './AivaxFeaturesSettings.jsx';
 import { AppearanceSettings } from './AppearanceSettings.jsx';
 import { MaintenanceSettings } from './MaintenanceSettings.jsx';
 import { FolderNavigation } from './FolderNavigation.jsx';
+import { ContextEditorDialog } from './ContextEditorDialog.jsx';
 import { ContextItems } from './ContextItems.jsx';
 import { BotSettingsPage } from './BotSettingsPage.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { McpSettings } from './McpSettings.jsx';
 import { PluginsSettings } from './PluginsSettings.jsx';
 import { KeyboardShortcutSettings } from './KeyboardShortcuts.jsx';
+import { LongTextField } from './LongTextField.jsx';
 import { RemoteSettings } from './RemoteSettings.jsx';
 import { Overlay, Presence } from './Overlay.jsx';
 
+const contextSortOptions = [
+  { value: 'default', label: 'Default' },
+  { value: 'tokens', label: 'Token size' },
+  { value: 'created-desc', label: 'Created at (desc)' },
+  { value: 'created-asc', label: 'Created at (asc)' },
+  { value: 'name-asc', label: 'A-Z' },
+  { value: 'name-desc', label: 'Z-A' },
+];
 const reasoningEfforts = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const capabilityOptions = [
   { value: 'images', label: 'Images' },
@@ -144,7 +155,7 @@ function MultiSelect({ label, onChange, options, values }) {
   return (
     <div className="model-multiselect" ref={rootRef}>
       <button
-        className="model-multiselect-trigger"
+        className="button model-multiselect-trigger"
         type="button"
         aria-label={label}
         aria-haspopup="listbox"
@@ -215,7 +226,8 @@ function DefaultModelField({
     <div className="settings-field settings-field-wide default-model-field">
       <span>{label}</span>
       <div className="default-model-row">
-        <select
+        <select className="select"
+          aria-label={label}
           value={value?.modelId ?? ''}
           onChange={(event) => {
             const model = models.find((item) => item.id === event.target.value);
@@ -237,7 +249,7 @@ function DefaultModelField({
             </optgroup>
           ))}
         </select>
-        <select
+        <select className="select"
           aria-label={`${label} reasoning effort`}
           disabled={!selectedModel}
           value={value?.reasoningEffort ?? ''}
@@ -423,6 +435,12 @@ export function SettingsPage({
   const [selectedContextFolder, setSelectedContextFolder] = useState(initialContextFolder);
   const [contextFolder, setContextFolder] = useState(null);
   const [contextLoading, setContextLoading] = useState(false);
+  const [contextTab, setContextTab] = useState('instruction');
+  const [contextQuery, setContextQuery] = useState('');
+  const [contextSort, setContextSort] = useState('default');
+  const [contextReload, setContextReload] = useState(0);
+  const [contextCreateDialog, setContextCreateDialog] = useState(null);
+  const [contextEditor, setContextEditor] = useState(null);
   const [mcpNavigation, setMcpNavigation] = useState(null);
   const [providerState, setProviderState] = useState(null);
   const providerStateRequest = useRef(0);
@@ -613,7 +631,6 @@ export function SettingsPage({
     if (view !== 'context-folder' || !selectedContextFolder) return undefined;
     let cancelled = false;
     setContextLoading(true);
-    setContextFolder(null);
     setError('');
     const folderRequest = folderMode && selectedContextFolder.path === homeFolder.path
       ? window.chatApp.context.folders().then((folders) => {
@@ -637,7 +654,7 @@ export function SettingsPage({
     return () => {
       cancelled = true;
     };
-  }, [folderMode, homeFolder?.path, selectedContextFolder, view]);
+  }, [contextReload, folderMode, homeFolder?.path, selectedContextFolder, view]);
 
   useEffect(() => {
     if (!selectedProvider) {
@@ -857,7 +874,7 @@ export function SettingsPage({
       || 'Manage global and per-folder Model Context Protocol servers.',
     plugins: 'View trusted JavaScript plugins installed in Avi.',
     remote: 'Expose Avi orchestration through a local authenticated MCP server.',
-    aivax: 'Add persistent memory, richer web tools, and semantic thread search through AIVAX.',
+    aivax: 'Add persistent memory, richer web tools, media generation, and semantic thread search through AIVAX.',
     maintenance: 'Manage archived conversations, storage cleanup, and semaphore permits.',
     bots: 'Control new activations and review bot consumption.',
     'default-models': 'Configure model assignments, instructions, and the composer slider.',
@@ -943,7 +960,7 @@ export function SettingsPage({
               Tuning
             </button>
           )}
-          {(!settingsQuery || 'personalization personality verbosity response detail low medium high terse balanced verbose audit teaching hand-off theme themes color scheme light dark monokai absolute code goblin axion preview'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'personalization personality verbosity response detail low medium high terse balanced verbose audit teaching hand-off theme themes color scheme light dark monokai absolute code goblin axion github catppuccin latte mocha solarized nord tokyo night darcula intellij jetbrains preview'.includes(settingsQuery)) && (
             <button
               className={view === 'personalization' ? 'active' : undefined}
               type="button"
@@ -1057,7 +1074,7 @@ export function SettingsPage({
           )}
 
           <SettingsNavigationSeparator />
-          {(!settingsQuery || 'aivax features memory account balance plan web search fetch semantic thread rag collection index'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'aivax features memory account balance plan web search fetch semantic thread rag collection index image audio speech tts generation'.includes(settingsQuery)) && (
             <button
               className={view === 'aivax' ? 'active' : undefined}
               type="button"
@@ -1187,30 +1204,32 @@ export function SettingsPage({
               </div>
               {view === 'list' && (
                 <div className="settings-add-provider-group" ref={providerImportRef}>
-                  <button
-                    className="primary-mini settings-add-provider"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      setView('type');
-                      setError('');
-                      setProviderListMessage('');
-                    }}
-                  >
-                    <Plus size={14} />
-                    Add provider
-                  </button>
-                  <button
-                    className="primary-mini settings-add-provider-menu-trigger"
-                    type="button"
-                    disabled={busy}
-                    aria-label="More provider actions"
-                    aria-haspopup="menu"
-                    aria-expanded={providerImportOpen}
-                    onClick={() => setProviderImportOpen((open) => !open)}
-                  >
-                    <ChevronDown size={14} />
-                  </button>
+                  <span className="button-group">
+                    <button
+                      className="button primary"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setView('type');
+                        setError('');
+                        setProviderListMessage('');
+                      }}
+                    >
+                      <Plus size={14} />
+                      Add provider
+                    </button>
+                    <button
+                      className="button primary"
+                      type="button"
+                      disabled={busy}
+                      aria-label="More provider actions"
+                      aria-haspopup="menu"
+                      aria-expanded={providerImportOpen}
+                      onClick={() => setProviderImportOpen((open) => !open)}
+                    >
+                      <ChevronDown size={14} />
+                    </button>
+                  </span>
                   <Presence when={providerImportOpen}>{() => (
                     <DropdownMenu className="settings-add-provider-menu" role="menu">
                       <DropdownMenuItem
@@ -1243,7 +1262,7 @@ export function SettingsPage({
               )}
               {view === 'routers' && (
                 <button
-                  className="primary-mini settings-add-provider"
+                  className="button primary settings-add-provider"
                   type="button"
                   disabled={busy}
                   onClick={() => {
@@ -1263,7 +1282,7 @@ export function SettingsPage({
               )}
               {view === 'mcp' && mcpNavigation?.onAction && (
                 <button
-                  className="primary-mini settings-add-provider"
+                  className="button primary settings-add-provider"
                   type="button"
                   onClick={mcpNavigation.onAction}
                 >
@@ -1383,7 +1402,7 @@ export function SettingsPage({
                       <Server size={24} />
                       <strong>No providers configured</strong>
                       <span>Add a compatible API provider to make models available.</span>
-                      <button className="primary-mini" type="button" onClick={() => setView('type')}>
+                      <button className="button" type="button" onClick={() => setView('type')}>
                         <Plus size={14} />
                         Add provider
                       </button>
@@ -1450,7 +1469,7 @@ export function SettingsPage({
                       <strong>No model routers configured</strong>
                       <span>Add a router to combine models behind one selectable catalog entry.</span>
                       <button
-                        className="primary-mini"
+                        className="button"
                         type="button"
                         onClick={() => {
                           setRouterDraft({
@@ -1479,7 +1498,7 @@ export function SettingsPage({
                 <div className="settings-section-card settings-form">
                   <label className="settings-field">
                     <span>Name</span>
-                    <input
+                    <input className="input"
                       value={routerDraft.name}
                       required
                       placeholder="Reliable coding model"
@@ -1491,7 +1510,7 @@ export function SettingsPage({
                   </label>
                   <label className="settings-field">
                     <span>Routing mode</span>
-                    <select
+                    <select className="select"
                       value={routerDraft.mode}
                       onChange={(event) => setRouterDraft({
                         ...routerDraft,
@@ -1509,7 +1528,7 @@ export function SettingsPage({
                   </label>
                   <label className="settings-field settings-field-wide">
                     <span>Add model</span>
-                    <select
+                    <select className="select"
                       value=""
                       onChange={(event) => {
                         if (!event.target.value) return;
@@ -1628,6 +1647,7 @@ export function SettingsPage({
                           type="button"
                           onClick={() => {
                             setSelectedContextFolder(folder);
+                            setContextFolder(null);
                             setError('');
                             setView('context-folder');
                           }}
@@ -1650,40 +1670,108 @@ export function SettingsPage({
 
             {view === 'context-folder' && (
               <section className="settings-context-groups">
-                {contextLoading && (
+                {contextLoading && !contextFolder && (
                   <div className="settings-empty">Loading context items...</div>
                 )}
-                {!contextLoading && contextFolder?.groups.map((group) => (
-                  <section className="settings-context-group" key={group.id}>
-                    <header className="settings-context-group-header">
-                      <div>
-                        <h3>{group.title}</h3>
-                        <span>{group.items.length}</span>
+                {contextFolder && (() => {
+                  const group = contextFolder.groups.find((item) => item.id === contextTab)
+                    ?? contextFolder.groups[0];
+                  const singular = { instruction: 'instruction', skill: 'skill', workflow: 'workflow' }[group.id];
+                  return (
+                    <>
+                      <div className="maintenance-tabs settings-context-tabs" role="tablist" aria-label="Context types">
+                        {contextFolder.groups.map((item) => (
+                          <button
+                            key={item.id}
+                            id={`context-tab-${item.id}`}
+                            type="button"
+                            role="tab"
+                            aria-selected={item.id === group.id}
+                            aria-controls="context-tab-panel"
+                            onClick={() => setContextTab(item.id)}
+                          >
+                            {item.title}
+                            <span className="settings-context-tab-count">{item.items.length}</span>
+                          </button>
+                        ))}
                       </div>
-                      <ActionMenu
-                        label={`Actions for ${group.title}`}
-                        items={[{
-                          label: 'Open in explorer',
-                          icon: <FolderOpen size={14} />,
-                          onClick: () => {
+                      <section
+                        className="settings-context-group"
+                        id="context-tab-panel"
+                        role="tabpanel"
+                        aria-labelledby={`context-tab-${group.id}`}
+                      >
+                        <header className="settings-context-group-header">
+                          <div className="settings-search settings-context-search">
+                            <Search size={14} />
+                            <input
+                              type="search"
+                              value={contextQuery}
+                              aria-label={`Search ${group.title.toLowerCase()}`}
+                              placeholder={`Search ${group.title.toLowerCase()}...`}
+                              onChange={(event) => setContextQuery(event.target.value)}
+                            />
+                          </div>
+                          <label className="settings-context-sort">
+                            <ArrowDownUp size={14} aria-hidden="true" />
+                            <select className="select"
+                              value={contextSort}
+                              aria-label="Sort context items"
+                              onChange={(event) => setContextSort(event.target.value)}
+                            >
+                              {contextSortOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <div className="settings-context-group-actions">
+                            {!contextFolder.readOnly && (
+                              <button
+                                className="icon-button tiny"
+                                type="button"
+                                aria-label={`Create ${singular}`}
+                                title={`Create ${singular}`}
+                                onClick={() => {
+                                  setError('');
+                                  setContextCreateDialog({ kind: group.id, label: singular, name: '' });
+                                }}
+                              >
+                                <Plus size={16} />
+                              </button>
+                            )}
+                            <ActionMenu
+                              label={`Actions for ${group.title}`}
+                              items={[{
+                                label: 'Open in explorer',
+                                icon: <FolderOpen size={14} />,
+                                onClick: () => {
+                                  setError('');
+                                  window.chatApp.context.open(group.folderPath).catch((nextError) => {
+                                    setError(
+                                      nextError instanceof Error ? nextError.message : String(nextError),
+                                    );
+                                  });
+                                },
+                              }]}
+                            />
+                          </div>
+                        </header>
+                        <ContextItems
+                          group={group}
+                          query={contextQuery}
+                          sort={contextSort}
+                          onOpen={(filePath) => {
                             setError('');
-                            window.chatApp.context.open(group.folderPath).catch((nextError) => {
-                              setError(
-                                nextError instanceof Error ? nextError.message : String(nextError),
-                              );
+                            setContextEditor({
+                              item: group.items.find((item) => item.path === filePath),
+                              kind: group.id,
                             });
-                          },
-                        }]}
-                      />
-                    </header>
-                    <ContextItems group={group} onOpen={(filePath) => {
-                      setError('');
-                      window.chatApp.context.open(filePath).catch((nextError) => {
-                        setError(nextError instanceof Error ? nextError.message : String(nextError));
-                      });
-                    }} />
-                  </section>
-                ))}
+                          }}
+                        />
+                      </section>
+                    </>
+                  );
+                })()}
                 {error && <div className="settings-context-error" role="alert">{error}</div>}
               </section>
             )}
@@ -1873,7 +1961,7 @@ export function SettingsPage({
                         <strong>Use model levels</strong>
                         <small>Requires small, medium, and large models. If one is unavailable, Avi uses the orchestrator or last-used model.</small>
                       </span>
-                      <input
+                      <input className="toggle"
                         type="checkbox"
                         checked={defaultModelsDraft.subagents.enabled}
                         onChange={(event) => {
@@ -1928,7 +2016,7 @@ export function SettingsPage({
                       <div className="model-rule-selection">
                         <label className="settings-field">
                           <span>Model</span>
-                          <select value={rule.modelId} aria-invalid={!rule.modelId.trim()}
+                          <select className="select" value={rule.modelId} aria-invalid={!rule.modelId.trim()}
                             onChange={(event) => updateModelRule(index, { modelId: event.target.value })}>
                             <option value="">Choose a model</option>
                             {rule.modelId && !models.some((model) => model.id === rule.modelId)
@@ -1938,7 +2026,7 @@ export function SettingsPage({
                         </label>
                         <label className="settings-field">
                           <span>Thread role</span>
-                          <select value={rule.role} onChange={(event) => updateModelRule(index, { role: event.target.value })}>
+                          <select className="select" value={rule.role} onChange={(event) => updateModelRule(index, { role: event.target.value })}>
                             <option value="main">Main</option>
                             <option value="bot">Bot</option>
                             <option value="subagent">Sub-agents</option>
@@ -1946,16 +2034,18 @@ export function SettingsPage({
                           </select>
                         </label>
                       </div>
-                      <label className="settings-field">
+                      <label className="settings-field" htmlFor={`model-rule-${modelRuleKeys[index]}-instructions`}>
                         <span>Instructions</span>
-                        <textarea rows={8} value={rule.instructions} aria-invalid={!rule.instructions.trim()}
+                        <LongTextField id={`model-rule-${modelRuleKeys[index]}-instructions`}
+                          label={`Rule ${index + 1} instructions`} language="plaintext"
+                          value={rule.instructions} invalid={!rule.instructions.trim()}
                           placeholder="For example: plan implementation tasks, delegate execution to sub-agents, and review the results."
-                          onChange={(event) => updateModelRule(index, { instructions: event.target.value })} />
+                          onChange={(instructions) => updateModelRule(index, { instructions })} />
                       </label>
                     </div>
                   ))}
                   <p>To save, choose a model and write instructions for each rule. Use each model and role combination only once.</p>
-                  <div><button type="button" className="primary-mini" onClick={() => {
+                  <div><button type="button" className="button" onClick={() => {
                     setDefaultModelsSaved(false);
                     setDefaultModelsDraft((current) => ({ ...current, rules: [...(current.rules ?? []), { modelId: '', role: 'main', instructions: '' }] }));
                     setModelRuleKeys((current) => [...current, crypto.randomUUID()]);
@@ -2048,8 +2138,8 @@ export function SettingsPage({
                           : `${defaultModelsDraft.intelligence.levels.length} of ${intelligenceLevelLimits.max} levels configured.`}
                       </span>
                       <button
+                        className="button"
                         type="button"
-                        className="primary-mini"
                         disabled={(defaultModelsDraft.intelligence?.levels?.length ?? 0)
                           >= intelligenceLevelLimits.max}
                         onClick={() => {
@@ -2097,7 +2187,7 @@ export function SettingsPage({
                   </div>
                   {(updateError || updateState?.error) && <p role="alert">{updateError || updateState.error}</p>}
                   <div className="settings-update-actions">
-                    <button className="button button-secondary" type="button" disabled={updateBusy || updateState?.supported === false}
+                    <button className="button" type="button" disabled={updateBusy || updateState?.supported === false}
                       onClick={async () => {
                         setUpdateAction('check');
                         setUpdateError('');
@@ -2138,7 +2228,7 @@ export function SettingsPage({
                         <small>Suggest up to four likely replies after the assistant finishes.</small>
                       </span>
                       <input
-                        className="appearance-desktop-switch"
+                        className="toggle"
                         type="checkbox"
                         checked={tuningDraft.continuationRepliesEnabled}
                         onChange={(event) => {
@@ -2152,7 +2242,7 @@ export function SettingsPage({
                     </label>
                     <label className="settings-field settings-field-wide">
                       <span>Chat reasoning traces</span>
-                      <select
+                      <select className="select"
                         value={tuningDraft.chatReasoningTraces}
                         onChange={(event) => {
                           setTuningSaved(false);
@@ -2171,7 +2261,7 @@ export function SettingsPage({
                     </label>
                     <label className="settings-field settings-field-wide">
                       <span>Default permission mode</span>
-                      <select
+                      <select className="select"
                         value={tuningDraft.defaultPermissionMode}
                         onChange={(event) => {
                           setTuningSaved(false);
@@ -2191,7 +2281,7 @@ export function SettingsPage({
                     </label>
                     <label className="settings-field settings-field-wide">
                       <span>Message delivery mode</span>
-                      <select
+                      <select className="select"
                         value={tuningDraft.messageDeliveryMode}
                         onChange={(event) => {
                           setTuningSaved(false);
@@ -2210,7 +2300,7 @@ export function SettingsPage({
                     </label>
                     <label className="settings-field settings-field-wide">
                       <span>Terminal shell</span>
-                      <select
+                      <select className="select"
                         value={tuningDraft.terminalShell}
                         disabled={!terminalShells}
                         onChange={(event) => {
@@ -2248,7 +2338,7 @@ export function SettingsPage({
                     </label>
                     {terminalShellError && (
                       <button
-                        className="button button-secondary"
+                        className="button"
                         type="button"
                         onClick={() => setTerminalShellLoadAttempt((attempt) => attempt + 1)}
                       >
@@ -2270,7 +2360,7 @@ export function SettingsPage({
                         <small>Continue running in the tray when the window is closed.</small>
                       </span>
                       <input
-                        className="appearance-desktop-switch"
+                        className="toggle"
                         type="checkbox"
                         checked={desktop?.closeToTray === true}
                         onChange={(event) => onDesktopChange({ ...desktop, closeToTray: event.target.checked })}
@@ -2282,7 +2372,7 @@ export function SettingsPage({
                         <small>Launch Avi in the background when you sign in to your computer.</small>
                       </span>
                       <input
-                        className="appearance-desktop-switch"
+                        className="toggle"
                         type="checkbox"
                         checked={desktop?.openAtLogin === true}
                         onChange={(event) => onDesktopChange({ ...desktop, openAtLogin: event.target.checked })}
@@ -2294,7 +2384,7 @@ export function SettingsPage({
                         <small>Notify after a user-created main thread finishes with no sub-agents still running.</small>
                       </span>
                       <input
-                        className="appearance-desktop-switch"
+                        className="toggle"
                         type="checkbox"
                         checked={desktop?.notifyOnCompletion === true}
                         onChange={(event) => onDesktopChange({ ...desktop, notifyOnCompletion: event.target.checked })}
@@ -2315,7 +2405,7 @@ export function SettingsPage({
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
                       <span>Maximum parallel threads</span>
-                      <input
+                      <input className="input"
                         type="number"
                         min="1"
                         max="1024"
@@ -2333,7 +2423,7 @@ export function SettingsPage({
                     </label>
                     <label className="settings-field settings-field-wide">
                       <span>Stalled thread watchdog</span>
-                      <select
+                      <select className="select"
                         value={tuningDraft.eventLoopWatchdogMs ?? 0}
                         onChange={(event) => {
                           setTuningSaved(false);
@@ -2360,7 +2450,7 @@ export function SettingsPage({
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
                       <span>Automatic compaction threshold</span>
-                      <select
+                      <select className="select"
                         value={tuningDraft.automaticCompactionThreshold}
                         onChange={(event) => {
                           setTuningSaved(false);
@@ -2388,7 +2478,7 @@ export function SettingsPage({
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
                       <span>Tool output length</span>
-                      <select
+                      <select className="select"
                         value={tuningDraft.toolOutputLimit ?? 'none'}
                         onChange={(event) => {
                           setTuningSaved(false);
@@ -2411,7 +2501,7 @@ export function SettingsPage({
                     </label>
                     <label className="settings-field settings-field-wide">
                       <span>Media size limit</span>
-                      <select
+                      <select className="select"
                         value={tuningDraft.mediaSizeLimit ?? 'none'}
                         onChange={(event) => {
                           setTuningSaved(false);
@@ -2433,7 +2523,7 @@ export function SettingsPage({
                     </label>
                     <label className="settings-field settings-field-wide">
                       <span>Terminal timeout</span>
-                      <input
+                      <input className="input"
                         type="number"
                         min="5"
                         max="300"
@@ -2461,7 +2551,7 @@ export function SettingsPage({
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
                       <span>Max concurrent sub-agents per thread</span>
-                      <input
+                      <input className="input"
                         type="number"
                         min="1"
                         max="128"
@@ -2481,7 +2571,7 @@ export function SettingsPage({
                     </label>
                     <label className="settings-field settings-field-wide">
                       <span>Rubber Duck max turns</span>
-                      <input
+                      <input className="input"
                         type="number"
                         min="10"
                         max="500"
@@ -2509,7 +2599,7 @@ export function SettingsPage({
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
                       <span>Diagnosis log level</span>
-                      <select
+                      <select className="select"
                         value={tuningDraft.logLevel}
                         onChange={(event) => {
                           setTuningSaved(false);
@@ -2543,7 +2633,7 @@ export function SettingsPage({
                   <div className="settings-section-card settings-form">
                     <label className="settings-field settings-field-wide">
                       <span>Personality</span>
-                      <select
+                      <select className="select"
                         value={tuningDraft.personality ?? 'none'}
                         onChange={(event) => {
                           setTuningSaved(false);
@@ -2563,7 +2653,7 @@ export function SettingsPage({
                     </label>
                     <label className="settings-field settings-field-wide">
                       <span>Verbosity</span>
-                      <select
+                      <select className="select"
                         value={tuningDraft.verbosity ?? 'medium'}
                         onChange={(event) => {
                           setTuningSaved(false);
@@ -2636,7 +2726,7 @@ export function SettingsPage({
                     <div className="settings-form">
                       <label className="settings-field">
                         <span>Name</span>
-                        <input
+                        <input className="input"
                           value={providerDraft.name}
                           onChange={(event) => setProviderDraft({
                             ...providerDraft,
@@ -2647,7 +2737,7 @@ export function SettingsPage({
                       </label>
                       <label className="settings-field">
                         <span>Provider type</span>
-                        <select
+                        <select className="select"
                           value={providerDraft.interface}
                           onChange={(event) => {
                             const type = providerTypes.find(
@@ -2690,6 +2780,7 @@ export function SettingsPage({
                             {selectedProvider ? (
                               providerState?.connection?.action && (
                                 <button
+                                  className="button"
                                   type="button"
                                   disabled={busy}
                                   onClick={() => runProviderAction(
@@ -2710,7 +2801,7 @@ export function SettingsPage({
                           {providerState?.connection?.input && (
                             <label className="settings-field settings-field-wide">
                               <span>{providerState.connection.input.label}</span>
-                              <input
+                              <input className="input"
                                 type="password"
                                 autoComplete="off"
                                 spellCheck={false}
@@ -2727,6 +2818,7 @@ export function SettingsPage({
                           )}
                           {providerState?.connection?.secondaryAction && selectedProvider && (
                             <button
+                              className="button"
                               type="button"
                               disabled={busy}
                               onClick={() => runProviderAction(providerState.connection.secondaryAction.id)}
@@ -2739,6 +2831,7 @@ export function SettingsPage({
                               <span>{providerState.connection.verification.label}</span>
                               <code>{providerState.connection.verification.value}</code>
                               <button
+                                className="button"
                                 type="button"
                                 onClick={async () => {
                                   const value = providerState.connection.verification.value;
@@ -2773,23 +2866,26 @@ export function SettingsPage({
                                 'settings-field settings-field-wide',
                                 field.type === 'json' && 'settings-json-field',
                               )}
+                              htmlFor={field.type === 'json' ? `provider-field-${field.id}` : undefined}
                               key={field.id}
                             >
                               <span>{field.label}</span>
                               {field.type === 'json' ? (
-                                <textarea
-                                  rows={6}
-                                  spellCheck="false"
+                                <LongTextField
+                                  id={`provider-field-${field.id}`}
+                                  label={field.label}
+                                  language="avi-json"
                                   value={providerDraft[field.id] ?? ''}
                                   placeholder={field.placeholder ?? ''}
-                                  aria-invalid={isInvalidJsonObject(providerDraft[field.id])}
-                                  onChange={(event) => setProviderDraft({
+                                  invalid={isInvalidJsonObject(providerDraft[field.id])}
+                                  describedBy={field.description ? `provider-field-${field.id}-help` : undefined}
+                                  onChange={(value) => setProviderDraft({
                                     ...providerDraft,
-                                    [field.id]: event.target.value,
+                                    [field.id]: value,
                                   })}
                                 />
                               ) : field.type === 'select' ? (
-                                <select
+                                <select className="select"
                                   value={providerDraft[field.id] ?? field.default ?? ''}
                                   onChange={(event) => setProviderDraft({
                                     ...providerDraft,
@@ -2803,7 +2899,7 @@ export function SettingsPage({
                                   ))}
                                 </select>
                               ) : (
-                                <input
+                                <input className="input"
                                   type={field.type === 'password' ? 'password' : 'text'}
                                   value={providerDraft[field.id] ?? field.default ?? ''}
                                   placeholder={field.placeholder ?? ''}
@@ -2814,7 +2910,7 @@ export function SettingsPage({
                                   })}
                                 />
                               )}
-                              {field.description && <small>{field.description}</small>}
+                              {field.description && <small id={`provider-field-${field.id}-help`}>{field.description}</small>}
                             </label>
                           ))}
                         </div>
@@ -2822,7 +2918,7 @@ export function SettingsPage({
                         <>
                           <label className="settings-field settings-field-wide">
                             <span>Base URL</span>
-                            <input
+                            <input className="input"
                               value={providerDraft.baseUrl}
                               onChange={(event) => setProviderDraft({
                                 ...providerDraft,
@@ -2834,7 +2930,7 @@ export function SettingsPage({
                           </label>
                           <label className="settings-field settings-field-wide">
                             <span>API key</span>
-                            <input
+                            <input className="input"
                               type="password"
                               value={providerDraft.apiKey}
                               onChange={(event) => setProviderDraft({
@@ -2851,23 +2947,26 @@ export function SettingsPage({
                                 'settings-field settings-field-wide',
                                 field.type === 'json' && 'settings-json-field',
                               )}
+                              htmlFor={field.type === 'json' ? `provider-field-${field.id}` : undefined}
                               key={field.id}
                             >
                               <span>{field.label}</span>
                               {field.type === 'json' ? (
-                                <textarea
-                                  rows={6}
-                                  spellCheck="false"
+                                <LongTextField
+                                  id={`provider-field-${field.id}`}
+                                  label={field.label}
+                                  language="avi-json"
                                   value={providerDraft[field.id] ?? ''}
                                   placeholder={field.placeholder ?? ''}
-                                  aria-invalid={isInvalidJsonObject(providerDraft[field.id])}
-                                  onChange={(event) => setProviderDraft({
+                                  invalid={isInvalidJsonObject(providerDraft[field.id])}
+                                  describedBy={field.description ? `provider-field-${field.id}-help` : undefined}
+                                  onChange={(value) => setProviderDraft({
                                     ...providerDraft,
-                                    [field.id]: event.target.value,
+                                    [field.id]: value,
                                   })}
                                 />
                               ) : field.type === 'select' ? (
-                                <select
+                                <select className="select"
                                   value={providerDraft[field.id] ?? field.default ?? ''}
                                   onChange={(event) => setProviderDraft({
                                     ...providerDraft,
@@ -2881,7 +2980,7 @@ export function SettingsPage({
                                   ))}
                                 </select>
                               ) : (
-                                <input
+                                <input className="input"
                                   type={field.type === 'password' ? 'password' : 'text'}
                                   value={providerDraft[field.id] ?? field.default ?? ''}
                                   placeholder={field.placeholder ?? ''}
@@ -2892,7 +2991,7 @@ export function SettingsPage({
                                   })}
                                 />
                               )}
-                              {field.description && <small>{field.description}</small>}
+                              {field.description && <small id={`provider-field-${field.id}-help`}>{field.description}</small>}
                             </label>
                           ))}
                         </>
@@ -2941,18 +3040,18 @@ export function SettingsPage({
                         className={classNames(selectedType.supportsModelListing && 'settings-add-provider-group')}
                         ref={modelMenuRef}
                       >
-                        <button
-                          className="primary-mini settings-add-provider"
-                          type="button"
-                          onClick={() => openNewModelEditor()}
-                        >
-                          <Plus size={14} />
-                          Add model
-                        </button>
-                        {selectedType.supportsModelListing && (
-                          <>
+                        <span className="button-group">
+                          <button
+                            className="button"
+                            type="button"
+                            onClick={() => openNewModelEditor()}
+                          >
+                            <Plus size={14} />
+                            Add model
+                          </button>
+                          {selectedType.supportsModelListing && (
                             <button
-                              className="primary-mini settings-add-provider-menu-trigger"
+                              className="button"
                               type="button"
                               aria-label="More model actions"
                               aria-haspopup="menu"
@@ -2961,18 +3060,20 @@ export function SettingsPage({
                             >
                               <ChevronDown size={14} />
                             </button>
-                            <Presence when={modelMenuOpen}>{() => (
-                              <DropdownMenu className="settings-add-provider-menu" role="menu">
-                                <DropdownMenuItem
-                                  icon={<ScanSearch size={14} />}
-                                  role="menuitem"
-                                  onClick={scanProviderModels}
-                                >
-                                  Scan models
-                                </DropdownMenuItem>
-                              </DropdownMenu>
-                            )}</Presence>
-                          </>
+                          )}
+                        </span>
+                        {selectedType.supportsModelListing && (
+                          <Presence when={modelMenuOpen}>{() => (
+                            <DropdownMenu className="settings-add-provider-menu" role="menu">
+                              <DropdownMenuItem
+                                icon={<ScanSearch size={14} />}
+                                role="menuitem"
+                                onClick={scanProviderModels}
+                              >
+                                Scan models
+                              </DropdownMenuItem>
+                            </DropdownMenu>
+                          )}</Presence>
                         )}
                       </div>
                     )}
@@ -3109,7 +3210,7 @@ export function SettingsPage({
                   <div className="model-editor-grid">
                     <label className="settings-field">
                       <span>Model ID</span>
-                      <input
+                      <input className="input"
                         value={modelDraft.id}
                         onChange={(event) => updateModelDraft({ id: event.target.value })}
                         placeholder="openai/gpt-5"
@@ -3118,7 +3219,7 @@ export function SettingsPage({
                     </label>
                     <label className="settings-field">
                       <span>Display name</span>
-                      <input
+                      <input className="input"
                         value={modelDraft.name}
                         onChange={(event) => updateModelDraft({ name: event.target.value })}
                         placeholder="GPT-5"
@@ -3126,7 +3227,7 @@ export function SettingsPage({
                     </label>
                     <label className="settings-field">
                       <span>Input context</span>
-                      <input
+                      <input className="input"
                         type="number"
                         min="1"
                         step="1"
@@ -3139,7 +3240,7 @@ export function SettingsPage({
                     </label>
                     <label className="settings-field">
                       <span>Output context</span>
-                      <input
+                      <input className="input"
                         type="number"
                         min="1"
                         step="1"
@@ -3152,7 +3253,7 @@ export function SettingsPage({
                     </label>
                     <label className="settings-field">
                       <span>Media size limit</span>
-                      <select
+                      <select className="select"
                         value={modelDraft.mediaSizeLimit === undefined
                           ? 'global'
                           : modelDraft.mediaSizeLimit ?? 'none'}
@@ -3205,17 +3306,19 @@ export function SettingsPage({
                       />
                     </div>
                   </div>
-                  <label className="settings-field settings-json-field">
+                  <label className="settings-field settings-json-field" htmlFor="model-custom-json">
                     <span>Custom JSON</span>
-                    <textarea
-                      rows={6}
-                      spellCheck="false"
+                    <LongTextField
+                      id="model-custom-json"
+                      label="Custom JSON"
+                      language="avi-json"
                       value={modelDraft.customJson ?? ''}
                       placeholder={'{\n  "reasoning": { "summary": "auto" }\n}'}
-                      aria-invalid={isInvalidJsonObject(modelDraft.customJson)}
-                      onChange={(event) => updateModelDraft({ customJson: event.target.value })}
+                      invalid={isInvalidJsonObject(modelDraft.customJson)}
+                      describedBy="model-custom-json-help"
+                      onChange={(customJson) => updateModelDraft({ customJson })}
                     />
-                    <small>Object recursively merged into the request body after the provider custom JSON.</small>
+                    <small id="model-custom-json-help">Object recursively merged into the request body after the provider custom JSON.</small>
                   </label>
                 </div>
               </section>
@@ -3230,7 +3333,7 @@ export function SettingsPage({
             <span className="settings-error" role="alert">{error}</span>
             <div>
               <button
-                className="primary-mini"
+                className="button primary"
                 type="button"
                 disabled={busy || (
                   view === 'provider'
@@ -3335,6 +3438,112 @@ export function SettingsPage({
           </footer>
         )}
       </main>
+      <Presence when={contextCreateDialog}>{(contextCreateDialog) => (
+        <Overlay
+          className="dialog-backdrop provider-import-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !busy) setContextCreateDialog(null);
+          }}
+        >
+          <form
+            className="provider-import-dialog context-create-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="context-create-dialog-title"
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape' || busy) return;
+              event.preventDefault();
+              setContextCreateDialog(null);
+            }}
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (busy || !contextCreateDialog.name.trim()) return;
+              setBusy(true);
+              setError('');
+              try {
+                const created = await window.chatApp.context.create({
+                  folderPath: contextFolder.groups[0].folderPath,
+                  kind: contextCreateDialog.kind,
+                  name: contextCreateDialog.name,
+                });
+                setContextCreateDialog(null);
+                setContextEditor({
+                  item: { path: created.path, title: contextCreateDialog.name.trim(), relativePath: created.path },
+                  kind: contextCreateDialog.kind,
+                });
+                setContextReload((current) => current + 1);
+              } catch (nextError) {
+                setContextCreateDialog((current) => current && {
+                  ...current,
+                  error: nextError instanceof Error ? nextError.message : String(nextError),
+                });
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <header className="dialog-header">
+              <div>
+                <h2 id="context-create-dialog-title">New {contextCreateDialog.label}</h2>
+                <p>
+                  {{
+                    instruction: 'Creates .agents/AGENTS.<Name>.md from an instruction template.',
+                    skill: 'Creates .agents/skills/<name>/SKILL.md from a skill template.',
+                    workflow: 'Creates .agents/workflows/<name>.md from a workflow template.',
+                  }[contextCreateDialog.kind]}
+                </p>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                disabled={busy}
+                aria-label="Close"
+                onClick={() => setContextCreateDialog(null)}
+              >
+                <X size={16} />
+              </button>
+            </header>
+            <label className="context-editor-field">
+              <span>Name</span>
+              <input className="input"
+                type="text"
+                autoFocus
+                value={contextCreateDialog.name}
+                placeholder={contextCreateDialog.kind === 'instruction' ? 'Frontend' : 'Review pull request'}
+                aria-invalid={Boolean(contextCreateDialog.error)}
+                onChange={(event) => setContextCreateDialog((current) => ({
+                  ...current,
+                  name: event.target.value,
+                  error: '',
+                }))}
+              />
+            </label>
+            {contextCreateDialog.error && (
+              <div className="context-editor-error" role="alert">{contextCreateDialog.error}</div>
+            )}
+            <footer className="dialog-footer">
+              <button className="button" type="button" disabled={busy} onClick={() => setContextCreateDialog(null)}>
+                Cancel
+              </button>
+              <div>
+                <button className="button primary" type="submit" disabled={busy || !contextCreateDialog.name.trim()}>
+                  {busy ? 'Creating...' : 'Create'}
+                </button>
+              </div>
+            </footer>
+          </form>
+        </Overlay>
+      )}</Presence>
+      {contextEditor && (
+        <ContextEditorDialog
+          key={contextEditor.item.path}
+          item={contextEditor.item}
+          kind={contextEditor.kind}
+          readOnly={contextFolder?.readOnly !== false}
+          onClose={() => setContextEditor(null)}
+          onSaved={() => setContextReload((current) => current + 1)}
+        />
+      )}
       <Presence when={providerShareDialog}>{(providerShareDialog) => (
         <Overlay
           className="dialog-backdrop provider-import-dialog-backdrop"
@@ -3397,6 +3606,7 @@ export function SettingsPage({
 
             <footer className="dialog-footer">
               <button
+                className="button"
                 type="button"
                 disabled={busy}
                 onClick={() => {
@@ -3407,16 +3617,9 @@ export function SettingsPage({
                 Cancel
               </button>
               <div>
-                <button
-                  className="primary-mini"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => runProviderMutation(() => shareProvider(false))}
-                >
-                  {busy ? 'Copying...' : providerShareDialog.apiKey ? 'Copy without key' : 'Copy provider'}
-                </button>
                 {providerShareDialog.apiKey && (
                   <button
+                    className="button"
                     type="button"
                     disabled={busy}
                     onClick={() => runProviderMutation(() => shareProvider(true))}
@@ -3424,6 +3627,14 @@ export function SettingsPage({
                     Include API key
                   </button>
                 )}
+                <button
+                  className="button primary"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => runProviderMutation(() => shareProvider(false))}
+                >
+                  {busy ? 'Copying...' : providerShareDialog.apiKey ? 'Copy without key' : 'Copy provider'}
+                </button>
               </div>
             </footer>
           </div>
@@ -3464,7 +3675,7 @@ export function SettingsPage({
 
             <label className="provider-import-url-field" htmlFor="provider-model-scan-filter">
               <span>Filter</span>
-              <input
+              <input className="input"
                 id="provider-model-scan-filter"
                 type="search"
                 autoFocus
@@ -3497,6 +3708,7 @@ export function SettingsPage({
                         )}
                       </span>
                       <button
+                        className="button"
                         type="button"
                         onClick={() => {
                           setModelScanDialog(null);
@@ -3524,9 +3736,9 @@ export function SettingsPage({
               </span>
               <div>
                 {modelScanDialog.status === 'error' && (
-                  <button type="button" onClick={scanProviderModels}>Retry</button>
+                  <button className="button" type="button" onClick={scanProviderModels}>Retry</button>
                 )}
-                <button type="button" onClick={() => setModelScanDialog(null)}>Close</button>
+                <button className="button" type="button" onClick={() => setModelScanDialog(null)}>Close</button>
               </div>
             </footer>
           </div>
@@ -3550,7 +3762,7 @@ export function SettingsPage({
             aria-modal="true"
             aria-labelledby="provider-import-dialog-title"
             onKeyDown={(event) => {
-              if (event.key !== 'Escape' || busy) return;
+              if (event.defaultPrevented || event.key !== 'Escape' || busy) return;
               event.preventDefault();
               setProviderImportDialog(null);
               setError('');
@@ -3568,6 +3780,7 @@ export function SettingsPage({
                 return;
               }
               if (providerImportDialog.mode === 'json') {
+                if (!providerImportDialog.json.trim()) return;
                 runProviderMutation(() => reviewProviderImport(providerImportDialog.json, 'Pasted JSON'));
                 return;
               }
@@ -3613,7 +3826,7 @@ export function SettingsPage({
             {providerImportDialog.mode === 'url' ? (
               <label className="provider-import-url-field" htmlFor="provider-import-url">
                 <span>JSON URL</span>
-                <input
+                <input className="input"
                   id="provider-import-url"
                   type="url"
                   autoFocus
@@ -3631,20 +3844,22 @@ export function SettingsPage({
             ) : providerImportDialog.mode === 'json' ? (
               <label className="provider-import-json-field" htmlFor="provider-import-json">
                 <span>Provider JSON</span>
-                <textarea
+                <LongTextField
                   id="provider-import-json"
+                  label="Provider JSON"
+                  language="avi-json"
                   autoFocus
-                  required
                   disabled={busy}
-                  spellCheck="false"
                   placeholder={'{\n  "name": "Example provider",\n  ...\n}'}
                   value={providerImportDialog.json}
-                  onChange={(event) => setProviderImportDialog({
+                  invalid={isInvalidJsonObject(providerImportDialog.json)}
+                  describedBy="provider-import-json-help"
+                  onChange={(json) => setProviderImportDialog({
                     mode: 'json',
-                    json: event.target.value,
+                    json,
                   })}
                 />
-                <small>The provider will be validated and shown for confirmation before it is imported.</small>
+                <small id="provider-import-json-help">The provider will be validated and shown for confirmation before it is imported.</small>
               </label>
             ) : (
               <div className="provider-import-review">
@@ -3720,6 +3935,7 @@ export function SettingsPage({
               </span>
               <div>
                 <button
+                  className="button"
                   type="button"
                   disabled={busy}
                   onClick={() => {
@@ -3730,7 +3946,7 @@ export function SettingsPage({
                   Cancel
                 </button>
                 <button
-                  className="primary-mini"
+                  className="button primary"
                   type="submit"
                   disabled={busy
                     || (providerImportDialog.mode === 'url' && !providerImportDialog.url.trim())

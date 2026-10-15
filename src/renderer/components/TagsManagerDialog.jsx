@@ -73,6 +73,7 @@ export function TagsManagerDialog({ tags, busy = false, onSave, onClose }) {
                   onClick={() => setPaletteFor((current) => (current === tag.id ? null : tag.id))}
                 />
                 <input
+                  className="input"
                   type="text"
                   value={tag.name}
                   placeholder="Tag name"
@@ -109,14 +110,14 @@ export function TagsManagerDialog({ tags, busy = false, onSave, onClose }) {
             </div>
           ))}
         </div>
-        <button className="tags-dialog-add" type="button" onClick={addTag}>
+        <button className="button tags-dialog-add" type="button" onClick={addTag}>
           <Plus size={14} />
           Add tag
         </button>
         <footer className="dialog-footer tags-dialog-footer">
           <div>
-            <button type="button" onClick={onClose}>Cancel</button>
-            <button className="primary-mini" type="button" disabled={busy} onClick={save}>
+            <button className="button" type="button" onClick={onClose}>Cancel</button>
+            <button className="button primary" type="button" disabled={busy} onClick={save}>
               {busy ? 'Saving...' : 'Save tags'}
             </button>
           </div>

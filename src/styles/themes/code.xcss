@@ -52,6 +52,8 @@
   --code-radius-small: 4px;
   --code-radius: 6px;
   --code-radius-large: 8px;
+  --control-radius: var(--code-radius);
+  --control-radius-multiline: var(--code-radius);
 
   &[data-color-scheme="dark"] {
     --primary-color: #3994bc;
@@ -133,9 +135,9 @@
     outline-color: var(--code-focus-border);
   }
 
-  input:not([type="checkbox"]):not([type="radio"]),
-  textarea,
-  select {
+  input:not([type="checkbox"]):not([type="radio"]):not(.input),
+  textarea:not(.input),
+  select:not(.select) {
     padding: 6px 8px;
   }
 
@@ -438,10 +440,20 @@
 
   .search-dialog {
     padding: 0;
+
+    .dialog-search {
+      min-height: 40px;
+      margin: 0;
+      padding: 0 12px;
+    }
+
+    .search-results button {
+      border-radius: var(--code-radius);
+    }
   }
 
   .dialog-search,
-  .search-dialog .dialog-search kbd,
+  .search-dialog kbd,
   .goal-dialog > textarea,
   .mcp-dialog .mcp-dialog-icon,
   .mcp-dialog li,
@@ -715,9 +727,9 @@
     .settings-section-card,
     .settings-entity-row,
     .settings-provider-card,
-    .settings-field input,
-    .settings-field select,
-    .settings-field textarea,
+    .settings-field input:not(.input, .toggle),
+    .settings-field select:not(.select),
+    .settings-field textarea:not(.input),
     .mcp-inspection-section pre {
       border-radius: var(--code-radius);
     }

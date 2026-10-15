@@ -77,7 +77,7 @@ export function FolderNavigation({ homeFolder, selectedFolder, view, onSelectFol
         ) : (
           <nav className="settings-navigation" aria-label="Working folders">
             {loading && <p role="status">Loading folders...</p>}
-            {error && <p role="alert">{error} <button type="button" onClick={() => setAttempt((value) => value + 1)}>Retry</button></p>}
+            {error && <p role="alert">{error} <button className="button" type="button" onClick={() => setAttempt((value) => value + 1)}>Retry</button></p>}
             {!loading && !error && workingFolders.length === 0 && (
               <p>No working folders yet. Choose a folder when starting a chat.</p>
             )}

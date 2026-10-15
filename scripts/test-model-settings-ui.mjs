@@ -86,9 +86,8 @@ const desktopChecks = `(async () => {
   const tab = (id) => document.getElementById('models-tab-' + id);
   const panel = (id) => document.getElementById('models-panel-' + id);
   const tablist = () => document.querySelector('[role="tablist"][aria-label="Model settings"]');
-  const saveBtn = () => document.querySelector('.settings-actions .primary-mini');
+  const saveBtn = () => document.querySelector('.settings-actions .button.primary');
   const setSelect = (el, value) => { const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set; setter.call(el, value); el.dispatchEvent(new Event('change', { bubbles: true })); };
-  const setText = (el, value) => { const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set; setter.call(el, value); el.dispatchEvent(new Event('input', { bubbles: true })); };
   const fieldSelect = (panelEl, label) => {
     const field = qa('.default-model-field', panelEl).filter((f) => { const s = f.querySelector(':scope > span'); return s && s.textContent === label; })[0];
     if (!field) throw new Error('missing field: ' + label);
@@ -97,7 +96,16 @@ const desktopChecks = `(async () => {
   const ruleCard = (index) => qa('#models-panel-rules .model-rule')[index];
   const ruleModel = (index) => ruleCard(index).querySelectorAll('.model-rule-selection select')[0];
   const ruleRole = (index) => ruleCard(index).querySelectorAll('.model-rule-selection select')[1];
-  const ruleText = (index) => ruleCard(index).querySelector('textarea');
+  const ruleText = (index) => ruleCard(index).querySelector('.long-text-button');
+  const setLongText = async (trigger, value) => {
+    trigger.click();
+    await wait(() => document.querySelector('.long-text-dialog .monaco-editor'), 'long text editor');
+    const { monaco } = await import('/src/renderer/lib/monaco.js');
+    monaco.editor.getEditors().at(-1).setValue(value);
+    await wait(() => !document.querySelector('.long-text-dialog .button.primary').disabled, 'long text dirty');
+    document.querySelector('.long-text-dialog .button.primary').click();
+    await wait(() => !document.querySelector('.long-text-dialog'), 'long text dialog closed');
+  };
   const key = (el, name) => el.dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true }));
   const controlsInsideCards = (scope) => {
     qa('#models-panel-rules .model-rule').forEach((card, cardIndex) => {
@@ -180,15 +188,15 @@ const desktopChecks = `(async () => {
 
   const roles = ['bot', 'subagent', 'all', 'main'];
   for (const role of roles) { setSelect(ruleRole(0), role); check('role selectable: ' + role, ruleRole(0).value === role, ruleRole(0).value); }
-  setText(ruleText(0), 'Behave well');
-  check('rule instructions editable', ruleText(0).value === 'Behave well');
+  await setLongText(ruleText(0), 'Behave well\\nAlways');
+  check('rule instructions editable', ruleText(0).textContent.trim() === '2 lines', ruleText(0).textContent);
 
   qa('button', panel('rules')).filter((b) => b.textContent.includes('Add rule'))[0].click();
   await wait(() => qa('#models-panel-rules .model-rule').length === 3, 'rule added');
   check('blank rule disables save', saveBtn().disabled === true);
   setSelect(ruleModel(2), 'openai:gpt-5');
   setSelect(ruleRole(2), 'main');
-  setText(ruleText(2), 'Dup check');
+  await setLongText(ruleText(2), 'Dup check');
   check('duplicate model+role disables save', saveBtn().disabled === true, 'model=' + ruleModel(2).value + ' role=' + ruleRole(2).value);
   setSelect(ruleRole(2), 'all');
   check('unique role re-enables save', saveBtn().disabled === false);
@@ -200,8 +208,8 @@ const desktopChecks = `(async () => {
   await wait(() => qa('#models-panel-rules .model-rule').length === 3, 'rule re-added');
   setSelect(ruleModel(2), 'openai:gpt-5');
   setSelect(ruleRole(2), 'all');
-  setText(ruleText(2), 'Dup check');
-  check('drafts persist across tabs (aux + rule text)', fieldSelect(panel('auxiliary'), 'Auxiliary model') && ruleText(0).value === 'Behave well');
+  await setLongText(ruleText(2), 'Dup check');
+  check('drafts persist across tabs (aux + rule text)', fieldSelect(panel('auxiliary'), 'Auxiliary model') && ruleText(0).textContent.trim() === '2 lines');
   tab('auxiliary').click();
   await wait(() => !panel('auxiliary').hidden, 'auxiliary check');
   check('auxiliary still @router before save', fieldSelect(panel('auxiliary'), 'Auxiliary model').value === '@fast-fallback');
@@ -217,7 +225,7 @@ const desktopChecks = `(async () => {
   check('save carries @router auxiliary', payload.auxiliary.modelId === '@fast-fallback', JSON.stringify(payload.auxiliary));
   check('save carries subagent levels', payload.subagents.enabled === true && payload.subagents.small.modelId === 'openai:gpt-5' && payload.subagents.medium.modelId === 'anthropic:claude' && payload.subagents.large.modelId === 'openai:gpt-5', JSON.stringify(payload.subagents));
   check('save carries all three rules', payload.rules.length === 3, JSON.stringify(payload.rules.length));
-  check('save carries edited rule', payload.rules[0].modelId === 'openai:gpt-5' && payload.rules[0].role === 'main' && payload.rules[0].instructions === 'Behave well', JSON.stringify(payload.rules[0]));
+  check('save carries edited rule', payload.rules[0].modelId === 'openai:gpt-5' && payload.rules[0].role === 'main' && payload.rules[0].instructions === 'Behave well\\nAlways', JSON.stringify(payload.rules[0]));
   check('save preserves unavailable rule', payload.rules[1].modelId === 'ghost:model' && payload.rules[1].role === 'bot' && payload.rules[1].instructions === 'Hidden', JSON.stringify(payload.rules[1]));
   check('save carries new rule', payload.rules[2].modelId === 'openai:gpt-5' && payload.rules[2].role === 'all' && payload.rules[2].instructions === 'Dup check', JSON.stringify(payload.rules[2]));
   check('save carries slider levels', payload.intelligence.levels.length === 3, String(payload.intelligence.levels.length));
@@ -255,7 +263,7 @@ const narrowChecks = `(async () => {
     });
     failsNarrow.forEach((f) => fails.push(f));
   })();
-  const saveRect = document.querySelector('.settings-actions .primary-mini').getBoundingClientRect();
+  const saveRect = document.querySelector('.settings-actions .button.primary').getBoundingClientRect();
   check('narrow: save action visible', saveRect.width > 0 && saveRect.height > 0);
   if (fails.length) throw new Error('Narrow layout defects:\\n- ' + fails.join('\\n- '));
   return true;
@@ -305,6 +313,30 @@ app.whenReady().then(async () => {
     await testWindow.webContents.executeJavaScript('(async () => { for (let i = 0; i < 200; i++) { if (document.getElementById("models-tab-auxiliary")) return true; await new Promise((r) => setTimeout(r, 20)); } throw new Error("UI timeout: initial render"); })()');
     assert.equal(await testWindow.webContents.executeJavaScript(desktopChecks), true);
     console.log('Desktop model settings UI tests passed.');
+    const editorPoint = await testWindow.webContents.executeJavaScript(`(async () => {
+      document.querySelector('#models-panel-rules .long-text-button').click();
+      for (let i = 0; i < 200 && !document.querySelector('.long-text-dialog .view-lines'); i++) await new Promise((r) => setTimeout(r, 20));
+      await new Promise((r) => setTimeout(r, 300));
+      const rect = document.querySelector('.long-text-dialog .view-lines').getBoundingClientRect();
+      return { x: Math.round(rect.left + 40), y: Math.round(rect.top + 23) };
+    })()`);
+    testWindow.focus();
+    testWindow.webContents.focus();
+    testWindow.webContents.sendInputEvent({ type: 'mouseDown', ...editorPoint, button: 'left', clickCount: 1 });
+    testWindow.webContents.sendInputEvent({ type: 'mouseUp', ...editorPoint, button: 'left', clickCount: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await testWindow.webContents.insertText('typed');
+    assert.deepEqual(await testWindow.webContents.executeJavaScript(`(async () => {
+      const { monaco } = await import('/src/renderer/lib/monaco.js');
+      const result = {
+        focused: Boolean(document.activeElement?.closest('.long-text-dialog')),
+        typed: monaco.editor.getEditors().at(-1).getValue().includes('typed'),
+      };
+      document.querySelector('.long-text-dialog .button.primary').click();
+      for (let i = 0; i < 200 && document.querySelector('.long-text-dialog'); i++) await new Promise((r) => setTimeout(r, 20));
+      return result;
+    })()`), { focused: true, typed: true }, 'Clicking inside the long text editor must keep focus and accept typing');
+    console.log('Long text editor keeps focus for real input.');
     const desktopGate = await testWindow.webContents.executeJavaScript(captureGate);
     assert.deepEqual(desktopGate.active, ['models-tab-rules']);
     assert.deepEqual(desktopGate.visible, ['rules']);

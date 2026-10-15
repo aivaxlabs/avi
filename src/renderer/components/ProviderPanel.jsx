@@ -4,9 +4,17 @@ import {
   Sparkles,
 } from 'lucide-react';
 
+const auxiliaryPanelSource = {
+  label: 'Auxiliary panel',
+  load: (payload) => window.chatApp.providers.auxiliaryPanel(payload),
+  invokeAction: (payload) => window.chatApp.providers.auxiliaryPanelAction(payload),
+};
+
 export function ProviderPanel({
   panel,
   conversationId,
+  source = auxiliaryPanelSource,
+  refreshKey = 0,
 }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -16,7 +24,7 @@ export function ProviderPanel({
     setBusy(true);
     setError('');
     try {
-      setData(await window.chatApp.providers.auxiliaryPanel({
+      setData(await source.load({
         panelId: panel.id,
         conversationId,
       }));
@@ -32,7 +40,7 @@ export function ProviderPanel({
     setBusy(true);
     setError('');
     try {
-      const result = await window.chatApp.providers.auxiliaryPanelAction({
+      const result = await source.invokeAction({
         panelId: panel.id,
         conversationId,
         action: action.id,
@@ -49,15 +57,16 @@ export function ProviderPanel({
 
   useEffect(() => {
     loadPanel();
-  }, [conversationId, panel.id]);
+  }, [conversationId, panel.id, refreshKey]);
 
   return (
     <div className="provider-panel-shell">
       <header className="provider-panel-provenance">
         <span>
-          Auxiliary panel provided by <strong>{panel.providerName}</strong>
+          {source.label} provided by <strong>{panel.providerName}</strong>
         </span>
         <button
+          className="icon-button tiny"
           type="button"
           disabled={busy}
           aria-label={`Refresh ${panel.title}`}
@@ -71,7 +80,7 @@ export function ProviderPanel({
       {!data && busy ? (
         <div className="provider-panel-state">
           <RefreshCw className="spin" size={18} />
-          <span>Loading provider data…</span>
+          <span>Loading provider data...</span>
         </div>
       ) : data?.state ? (
         <div className="provider-panel-state">
@@ -124,6 +133,7 @@ export function ProviderPanel({
                         </span>
                         {item.action && (
                           <button
+                            className="button"
                             type="button"
                             disabled={busy}
                             onClick={() => invokeAction(item.action)}

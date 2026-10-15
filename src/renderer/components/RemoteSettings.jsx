@@ -114,6 +114,7 @@ export function RemoteSettings() {
           </div>
           <label className="remote-switch">
             <input
+              className="toggle"
               type="checkbox"
               checked={state.enabled}
               disabled={busy}
@@ -122,7 +123,6 @@ export function RemoteSettings() {
                 port: Number(port),
               }))}
             />
-            <span className="remote-switch-track" aria-hidden="true" />
             <strong>{state.enabled ? 'On' : 'Off'}</strong>
           </label>
         </div>
@@ -140,7 +140,7 @@ export function RemoteSettings() {
             <span>Changes are applied when you leave the field.</span>
           </div>
           <input
-            className="remote-port-input"
+            className="input remote-port-input"
             type="number"
             min="1"
             max="65535"
@@ -179,6 +179,7 @@ export function RemoteSettings() {
           </div>
           <label className="remote-switch">
             <input
+              className="toggle"
               type="checkbox"
               aria-label="AIVAX Remote MCP and RPC bridge"
               checked={state.relayEnabled}
@@ -187,7 +188,6 @@ export function RemoteSettings() {
                 relayEnabled: event.target.checked,
               }))}
             />
-            <span className="remote-switch-track" aria-hidden="true" />
             <strong>{state.relayEnabled ? 'On' : 'Off'}</strong>
           </label>
         </div>
@@ -254,7 +254,7 @@ export function RemoteSettings() {
               ref={openMenuId === key.id ? keyMenuRef : undefined}
             >
               <button
-                className="remote-action"
+                className="icon-button tiny"
                 type="button"
                 aria-haspopup="menu"
                 aria-expanded={openMenuId === key.id}
@@ -328,7 +328,7 @@ export function RemoteSettings() {
           </div>
           <div className="remote-create-inputs">
             <input
-              className="remote-create-input"
+              className="input remote-create-input"
               type="text"
               placeholder="Key name"
               aria-label="API key name"
@@ -337,14 +337,14 @@ export function RemoteSettings() {
               onChange={(event) => setNewKeyLabel(event.target.value)}
             />
             <input
-              className="remote-create-input"
+              className="input remote-create-input"
               type="datetime-local"
               aria-label="API key expiration (optional)"
               value={newKeyExpires}
               disabled={busy}
               onChange={(event) => setNewKeyExpires(event.target.value)}
             />
-            <button className="remote-action primary" type="submit" disabled={busy}>
+            <button className="button primary" type="submit" disabled={busy}>
               <Plus size={14} />
               Create API key
             </button>
@@ -359,7 +359,7 @@ export function RemoteSettings() {
             <span>These secrets allow remote control of Avi. Share only with trusted clients.</span>
           </div>
           <button
-            className="remote-action"
+            className="button"
             type="button"
             aria-expanded={credentialsOpen}
             aria-controls="remote-instance-credentials"
@@ -382,7 +382,7 @@ export function RemoteSettings() {
                 </div>
                 <div className="remote-create-inputs">
                   <button
-                    className="remote-action"
+                    className="button"
                     type="button"
                     disabled={busy}
                     aria-label={`${revealedKey?.id === key.id ? 'Hide' : 'Show'} instance key for ${key.label || 'API key'}`}
@@ -398,7 +398,7 @@ export function RemoteSettings() {
                     {revealedKey?.id === key.id ? 'Hide' : 'Show'}
                   </button>
                   <button
-                    className="remote-action"
+                    className="button"
                     type="button"
                     disabled={busy}
                     aria-label={`Rotate instance key for ${key.label || 'API key'}`}

@@ -93,7 +93,7 @@ function GitReviewDialog({ dialog, busy, onClose, onConfirm }) {
       <p>This permanently discards staged and unstaged changes in <strong>{dialog.path}</strong> in <strong>{dialog.repositoryName}</strong>, including untracked files.</p><p>This cannot be undone. Nested repositories are not discarded.</p>
       {dialog.error && <p role="alert">{dialog.error}</p>}
     </div>
-    <footer className="dialog-footer"><button type="button" disabled={busy} onClick={onClose}>Cancel</button><button type="button" className="danger" disabled={busy} onClick={onConfirm}>{busy ? <><LoaderCircle className="spin" size={14} aria-hidden="true" />Discarding changes...</> : 'Discard permanently'}</button></footer>
+    <footer className="dialog-footer"><button className="button" type="button" disabled={busy} onClick={onClose}>Cancel</button><button type="button" className="button danger" disabled={busy} onClick={onConfirm}>{busy ? <><LoaderCircle className="spin" size={14} aria-hidden="true" />Discarding changes...</> : 'Discard permanently'}</button></footer>
   </Overlay>, document.body);
 }
 
@@ -248,7 +248,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
   }
 
   return <div className="git-review-panel" aria-busy={Boolean(busy || loading || fileLoading)}>
-    <header className="git-review-topbar"><GitBranch size={16} /><select aria-label="Git repository" value={repositoryPath} disabled={busy || !catalog} onChange={(event) => { setRepositoryPath(event.target.value); setSelected(''); setMessage(''); setStaged(false); }}>
+    <header className="git-review-topbar"><GitBranch size={16} /><select className="select" aria-label="Git repository" value={repositoryPath} disabled={busy || !catalog} onChange={(event) => { setRepositoryPath(event.target.value); setSelected(''); setMessage(''); setStaged(false); }}>
       {!catalog?.repositories.length && <option value="">{loading ? 'Finding repositories...' : 'No repositories found'}</option>}
       {catalog?.repositories.map((repository) => <option key={repository.path} value={repository.path}>{repository.path === '.' ? repository.name : repository.path}</option>)}
     </select><span className="git-review-branch" title={activeIndex?.branch}>{activeIndex?.branch}</span>
@@ -278,14 +278,14 @@ export const GitReviewPanel = memo(function GitReviewPanel({ conversationId, mod
               setMenu({ type: 'generate', opener: event.currentTarget, left: Math.max(8, Math.min(window.innerWidth - 245, rect.left)), top: Math.max(8, Math.min(window.innerHeight - 110, rect.bottom + 5)) });
             }}><Sparkles size={15} /></button>
           </div>
-          <div className="git-review-commit-actions"><button type="submit" className="primary-mini" disabled={busy || loading || !stagedCount || !message.trim()}><GitCommitHorizontal size={14} />Commit</button><button type="button" title="Commit staged changes, then push" disabled={busy || loading || !stagedCount || !message.trim()} onClick={() => perform('commit', undefined, { message, push: true })}><Rocket size={14} />Commit + push</button></div>
+          <div className="git-review-commit-actions"><button type="submit" className="button primary" disabled={busy || loading || !stagedCount || !message.trim()}><GitCommitHorizontal size={14} />Commit</button><button className="button" type="button" title="Commit staged changes, then push" disabled={busy || loading || !stagedCount || !message.trim()} onClick={() => perform('commit', undefined, { message, push: true })}><Rocket size={14} />Commit + push</button></div>
           <small>{`${activeIndex?.files.length ?? 0} changed · ${stagedCount} staged`}</small>
         </form>
         {activeIndex ? <GitTree key={repositoryPath} files={activeIndex.files} selected={selected} staged={staged} onSelect={onSelect} onMenu={onMenu} onAction={perform} busy={busy || loading} />
           : <div className="git-review-empty">{loading ? 'Loading changes...' : 'Choose a repository.'}</div>}
       </aside>
       <section className="git-review-detail">
-        <header className="git-review-file-header"><strong title={selected}>{selected || 'Changes'}</strong><select aria-label="Diff scope" value={staged ? 'staged' : 'all'} onChange={(event) => setStaged(event.target.value === 'staged')}><option value="all">Unstaged</option><option value="staged">Staged changes</option></select></header>
+        <header className="git-review-file-header"><strong title={selected}>{selected || 'Changes'}</strong><select className="select" aria-label="Diff scope" value={staged ? 'staged' : 'all'} onChange={(event) => setStaged(event.target.value === 'staged')}><option value="all">Unstaged</option><option value="staged">Staged changes</option></select></header>
         {fileLoading ? <div className="git-review-empty" role="status"><LoaderCircle className="spin" size={18} aria-hidden="true" />Loading file changes...</div> : file && activeIndex ? <GitReviewDiff key={`${repositoryPath}:${selected}:${staged}:${revision}`} repository={activeIndex} file={file} onAddToChat={onAddToChat} onAskInSideChat={onAskInSideChat} onQuickQuestion={onQuickQuestion} />
           : <div className="git-review-empty"><GitBranch size={22} /><strong>{activeIndex?.files.length ? 'Select a changed file' : 'Working tree clean'}</strong></div>}
       </section>

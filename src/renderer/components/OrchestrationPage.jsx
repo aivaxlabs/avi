@@ -408,7 +408,7 @@ export function OrchestrationPage({ models, onOpenThread, bots = emptyBots, botD
         </div>
         {activeTab === 'models' && (
           <button
-            className="orchestration-range-trigger"
+            className="button orchestration-range-trigger"
             type="button"
             aria-expanded={rangeOpen}
             aria-haspopup="dialog"
@@ -425,6 +425,7 @@ export function OrchestrationPage({ models, onOpenThread, bots = emptyBots, botD
               <label>
                 <span>From</span>
                 <input
+                  className="input"
                   type="datetime-local"
                   value={range.from}
                   max={range.to}
@@ -435,6 +436,7 @@ export function OrchestrationPage({ models, onOpenThread, bots = emptyBots, botD
               <label>
                 <span>To</span>
                 <input
+                  className="input"
                   type="datetime-local"
                   value={range.to}
                   min={range.from}
@@ -481,7 +483,7 @@ export function OrchestrationPage({ models, onOpenThread, bots = emptyBots, botD
           </Overlay>
         )}</Presence>
         <button
-          className="orchestration-refresh"
+          className="button orchestration-refresh"
           type="button"
           disabled={activeTab === 'inbox' ? botsLoading : loading}
           onClick={() => activeTab === 'inbox' ? onRefreshBots?.() : loadOverview()}
@@ -519,8 +521,8 @@ export function OrchestrationPage({ models, onOpenThread, bots = emptyBots, botD
       {activeTab === 'inbox' ? (
         <section className="orchestration-inbox" aria-label="All bots Inbox">
           <div className="orchestration-inbox-filters">
-            <label><span>Search Inbox</span><input type="search" placeholder="Search bots and messages" value={inboxQuery} onChange={(event) => { setInboxQuery(event.target.value); setInboxLimit(50); }} /></label>
-            <label><span>Status</span><select value={inboxFilter} onChange={(event) => { setInboxFilter(event.target.value); setInboxLimit(50); }}><option value="all">All messages</option><option value="needs-user">Needs you</option><option value="open">Open</option><option value="completed">Completed</option></select></label>
+            <label><span>Search Inbox</span><input className="input" type="search" placeholder="Search bots and messages" value={inboxQuery} onChange={(event) => { setInboxQuery(event.target.value); setInboxLimit(50); }} /></label>
+            <label><span>Status</span><select className="select" value={inboxFilter} onChange={(event) => { setInboxFilter(event.target.value); setInboxLimit(50); }}><option value="all">All messages</option><option value="needs-user">Needs you</option><option value="open">Open</option><option value="completed">Completed</option></select></label>
           </div>
           {inboxErrors.map(({ bot, message }) => (
             <div className="orchestration-error" role="alert" key={bot.id}>Couldn't load Inbox for {bot.name}.<details><summary>Technical details</summary>{message}</details></div>
@@ -553,7 +555,7 @@ export function OrchestrationPage({ models, onOpenThread, bots = emptyBots, botD
             })}
           </div>
           {filteredInbox.length > inboxLimit && (
-            <button type="button" className="orchestration-refresh" onClick={() => setInboxLimit((limit) => limit + 50)}>
+            <button type="button" className="button orchestration-refresh" onClick={() => setInboxLimit((limit) => limit + 50)}>
               Show more ({filteredInbox.length - inboxLimit} remaining)
             </button>
           )}

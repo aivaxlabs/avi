@@ -1,0 +1,275 @@
+:root {
+  --control-height: 30px;
+  --control-height-small: 26px;
+  --control-padding-x: 12px;
+  --control-radius: 9999px;
+  --control-radius-multiline: 12px;
+  --control-gap: 6px;
+  --control-background: var(--background-3);
+  --control-background-hover: var(--item-active);
+  --control-text: var(--text-1);
+  --control-primary-background: var(--background-5);
+  --control-primary-text: var(--text-5);
+  --control-accent: var(--primary-color);
+  --control-focus-ring: color-mix(in srgb, var(--control-accent) 55%, transparent);
+}
+
+.button,
+.long-text-button,
+.select,
+.input {
+  min-height: --control-height;
+  display: inline-flex;
+  align-items: center;
+  gap: --control-gap;
+  padding: 0 --control-padding-x;
+  color: --control-text;
+  font: inherit;
+  white-space: nowrap;
+  background: --control-background;
+  border: 1px solid transparent;
+  border-radius: --control-radius;
+  outline: 0;
+  transition: background-color var(--duration-quick) var(--ease-smooth-out),
+    border-color var(--duration-quick) var(--ease-smooth-out),
+    box-shadow var(--duration-quick) var(--ease-smooth-out);
+
+  svg {
+    flex: 0 0 auto;
+    margin: 0;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: .55;
+  }
+}
+
+.button,
+.long-text-button,
+.select {
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: --control-background-hover;
+  }
+
+  &:focus-visible {
+    outline: 2px solid --control-focus-ring;
+    outline-offset: 2px;
+  }
+}
+
+.button {
+  justify-content: center;
+
+  &.primary {
+    color: --control-primary-text;
+    background: --control-primary-background;
+
+    &:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--control-primary-background) 86%, var(--control-primary-text));
+    }
+  }
+
+  &.danger:hover:not(:disabled) {
+    color: --danger-color;
+  }
+
+  &.small {
+    min-height: --control-height-small;
+    padding: 0 10px;
+  }
+}
+
+.button-group {
+  display: inline-flex;
+  border-radius: --control-radius;
+
+  > .button {
+    border-radius: 0;
+
+    &:first-child {
+      border-start-start-radius: --control-radius;
+      border-end-start-radius: --control-radius;
+    }
+
+    &:last-child {
+      border-start-end-radius: --control-radius;
+      border-end-end-radius: --control-radius;
+    }
+
+    + .button {
+      padding-inline: 9px;
+      border-inline-start: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+    }
+  }
+}
+
+.select {
+  appearance: base-select;
+  field-sizing: content;
+  max-width: 100%;
+
+  &::picker-icon {
+    content: "";
+    width: 6px;
+    height: 6px;
+    margin: -3px 1px 0 2px;
+    border: solid --text-3;
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+    transition: transform var(--duration-quick) var(--ease-smooth-out);
+  }
+
+  &:open::picker-icon {
+    transform: translateY(3px) rotate(225deg);
+  }
+
+  &::picker(select) {
+    appearance: base-select;
+    margin-block: 4px;
+    padding: 4px;
+    color: --text-1;
+    background: --background-1;
+    border: 1px solid --border-color;
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgb(0 0 0 / 18%);
+  }
+
+  option {
+    min-height: 28px;
+    padding: 4px 10px;
+    border-radius: 7px;
+
+    &::checkmark {
+      display: none;
+    }
+
+    &:hover,
+    &:focus-visible {
+      background: --item-hover;
+    }
+
+    &:checked {
+      background: --item-active;
+    }
+  }
+}
+
+.input {
+  width: 100%;
+  min-width: 0;
+  cursor: text;
+
+  &::placeholder {
+    color: --text-4;
+  }
+
+  &:hover:not(:disabled, :focus) {
+    background: --control-background-hover;
+  }
+
+  &:focus {
+    background: --background-0;
+    border-color: --control-focus-ring;
+    box-shadow: 0 0 0 1px --control-focus-ring;
+  }
+
+  &[aria-invalid="true"] {
+    border-color: --danger-color;
+  }
+}
+
+// components/input.xcss pads every native field at specificity (0,2,1);
+// these selectors match it so primitives keep their own padding.
+input.input:not([type="checkbox"]):not([type="radio"]),
+select.select:not([multiple]) {
+  padding: 0 --control-padding-x;
+}
+
+textarea.input,
+textarea.input:not([readonly]) {
+  padding: 6px --control-padding-x;
+}
+
+textarea.input {
+  min-height: calc(var(--control-height) * 2);
+  white-space: pre-wrap;
+  border-radius: --control-radius-multiline;
+  resize: vertical;
+}
+
+.toggle {
+  appearance: none;
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 20px;
+  margin: 0;
+  background: --control-background;
+  border: 1px solid --border-color;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background-color var(--duration-quick) var(--ease-smooth-out),
+    border-color var(--duration-quick) var(--ease-smooth-out);
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: --text-4;
+    border-radius: 50%;
+    transition: transform var(--duration-quick) var(--ease-smooth-out),
+      background-color var(--duration-quick) var(--ease-smooth-out);
+  }
+
+  &:checked {
+    background: --control-accent;
+    border-color: --control-accent;
+
+    &::after {
+      background: --background-0;
+      transform: translateX(16px);
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid --control-focus-ring;
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: .55;
+  }
+}
+
+.long-text-button {
+  max-width: 100%;
+  color: --text-2;
+
+  > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &[aria-invalid="true"] {
+    border-color: --danger-color;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .long-text-button,
+  .select,
+  .select::picker-icon,
+  .input,
+  .toggle,
+  .toggle::after {
+    transition: none;
+  }
+}

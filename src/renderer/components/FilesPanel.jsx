@@ -1038,7 +1038,7 @@ export function FilesPanel({
                       : `${formatBytes(preview.size)} · Open it with the default application.`}
                   </span>
                   <button
-                    className="button button-secondary"
+                    className="button"
                     type="button"
                     onClick={async () => {
                       await window.chatApp.files.open({

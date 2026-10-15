@@ -288,7 +288,7 @@ export function ContextUsageDialog({
           </div>
           <div className="context-compression-menu" ref={compressionMenuRef}>
             <button
-              className="context-compression-trigger"
+              className="button context-compression-trigger"
               type="button"
               disabled={busy}
               aria-haspopup="menu"

@@ -23,7 +23,7 @@
   .plugins-developer-tools {
     position: relative;
 
-    .secondary-mini svg:last-child { margin-left: 1px; }
+    .button svg:last-child { margin-left: 1px; }
     .dropdown-menu { top: calc(100% + 6px); right: 0; z-index: 20; width: 190px; border-radius: 10px; }
     .dropdown-menu-item { border-radius: 7px; }
   }
@@ -72,8 +72,6 @@
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 6px;
-
-    .danger { color: var(--danger-color); }
   }
 
   .plugin-card-title {
@@ -174,14 +172,13 @@
     align-items: start;
     gap: 8px;
 
-    > input:not([type='checkbox']),
-    > select,
-    textarea {
+    > .input {
       width: 100%;
       min-width: 0;
     }
 
-    > .appearance-desktop-switch { margin-top: 4px; }
+    > .select { justify-self: start; }
+    > .toggle { margin-top: 4px; }
     > .plugin-setting-array,
     > .plugin-setting-object,
     > .plugin-setting-json-field,
@@ -211,7 +208,6 @@
     gap: 8px;
 
     strong { font-size: .9rem; font-weight: 500; }
-    .danger { color: var(--danger-color); }
   }
 
   .plugin-setting-object {
@@ -232,12 +228,9 @@
     > small { color: var(--text-3); font-size: .9rem; }
   }
 
-  .plugin-setting-json-field textarea {
-    min-height: 120px;
-    resize: vertical;
-    font-family: var(--font-mono);
-    font-size: .9rem;
-    line-height: 1.5;
+  .plugin-setting-json-field > .long-text-button,
+  .plugin-setting-object-field > .select {
+    justify-self: start;
   }
 
   .plugin-setting-field-error,
@@ -251,6 +244,6 @@
     .plugin-settings-editor-heading { flex-direction: column; }
     .plugin-setting-option { grid-template-columns: 1fr; gap: 14px; }
     .plugin-setting-control { grid-template-columns: minmax(0, 1fr); }
-    .plugin-setting-control > .primary-mini { justify-self: start; }
+    .plugin-setting-control > .button { justify-self: start; }
   }
 }

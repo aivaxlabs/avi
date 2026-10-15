@@ -156,6 +156,7 @@ export function ProviderUsages({ providers, open, onOpenChange }) {
                       </div>
                       {entry.value.limits.some((limit) => limit.resetList.length > 0) && (
                         <button
+                          className="button"
                           type="button"
                           onClick={() => {
                             setResetsFor(entry.value.id);
@@ -274,6 +275,7 @@ export function ProviderUsages({ providers, open, onOpenChange }) {
                       <small>Use this reset now?</small>
                       <span>
                         <button
+                          className="button"
                           type="button"
                           disabled={busy}
                           onClick={() => setConfirmingReset(null)}
@@ -281,7 +283,7 @@ export function ProviderUsages({ providers, open, onOpenChange }) {
                           Cancel
                         </button>
                         <button
-                          className="primary-mini"
+                          className="button primary"
                           type="button"
                           disabled={busy}
                           onClick={async () => {
@@ -313,7 +315,7 @@ export function ProviderUsages({ providers, open, onOpenChange }) {
                       </span>
                     </span>
                   ) : (
-                    <button type="button" disabled={busy} onClick={() => setConfirmingReset(reset.id)}>
+                    <button className="button" type="button" disabled={busy} onClick={() => setConfirmingReset(reset.id)}>
                       Use reset
                     </button>
                   )}

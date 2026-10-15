@@ -242,15 +242,6 @@
     font-size: .9rem;
     text-align: center;
     opacity: var(--sidebar-text-muted-opacity);
-
-    button {
-      padding: 4px 10px;
-      color: var(--text-1);
-      background: var(--sidebar-background-hover);
-      border: none;
-      border-radius: 8px;
-      font-size: .9rem;
-    }
   }
 
   .conversation-list {

@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   BookOpen,
+  Check,
   ChevronDown,
   Chrome,
   Monitor,
@@ -94,8 +95,8 @@ export function PluginsSettings() {
   return (
     <div className="plugins-settings">
       <nav className="plugins-actions" aria-label="Plugin categories">
-        <button type="button" className={tab === 'built-in' ? 'primary-mini' : 'secondary-mini'} aria-pressed={tab === 'built-in'} onClick={() => setTab('built-in')}>Built-in</button>
-        <button type="button" className={tab === 'installed' ? 'primary-mini' : 'secondary-mini'} aria-pressed={tab === 'installed'} onClick={() => setTab('installed')}>Installed</button>
+        <button type="button" className="button" aria-pressed={tab === 'built-in'} onClick={() => setTab('built-in')}>{tab === 'built-in' && <Check size={14} aria-hidden="true" />}Built-in</button>
+        <button type="button" className="button" aria-pressed={tab === 'installed'} onClick={() => setTab('installed')}>{tab === 'installed' && <Check size={14} aria-hidden="true" />}Installed</button>
       </nav>
       {tab === 'installed' && <div className="plugins-trust-warning" role="note">
         <AlertTriangle size={18} />
@@ -104,10 +105,10 @@ export function PluginsSettings() {
       <section className="settings-section">
         <div className="settings-section-heading"><h3>{tab === 'built-in' ? 'Built-in plugins' : 'Installed plugins'}</h3><p>{tab === 'built-in' ? 'Included with Avi and disabled by default. Enable only the integrations you want to use.' : directory || 'Loading plugin directory...'}</p></div>
         <div className="plugins-actions">
-          {tab === 'installed' && <button className="primary-mini" type="button" disabled={busy} onClick={sideload}><PackagePlus size={14} />{busy ? 'Selecting...' : 'Install .js or .zip'}</button>}
+          {tab === 'installed' && <button className="button primary" type="button" disabled={busy} onClick={sideload}><PackagePlus size={14} />{busy ? 'Selecting...' : 'Install .js or .zip'}</button>}
           <div className="plugins-developer-tools" ref={developerToolsRef}>
             <button
-              className="secondary-mini"
+              className="button"
               type="button"
               aria-haspopup="menu"
               aria-expanded={developerToolsOpen}
@@ -151,7 +152,7 @@ export function PluginsSettings() {
                 <div className="plugin-card-actions">
                   {(plugin.builtIn || (plugin.settings > 0 && plugin.enabled !== false && plugin.status === 'active')) && (
                     <button
-                      className="secondary-mini"
+                      className="button"
                       type="button"
                       disabled={!!pluginBusy}
                       onClick={() => setSelectedPlugin(plugin)}
@@ -160,7 +161,7 @@ export function PluginsSettings() {
                     </button>
                   )}
                   <button
-                    className="secondary-mini"
+                    className="button"
                     type="button"
                     disabled={!!pluginBusy}
                     onClick={() => updatePlugin(plugin, plugin.enabled === false ? 'enable' : 'disable')}
@@ -171,7 +172,7 @@ export function PluginsSettings() {
                       : plugin.enabled === false ? 'Enable' : 'Disable'}
                   </button>
                   {!plugin.builtIn && <button
-                    className="secondary-mini danger"
+                    className="button danger"
                     type="button"
                     disabled={!!pluginBusy}
                     onClick={() => updatePlugin(plugin, 'remove')}
