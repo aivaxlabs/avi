@@ -29,6 +29,36 @@ const builtInThemes = Object.freeze([
     name: 'Goblin',
     tagline: 'Codex blue on crisp neutral surfaces. Focused, technical, and sharp.',
   },
+  {
+    id: 'github',
+    name: 'GitHub',
+    tagline: 'GitHub Light and Dark Default. Primer surfaces with GitHub blue.',
+  },
+  {
+    id: 'catppuccin',
+    name: 'Catppuccin',
+    tagline: 'Soothing pastels. Latte by day, Mocha by night, with a mauve accent.',
+  },
+  {
+    id: 'solarized',
+    name: 'Solarized',
+    tagline: 'Ethan Schoonover\'s precision palette. Low-contrast base tones with blue accents.',
+  },
+  {
+    id: 'nord',
+    name: 'Nord',
+    tagline: 'Arctic, north-bluish calm. Polar Night and Snow Storm with Frost accents.',
+  },
+  {
+    id: 'tokyo-night',
+    name: 'Tokyo Night',
+    tagline: 'Downtown Tokyo at night. Deep indigo surfaces with neon blue and violet.',
+  },
+  {
+    id: 'darcula',
+    name: 'Darcula',
+    tagline: 'JetBrains Darcula, with IntelliJ Light for the light scheme.',
+  },
 ]);
 
 export let themes = builtInThemes;

@@ -1,0 +1,80 @@
+[data-theme="nord"] {
+  --primary-color: #5e81ac;
+  --primary-color-opaque: #5e81ac22;
+  --text-1: #2e3440;
+  --text-2: #3b4252;
+  --text-3: #434c5e;
+  --text-4: #4c566a;
+  --text-5: #eceff4;
+  --background-0: #e5e9f0;
+  --background-1: #eceff4;
+  --background-2: #e5e9f0;
+  --background-3: #d8dee9;
+  --background-4: #d8dee9;
+  --background-5: #2e3440;
+  --background-transparent-0: color-mix(in srgb, var(--background-0) 72%, transparent);
+  --background-transparent-1: color-mix(in srgb, var(--background-1) 72%, transparent);
+  --background-transparent-2: color-mix(in srgb, var(--background-2) 72%, transparent);
+  --background-transparent-3: color-mix(in srgb, var(--background-3) 72%, transparent);
+  --background-transparent-4: color-mix(in srgb, var(--background-4) 72%, transparent);
+  --background-transparent-5: color-mix(in srgb, var(--background-5) 72%, transparent);
+  --highlight-color: #d8dee9;
+  --success-color: color-mix(in srgb, #a3be8c 40%, #2e3440);
+  --warn-color: color-mix(in srgb, #d08770 55%, #2e3440);
+  --danger-color: color-mix(in srgb, #bf616a 75%, #2e3440);
+  --git-ignored-status-color: #4c566a;
+  --diff-removed-bg: #bf616a22;
+  --diff-added-bg: #a3be8c22;
+  --diff-relative-margin-bg: #2e34400d;
+  --prism-comment: #4c566a;
+  --prism-punctuation: #3b4252;
+  --prism-property: #2e3440;
+  --prism-selector: color-mix(in srgb, #8fbcbb 55%, #2e3440);
+  --prism-operator: #5e81ac;
+  --prism-keyword: #5e81ac;
+  --prism-function: #5e81ac;
+  --prism-string: color-mix(in srgb, #a3be8c 55%, #2e3440);
+  --prism-number: color-mix(in srgb, #b48ead 75%, #2e3440);
+  --prism-class: color-mix(in srgb, #8fbcbb 55%, #2e3440);
+
+  &[data-color-scheme="dark"] {
+    --primary-color: #88c0d0;
+    --primary-color-opaque: #88c0d033;
+    --text-1: #eceff4;
+    --text-2: #e5e9f0;
+    --text-3: #d8dee9;
+    --text-4: #4c566a;
+    --text-5: #2e3440;
+    --background-0: #2e3440;
+    --background-1: #2e3440;
+    --background-2: #3b4252;
+    --background-3: #434c5e;
+    --background-4: #4c566a;
+    --background-5: #eceff4;
+    --highlight-color: #434c5e;
+    --success-color: #a3be8c;
+    --warn-color: #ebcb8b;
+    --danger-color: #bf616a;
+    --git-ignored-status-color: #4c566a;
+    --diff-removed-bg: #bf616a33;
+    --diff-added-bg: #a3be8c22;
+    --diff-relative-margin-bg: #eceff412;
+    --prism-comment: #616e88;
+    --prism-punctuation: #eceff4;
+    --prism-property: #d8dee9;
+    --prism-selector: #8fbcbb;
+    --prism-operator: #81a1c1;
+    --prism-keyword: #81a1c1;
+    --prism-function: #88c0d0;
+    --prism-string: #a3be8c;
+    --prism-number: #b48ead;
+    --prism-class: #8fbcbb;
+  }
+
+  .code-block,
+  .files-code,
+  .theme-preview-code {
+    background: var(--background-1);
+    color: var(--text-1);
+  }
+}

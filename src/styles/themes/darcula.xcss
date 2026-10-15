@@ -1,0 +1,88 @@
+[data-theme="darcula"] {
+  --font-code: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  --primary-color: #2470b3;
+  --primary-color-opaque: #2470b322;
+  --text-1: #080808;
+  --text-2: #3d3d3d;
+  --text-3: #6e6e6e;
+  --text-4: #8c8c8c;
+  --text-5: #ffffff;
+  --background-0: #f2f2f2;
+  --background-1: #ffffff;
+  --background-2: #f7f7f7;
+  --background-3: #dfdfdf;
+  --background-4: #c4c4c4;
+  --background-5: #080808;
+  --background-transparent-0: color-mix(in srgb, var(--background-0) 72%, transparent);
+  --background-transparent-1: color-mix(in srgb, var(--background-1) 72%, transparent);
+  --background-transparent-2: color-mix(in srgb, var(--background-2) 72%, transparent);
+  --background-transparent-3: color-mix(in srgb, var(--background-3) 72%, transparent);
+  --background-transparent-4: color-mix(in srgb, var(--background-4) 72%, transparent);
+  --background-transparent-5: color-mix(in srgb, var(--background-5) 72%, transparent);
+  --highlight-color: #a6d2ff;
+  --success-color: #067d17;
+  --warn-color: #805900;
+  --danger-color: #c7222d;
+  --git-ignored-status-color: #727238;
+  --diff-removed-bg: #d6d6d6;
+  --diff-added-bg: #bee6be;
+  --diff-relative-margin-bg: #f2f2f2;
+  --prism-comment: #8c8c8c;
+  --prism-punctuation: #080808;
+  --prism-property: #871094;
+  --prism-selector: #0033b3;
+  --prism-operator: #080808;
+  --prism-keyword: #0033b3;
+  --prism-function: #00627a;
+  --prism-string: #067d17;
+  --prism-number: #1750eb;
+  --prism-class: #9e880d;
+
+  &[data-color-scheme="dark"] {
+    --primary-color: #589df6;
+    --primary-color-opaque: #589df633;
+    --text-1: #dedede;
+    --text-2: #bbbbbb;
+    --text-3: #a9b7c6;
+    --text-4: #808080;
+    --text-5: #2b2b2b;
+    --background-0: #2b2b2b;
+    --background-1: #313335;
+    --background-2: #3c3f41;
+    --background-3: #4c5052;
+    --background-4: #515151;
+    --background-5: #dedede;
+    --highlight-color: #214283;
+    --success-color: #77b767;
+    --warn-color: #ffc66d;
+    --danger-color: #ff6b68;
+    --git-ignored-status-color: #848504;
+    --diff-removed-bg: #484a4a;
+    --diff-added-bg: #294436;
+    --diff-relative-margin-bg: #313335;
+    --prism-comment: #808080;
+    --prism-punctuation: #a9b7c6;
+    --prism-property: #9876aa;
+    --prism-selector: #cc7832;
+    --prism-operator: #a9b7c6;
+    --prism-keyword: #cc7832;
+    --prism-function: #ffc66d;
+    --prism-string: #6a8759;
+    --prism-number: #6897bb;
+    --prism-class: #bbb529;
+
+    .code-block,
+    .files-code,
+    .theme-preview-code {
+      background: #2b2b2b;
+      color: #a9b7c6;
+    }
+  }
+
+  .code-block,
+  .files-code,
+  .theme-preview-code {
+    background: #ffffff;
+    color: #080808;
+  }
+}
