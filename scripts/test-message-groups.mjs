@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   groupAssistantTurns,
   isHumanUserMessage,
+  isTurnDelimiterMessage,
   parseStructuredUserMessage,
   startIndexForRecentHumanMessages,
 } from '../src/renderer/lib/message-groups.js';
@@ -94,6 +95,42 @@ assert.deepEqual(groupAssistantTurns([
   },
   { message: nextHuman, workedMessages: [] },
 ]);
+
+const activation = {
+  ...message('30', 'user', '<bot-activation at="2026-01-01T00:00:00.000Z">\n</bot-activation>'),
+  fromAgent: true,
+};
+const activationAssistant = message('31', 'assistant', 'Activation answer');
+const nextActivation = { ...activation, id: '32' };
+const nextActivationAssistant = message('33', 'assistant', 'Next activation answer');
+assert.equal(isTurnDelimiterMessage(activation), true);
+assert.equal(isTurnDelimiterMessage(agentPrompt), false);
+assert.equal(isTurnDelimiterMessage({ ...activation, fromAgent: false }), true);
+assert.equal(isHumanUserMessage(activation), false);
+assert.deepEqual(groupAssistantTurns([
+  activation,
+  activationAssistant,
+  nextActivation,
+  nextActivationAssistant,
+]), [
+  { message: activation, workedMessages: [] },
+  {
+    message: activationAssistant,
+    workedMessages: [],
+    workedStartedAt: activationAssistant.createdAt,
+  },
+  { message: nextActivation, workedMessages: [] },
+  {
+    message: nextActivationAssistant,
+    workedMessages: [],
+    workedStartedAt: nextActivationAssistant.createdAt,
+  },
+]);
+assert.equal(
+  startIndexForRecentHumanMessages([human, assistantOne, activation, activationAssistant], 1),
+  2,
+  'bot activations count as history window turns',
+);
 
 const trailingReport = message(
   '10',

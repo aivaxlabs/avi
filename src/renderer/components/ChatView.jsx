@@ -27,6 +27,7 @@ import { consolidateFileEdits } from '../lib/file-edits.js';
 import {
   groupAssistantTurns,
   isHumanUserMessage,
+  isTurnDelimiterMessage,
   startIndexForRecentHumanMessages,
 } from '../lib/message-groups.js';
 import { areMessageRowPropsEqual } from '../lib/message-row-props.js';
@@ -36,6 +37,7 @@ import {
 } from '../lib/message-actions.js';
 import { useStreamingAutoScroll } from '../lib/use-streaming-auto-scroll.js';
 import { Message } from './Message.jsx';
+import { MessageMarkers } from './MessageMarkers.jsx';
 import { Overlay, Presence } from './Overlay.jsx';
 
 const HISTORY_BATCH_SIZE = 4;
@@ -293,6 +295,7 @@ export const ChatView = memo(function ChatView({
     humanMessageCount: HISTORY_BATCH_SIZE,
   });
   const previousChatScrollTopRef = useRef(0);
+  const pendingMarkerMessageIdRef = useRef(null);
   const modelName = getModelDisplayName(models, currentModel);
   const semaphoreCardTitleId = `semaphore-card-title-${currentConversation?.id ?? 'draft'}`;
   const activeApproval = approvalRequests[0] ?? null;
@@ -338,6 +341,7 @@ export const ChatView = memo(function ChatView({
   const lastAssistantMessage = visibleMessages.findLast((message) => message.role === 'assistant');
   const lastMessage = visibleMessages.at(-1);
   const lastHumanMessage = visibleMessages.findLast(isHumanUserMessage);
+  const humanMessages = visibleMessages.filter(isHumanUserMessage);
   const isEmptyChat = visibleMessages.length === 0;
   const streamScrollKey = [
     lastMessage?.id ?? '',
@@ -404,6 +408,35 @@ export const ChatView = memo(function ChatView({
     if (event.deltaY >= 0 || event.currentTarget.scrollTop > HISTORY_LOAD_THRESHOLD) return;
     loadOlderMessages();
   }, [loadOlderMessages]);
+  const scrollToRenderedMessage = useCallback((messageId) => {
+    const scrollElement = scrollRef.current;
+    const target = [...(scrollElement?.querySelectorAll('[data-message-id]') ?? [])]
+      .find((element) => element.dataset.messageId === messageId);
+    if (!target) return false;
+    scrollElement.scrollTop += target.getBoundingClientRect().top
+      - scrollElement.getBoundingClientRect().top
+      - 16;
+    return true;
+  }, [scrollRef]);
+  const handleMarkerSelect = useCallback((messageId) => {
+    if (scrollToRenderedMessage(messageId)) return;
+    const messageIndex = visibleMessages.findIndex((message) => message.id === messageId);
+    if (messageIndex < 0) return;
+    pendingMarkerMessageIdRef.current = messageId;
+    setHistoryWindow({
+      conversationId: currentConversation?.id ?? null,
+      humanMessageCount: Math.max(
+        renderedHumanMessageCount,
+        visibleMessages.slice(messageIndex).filter(isTurnDelimiterMessage).length,
+      ),
+    });
+  }, [currentConversation?.id, renderedHumanMessageCount, scrollToRenderedMessage, visibleMessages]);
+  useEffect(() => {
+    const messageId = pendingMarkerMessageIdRef.current;
+    if (!messageId) return;
+    pendingMarkerMessageIdRef.current = null;
+    scrollToRenderedMessage(messageId);
+  }, [historyStartIndex, scrollToRenderedMessage]);
   const handleEditMessage = useCallback((messageId) => {
     setEditingMessageId(messageId);
   }, []);
@@ -858,6 +891,9 @@ export const ChatView = memo(function ChatView({
           className="empty-chat-background"
           aria-hidden="true"
         />
+      )}
+      {messagesLoaded && (
+        <MessageMarkers messages={humanMessages} onSelect={handleMarkerSelect} />
       )}
       {fileDropActive && (
         <div className="file-drop-overlay">

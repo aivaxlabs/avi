@@ -40,10 +40,18 @@ export function isHumanUserMessage(message) {
     && !parseStructuredUserMessage(message);
 }
 
-export function startIndexForRecentHumanMessages(messages, humanMessageCount) {
-  let remaining = humanMessageCount;
+export function isTurnDelimiterMessage(message) {
+  return isHumanUserMessage(message) || (
+    message?.role === 'user'
+    && message.fromAgent === true
+    && /^<bot-activation\b/.test(message.content ?? '')
+  );
+}
+
+export function startIndexForRecentHumanMessages(messages, turnCount) {
+  let remaining = turnCount;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (!isHumanUserMessage(messages[index])) continue;
+    if (!isTurnDelimiterMessage(messages[index])) continue;
     remaining -= 1;
     if (remaining === 0) return index;
   }
@@ -72,7 +80,7 @@ export function groupAssistantTurns(messages) {
   };
 
   for (const message of messages) {
-    const belongsToAssistantTurn = (
+    const belongsToAssistantTurn = !isTurnDelimiterMessage(message) && (
       message.role === 'assistant'
       || message.fromAgent === true
       || (message.role === 'user' && !isHumanUserMessage(message))
