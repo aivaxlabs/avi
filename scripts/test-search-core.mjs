@@ -21,6 +21,7 @@ try {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       project_path TEXT,
+      created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deleted_at TEXT,
       archived_at TEXT,
@@ -36,8 +37,8 @@ try {
     );
   `);
   const insertConversation = db.prepare(`
-    INSERT INTO conversations (id, title, project_path, updated_at, conversation_type)
-    VALUES (?, ?, ?, ?, 'thread')
+    INSERT INTO conversations (id, title, project_path, created_at, updated_at, conversation_type)
+    VALUES (?, ?, ?, ?, ?, 'thread')
   `);
   const insertMessage = db.prepare(`
     INSERT INTO messages (id, conversation_id, role, content, updated_at, hidden)
@@ -46,7 +47,9 @@ try {
   for (let index = 0; index < 30; index += 1) {
     const id = `conversation-${index}`;
     const updatedAt = new Date(Date.UTC(2026, 0, 1, 0, 0, 30 - index)).toISOString();
-    insertConversation.run(id, `Conversation ${index}`, process.cwd(), updatedAt);
+    const createdAt = new Date(Date.UTC(2025, 0, 1 + index)).toISOString();
+    const projectPath = index % 3 === 0 ? join(tempDirectory, 'other') : process.cwd();
+    insertConversation.run(id, `Conversation ${index}`, projectPath, createdAt, updatedAt);
     insertMessage.run(`message-${index}`, id, `needle ${index}`, updatedAt);
   }
 
@@ -103,6 +106,25 @@ try {
 
   assert.equal(searchChatsIn(db, 'needle').length, 20);
   assert.equal(searchChatsIn(db, 'needle')[0].conversationId, 'conversation-0');
+  assert.equal(searchChatsIn(db, 'needle')[0].createdAt, new Date(Date.UTC(2025, 0, 1)).toISOString());
+  assert.deepEqual(searchChatsIn(db, { query: 'needle' }), searchChatsIn(db, 'needle'));
+
+  const folderResults = searchChatsIn(db, { query: 'needle', folderPath: join(tempDirectory, 'other') });
+  assert.equal(folderResults.length, 10);
+  assert.ok(folderResults.every((result) => result.folderPath === join(tempDirectory, 'other')));
+
+  const createdAfter = new Date(Date.UTC(2025, 0, 26)).toISOString();
+  const recentResults = searchChatsIn(db, { query: 'needle', createdAfter });
+  assert.equal(recentResults.length, 5);
+  assert.ok(recentResults.every((result) => result.createdAt >= createdAfter));
+
+  const createdSorted = searchChatsIn(db, { query: 'needle', sort: 'created' });
+  assert.equal(createdSorted.length, 20);
+  assert.equal(createdSorted[0].conversationId, 'conversation-29');
+  assert.ok(createdSorted.every((result, index) => (
+    index === 0 || result.createdAt <= createdSorted[index - 1].createdAt
+  )));
+  assert.equal(searchChatsIn(db, { query: 'needle', createdAfter: 'invalid' }).length, 20);
   db.close();
 
   const worker = new Worker(new URL('../src/main/search-worker.js', import.meta.url), {

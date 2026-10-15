@@ -2,7 +2,6 @@ import {
   Archive,
   Bot,
   Check,
-  CheckCircle2,
   ChevronRight,
   Clock,
   Copy,
@@ -28,13 +27,13 @@ import {
   SquareTerminal,
   Tags,
   Trash2,
-  TriangleAlert,
   X,
   Zap,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import aviIconUrl from '../../../assets/icon/avi.png';
+import { conversationStatus } from '../lib/conversation-status.js';
 import { classNames } from '../lib/format.js';
 import { presetColors } from '../lib/palette.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
@@ -681,7 +680,7 @@ export const Sidebar = memo(function Sidebar({
         {activeTagIds.size > 0 && conversationGroups.length === 0 && (
           <div className="conversation-filter-empty">
             <span>No chats with the selected tags.</span>
-            <button type="button" onClick={clearTagFilter}>Clear filter</button>
+            <button className="button" type="button" onClick={clearTagFilter}>Clear filter</button>
           </div>
         )}
         {conversationGroups.map((group) => {
@@ -1274,21 +1273,15 @@ const ConversationItem = memo(function ConversationItem({
   useLayoutEffect(() => {
     if (titleSwap.phase && !titleRef.current.getAnimations().length) advanceTitleSwap();
   });
-  const status = approvalPending
-    ? { icon: TriangleAlert, className: 'attention-indicator', label: 'Awaiting approval', size: 13 }
-    : inputPending
-      ? { icon: TriangleAlert, className: 'attention-indicator', label: 'Awaiting input', size: 13 }
-      : semaphoreWaiting
-        ? { icon: Moon, className: 'sleep-indicator', label: 'Waiting for semaphore', size: 13 }
-        : running
-          ? { icon: LoaderCircle, className: 'run-spinner', label: 'Working', size: 12 }
-          : conversation.workStatus === 'blocked'
-            ? { icon: TriangleAlert, className: 'attention-indicator', label: 'Blocked', size: 13 }
-            : needsAttention
-            ? { icon: TriangleAlert, className: 'attention-indicator', label: 'Needs attention', size: 13 }
-            : completedUnseen
-              ? { icon: CheckCircle2, className: 'completion-indicator', label: 'Completed', size: 13 }
-              : null;
+  const status = conversationStatus({
+    approvalPending,
+    inputPending,
+    semaphoreWaiting,
+    running,
+    blocked: conversation.workStatus === 'blocked',
+    needsAttention,
+    completedUnseen,
+  });
   const StatusIcon = status?.icon ?? Clock;
   const statusLabel = status?.label ?? 'Idle';
   const folderLabel = conversation.projectName || '~/';

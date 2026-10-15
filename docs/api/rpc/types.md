@@ -326,6 +326,7 @@ Each `ContextUsageSegment` has:
 | `title` | string | Conversation title. |
 | `role` | string | Representative message role. Semantic results use `assistant`. |
 | `content` | string | Searchable/display content. |
+| `createdAt` | string | Conversation creation time. |
 | `updatedAt` | string | Representative update time. |
 | `folderPath` | string | Absolute working folder. |
 | `folderName` | string | Folder basename or `~/`. |

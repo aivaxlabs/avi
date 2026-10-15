@@ -22,11 +22,13 @@ const getLexicalStatement = (db, termCount) => {
     ).join(' AND ');
     collection.set(termCount, db.prepare(`
       SELECT m.id, m.conversation_id, m.role, m.content, m.updated_at,
-        c.title AS conversation_title, c.project_path
+        c.title AS conversation_title, c.project_path, c.created_at AS conversation_created_at
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
       WHERE c.deleted_at IS NULL AND c.archived_at IS NULL
         AND c.conversation_type = 'thread' AND m.hidden = 0
+        AND (? IS NULL OR COALESCE(NULLIF(c.project_path, ''), ?) = ?)
+        AND (? IS NULL OR c.created_at >= ?)
         AND ${predicates}
       ORDER BY m.updated_at DESC
       LIMIT 400
@@ -53,7 +55,29 @@ const searchableContent = (row) => row.role === 'assistant'
   ? answerTextFromTextualBlocks(row.content)
   : String(row.content ?? '');
 
-const rankLexicalRows = (rows, normalized, terms) => {
+export function normalizeSearchOptions(payload) {
+  const options = typeof payload === 'string' ? { query: payload } : payload ?? {};
+  const createdAfter = new Date(options.createdAfter ?? '');
+  return {
+    query: String(options.query ?? ''),
+    folderPath: typeof options.folderPath === 'string' && options.folderPath
+      ? resolve(options.folderPath)
+      : null,
+    createdAfter: options.createdAfter && Number.isFinite(createdAfter.getTime())
+      ? createdAfter.toISOString()
+      : null,
+    sort: options.sort === 'created' ? 'created' : 'relevance',
+  };
+}
+
+export function sortSearchResults(results, sort) {
+  const sorted = sort === 'created'
+    ? results.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    : results;
+  return sorted.slice(0, 20);
+}
+
+const rankLexicalRows = (rows, normalized, terms, sort) => {
   const seenConversations = new Set();
   const results = [];
   for (const row of rows) {
@@ -72,22 +96,23 @@ const rankLexicalRows = (rows, normalized, terms) => {
       title: row.conversation_title,
       role: row.role,
       content,
+      createdAt: row.conversation_created_at,
       updatedAt: row.updated_at,
       ...folderFields(row.project_path),
     });
   }
-  return results
+  const ranked = results
     .sort((a, b) => b.score - a.score || new Date(b.updatedAt) - new Date(a.updatedAt))
     .filter((item) => {
       if (seenConversations.has(item.conversationId)) return false;
       seenConversations.add(item.conversationId);
       return true;
-    })
-    .slice(0, 20);
+    });
+  return sortSearchResults(ranked, sort);
 };
 
-const lexicalSearch = (db, query) => {
-  const normalized = String(query ?? '').trim().toLowerCase();
+const lexicalSearch = (db, { query, folderPath, createdAfter, sort }) => {
+  const normalized = query.trim().toLowerCase();
   if (!normalized) return [];
   const terms = normalized.split(/\s+/).filter(Boolean);
   if (terms.length === 0) return [];
@@ -96,12 +121,20 @@ const lexicalSearch = (db, query) => {
     return [pattern, pattern];
   });
   return rankLexicalRows(
-    getLexicalStatement(db, terms.length).all(...parameters),
+    getLexicalStatement(db, terms.length).all(
+      folderPath,
+      resolve(homedir()),
+      folderPath,
+      createdAfter,
+      createdAfter,
+      ...parameters,
+    ),
     normalized,
     terms,
+    sort,
   );
 };
 
-export function searchChatsIn(db, query) {
-  return lexicalSearch(db, query);
+export function searchChatsIn(db, payload) {
+  return lexicalSearch(db, normalizeSearchOptions(payload));
 }

@@ -160,13 +160,18 @@ The scalar form uses `params.payload` with the source conversation ID. To fork t
 
 ## `conversations:search`
 
-Searches messages and returns at most 20 deduplicated conversations, ordered by score and then `updatedAt` descending. Avi uses semantic assistant-message search when configured and falls back to local lexical search if that path fails.
+Searches messages and returns at most 20 deduplicated conversations, ordered by score and then `updatedAt` descending, or by conversation creation time when `sort` is `created`. Avi uses semantic assistant-message search when configured and falls back to local lexical search if that path fails. Semantic results are filtered by folder and creation date after retrieval, so filtered semantic searches request up to 60 candidates.
 
 ### Params
 
+`payload` is either the query string or an object:
+
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `payload` | string | Yes | Search query. |
+| `query` | string | Yes | Search query. An empty query returns no results. |
+| `folderPath` | string or `null` | No | Only conversations whose working folder resolves to this path. |
+| `createdAfter` | string or `null` | No | ISO timestamp; only conversations created at or after it. Invalid values are ignored. |
+| `sort` | `relevance` or `created` | No | Defaults to `relevance`. `created` orders by conversation creation time, newest first. |
 
 ### Result
 
