@@ -1,4 +1,4 @@
-:root {
+:where(:root) {
   --prism-comment: #656d76;
   --prism-punctuation: #57606a;
   --prism-property: #953800;
@@ -9,19 +9,19 @@
   --prism-string: #0a3069;
   --prism-number: #0550ae;
   --prism-class: #953800;
+}
 
-  &[data-color-scheme="dark"] {
-    --prism-comment: #8b949e;
-    --prism-punctuation: #c9d1d9;
-    --prism-property: #ffa657;
-    --prism-selector: #7ee787;
-    --prism-operator: #ff7b72;
-    --prism-keyword: #ff7b72;
-    --prism-function: #d2a8ff;
-    --prism-string: #a5d6ff;
-    --prism-number: #79c0ff;
-    --prism-class: #ffa657;
-  }
+:where(:root[data-color-scheme="dark"]) {
+  --prism-comment: #8b949e;
+  --prism-punctuation: #c9d1d9;
+  --prism-property: #ffa657;
+  --prism-selector: #7ee787;
+  --prism-operator: #ff7b72;
+  --prism-keyword: #ff7b72;
+  --prism-function: #d2a8ff;
+  --prism-string: #a5d6ff;
+  --prism-number: #79c0ff;
+  --prism-class: #ffa657;
 }
 
 .code-block,
