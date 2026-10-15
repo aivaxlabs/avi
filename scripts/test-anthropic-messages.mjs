@@ -87,6 +87,12 @@ for (const dataUrl of [true, false]) {
 }
 const image = await messagesApi.createBody({ model, messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { path: imagePath, mime: 'image/png' } }] }], invocationContext: {} });
 assert.equal(image.messages[0].content[0].source.type, 'base64');
+const jpegPath = join(root, 'mislabeled.png');
+writeFileSync(jpegPath, Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]));
+const jpeg = await messagesApi.createBody({ model, messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { path: jpegPath, mime: 'image/png' } }] }], invocationContext: {} });
+assert.equal(jpeg.messages[0].content[0].source.media_type, 'image/jpeg');
+const inlineJpeg = await messagesApi.createBody({ model, messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: `data:image/png;base64,${Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]).toString('base64')}` } }] }], invocationContext: {} });
+assert.equal(inlineJpeg.messages[0].content[0].source.media_type, 'image/jpeg');
 let partialAttempts = 0;
 const partial = new ModelProvider(provider, {
   ...implementation,

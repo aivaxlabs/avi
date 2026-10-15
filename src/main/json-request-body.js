@@ -1,4 +1,11 @@
-import { createReadStream, realpathSync, statSync } from 'node:fs';
+import {
+  closeSync,
+  createReadStream,
+  openSync,
+  readSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
 import { once } from 'node:events';
 import { request as requestHttp } from 'node:http';
 import { request as requestHttps } from 'node:https';
@@ -9,6 +16,18 @@ import { captureResponse, reportRequestFailure } from './request-diagnostics.js'
 
 const fileBase64Values = new WeakSet();
 const base64ChunkSize = 192 * 1024;
+const imageSignatures = [
+  { mime: 'image/png', bytes: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] },
+  { mime: 'image/jpeg', bytes: [0xFF, 0xD8, 0xFF] },
+  { mime: 'image/gif', bytes: [0x47, 0x49, 0x46, 0x38] },
+  { mime: 'image/webp', bytes: [0x52, 0x49, 0x46, 0x46], suffix: [8, [0x57, 0x45, 0x42, 0x50]] },
+];
+
+export function detectImageMime(header) {
+  const matches = (bytes, offset = 0) => header.length >= offset + bytes.length
+    && bytes.every((byte, index) => header[offset + index] === byte);
+  return imageSignatures.find(({ bytes, suffix }) => matches(bytes) && (!suffix || matches(suffix[1], suffix[0])))?.mime ?? null;
+}
 
 export function fileBase64JsonValue(path, mime, { dataUrl = true } = {}) {
   if (typeof path !== 'string' || !isAbsolute(path)) {
@@ -21,6 +40,16 @@ export function fileBase64JsonValue(path, mime, { dataUrl = true } = {}) {
   const resolvedPath = realpathSync.native(path);
   const file = statSync(resolvedPath);
   if (!file.isFile()) throw new Error('Base64 file JSON values require a regular file.');
+
+  if (mime.startsWith('image/')) {
+    const header = Buffer.alloc(12);
+    const descriptor = openSync(resolvedPath, 'r');
+    try {
+      mime = detectImageMime(header.subarray(0, readSync(descriptor, header, 0, header.length, 0))) ?? mime;
+    } finally {
+      closeSync(descriptor);
+    }
+  }
 
   const value = { path: resolvedPath, mime, size: file.size, dataUrl };
   fileBase64Values.add(value);

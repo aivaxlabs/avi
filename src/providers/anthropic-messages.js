@@ -1,4 +1,4 @@
-import { fileBase64JsonValue } from '../main/json-request-body.js';
+import { detectImageMime, fileBase64JsonValue } from '../main/json-request-body.js';
 import { applyCustomJson, prepareProviderInvocation } from '../main/provider-api.js';
 
 const reasoningBudgets = { low: 1_024, medium: 4_096, high: 8_192, max: 32_768 };
@@ -14,7 +14,8 @@ function toContent(content) {
       const mime = media.mime ?? (type === 'image' ? 'image/png' : 'application/pdf');
       if (type === 'document' && mime !== 'application/pdf') throw new Error('Claude Messages file attachments must be PDF files.');
       try {
-        return { type, source: { type: 'base64', media_type: mime, data: fileBase64JsonValue(media.path, mime, { dataUrl: false }) } };
+        const data = fileBase64JsonValue(media.path, mime, { dataUrl: false });
+        return { type, source: { type: 'base64', media_type: data.mime, data } };
       } catch (error) {
         if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error;
         return { type: 'text', text: `Previously referenced media is unavailable: ${media.path}. Do not infer its contents.` };
@@ -24,7 +25,10 @@ function toContent(content) {
     const inline = typeof url === 'string' && /^data:([^;,]+);base64,([\s\S]+)$/.exec(url);
     if (inline) {
       if (type === 'document' && inline[1] !== 'application/pdf') throw new Error('Claude Messages file attachments must be PDF files.');
-      return { type, source: { type: 'base64', media_type: inline[1], data: inline[2] } };
+      const mime = type === 'image'
+        ? detectImageMime(Buffer.from(inline[2].slice(0, 16), 'base64')) ?? inline[1]
+        : inline[1];
+      return { type, source: { type: 'base64', media_type: mime, data: inline[2] } };
     }
     if (media.file_id) return { type: 'text', text: 'Previously referenced provider-hosted file is unavailable to Claude Messages. Do not infer its contents.' };
     if (typeof url === 'string' && /^https?:\/\//.test(url)) return { type, source: { type: 'url', url } };

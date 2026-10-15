@@ -24,6 +24,7 @@ import { createInterface } from 'node:readline';
 import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import { attachmentContentSizeLimit } from '../shared/attachments.js';
+import { detectImageMime } from './json-request-body.js';
 
 const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.avif']);
 const videoExtensions = new Set(['.mp4', '.webm', '.mov', '.m4v', '.avi', '.mkv']);
@@ -104,7 +105,15 @@ export function filePathToAttachment(filePath, {
   const dataUrl = `data:${mime};base64,${base64}`;
 
   if (imageExtensions.has(ext)) {
-    return makeAttachment({ name, mime, size: buffer.length, kind: 'image_url', path, dataUrl });
+    const imageMime = detectImageMime(buffer) ?? mime;
+    return makeAttachment({
+      name,
+      mime: imageMime,
+      size: buffer.length,
+      kind: 'image_url',
+      path,
+      dataUrl: `data:${imageMime};base64,${base64}`,
+    });
   }
   if (audioExtensions.has(ext) && ext === '.mp3') {
     return makeAttachment({ name, mime, size: buffer.length, kind: 'input_audio', path, base64, format: 'mp3' });
