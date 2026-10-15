@@ -322,7 +322,7 @@ Boolean: `true` when a wait existed and was cancelled; otherwise `false`.
 
 ## `chat:stop`
 
-Stops the thread and its sub-agents, pauses an active Goal, and preserves queued messages.
+Stops the thread and its sub-agents, pauses an active Goal, and preserves queued messages. A tool that is executing is interrupted immediately; its result is not awaited.
 
 ### Params
 

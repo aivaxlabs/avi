@@ -329,6 +329,12 @@ export const runLoopMethods = {
           .filter((tool) => tool.name !== 'web_search' || (
             aivax?.connected && aivax.webSearchEnabled
           ))
+          .filter((tool) => tool.name !== 'generate_image' || (
+            aivax?.connected && aivax.imageGenerationEnabled && aivax.imageGenerationModel
+          ))
+          .filter((tool) => tool.name !== 'generate_audio' || (
+            aivax?.connected && aivax.audioGenerationEnabled && aivax.audioGenerationModel
+          ))
           .filter((tool) => tool.name !== 'start_goal' || !goalContinues)
           .filter((tool) => tool.name !== 'update_goal_status' || goalContinues)
           .filter((tool) => (
@@ -1007,34 +1013,48 @@ export const runLoopMethods = {
                   }),
                 }
               : input;
-            const value = await tool.execute(executionInput, tool.providerTool
-              ? {
-                  signal: controller.signal,
-                  workspacePath,
-                }
-              : {
-              signal: controller.signal,
-              workspacePath,
-                  chatRunner: this,
-              botManager: this.getBotManager(),
-              conversationId,
-              model,
-              models,
-              botRuntime,
-              reasoningEffort,
-              permissionMode,
-              workMode,
-              ultraMode,
-              goal: goalContext,
-              tuning,
-              aivax,
-              defaultModels: preferences.defaultModels,
-              capabilities: selection.model.capabilities,
-              mediaSizeLimit: effectiveMediaSizeLimit(selection.model, tuning),
-              userAttachments: getMessages(conversationId)
-                .filter((message) => message.role === 'user')
-                .flatMap((message) => message.attachments),
-            });
+            if (controller.signal.aborted) throw new Error('The run was interrupted.');
+
+            // Tools that ignore the signal would otherwise keep Stop waiting until they finish.
+            const toolAborted = Promise.withResolvers();
+            const abortTool = () => toolAborted.reject(new Error('The run was interrupted.'));
+            controller.signal.addEventListener('abort', abortTool, { once: true });
+            let value;
+            try {
+              value = await Promise.race([
+                tool.execute(executionInput, tool.providerTool
+                  ? {
+                      signal: controller.signal,
+                      workspacePath,
+                    }
+                  : {
+                      signal: controller.signal,
+                      workspacePath,
+                      chatRunner: this,
+                      botManager: this.getBotManager(),
+                      conversationId,
+                      model,
+                      models,
+                      botRuntime,
+                      reasoningEffort,
+                      permissionMode,
+                      workMode,
+                      ultraMode,
+                      goal: goalContext,
+                      tuning,
+                      aivax,
+                      defaultModels: preferences.defaultModels,
+                      capabilities: selection.model.capabilities,
+                      mediaSizeLimit: effectiveMediaSizeLimit(selection.model, tuning),
+                      userAttachments: getMessages(conversationId)
+                        .filter((message) => message.role === 'user')
+                        .flatMap((message) => message.attachments),
+                    }),
+                toolAborted.promise,
+              ]);
+            } finally {
+              controller.signal.removeEventListener('abort', abortTool);
+            }
             const generatedAttachments = Array.isArray(value?.attachments)
               ? value.attachments.filter((attachment) => (
                   attachment?.kind === 'image_url'

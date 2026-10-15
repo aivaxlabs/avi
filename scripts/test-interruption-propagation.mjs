@@ -757,6 +757,64 @@ try {
     ['completed', 'completed', 'completed'],
   );
 
+  let stuckToolStarted = false;
+  let stuckInferenceCalls = 0;
+  const stuckToolProvider = {
+    getContributions: () => ({
+      tools: [
+        {
+          name: 'stuck_tool',
+          description: 'Never settles and ignores the abort signal.',
+          inputSchema: { type: 'object', properties: {} },
+          execute: () => {
+            stuckToolStarted = true;
+            return new Promise(() => {});
+          },
+        },
+      ],
+    }),
+    stream: () => {
+      stuckInferenceCalls += 1;
+      return Promise.resolve({
+        assistantContent: 'Calling the stuck tool.',
+        toolCalls: [
+          {
+            callId: 'stuck-call',
+            key: 'stuck-call',
+            name: 'stuck_tool',
+            argumentsText: JSON.stringify({
+              __invocation_goal: 'Run a tool that ignores Stop.',
+              __requires_human_approval: false,
+            }),
+          },
+        ],
+      });
+    },
+  };
+  const stuckToolRunner = buildRunner(stuckToolProvider);
+  const stuckToolConversation = createConversation({
+    model: model.id,
+    projectPath: process.cwd(),
+  });
+  await stuckToolRunner.send({
+    conversationId: stuckToolConversation.id,
+    model: model.id,
+    text: 'Run the stuck tool.',
+    permissionMode: 'full_access',
+  });
+  await waitFor(() => stuckToolStarted);
+  stuckToolRunner.stop(stuckToolConversation.id, { stoppedByUser: true });
+  await waitFor(() => !stuckToolRunner.runs.has(stuckToolConversation.id));
+  assert.equal(stuckInferenceCalls, 1);
+  const stuckAssistant = getMessages(stuckToolConversation.id)
+    .findLast((message) => message.role === 'assistant');
+  assert.equal(stuckAssistant?.status, 'aborted');
+  assert.equal(stuckAssistant?.stoppedByUser, true);
+  assert.equal(
+    stuckAssistant?.segments.find((segment) => segment.callId === 'stuck-call')?.status,
+    'error',
+  );
+
   const fullStopSignals = [];
   const fullStopProvider = {
     getContributions: () => ({ tools: [] }),

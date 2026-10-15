@@ -77,6 +77,8 @@ interface PluginToolContext {
 
 Internal `ChatRunner`, database, Electron, and renderer objects are not part of this context.
 
+`signal` aborts when the user stops the run. Avi records the call as interrupted at that moment and discards any value returned later, so long-running work should honor `signal` to stop its own side effects.
+
 ## Approval
 
 `annotations.destructive: true` always forces Avi's approval path unless the thread is already running in Full access. A plugin or interceptor may increase approval requirements but cannot lower host requirements.
