@@ -41,6 +41,7 @@ import {
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { Worker } from 'node:worker_threads';
+import { normalizeSearchOptions, sortSearchResults } from './search-core.js';
 import { AppUpdater } from './app-updater.js';
 import { KeyboardShortcuts } from './keyboard-shortcuts.js';
 import { WorkspaceManager } from './workspaces.js';
@@ -136,8 +137,11 @@ import { CLIENT_TOOLS, stopConversationTerminals } from './client-tools.js';
 import { clearTemporaryStorage, getTemporaryStorage } from './temporary-storage.js';
 import { getFaviconDataUrl } from './favicons.js';
 import {
+  clearContextCaches,
+  createContextItem,
   listContextItems,
   resolveInstallationContextPath,
+  writeContextItem,
 } from './context-injection.js';
 import {
   createVideoFileResponse,
@@ -211,7 +215,19 @@ const pluginManager = new PluginManager({
   ],
   reservedIds: {
     providers: providerTypes.map((provider) => provider.descriptor.id),
-    themes: ['axion', 'monokai', 'absolute', 'code', 'goblin'],
+    themes: [
+      'axion',
+      'monokai',
+      'absolute',
+      'code',
+      'goblin',
+      'github',
+      'catppuccin',
+      'solarized',
+      'nord',
+      'tokyo-night',
+      'darcula',
+    ],
     personalities: ['candid', 'cynical', 'friendly', 'pragmatic', 'quirky'],
   },
 });
@@ -1020,6 +1036,7 @@ function initializeServices() {
       `plugin:${panel.pluginId}:${panel.id}`.toLowerCase()
     ))),
     cleanupConversation,
+    notifyActionPages: (payload) => sendRendererEvent('action-pages:event', payload),
     createDomainApi: createPluginDomainApi,
     registerTool: registerPluginTool,
     listContextRoots: () => [
@@ -1086,6 +1103,17 @@ function getPluginTools(conversationId = null) {
     })),
     ...pluginManager.runtime.listTools(conversationId),
   ];
+}
+
+function isReadOnlyContextPath(targetPath) {
+  return [
+    resolveInstallationContextPath(),
+    ...pluginContextRoots().map((plugin) => plugin.path),
+    ...pluginManager.runtime.listContextResources().map((item) => item.root),
+  ].some((root) => {
+    const relation = relative(resolve(root), targetPath);
+    return relation === '' || (!relation.startsWith('..') && !isAbsolute(relation));
+  });
 }
 
 function pluginContextRoots() {
@@ -1509,6 +1537,8 @@ function registerIpc() {
         advancedFetchEnabled: false,
         webSearchEnabled: false,
         mediaDescriptionsEnabled: false,
+        imageGenerationEnabled: false,
+        audioGenerationEnabled: false,
       });
       return { connected: false, account: null, settings };
     }
@@ -1537,6 +1567,8 @@ function registerIpc() {
       advancedFetchEnabled: false,
       webSearchEnabled: false,
       mediaDescriptionsEnabled: false,
+      imageGenerationEnabled: false,
+      audioGenerationEnabled: false,
     });
     return { connected: false, account: null, settings };
   });
@@ -1553,6 +1585,27 @@ function registerIpc() {
   applicationIpc.handle('aivax:collections', () => requestAivax('/api/v1/collections', {
     responseType: 'array',
   }));
+  applicationIpc.handle('aivax:media-models', async () => {
+    const [imageModels, audioModels] = await Promise.all([
+      requestAivax('/api/v1/information/image-models.json', { responseType: 'array' }),
+      requestAivax('/api/v1/information/speech-models.json', { responseType: 'array' }),
+    ]);
+    return {
+      image: imageModels.map((model) => ({
+        name: model.name,
+        displayName: model.displayName ?? model.name,
+        description: model.description ?? '',
+        pricingDescription: model.pricingDescription ?? '',
+        referenceImages: Array.isArray(model.flags) && model.flags.includes('AllowReferenceImage'),
+      })),
+      audio: audioModels.map((model) => ({
+        name: model.name,
+        displayName: model.name,
+        description: model.description ?? '',
+        pricingDescription: model.pricingDescription ?? '',
+      })),
+    };
+  });
   applicationIpc.handle('aivax:collections:create', async (_event, name) => {
     const collectionName = String(name ?? '').trim();
     if (!collectionName) throw new Error('Collection name is required.');
@@ -2058,16 +2111,18 @@ function registerIpc() {
     pendingSearches.set(id, { resolve, reject });
     searchWorker.postMessage({ id, query });
   });
-  applicationIpc.handle('conversations:search', async (_event, query) => {
+  applicationIpc.handle('conversations:search', async (_event, payload) => {
+    const options = normalizeSearchOptions(payload);
     const collectionId = getAivaxAccessToken() && getAivaxSettings().threadSearchCollectionId;
-    if (!collectionId) return runChatSearch(query);
+    if (!collectionId || !options.query.trim()) return runChatSearch(options);
+    const filtered = Boolean(options.folderPath || options.createdAfter);
     const startedAt = Date.now();
     try {
       const response = await requestAivax('/api/v1/query', {
         body: {
-          terms: [String(query)],
+          terms: [options.query],
           collections: [collectionId],
-          top: 20,
+          top: filtered ? 60 : 20,
           includeReferences: false,
           reranker: 'rrf',
           minScore: 0.2,
@@ -2080,6 +2135,8 @@ function registerIpc() {
         const conversationId = result.metadata?.threadId;
         const conversation = conversationId ? getConversation(conversationId) : null;
         if (!conversation || conversation.conversationType !== 'thread' || seenConversations.has(conversationId)) return [];
+        if (options.folderPath && resolve(conversation.projectPath) !== options.folderPath) return [];
+        if (options.createdAfter && conversation.createdAt < options.createdAfter) return [];
         seenConversations.add(conversationId);
         return [{
           score: result.score,
@@ -2088,25 +2145,27 @@ function registerIpc() {
           title: conversation.title,
           role: 'assistant',
           content: String(result.documentContent ?? ''),
+          createdAt: conversation.createdAt,
           updatedAt: result.metadata?.updatedAt ?? conversation.updatedAt,
           folderPath: conversation.projectPath,
           folderName: conversation.projectName,
           folderDisplayPath: conversation.projectDisplayPath,
         }];
       });
+      const sortedResults = sortSearchResults(results, options.sort);
       traceInfo('aivax.thread-search-completed', {
         consumed_credits: response.consumedCredits,
         duration_ms: Date.now() - startedAt,
-        item_count: results.length,
+        item_count: sortedResults.length,
       });
-      return results;
+      return sortedResults;
     } catch (error) {
       traceError('aivax.thread-search-error', {
         duration_ms: Date.now() - startedAt,
         status: error?.status,
         error: error instanceof Error ? error.message : String(error),
       });
-      return runChatSearch(query);
+      return runChatSearch(options);
     }
   });
   let overviewWorker = null;
@@ -2372,6 +2431,21 @@ function registerIpc() {
   applicationIpc.handle('models:favorites', () => listFavorites());
   applicationIpc.handle('models:favorite', (_event, { modelId, favorited }) => setFavorite(modelId, favorited));
 
+  applicationIpc.handle('action-pages:list', () => pluginManager.runtime.listActionPages().map((page) => ({
+    ...page,
+    pluginName: pluginManager.list().find((plugin) => plugin.id === page.pluginId)?.name ?? page.pluginId,
+  })));
+  applicationIpc.handle('action-pages:load', (_event, { pageId } = {}) => {
+    const page = pluginManager.runtime.getActionPage(pageId);
+    if (!page) throw new Error('The action page is unavailable.');
+    return page.handlers.load({});
+  });
+  applicationIpc.handle('action-pages:action', (_event, { pageId, action, input } = {}) => {
+    const page = pluginManager.runtime.getActionPage(pageId);
+    if (typeof page?.handlers.invokeAction !== 'function') throw new Error('The action page action is unavailable.');
+    return page.handlers.invokeAction(String(action ?? ''), input ?? null, {});
+  });
+
   applicationIpc.handle('plugins:list', () => {
     const status = pluginManager.getStatus();
     return {
@@ -2555,7 +2629,6 @@ function registerIpc() {
     mcpManager.setServerEnabled(payload.serverKey, payload.enabled)
   ));
   applicationIpc.handle('mcp:restart', (_event, serverKey) => mcpManager.restartServer(serverKey));
-  applicationIpc.handle('mcp:restart-all', (_event, folderPath) => mcpManager.restartAll(folderPath));
   applicationIpc.handle('mcp:inspect', (_event, serverKey) => mcpManager.inspectServer(serverKey));
   applicationIpc.handle('mcp:authenticate', (_event, serverKey) => mcpManager.authenticate(serverKey));
 
@@ -2964,7 +3037,7 @@ function registerIpc() {
         duration_ms: Date.now() - startedAt,
         item_count: result.itemCount,
       });
-      return result;
+      return { ...result, readOnly: scope !== 'folder' };
     } catch (error) {
       traceError('context.folder-error', {
         operation: 'context:folder',
@@ -2974,6 +3047,10 @@ function registerIpc() {
       });
       throw error;
     }
+  });
+  applicationIpc.handle('context:reset', (_event, folderPath) => {
+    clearContextCaches();
+    return mcpManager.restartAll(folderPath);
   });
   applicationIpc.handle('context:commands', async (_event, folderPath) => {
     const globalPath = join(homedir(), '.agents');
@@ -3006,6 +3083,26 @@ function registerIpc() {
     }
 
     return [...commands.values()];
+  });
+  applicationIpc.handle('context:create', async (_event, payload = {}) => {
+    const folderPath = resolve(String(payload.folderPath ?? ''));
+    if (isReadOnlyContextPath(folderPath)) throw new Error('Installation and plugin context is read-only.');
+    const result = await createContextItem(folderPath, { kind: payload.kind, name: payload.name });
+    traceVerbose('context.item-created', { operation: 'context:create', kind: payload.kind });
+    return result;
+  });
+  applicationIpc.handle('context:read', async (_event, targetPath) => {
+    const target = resolve(String(targetPath ?? ''));
+    if (extname(target).toLowerCase() !== '.md') throw new Error('Only Markdown context files can be read.');
+    return { path: target, content: await readFile(target, 'utf8') };
+  });
+  applicationIpc.handle('context:write', async (_event, payload = {}) => {
+    if (isReadOnlyContextPath(resolve(String(payload.path ?? '')))) {
+      throw new Error('Installation and plugin context is read-only.');
+    }
+    const result = await writeContextItem(payload.path, payload.content);
+    traceVerbose('context.item-saved', { operation: 'context:write' });
+    return result;
   });
   applicationIpc.handle('context:open', async (_event, targetPath) => {
     const error = await shell.openPath(resolve(targetPath));

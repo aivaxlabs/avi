@@ -117,6 +117,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     save: (settings) => invoke('aivax:save', settings),
     collections: () => invoke('aivax:collections'),
     createCollection: (name) => invoke('aivax:collections:create', name),
+    mediaModels: () => invoke('aivax:media-models'),
   },
   tuning: {
     shells: () => invoke('tuning:shells'),
@@ -145,7 +146,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     archive: (conversationId) => invoke('conversations:archive', conversationId),
     delete: (conversationId) => invoke('conversations:delete', conversationId),
     fork: (payload) => invoke('conversations:fork', payload),
-    search: (query) => invoke('conversations:search', query),
+    search: (payload) => invoke('conversations:search', payload),
     setTags: (conversationId, tags) => invoke('conversations:set-tags', { conversationId, tags }),
   },
   tags: {
@@ -224,6 +225,12 @@ contextBridge.exposeInMainWorld('chatApp', {
     favorites: () => invoke('models:favorites'),
     favorite: (payload) => invoke('models:favorite', payload),
   },
+  actionPages: {
+    list: () => invoke('action-pages:list'),
+    load: (payload) => invoke('action-pages:load', payload),
+    invokeAction: (payload) => invoke('action-pages:action', payload),
+    onEvent: (callback) => subscribe('action-pages:event', callback),
+  },
   plugins: {
     list: () => invoke('plugins:list'),
     installChromeExtension: () => invoke('plugins:install-chrome-extension'),
@@ -248,7 +255,6 @@ contextBridge.exposeInMainWorld('chatApp', {
     remove: (payload) => invoke('mcp:remove', payload),
     enabled: (payload) => invoke('mcp:enabled', payload),
     restart: (serverKey) => invoke('mcp:restart', serverKey),
-    restartAll: (folderPath) => invoke('mcp:restart-all', folderPath),
     inspect: (serverKey) => invoke('mcp:inspect', serverKey),
     authenticate: (serverKey) => invoke('mcp:authenticate', serverKey),
   },
@@ -327,7 +333,11 @@ contextBridge.exposeInMainWorld('chatApp', {
     folders: () => invoke('context:folders'),
     folder: (folderPath) => invoke('context:folder', folderPath),
     commands: (folderPath) => invoke('context:commands', folderPath),
+    reset: (folderPath) => invoke('context:reset', folderPath),
     open: (targetPath) => invoke('context:open', targetPath),
+    create: (payload) => invoke('context:create', payload),
+    read: (targetPath) => invoke('context:read', targetPath),
+    write: (payload) => invoke('context:write', payload),
   },
   mentions: {
     list: (payload) => invoke('mentions:list', payload),

@@ -9,6 +9,7 @@ import {
 import { Menu, PanelRightOpen, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar.jsx';
 import { ActivityBar } from './components/ActivityBar.jsx';
+import { ActionPage } from './components/ActionPage.jsx';
 import { ChatView } from './components/ChatView.jsx';
 import { SearchDialog } from './components/SearchDialog.jsx';
 import { SettingsPage } from './components/SettingsPage.jsx';
@@ -167,6 +168,13 @@ export default function App() {
     if (foldersOpen) setVisitedFolders(true);
   }, [foldersOpen, settingsOpen]);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
+  const [actionPages, setActionPages] = useState(emptyList);
+  const [actionPageId, setActionPageId] = useState(null);
+  const [visitedActionPageIds, setVisitedActionPageIds] = useState(emptyList);
+  const [actionPageRefreshKeys, setActionPageRefreshKeys] = useState({});
+  const activeActionPageId = settingsOpen || foldersOpen || !actionPages.some((page) => page.id === actionPageId)
+    ? null
+    : actionPageId;
   const [settingsContextFolder, setSettingsContextFolder] = useState(null);
   const [settingsInitialView, setSettingsInitialView] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -232,8 +240,25 @@ export default function App() {
   const navigationToggleRef = useRef(null);
 
   useLayoutEffect(() => {
-    inspectedConversationIdRef.current = settingsOpen || foldersOpen || orchestrationOpen ? null : selectedId;
-  }, [foldersOpen, orchestrationOpen, selectedId, settingsOpen]);
+    inspectedConversationIdRef.current = settingsOpen || foldersOpen || orchestrationOpen || activeActionPageId
+      ? null
+      : selectedId;
+  }, [activeActionPageId, foldersOpen, orchestrationOpen, selectedId, settingsOpen]);
+
+  useEffect(() => {
+    const refreshActionPages = () => api.actionPages.list()
+      .then(setActionPages)
+      .catch((nextError) => setError(nextError instanceof Error ? nextError.message : String(nextError)));
+    const unsubscribe = api.actionPages.onEvent((event) => {
+      if (event?.type === 'refresh') {
+        setActionPageRefreshKeys((keys) => ({ ...keys, [event.pageId]: (keys[event.pageId] ?? 0) + 1 }));
+      } else {
+        void refreshActionPages();
+      }
+    });
+    void refreshActionPages();
+    return unsubscribe;
+  }, []);
   selectedConversationIdRef.current = selectedId;
 
   const deleteMessageCache = useStableCallback((conversationIds) => {
@@ -663,7 +688,7 @@ export default function App() {
   }, [refreshBots]);
 
   useEffect(() => {
-    if (!selectedId || settingsOpen || foldersOpen || orchestrationOpen) return;
+    if (!selectedId || settingsOpen || foldersOpen || orchestrationOpen || activeActionPageId) return;
     void api.sidebar.markSeen(selectedId).catch(() => {});
     setCompletedUnseen((state) => {
       if (!state[selectedId]) return state;
@@ -671,7 +696,7 @@ export default function App() {
       delete next[selectedId];
       return next;
     });
-  }, [foldersOpen, orchestrationOpen, selectedId, settingsOpen]);
+  }, [activeActionPageId, foldersOpen, orchestrationOpen, selectedId, settingsOpen]);
 
   useEffect(() => api.sidebar.onSeen(({ conversationId }) => {
     setCompletedUnseen((state) => {
@@ -690,6 +715,7 @@ export default function App() {
   }), []);
 
   useEffect(() => api.app.onNavigate(async ({ view, conversationId, project, draftText }) => {
+    setActionPageId(null);
     setFoldersOpen(false);
     setOrchestrationOpen(false);
     setSearchOpen(false);
@@ -1143,6 +1169,7 @@ export default function App() {
   }, [navigationOpen]);
 
   async function selectConversation(id) {
+    setActionPageId(null);
     setSettingsOpen(false);
     setFoldersOpen(false);
     setOrchestrationOpen(false);
@@ -1319,11 +1346,11 @@ export default function App() {
     text = text.trim();
     if (!text && attachments.length === 0) return;
     const command = attachments.length === 0 ? text.toLowerCase() : '';
-    if (command === '/mcp' || command === '/restart-mcp') {
+    if (command === '/mcp' || command === '/reset-context') {
       try {
         setMcpWorkspaceServers(command === '/mcp'
           ? await api.mcp.workspace(project?.path)
-          : await api.mcp.restartAll(project?.path));
+          : await api.context.reset(project?.path));
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : String(nextError));
       }
@@ -2132,6 +2159,7 @@ export default function App() {
     setError(nextError instanceof Error ? nextError.message : String(nextError));
   }));
   const sidebarOnNewChat = useStableCallback((preset = {}) => {
+    setActionPageId(null);
     setSettingsOpen(false);
     setFoldersOpen(false);
     setOrchestrationOpen(false);
@@ -2216,6 +2244,7 @@ export default function App() {
     setFoldersOpen(Boolean(contextFolder));
     setSettingsOpen(!contextFolder);
     setOrchestrationOpen(false);
+    setActionPageId(null);
     setNavigationOpen(false);
   });
   const onSelectActivity = useStableCallback(async (activity) => {
@@ -2232,6 +2261,11 @@ export default function App() {
         return;
       }
     }
+    const pageSelected = actionPages.some((page) => page.id === activity);
+    if (pageSelected) {
+      setVisitedActionPageIds((ids) => (ids.includes(activity) ? ids : [...ids, activity]));
+    }
+    setActionPageId(pageSelected ? activity : null);
     setSettingsOpen(activity === 'settings');
     setFoldersOpen(activity === 'folders');
     setOrchestrationOpen(activity === 'inbox');
@@ -2506,7 +2540,7 @@ export default function App() {
         '--auxiliary-panel-width': `${effectiveAuxiliaryPanelWidth}px`,
       }}
     >
-      {narrowWindow && (navigationOpen || !sidePanelVisible || settingsOpen || foldersOpen) && (
+      {narrowWindow && (navigationOpen || !sidePanelVisible || settingsOpen || foldersOpen || activeActionPageId) && (
         <button
           ref={navigationToggleRef}
           className="auxiliary-panel-toggle navigation-toggle"
@@ -2520,9 +2554,12 @@ export default function App() {
         </button>
       )}
       <ActivityBar
-        active={settingsOpen ? 'settings' : foldersOpen ? 'folders' : orchestrationOpen ? 'inbox' : 'home'}
+        active={settingsOpen
+          ? 'settings'
+          : foldersOpen ? 'folders' : activeActionPageId ?? (orchestrationOpen ? 'inbox' : 'home')}
         onSelect={onSelectActivity}
         counts={activityCounts}
+        actionPages={actionPages}
         updateAvailable={updateState?.available === true}
       />
       {narrowWindow && (
@@ -2618,7 +2655,17 @@ export default function App() {
         />
         </div>
       ))}
-        <div className="home-composer" hidden={settingsOpen || foldersOpen}>
+      {actionPages.filter((page) => visitedActionPageIds.includes(page.id)).map((page) => (
+        <div
+          className="action-page-composer"
+          key={page.id}
+          hidden={activeActionPageId !== page.id}
+          inert={navigationOpen}
+        >
+          <ActionPage page={page} refreshKey={actionPageRefreshKeys[page.id] ?? 0} />
+        </div>
+      ))}
+        <div className="home-composer" hidden={settingsOpen || foldersOpen || Boolean(activeActionPageId)}>
           <div className="home-sidebar" hidden={orchestrationOpen}>
           <Sidebar
             conversations={conversations}
@@ -2960,6 +3007,13 @@ export default function App() {
       </div>
       <Presence when={!settingsOpen && searchOpen}>{() => (
         <SearchDialog
+          conversations={conversations}
+          folderColors={appState.folderColors ?? emptyObject}
+          running={running}
+          approvalPending={approvalPending}
+          inputPending={inputPending}
+          semaphoreWaiting={sidebarSemaphoreWaiting}
+          completedUnseen={completedUnseen}
           onClose={() => setSearchOpen(false)}
           onSelect={selectConversation}
         />
