@@ -3,8 +3,42 @@ import { useMemo } from 'react';
 
 const tokenFormatter = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
 
-export function ContextItems({ group, onOpen }) {
+const badges = {
+  'always-visible': { label: 'Always visible', tone: 'success', title: 'Injected automatically into every ordinary chat.' },
+  'on-demand': { label: 'On demand', tone: 'primary', title: 'Listed in the catalog; the agent reads it when relevant.' },
+  'assistant-only': { label: 'Assistant only', tone: 'warn', title: 'Hidden from the composer picker; only the agent can use it.' },
+  'user-only': { label: 'User only', tone: 'warn', title: 'Only available when selected by the user.' },
+};
+
+const createdTime = (item) => (item.createdAt ? Date.parse(item.createdAt) : 0);
+const titleOrder = (left, right) => left.title.localeCompare(right.title, undefined, { numeric: true, sensitivity: 'base' });
+const comparators = {
+  default: (left, right) => (
+    (left.relativePath ?? '').split('/').length - (right.relativePath ?? '').split('/').length
+    || right.tokenCount - left.tokenCount
+    || (left.relativePath ?? '').localeCompare(right.relativePath ?? '')
+  ),
+  tokens: (left, right) => right.tokenCount - left.tokenCount || titleOrder(left, right),
+  'created-desc': (left, right) => createdTime(right) - createdTime(left) || titleOrder(left, right),
+  'created-asc': (left, right) => createdTime(left) - createdTime(right) || titleOrder(left, right),
+  'name-asc': titleOrder,
+  'name-desc': (left, right) => titleOrder(right, left),
+};
+
+export function ContextItems({ group, query = '', sort = 'default', onOpen }) {
+  const search = query.trim().toLowerCase();
   const { roots, children } = useMemo(() => {
+    const compare = comparators[sort] ?? comparators.default;
+    if (search) {
+      return {
+        roots: group.items
+          .filter((item) => [item.title, item.description, item.relativePath]
+            .some((value) => String(value ?? '').toLowerCase().includes(search)))
+          .sort(compare),
+        children: new Map(),
+      };
+    }
+
     const paths = new Set(group.items.map((item) => item.path));
     const children = new Map();
     const roots = [];
@@ -15,15 +49,20 @@ export function ContextItems({ group, onOpen }) {
         children.set(item.parentSkillPath, siblings);
       } else roots.push(item);
     }
-    return { roots, children };
-  }, [group]);
+    for (const siblings of children.values()) siblings.sort(compare);
+    return { roots: roots.sort(compare), children };
+  }, [group, search, sort]);
 
   return (
     <div className="settings-context-item-list">
       {roots.map((item) => (
         <ContextItem key={item.path} item={item} groupId={group.id} childrenByPath={children} onOpen={onOpen} />
       ))}
-      {!roots.length && <div className="settings-context-group-empty">No context items.</div>}
+      {!roots.length && (
+        <div className="settings-context-group-empty">
+          {search ? `No items match "${query.trim()}".` : 'No context items.'}
+        </div>
+      )}
     </div>
   );
 }
@@ -45,8 +84,13 @@ function ContextItem({ item, groupId, childrenByPath, onOpen }) {
           </span>
           <small>{item.description}</small>
           <span className="settings-context-badges">
-            <span>{item.activationMode === 'always-visible' ? 'Always visible' : 'On demand'}</span>
-            {item.invocationMode && <span>{item.invocationMode === 'user-only' ? 'User only' : 'Assistant only'}</span>}
+            {[item.activationMode === 'always-visible' ? 'always-visible' : 'on-demand', item.invocationMode]
+              .filter(Boolean)
+              .map((mode) => (
+                <span key={mode} className="settings-context-badge" data-tone={badges[mode].tone} title={badges[mode].title}>
+                  {badges[mode].label}
+                </span>
+              ))}
           </span>
         </span>
         <span className="settings-context-token-count">~{tokenFormatter.format(item.tokenCount)} tokens</span>

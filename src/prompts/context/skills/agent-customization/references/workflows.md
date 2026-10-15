@@ -33,7 +33,7 @@ Fields copied from prompt systems—`agent`, `model`, `tools`, `argument-hint`, 
 - There is no workflow argument schema, prompt variables, editor selection placeholder, or model fallback list.
 - Project workflows take command-name precedence over global workflows.
 
-Avoid names that collide with built-in commands such as `/plan`, `/goal`, `/ultra`, `/model`, `/effort`, `/compress`, `/side`, `/mcp`, and `/restart-mcp`.
+Avoid names that collide with built-in commands such as `/plan`, `/goal`, `/ultra`, `/model`, `/effort`, `/compress`, `/side`, `/mcp`, and `/reset-context`.
 
 ## When to use a workflow
 

@@ -64,7 +64,7 @@ Every server accepts an optional `lifecycle` field:
 - `active` (default): the server connects when its scope initializes and its tools stay available for every conversation.
 - `passive`: the server stays disconnected and exposes a single activation tool, `mcp_<normalized-server>_enable_mcp`. Calling it connects the server, removes the activation tool, and makes the real tools available. The server then stays connected for 30 minutes of inactivity, renewed by every tool call. When the lease expires, Avi disconnects the server and it returns to the activation-tool state.
 
-Saving or editing a passive server, or running `/restart-mcp`, returns it to the inactive state. Manually restarting a passive server from Settings connects it immediately and starts the lease.
+Saving or editing a passive server, or running `/reset-context`, returns it to the inactive state. Manually restarting a passive server from Settings connects it immediately and starts the lease.
 
 ## Configure a server in Settings
 
@@ -76,7 +76,7 @@ Saving or editing a passive server, or running `/restart-mcp`, returns it to the
 6. Save and enable the server.
 7. Use **Inspect** to review tools, schemas, server instructions, and connection logs.
 
-Possible states include Passive, Not started, Starting, Connected, Authentication required, Failed, Disabled, and Overridden by folder. In a conversation, `/mcp` shows the available runtime and `/restart-mcp` restarts loaded servers.
+Possible states include Passive, Not started, Starting, Connected, Authentication required, Failed, Disabled, and Overridden by folder. In a conversation, `/mcp` shows the available runtime and `/reset-context` rereads every loaded `mcpconfig.json`, including manual edits, and restarts the servers. It also reloads instructions, skills, and workflows; see [Context management](Context%20management.md#troubleshooting-discovery).
 
 ## Runtime behavior
 

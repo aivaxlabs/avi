@@ -454,6 +454,7 @@ interface ContextItem {
   embeddable: boolean;
   userInvocable: boolean;
   tokenCount: number;
+  createdAt: string | null;
 }
 
 interface ContextDocument {

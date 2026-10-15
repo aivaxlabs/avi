@@ -54,9 +54,15 @@ Quick Chat uses reduced instructions and does not receive the full ordinary-thre
 
 ## Context management UI
 
-Open **Folders → Global or a working folder → Context** from the Activity Bar. Global inspects `~/.agents`; a working folder inspects its own context. **Settings → Context** remains available for the complete context-scope list, including plugin context. Each scope groups Instructions, Skills, and Workflows with a title, description, and approximate token count. A subdued relative file path appears to the left of the title, relative to the selected context root (`~/.agents` for Global). Nested skills are grouped beneath their nearest parent skill in collapsible Sub-skills sections.
+Open **Folders → Global or a working folder → Context** from the Activity Bar. Global inspects `~/.agents`; a working folder inspects its own context. **Settings → Context** remains available for the complete context-scope list, including plugin context. Each scope shows Instructions, Skills, and Workflows in separate tabs with item counts; every item lists its title, description, and approximate token count. A subdued relative file path appears after the title, relative to the selected context root (`~/.agents` for Global). Nested skills are grouped beneath their nearest parent skill in collapsible Sub-skills sections.
 
-Activation badges describe actual loading behavior: **Always visible** means the instruction body is injected automatically; **On demand** means the item is cataloged for explicit reading. Skills and workflows are on demand. These badges describe ordinary-chat visibility; `BOTS.md` remains bot-thread-only and its applicable root instructions are injected for bots. **Assistant only** identifies skills or workflows with `user-invocable: false`; unspecified invocation metadata has no extra badge. Avi does not currently implement a user-only activation flag.
+Use the search field to filter the current tab by title, description, or path; matching nested skills are shown as a flat list. The sort menu offers **Default** (directory depth, then larger token size first), **Token size**, **Created at (desc)**, **Created at (asc)**, **A-Z**, and **Z-A**. Creation dates come from the file system.
+
+The **+** button beside the **...** menu asks for a name and creates a templated item in the scope's `.agents` directory: `AGENTS.<Name>.md` for instructions, `skills/<name>/SKILL.md` for skills, and `workflows/<name>.md` for workflows. Existing files are never overwritten. Installation and plugin context is read-only, so **+** is hidden there.
+
+Selecting an item opens the context editor. **Content** uses Monaco, the editor from VS Code, with Markdown and YAML frontmatter highlighting, VS Code keyboard shortcuts (find, multi-cursor, Tab/Shift+Tab indentation), list continuation on Enter, Ctrl+B/Ctrl+I formatting, and Bold, Italic, Inline code, and Link in the right-click menu. Ctrl+M toggles whether Tab moves focus out of the editor, Esc closes the dialog when no editor widget is open, and Ctrl+S saves. **Properties** edits the supported frontmatter fields: name (or title), description, `embeddable` for instructions, and `user-invocable` for skills and workflows; other frontmatter is kept as written. Unsaved changes require confirmation before closing. **Open externally** opens the file in the system editor.
+
+Badges use a colored dot and text: green for **Always visible**, blue for **On demand**, and an amber diamond for invocation restrictions. Activation badges describe actual loading behavior: **Always visible** means the instruction body is injected automatically; **On demand** means the item is cataloged for explicit reading. Skills and workflows are on demand. These badges describe ordinary-chat visibility; `BOTS.md` remains bot-thread-only and its applicable root instructions are injected for bots. **Assistant only** identifies skills or workflows with `user-invocable: false`; unspecified invocation metadata has no extra badge. Avi does not currently implement a user-only activation flag.
 
 Directory discovery and metadata reads run asynchronously with processor-count-bounded concurrency. Loading does not require a synchronous filesystem scan in the renderer. Selecting an item opens the file in its system-associated application; Avi does not include an internal Markdown editor.
 
@@ -79,6 +85,6 @@ If an item is missing:
 3. ensure frontmatter starts on the first line and closes with `---`;
 4. check discovery depth and ignored directories;
 5. determine whether `user-invocable: false` only hid it from the selector;
-6. start a new turn after saving changes.
+6. start a new turn after saving changes. Discovery results are cached for up to a minute; run `/reset-context` to reload instructions, skills, and workflows immediately. It also rereads MCP configuration and restarts MCP servers.
 
 See [Setup folders and initialize context](Setup%20folders%20and%20initialize%20context.md).

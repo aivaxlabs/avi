@@ -290,7 +290,15 @@ try {
     throw new Error('Passive record state was not reset after deactivation.');
   }
 
+  const workspaceConfigPath = join(configDirectory, 'mcpconfig.json');
+  const workspaceConfig = JSON.parse(await readFile(workspaceConfigPath, 'utf8'));
+  workspaceConfig.servers['Manual Edit'] = { type: 'stdio', command: 'x', enabled: false };
+  await writeFile(workspaceConfigPath, JSON.stringify(workspaceConfig, null, 2));
+
   await manager.restartAll(workspaceRoot);
+  if (!(await manager.listWorkspace(workspaceRoot)).some((item) => item.name === 'Manual Edit')) {
+    throw new Error('Restart did not reread the edited MCP configuration.');
+  }
   passiveRuntime = manager.runtimeForWorkspace(workspaceRoot);
   if (
     !passiveRuntime.tools.some((item) => item.name === 'mcp_passive_test_enable_mcp')

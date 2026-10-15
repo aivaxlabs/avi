@@ -55,9 +55,9 @@ export const composerCommands = [
     description: 'Show MCP servers available in this conversation',
   },
   {
-    id: 'restart-mcp',
-    name: 'restart-mcp',
-    description: 'Restart all loaded MCP servers',
+    id: 'reset-context',
+    name: 'reset-context',
+    description: 'Reread MCP configuration, restart MCP servers, and reload instructions, skills, and workflows',
   },
   {
     id: 'usage',

@@ -412,9 +412,11 @@ export class McpManager {
     const rootPath = resolve(workspacePath || this.globalRoot);
     await this.loadScope(this.globalRoot, 'global');
     if (rootPath !== this.globalRoot) await this.loadScope(rootPath, 'folder');
-    const scopes = [...this.scopes.values()].filter((scope) => (
-      scope.kind === 'global' || scope.initialized || scope.rootPath === rootPath
-    ));
+    const scopes = await Promise.all([...this.scopes.values()]
+      .filter((scope) => (
+        scope.kind === 'global' || scope.initialized || scope.rootPath === rootPath
+      ))
+      .map((scope) => this.loadScope(scope.rootPath, scope.kind, { ...scope.options, reload: true })));
 
     await Promise.all(scopes.flatMap((scope) => (
       [...scope.records.values()].map((record) => this.closeRecord(record))

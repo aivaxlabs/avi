@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { opendir, readFile, realpath, stat } from 'node:fs/promises';
+import { mkdir, opendir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { availableParallelism, homedir } from 'node:os';
 import path from 'node:path';
 import { composerCommands } from '../shared/composer-commands.js';
@@ -51,6 +51,55 @@ const highVerbosity = readFileSync(new URL('../prompts/verbosity/high.md', impor
 const INSTALLATION_CONTEXT_DIRECTORY_NAME = 'context';
 const INSTRUCTION_FILE_PATTERN = /^(?:(?:AGENTS|MEMORY)(?:\.[^.]+)*|CLAUDE|GEMINI|.+\.INSTRUCTIONS|.+\.AGENTS)\.md$/i;
 const BOT_INSTRUCTION_FILE_PATTERN = /^BOTS\.md$/i;
+const CONTEXT_ITEM_TEMPLATES = {
+  instruction: ({ title }) => [
+    '---',
+    `description: Rules for ${title}. Describe the files, folders, or tasks they apply to.`,
+    '---',
+    `# ${title}`,
+    '',
+    '## Scope',
+    '- Describe the files, folders, or tasks these rules apply to.',
+    '',
+    '## Rules',
+    '- Write one concrete, verifiable rule per line.',
+    '',
+  ],
+  skill: ({ title, slug }) => [
+    '---',
+    `name: ${slug}`,
+    `description: Use when the task needs ${title}. Describe the capability and when to load it.`,
+    '---',
+    `# ${title}`,
+    '',
+    '## When to use',
+    '- Describe the situations where this knowledge is required.',
+    '',
+    '## Instructions',
+    '1. Describe the first step or principle.',
+    '',
+    '## References',
+    '- Keep detailed material in `references/` and link it here.',
+    '',
+  ],
+  workflow: ({ title, slug }) => [
+    '---',
+    `name: ${slug}`,
+    `description: Use when the user asks to ${title}. Describe the expected outcome.`,
+    '---',
+    `# ${title}`,
+    '',
+    '## Inputs',
+    '- Describe what the user provides with the command.',
+    '',
+    '## Steps',
+    '1. Describe the first step.',
+    '',
+    '## Completion',
+    '- Describe the expected result and how to validate it.',
+    '',
+  ],
+};
 const POST_INSTRUCTION_CONTEXT_ORDER = [
   'bot',
   'memory',
@@ -700,6 +749,69 @@ export async function listContextItems(
     throw error;
   }
 }
+export async function createContextItem(rootPath, { kind, name } = {}) {
+  const template = CONTEXT_ITEM_TEMPLATES[kind];
+  if (!template) throw new Error('Context item kind must be instruction, skill, or workflow.');
+
+  const title = String(name ?? '').replace(/\s+/g, ' ').trim();
+  const slug = title
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
+    .replace(/^-+|-+$/g, '');
+  if (!slug) throw new Error('Enter a name with at least one letter or number.');
+
+  const root = path.resolve(rootPath);
+  const contextDirectory = path.basename(root).toLowerCase() === CONTEXT_DIRECTORY_NAME
+    ? root
+    : path.join(root, CONTEXT_DIRECTORY_NAME);
+  const subject = title
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .split(/[^\p{Letter}\p{Number}]+/u)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join('');
+  const filePath = {
+    instruction: path.join(contextDirectory, `AGENTS.${subject}.md`),
+    skill: path.join(contextDirectory, 'skills', slug, 'SKILL.md'),
+    workflow: path.join(contextDirectory, 'workflows', `${slug}.md`),
+  }[kind];
+
+  await mkdir(path.dirname(filePath), { recursive: true });
+  try {
+    await writeFile(filePath, template({ title, slug }).join('\n'), { encoding: 'utf8', flag: 'wx' });
+  } catch (error) {
+    if (error?.code === 'EEXIST') throw new Error(`"${path.relative(root, filePath)}" already exists.`);
+    throw error;
+  }
+  contextScanCache.clear();
+  return { path: filePath };
+}
+
+export function clearContextCaches() {
+  contextScanCache.clear();
+  contextItemCache.clear();
+}
+
+export async function writeContextItem(filePath, content) {
+  const target = path.resolve(String(filePath ?? ''));
+  const fileName = path.basename(target);
+  const isContextFile = INSTRUCTION_FILE_PATTERN.test(fileName)
+    || BOT_INSTRUCTION_FILE_PATTERN.test(fileName)
+    || /^skill\.md$/i.test(fileName)
+    || (path.extname(fileName).toLowerCase() === '.md'
+      && target.split(path.sep).some((part) => part.toLowerCase() === 'workflows'));
+  if (!isContextFile) throw new Error('Only instruction, skill, and workflow files can be edited.');
+  if (typeof content !== 'string') throw new Error('Context content must be a string.');
+  if (!(await stat(target)).isFile()) throw new Error('Context item is not a file.');
+
+  await writeFile(target, content, 'utf8');
+  contextItemCache.delete(normalizePathKey(target));
+  return { path: target };
+}
+
 function escapeXml(value) {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -892,8 +1004,11 @@ async function readContextItem(filePath, { skipCache = false } = {}) {
   }
 
   let content;
+  let createdAt;
   try {
-    content = await readFile(filePath, 'utf8');
+    const [fileContent, info] = await Promise.all([readFile(filePath, 'utf8'), stat(filePath)]);
+    content = fileContent;
+    createdAt = new Date(info.birthtimeMs || info.mtimeMs).toISOString();
   } catch {
     return {
       path: filePath,
@@ -902,6 +1017,7 @@ async function readContextItem(filePath, { skipCache = false } = {}) {
       embeddable: true,
       userInvocable: true,
       tokenCount: 0,
+      createdAt: null,
     };
   }
 
@@ -947,5 +1063,6 @@ async function readContextItem(filePath, { skipCache = false } = {}) {
     embeddable,
     userInvocable,
     tokenCount: Math.ceil(content.length / 4),
+    createdAt,
   };
 }

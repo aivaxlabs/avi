@@ -202,6 +202,7 @@ export function Composer({
   const [debouncedCommand, setDebouncedCommand] = useState({ mode: null, query: '' });
   const [cursorPosition, setCursorPosition] = useState(text.length);
   const [contextCommands, setContextCommands] = useState([]);
+  const [contextCommandsRevision, setContextCommandsRevision] = useState(0);
   const [mentionCandidates, setMentionCandidates] = useState({ paths: [], servers: [] });
   const [mentionsLoading, setMentionsLoading] = useState(false);
   const [mentionsError, setMentionsError] = useState(false);
@@ -655,7 +656,7 @@ export function Composer({
     return () => {
       active = false;
     };
-  }, [project?.path]);
+  }, [project?.path, contextCommandsRevision]);
 
   useEffect(() => {
     if (commandMode !== 'mentions' || !project?.path) {
@@ -1045,15 +1046,17 @@ export function Composer({
         setProviderUsagesOpen(true);
         return;
       }
-      if (option.id === 'mcp' || option.id === 'restart-mcp') {
+      if (option.id === 'mcp' || option.id === 'reset-context') {
         exitCommandMode();
-        onSend({
+        Promise.resolve(onSend({
           text: `/${option.name}`,
           attachments: [],
           reasoningEffort: activeReasoningEffort,
           permissionMode,
           workMode: effectiveWorkMode,
           ultraMode: effectiveUltraMode,
+        })).then(() => {
+          if (option.id === 'reset-context') setContextCommandsRevision((revision) => revision + 1);
         });
         return;
       }

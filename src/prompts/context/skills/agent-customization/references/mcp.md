@@ -74,7 +74,7 @@ For `stdio`, a relative working directory is resolved from the configuration sco
 - Server tools are exposed as `mcp_<normalized-server>_<normalized-tool>`.
 - Tool descriptions and schemas come from the server.
 - Approval behavior is controlled by the current permission mode and the tool call, not by skill or workflow frontmatter.
-- `/mcp` shows servers available to the conversation; `/restart-mcp` restarts loaded servers.
+- `/mcp` shows servers available to the conversation; `/reset-context` rereads MCP configuration, restarts loaded servers, and reloads instructions, skills, and workflows.
 
 ## Security
 

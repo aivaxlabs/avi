@@ -10,9 +10,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { composerCommands } from '../src/shared/composer-commands.js';
 import {
+  clearContextCaches,
+  createContextItem,
   listContextItems,
   resolveDynamicContext,
   resolveInstallationContextPath,
+  writeContextItem,
 } from '../src/main/context-injection.js';
 import {
   listInstalledTerminalShells,
@@ -960,6 +963,33 @@ try {
   assert.equal(tree.items.find((item) => item.path === skillPaths[1]).parentSkillPath, skillPaths[0]);
   assert.equal(tree.items.find((item) => item.path === skillPaths[2]).parentSkillPath, skillPaths[1]);
   assert.equal(tree.items.find((item) => item.path === skillPaths[2]).relativePath, 'skills/parent/child/deep/SKILL.md');
+  const createRoot = path.join(installationRoot, 'create-fixture');
+  await mkdir(createRoot, { recursive: true });
+  const createdSkill = await createContextItem(createRoot, { kind: 'skill', name: 'Revisão de PR' });
+  const createdWorkflow = await createContextItem(createRoot, { kind: 'workflow', name: 'Deploy app' });
+  const createdInstruction = await createContextItem(createRoot, { kind: 'instruction', name: 'front end' });
+  assert.equal(createdSkill.path, path.join(createRoot, '.agents', 'skills', 'revisao-de-pr', 'SKILL.md'));
+  assert.equal(createdWorkflow.path, path.join(createRoot, '.agents', 'workflows', 'deploy-app.md'));
+  assert.equal(createdInstruction.path, path.join(createRoot, '.agents', 'AGENTS.FrontEnd.md'));
+  await assert.rejects(createContextItem(createRoot, { kind: 'workflow', name: 'Deploy app' }), /already exists/);
+  await assert.rejects(createContextItem(createRoot, { kind: 'workflow', name: '  !!  ' }), /at least one letter/);
+  await assert.rejects(createContextItem(createRoot, { kind: 'prompt', name: 'x' }), /kind/);
+  const created = await listContextItems(createRoot);
+  const createdSkillItem = created.groups.find((group) => group.id === 'skill').items[0];
+  assert.equal(createdSkillItem.title, 'revisao-de-pr');
+  assert.match(createdSkillItem.description, /^Use when the task needs Revisão de PR/);
+  assert.ok(!Number.isNaN(Date.parse(createdSkillItem.createdAt)));
+  assert.equal(created.groups.find((group) => group.id === 'workflow').items[0].title, 'deploy-app');
+  assert.equal(created.groups.find((group) => group.id === 'instruction').items[0].activationMode, 'always-visible');
+  await writeContextItem(createdWorkflow.path, '---\nname: deploy\n---\n# Deploy');
+  assert.equal((await listContextItems(createRoot)).groups.find((group) => group.id === 'workflow').items[0].title, 'deploy');
+  await writeFile(path.join(createRoot, '.agents', 'workflows', 'manual.md'), '---\nname: manual\n---\n# Manual');
+  assert.equal((await listContextItems(createRoot)).groups.find((group) => group.id === 'workflow').items.length, 1);
+  clearContextCaches();
+  assert.equal((await listContextItems(createRoot)).groups.find((group) => group.id === 'workflow').items.length, 2);
+  const plainFile = path.join(createRoot, 'notes.md');
+  await writeFile(plainFile, '# Notes');
+  await assert.rejects(writeContextItem(plainFile, 'x'), /Only instruction, skill, and workflow/);
   console.log('Context variant discovery passed.');
 } finally {
   if (originalHome === undefined) delete process.env.HOME;
