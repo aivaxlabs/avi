@@ -3,10 +3,28 @@
 ## [Canary]
 
 ### Added
+- **Chat search filters and recent chats** — **Search chats** (Control+K) has a refreshed layout. Before typing it lists the most recent chats with folder, age, and status (Working, Awaiting approval, Blocked, Completed, and others). Filter by folder and creation date, sort by best match or newest created, and see matching terms highlighted. `conversations:search` now also accepts `{ query, folderPath, createdAfter, sort }`, and results include `createdAt`.
+- **AIVAX media generation** — Settings → AIVAX Features has a **Media generation** section with a model dropdown and toggle for images and for audio. Enabling them adds `generate_image` (prompt, 1–4 images, up to four reference images as local paths or HTTP(S) URLs; fails when the selected model does not support references) and `generate_audio` (text-to-speech in MP3, WAV, or OGG). Results are saved under `<workspace>/.aivax/generated-images` and `generated-audio`; images appear in the chat. The renderer reads the catalogs through `aivax:media-models`.
+- **Message markers** — from the second sent message, ticks float on the left edge of the chat, one per message you sent. Hovering highlights the tick and previews the message; clicking jumps to it, loading older history if needed. With more than 15 messages, the first 5 and last 10 are shown.
+- **Plugin action pages** — plugins can add full pages to the Activity Bar, shown after a separator below Folders with a Lucide or SVG icon. HTML pages render plugin HTML/CSS/JS in a sandboxed iframe with theme variables and a `window.avi.invoke()` bridge; native pages reuse the auxiliary panel components. Desktop bridge: `window.chatApp.actionPages.list/load/invokeAction/onEvent` (`action-pages:*`).
+- **New themes** — GitHub (Light/Dark Default), Catppuccin (Latte/Mocha), Solarized (Light/Dark), Nord, Tokyo Night (Light/Night), and Darcula (IntelliJ Light/Darcula), each built from its official palette for both color schemes. Their ids are reserved for plugin themes.
+- **Context page tabs, search, sorting, and creation** — Context shows Instructions, Skills, and Workflows as tabs with a search field and a sort menu (Default, Token size, Created at desc/asc, A-Z, Z-A). A **+** button beside **...** creates a templated instruction, skill, or workflow in the scope's `.agents` folder. Desktop bridge: `window.chatApp.context.create/read/write`; `context:folder` results include `readOnly`, and items include `createdAt`.
+- **Context editor** — selecting a context item opens a modal with a Markdown editor powered by Monaco, the editor used by VS Code (syntax-highlighted frontmatter, list continuation, Ctrl+B/Ctrl+I and right-click Markdown formatting, find, multi-cursor, Ctrl+S) and a Properties tab for supported frontmatter fields. Installation and plugin context opens read-only.
 - **Per-bot tool permissions** — choose **Approve for me** (the default for new and existing bots) or **Full access** in Bot settings → Schedule. The persisted `permissionMode` is writable through Core/RPC and read-only through agent tools (MCP) and used for activations, restart resumptions, Inbox continuations, and bot-composer messages.
 
+### Changed
+- **`/restart-mcp` is now `/reset-context`.** Besides restarting MCP servers, it rereads every loaded `mcpconfig.json` (manual edits were previously ignored until restart), clears the instruction, skill, and workflow discovery caches, and refreshes the composer's `/` and `$` commands. Removed the desktop bridge `window.chatApp.mcp.restartAll` (`mcp:restart-all`); use `window.chatApp.context.reset(folderPath)` (`context:reset`).
+- Context activation and invocation badges now use colored dot indicators with tooltips.
+- **Unified controls outside the chat.** Settings, dialogs, and panels now share one set of buttons, split buttons, dropdowns, toggle switches, and fields, defined in `src/styles/controls.xcss`. One dark primary button marks the main action, dropdowns size to their value, every on/off option is a toggle, and fields show the theme accent while editing. The chat transcript and composer keep their own controls. Themes can retune every control through the new `--control-*` tokens.
+- **Long configuration text opens in an editor.** Model rule and bot instructions, provider, model, and plugin custom JSON, provider JSON import, and MCP arguments, environment variables, and headers show a line count button that opens a Monaco editor with **Apply** and **Ctrl+S**. Quick compose fields, such as commit messages and annotations, remain inline.
+
 ### Fixed
+- Code syntax colors now always follow the active theme. Prism's default token colors could override a theme's syntax palette depending on stylesheet order, while Appearance previews still showed the theme's colors.
+- **Stop** now ends the run immediately while a tool is executing, even when the tool ignores the abort signal (for example, `chat_create_thread` with `wait_for_response`). The pending call is recorded as interrupted. Previously, Stop only took effect after the tool returned, which could take minutes.
 - Agent bot-management tools reject writes to `permissionMode`, preventing bots from granting Full access to themselves or other bots. The field remains readable; permission changes stay in Bot settings and trusted application APIs.
+
+### Docs
+- Added `DESIGN.md`, the visual source of truth for control primitives and tokens, and linked it from the agent instructions. Documented unified controls in UI basics and the control tokens in Themes and Plugins.
 
 ## [0.8.0] — 2026-10-05
 
