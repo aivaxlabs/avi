@@ -21,6 +21,7 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
 export function AivaxFeaturesSettings() {
   const [state, setState] = useState(null);
   const [collections, setCollections] = useState([]);
+  const [mediaModels, setMediaModels] = useState({ image: [], audio: [] });
   const [loginKey, setLoginKey] = useState('');
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
@@ -47,6 +48,34 @@ export function AivaxFeaturesSettings() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!state?.connected) return undefined;
+    let active = true;
+    window.chatApp.aivax.mediaModels()
+      .then((models) => {
+        if (active) setMediaModels(models);
+      })
+      .catch((nextError) => {
+        if (active) setError(nextError instanceof Error ? nextError.message : String(nextError));
+      });
+    return () => {
+      active = false;
+    };
+  }, [state?.connected]);
+
+  async function saveSettings(changes) {
+    setBusy(true);
+    setError('');
+    try {
+      const settings = await window.chatApp.aivax.save({ ...state.settings, ...changes });
+      setState((current) => ({ ...current, settings }));
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function closeLoginDialog() {
     setLoginDialogOpen(false);
@@ -76,7 +105,7 @@ export function AivaxFeaturesSettings() {
             </p>
             <div className="aivax-landing-actions">
               <button
-                className="primary-mini aivax-link-account"
+                className="button primary"
                 type="button"
                 onClick={() => {
                   setError('');
@@ -87,7 +116,7 @@ export function AivaxFeaturesSettings() {
                 Link login key
               </button>
               <button
-                className="aivax-create-account"
+                className="button"
                 type="button"
                 onClick={() => window.chatApp.app.openExternal('https://console.aivax.net/login')}
               >
@@ -180,6 +209,7 @@ export function AivaxFeaturesSettings() {
                 <label>
                   <span>Login key</span>
                   <input
+                    className="input"
                     autoFocus
                     type="password"
                     autoComplete="off"
@@ -193,7 +223,7 @@ export function AivaxFeaturesSettings() {
                 {error && <div className="settings-context-error" role="alert">{error}</div>}
                 <div className="aivax-login-actions">
                   <button
-                    className="aivax-login-cancel"
+                    className="button"
                     type="button"
                     disabled={busy}
                     onClick={closeLoginDialog}
@@ -201,7 +231,7 @@ export function AivaxFeaturesSettings() {
                     Cancel
                   </button>
                   <button
-                    className="primary-mini aivax-link-account"
+                    className="button primary"
                     type="submit"
                     disabled={busy || !loginKey.trim()}
                   >
@@ -232,7 +262,7 @@ export function AivaxFeaturesSettings() {
             </span>
             <div className="aivax-account-actions">
               <button
-                className="button button-secondary"
+                className="button"
                 type="button"
                 disabled={busy}
                 onClick={async () => {
@@ -260,7 +290,7 @@ export function AivaxFeaturesSettings() {
             </span>
             <div className="aivax-account-actions">
               <button
-                className="button button-secondary"
+                className="button"
                 type="button"
                 onClick={() => window.chatApp.app.openExternal('https://console.aivax.net/dashboard/usage')}
               >
@@ -276,7 +306,7 @@ export function AivaxFeaturesSettings() {
             </span>
             <div className="aivax-account-actions">
               <button
-                className="button button-secondary"
+                className="button"
                 type="button"
                 disabled={busy}
                 onClick={async () => {
@@ -319,7 +349,7 @@ export function AivaxFeaturesSettings() {
               <small>Add persistent memory search, write, and delete tools to agents.</small>
             </span>
             <input
-              className="appearance-desktop-switch"
+              className="toggle"
               type="checkbox"
               disabled={!state.connected || !state.settings.memoryCollectionId || busy}
               checked={state.settings.memoryEnabled}
@@ -346,7 +376,7 @@ export function AivaxFeaturesSettings() {
               <small>{state.settings.memoryCollectionName ?? 'Choose where Avi should store persistent memory.'}</small>
             </span>
             <button
-              className="button button-secondary aivax-collection-picker-trigger"
+              className="button aivax-collection-picker-trigger"
               type="button"
               disabled={!state.connected || busy}
               onClick={() => setCollectionPickerTarget('memory')}
@@ -437,7 +467,7 @@ export function AivaxFeaturesSettings() {
               {collections.length === 0 && <p className="aivax-collection-empty">No collections yet. Create your first one.</p>}
             </div>
             <button
-              className="button button-secondary aivax-collection-create-trigger"
+              className="button aivax-collection-create-trigger"
               type="button"
               disabled={busy}
               onClick={() => {
@@ -509,13 +539,13 @@ export function AivaxFeaturesSettings() {
             >
               <label>
                 <span>Collection name</span>
-                <input autoFocus value={newCollectionName} disabled={busy} onChange={(event) => setNewCollectionName(event.target.value)} placeholder="e.g. Team knowledge" />
+                <input className="input" autoFocus value={newCollectionName} disabled={busy} onChange={(event) => setNewCollectionName(event.target.value)} placeholder="e.g. Team knowledge" />
               </label>
               <div className="aivax-collection-create-actions">
-                <button className="button button-secondary" type="button" disabled={busy} onClick={() => setCollectionCreateTarget(null)}>
+                <button className="button" type="button" disabled={busy} onClick={() => setCollectionCreateTarget(null)}>
                   Cancel
                 </button>
-                <button className="button button-primary" type="submit" disabled={busy || !newCollectionName.trim()}>
+                <button className="button primary" type="submit" disabled={busy || !newCollectionName.trim()}>
                   {busy ? <LoaderCircle className="aivax-spinner" size={14} /> : <Plus size={14} />}
                   Create collection
                 </button>
@@ -542,7 +572,7 @@ export function AivaxFeaturesSettings() {
                 <small>{description}</small>
               </span>
               <input
-                className="appearance-desktop-switch"
+                className="toggle"
                 type="checkbox"
                 disabled={!state.connected || busy}
                 checked={state.settings[key]}
@@ -569,6 +599,75 @@ export function AivaxFeaturesSettings() {
 
       <section className="settings-section">
         <div className="settings-section-heading">
+          <h3>Media generation</h3>
+          <p>Let agents generate images and speech audio with AIVAX models. Generation consumes AIVAX balance.</p>
+        </div>
+        <div className="settings-section-card settings-form settings-row-card">
+          {[
+            {
+              enabledKey: 'imageGenerationEnabled',
+              modelKey: 'imageGenerationModel',
+              models: mediaModels.image,
+              title: 'Image generation',
+              description: 'Add the generate_image tool. Reference images require a model that supports them.',
+            },
+            {
+              enabledKey: 'audioGenerationEnabled',
+              modelKey: 'audioGenerationModel',
+              models: mediaModels.audio,
+              title: 'Audio generation',
+              description: 'Add the generate_audio text-to-speech tool.',
+            },
+          ].map(({ enabledKey, modelKey, models, title, description }) => {
+            const selectedModel = models.find((model) => model.name === state.settings[modelKey]);
+            return (
+              <div className="settings-card-row aivax-media-row" key={enabledKey}>
+                <span>
+                  <strong>{title}</strong>
+                  <small>{selectedModel
+                    ? [
+                        selectedModel.pricingDescription,
+                        selectedModel.referenceImages && 'Supports reference images',
+                      ].filter(Boolean).join(' · ')
+                    : description}</small>
+                </span>
+                <div className="aivax-media-actions">
+                  <select className="select"
+                    aria-label={`${title} model`}
+                    disabled={!state.connected || busy}
+                    value={state.settings[modelKey] ?? ''}
+                    onChange={(event) => saveSettings({
+                      [modelKey]: event.target.value || null,
+                      ...(event.target.value ? {} : { [enabledKey]: false }),
+                    })}
+                  >
+                    <option value="">Select a model</option>
+                    {state.settings[modelKey] && !selectedModel && (
+                      <option value={state.settings[modelKey]}>{state.settings[modelKey]}</option>
+                    )}
+                    {models.map((model) => (
+                      <option key={model.name} value={model.name} title={model.description}>
+                        {model.displayName}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="toggle"
+                    type="checkbox"
+                    aria-label={`Enable ${title.toLowerCase()}`}
+                    disabled={!state.connected || !state.settings[modelKey] || busy}
+                    checked={state.settings[enabledKey]}
+                    onChange={(event) => saveSettings({ [enabledKey]: event.target.checked })}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-section-heading">
           <h3>In-app search</h3>
           <p>Search indexed thread turns semantically through a dedicated AIVAX RAG collection.</p>
         </div>
@@ -580,7 +679,7 @@ export function AivaxFeaturesSettings() {
                 ?? 'Choose a dedicated collection to enable semantic thread search.'}</small>
             </span>
             <button
-              className="button button-secondary aivax-collection-picker-trigger"
+              className="button aivax-collection-picker-trigger"
               type="button"
               disabled={!state.connected || busy}
               onClick={() => setCollectionPickerTarget('threadSearch')}

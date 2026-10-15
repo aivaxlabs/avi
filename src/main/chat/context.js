@@ -91,6 +91,16 @@ export const contextMethods = {
       .filter((tool) => tool.name !== 'web_search' || (
         preferences.aivax?.connected && preferences.aivax.webSearchEnabled
       ))
+      .filter((tool) => tool.name !== 'generate_image' || (
+        preferences.aivax?.connected
+        && preferences.aivax.imageGenerationEnabled
+        && preferences.aivax.imageGenerationModel
+      ))
+      .filter((tool) => tool.name !== 'generate_audio' || (
+        preferences.aivax?.connected
+        && preferences.aivax.audioGenerationEnabled
+        && preferences.aivax.audioGenerationModel
+      ))
       .filter((tool) => tool.name !== 'read_media_file' || (
         selection.model.capabilities?.images
         || selection.model.capabilities?.video

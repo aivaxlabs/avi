@@ -535,6 +535,92 @@ try {
     },
   ]);
 
+  const generateImage = CLIENT_TOOLS.find((tool) => tool.name === 'generate_image');
+  const generateAudio = CLIENT_TOOLS.find((tool) => tool.name === 'generate_audio');
+  assert.ok(generateImage && generateAudio);
+  const generationWorkspace = join(resolvedProfile, 'generation-workspace');
+  const pngBytes = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+  await assert.rejects(
+    generateImage.execute({ prompt: 'A cat' }, {
+      aivax: { connected: true, imageGenerationEnabled: false, imageGenerationModel: 'model' },
+      requestAivax: async () => assert.fail('Disabled image generation must not call AIVAX.'),
+    }),
+    /image generation is not enabled/,
+  );
+
+  const imageRequests = [];
+  const imageAivax = { connected: true, imageGenerationEnabled: true, imageGenerationModel: 'flare' };
+  const imageRequest = (flags) => async (path, options) => {
+    imageRequests.push({ path, options });
+    if (path === '/api/v1/information/image-models.json') return [{ name: 'flare', flags }];
+    if (path.startsWith('/api/v1/shell/io/file/public-address')) return { publicUrl: 'https://aivax.example/ref.png' };
+    if (path.startsWith('/api/v1/shell/io/file')) return null;
+    return [{ input: options.body.input, images: ['https://aivax.example/out-1', 'https://aivax.example/out-2'] }];
+  };
+  const imageResult = await generateImage.execute({
+    prompt: ' A cat ',
+    count: 2,
+    referenceImages: [mediaFixtures[0].path, 'https://example.com/ref.jpg'],
+  }, {
+    aivax: imageAivax,
+    requestAivax: imageRequest(['AllowReferenceImage']),
+    fetch: async () => new Response(pngBytes),
+    signal: new AbortController().signal,
+    workspacePath: generationWorkspace,
+  });
+  const generationCall = imageRequests.find((request) => request.path === '/api/v1/generations/images');
+  assert.equal(generationCall.options.baseUrl, AIVAX_LONG_INFERENCE_BASE_URL);
+  assert.deepEqual(generationCall.options.body, {
+    input: 'A cat',
+    count: 2,
+    model: 'flare',
+    referenceImages: ['https://aivax.example/ref.png', 'https://example.com/ref.jpg'],
+  });
+  const upload = imageRequests.find((request) => request.options.body instanceof Blob);
+  assert.match(upload.path, /^\/api\/v1\/shell\/io\/file\?path=image-references%2F.+\.png$/);
+  assert.equal(upload.options.headers['X-Shell-User-Id'], 'avi-media-generation');
+  assert.equal(imageRequests.at(-1).options.method, 'DELETE');
+  assert.equal(imageRequests.at(-1).path, upload.path);
+  assert.equal(imageResult.attachments.length, 2);
+  assert.equal(imageResult.mediaContent.length, 2);
+  for (const attachment of imageResult.attachments) {
+    assert.equal(attachment.source, 'generated_image');
+    assert.equal(attachment.mime, 'image/png');
+    assert.ok(attachment.path.startsWith(join(generationWorkspace, '.aivax', 'generated-images')));
+    assert.deepEqual(readFileSync(attachment.path), pngBytes);
+  }
+
+  imageRequests.length = 0;
+  await assert.rejects(
+    generateImage.execute({ prompt: 'A cat', referenceImages: ['https://example.com/ref.jpg'] }, {
+      aivax: imageAivax,
+      requestAivax: imageRequest([]),
+      workspacePath: generationWorkspace,
+    }),
+    /does not support reference images/,
+  );
+  assert.deepEqual(imageRequests.map((request) => request.path), ['/api/v1/information/image-models.json']);
+
+  await assert.rejects(
+    generateAudio.execute({ text: 'Hello' }, {
+      aivax: { connected: true, audioGenerationEnabled: false, audioGenerationModel: null },
+    }),
+    /audio generation is not enabled/,
+  );
+  const audioOutput = await generateAudio.execute({ text: 'Hello', voice: 'onyx' }, {
+    aivax: { connected: true, audioGenerationEnabled: true, audioGenerationModel: 'GrokVoice' },
+    requestAivax: async (path, options) => {
+      assert.equal(path, '/api/v1/generations/speech');
+      assert.equal(options.baseUrl, AIVAX_LONG_INFERENCE_BASE_URL);
+      assert.deepEqual(options.body, { model: 'GrokVoice', input: 'Hello', voice: 'onyx', format: 'mp3' });
+      return { format: 'mp3', mimeType: 'audio/mpeg', data: Buffer.from('audio').toString('base64') };
+    },
+    workspacePath: generationWorkspace,
+  });
+  const audioPath = audioOutput.match(/Saved to: (.+)$/)[1];
+  assert.ok(audioPath.startsWith(join(generationWorkspace, '.aivax', 'generated-audio')));
+  assert.equal(readFileSync(audioPath, 'utf8'), 'audio');
+
   reply({ message: 'Invalid login key.', data: null }, { status: 401, statusText: 'Unauthorized' });
   await assert.rejects(
     loginToAivax('invalid-login-key'),

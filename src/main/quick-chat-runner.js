@@ -326,6 +326,12 @@ export class QuickChatRunner {
           .filter((tool) => tool.name !== 'web_search' || (
             aivax?.connected && aivax.webSearchEnabled
           ))
+          .filter((tool) => tool.name !== 'generate_image' || (
+            aivax?.connected && aivax.imageGenerationEnabled && aivax.imageGenerationModel
+          ))
+          .filter((tool) => tool.name !== 'generate_audio' || (
+            aivax?.connected && aivax.audioGenerationEnabled && aivax.audioGenerationModel
+          ))
           .map((tool) => {
             if (tool.name === 'read_media_file') {
               const supportedMedia = [

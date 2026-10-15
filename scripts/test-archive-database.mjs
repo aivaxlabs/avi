@@ -109,8 +109,33 @@ try {
     advancedFetchEnabled: false,
     webSearchEnabled: false,
     mediaDescriptionsEnabled: false,
+    imageGenerationEnabled: false,
+    imageGenerationModel: null,
+    audioGenerationEnabled: false,
+    audioGenerationModel: null,
     threadSearchCollectionId: null,
     threadSearchCollectionName: null,
+  });
+  assert.throws(() => setAivaxSettings({
+    ...getAivaxSettings(),
+    imageGenerationEnabled: true,
+  }), /AIVAX feature settings are invalid/);
+  assert.throws(() => setAivaxSettings({
+    ...getAivaxSettings(),
+    audioGenerationEnabled: true,
+  }), /AIVAX feature settings are invalid/);
+  assert.deepEqual(setAivaxSettings({
+    ...getAivaxSettings(),
+    imageGenerationEnabled: true,
+    imageGenerationModel: ' gpt-image-2.5-flare ',
+    audioGenerationEnabled: true,
+    audioGenerationModel: 'GrokVoice',
+  }), {
+    ...getAivaxSettings(),
+    imageGenerationEnabled: true,
+    imageGenerationModel: 'gpt-image-2.5-flare',
+    audioGenerationEnabled: true,
+    audioGenerationModel: 'GrokVoice',
   });
   assert.deepEqual(setAivaxSettings({
     ...getAivaxSettings(),

@@ -1,6 +1,6 @@
 # AIVAX Features
 
-AIVAX Features is an optional external integration for persistent memory, richer web tools, and semantic thread search. Avi’s core local conversations and local search do not require it.
+AIVAX Features is an optional external integration for persistent memory, richer web tools, image and audio generation, and semantic thread search. Avi’s core local conversations and local search do not require it.
 
 ## Connect an account
 
@@ -43,6 +43,15 @@ The memory toggle remains unavailable without both an account and a collection. 
 
 These utilities depend on the external service. Media Descriptions is a fallback in `read_media_file`: models that support the supplied media continue to receive it directly. `read_media_file` accepts an optional extraction guidance that is forwarded to Media Descriptions and ignored when the model reads the media directly. Processing can consume AIVAX balance.
 
+## Media generation
+
+**Settings → AIVAX Features → Media generation** has one row for images and one for audio. Each row has a model dropdown, loaded from the AIVAX image and speech model catalogs, and a toggle. A toggle can only be enabled after a model is selected; clearing the model disables it.
+
+- **Image generation** adds `generate_image`. It accepts a `prompt`, an optional `count` from 1 to 4, and up to four optional `referenceImages`, each an absolute local path (PNG, JPEG, WebP, or GIF) or a public HTTP(S) URL. When references are supplied and the selected model does not support reference images, the tool fails before any generation. Local references are uploaded to the AIVAX Shell I/O sandbox, published through a temporary public address, and deleted after the request. Generated images are saved under `<workspace>/.aivax/generated-images` and shown in the chat.
+- **Audio generation** adds `generate_audio` (text-to-speech). It accepts `text`, an optional `voice` supported by the selected model, and an optional `format` (`mp3` by default, `wav`, or `ogg`). The audio is saved under `<workspace>/.aivax/generated-audio`.
+
+Both tools write local files, so they follow the thread's approval mode. Generation is billed to the AIVAX account. Disconnecting the account disables both toggles; the selected models are kept.
+
 ### Create a skill from a tutorial video
 
 Attach one tutorial video, select `/teach-skill` from the composer, and describe the skill you want. Avi sends the selected video to AIVAX Teach Skill, converts the returned tutorial into a local Avi `SKILL.md`, and validates its structure. The workflow chooses project or user-global scope from the tutorial's applicability and asks when that choice is materially ambiguous. It does not overwrite an existing same-name skill unless the request clearly asks for an update.
@@ -55,7 +64,7 @@ Select a dedicated **Thread search collection** to enable semantic thread search
 
 Avi synchronizes the collection when the app opens, when the collection is selected, and every 15 minutes. Each eligible conversation contributes at most its three most recent completed `user → assistant` turns. Each turn is a separate document containing the conversation title, user message, and assistant response; every component is limited to approximately 256 tokens. Hidden messages, agent-authored user messages, incomplete responses, archived conversations, deleted conversations, side chats, and sub-agent threads are excluded.
 
-Search uses AIVAX semantic search with RRF reranking, a minimum score of `0.2`, and up to 20 results. If indexing or remote search fails, Avi records the failure in `~/.aivax/trace.log` and local thread search remains available. Successful index and search requests log elapsed time, consumed credits, and applicable document/result counts without logging message content.
+Search uses AIVAX semantic search with RRF reranking, a minimum score of `0.2`, and up to 20 results. Folder and creation-date filters are applied to the semantic candidates afterward, so Avi requests up to 60 candidates when a filter is active; a filtered search may still return fewer matches than local search. If indexing or remote search fails, Avi records the failure in `~/.aivax/trace.log` and local thread search remains available. Successful index and search requests log elapsed time, consumed credits, and applicable document/result counts without logging message content.
 
 ## Security, cost, and availability
 

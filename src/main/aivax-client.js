@@ -19,6 +19,7 @@ export async function requestAivax(path, {
   accessToken = getAivaxAccessToken(),
   baseUrl = AIVAX_API_BASE_URL,
   body,
+  headers = {},
   includeResponseEnvelope = false,
   includeResponseMetadata = false,
   method = body === undefined ? 'GET' : 'POST',
@@ -30,14 +31,15 @@ export async function requestAivax(path, {
     throw new Error('Connect an AIVAX account in Settings first.');
   }
 
-  const multipart = body instanceof FormData;
+  const rawBody = body instanceof FormData || body instanceof Blob;
   const response = await fetch(new URL(path, baseUrl), {
     method,
     headers: {
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      ...(body === undefined || multipart ? {} : { 'Content-Type': 'application/json' }),
+      ...(body === undefined || rawBody ? {} : { 'Content-Type': 'application/json' }),
+      ...headers,
     },
-    ...(body === undefined ? {} : { body: multipart ? body : JSON.stringify(body) }),
+    ...(body === undefined ? {} : { body: rawBody ? body : JSON.stringify(body) }),
     signal,
   });
   const text = await response.text();

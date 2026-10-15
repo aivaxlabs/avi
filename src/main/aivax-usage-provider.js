@@ -20,6 +20,8 @@ export function listAivaxUsageProviders({ accessToken, settings, requestBalance 
     || settings?.advancedFetchEnabled
     || settings?.webSearchEnabled
     || settings?.mediaDescriptionsEnabled
+    || settings?.imageGenerationEnabled
+    || settings?.audioGenerationEnabled
     || settings?.threadSearchCollectionId,
   );
   if (!active) return [];

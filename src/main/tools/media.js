@@ -1,11 +1,23 @@
-import { readFile, stat } from 'node:fs/promises';
-import { basename, extname, isAbsolute } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { basename, extname, isAbsolute, join } from 'node:path';
 import { defaultMediaSizeLimit } from '../../shared/attachments.js';
 import { AIVAX_LONG_INFERENCE_BASE_URL, requestAivax } from '../aivax-client.js';
 import { attachmentToApiBlock } from '../database.js';
 import { filePathToAttachment, materializeAttachment } from '../files.js';
+import { detectImageMime } from '../json-request-body.js';
+import { diagnosticFetch } from '../request-diagnostics.js';
 
 const MEDIA_DESCRIPTIONS_SIZE_LIMIT = 20 * 1024 * 1024;
+const REFERENCE_IMAGE_MIME_TYPES = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+};
+const SHELL_HEADERS = { 'X-Shell-User-Id': 'avi-media-generation' };
 
 export const mediaTools = [
   {
@@ -264,6 +276,210 @@ export const mediaTools = [
         resultText: result.resultText,
         usage: result.usage ?? null,
       };
+    },
+  },
+  {
+    name: 'generate_image',
+    description: 'Generate images with the AIVAX image model selected in Settings. Optionally pass reference images as absolute local paths or public HTTP(S) URLs; the call fails when the selected model does not support reference images. Generated images are saved locally and shown in the chat.',
+    canEditFile: true,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: {
+          type: 'string',
+          minLength: 1,
+          description: 'Complete visual instructions for the image.',
+        },
+        count: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 4,
+          description: 'Number of images to generate. Defaults to 1.',
+        },
+        referenceImages: {
+          type: 'array',
+          items: { type: 'string', minLength: 1 },
+          maxItems: 4,
+          description: 'Optional reference images: absolute local paths (PNG, JPEG, WebP, or GIF) or public HTTP(S) URLs.',
+        },
+      },
+      required: ['prompt'],
+      additionalProperties: false,
+    },
+    execute: async ({ prompt, count = 1, referenceImages = [] }, {
+      aivax,
+      requestAivax: requestImages = requestAivax,
+      fetch = diagnosticFetch,
+      signal,
+      workspacePath,
+    }) => {
+      if (!aivax?.connected || !aivax.imageGenerationEnabled || !aivax.imageGenerationModel) {
+        throw new Error('AIVAX image generation is not enabled. The user must enable it and select a model in Settings → AIVAX Features.');
+      }
+      const model = aivax.imageGenerationModel;
+      if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('prompt is required.');
+      if (!Number.isInteger(count) || count < 1 || count > 4) throw new Error('count must be an integer from 1 to 4.');
+      if (!Array.isArray(referenceImages) || referenceImages.length > 4) {
+        throw new Error('referenceImages must be an array with at most four items.');
+      }
+
+      const uploadedPaths = [];
+      try {
+        const referenceUrls = [];
+        if (referenceImages.length > 0) {
+          const catalog = await requestImages('/api/v1/information/image-models.json', {
+            responseType: 'array',
+            signal,
+          });
+          const catalogModel = catalog.find((item) => item.name?.toLowerCase() === model.toLowerCase());
+          if (!catalogModel?.flags?.includes('AllowReferenceImage')) {
+            throw new Error(`The selected image generation model "${model}" does not support reference images.`);
+          }
+
+          for (const reference of referenceImages.map((value) => String(value).trim())) {
+            if (/^https?:\/\//i.test(reference)) {
+              referenceUrls.push(reference);
+              continue;
+            }
+            if (!isAbsolute(reference)) {
+              throw new Error(`Reference image must be an absolute path or an HTTP(S) URL: ${reference}`);
+            }
+            const extension = extname(reference).toLowerCase();
+            const mime = REFERENCE_IMAGE_MIME_TYPES[extension];
+            if (!mime) throw new Error(`Unsupported reference image type: ${reference}`);
+
+            const sandboxPath = `image-references/${randomUUID()}${extension}`;
+            await requestImages(`/api/v1/shell/io/file?path=${encodeURIComponent(sandboxPath)}`, {
+              body: new Blob([await readFile(reference)], { type: mime }),
+              headers: SHELL_HEADERS,
+              signal,
+            });
+            uploadedPaths.push(sandboxPath);
+            const published = await requestImages(`/api/v1/shell/io/file/public-address?path=${encodeURIComponent(sandboxPath)}`, {
+              headers: SHELL_HEADERS,
+              responseType: 'object',
+              signal,
+            });
+            if (typeof published.publicUrl !== 'string') {
+              throw new Error(`AIVAX did not return a public address for ${reference}.`);
+            }
+            referenceUrls.push(published.publicUrl);
+          }
+        }
+
+        const groups = await requestImages('/api/v1/generations/images', {
+          baseUrl: AIVAX_LONG_INFERENCE_BASE_URL,
+          body: {
+            input: prompt.trim(),
+            count,
+            model,
+            ...(referenceUrls.length > 0 ? { referenceImages: referenceUrls } : {}),
+          },
+          responseType: 'array',
+          signal,
+        });
+        const imageUrls = groups.flatMap((group) => (Array.isArray(group?.images) ? group.images : []));
+        if (imageUrls.length === 0) throw new Error('AIVAX returned no images.');
+
+        const outputDirectory = join(workspacePath || homedir(), '.aivax', 'generated-images');
+        await mkdir(outputDirectory, { recursive: true });
+        const attachments = [];
+        for (const [index, url] of imageUrls.entries()) {
+          const response = await fetch(url, { signal });
+          if (!response.ok) throw new Error(`Could not download the generated image (${response.status}).`);
+          const buffer = Buffer.from(await response.arrayBuffer());
+          const mime = detectImageMime(buffer) ?? 'image/png';
+          const extension = mime.split('/')[1] === 'jpeg' ? 'jpg' : mime.split('/')[1];
+          const path = join(outputDirectory, `${model.replace(/[^a-z0-9.-]/gi, '-')}-${Date.now()}-${index + 1}.${extension}`);
+          await writeFile(path, buffer);
+          attachments.push({
+            id: randomUUID(),
+            kind: 'image_url',
+            source: 'generated_image',
+            name: basename(path),
+            path,
+            mime,
+            dataUrl: `data:${mime};base64,${buffer.toString('base64')}`,
+          });
+        }
+
+        return {
+          output: [
+            `Generated ${attachments.length} image(s) with ${model}.`,
+            ...attachments.map((attachment) => `Saved to: ${attachment.path}`),
+          ].join('\n'),
+          mediaContent: attachments.map((attachment) => ({
+            type: 'image_url',
+            image_url: { url: attachment.dataUrl },
+          })),
+          attachments,
+        };
+      } finally {
+        await Promise.allSettled(uploadedPaths.map((sandboxPath) => requestImages(
+          `/api/v1/shell/io/file?path=${encodeURIComponent(sandboxPath)}`,
+          { method: 'DELETE', headers: SHELL_HEADERS },
+        )));
+      }
+    },
+  },
+  {
+    name: 'generate_audio',
+    description: 'Synthesize speech (text-to-speech) with the AIVAX audio model selected in Settings and save the audio file locally.',
+    canEditFile: true,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: {
+          type: 'string',
+          minLength: 1,
+          description: 'Text to speak.',
+        },
+        voice: {
+          type: 'string',
+          description: 'Optional voice name supported by the selected model, such as alloy, onyx, nova, or sage. Omit to use the model default.',
+        },
+        format: {
+          type: 'string',
+          enum: ['mp3', 'wav', 'ogg'],
+          description: 'Output audio format. Defaults to mp3.',
+        },
+      },
+      required: ['text'],
+      additionalProperties: false,
+    },
+    execute: async ({ text, voice, format = 'mp3' }, {
+      aivax,
+      requestAivax: requestSpeech = requestAivax,
+      signal,
+      workspacePath,
+    }) => {
+      if (!aivax?.connected || !aivax.audioGenerationEnabled || !aivax.audioGenerationModel) {
+        throw new Error('AIVAX audio generation is not enabled. The user must enable it and select a model in Settings → AIVAX Features.');
+      }
+      if (typeof text !== 'string' || !text.trim()) throw new Error('text is required.');
+      if (!['mp3', 'wav', 'ogg'].includes(format)) throw new Error('format must be mp3, wav, or ogg.');
+
+      const model = aivax.audioGenerationModel;
+      const result = await requestSpeech('/api/v1/generations/speech', {
+        baseUrl: AIVAX_LONG_INFERENCE_BASE_URL,
+        body: {
+          model,
+          input: text,
+          ...(typeof voice === 'string' && voice.trim() ? { voice: voice.trim() } : {}),
+          format,
+        },
+        responseType: 'object',
+        signal,
+      });
+      if (typeof result.data !== 'string' || !result.data) throw new Error('AIVAX returned no audio.');
+
+      const outputDirectory = join(workspacePath || homedir(), '.aivax', 'generated-audio');
+      const path = join(outputDirectory, `${model.replace(/[^a-z0-9.-]/gi, '-')}-${Date.now()}.${result.format ?? format}`);
+      await mkdir(outputDirectory, { recursive: true });
+      await writeFile(path, Buffer.from(result.data, 'base64'));
+      return `Audio generated with ${model}.\nSaved to: ${path}`;
     },
   },
 ];

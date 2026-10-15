@@ -90,6 +90,10 @@ const defaultAivaxSettings = Object.freeze({
   advancedFetchEnabled: false,
   webSearchEnabled: false,
   mediaDescriptionsEnabled: false,
+  imageGenerationEnabled: false,
+  imageGenerationModel: null,
+  audioGenerationEnabled: false,
+  audioGenerationModel: null,
   threadSearchCollectionId: null,
   threadSearchCollectionName: null,
 });
@@ -3696,6 +3700,14 @@ function normalizeAivaxSettings(value, strict = false) {
     advancedFetchEnabled: settings.advancedFetchEnabled === true,
     webSearchEnabled: settings.webSearchEnabled === true,
     mediaDescriptionsEnabled: settings.mediaDescriptionsEnabled === true,
+    imageGenerationEnabled: settings.imageGenerationEnabled === true,
+    imageGenerationModel: typeof settings.imageGenerationModel === 'string' && settings.imageGenerationModel.trim()
+      ? settings.imageGenerationModel.trim()
+      : null,
+    audioGenerationEnabled: settings.audioGenerationEnabled === true,
+    audioGenerationModel: typeof settings.audioGenerationModel === 'string' && settings.audioGenerationModel.trim()
+      ? settings.audioGenerationModel.trim()
+      : null,
     threadSearchCollectionId: typeof settings.threadSearchCollectionId === 'string' && settings.threadSearchCollectionId.trim()
       ? settings.threadSearchCollectionId.trim()
       : null,
@@ -3710,6 +3722,12 @@ function normalizeAivaxSettings(value, strict = false) {
     || typeof settings.advancedFetchEnabled !== 'boolean'
     || typeof settings.webSearchEnabled !== 'boolean'
     || typeof settings.mediaDescriptionsEnabled !== 'boolean'
+    || typeof settings.imageGenerationEnabled !== 'boolean'
+    || ![null, 'string'].includes(settings.imageGenerationModel === null ? null : typeof settings.imageGenerationModel)
+    || typeof settings.audioGenerationEnabled !== 'boolean'
+    || ![null, 'string'].includes(settings.audioGenerationModel === null ? null : typeof settings.audioGenerationModel)
+    || (normalized.imageGenerationEnabled && !normalized.imageGenerationModel)
+    || (normalized.audioGenerationEnabled && !normalized.audioGenerationModel)
     || ![null, 'string'].includes(settings.threadSearchCollectionId === null ? null : typeof settings.threadSearchCollectionId)
     || ![null, 'string'].includes(settings.threadSearchCollectionName === null ? null : typeof settings.threadSearchCollectionName)
     || (normalized.memoryEnabled && !normalized.memoryCollectionId)
