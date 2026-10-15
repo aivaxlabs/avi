@@ -6,6 +6,8 @@ embeddable: false
 
 Use for designing, reviewing, or changing Avi's renderer UI. Read with [Renderer guide](./AGENTS.Renderer.md), which owns architecture, accessibility, themes, XCSS, and validation requirements. A review is read-only unless changes are requested.
 
+[DESIGN.md](../DESIGN.md) is the visual source of truth. Read it before adding or changing any control. Outside the chat transcript and composer, build buttons, button groups, dropdowns, toggles, inputs, and long-text fields only from the primitives it defines (`src/styles/controls.xcss`, `LongTextField`); feature classes may add layout, never a new control skin.
+
 ## Choose the existing surface
 
 | Need | Reuse / read |
@@ -16,6 +18,7 @@ Use for designing, reviewing, or changing Avi's renderer UI. Read with [Renderer
 | Conversation content, history, empty chat, or inline run state | [Chat workspace](./design/chat-workspace.md): `ChatView`, `Message`, and rich-content pipeline |
 | Prompt entry, attachments, pickers, queues, or send/stop | [Chat composer](./design/chat-composer.md): `Composer` and its existing controls |
 | Primary navigation, conversation/bot rows, grouping, or filters | [Sidebar](./design/sidebar.md): `Sidebar` and established row menus |
+| Buttons, dropdowns, toggles, inputs, or long text outside chat | [DESIGN.md](../DESIGN.md): control primitives, tokens, and do's and don'ts |
 | Visual hierarchy, density, or a proposed new visual treatment | [Design philosophy](./design/design-philosophy.md) |
 
 Read only the guides for affected surfaces. For example, adding an action menu to a panel needs panels and overlays, not every design reference.

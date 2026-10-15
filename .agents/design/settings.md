@@ -40,7 +40,7 @@ These are CSS/markup families, not exported React components:
 | Form controls | `.settings-form`, following a comparable field's label/help/control structure |
 | Related rows with separators | `.settings-section-card.settings-form.settings-row-card` |
 
-Do not create a card per label, metric, or button. Keep routine row actions trailing and destructive actions separate. Use native labeled inputs, selects, textareas, buttons, and fieldsets; reserve monospaced text for technical values. Standard controls retain their 32–34px height. For menus and dialogs, use [Overlays](./overlays.md), not settings-specific imitations.
+Do not create a card per label, metric, or button. Keep routine row actions trailing and destructive actions separate. Use native labeled controls built from the [DESIGN.md](../../DESIGN.md) primitives: `.button` / `.button.primary` (the page Save or dialog confirm), `select.select`, `input.input`, `input.toggle` for every boolean, and `LongTextField` instead of a textarea for instructions, JSON, or line lists. Inside `.settings-field`, primitives sit in the trailing column automatically; add only layout rules. Reserve monospaced text for technical values. For menus and dialogs, use [Overlays](./overlays.md), not settings-specific imitations.
 
 ## Layout and navigation
 

@@ -63,8 +63,14 @@ embeddable: false
 - Reuse the global duration, easing, distance, and scale tokens for motion. Animate state changes only when motion clarifies origin, continuity, or feedback; avoid decorative looping motion and provide a `prefers-reduced-motion` path.
 - Keep theme and background previews representative of the real interface by reusing production components where practical. Appearance customization must not reduce chat readability or obscure interactive states.
 
+## Controls
+- Follow [DESIGN.md](../DESIGN.md). Outside `Composer`, `ChatView`, `Message`, `RichContent`, and Quick Chat, use the primitives in `src/styles/controls.xcss`: `.button`, `.button.primary` (one per surface), `.button.danger`, `.button-group`, `select.select`, `input.input`, `input[type=checkbox].toggle`, and `LongTextField` for configuration text (instructions, JSON, line lists). Keep `.icon-button` for icon-only actions.
+- Do not add a bare `<button>`, `<select>`, text `<input>`, boolean checkbox, or configuration `<textarea>` without its primitive, and do not create a feature class that re-skins one. Feature XCSS may set layout (grid placement, width, alignment) only.
+- Retune controls per theme through the `--control-*` tokens, not feature selectors. Do not restyle chat or composer controls or the selectors they share (`.primary-mini`, `.icon-button`, `.round-button`, `.dialog-footer`, global `button`) without an explicit request.
+
 ## Styles
-- `src/styles/**/*.xcss` is the style source of truth: root tokens/layout are in `globals.xcss`, `typo.xcss`, and `layout.xcss`; feature rules are in `components/`; built-in palettes are in `themes/`.
+- `src/styles/**/*.xcss` is the style source of truth: root tokens/layout are in `globals.xcss`, `typo.xcss`, `layout.xcss`, and `controls.xcss`; feature rules are in `components/`; built-in palettes are in `themes/`.
+- Cascadium compiles shallower folders first, but file order within one folder is not guaranteed. Never rely on source order between two `components/` or `themes/` files; use tokens or explicit specificity (`[data-theme="x"] .selector`).
 - Use Cascadium's existing hierarchy-first nesting, `&` modifiers/states, and CSS custom-property tokens. Co-locate responsive and state rules with their feature.
 - Never hand-edit `styles.css`. It is a tracked generated artifact imported by `main.jsx`; run `bun run styles` after every XCSS change and review both source and generated diffs.
 

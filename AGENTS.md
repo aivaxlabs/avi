@@ -57,6 +57,7 @@ Do not run provider/network/AI-consuming tests unless the changed behavior requi
 - `.agents/AGENTS.Project.md`: project-wide architecture, commands, conventions, changelog rules, and validation.
 - `.agents/AGENTS.MainProcess.md`: applies to `src/main/`, `src/providers/`, `src/preload/`, and related runtime scripts and tests.
 - `.agents/AGENTS.Renderer.md`: applies to `src/renderer/`, `src/styles/`, and renderer-facing assets and tests.
+- `DESIGN.md`: visual source of truth — tokens, control primitives (buttons, dropdowns, toggles, inputs, long text), and do's and don'ts. Read before any UI change.
 - `.agents/AGENTS.Design.md`: optional design guidance for workspace, panels, navigation, settings, composer, and visual philosophy.
 - `.agents/AGENTS.Prompts.md`: applies to `src/prompts/` and bundled context sources.
 - `.agents/AGENTS.Plugins.md`: applies to `plugins/`, the public plugin contract, and plugin host integration.

@@ -20,7 +20,13 @@ Available themes are:
 - **Monokai** — charcoal surfaces with neon colors;
 - **Absolute** — warm paper and clay tones;
 - **Code** — based on the VS Code 2026 Light and Dark themes, with the chat, auxiliary panel, and settings content shown as rounded surfaces inset in the window chrome, and VS Code-style menus, composer, and code blocks;
-- **Goblin** — technical blue on crisp neutral surfaces.
+- **Goblin** — technical blue on crisp neutral surfaces;
+- **GitHub** — GitHub Light Default and GitHub Dark Default, using GitHub's Primer colors;
+- **Catppuccin** — Catppuccin Latte in light mode and Catppuccin Mocha in dark mode, with the Mauve accent;
+- **Solarized** — Solarized Light and Solarized Dark, using Ethan Schoonover's 16-color palette; hover and border surfaces are blends of official base tones;
+- **Nord** — Nord's Snow Storm surfaces in light mode and Polar Night in dark mode, with Frost accents; in light mode, Aurora status and syntax colors are darkened toward `nord0` to stay readable on Snow Storm;
+- **Tokyo Night** — Tokyo Night Light and Tokyo Night from the official VS Code theme;
+- **Darcula** — JetBrains Darcula in dark mode and IntelliJ Light in light mode.
 
 Theme and mode changes are applied immediately and stored in renderer `localStorage` under `aivax.appearance`. Invalid saved values fall back to Axion and System.
 
@@ -31,5 +37,7 @@ Theme cards preview the Sidebar, messages, code, and composer. The **Preview** s
 The Absolute theme disables the animated empty-chat background. Other themes may display it when WebGPU is available. Missing animation does not affect conversation behavior.
 
 Each theme defines `--background-transparent-0` through `--background-transparent-5`, translucent counterparts of its normal background surfaces. The Sidebar uses these surfaces while **Transparent sidebar** is enabled.
+
+Buttons, dropdowns, toggles, and fields outside the chat derive from the theme's surfaces and accent. A theme can retune all of them at once with the control tokens: `--control-background`, `--control-background-hover`, `--control-text`, `--control-primary-background`, `--control-primary-text`, `--control-accent`, `--control-focus-ring`, `--control-radius`, and `--control-radius-multiline`. The Code theme uses them to give every control its 6 px corners.
 
 Themes do not change personality, instructions, model selection, permissions, or conversation content. See [Personalities](Personalities.md).
