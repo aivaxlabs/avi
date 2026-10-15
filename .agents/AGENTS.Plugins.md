@@ -7,7 +7,7 @@ embeddable: false
 ## Security and loading boundary
 - Plugins are trusted, unsandboxed ESM executed with Electron main-process privileges. Never install, enable, or execute an unreviewed external plugin merely to inspect it.
 - A source plugin lives at `plugins/<plugin-id>/plugin.js`, exports a default API v2 definition or factory, and declares an ID matching its directory. Use `plugins/pitch-black-theme/plugin.js` as the smallest checked-in example.
-- Plugins cannot inject arbitrary renderer JavaScript. UI contributions are declarative descriptors interpreted by Avi; theme CSS is still trusted CSS.
+- Plugins cannot inject arbitrary renderer JavaScript. UI contributions are declarative descriptors interpreted by Avi; theme CSS is still trusted CSS. The only exception is `html` action pages, which run inside a sandboxed, opaque-origin iframe and reach the plugin only through the `window.avi.invoke()` postMessage bridge in `src/renderer/components/ActionPage.jsx`.
 - `docs/Plugins.md` and `docs/api/` are the authoritative public contract. Keep them synchronized with `src/main/plugin-api.js`, `src/main/plugin-manager.js`, `src/main/plugin-runtime.js`, `src/main/plugin-domain-api.js`, and runtime wiring.
 
 ## API v2 conventions

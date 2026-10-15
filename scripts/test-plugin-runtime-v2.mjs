@@ -184,6 +184,69 @@ try {
   await runtime.deactivateAll('complete');
   assert.equal(runtime.records.size, 0);
 
+  {
+    const notifications = [];
+    const rt = new PluginRuntime({
+      pluginsDir: root,
+      services: { notifyActionPages: (payload) => notifications.push(payload) },
+    });
+    let page;
+    const pagesApi = await rt.activate({
+      id: 'pages-test',
+      capabilities: ['actionPages.register'],
+      activate(avi) {
+        page = avi.actionPages.register({
+          id: 'dashboard',
+          title: ' Dashboard ',
+          kind: 'html',
+          icon: 'layout-dashboard',
+          load: () => ({ html: '<p>Hi</p>' }),
+          invokeAction: (action, input) => ({ action, input }),
+        });
+        avi.actionPages.register({
+          id: 'native-status',
+          title: 'Status',
+          kind: 'native',
+          icon: { svg: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>' },
+          load: () => ({ sections: [] }),
+        });
+      },
+    });
+    assert.equal(page.id, 'plugin:pages-test:dashboard');
+    assert.deepEqual(rt.listActionPages()[0], {
+      pluginId: 'pages-test',
+      id: 'plugin:pages-test:dashboard',
+      title: 'Dashboard',
+      kind: 'html',
+      icon: 'layout-dashboard',
+    });
+    assert.equal(rt.listActionPages()[1].icon.svg.startsWith('<svg'), true);
+    assert.deepEqual(await rt.getActionPage('PLUGIN:pages-test:dashboard').handlers.invokeAction('save', 1), { action: 'save', input: 1 });
+    for (const [descriptor, pattern] of [
+      [{ id: 'dashboard', title: 'Again', kind: 'html', load() {} }, /already registered/],
+      [{ id: 'bad-kind', title: 'Bad', kind: 'react', load() {} }, /kind must be/],
+      [{ id: 'bad-icon', title: 'Bad', kind: 'html', icon: 'Bad Icon', load() {} }, /icon must be/],
+      [{ id: 'bad-svg', title: 'Bad', kind: 'html', icon: { svg: '<img>' }, load() {} }, /icon must be/],
+      [{ id: 'no-load', title: 'Bad', kind: 'html' }, /load must be a function/],
+    ]) {
+      assert.throws(() => pagesApi.actionPages.register(descriptor), pattern);
+    }
+    page.refresh();
+    assert.deepEqual(notifications.at(-1), { type: 'refresh', pageId: 'plugin:pages-test:dashboard' });
+    await page.dispose();
+    assert.equal(page.disposed, true);
+    assert.equal(rt.listActionPages().length, 1);
+    await rt.deactivate('pages-test', 'test');
+    assert.equal(rt.listActionPages().length, 0);
+    assert.equal(notifications.filter((item) => item.type === 'changed').length, 4);
+
+    const restrictedPages = await rt.activate({ id: 'pages-restricted', capabilities: [] });
+    assert.throws(() => restrictedPages.actionPages.register({ id: 'x', title: 'X', kind: 'html', load() {} }), (error) => (
+      error instanceof AviError && error.code === 'CAPABILITY_REQUIRED'
+    ));
+    await rt.deactivateAll('complete');
+  }
+
   // --- Regression: P1 validateSchema keywords ---
   {
     const rt = new PluginRuntime({ pluginsDir: root });

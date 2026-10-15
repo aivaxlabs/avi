@@ -9,7 +9,7 @@ export const PLUGIN_CAPABILITIES = Object.freeze([
   'threads.run', 'threads.delete', 'bots.read', 'bots.manage', 'bots.run',
   'bots.readState', 'bots.approvals.resolve', 'tools.register', 'tools.intercept',
   'events.subscribe', 'events.readContent', 'events.readReasoning',
-  'panels.register', 'panels.manage', 'providers.read', 'providers.manage',
+  'panels.register', 'panels.manage', 'actionPages.register', 'providers.read', 'providers.manage',
   'providers.types.register', 'providers.usages.register', 'providers.credentials.write', 'context.read',
   'context.readContents', 'context.register', 'storage',
 ]);
@@ -163,6 +163,7 @@ export class PluginRuntime {
     this.records = new Map();
     this.tools = new Map();
     this.panels = new Map();
+    this.actionPages = new Map();
     this.providerTypes = new Map();
     this.usageProviders = new Map();
     this.contextResources = new Map();
@@ -255,6 +256,14 @@ export class PluginRuntime {
 
   getPanel(id) {
     return this.panels.get(String(id).toLowerCase()) ?? null;
+  }
+
+  listActionPages() {
+    return [...this.actionPages.values()].map((entry) => ({ pluginId: entry.pluginId, ...entry.descriptor }));
+  }
+
+  getActionPage(id) {
+    return this.actionPages.get(String(id).toLowerCase()) ?? null;
   }
 
   listProviderTypes() {
@@ -511,6 +520,48 @@ export class PluginRuntime {
       semaphores: domain.semaphores ?? Object.freeze({}),
       bots: domain.bots ?? Object.freeze({}),
       panels: domain.panels ?? Object.freeze({}),
+      actionPages: Object.freeze({
+        register(descriptor) {
+          runtime.require(record, 'actionPages.register');
+          const id = requirePluginId(descriptor?.id, 'Action page ID');
+          if (typeof descriptor.title !== 'string' || !descriptor.title.trim()) throw new AviError('VALIDATION_FAILED', 'Action page title is required.');
+          if (!['html', 'native'].includes(descriptor.kind)) throw new AviError('VALIDATION_FAILED', 'Action page kind must be "html" or "native".');
+          if (typeof descriptor.load !== 'function') throw new AviError('VALIDATION_FAILED', 'Action page load must be a function.');
+          if (descriptor.invokeAction !== undefined && typeof descriptor.invokeAction !== 'function') throw new AviError('VALIDATION_FAILED', 'Action page invokeAction must be a function.');
+          const icon = descriptor.icon ?? null;
+          const validIcon = icon === null
+            || (typeof icon === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(icon))
+            || (typeof icon?.svg === 'string' && /^\s*<svg[\s>]/i.test(icon.svg) && icon.svg.length <= 65_536);
+          if (!validIcon) throw new AviError('VALIDATION_FAILED', 'Action page icon must be a Lucide icon name or { svg } markup up to 64 KiB.');
+          const publicId = `plugin:${record.id}:${id}`;
+          const key = publicId.toLowerCase();
+          if (runtime.actionPages.has(key)) throw new AviError('CONFLICT', `Action page "${id}" is already registered.`);
+          runtime.actionPages.set(key, {
+            pluginId: record.id,
+            descriptor: {
+              id: publicId,
+              title: descriptor.title.trim(),
+              kind: descriptor.kind,
+              icon: typeof icon === 'string' ? icon : icon && { svg: icon.svg },
+            },
+            handlers: { load: descriptor.load, invokeAction: descriptor.invokeAction },
+          });
+          runtime.services.notifyActionPages?.({ type: 'changed' });
+          const resource = runtime.track(record, createPluginDisposable(() => {
+            runtime.actionPages.delete(key);
+            runtime.services.notifyActionPages?.({ type: 'changed' });
+          }));
+          return Object.freeze({
+            id: publicId,
+            get disposed() { return resource.disposed; },
+            dispose: () => resource.dispose(),
+            refresh: () => {
+              runtime.assertActive(record);
+              if (!resource.disposed) runtime.services.notifyActionPages?.({ type: 'refresh', pageId: publicId });
+            },
+          });
+        },
+      }),
       providers: domain.providers ?? Object.freeze({}),
       context: domain.context ?? Object.freeze({}),
       tools: Object.freeze({

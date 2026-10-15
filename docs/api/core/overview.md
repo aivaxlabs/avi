@@ -42,6 +42,7 @@ The definition supports `apiVersion`, `id`, `name`, `version`, optional `descrip
 - `avi.interceptors`
 - `avi.events`
 - `avi.panels`
+- `avi.actionPages`
 - `avi.providers`
 - `avi.providers.usages`
 - `avi.context`
@@ -73,6 +74,7 @@ events.readContent
 events.readReasoning
 panels.register
 panels.manage
+actionPages.register
 providers.read
 providers.manage
 providers.types.register
@@ -98,7 +100,7 @@ The optional top-level `settings` array adds application-rendered sections to th
 
 ## Security boundary
 
-Plugins are not sandboxed. They can use Node.js, access files and network resources available to Avi, and inspect process data. Install only reviewed code. Panels remain declarative and cannot inject renderer JavaScript. Provider credentials exposed through `avi.providers` are write-only.
+Plugins are not sandboxed. They can use Node.js, access files and network resources available to Avi, and inspect process data. Install only reviewed code. Panels remain declarative and cannot inject renderer JavaScript. HTML [action pages](./action-pages.md) run plugin HTML, CSS, and JavaScript only inside a sandboxed, opaque-origin iframe that reaches the plugin solely through `window.avi.invoke()`. Provider credentials exposed through `avi.providers` are write-only.
 
 ## Related documents
 
@@ -108,6 +110,7 @@ Plugins are not sandboxed. They can use Node.js, access files and network resour
 - [Threads](./threads.md)
 - [Bots](./bots.md)
 - [Tools](./tools.md)
+- [Action pages](./action-pages.md)
 - [Events](./events.md)
 - [Tool interceptors](./interceptors.md)
 - [Panels](./panels.md)

@@ -56,6 +56,10 @@ The validated static arrays remain available:
 
 Use runtime registration for dynamic scope or deterministic cleanup.
 
+## Action pages
+
+With `actionPages.register`, `avi.actionPages.register({ id, title, kind, icon?, load, invokeAction? })` adds an Activity Bar page after a separator. `icon` is a kebab-case Lucide name or `{ svg }`. `kind: 'html'` returns `{ html }`, rendered in a sandboxed opaque-origin iframe whose scripts call `window.avi.invoke(action, input)` and can use injected theme variables such as `--background-1` and `--text-1`. `kind: 'native'` returns auxiliary-panel sections. Read `docs/api/core/action-pages.md` for the contract.
+
 ## Declarative settings
 
 The optional top-level `settings` array adds rendered configuration sections to the plugin's card. Each option declares `title`, optional `description`, a supported JSON `valueSchema`, and main-process `getValue`, optional `validate`, and `setValue` handlers. Prefer standard JSON Schema `enum` and `items`; legacy authoring aliases `enums` and `itemsSchema` are normalized. Persist ordinary values with `avi.storage` and never use settings for credentials. Read `docs/api/core/settings.md` for the complete contract.

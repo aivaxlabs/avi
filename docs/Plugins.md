@@ -108,7 +108,7 @@ contributions: {
 
 Use static contributions for resources known at load time. Use runtime registration in `activate(avi)` for per-thread resources, dynamic tools, event subscriptions, storage, interceptors, or deterministic cleanup.
 
-A definition can also declare a top-level `settings` array. Avi renders its sections and JSON Schema-backed editors under **Settings → Plugins** while the plugin retains its `getValue`, `validate`, and `setValue` handlers in the main process. Plugins cannot inject HTML or renderer JavaScript. See [Plugin settings](./api/core/settings.md).
+A definition can also declare a top-level `settings` array. Avi renders its sections and JSON Schema-backed editors under **Settings → Plugins** while the plugin retains its `getValue`, `validate`, and `setValue` handlers in the main process. Settings cannot inject HTML or renderer JavaScript. See [Plugin settings](./api/core/settings.md).
 
 Contribution descriptors remain JSON-like, and functions are accepted only in documented top-level handlers. IDs use this ASCII pattern:
 
@@ -155,9 +155,13 @@ A static tool is `{ name, description, inputSchema, forcedTruncationLength?, exe
 
 A static panel is `{ id, title, load, invokeAction? }`. Panels return declarative sections, items, and actions. They cannot inject React, HTML scripts, or renderer JavaScript. See [Panels](./api/core/panels.md).
 
+### Action pages
+
+Plugins with the `actionPages.register` capability can add full pages to the Activity Bar with `avi.actionPages.register()` in `activate(avi)`. Plugin pages appear after a separator below Folders, with a Lucide icon name or an SVG icon. An `html` page supplies a complete HTML/CSS/JavaScript document rendered in a sandboxed iframe that talks to the plugin through `window.avi.invoke()`; a `native` page returns the same declarative sections as auxiliary panels and is rendered with Avi's components. See [Action pages](./api/core/action-pages.md).
+
 ### Themes
 
-A theme is `{ id, name, tagline, css, emptyChatBackground? }`. Theme CSS should define `--background-transparent-0` through `--background-transparent-5` as translucent counterparts of its six background surfaces; Avi uses those tokens for the transparent Sidebar. Theme CSS is trusted global presentation input and must be reviewed for remote URLs, overlays, unreadable states, and overly broad selectors.
+A theme is `{ id, name, tagline, css, emptyChatBackground? }`. Theme CSS should define `--background-transparent-0` through `--background-transparent-5` as translucent counterparts of its six background surfaces; Avi uses those tokens for the transparent Sidebar. Themes may also set the `--control-*` tokens listed in [Themes](./Themes.md) to retune buttons, dropdowns, toggles, and fields; prefer them over selectors that target individual controls. Theme CSS is trusted global presentation input and must be reviewed for remote URLs, overlays, unreadable states, and overly broad selectors.
 
 ### Personalities
 
@@ -196,6 +200,7 @@ ZIP packages are bounded by entry count and uncompressed size and reject symboli
 - [Events](./api/core/events.md)
 - [Tool interceptors](./api/core/interceptors.md)
 - [Panels](./api/core/panels.md)
+- [Action pages](./api/core/action-pages.md)
 - [Plugin settings](./api/core/settings.md)
 - [Providers](./api/core/providers.md)
 - [Context](./api/core/context.md)
