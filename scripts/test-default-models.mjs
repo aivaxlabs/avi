@@ -4,6 +4,7 @@ import {
   applySubagentModelSchema,
   intelligenceLimits,
   normalizeDefaultModels,
+  removeProviderDefaultModels,
   resolveSubagentModel,
   validateDefaultModels,
 } from '../src/main/default-models.js';
@@ -194,6 +195,42 @@ assert.equal(compactationWarnings.length, 1);
 assert.equal(compactationWarnings[0].role, 'compactation');
 assert.equal(compactationWarnings[0].label, 'Compactation model');
 assert.match(compactationWarnings[0].message, /The chat model will be used to compress the context/);
+
+const removedProviderDefaults = removeProviderDefaultModels({
+  ...settings,
+  auxiliary: { modelId: 'old:luna', reasoningEffort: null },
+  quickChat: { modelId: 'test:small', reasoningEffort: 'low' },
+  compactation: { modelId: 'old:luna', reasoningEffort: null },
+  rules: [{ modelId: 'old:luna', role: 'main', instructions: 'Keep me.' }],
+  subagents: { ...settings.subagents, large: { modelId: 'old:sol', reasoningEffort: 'high' } },
+  intelligence: {
+    levels: [
+      { id: 'a', modelId: 'old:luna', reasoningEffort: null },
+      { id: 'b', modelId: 'test:small', reasoningEffort: null },
+      { id: 'c', modelId: 'test:medium', reasoningEffort: null },
+      { id: 'd', modelId: 'test:large', reasoningEffort: null },
+    ],
+  },
+}, 'old');
+assert.equal(removedProviderDefaults.auxiliary, null);
+assert.equal(removedProviderDefaults.compactation, null);
+assert.deepEqual(removedProviderDefaults.quickChat, { modelId: 'test:small', reasoningEffort: 'low' });
+assert.equal(removedProviderDefaults.rules.length, 1);
+assert.equal(removedProviderDefaults.subagents.large, null);
+assert.equal(removedProviderDefaults.subagents.enabled, false);
+assert.deepEqual(removedProviderDefaults.intelligence.levels.map((level) => level.id), ['b', 'c', 'd']);
+assert.doesNotThrow(() => normalizeDefaultModels(removedProviderDefaults, true));
+assert.deepEqual(removeProviderDefaultModels({
+  ...settings,
+  intelligence: {
+    levels: [
+      { id: 'a', modelId: 'old:luna', reasoningEffort: null },
+      { id: 'b', modelId: 'test:small', reasoningEffort: null },
+      { id: 'c', modelId: 'test:medium', reasoningEffort: null },
+    ],
+  },
+}, 'old').intelligence.levels, []);
+assert.deepEqual(removeProviderDefaultModels(settings, 'old'), normalizeDefaultModels(settings));
 
 assert.deepEqual(resolveSubagentModel('small', settings, models, {
   modelId: 'test:orchestrator',

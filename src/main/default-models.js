@@ -106,6 +106,34 @@ export function normalizeDefaultModels(value, strict = false) {
   return normalized;
 }
 
+export function removeProviderDefaultModels(settings, providerId) {
+  const normalized = normalizeDefaultModels(settings);
+  const prefix = `${providerId}:`;
+  const keep = (selection) => (selection?.modelId.startsWith(prefix) ? null : selection);
+  const subagents = {
+    ...normalized.subagents,
+    small: keep(normalized.subagents.small),
+    medium: keep(normalized.subagents.medium),
+    large: keep(normalized.subagents.large),
+  };
+  const levels = normalized.intelligence.levels.filter((level) => !level.modelId.startsWith(prefix));
+
+  return {
+    ...normalized,
+    auxiliary: keep(normalized.auxiliary),
+    supervision: keep(normalized.supervision),
+    quickChat: keep(normalized.quickChat),
+    compactation: keep(normalized.compactation),
+    subagents: {
+      ...subagents,
+      enabled: subagents.enabled && Boolean(subagents.small && subagents.medium && subagents.large),
+    },
+    intelligence: {
+      levels: levels.length >= intelligenceLimits.min ? levels : [],
+    },
+  };
+}
+
 export function validateDefaultModels(settings, models) {
   const normalized = normalizeDefaultModels(settings);
   const modelsById = new Map(models.map((model) => [model.id, model]));

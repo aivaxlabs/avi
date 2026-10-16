@@ -13,6 +13,7 @@ import {
   getConversation,
   getMessage,
   getMessages,
+  getPreferences,
   getProviderCredentials,
   listAllConversations,
   listArchivedConversations,
@@ -20,6 +21,7 @@ import {
   listBots,
   listProviders,
   restoreConversation,
+  setDefaultModels,
   setProviderCredentials,
   setProviders,
   updateConversation,
@@ -32,6 +34,7 @@ import {
   createPluginDisposable,
   requirePluginId,
 } from './plugin-runtime.js';
+import { removeProviderDefaultModels } from './default-models.js';
 import { normalizeProviderHarness } from './provider-api.js';
 
 function providerSnapshot(provider) {
@@ -554,6 +557,7 @@ export function createPluginDomainApi({ runtime, record, storage }) {
       runtime.require(record, 'providers.manage');
       await runtime.services.providerRegistry.remove(id);
       setProviders(listProviders().filter((item) => item.id !== id));
+      setDefaultModels(removeProviderDefaultModels(getPreferences().defaultModels, id));
       await deleteProviderCredentials(id);
     },
     async invokeAction(action, input) {
