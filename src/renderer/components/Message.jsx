@@ -1220,6 +1220,16 @@ function createMarkdownComponents(finalized, onOpenFileReference, onFileReferenc
     'avi-latex': function LatexDirective({ source, displayMode }) {
       return <RichContent part={{ type: 'latex', source, displayMode: Boolean(displayMode) }} />;
     },
+    'avi-tabs': function TabsDirective({ children, title, titles, height }) {
+      return (
+        <RichContent part={{ type: 'tabs', title, titles: JSON.parse(titles), height: height ? Number(height) : null }}>
+          {children}
+        </RichContent>
+      );
+    },
+    'avi-tab': function TabDirective({ children }) {
+      return <>{children}</>;
+    },
     'avi-file-mention': function FileMentionDirective({
       children,
       path,

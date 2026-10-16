@@ -3,6 +3,8 @@ import { toString } from 'mdast-util-to-string';
 const CHART_TYPES = new Set(['bar', 'line', 'pie', 'progress']);
 const CALLOUT_KINDS = new Set(['info', 'success', 'warning', 'danger']);
 const MAX_CHART_ITEMS = 24;
+const MAX_TABS = 12;
+const MAX_TABS_HEIGHT = 2000;
 const MAX_TITLE_LENGTH = 240;
 const MAX_SOURCE_LENGTH = 20_000;
 const DIRECTIVE_TYPES = new Set(['textDirective', 'leafDirective', 'containerDirective']);
@@ -80,6 +82,8 @@ function transformRichDirective(node, file) {
     });
   }
   if (name === 'avi-file-mention') return transformFileMention(node, file);
+  if (name === 'avi-tabs') return transformTabs(node);
+  if (name === 'avi-tab') return node.data?.hName === 'avi-tab' ? node : null;
   if (name === 'avi-diff') {
     return transformCodeDirective(node, file, 'diff', 'avi-diff', {
       title: boundedTitle(node.attributes?.title ?? node.attributes?.label, 'Diff'),
@@ -183,6 +187,44 @@ function transformFileMention(node, file) {
     lineTo: reference.lineTo ?? undefined,
     language: normalizeLanguage(language),
     value: value.trim(),
+  });
+}
+
+function transformTabs(node) {
+  if (node.type !== 'containerDirective') return null;
+  const label = node.children.find((child) => child.data?.directiveLabel);
+  const tabs = node.children.filter((child) => !child.data?.directiveLabel);
+  const heightText = node.attributes?.height?.trim().replace(/px$/i, '') ?? '';
+  const height = heightText ? Number(heightText) : null;
+  if (
+    tabs.length === 0
+    || tabs.length > MAX_TABS
+    || tabs.some((tab) => tab.type !== 'containerDirective' || tab.name.toLowerCase() !== 'avi-tab')
+    || (heightText && (!/^\d+$/.test(heightText) || height < 1 || height > MAX_TABS_HEIGHT))
+  ) {
+    return null;
+  }
+
+  const titles = tabs.map((tab, index) => {
+    const tabLabel = tab.children.find((child) => child.data?.directiveLabel);
+    tab.children = tab.children.filter((child) => child !== tabLabel);
+    return boundedTitle(
+      tab.attributes?.title ?? tab.attributes?.label ?? (tabLabel ? toString(tabLabel) : ''),
+      `Tab ${index + 1}`,
+    );
+  });
+  const title = boundedTitle(
+    node.attributes?.title ?? node.attributes?.label ?? (label ? toString(label) : ''),
+    'Tabs',
+  );
+  if (!title || titles.includes(null)) return null;
+
+  node.children = tabs;
+  tabs.forEach((tab) => withElement(tab, 'avi-tab', {}));
+  return withElement(node, 'avi-tabs', {
+    title,
+    titles: JSON.stringify(titles),
+    height: height ?? undefined,
   });
 }
 

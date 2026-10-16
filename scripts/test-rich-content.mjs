@@ -122,6 +122,73 @@ assert.match(fileMention, /<strong>Markdown<\/strong>/);
 assert.match(fileMention, /<ul>/);
 assert.match(fileMention, /<code>const total = 1 &lt; 2;<\/code>/);
 
+const tabs = renderMessage([
+  '::::avi-tabs[Comparison]',
+  ':::avi-tab[**Before**]',
+  'Plain text with a list:',
+  '',
+  '- item',
+  ':::',
+  ':::avi-tab{title="After"}',
+  '::callout[Nested]{kind="success"}',
+  '',
+  '```js',
+  'const value = 1;',
+  '```',
+  ':::',
+  '::::',
+].join('\n'));
+assert.match(tabs, /<section class="rich-tabs" aria-label="Comparison">/);
+assert.match(tabs, /role="tab" aria-selected="true"[^>]*>Before<\/button>/);
+assert.match(tabs, /role="tab" aria-selected="false"[^>]*>After<\/button>/);
+assert.equal(tabs.match(/role="tabpanel"/g)?.length, 2);
+assert.match(tabs, /<ul>/);
+assert.match(tabs, /directive-heading callout-heading callout-success/);
+assert.match(tabs, /language-javascript/);
+assert.doesNotMatch(tabs, /class="rich-tabs-panels has-height"/);
+assert.doesNotMatch(tabs, /:::/);
+
+const fixedTabs = renderMessage('::::avi-tabs{height="240"}\n:::avi-tab\nOne\n:::\n::::');
+assert.match(fixedTabs, /class="rich-tabs-panels has-height" style="height:240px"/);
+assert.match(fixedTabs, /aria-label="Tabs"/);
+assert.match(fixedTabs, />Tab 1<\/button>/);
+
+const invalidInnerTabs = renderMessage([
+  ':::::avi-tabs',
+  '::::avi-tab[Outer]',
+  ':::avi-tabs',
+  '::avi-tab[Inner]',
+  ':::',
+  '::::',
+  ':::::',
+].join('\n'));
+assert.equal(invalidInnerTabs.match(/<section class="rich-tabs"/g)?.length, 1);
+assert.match(invalidInnerTabs, /::avi-tab\[Inner\]/);
+
+const deepTabs = renderMessage([
+  '::::::avi-tabs',
+  ':::::avi-tab[Outer]',
+  '::::avi-tabs',
+  ':::avi-tab[Inner]',
+  'Deep **content**',
+  ':::',
+  '::::',
+  ':::::',
+  '::::::',
+].join('\n'));
+assert.equal(deepTabs.match(/<section class="rich-tabs"/g)?.length, 2);
+assert.match(deepTabs, /<strong>content<\/strong>/);
+
+for (const invalidTabs of [
+  '::::avi-tabs\nLoose text\n:::avi-tab\nOne\n:::\n::::',
+  '::::avi-tabs{height="tall"}\n:::avi-tab\nOne\n:::\n::::',
+  '::::avi-tabs{height="0"}\n:::avi-tab\nOne\n:::\n::::',
+  ':::avi-tabs\n:::',
+  ':::avi-tab[Alone]\nOne\n:::',
+]) {
+  assert.doesNotMatch(renderMessage(invalidTabs), /rich-tabs|role="tab"/);
+}
+
 const copy = renderMessage('::avi-copy{label="API token" value="abc<123"}');
 assert.match(copy, /aria-label="API token"/);
 assert.match(copy, />Copy</);

@@ -10,7 +10,15 @@ import {
 } from 'lucide-react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-diff';
-import { useEffect, useId, useMemo, useState } from 'react';
+import {
+  Children,
+  isValidElement,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 
 import { Overlay, Presence } from './Overlay.jsx';
@@ -42,6 +50,7 @@ export function RichContent({ part, onOpenFileReference, onFileReferenceContextM
     return <DirectiveHeader className={`finding-heading finding-${part.level.toLowerCase()}`} label={part.level} title={part.title}>{children}</DirectiveHeader>;
   }
   if (part.type === 'diff') return <DiffPanel diff={part} />;
+  if (part.type === 'tabs') return <RichTabs tabs={part}>{children}</RichTabs>;
   if (part.type === 'mermaid' || part.type === 'latex') {
     return <AsyncVisualization part={part} />;
   }
@@ -270,6 +279,66 @@ function FileMention({ mention, onOpen, onContextMenu, children }) {
         </pre>
       )}
     </CopyablePanel>
+  );
+}
+
+function RichTabs({ tabs, children }) {
+  const [selected, setSelected] = useState(0);
+  const tablistRef = useRef(null);
+  const id = useId();
+  const panels = Children.toArray(children).filter(isValidElement);
+
+  const handleKeyDown = (event) => {
+    const last = panels.length - 1;
+    const next = {
+      ArrowLeft: selected === 0 ? last : selected - 1,
+      ArrowRight: selected === last ? 0 : selected + 1,
+      Home: 0,
+      End: last,
+    }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    setSelected(next);
+    tablistRef.current?.children[next]?.focus();
+  };
+
+  return (
+    <section className="rich-tabs" aria-label={tabs.title}>
+      <div className="rich-tabs-list" role="tablist" aria-label={tabs.title} ref={tablistRef} onKeyDown={handleKeyDown}>
+        {panels.map((panel, index) => (
+          <button
+            key={panel.key}
+            id={`${id}-tab-${index}`}
+            type="button"
+            role="tab"
+            aria-selected={index === selected}
+            aria-controls={`${id}-panel-${index}`}
+            tabIndex={index === selected ? 0 : -1}
+            onClick={() => setSelected(index)}
+          >
+            {tabs.titles[index] ?? `Tab ${index + 1}`}
+          </button>
+        ))}
+      </div>
+      <div
+        className={`rich-tabs-panels${tabs.height ? ' has-height' : ''}`}
+        style={tabs.height ? { height: tabs.height } : undefined}
+      >
+        {panels.map((panel, index) => (
+          <div
+            key={panel.key}
+            id={`${id}-panel-${index}`}
+            className="rich-tabs-panel"
+            role="tabpanel"
+            aria-labelledby={`${id}-tab-${index}`}
+            inert={index !== selected}
+            tabIndex={index === selected ? 0 : -1}
+          >
+            {panel}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

@@ -192,6 +192,7 @@ The chat renders rich visualizations through restricted Markdown Directives:
 - LaTeX/KaTeX equations for formulas and math, e.g. `::latex[E = mc^2]`, or a `:::latex` container for display equations.
 - File references and mentions for real workspace files, e.g. inline `:fileref{path="./src/app.js" line-from="12"}`, or a `:::avi-file-mention{path="./src/app.js" line-from="12" line-to="18"}` container showing the excerpt.
 - Copyable text for commands, messages, prompts, or values the user will reuse, e.g. `::avi-copy{label="Command" value="bun run build"}`.
+- Tabs for alternative or parallel Markdown content, e.g. a `::::avi-tabs[Install]` container wrapping one `:::avi-tab[Windows]` container per tab; tab bodies render Markdown and other directives.
 - Findings for prioritized review results, e.g. `::finding[Redirects bypass SSRF protection.]{level="P1"}`.
 
 Prefer these visualizations over plain prose whenever they make a result, comparison, structure, change, or next action faster to understand—for example, a diagram for a multi-component flow, a chart for numeric comparisons, a diff for a change, or a callout for a critical warning. Before emitting any of them, read the built-in `visualize` workflow and follow its instructions and the exact formats it references; never improvise directive names or emit arbitrary HTML. Keep visualizations purposeful: do not add them to trivial answers or as decoration.

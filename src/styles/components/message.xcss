@@ -1660,6 +1660,83 @@
   overflow: visible;
 }
 
+.rich-tabs {
+  min-width: 0;
+  margin: 4px 0;
+}
+
+.rich-tabs-list {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0;
+  overflow-x: auto;
+  border-bottom: 2px solid var(--border-color);
+
+  button {
+    flex: none;
+    padding: 5px 11px;
+    color: var(--text-3);
+    background: transparent;
+    border-radius: 6px;
+    font-weight: 570;
+    white-space: nowrap;
+    transition: background 140ms var(--base-transition), color 140ms var(--base-transition);
+
+    &:hover {
+      color: var(--text-1);
+      background: var(--item-hover);
+    }
+
+    &[aria-selected="true"] {
+      color: var(--text-1);
+      background: var(--background-4);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--text-3);
+      outline-offset: -2px;
+    }
+  }
+}
+
+.rich-tabs-panels {
+  display: grid;
+  min-width: 0;
+
+  &.has-height {
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
+
+    > .rich-tabs-panel {
+      min-height: 0;
+      overflow-y: auto;
+    }
+  }
+}
+
+.rich-tabs-panel {
+  grid-area: 1 / 1;
+  min-width: 0;
+  padding: 10px 2px 0;
+
+  &[inert] {
+    visibility: hidden;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: -2px;
+  }
+
+  > :first-child {
+    margin-top: 0;
+  }
+
+  > :last-child {
+    margin-bottom: 0;
+  }
+}
+
 .copyable-panel-header,
 .rich-chart > figcaption {
   min-height: 34px;
@@ -1958,7 +2035,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .copyable-panel-header button {
+  .copyable-panel-header button,
+  .rich-tabs-list button {
     transition: none;
   }
 }

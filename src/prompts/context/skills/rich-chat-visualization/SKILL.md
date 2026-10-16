@@ -142,6 +142,33 @@ return result;
 - Include only content actually read from that file and keep line attributes aligned with it.
 - Use `:fileref{path="./file.js" line-from="12" line-to="18"}` when the excerpt itself does not need to be visible.
 
+## Tabs
+
+Use an `avi-tabs` container with one `avi-tab` container per tab to show alternative or parallel Markdown content, such as per-platform commands, before/after comparisons, or per-file summaries. The outer container needs more colons than the tabs inside it.
+
+````markdown
+::::avi-tabs[Install]{height="320"}
+:::avi-tab[Windows]
+Run the installer, then:
+
+```powershell
+avi --version
+```
+:::
+:::avi-tab[macOS]
+::callout[Requires macOS 13+]{kind="info"}
+
+Open the `.dmg` and drag Avi to Applications.
+:::
+::::
+````
+
+- The `avi-tabs` label (or `title`) names the group for accessibility and defaults to `Tabs`.
+- Each `avi-tab` label (or `title`) is its tab name; it defaults to `Tab N`.
+- Supply 1–12 tabs. Only `avi-tab` containers may appear directly inside `avi-tabs`; any other content invalidates the group.
+- Tab bodies render full Markdown recursively, including other directives and nested `avi-tabs` (add colons for each nesting level).
+- By default, the panel height matches the tallest tab. `height` is optional, in pixels (1–2000); it fixes the height and scrolls each tab internally.
+
 ## Copyable text
 
 Use the `avi-copy` leaf directive for commands, prompts, configuration fragments, identifiers, or other plain text the user is likely to copy as a unit.
@@ -174,6 +201,6 @@ Use the `finding` leaf directive as the heading for a prioritized review, securi
 
 ## Composition and fallbacks
 
-Leaf and container directives must start on their own line. Keep a blank line before and after them. Multiple directives are allowed.
+Leaf and container directives must start on their own line. Keep a blank line before and after them. Multiple directives are allowed. Only `avi-tabs` and `avi-file-mention` render nested Markdown and directives in their body; other containers treat their body as literal source or ignore it.
 
 The chat renderer normalizes common, unambiguous LLM syntax mistakes, such as using the wrong directive colon count or putting a heading in `label`/`title`. Payload validation remains strict. Incomplete containers, ambiguous structures, invalid paths, levels, kinds, chart data, or oversized content remain ordinary Markdown/text. Content inside code fences is always literal. Never rely on arbitrary HTML, scripts, event handlers, inline styles, external assets, or embedded URLs.
