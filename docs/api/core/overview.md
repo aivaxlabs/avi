@@ -28,7 +28,7 @@ export default ({ apiVersion, definePlugin }) => definePlugin({
 });
 ```
 
-The definition supports `apiVersion`, `id`, `name`, `version`, optional `description`, `capabilities`, `activate`, `deactivate`, `contributions`, and declarative `settings`.
+The definition supports `apiVersion`, optional `minApiVersion`, `id`, `name`, `version`, optional `description`, `capabilities`, `activate`, `deactivate`, `contributions`, and declarative `settings`. The factory argument exposes `apiVersion` (current) and `minApiVersion` (oldest supported). See [API version compatibility](../../Plugins.md#api-version-compatibility).
 
 ## Runtime namespaces
 

@@ -26,4 +26,4 @@ Values must be JSON-like: strings, booleans, `null`, finite numbers, arrays, and
 
 Writes are serialized per plugin and use atomic temporary-file replacement. The complete serialized store is limited to 1 MiB.
 
-Storage lives under Avi's managed `.avi-storage/<plugin-id>/storage.json` area. It is separate from materialized context so a plugin update or context refresh does not erase state. Plugins must not edit another plugin's store directly.
+Storage lives under Avi's managed `~/.aivax/plugins/.avi-storage/<plugin-id>/storage.json` area. It is separate from materialized context and from the Avi installation, so a plugin update, context refresh, or Avi update does not erase state. Plugins must not edit another plugin's store directly.

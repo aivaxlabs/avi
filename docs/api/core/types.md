@@ -446,6 +446,7 @@ interface ContextRoot {
 interface ContextItem {
   path: string;
   relativePath: string;
+  visibility: 'private' | 'default';
   activationMode: 'always-visible' | 'on-demand';
   invocationMode: 'assistant-only' | null;
   parentSkillPath: string | null;

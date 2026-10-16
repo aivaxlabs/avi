@@ -88,7 +88,7 @@ A pendency has only two states: `open` or `completed`. Each bot message displays
 
 The bot continues all work in its main thread. When you reply, Avi saves your message and sends a `<bot-pendency-update>` with the pendency ID, reply, and attachments to that thread. An active bot receives it in its priority queue; an idle bot starts a continuation. It can use tools and worker threads to prepare a response, but is instructed to answer inside the same pendency. If delivery fails, the Inbox keeps your message and reports the failure; do not send it again just to retry delivery and duplicate the conversation.
 
-Inbox messages and Activity descriptions render the same restricted rich Markdown as chat, including findings, callouts, charts, diffs, diagrams, equations, and copyable blocks. Unsupported or invalid directives remain visible as text; raw HTML is not executed.
+Inbox messages and Activity descriptions render the same restricted rich Markdown as chat, including findings, callouts, charts, diffs, diagrams, equations, tabs, and copyable blocks. Unsupported or invalid directives remain visible as text; raw HTML is not executed.
 
 Inbox and Activity load independently. If one file is invalid, only that tab shows a loading error; the other remains usable. Expand **Technical details** to inspect the cause. Invalid legacy files are preserved, not silently migrated or replaced.
 

@@ -75,7 +75,9 @@ Quick Chat requires an explicitly available **Quick chat model**. It does not au
 
 ## Availability warnings
 
-A saved default can become unavailable when a provider or model is removed or disabled, or when the model stops declaring the selected reasoning effort. Avi reports warnings but does not rewrite the assignment automatically.
+A saved default can become unavailable when a model is removed or disabled, a provider is disabled, or the model stops declaring the selected reasoning effort. Avi reports warnings but does not rewrite the assignment automatically.
+
+Removing a provider is the exception: Avi clears every auxiliary, supervision, Quick Chat, compactation, sub-agent, and Model slider assignment that used it. Sub-agent levels turn off if one of their models was cleared, and the Model slider is cleared if fewer than three levels remain. Model rules are kept and stay inactive until the model is available again.
 
 Use this safe replacement sequence:
 

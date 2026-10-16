@@ -160,7 +160,9 @@ The scalar form uses `params.payload` with the source conversation ID. To fork t
 
 ## `conversations:search`
 
-Searches messages and returns at most 20 deduplicated conversations, ordered by score and then `updatedAt` descending, or by conversation creation time when `sort` is `created`. Avi uses semantic assistant-message search when configured and falls back to local lexical search if that path fails. Semantic results are filtered by folder and creation date after retrieval, so filtered semantic searches request up to 60 candidates.
+Searches messages and returns at most 20 deduplicated threads, ordered by score and then `updatedAt` descending, or by the thread's last update when `sort` is `updated`. An empty query returns the 20 most recently updated threads that match the filters. Avi uses semantic assistant-message search when configured and falls back to local lexical search if that path fails.
+
+Every result is resolved by thread ID against the local database: deleted threads and threads that no longer exist are never returned, and title, folder, `updatedAt`, and `archivedAt` always come from the thread, not from the indexed excerpt. Filters are applied to that thread record; filtered semantic searches request up to 60 candidates.
 
 ### Params
 
@@ -168,10 +170,11 @@ Searches messages and returns at most 20 deduplicated conversations, ordered by 
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `query` | string | Yes | Search query. An empty query returns no results. |
-| `folderPath` | string or `null` | No | Only conversations whose working folder resolves to this path. |
-| `createdAfter` | string or `null` | No | ISO timestamp; only conversations created at or after it. Invalid values are ignored. |
-| `sort` | `relevance` or `created` | No | Defaults to `relevance`. `created` orders by conversation creation time, newest first. |
+| `query` | string | No | Search query. Empty lists recent threads. |
+| `folderPath` | string or `null` | No | Only threads whose working folder resolves to this path. |
+| `updatedAfter` | string or `null` | No | ISO timestamp; only threads last updated at or after it. Invalid values are ignored. |
+| `includeArchived` | boolean | No | Defaults to `false`. When `true`, archived threads are included and carry `archivedAt`. |
+| `sort` | `relevance` or `updated` | No | Defaults to `relevance`. `updated` orders by the thread's last update, newest first. |
 
 ### Result
 

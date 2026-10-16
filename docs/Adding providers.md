@@ -83,4 +83,4 @@ Messages, context, attachments, and tool results may be sent to the configured e
 
 If a model is missing, verify that both provider and model are enabled, the model has a valid ID and name, and the configuration was saved. If a reasoning effort is missing, add it to the model’s supported efforts. Review `~/.aivax/trace.log` for connection errors when diagnostics are enabled.
 
-Before removing a provider, update any assignments in [Default models](Default%20models.md).
+Removing a provider clears the [Default models](Default%20models.md) assignments that used it. Assign replacements in **Models** afterward. Threads that last used one of its models fall back to an available model the next time you send a message.

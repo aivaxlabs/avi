@@ -325,9 +325,9 @@ Each `ContextUsageSegment` has:
 | `messageId` | string or `null` | Representative message. |
 | `title` | string | Conversation title. |
 | `role` | string | Representative message role. Semantic results use `assistant`. |
-| `content` | string | Searchable/display content. |
-| `createdAt` | string | Conversation creation time. |
-| `updatedAt` | string | Representative update time. |
+| `content` | string | Searchable/display content. For an empty query, the thread's first prompt. |
+| `updatedAt` | string | Thread's last update time. |
+| `archivedAt` | string or `null` | Archive time; set only when `includeArchived` returned an archived thread. |
 | `folderPath` | string | Absolute working folder. |
 | `folderName` | string | Folder basename or `~/`. |
 | `folderDisplayPath` | string | User-facing folder path. |

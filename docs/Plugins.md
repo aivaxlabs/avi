@@ -4,7 +4,7 @@ Plugins extend Avi with trusted JavaScript executed in the Electron main process
 
 > **Security boundary:** plugins are not sandboxed. Importing a plugin executes code with Avi's operating-system and main-process privileges. Review all source before installation.
 
-The only public contract is **Plugin API v2**. Older API versions are rejected.
+The current public contract is **Plugin API v2**. Avi accepts a range of API versions, from `minApiVersion` to `apiVersion` in the factory argument (currently v2–v2); see [API version compatibility](#api-version-compatibility).
 
 
 ## Minimal plugin
@@ -173,9 +173,32 @@ A provider contribution uses `{ descriptor, createBody, request, eventsFrom }` w
 
 Plugins can also register standalone account usage with `avi.providers.usages.register()` and the `providers.usages.register` capability. Usage providers expose limits, formatted counters, and confirmed reset callbacks in the composer without adding user-manageable settings. Dynamic provider registration, usage providers, and write-only credential management are documented in [Providers](./api/core/providers.md).
 
+## API version compatibility
+
+A definition declares `apiVersion`, the API it was written against, and optionally `minApiVersion`, the oldest API it still works with (defaults to `apiVersion`). Avi loads the plugin when that range overlaps the range it supports:
+
+- `apiVersion` below Avi's minimum: rejected as retired.
+- `minApiVersion` above Avi's current version: rejected with a message asking to update Avi.
+- `apiVersion` within Avi's range: strict validation; unknown fields, capabilities, or contribution types are errors.
+- `apiVersion` newer than Avi's current version, with `minApiVersion` within range: loaded in **compatibility mode**. Unknown definition and settings fields, capabilities, contribution types, and contribution fields are ignored instead of rejecting the plugin. Known fields keep full validation.
+
+Ignored items are listed in the plugin record's `compatibilityWarnings`, shown on the plugin card in Settings → Plugins, and traced as `plugin.compatibility-mode`. A plugin built for a newer Avi should declare `minApiVersion` and feature-detect through `avi.apiVersion` instead of failing when an ignored feature is missing.
+
+```js
+export default ({ definePlugin }) => definePlugin({
+  apiVersion: 3,
+  minApiVersion: 2,
+  id: 'portable-plugin',
+  name: 'Portable plugin',
+  version: '1.0.0',
+  capabilities: ['storage'],
+});
+```
+
 ## Loading and installation
 
-- Packages live at `$INSTALL_DIR/plugins/<plugin-id>/`.
+- Packages live at `~/.aivax/plugins/<plugin-id>/` in packaged builds and at `plugins/<plugin-id>/` in development. Plugins, their materialized context, and their storage survive Avi updates and reinstalls.
+- Avi 0.8.0 and earlier stored packages under `$INSTALL_DIR/plugins/`, which updates deleted. On startup Avi moves packages and `.avi-storage` from that folder and from the installer's rescue copy (`~/.aivax/plugins-migration`) into `~/.aivax/plugins`. An existing destination is never overwritten; the conflicting legacy copy is kept and reported as a startup failure.
 - Enabled entrypoints are `plugin.js`; disabled entrypoints are `plugin.js.disabled`.
 - Imports and factories have a 10-second timeout.
 - Import, validation, collision, materialization, or activation failure rejects the plugin.
@@ -187,7 +210,7 @@ Plugins can also register standalone account usage with `avi.providers.usages.re
 
 ZIP packages are bounded by entry count and uncompressed size and reject symbolic links, duplicate case-insensitive paths, absolute paths, and path traversal.
 
-`$INSTALL_DIR` can require elevated filesystem permission and can be replaced by an installer or updater.
+Updating from Avi 0.8.0 or earlier, the Windows installer copies `$INSTALL_DIR\plugins` to `~/.aivax/plugins-migration` before removing the previous version. Plugins already deleted by an earlier update cannot be recovered and must be installed again.
 
 ## API reference
 

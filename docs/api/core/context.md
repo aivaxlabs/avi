@@ -16,7 +16,7 @@ Roots include global, installation, static plugin contribution, and active runti
 
 Directory discovery and item reads are asynchronous and bounded by the host's available processor count. Results preserve deterministic path ordering and existing cache, depth, timeout, and symlink-cycle rules.
 
-Items expose `relativePath` relative to the requested root with `/` separators, `activationMode` (`always-visible` for automatically embedded ordinary-chat root instructions, otherwise `on-demand`), `invocationMode` (`assistant-only` for skills/workflows with `user-invocable: false`, otherwise null), `parentSkillPath` (the nearest discovered ancestor skill's absolute path, otherwise null), and `createdAt` (ISO file creation time, falling back to modification time, or null when unreadable). There is no supported user-only metadata flag. `BOTS.md` remains bot-only regardless of the ordinary-chat activation badge.
+Items expose `relativePath` relative to the requested root with `/` separators, `visibility` (`private` for items under `.agents/.user-private`, otherwise `default`), `activationMode` (`always-visible` for automatically embedded ordinary-chat root instructions, otherwise `on-demand`), `invocationMode` (`assistant-only` for skills/workflows with `user-invocable: false`, otherwise null), `parentSkillPath` (the nearest discovered ancestor skill's absolute path, otherwise null), and `createdAt` (ISO file creation time, falling back to modification time, or null when unreadable). There is no supported user-only metadata flag. `BOTS.md` remains bot-only regardless of the ordinary-chat activation badge.
 
 ## Registration
 
