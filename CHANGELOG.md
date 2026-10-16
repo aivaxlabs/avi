@@ -1,6 +1,6 @@
 # Avi Changelog
 
-## [Canary]
+## [0.9.0] — 2026-10-16
 
 ### Added
 - **Tabs visualization** — assistant messages can group Markdown into tabs with an `avi-tabs` container holding one `avi-tab` container per tab. Each tab renders full Markdown, including other visualizations and nested tabs. The panel matches the tallest tab by default; `height="<px>"` fixes it and scrolls each tab internally. Tabs support arrow, Home, and End keys. Markdown APIs are unchanged.
