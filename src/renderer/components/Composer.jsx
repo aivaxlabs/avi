@@ -236,6 +236,8 @@ export function Composer({
   const promptExpandingRef = useRef(false);
   const composerStatesRef = useRef(new Map());
   const hydratedScopeRef = useRef(null);
+  const moveDraftRef = useRef(false);
+  const movedDraftRef = useRef(null);
   textRef.current = text;
   conversationIdRef.current = conversationId;
   const draftProjectPath = conversationId ? null : project?.path ?? null;
@@ -516,9 +518,11 @@ export function Composer({
   useEffect(() => {
     let active = true;
     hydratedScopeRef.current = null;
+    const movedDraft = movedDraftRef.current;
+    movedDraftRef.current = null;
     if (!persistState) return () => { active = false; };
-    setText('');
-    setAttachments([]);
+    setText(movedDraft?.draftText ?? '');
+    setAttachments(movedDraft?.attachments ?? []);
     setPermissionMode(defaultPermissionMode);
     setCurrentModel(initialModel);
     setReasoningEffort(initialState?.reasoningEffort ?? readPersistedReasoningEffort(initialModel) ?? null);
@@ -532,8 +536,8 @@ export function Composer({
       : window.chatApp.composerDraft.get(draftProjectPath))
       .then((state) => {
         if (!active) return;
-        const draftModel = models.some((model) => model.id === state?.model) ? state.model : null;
-        setText(state?.draftText ?? '');
+        const savedModel = models.some((model) => model.id === state?.model) ? state.model : null;
+        setText([state?.draftText, movedDraft?.draftText].filter(Boolean).join('\n\n'));
         setAttachments((items) => [
           ...(state?.attachments ?? []),
           ...items.filter((item) => !(state?.attachments ?? []).some(
@@ -541,12 +545,12 @@ export function Composer({
           )),
         ]);
         setPermissionMode(state?.permissionMode ?? defaultPermissionMode);
-        setCurrentModel(botMode ? initialModel : (conversationId ? state?.model : draftModel) || initialModel);
+        setCurrentModel(botMode ? initialModel : savedModel || initialModel);
         setReasoningEffort(state?.reasoningEffort ?? null);
         setWorkMode(botMode || !state ? initialWorkMode : state.workMode);
         setUltraMode(botMode || !state ? initialUltraMode : state.ultraMode);
         if (!conversationId && state) {
-          if (draftModel && draftModel !== initialModel) onChooseModel(draftModel);
+          if (savedModel && savedModel !== initialModel) onChooseModel(savedModel);
           onWorkModeChange?.(state.workMode);
           onUltraModeChange?.(state.ultraMode);
         }
@@ -558,8 +562,12 @@ export function Composer({
 
     return () => {
       active = false;
+      const moving = moveDraftRef.current;
+      moveDraftRef.current = false;
       const state = composerStatesRef.current.get(persistenceScope);
-      if (hydratedScopeRef.current === persistenceScope && state) saveComposerSnapshot(state);
+      if (hydratedScopeRef.current !== persistenceScope || !state) return;
+      if (moving) movedDraftRef.current = state;
+      saveComposerSnapshot(moving ? { ...state, draftText: '', attachments: [] } : state);
     };
   }, [persistenceScope]);
 
@@ -839,7 +847,16 @@ export function Composer({
       composerStatesRef.current.set(persistenceScope, cleared);
       saveComposerSnapshot(cleared);
     }
-    await onSend(payload);
+    if (await onSend(payload) === false) {
+      setText(payload.text);
+      setAttachments(payload.attachments);
+    }
+  }
+
+  async function switchProjectWithDraft(switchProject) {
+    moveDraftRef.current = true;
+    const nextProject = await switchProject();
+    if (!nextProject || nextProject.path === project?.path) moveDraftRef.current = false;
   }
 
   function closeModelMenu() {
@@ -1248,7 +1265,7 @@ export function Composer({
       ref={containerRef}
       className={`composer-wrap${inline ? ' inline-composer-wrap' : ''}`}
     >
-      <Presence when={workspaceCreating}>{() => <WorkspaceDialog onClose={() => setWorkspaceCreating(false)} onSave={onChooseProject} />}</Presence>
+      <Presence when={workspaceCreating}>{() => <WorkspaceDialog onClose={() => setWorkspaceCreating(false)} onSave={(workspace) => switchProjectWithDraft(() => onChooseProject(workspace))} />}</Presence>
       {botMode && onShowBotInPanel && (
         <ComposerChip
           as="button"
@@ -2422,7 +2439,7 @@ export function Composer({
                     className={recentProject.path === project?.path ? 'active' : ''}
                     title={recentProject.displayPath}
                     onClick={() => {
-                      onChooseProject(recentProject);
+                      switchProjectWithDraft(() => onChooseProject(recentProject));
                       setProjectMenuOpen(false);
                     }}
                   >
@@ -2446,7 +2463,7 @@ export function Composer({
                   setProjectMenuOpen(false);
                   setProjectSelecting(true);
                   try {
-                    await onChooseProject();
+                    await switchProjectWithDraft(() => onChooseProject());
                   } finally {
                     setProjectSelecting(false);
                   }
@@ -2466,7 +2483,7 @@ export function Composer({
                 className={`project-picker-action${project?.displayPath === '~/' ? ' active' : ''}`}
                 type="button"
                 onClick={() => {
-                  onUseHome();
+                  switchProjectWithDraft(onUseHome);
                   setProjectMenuOpen(false);
                 }}
               >

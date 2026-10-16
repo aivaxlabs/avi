@@ -755,7 +755,12 @@ export function SettingsPage({
       ...importedProvider,
       id: crypto.randomUUID(),
     });
-    setProviderImportDialog({ mode: 'review', provider, source });
+    setProviderImportDialog({
+      mode: 'review',
+      provider,
+      providerType: providerTypes.find((type) => type.id === provider.interface),
+      source,
+    });
   }
 
   function startProviderCreation(interfaceId) {
@@ -886,12 +891,6 @@ export function SettingsPage({
   }[view];
   const showInlineBack = !['shortcuts', 'list', 'routers', 'context-folders', 'mcp', 'plugins', 'remote', 'aivax', 'maintenance', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
-  const importedProvider = providerImportDialog?.mode === 'review'
-    ? providerImportDialog.provider
-    : null;
-  const importedProviderType = providerTypes.find(
-    (type) => type.id === importedProvider?.interface,
-  );
 
   return (
     <section className={classNames('settings-page', folderMode && 'folders-page')}>
@@ -3785,10 +3784,10 @@ export function SettingsPage({
                 return;
               }
               runProviderMutation(async () => {
-                const nextProviders = await onSave(importedProvider);
-                const saved = nextProviders.find((provider) => provider.id === importedProvider.id);
+                const nextProviders = await onSave(providerImportDialog.provider);
+                const saved = nextProviders.find((provider) => provider.id === providerImportDialog.provider.id);
                 setProviderImportDialog(null);
-                setProviderListMessage(`Imported provider "${saved?.name ?? importedProvider.name}".`);
+                setProviderListMessage(`Imported provider "${saved?.name ?? providerImportDialog.provider.name}".`);
               });
             }}
           >
@@ -3866,7 +3865,7 @@ export function SettingsPage({
                 <dl>
                   <div>
                     <dt>Name</dt>
-                    <dd>{importedProvider.name}</dd>
+                    <dd>{providerImportDialog.provider.name}</dd>
                   </div>
                   <div>
                     <dt>Source</dt>
@@ -3874,38 +3873,38 @@ export function SettingsPage({
                   </div>
                   <div>
                     <dt>Interface</dt>
-                    <dd>{importedProviderType?.name ?? importedProvider.interface}</dd>
+                    <dd>{providerImportDialog.providerType?.name ?? providerImportDialog.provider.interface}</dd>
                   </div>
                   <div>
                     <dt>Base URL</dt>
-                    <dd>{importedProvider.baseUrl || 'Managed by provider'}</dd>
+                    <dd>{providerImportDialog.provider.baseUrl || 'Managed by provider'}</dd>
                   </div>
                   <div>
                     <dt>API endpoint</dt>
-                    <dd>{importedProviderType?.endpoint || 'Managed by provider'}</dd>
+                    <dd>{providerImportDialog.providerType?.endpoint || 'Managed by provider'}</dd>
                   </div>
                   <div>
                     <dt>API key</dt>
-                    <dd>{importedProvider.apiKey ? 'Included · ••••••••' : 'Not included'}</dd>
+                    <dd>{providerImportDialog.provider.apiKey ? 'Included · ••••••••' : 'Not included'}</dd>
                   </div>
                   <div>
                     <dt>Status</dt>
-                    <dd>{importedProvider.enabled ? 'Active' : 'Disabled'}</dd>
+                    <dd>{providerImportDialog.provider.enabled ? 'Active' : 'Disabled'}</dd>
                   </div>
-                  {(importedProviderType?.fields ?? []).map((field) => (
+                  {(providerImportDialog.providerType?.fields ?? []).map((field) => (
                     <div key={field.id}>
                       <dt>{field.label}</dt>
-                      <dd>{importedProvider[field.id] || 'Not set'}</dd>
+                      <dd>{providerImportDialog.provider[field.id] || 'Not set'}</dd>
                     </div>
                   ))}
                 </dl>
                 <section>
                   <strong>Models</strong>
-                  {importedProviderType?.models === 'managed' ? (
+                  {providerImportDialog.providerType?.models === 'managed' ? (
                     <p>Managed model catalog</p>
-                  ) : importedProvider.models.length ? (
+                  ) : providerImportDialog.provider.models.length ? (
                     <ul>
-                      {importedProvider.models.map((model) => (
+                      {providerImportDialog.provider.models.map((model) => (
                         <li key={model.id}>
                           <span>{model.name}</span>
                           <small>{model.id}{model.enabled ? '' : ' · Disabled'}</small>
@@ -3916,7 +3915,7 @@ export function SettingsPage({
                     <p>No models included</p>
                   )}
                 </section>
-                {importedProvider.apiKey && (
+                {providerImportDialog.provider.apiKey && (
                   <p className="provider-import-warning">
                     This import includes a secret API key. Only continue if you trust the source.
                   </p>
