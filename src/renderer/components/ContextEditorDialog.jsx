@@ -49,6 +49,8 @@ export function ContextEditorDialog({ item, kind, readOnly, onClose, onSaved }) 
   const [savedContent, setSavedContent] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [filePath, setFilePath] = useState(item.path);
+  const [visibility, setVisibility] = useState(item.visibility ?? 'default');
   const dialogRef = useRef(null);
   const editorHostRef = useRef(null);
   const contentRef = useRef(content);
@@ -148,8 +150,24 @@ export function ContextEditorDialog({ item, kind, readOnly, onClose, onSaved }) 
     setSaving(true);
     setError('');
     try {
-      await window.chatApp.context.write({ path: item.path, content: snapshot });
+      await window.chatApp.context.write({ path: filePath, content: snapshot });
       setSavedContent(snapshot);
+      onSaved();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function changeVisibility(nextVisibility) {
+    if (readOnly || saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      const moved = await window.chatApp.context.setVisibility({ path: filePath, visibility: nextVisibility });
+      setFilePath(moved.path);
+      setVisibility(nextVisibility);
       onSaved();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
@@ -205,7 +223,7 @@ export function ContextEditorDialog({ item, kind, readOnly, onClose, onSaved }) 
         <header className="dialog-header">
           <div>
             <h2 id="context-editor-title">{item.title}{dirty && <span className="context-editor-dirty"> · Unsaved</span>}</h2>
-            <p title={item.path}>{item.relativePath || item.path}</p>
+            <p title={filePath}>{filePath === item.path ? item.relativePath || item.path : filePath}</p>
           </div>
           <button className="icon-button" type="button" aria-label="Close editor" disabled={saving} onClick={requestClose}>
             <X size={16} />
@@ -309,6 +327,21 @@ export function ContextEditorDialog({ item, kind, readOnly, onClose, onSaved }) 
                 />
               </label>
             )}
+            <label className="context-editor-toggle">
+              <span>
+                <strong>Visibility</strong>
+                <small>Private moves the file to <code>.agents/.user-private</code>, which is ignored by Git. Default keeps it in the standard location.</small>
+              </span>
+              <select
+                className="select"
+                value={visibility}
+                disabled={readOnly || saving}
+                onChange={(event) => changeVisibility(event.target.value)}
+              >
+                <option value="default">Default</option>
+                <option value="private">Private</option>
+              </select>
+            </label>
             <p className="context-editor-note">Other frontmatter fields are preserved and can be edited in Content.</p>
           </div>
         )}
@@ -323,7 +356,7 @@ export function ContextEditorDialog({ item, kind, readOnly, onClose, onSaved }) 
             <button
               className="button"
               type="button"
-              onClick={() => window.chatApp.context.open(item.path).catch((nextError) => {
+              onClick={() => window.chatApp.context.open(filePath).catch((nextError) => {
                 setError(nextError instanceof Error ? nextError.message : String(nextError));
               })}
             >

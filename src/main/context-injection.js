@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { mkdir, opendir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { mkdir, opendir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
 import { availableParallelism, homedir } from 'node:os';
 import path from 'node:path';
 import { composerCommands } from '../shared/composer-commands.js';
@@ -33,6 +33,7 @@ const CONTEXT_SCAN_CONCURRENCY = Math.max(1, availableParallelism());
 const CONTEXT_ITEM_CACHE_MS = 1_000;
 const CONTEXT_SCAN_CACHE_MS = 60_000;
 const CONTEXT_DIRECTORY_NAME = '.agents';
+const PRIVATE_CONTEXT_DIRECTORY_NAME = '.user-private';
 const contextItemCache = new Map();
 const contextScanCache = new Map();
 const baseInstructions = readFileSync(new URL('../prompts/base-instructions.md', import.meta.url), 'utf8');
@@ -329,7 +330,7 @@ export const dynamicContextInjectors = new Map([
       },
       ...pluginContextRoots.map((plugin) => ({
         id: `plugin:${plugin.id}`,
-        label: `$INSTALL_DIR/plugins/${plugin.id}`,
+        label: `$HOME/.aivax/plugins/${plugin.id}`,
         path: path.resolve(plugin.path),
         includeRootCatalog: true,
       })),
@@ -364,11 +365,15 @@ export const dynamicContextInjectors = new Map([
       const applicableInstructionFiles = bot
         ? [...instructionFiles, ...botInstructionFiles]
         : instructionFiles;
+      const contextDirectory = path.basename(root.path).toLowerCase() === CONTEXT_DIRECTORY_NAME
+        ? root.path
+        : path.join(root.path, CONTEXT_DIRECTORY_NAME);
       const rootInstructionDirectories = new Set([
         root.path.toLowerCase(),
         ...(root.id === 'workspace'
           ? [path.join(root.path, CONTEXT_DIRECTORY_NAME).toLowerCase()]
           : []),
+        path.join(contextDirectory, PRIVATE_CONTEXT_DIRECTORY_NAME).toLowerCase(),
       ]);
       const rootContextFiles = applicableInstructionFiles.filter((filePath) => (
         rootInstructionDirectories.has(path.dirname(filePath).toLowerCase())
@@ -639,6 +644,10 @@ export async function listContextItems(
       workflowFiles,
     } = scan;
     const skillsByDirectory = new Map(skillFiles.map((file) => [normalizePathKey(path.dirname(file)), file]));
+    const privateDirectory = path.join(
+      path.basename(root).toLowerCase() === CONTEXT_DIRECTORY_NAME ? root : path.join(root, CONTEXT_DIRECTORY_NAME),
+      PRIVATE_CONTEXT_DIRECTORY_NAME,
+    );
     const groups = await mapContextConcurrent([
       {
         id: 'instruction',
@@ -673,10 +682,12 @@ export async function listContextItems(
           }
         }
         const rootInstruction = normalizePathKey(directory) === normalizePathKey(root)
-          || (!includeRootCatalog && normalizePathKey(directory) === normalizePathKey(path.join(root, '.agents')));
+          || (!includeRootCatalog && normalizePathKey(directory) === normalizePathKey(path.join(root, '.agents')))
+          || normalizePathKey(directory) === normalizePathKey(privateDirectory);
         return {
           ...item,
           relativePath: path.relative(root, filePath).replaceAll('\\', '/'),
+          visibility: privateContextIndex(filePath) >= 0 ? 'private' : 'default',
           activationMode: group.id === 'instruction' && rootInstruction && item.embeddable
             && !BOT_INSTRUCTION_FILE_PATTERN.test(path.basename(filePath)) ? 'always-visible' : 'on-demand',
           invocationMode: group.id !== 'instruction' && !item.userInvocable ? 'assistant-only' : null,
@@ -788,6 +799,55 @@ export async function createContextItem(rootPath, { kind, name } = {}) {
   }
   contextScanCache.clear();
   return { path: filePath };
+}
+
+function privateContextIndex(filePath) {
+  const parts = path.resolve(filePath).split(path.sep);
+  return parts.findIndex((part, index) => (
+    index > 0
+    && part.toLowerCase() === PRIVATE_CONTEXT_DIRECTORY_NAME
+    && parts[index - 1].toLowerCase() === CONTEXT_DIRECTORY_NAME
+  ));
+}
+
+export async function moveContextItem(filePath, visibility) {
+  if (!['private', 'default'].includes(visibility)) throw new Error('Context visibility must be private or default.');
+
+  const target = path.resolve(String(filePath ?? ''));
+  if (!(await stat(target)).isFile()) throw new Error('Context item is not a file.');
+
+  const isSkill = /^skill\.md$/i.test(path.basename(target));
+  const source = isSkill ? path.dirname(target) : target;
+  const parts = source.split(path.sep);
+  const privateIndex = privateContextIndex(source);
+  if ((privateIndex >= 0) === (visibility === 'private')) return { path: target };
+
+  let destination;
+  if (visibility === 'default') {
+    destination = [...parts.slice(0, privateIndex), ...parts.slice(privateIndex + 1)].join(path.sep);
+  } else {
+    const contextIndex = parts.findLastIndex((part, index) => (
+      index < parts.length - 1 && part.toLowerCase() === CONTEXT_DIRECTORY_NAME
+    ));
+    const privateDirectory = contextIndex >= 0
+      ? path.join(parts.slice(0, contextIndex + 1).join(path.sep), PRIVATE_CONTEXT_DIRECTORY_NAME)
+      : path.join(path.dirname(source), CONTEXT_DIRECTORY_NAME, PRIVATE_CONTEXT_DIRECTORY_NAME);
+    destination = contextIndex >= 0
+      ? path.join(privateDirectory, ...parts.slice(contextIndex + 1))
+      : path.join(privateDirectory, path.basename(source));
+
+    if (await mkdir(privateDirectory, { recursive: true })) {
+      await writeFile(path.join(privateDirectory, '.gitignore'), '*\n', 'utf8');
+    }
+  }
+
+  if (await stat(destination).then(() => true, () => false)) {
+    throw new Error(`"${destination}" already exists.`);
+  }
+  await mkdir(path.dirname(destination), { recursive: true });
+  await rename(source, destination);
+  clearContextCaches();
+  return { path: isSkill ? path.join(destination, path.basename(target)) : destination };
 }
 
 export function clearContextCaches() {
@@ -906,6 +966,9 @@ async function scanContextFiles(
             path: entryPath,
             contextRoot: effectiveContextRoot
               ?? (normalizedName === CONTEXT_DIRECTORY_NAME ? entryPath : null),
+            depthIncrement: normalizedName === PRIVATE_CONTEXT_DIRECTORY_NAME
+              && effectiveContextRoot
+              && normalizePathKey(directoryPath) === normalizePathKey(effectiveContextRoot) ? 0 : 1,
           });
           continue;
         }
@@ -915,7 +978,10 @@ async function scanContextFiles(
         else if (INSTRUCTION_FILE_PATTERN.test(entry.name)) instructionFiles.push(entryPath);
         if (!effectiveContextRoot) continue;
 
-        const relativeParts = path.relative(effectiveContextRoot, entryPath).split(path.sep);
+        const contextParts = path.relative(effectiveContextRoot, entryPath).split(path.sep);
+        const relativeParts = contextParts[0]?.toLowerCase() === PRIVATE_CONTEXT_DIRECTORY_NAME
+          ? contextParts.slice(1)
+          : contextParts;
         const catalogName = relativeParts[0]?.toLowerCase();
         const catalogDepth = relativeParts.length - 2;
         if (catalogDepth < 0 || catalogDepth > MAX_CONTEXT_RECURSION_DEPTH) continue;
@@ -927,7 +993,9 @@ async function scanContextFiles(
     }
 
     if (depth >= MAX_CONTEXT_RECURSION_DEPTH) return;
-    for (const child of childDirectories) pendingDirectories.push({ ...child, depth: depth + 1 });
+    for (const { depthIncrement, ...child } of childDirectories) {
+      pendingDirectories.push({ ...child, depth: depth + depthIncrement });
+    }
   };
 
   while (pendingDirectories.length > 0) {

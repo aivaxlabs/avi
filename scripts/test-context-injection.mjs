@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   mkdtemp,
   mkdir,
+  readFile,
   rm,
   symlink,
   writeFile,
@@ -12,6 +13,7 @@ import { composerCommands } from '../src/shared/composer-commands.js';
 import {
   clearContextCaches,
   createContextItem,
+  moveContextItem,
   listContextItems,
   resolveDynamicContext,
   resolveInstallationContextPath,
@@ -990,6 +992,21 @@ try {
   const plainFile = path.join(createRoot, 'notes.md');
   await writeFile(plainFile, '# Notes');
   await assert.rejects(writeContextItem(plainFile, 'x'), /Only instruction, skill, and workflow/);
+  const privateDirectory = path.join(createRoot, '.agents', '.user-private');
+  const privateSkill = await moveContextItem(createdSkill.path, 'private');
+  const privateWorkflow = await moveContextItem(createdWorkflow.path, 'private');
+  const privateInstruction = await moveContextItem(createdInstruction.path, 'private');
+  assert.equal(privateSkill.path, path.join(privateDirectory, 'skills', 'revisao-de-pr', 'SKILL.md'));
+  assert.equal(privateWorkflow.path, path.join(privateDirectory, 'workflows', 'deploy-app.md'));
+  assert.equal(privateInstruction.path, path.join(privateDirectory, 'AGENTS.FrontEnd.md'));
+  assert.equal(await readFile(path.join(privateDirectory, '.gitignore'), 'utf8'), '*\n');
+  const privateItems = (await listContextItems(createRoot)).groups.flatMap((group) => group.items)
+    .filter((item) => item.visibility === 'private');
+  assert.equal(privateItems.length, 3);
+  assert.equal(privateItems.find((item) => item.path === privateInstruction.path).activationMode, 'always-visible');
+  assert.equal((await moveContextItem(privateSkill.path, 'default')).path, createdSkill.path);
+  assert.equal((await moveContextItem(privateWorkflow.path, 'default')).path, createdWorkflow.path);
+  await assert.rejects(moveContextItem(createdWorkflow.path, 'hidden'), /visibility/);
   console.log('Context variant discovery passed.');
 } finally {
   if (originalHome === undefined) delete process.env.HOME;
