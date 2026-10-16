@@ -1407,18 +1407,24 @@ export default function App() {
     }
 
     const selectedIdBeforeSend = selectedConversationIdRef.current;
-    const result = await api.chat.send({
-      conversationId,
-      model,
-      text,
-      attachments,
-      steer,
-      reasoningEffort,
-      permissionMode,
-      workMode: messageWorkMode,
-      ultraMode: effectiveUltraMode,
-      project,
-    });
+    let result;
+    try {
+      result = await api.chat.send({
+        conversationId,
+        model,
+        text,
+        attachments,
+        steer,
+        reasoningEffort,
+        permissionMode,
+        workMode: messageWorkMode,
+        ultraMode: effectiveUltraMode,
+        project,
+      });
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return false;
+    }
     await api.composerState.save({
       conversationId: result.conversation.id,
       permissionMode,
@@ -2100,18 +2106,21 @@ export default function App() {
   }));
   const chatOnChooseModel = useStableCallback(chooseModel);
   const chatOnChooseProject = useStableCallback(async (project) => {
-    if (currentConversation) return;
+    if (currentConversation) return null;
     if (project) {
       setDraftProject(project);
-      return;
+      return project;
     }
     const selectedProject = await api.projects.select({
       defaultPath: currentProject?.path ?? appState.defaultProject.path,
     });
     if (selectedProject) setDraftProject(selectedProject);
+    return selectedProject;
   });
   const chatOnUseHome = useStableCallback(() => {
-    if (!currentConversation) setDraftProject(appState.defaultProject);
+    if (currentConversation) return null;
+    setDraftProject(appState.defaultProject);
+    return appState.defaultProject;
   });
   const chatOnToggleFavorite = useStableCallback(toggleFavorite);
   const chatOnWorkModeChange = useStableCallback(changeWorkMode);
@@ -3015,7 +3024,13 @@ export default function App() {
           semaphoreWaiting={sidebarSemaphoreWaiting}
           completedUnseen={completedUnseen}
           onClose={() => setSearchOpen(false)}
-          onSelect={selectConversation}
+          onSelect={async (id, { archived } = {}) => {
+            if (archived) {
+              await api.archive.restore(id);
+              setConversations(await api.conversations.list());
+            }
+            await selectConversation(id);
+          }}
         />
       )}</Presence>
       <Presence when={quickQuestion}>{(quickQuestion) => (

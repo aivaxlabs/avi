@@ -338,6 +338,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     create: (payload) => invoke('context:create', payload),
     read: (targetPath) => invoke('context:read', targetPath),
     write: (payload) => invoke('context:write', payload),
+    setVisibility: (payload) => invoke('context:set-visibility', payload),
   },
   mentions: {
     list: (payload) => invoke('mentions:list', payload),

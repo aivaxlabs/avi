@@ -74,6 +74,7 @@ import {
   getComposerDraft,
   getComposerState,
   getConversation,
+  listSearchThreads,
   getFolderColors,
   getKeyboardShortcuts,
   getMessage,
@@ -132,7 +133,7 @@ import { listAivaxUsageProviders } from './aivax-usage-provider.js';
 import { ChatRunner } from './chat-runner.js';
 import { BotManager } from './bot-manager.js';
 import { QuickChatRunner } from './quick-chat-runner.js';
-import { validateDefaultModels } from './default-models.js';
+import { removeProviderDefaultModels, validateDefaultModels } from './default-models.js';
 import { CLIENT_TOOLS, stopConversationTerminals } from './client-tools.js';
 import { clearTemporaryStorage, getTemporaryStorage } from './temporary-storage.js';
 import { getFaviconDataUrl } from './favicons.js';
@@ -140,6 +141,7 @@ import {
   clearContextCaches,
   createContextItem,
   listContextItems,
+  moveContextItem,
   resolveInstallationContextPath,
   writeContextItem,
 } from './context-injection.js';
@@ -202,10 +204,13 @@ const chatBackgroundMimeTypes = Object.freeze({
   '.webp': 'image/webp',
 });
 const pluginsDirectory = app.isPackaged
-  ? join(dirname(process.execPath), 'plugins')
+  ? join(homedir(), '.aivax', 'plugins')
   : join(app.getAppPath(), 'plugins');
 const pluginManager = new PluginManager({
   pluginsDir: pluginsDirectory,
+  legacyPluginsDirs: app.isPackaged
+    ? [join(dirname(process.execPath), 'plugins'), join(homedir(), '.aivax', 'plugins-migration')]
+    : [],
   getBuiltInPluginState,
   setBuiltInPluginState,
   builtInPluginsDir: join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'built-in-plugins'),
@@ -396,6 +401,13 @@ for (const failure of pluginManager.getFailures()) {
     operation: 'startup',
     plugin: failure.pluginId ?? failure.fileName,
     error: failure.error,
+  });
+}
+for (const plugin of pluginManager.list().filter((entry) => entry.compatibilityWarnings?.length)) {
+  traceInfo('plugin.compatibility-mode', {
+    plugin: plugin.id,
+    api_version: plugin.apiVersion,
+    warnings: plugin.compatibilityWarnings.join(' '),
   });
 }
 providerRegistry = new ModelProviderRegistry({
@@ -2115,7 +2127,7 @@ function registerIpc() {
     const options = normalizeSearchOptions(payload);
     const collectionId = getAivaxAccessToken() && getAivaxSettings().threadSearchCollectionId;
     if (!collectionId || !options.query.trim()) return runChatSearch(options);
-    const filtered = Boolean(options.folderPath || options.createdAfter);
+    const filtered = Boolean(options.folderPath || options.updatedAfter);
     const startedAt = Date.now();
     try {
       const response = await requestAivax('/api/v1/query', {
@@ -2130,26 +2142,22 @@ function registerIpc() {
         includeResponseMetadata: true,
         responseType: 'array',
       });
+      const threadIds = [...new Set(response.data
+        .map((result) => result.metadata?.threadId)
+        .filter((threadId) => typeof threadId === 'string' && threadId))];
+      const threads = new Map(listSearchThreads(options, threadIds)
+        .map((thread) => [thread.conversationId, thread]));
       const seenConversations = new Set();
       const results = response.data.flatMap((result) => {
-        const conversationId = result.metadata?.threadId;
-        const conversation = conversationId ? getConversation(conversationId) : null;
-        if (!conversation || conversation.conversationType !== 'thread' || seenConversations.has(conversationId)) return [];
-        if (options.folderPath && resolve(conversation.projectPath) !== options.folderPath) return [];
-        if (options.createdAfter && conversation.createdAt < options.createdAfter) return [];
-        seenConversations.add(conversationId);
+        const thread = threads.get(result.metadata?.threadId);
+        if (!thread || seenConversations.has(thread.conversationId)) return [];
+        seenConversations.add(thread.conversationId);
         return [{
+          ...thread,
           score: result.score,
-          conversationId,
           messageId: result.metadata?.assistantMessageId ?? null,
-          title: conversation.title,
           role: 'assistant',
           content: String(result.documentContent ?? ''),
-          createdAt: conversation.createdAt,
-          updatedAt: result.metadata?.updatedAt ?? conversation.updatedAt,
-          folderPath: conversation.projectPath,
-          folderName: conversation.projectName,
-          folderDisplayPath: conversation.projectDisplayPath,
         }];
       });
       const sortedResults = sortSearchResults(results, options.sort);
@@ -2340,6 +2348,7 @@ function registerIpc() {
     const providers = listProviders();
     await providerRegistry.remove(providerId);
     const saved = setProviders(providers.filter((provider) => provider.id !== providerId));
+    setDefaultModels(removeProviderDefaultModels(getPreferences().defaultModels, providerId));
     logDefaultModelWarnings('provider-removed');
     return saved;
   });
@@ -3102,6 +3111,14 @@ function registerIpc() {
     }
     const result = await writeContextItem(payload.path, payload.content);
     traceVerbose('context.item-saved', { operation: 'context:write' });
+    return result;
+  });
+  applicationIpc.handle('context:set-visibility', async (_event, payload = {}) => {
+    if (isReadOnlyContextPath(resolve(String(payload.path ?? '')))) {
+      throw new Error('Installation and plugin context is read-only.');
+    }
+    const result = await moveContextItem(payload.path, payload.visibility);
+    traceVerbose('context.item-moved', { operation: 'context:set-visibility', visibility: payload.visibility });
     return result;
   });
   applicationIpc.handle('context:open', async (_event, targetPath) => {
