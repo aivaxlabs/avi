@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { Worker } from 'node:worker_threads';
-import { searchChatsIn } from '../src/main/search-core.js';
+import { listSearchThreadsIn, searchChatsIn } from '../src/main/search-core.js';
 import {
   buildThreadSearchDocuments,
   compareThreadSearchManifests,
@@ -48,9 +48,10 @@ try {
     const id = `conversation-${index}`;
     const updatedAt = new Date(Date.UTC(2026, 0, 1, 0, 0, 30 - index)).toISOString();
     const createdAt = new Date(Date.UTC(2025, 0, 1 + index)).toISOString();
+    const messageUpdatedAt = new Date(Date.UTC(2025, 6, 1 + index)).toISOString();
     const projectPath = index % 3 === 0 ? join(tempDirectory, 'other') : process.cwd();
     insertConversation.run(id, `Conversation ${index}`, projectPath, createdAt, updatedAt);
-    insertMessage.run(`message-${index}`, id, `needle ${index}`, updatedAt);
+    insertMessage.run(`message-${index}`, id, `needle ${index}`, messageUpdatedAt);
   }
 
   insertMessage.run(
@@ -106,25 +107,53 @@ try {
 
   assert.equal(searchChatsIn(db, 'needle').length, 20);
   assert.equal(searchChatsIn(db, 'needle')[0].conversationId, 'conversation-0');
-  assert.equal(searchChatsIn(db, 'needle')[0].createdAt, new Date(Date.UTC(2025, 0, 1)).toISOString());
+  assert.equal(
+    searchChatsIn(db, 'needle')[0].updatedAt,
+    new Date(Date.UTC(2026, 0, 1, 0, 0, 30)).toISOString(),
+  );
   assert.deepEqual(searchChatsIn(db, { query: 'needle' }), searchChatsIn(db, 'needle'));
 
   const folderResults = searchChatsIn(db, { query: 'needle', folderPath: join(tempDirectory, 'other') });
   assert.equal(folderResults.length, 10);
   assert.ok(folderResults.every((result) => result.folderPath === join(tempDirectory, 'other')));
 
-  const createdAfter = new Date(Date.UTC(2025, 0, 26)).toISOString();
-  const recentResults = searchChatsIn(db, { query: 'needle', createdAfter });
+  const updatedAfter = new Date(Date.UTC(2026, 0, 1, 0, 0, 26)).toISOString();
+  const recentResults = searchChatsIn(db, { query: 'needle', updatedAfter });
   assert.equal(recentResults.length, 5);
-  assert.ok(recentResults.every((result) => result.createdAt >= createdAfter));
+  assert.ok(recentResults.every((result) => result.updatedAt >= updatedAfter));
+  assert.equal(searchChatsIn(db, { query: 'needle', updatedAfter: 'invalid' }).length, 20);
 
-  const createdSorted = searchChatsIn(db, { query: 'needle', sort: 'created' });
-  assert.equal(createdSorted.length, 20);
-  assert.equal(createdSorted[0].conversationId, 'conversation-29');
-  assert.ok(createdSorted.every((result, index) => (
-    index === 0 || result.createdAt <= createdSorted[index - 1].createdAt
+  const updatedSorted = searchChatsIn(db, { query: 'needle 2', sort: 'updated' });
+  assert.ok(updatedSorted.every((result, index) => (
+    index === 0 || result.updatedAt <= updatedSorted[index - 1].updatedAt
   )));
-  assert.equal(searchChatsIn(db, { query: 'needle', createdAfter: 'invalid' }).length, 20);
+
+  db.prepare('UPDATE conversations SET archived_at = ? WHERE id = ?')
+    .run(new Date().toISOString(), 'conversation-0');
+  db.prepare('UPDATE conversations SET deleted_at = ? WHERE id = ?')
+    .run(new Date().toISOString(), 'conversation-1');
+  const activeIds = searchChatsIn(db, { query: 'needle' }).map((result) => result.conversationId);
+  assert.ok(!activeIds.includes('conversation-0'));
+  assert.ok(!activeIds.includes('conversation-1'));
+  const archivedResults = searchChatsIn(db, { query: 'needle', includeArchived: true });
+  assert.equal(archivedResults[0].conversationId, 'conversation-0');
+  assert.ok(archivedResults[0].archivedAt);
+  assert.ok(!archivedResults.some((result) => result.conversationId === 'conversation-1'));
+
+  const recentThreads = searchChatsIn(db, '');
+  assert.equal(recentThreads.length, 20);
+  assert.equal(recentThreads[0].conversationId, 'conversation-2');
+  assert.equal(recentThreads[0].content, 'needle 2');
+  assert.equal(searchChatsIn(db, { query: '', includeArchived: true })[0].conversationId, 'conversation-0');
+
+  const lookup = listSearchThreadsIn(
+    db,
+    { includeArchived: false, folderPath: null, updatedAfter: null },
+    ['conversation-0', 'conversation-1', 'conversation-5', 'missing-thread'],
+  );
+  assert.deepEqual(lookup.map((thread) => thread.conversationId), ['conversation-5']);
+  db.prepare('UPDATE conversations SET archived_at = NULL, deleted_at = NULL WHERE id IN (?, ?)')
+    .run('conversation-0', 'conversation-1');
   db.close();
 
   const worker = new Worker(new URL('../src/main/search-worker.js', import.meta.url), {

@@ -46,17 +46,29 @@ window.chatApp = {
   conversations: {
     search: async (payload) => {
       window.searchCalls.push(payload);
-      return conversations
+      const archived = {
+        id: 'archived-1',
+        title: 'Archived Sisk thread',
+        firstPrompt: 'Old prompt',
+        projectPath: '/home/user/projects/sisk',
+        projectName: 'sisk',
+        projectDisplayPath: '~/projects/sisk',
+        updatedAt: new Date(now - 2 * hour).toISOString(),
+        archivedAt: new Date(now - hour).toISOString(),
+      };
+      return [...(payload.includeArchived ? [archived] : []), ...conversations]
         .filter((conversation) => !payload.folderPath || conversation.projectPath === payload.folderPath)
-        .slice(0, 3)
+        .slice(0, payload.query ? 3 : 12)
         .map((conversation) => ({
           score: 1,
           conversationId: conversation.id,
           title: conversation.title,
           role: 'user',
-          content: 'We configured the Sisk router and then compared middleware ordering in detail.',
-          createdAt: conversation.createdAt,
+          content: payload.query
+            ? 'We configured the Sisk router and then compared middleware ordering in detail.'
+            : conversation.firstPrompt,
           updatedAt: conversation.updatedAt,
+          archivedAt: conversation.archivedAt ?? null,
           folderPath: conversation.projectPath,
           folderName: conversation.projectName,
           folderDisplayPath: conversation.projectDisplayPath,
@@ -78,7 +90,7 @@ function Harness() {
           approvalPending={{ c2: true }}
           completedUnseen={{ c5: true }}
           onClose={() => setOpen(false)}
-          onSelect={(id) => { window.selected = id; }}
+          onSelect={(id, options) => { window.selected = id; window.selectedOptions = options; }}
         />
       )}
     </main>
@@ -165,24 +177,33 @@ app.whenReady().then(async () => {
 
         const folder = document.querySelector('select[aria-label="Folder"]');
         const setSelect = (select, value) => { select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); };
+        if (window.searchCalls.at(-1).includeArchived !== false || window.searchCalls.at(-1).query !== '') throw new Error('Recent list did not use the backend');
+        if (document.querySelector('select[aria-label="Sort by"]')) throw new Error('Sort shown without a query');
         setSelect(folder, '/home/user/projects/sisk');
         await wait(() => rows().length === 5, 'folder filter on recent');
         if (!document.querySelector('.search-filters .button')) throw new Error('Reset not shown');
 
+        setSelect(document.querySelector('select[aria-label="Archive"]'), 'include');
+        await wait(() => rows().length === 6 && document.querySelector('.search-results').textContent.includes('Archived'), 'archived included');
+        if (window.searchCalls.at(-1).includeArchived !== true) throw new Error('Archive filter not sent');
+        setSelect(document.querySelector('select[aria-label="Archive"]'), 'exclude');
+        await wait(() => rows().length === 5, 'archived excluded');
+
+        const callsBefore = window.searchCalls.length;
         const setInput = (value) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); };
         setInput('sisk router');
-        await wait(() => window.searchCalls.length === 1 && rows().length === 3, 'search results');
-        const call = window.searchCalls[0];
-        if (call.query !== 'sisk router' || call.folderPath !== '/home/user/projects/sisk' || call.sort !== 'relevance' || call.createdAfter !== null) {
+        await wait(() => window.searchCalls.length === callsBefore + 1 && rows().length === 3, 'search results');
+        const call = window.searchCalls.at(-1);
+        if (call.query !== 'sisk router' || call.folderPath !== '/home/user/projects/sisk' || call.sort !== 'relevance' || call.updatedAfter !== null || call.includeArchived !== false) {
           throw new Error('Unexpected payload ' + JSON.stringify(call));
         }
         if (!document.querySelector('.search-results mark')) throw new Error('Missing highlight');
 
-        setSelect(document.querySelector('select[aria-label="Created"]'), 'week');
-        setSelect(document.querySelector('select[aria-label="Sort by"]'), 'created');
-        await wait(() => window.searchCalls.length === 2, 'filtered search');
-        const filtered = window.searchCalls[1];
-        if (filtered.sort !== 'created' || !(Date.now() - new Date(filtered.createdAfter).getTime() > 6.9 * 24 * 3600000)) {
+        setSelect(document.querySelector('select[aria-label="Last updated"]'), 'week');
+        setSelect(document.querySelector('select[aria-label="Sort by"]'), 'updated');
+        await wait(() => window.searchCalls.at(-1).sort === 'updated' && window.searchCalls.at(-1).updatedAfter, 'filtered search');
+        const filtered = window.searchCalls.at(-1);
+        if (!(Date.now() - new Date(filtered.updatedAfter).getTime() > 6.9 * 24 * 3600000)) {
           throw new Error('Unexpected filtered payload ' + JSON.stringify(filtered));
         }
 

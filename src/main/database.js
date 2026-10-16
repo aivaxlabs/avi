@@ -25,7 +25,7 @@ import {
 import { defaultMediaSizeLimit, mediaSizeLimitOptions } from '../shared/attachments.js';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import { normalizeDefaultModels } from './default-models.js';
-import { searchChatsIn } from './search-core.js';
+import { listSearchThreadsIn, searchChatsIn } from './search-core.js';
 import {
   activeMediaDirectory,
   archivedMediaDirectory,
@@ -2899,6 +2899,10 @@ export function getMessage(id) {
 
 export function searchChats(query) {
   return searchChatsIn(db, query);
+}
+
+export function listSearchThreads(options, conversationIds) {
+  return listSearchThreadsIn(db, options, conversationIds);
 }
 
 export function forkConversation(id, {

@@ -1,15 +1,14 @@
-import { Bot, LoaderCircle, MessageSquareText, Search, SearchX } from 'lucide-react';
+import { Archive, Bot, LoaderCircle, MessageSquareText, Search, SearchX } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { conversationStatus } from '../lib/conversation-status.js';
 import { formatAge } from '../lib/format.js';
 import { Overlay } from './Overlay.jsx';
 
 const emptyObject = Object.freeze({});
-const recentLimit = 12;
 const hour = 3_600_000;
-const createdRanges = [
+const updatedRanges = [
   { value: '', label: 'Any time' },
-  { value: 'day', label: 'Created today', ms: 24 * hour },
+  { value: 'day', label: 'Updated today', ms: 24 * hour },
   { value: 'week', label: 'Past 7 days', ms: 7 * 24 * hour },
   { value: 'month', label: 'Past 30 days', ms: 30 * 24 * hour },
   { value: 'year', label: 'Past year', ms: 365 * 24 * hour },
@@ -48,11 +47,12 @@ export function SearchDialog({
 }) {
   const [query, setQuery] = useState('');
   const [folderPath, setFolderPath] = useState('');
-  const [createdRange, setCreatedRange] = useState('');
+  const [updatedRange, setUpdatedRange] = useState('');
+  const [includeArchived, setIncludeArchived] = useState(false);
   const [sort, setSort] = useState('relevance');
   const [results, setResults] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [searching, setSearching] = useState(false);
+  const [searching, setSearching] = useState(true);
   const [error, setError] = useState('');
   const [opener] = useState(() => document.activeElement);
   const dialogRef = useRef(null);
@@ -64,7 +64,7 @@ export function SearchDialog({
     () => trimmedQuery.toLowerCase().split(/\s+/).filter(Boolean),
     [trimmedQuery],
   );
-  const filtersActive = Boolean(folderPath || createdRange || sort !== 'relevance');
+  const filtersActive = Boolean(folderPath || updatedRange || includeArchived || sort !== 'relevance');
 
   const conversationsById = useMemo(
     () => new Map(conversations.map((conversation) => [conversation.id, conversation])),
@@ -86,33 +86,7 @@ export function SearchDialog({
     ));
   }, [conversations]);
 
-  const recent = useMemo(() => {
-    const range = createdRanges.find((item) => item.value === createdRange);
-    const createdAfter = range?.ms ? Date.now() - range.ms : null;
-    const timeOf = (conversation) => new Date(
-      sort === 'created' ? conversation.createdAt : conversation.updatedAt,
-    ).getTime() || 0;
-
-    return conversations
-      .filter((conversation) => (
-        (!folderPath || conversation.projectPath === folderPath)
-        && (!createdAfter || new Date(conversation.createdAt).getTime() >= createdAfter)
-      ))
-      .sort((a, b) => timeOf(b) - timeOf(a))
-      .slice(0, recentLimit)
-      .map((conversation) => ({
-        conversationId: conversation.id,
-        title: conversation.title || conversation.firstPrompt || 'New chat',
-        content: conversation.firstPrompt,
-        createdAt: conversation.createdAt,
-        updatedAt: conversation.updatedAt,
-        folderPath: conversation.projectPath,
-        folderName: conversation.projectName || '~/',
-        folderDisplayPath: conversation.projectDisplayPath,
-      }));
-  }, [conversations, createdRange, folderPath, sort]);
-
-  const items = trimmedQuery ? results : recent;
+  const items = results;
   const activeIndex = Math.min(selectedIndex, Math.max(items.length - 1, 0));
 
   useEffect(() => {
@@ -122,21 +96,15 @@ export function SearchDialog({
 
   useEffect(() => {
     const searchToken = ++searchTokenRef.current;
-    if (!trimmedQuery) {
-      setResults([]);
-      setSearching(false);
-      setError('');
-      return undefined;
-    }
-
     setSearching(true);
     const handle = setTimeout(async () => {
-      const range = createdRanges.find((item) => item.value === createdRange);
+      const range = updatedRanges.find((item) => item.value === updatedRange);
       try {
         const next = await window.chatApp.conversations.search({
           query: trimmedQuery,
           folderPath: folderPath || null,
-          createdAfter: range?.ms ? new Date(Date.now() - range.ms).toISOString() : null,
+          updatedAfter: range?.ms ? new Date(Date.now() - range.ms).toISOString() : null,
+          includeArchived,
           sort,
         });
         if (searchToken === searchTokenRef.current) {
@@ -152,9 +120,9 @@ export function SearchDialog({
       } finally {
         if (searchToken === searchTokenRef.current) setSearching(false);
       }
-    }, 200);
+    }, trimmedQuery ? 200 : 0);
     return () => clearTimeout(handle);
-  }, [createdRange, folderPath, sort, trimmedQuery]);
+  }, [folderPath, includeArchived, sort, trimmedQuery, updatedRange]);
 
   useEffect(() => {
     resultsRef.current
@@ -164,13 +132,14 @@ export function SearchDialog({
 
   const selectResult = (result) => {
     if (!result) return;
-    onSelect(result.conversationId);
+    onSelect(result.conversationId, { archived: Boolean(result.archivedAt) });
     onClose();
   };
 
   const resetFilters = () => {
     setFolderPath('');
-    setCreatedRange('');
+    setUpdatedRange('');
+    setIncludeArchived(false);
     setSort('relevance');
     setSelectedIndex(0);
   };
@@ -264,29 +233,43 @@ export function SearchDialog({
             </select>
             <select
               className="select"
-              value={createdRange}
-              aria-label="Created"
+              value={updatedRange}
+              aria-label="Last updated"
               onChange={(event) => {
-                setCreatedRange(event.target.value);
+                setUpdatedRange(event.target.value);
                 setSelectedIndex(0);
               }}
             >
-              {createdRanges.map((range) => (
+              {updatedRanges.map((range) => (
                 <option key={range.value} value={range.value}>{range.label}</option>
               ))}
             </select>
             <select
               className="select"
-              value={sort}
-              aria-label="Sort by"
+              value={includeArchived ? 'include' : 'exclude'}
+              aria-label="Archive"
               onChange={(event) => {
-                setSort(event.target.value);
+                setIncludeArchived(event.target.value === 'include');
                 setSelectedIndex(0);
               }}
             >
-              <option value="relevance">{trimmedQuery ? 'Best match' : 'Recent activity'}</option>
-              <option value="created">Newest created</option>
+              <option value="exclude">Archive: Do not include</option>
+              <option value="include">Archive: Include</option>
             </select>
+            {trimmedQuery && (
+              <select
+                className="select"
+                value={sort}
+                aria-label="Sort by"
+                onChange={(event) => {
+                  setSort(event.target.value);
+                  setSelectedIndex(0);
+                }}
+              >
+                <option value="relevance">Best match</option>
+                <option value="updated">Recently updated</option>
+              </select>
+            )}
             {filtersActive && (
               <button className="button" type="button" onClick={resetFilters}>Reset</button>
             )}
@@ -308,7 +291,9 @@ export function SearchDialog({
           )}
           {items.map((result, index) => {
             const conversation = conversationsById.get(result.conversationId);
-            const status = conversationStatus({
+            const status = result.archivedAt
+              ? { icon: Archive, className: 'sleep-indicator', label: 'Archived' }
+              : conversationStatus({
               approvalPending: approvalPending[result.conversationId],
               inputPending: inputPending[result.conversationId],
               semaphoreWaiting: semaphoreWaiting[result.conversationId],
@@ -319,8 +304,7 @@ export function SearchDialog({
             });
             const RowIcon = conversation?.createdBy === 'agent' ? Bot : MessageSquareText;
             const StatusIcon = status?.icon;
-            const timeValue = sort === 'created' ? result.createdAt : result.updatedAt;
-            const age = formatAge(timeValue);
+            const age = formatAge(result.updatedAt);
             const folderColor = folderColors[result.folderPath];
             const preview = trimmedQuery ? snippet(result.content, terms) : result.content;
 
@@ -361,7 +345,7 @@ export function SearchDialog({
                       {age && (
                         <span
                           className="search-result-age"
-                          title={`${sort === 'created' ? 'Created' : 'Updated'} ${new Date(timeValue).toLocaleString()}`}
+                          title={`Updated ${new Date(result.updatedAt).toLocaleString()}`}
                         >
                           {age}
                         </span>
