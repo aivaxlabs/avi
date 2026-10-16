@@ -141,7 +141,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "runAfterFinish": true,
-      "shortcutName": "Avi"
+      "shortcutName": "Avi",
+      "include": "installer/installer.nsh"
     },
     "mac": {
       "icon": "assets/icon/avi-bg.png",

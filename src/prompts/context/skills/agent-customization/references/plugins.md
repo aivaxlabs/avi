@@ -68,7 +68,7 @@ The optional top-level `settings` array adds rendered configuration sections to 
 
 Plugins run unsandboxed with main-process privileges. Review source, dependencies, endpoints, CSS, schemas, file/process/network behavior, and credential handling. Never hard-code secrets.
 
-Installation accepts a reviewed `.js` or `.zip`, stages and validates it, and stores it at `$INSTALL_DIR/plugins/<id>/plugin.js`. Disabled plugins use `plugin.js.disabled` and are never imported. Package enable, disable, update, and removal currently require restart to affect loaded code.
+Installation accepts a reviewed `.js` or `.zip`, stages and validates it, and stores it at `$HOME/.aivax/plugins/<id>/plugin.js`, outside the Avi installation so updates keep it. A plugin targeting a newer API can declare `minApiVersion` to load in compatibility mode on older Avi versions; see `docs/Plugins.md`. Disabled plugins use `plugin.js.disabled` and are never imported. Package enable, disable, update, and removal currently require restart to affect loaded code.
 
 Never install or execute third-party plugin code without explicit authority. Use `/create-plugin` to implement minimally and validate before sideloading.
 

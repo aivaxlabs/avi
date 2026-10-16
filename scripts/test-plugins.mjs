@@ -273,7 +273,67 @@ try {
     tuning: { personality: 'demo-personality' },
   });
   assert.match(dynamicContext, /Be helpful\./);
-  assert.match(dynamicContext, /\$INSTALL_DIR\/plugins\/success\/skills\/demo\/SKILL\.md/);
+  assert.match(dynamicContext, /\$HOME\/\.aivax\/plugins\/success\/skills\/demo\/SKILL\.md/);
+
+  const migratedDir = join(root, 'migrated-plugins');
+  const legacyDir = join(root, 'legacy-install', 'plugins');
+  const rescueDir = join(root, 'plugins-migration');
+  const legacyPlugin = (id) => `export default { apiVersion: 2, id: '${id}', name: '${id}', version: '1.0.0', capabilities: ['storage'] };`;
+  await mkdir(join(legacyDir, 'legacy-plugin'), { recursive: true });
+  await writeFile(join(legacyDir, 'legacy-plugin', 'plugin.js'), legacyPlugin('legacy-plugin'));
+  await mkdir(join(legacyDir, '.avi-storage', 'legacy-plugin'), { recursive: true });
+  await writeFile(join(legacyDir, '.avi-storage', 'legacy-plugin', 'storage.json'), '{"upstream":"kept"}');
+  await mkdir(join(legacyDir, '.avi', 'legacy-plugin'), { recursive: true });
+  await mkdir(join(rescueDir, 'rescued-plugin'), { recursive: true });
+  await writeFile(join(rescueDir, 'rescued-plugin', 'plugin.js'), legacyPlugin('rescued-plugin'));
+  await mkdir(join(migratedDir, 'existing'), { recursive: true });
+  await writeFile(join(migratedDir, 'existing', 'plugin.js'), legacyPlugin('existing'));
+  await mkdir(join(rescueDir, 'existing'), { recursive: true });
+  await writeFile(join(rescueDir, 'existing', 'plugin.js'), 'throw new Error("stale copy must not replace");');
+  const migrationManager = new PluginManager({ pluginsDir: migratedDir, legacyPluginsDirs: [legacyDir, rescueDir] });
+  const migrationStatus = await migrationManager.initialize();
+  assert.deepEqual(migrationStatus.plugins.map((plugin) => [plugin.id, plugin.status]), [
+    ['existing', 'loaded'],
+    ['legacy-plugin', 'loaded'],
+    ['rescued-plugin', 'loaded'],
+  ]);
+  assert.equal(await readFile(join(migratedDir, '.avi-storage', 'legacy-plugin', 'storage.json'), 'utf8'), '{"upstream":"kept"}');
+  await assert.rejects(readdir(legacyDir), { code: 'ENOENT' });
+  assert.equal(migrationStatus.failures.length, 1);
+  assert.match(migrationStatus.failures[0].error, /already exists; the legacy copy was kept/);
+  assert.deepEqual(await readdir(rescueDir), ['existing']);
+  assert.deepEqual(migrationStatus.pluginApi, { minVersion: 2, version: 2 });
+
+  const compatibilityDir = join(root, 'compatibility-plugins');
+  const writeCompatibilityPlugin = async (id, fields) => {
+    await mkdir(join(compatibilityDir, id), { recursive: true });
+    await writeFile(join(compatibilityDir, id, 'plugin.js'), `export default { id: '${id}', name: '${id}', version: '1.0.0', ${fields} };`);
+  };
+  await writeCompatibilityPlugin('future-compatible', `apiVersion: 3, minApiVersion: 2, capabilities: ['storage', 'future.capability'],
+    futureField: true,
+    contributions: { futureType: [], tools: [{ name: 'future_tool', description: 'Future', inputSchema: {}, futureOption: 1, execute() {} }] }`);
+  await writeCompatibilityPlugin('future-only', 'apiVersion: 3');
+  await writeCompatibilityPlugin('retired-api', 'apiVersion: 1');
+  await writeCompatibilityPlugin('inverted-range', 'apiVersion: 2, minApiVersion: 3');
+  await writeCompatibilityPlugin('current-strict', "apiVersion: 2, minApiVersion: 2, futureField: true");
+  const compatibilityManager = new PluginManager({ pluginsDir: compatibilityDir });
+  const compatibilityStatus = await compatibilityManager.initialize();
+  const compatible = compatibilityStatus.plugins.find((plugin) => plugin.id === 'future-compatible');
+  assert.equal(compatible.status, 'loaded');
+  assert.equal(compatible.apiVersion, 3);
+  assert.deepEqual(compatible.capabilities, ['storage']);
+  assert.equal(compatible.contributions.tools, 1);
+  assert.deepEqual(compatible.compatibilityWarnings, [
+    'Definition field "futureField" was ignored.',
+    'Capability "future.capability" was ignored.',
+    'Contribution type "futureType" was ignored.',
+    'Field "tools[0].futureOption" was ignored.',
+  ]);
+  const compatibilityError = (id) => compatibilityStatus.failures.find((failure) => failure.pluginId === id).error;
+  assert.match(compatibilityError('future-only'), /requires Plugin API v3 or newer.*supports Plugin API v2–v2. Update Avi/);
+  assert.match(compatibilityError('retired-api'), /apiVersion 1 is no longer supported/);
+  assert.match(compatibilityError('inverted-range'), /minApiVersion not greater than apiVersion/);
+  assert.match(compatibilityError('current-strict'), /does not support field "futureField"/);
 
   const lifecycleDir = join(root, 'lifecycle-plugins');
   await mkdir(lifecycleDir);

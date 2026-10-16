@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { normalizeShortcut } from '../shared/keyboard-shortcuts.js';
 import {
   copyFile,
+  cp,
   lstat,
   mkdir,
   readdir,
@@ -17,9 +18,10 @@ import { pathToFileURL } from 'node:url';
 import extractZip from 'extract-zip';
 import semver from 'semver';
 import { normalizeMcpServer } from './mcp-config.js';
-import { pluginApi, PLUGIN_API_VERSION } from './plugin-api.js';
+import { MIN_PLUGIN_API_VERSION, pluginApi, PLUGIN_API_VERSION } from './plugin-api.js';
 import { normalizeProviderHarness } from './provider-api.js';
 import {
+  PLUGIN_CAPABILITIES,
   PluginRuntime,
   assertPluginSerializable,
   clonePluginValue,
@@ -39,6 +41,7 @@ const CONTRIBUTION_TYPES = Object.freeze([
 const ID_PATTERN = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/i;
 const DEFINITION_FIELDS = new Set([
   'apiVersion',
+  'minApiVersion',
   'id',
   'name',
   'version',
@@ -92,6 +95,7 @@ const MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
 export class PluginManager {
   constructor({
     pluginsDir,
+    legacyPluginsDirs = [],
     builtInPluginsDir,
     getBuiltInPluginState,
     setBuiltInPluginState,
@@ -104,6 +108,9 @@ export class PluginManager {
       throw new Error('Plugin load timeout must be a positive number.');
     }
     this.pluginsDir = resolve(pluginsDir);
+    this.legacyPluginsDirs = legacyPluginsDirs
+      .map((directory) => resolve(directory))
+      .filter((directory) => directory !== this.pluginsDir);
     this.builtInPluginsDir = builtInPluginsDir ? resolve(builtInPluginsDir) : null;
     if (this.builtInPluginsDir && (typeof getBuiltInPluginState !== 'function' || typeof setBuiltInPluginState !== 'function')) {
       throw new Error('Built-in plugins require persistent state storage.');
@@ -129,8 +136,12 @@ export class PluginManager {
 
   async initialize() {
     let entries;
+    const migrationFailures = [];
     try {
       await mkdir(this.pluginsDir, { recursive: true });
+      for (const legacyDir of this.legacyPluginsDirs) {
+        migrationFailures.push(...await this.#migrateLegacyPlugins(legacyDir));
+      }
       entries = await readdir(this.pluginsDir, { withFileTypes: true });
     } catch (error) {
       this.plugins = new Map();
@@ -147,7 +158,7 @@ export class PluginManager {
       .sort((left, right) => left.localeCompare(right, 'en'));
     const candidates = [];
     const disabled = [];
-    const failures = [];
+    const failures = [...migrationFailures];
 
     const sources = directories.map((name) => ({ name, builtIn: false }));
     this.builtInIds = new Set();
@@ -293,6 +304,7 @@ export class PluginManager {
     return {
       pluginsDir: this.pluginsDir,
       builtInPluginsDir: this.builtInPluginsDir,
+      pluginApi: { minVersion: MIN_PLUGIN_API_VERSION, version: PLUGIN_API_VERSION },
       restartRequired: this.restartRequired,
       plugins: this.list(),
       failures: this.getFailures(),
@@ -668,6 +680,8 @@ export class PluginManager {
       runtimeLoaded: true,
       directory: dirname(plugin.sourcePath),
       fileName: ENTRYPOINT,
+      apiVersion: plugin.apiVersion,
+      compatibilityWarnings: [...plugin.compatibilityWarnings],
       capabilities: [...plugin.capabilities],
       contributions: Object.fromEntries(CONTRIBUTION_TYPES.map((type) => [
         type,
@@ -690,6 +704,8 @@ export class PluginManager {
       runtimeLoaded: false,
       directory: join(this.pluginsDir, id),
       fileName: DISABLED_ENTRYPOINT,
+      apiVersion: null,
+      compatibilityWarnings: [],
       capabilities: [],
       contributions: Object.fromEntries(CONTRIBUTION_TYPES.map((type) => [type, 0])),
       settings: 0,
@@ -779,6 +795,54 @@ export class PluginManager {
     }
   }
 
+  async #migrateLegacyPlugins(legacyDir) {
+    const failures = [];
+    const moves = [];
+    try {
+      for (const entry of await readdir(legacyDir, { withFileTypes: true })) {
+        if (entry.name === '.avi' || entry.name.startsWith('.install-')) continue;
+        if (entry.name === '.avi-storage' && entry.isDirectory()) {
+          const storageRoot = join(legacyDir, entry.name);
+          for (const store of await readdir(storageRoot)) {
+            moves.push([join(storageRoot, store), join(this.pluginsDir, entry.name, store)]);
+          }
+        } else moves.push([join(legacyDir, entry.name), join(this.pluginsDir, entry.name)]);
+      }
+    } catch (error) {
+      if (error.code === 'ENOENT') return failures;
+      return [{ fileName: 'plugins', error: `Legacy plugin directory could not be read: ${error.message}` }];
+    }
+    for (const [source, destination] of moves) {
+      try {
+        const exists = await lstat(destination).then(() => true, (error) => {
+          if (error.code === 'ENOENT') return false;
+          throw error;
+        });
+        if (exists) throw new Error(`"${destination}" already exists; the legacy copy was kept.`);
+        await mkdir(dirname(destination), { recursive: true });
+        await rename(source, destination).catch(async (error) => {
+          if (error.code !== 'EXDEV') throw error;
+          await cp(source, destination, { recursive: true, errorOnExist: true, force: false });
+          await rm(source, { recursive: true, force: true });
+        });
+      } catch (error) {
+        failures.push({
+          fileName: basename(source),
+          sourcePath: source,
+          error: `Legacy plugin migration failed: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+    }
+    if (!failures.length) {
+      try {
+        await rm(legacyDir, { recursive: true, force: true });
+      } catch (error) {
+        failures.push({ fileName: 'plugins', error: `Legacy plugin directory cleanup failed: ${error.message}` });
+      }
+    }
+    return failures;
+  }
+
   async #writeManifest(directory, plugin) {
     await writeFile(join(directory, MANIFEST), `${JSON.stringify({
       id: plugin.id,
@@ -841,13 +905,23 @@ export class PluginManager {
     if (!definition || typeof definition !== 'object' || Array.isArray(definition)) {
       throw new Error('Plugin default export must be an object or async factory.');
     }
+    const { apiVersion, minApiVersion = apiVersion } = definition;
+    const supported = `this Avi supports Plugin API v${MIN_PLUGIN_API_VERSION}–v${PLUGIN_API_VERSION}`;
+    if (!Number.isInteger(apiVersion) || !Number.isInteger(minApiVersion) || minApiVersion > apiVersion) {
+      throw new Error('Plugin apiVersion and minApiVersion must be integers, with minApiVersion not greater than apiVersion.');
+    }
+    if (apiVersion < MIN_PLUGIN_API_VERSION) {
+      throw new Error(`Plugin apiVersion ${apiVersion} is no longer supported; ${supported}.`);
+    }
+    if (minApiVersion > PLUGIN_API_VERSION) {
+      throw new Error(`Plugin requires Plugin API v${minApiVersion} or newer (apiVersion ${apiVersion}); ${supported}. Update Avi.`);
+    }
+    const compatibilityWarnings = apiVersion > PLUGIN_API_VERSION ? [] : null;
     const unsupported = Object.keys(definition).filter((key) => !DEFINITION_FIELDS.has(key));
-    if (unsupported.length) {
+    if (unsupported.length && !compatibilityWarnings) {
       throw new Error(`Plugin definition does not support field "${unsupported[0]}".`);
     }
-    if (definition.apiVersion !== PLUGIN_API_VERSION) {
-      throw new Error(`Plugin apiVersion must be ${PLUGIN_API_VERSION}.`);
-    }
+    compatibilityWarnings?.push(...unsupported.map((key) => `Definition field "${key}" was ignored.`));
     const id = this.#requireId(definition.id, 'Plugin ID');
     const name = this.#requireText(definition.name, 'Plugin name');
     const version = this.#requireText(definition.version, 'Plugin version');
@@ -855,7 +929,14 @@ export class PluginManager {
     const description = definition.description == null
       ? ''
       : this.#requireText(definition.description, 'Plugin description');
-    const capabilities = this.runtime.validateCapabilities(definition.capabilities ?? []);
+    let requestedCapabilities = definition.capabilities ?? [];
+    if (compatibilityWarnings && Array.isArray(requestedCapabilities)) {
+      const unknownCapabilities = requestedCapabilities
+        .filter((item) => !PLUGIN_CAPABILITIES.includes(String(item ?? '').trim()));
+      compatibilityWarnings.push(...unknownCapabilities.map((item) => `Capability "${item}" was ignored.`));
+      requestedCapabilities = requestedCapabilities.filter((item) => !unknownCapabilities.includes(item));
+    }
+    const capabilities = this.runtime.validateCapabilities(requestedCapabilities);
     if (definition.activate != null && typeof definition.activate !== 'function') {
       throw new Error('Plugin activate must be a function.');
     }
@@ -867,35 +948,39 @@ export class PluginManager {
       throw new Error('Plugin contributions must be an object.');
     }
     const unknown = Object.keys(contributions).filter((key) => !CONTRIBUTION_TYPES.includes(key));
-    if (unknown.length) throw new Error(`Unknown contribution type "${unknown[0]}".`);
+    if (unknown.length && !compatibilityWarnings) throw new Error(`Unknown contribution type "${unknown[0]}".`);
+    compatibilityWarnings?.push(...unknown.map((key) => `Contribution type "${key}" was ignored.`));
 
     return {
       id,
       name,
       description,
       version,
+      apiVersion,
       sourcePath,
       capabilities,
       activate: definition.activate,
       deactivate: definition.deactivate,
       contributions: Object.fromEntries(CONTRIBUTION_TYPES.map((type) => [
         type,
-        this.#validateContributions(type, contributions[type] ?? []),
+        this.#validateContributions(type, contributions[type] ?? [], compatibilityWarnings),
       ])),
-      settings: this.#validateSettings(definition.settings ?? []),
+      settings: this.#validateSettings(definition.settings ?? [], compatibilityWarnings),
+      compatibilityWarnings: compatibilityWarnings ?? [],
     };
   }
 
-  #validateSettings(sections) {
+  #validateSettings(sections, compatibilityWarnings) {
     if (!Array.isArray(sections)) throw new Error('Plugin settings must be an array.');
     return sections.map((section, sectionIndex) => {
       if (!section || typeof section !== 'object' || Array.isArray(section)) {
         throw new Error(`settings[${sectionIndex}] must be an object.`);
       }
       const unsupportedSection = Object.keys(section).filter((key) => !['label', 'options'].includes(key));
-      if (unsupportedSection.length) {
+      if (unsupportedSection.length && !compatibilityWarnings) {
         throw new Error(`settings[${sectionIndex}] does not support field "${unsupportedSection[0]}".`);
       }
+      compatibilityWarnings?.push(...unsupportedSection.map((key) => `Field "settings[${sectionIndex}].${key}" was ignored.`));
       const label = this.#requireText(section.label, `settings[${sectionIndex}] label`);
       if (!Array.isArray(section.options) || section.options.length === 0) {
         throw new Error(`settings[${sectionIndex}] options must be a non-empty array.`);
@@ -909,9 +994,10 @@ export class PluginManager {
           }
           const supported = ['title', 'description', 'valueSchema', 'getValue', 'setValue', 'validate'];
           const unsupportedOption = Object.keys(option).filter((key) => !supported.includes(key));
-          if (unsupportedOption.length) {
+          if (unsupportedOption.length && !compatibilityWarnings) {
             throw new Error(`${path} does not support field "${unsupportedOption[0]}".`);
           }
+          compatibilityWarnings?.push(...unsupportedOption.map((key) => `Field "${path}.${key}" was ignored.`));
           const valueSchema = this.#normalizeSettingSchema(option.valueSchema, `${path}.valueSchema`);
           if (typeof option.getValue !== 'function') throw new Error(`${path} requires a getValue function.`);
           if (typeof option.setValue !== 'function') throw new Error(`${path} requires a setValue function.`);
@@ -988,7 +1074,7 @@ export class PluginManager {
     return schema;
   }
 
-  #validateContributions(type, values) {
+  #validateContributions(type, values, compatibilityWarnings) {
     if (!Array.isArray(values)) throw new Error(`${type} contributions must be an array.`);
     const identifiers = new Set();
     return values.map((value, index) => {
@@ -996,12 +1082,14 @@ export class PluginManager {
         throw new Error(`${type}[${index}] must be an object.`);
       }
       const unsupported = Object.keys(value).filter((key) => !CONTRIBUTION_FIELDS[type].has(key));
-      if (unsupported.length) {
+      if (unsupported.length && !compatibilityWarnings) {
         throw new Error(`${type}[${index}] does not support field "${unsupported[0]}".`);
       }
+      compatibilityWarnings?.push(...unsupported.map((key) => `Field "${type}[${index}].${key}" was ignored.`));
       const descriptor = {};
       const handlers = {};
       for (const [key, item] of Object.entries(value)) {
+        if (unsupported.includes(key)) continue;
         if (typeof item === 'function') {
           if (!HANDLER_KEYS[type].has(key)) {
             throw new Error(`${type}[${index}] does not support handler "${key}".`);

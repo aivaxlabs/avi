@@ -26,6 +26,8 @@ embeddable: false
 - `plugins/.avi/<plugin-id>/context/` is materialized from accepted static context contributions.
 - Runtime context is stored under the plugin's managed `runtime-context/` root.
 - Plugin KV storage is isolated under `plugins/.avi-storage/<plugin-id>/storage.json` so context rematerialization does not erase it.
+- Packaged builds use `~/.aivax/plugins` as the plugin root, never the installation directory, because NSIS updates delete `$INSTDIR`. `installer/installer.nsh` and `PluginManager` `legacyPluginsDirs` migrate the location used by Avi 0.8.0 and earlier.
+- Supported API versions are `MIN_PLUGIN_API_VERSION`–`PLUGIN_API_VERSION` in `src/main/plugin-api.js`. When adding API v3, keep v2 in range unless it is deliberately retired, and record the range in `CHANGELOG.plugins.md`.
 - Never edit managed output directly. Change the plugin source or use the public runtime API.
 
 ## Validation

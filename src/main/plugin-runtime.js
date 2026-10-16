@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { PLUGIN_API_VERSION } from './plugin-api.js';
 import { traceError } from './trace-log.js';
 
 const ID_PATTERN = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/i;
@@ -508,7 +509,7 @@ export class PluginRuntime {
     const storage = this.#storage(record);
     const domain = this.services.createDomainApi?.({ runtime, record, storage }) ?? {};
     return Object.freeze({
-      apiVersion: 2,
+      apiVersion: PLUGIN_API_VERSION,
       plugin: Object.freeze({ id: record.id }),
       app: Object.freeze({
         getInfo: () => {

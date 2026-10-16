@@ -114,6 +114,7 @@
     span { color: var(--text-2); font-size: .9rem; }
   }
   .plugin-error { margin-top: 9px; color: var(--danger-color); font-size: .9rem; overflow-wrap: anywhere; }
+  .plugin-warning { margin-top: 9px; color: var(--warn-color); font-size: .9rem; overflow-wrap: anywhere; }
   .plugins-empty { display: flex; align-items: center; gap: 9px; color: var(--text-3); font-size: .9rem; }
 
   @media (max-width: 680px) {

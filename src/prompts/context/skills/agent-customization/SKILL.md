@@ -30,7 +30,7 @@ Use instructions for behavior that should apply repeatedly. Use a workflow or sk
 | User-global | `$HOME/.agents/AGENTS.md` or bot-only `BOTS.md` | `$HOME/.agents/workflows/*.md` | `$HOME/.agents/skills/<name>/SKILL.md` | `$HOME/.agents/mcpconfig.json` | — |
 | Project | `$PWD/AGENTS.md`, `$PWD/.agents/AGENTS.<subject>.md`, or bot-only `BOTS.md` | `$PWD/.agents/workflows/*.md` | `$PWD/.agents/skills/<name>/SKILL.md` | `$PWD/.agents/mcpconfig.json` | — |
 | Project subdirectory | `<dir>/AGENTS.md`, an explicitly scoped `$PWD/.agents/AGENTS.<subject>.md`, or bot-only `BOTS.md` | `<dir>/.agents/workflows/*.md` | `<dir>/.agents/skills/<name>/SKILL.md` | Configure the project scope | — |
-| Installation | Built-in context | Built-in context | Built-in context | — | `$INSTALL_DIR/plugins/*.js` |
+| Installation | Built-in context | Built-in context | Built-in context | — | `$HOME/.aivax/plugins/<id>/plugin.js` |
 
 A bare `$PWD/context/` directory is not a context root; project skills and workflows belong under `$PWD/.agents/`.
 

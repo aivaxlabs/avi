@@ -148,6 +148,11 @@ export function PluginsSettings() {
                   <small>{plugin.id}/{plugin.fileName}</small>
                   {!!capabilities.length && <div className="plugin-capabilities">{capabilities.map((capability) => <span key={capability}>{capability}</span>)}</div>}
                   {plugin.error && <div className="plugin-error">{plugin.error}</div>}
+                  {!!plugin.compatibilityWarnings?.length && (
+                    <div className="plugin-warning">
+                      Built for Plugin API v{plugin.apiVersion}; running in compatibility mode. {plugin.compatibilityWarnings.join(' ')}
+                    </div>
+                  )}
                 </div>
                 <div className="plugin-card-actions">
                   {(plugin.builtIn || (plugin.settings > 0 && plugin.enabled !== false && plugin.status === 'active')) && (
