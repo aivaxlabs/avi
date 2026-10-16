@@ -1,13 +1,12 @@
 import {
-  ArrowDown,
   ArrowLeft,
-  ArrowUp,
   Bot,
   BriefcaseBusiness,
   Clock3,
   Cpu,
   Database,
   FolderOpen,
+  GripVertical,
   Plus,
   RotateCcw,
   Save,
@@ -66,6 +65,7 @@ export function BotSettingsDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [mcpNavigation, setMcpNavigation] = useState(null);
+  const [queueDrag, setQueueDrag] = useState(null);
   const [scheduleWindowEnabled, setScheduleWindowEnabled] = useState(() => Boolean(
     bot?.activationWindow?.days?.length
     || Number.isInteger(bot?.activationWindow?.startMinute)
@@ -134,6 +134,14 @@ export function BotSettingsDialog({
 
   function update(changes) {
     setDraft((state) => ({ ...state, ...changes }));
+  }
+
+  function moveQueueItem(fromIndex, toIndex) {
+    if (fromIndex === toIndex || toIndex < 0 || toIndex >= draft.workQueue.length) return;
+    const workQueue = [...draft.workQueue];
+    const [item] = workQueue.splice(fromIndex, 1);
+    workQueue.splice(toIndex, 0, item);
+    update({ workQueue });
   }
 
   function toggleDay(day) {
@@ -346,15 +354,61 @@ export function BotSettingsDialog({
                   {draft.workQueue.length > 0 ? (
                     <ol className="bot-settings-work-queue">
                       {draft.workQueue.map((item, index) => (
-                        <li key={item.id} className="bot-settings-work-queue-item">
-                          <label className="sr-only" htmlFor={`bot-work-queue-${index}`}>
-                            Work queue item {index + 1}
-                          </label>
-                          <input className="input"
-                            id={`bot-work-queue-${index}`}
-                            type="text"
+                        <li
+                          key={item.id}
+                          className={classNames(
+                            'bot-settings-work-queue-item',
+                            queueDrag?.id === item.id && 'dragging',
+                            queueDrag?.overId === item.id && (queueDrag.after ? 'drop-after' : 'drop-before'),
+                          )}
+                          onDragOver={(event) => {
+                            if (!queueDrag || queueDrag.id === item.id) return;
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = 'move';
+                            const rect = event.currentTarget.getBoundingClientRect();
+                            const after = event.clientY > rect.top + rect.height / 2;
+                            if (queueDrag.overId !== item.id || queueDrag.after !== after) {
+                              setQueueDrag({ ...queueDrag, overId: item.id, after });
+                            }
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            if (!queueDrag || queueDrag.id === item.id) return;
+                            const fromIndex = draft.workQueue.findIndex((current) => current.id === queueDrag.id);
+                            const targetIndex = index + (queueDrag.after ? 1 : 0);
+                            moveQueueItem(fromIndex, fromIndex < targetIndex ? targetIndex - 1 : targetIndex);
+                            setQueueDrag(null);
+                          }}
+                        >
+                          <button
+                            className="bot-settings-work-queue-grip"
+                            type="button"
+                            draggable
+                            title="Drag or use the arrow keys to reorder"
+                            aria-label={`Reorder work queue item ${index + 1}`}
+                            onKeyDown={(event) => {
+                              if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+                              event.preventDefault();
+                              moveQueueItem(index, index + (event.key === 'ArrowUp' ? -1 : 1));
+                            }}
+                            onDragStart={(event) => {
+                              const row = event.currentTarget.closest('li');
+                              event.dataTransfer.effectAllowed = 'move';
+                              event.dataTransfer.setData('text/plain', item.id);
+                              event.dataTransfer.setDragImage(row, 16, 16);
+                              setQueueDrag({ id: item.id, overId: null, after: false });
+                            }}
+                            onDragEnd={() => setQueueDrag(null)}
+                          >
+                            <GripVertical size={14} aria-hidden="true" />
+                          </button>
+                          <span className="bot-settings-work-queue-index" aria-hidden="true">{index + 1}</span>
+                          <textarea
+                            className="input"
+                            rows={1}
                             value={item.value}
                             placeholder="Describe a recurring task"
+                            aria-label={`Work queue item ${index + 1}`}
                             onChange={(event) => update({
                               workQueue: draft.workQueue.map((current, itemIndex) => (
                                 itemIndex === index
@@ -363,52 +417,17 @@ export function BotSettingsDialog({
                               )),
                             })}
                           />
-                          <div className="bot-settings-work-queue-actions">
-                            <button
-                              className="icon-button tiny"
-                              type="button"
-                              disabled={index === 0}
-                              aria-label={`Move work queue item ${index + 1} up`}
-                              onClick={() => update({
-                                workQueue: draft.workQueue.map((current, itemIndex) => (
-                                  itemIndex === index - 1
-                                    ? draft.workQueue[index]
-                                    : itemIndex === index
-                                      ? draft.workQueue[index - 1]
-                                      : current
-                                )),
-                              })}
-                            >
-                              <ArrowUp size={14} aria-hidden="true" />
-                            </button>
-                            <button
-                              className="icon-button tiny"
-                              type="button"
-                              disabled={index === draft.workQueue.length - 1}
-                              aria-label={`Move work queue item ${index + 1} down`}
-                              onClick={() => update({
-                                workQueue: draft.workQueue.map((current, itemIndex) => (
-                                  itemIndex === index
-                                    ? draft.workQueue[index + 1]
-                                    : itemIndex === index + 1
-                                      ? draft.workQueue[index]
-                                      : current
-                                )),
-                              })}
-                            >
-                              <ArrowDown size={14} aria-hidden="true" />
-                            </button>
-                            <button
-                              className="icon-button tiny danger"
-                              type="button"
-                              aria-label={`Remove work queue item ${index + 1}`}
-                              onClick={() => update({
-                                workQueue: draft.workQueue.filter((_, itemIndex) => itemIndex !== index),
-                              })}
-                            >
-                              <Trash2 size={14} aria-hidden="true" />
-                            </button>
-                          </div>
+                          <button
+                            className="bot-settings-work-queue-remove"
+                            type="button"
+                            title="Remove task"
+                            aria-label={`Remove work queue item ${index + 1}`}
+                            onClick={() => update({
+                              workQueue: draft.workQueue.filter((_, itemIndex) => itemIndex !== index),
+                            })}
+                          >
+                            <Trash2 size={14} aria-hidden="true" />
+                          </button>
                         </li>
                       ))}
                     </ol>

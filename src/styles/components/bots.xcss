@@ -1216,43 +1216,129 @@
 
 .bot-settings-work-queue {
   display: grid;
-  gap: 8px;
   margin: 0;
-  padding: 0;
+  padding: 4px;
   list-style: none;
-}
-
-.bot-settings-work-queue-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  padding: 8px;
   background: var(--background-1);
   border: 1px solid var(--border-color);
   border-radius: 10px;
-
-  > .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
 }
 
-.bot-settings-work-queue-actions {
-  display: flex;
-  gap: 2px;
+.bot-settings-work-queue-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px 18px minmax(0, 1fr) 28px;
+  gap: 6px;
+  align-items: start;
+  padding: 6px;
+  border-radius: 8px;
+  transition: background 160ms var(--base-transition),
+    opacity 160ms var(--base-transition);
 
-  > button {
-    width: 28px;
-    height: 28px;
-    min-height: 28px;
+  + .bot-settings-work-queue-item {
+    border-top: 1px solid var(--border-color);
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
+
+  &:hover,
+  &:focus-within {
+    background: var(--item-hover);
+
+    > button.bot-settings-work-queue-grip,
+    > button.bot-settings-work-queue-remove {
+      opacity: 1;
+    }
+  }
+
+  &.dragging {
+    opacity: .45;
+  }
+
+  &.drop-before::before,
+  &.drop-after::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    height: 2px;
+    background: var(--control-accent);
+    border-radius: 2px;
+    pointer-events: none;
+  }
+
+  &.drop-before::before {
+    top: -1px;
+  }
+
+  &.drop-after::after {
+    bottom: -1px;
+  }
+
+  > textarea.input:not([readonly]) {
+    min-height: --control-height;
+    max-height: 240px;
+    padding-block: 5px;
+    field-sizing: content;
+    resize: none;
+    line-height: 18px;
+  }
+
+  > .bot-settings-work-queue-index {
+    height: --control-height;
+    display: grid;
+    place-items: center;
+    color: var(--text-4);
+    font-size: --font-xs;
+    font-variant-numeric: tabular-nums;
+  }
+
+  > button.bot-settings-work-queue-grip,
+  > button.bot-settings-work-queue-remove {
+    width: 22px;
+    height: --control-height;
+    min-height: 0;
+    display: grid;
+    place-items: center;
     padding: 0;
+    color: var(--text-3);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    opacity: .5;
+
+    > svg {
+      margin: 0;
+    }
+
+    &:hover,
+    &:focus-visible {
+      color: var(--text-1);
+      background: var(--item-active);
+      opacity: 1;
+    }
+
+    &:focus-visible {
+      outline: 2px solid --control-focus-ring;
+      outline-offset: 1px;
+    }
+  }
+
+  > button.bot-settings-work-queue-grip {
+    cursor: grab;
+
+    &:active {
+      cursor: grabbing;
+    }
+  }
+
+  > button.bot-settings-work-queue-remove {
+    width: 28px;
+
+    &:hover,
+    &:focus-visible {
+      color: var(--danger-color);
+    }
   }
 }
 
@@ -1612,13 +1698,8 @@
 
   .bot-settings-folder,
   .bot-settings-grid,
-  .bot-settings-choices,
-  .bot-settings-work-queue-item {
+  .bot-settings-choices {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .bot-settings-work-queue-actions {
-    justify-content: flex-end;
   }
 
   .bot-settings-folder input {
