@@ -797,6 +797,7 @@ export const ChatView = memo(function ChatView({
     const above = rect.top - height - 8;
     setSelectionAction({
       content,
+      messageId: startMessage.dataset.messageId,
       left: Math.max(8, Math.min(
         rect.left + rect.width / 2 - width / 2,
         window.innerWidth - width - 8,
@@ -966,7 +967,9 @@ export const ChatView = memo(function ChatView({
                     initialState={{
                       text: message.content,
                       attachments: message.attachments,
-                      model: message.model || currentModel,
+                      model: models.some((model) => model.id === message.model)
+                        ? message.model
+                        : currentModel,
                       reasoningEffort: message.reasoningEffort,
                       permissionMode: message.permissionMode || defaultPermissionMode,
                       workMode: message.workMode,
@@ -1547,6 +1550,7 @@ export const ChatView = memo(function ChatView({
                   source: 'chat',
                   workspacePath: currentProject?.path,
                   threadId: currentConversation?.id,
+                  messageId: selectionAction.messageId,
                   attachments: [attachment],
                 },
               }))}

@@ -3,7 +3,17 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { effectiveMediaSizeLimit } from '../shared/attachments.js';
-import { createConversation, insertMessage, messageToApiBlocks } from './database.js';
+import { SIDE_CHAT_QUICK_COMPRESSION_MARGIN } from './chat/constants.js';
+import { compactOldToolResults, countMessageContext } from './context-usage.js';
+import {
+  createConversation,
+  forkConversation,
+  getConversation,
+  getMessages,
+  insertMessage,
+  messageToApiBlocks,
+  updateConversation,
+} from './database.js';
 import { CLIENT_TOOLS, decorateToolsForInvocation, normalizeQuestions } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
 import { normalizeAttachmentsForModel } from './files.js';
@@ -83,7 +93,7 @@ export class QuickChatRunner {
     return this.state(id);
   }
 
-  async createQuestionSession({ source, workspacePath, threadId, botId, workLogId, attachments = [] } = {}) {
+  async createQuestionSession({ source, workspacePath, threadId, messageId, botId, workLogId, attachments = [] } = {}) {
     if (!QUICK_QUESTION_SOURCES.has(source)) throw new Error('Unsupported Quick question source.');
     const workspaceStat = isAbsolute(String(workspacePath ?? ''))
       ? await stat(workspacePath).catch(() => null)
@@ -104,21 +114,77 @@ export class QuickChatRunner {
           QUICK_QUESTION_MARKER_LIMIT,
         ),
       })));
+    const sourceConversation = source === 'chat' && typeof threadId === 'string' && threadId
+      ? getConversation(threadId)
+      : null;
+    const sourceMessages = sourceConversation ? getMessages(sourceConversation.id) : [];
+    const throughIndex = typeof messageId === 'string' && messageId
+      ? sourceMessages.findIndex((message) => message.id === messageId)
+      : -1;
+    const checkpointIndex = sourceConversation?.checkpointMessageId
+      ? sourceMessages.findIndex((message) => message.id === sourceConversation.checkpointMessageId)
+      : -1;
+    const checkpointBoundary = checkpointIndex >= 0 && checkpointIndex <= throughIndex;
+    const sourceHistory = throughIndex < 0 ? [] : [
+      ...(checkpointBoundary && sourceConversation.contextCheckpoint
+        ? [{
+          role: 'user',
+          content: `<conversation_checkpoint>\n${sourceConversation.contextCheckpoint}\n</conversation_checkpoint>`,
+          attachments: [],
+        }]
+        : []),
+      ...sourceMessages
+        .slice(checkpointBoundary ? checkpointIndex + 1 : 0, throughIndex + 1)
+        .filter((message) => !message.hidden && ['user', 'assistant'].includes(message.role))
+        .filter((message) => (
+          ['completed', 'sent', 'aborted'].includes(message.status) || message.id === messageId
+        )),
+    ];
     const state = this.createSession();
+    const sessionModel = this.registry.resolve(state.model)?.model;
+    const contextLimit = sessionModel?.context?.input;
+    const historyUsage = countMessageContext(sourceHistory.flatMap((message) => (
+      messageToApiBlocks(message, sessionModel?.capabilities)
+    )));
+    const historyTokens = (
+      historyUsage.messagesCharacters
+      + historyUsage.toolResultCharacters
+      + historyUsage.otherCharacters
+    ) / 4;
+    const compression = contextLimit && historyTokens / contextLimit
+      > this.getPreferences().tuning.automaticCompactionThreshold - SIDE_CHAT_QUICK_COMPRESSION_MARGIN
+      ? new Map(compactOldToolResults(sourceHistory).updates.map((update) => [update.id, update.segments]))
+      : new Map();
+    const history = sourceHistory.map((message) => (
+      compression.has(message.id) ? { ...message, segments: compression.get(message.id) } : message
+    ));
+    const contextAttributes = Object.entries({
+      'thread-id': threadId,
+      'message-id': history.length > 0 ? messageId : null,
+      'bot-id': botId,
+      'work-log-id': workLogId,
+    })
+      .filter(([, value]) => typeof value === 'string' && value)
+      .map(([name, value]) => ` ${name}="${escapeXml(value)}"`)
+      .join('');
     this.sessions.get(state.id).question = {
       workspacePath: workspace,
+      history,
+      sourceThreadId: history.length > 0 ? sourceConversation.id : null,
+      sourceMessageId: history.length > 0 ? messageId : null,
       attachments: [{
         id: randomUUID(),
         kind: 'context_marker',
         markerType: 'quick_question_context',
         name: 'Quick question context',
         size: 0,
-        text: `<quick_question_context source="${source}" workspace="${escapeXml(workspace)}"${
-          Object.entries({ 'thread-id': threadId, 'bot-id': botId, 'work-log-id': workLogId })
-            .filter(([, value]) => typeof value === 'string' && value)
-            .map(([name, value]) => ` ${name}="${escapeXml(value)}"`)
-            .join('')
-        } />`,
+        text: history.length > 0
+          ? [
+            `<quick_question_context source="${source}" workspace="${escapeXml(workspace)}"${contextAttributes}>`,
+            'This is a Quick question. The messages before this one are the source thread history through the message where the user selected the text below. Answer the question about that selection using this history; do not continue the source thread\'s task. Earlier tool calls belong to the source thread, not to this session.',
+            '</quick_question_context>',
+          ].join('\n')
+          : `<quick_question_context source="${source}" workspace="${escapeXml(workspace)}"${contextAttributes} />`,
       }, ...markers],
     };
     return state;
@@ -156,13 +222,24 @@ export class QuickChatRunner {
     if (session.run) throw new Error('Wait for the answer to finish before forking.');
     const firstQuestion = session.messages.find((message) => message.role === 'user')?.content ?? '';
     if (!firstQuestion) throw new Error('Ask a question before forking.');
-    const conversation = createConversation({
-      title: firstQuestion.length > 80 ? `${firstQuestion.slice(0, 77)}...` : firstQuestion,
-      model: session.model,
-      projectPath: session.question.workspacePath,
-      titleStatus: 'generated',
-    });
-    const now = Date.now();
+    const title = firstQuestion.length > 80 ? `${firstQuestion.slice(0, 77)}...` : firstQuestion;
+    const forked = session.question.sourceMessageId
+      ? forkConversation(session.question.sourceThreadId, {
+        throughMessageId: session.question.sourceMessageId,
+      })?.conversation
+      : null;
+    const conversation = forked
+      ? updateConversation(forked.id, { title, model: session.model, titleStatus: 'generated' })
+      : createConversation({
+        title,
+        model: session.model,
+        projectPath: session.question.workspacePath,
+        titleStatus: 'generated',
+      });
+    const now = Math.max(
+      Date.now(),
+      ...getMessages(conversation.id).map((message) => Date.parse(message.createdAt) + 1),
+    );
     session.messages.forEach((message, index) => insertMessage({
       ...message,
       id: randomUUID(),
@@ -372,7 +449,7 @@ export class QuickChatRunner {
           ),
         'full_access',
       );
-      const messages = session.messages
+      const messages = [...(session.question?.history ?? []), ...session.messages]
         .filter((message) => message.id !== assistantMessage.id)
         .flatMap((message) => messageToApiBlocks(message, selection.model.capabilities));
       const toolHistory = [];
