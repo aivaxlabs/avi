@@ -29,6 +29,10 @@ const CONNECTION_ERROR_CODES = new Set([
 const isConnectionError = (error) => [error, error?.cause]
   .some((candidate) => candidate && CONNECTION_ERROR_CODES.has(candidate.code));
 
+// Proxies built on Go relay an aborted upstream socket as text, not as an error code. Windows
+// reports WSAECONNABORTED with this message, which arrives wrapped in internal_server_error.
+const HOST_CONNECTION_ABORTED = 'An established connection was aborted by the software in your host machine';
+
 function normalizeCustomJson(value, label) {
   const json = String(value ?? '').trim();
   if (!json) return '';
@@ -216,12 +220,15 @@ export class ModelProvider {
         clearTimeout(connectTimeout);
       }
 
-      if (response) response = captureResponse(response, {
-        model: model.modelId,
-        providerId: this.config.id,
-        method: 'POST',
-        url: response.url,
-      });
+      if (response) {
+        response = captureResponse(response, {
+          model: model.modelId,
+          providerId: this.config.id,
+          method: 'POST',
+          url: response.url,
+        });
+        onEvent({ type: 'request-connected', connectMs: Date.now() - attemptStartedAt });
+      }
       const retryableResponse = response?.status >= 500 && response.status <= 599;
       if (retryableResponse) {
         traceVerbose('provider.retryable-response', {
@@ -336,6 +343,10 @@ export class ModelProvider {
                     event.code === 'server_error'
                     || event.code === 'provider_error'
                     || event.code === 'server_is_overloaded'
+                    || (
+                      event.code === 'internal_server_error'
+                      && String(event.message ?? '').includes(HOST_CONNECTION_ABORTED)
+                    )
                   )
                 ) {
                   retryError = event;

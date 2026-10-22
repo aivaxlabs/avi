@@ -47,6 +47,7 @@ export class StreamAccumulator {
     if (event.type === 'usage') {
       const previous = this.usage ?? {};
       this.usage = {
+        ...(previous.requests ? { requests: previous.requests } : {}),
         inputTokens: (previous.inputTokens ?? 0) + (event.usage.inputTokens ?? 0),
         outputTokens: (previous.outputTokens ?? 0) + (event.usage.outputTokens ?? 0),
         cachedInputTokens:
@@ -144,6 +145,7 @@ export class StreamAccumulator {
       ));
       if (toolCall) {
         toolCall.status = event.isError ? 'error' : 'completed';
+        if (event.errorKind) toolCall.errorKind = event.errorKind;
         toolCall.resultText = event.output;
         if (event.mediaContent?.length) toolCall.mediaContent = event.mediaContent;
       }

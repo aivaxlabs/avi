@@ -50,13 +50,33 @@ function toChatContent(content) {
   return content.map(resolveMediaContent);
 }
 
-function toResponsesInput(message, model) {
-  const providerContinuation = message[Symbol.for('avi.providerContinuation')];
-  if (
-    providerContinuation?.model === model.id
-    && providerContinuation.interface === model.interface
-    && Array.isArray(providerContinuation.items)
-  ) return providerContinuation.items;
+function savedContinuation(message, model) {
+  const saved = message[Symbol.for('avi.providerContinuation')];
+
+  return saved?.model === model.id
+    && saved.interface === model.interface
+    && Array.isArray(saved.items)
+    ? saved.items
+    : null;
+}
+
+function reasoningDetailsFrom(items) {
+  return items?.find((item) => item.type === 'reasoning_details')?.details;
+}
+
+function withThinkBlock(content, reasoning) {
+  const block = `<think>${reasoning}</think>`;
+
+  return Array.isArray(content)
+    ? [{ type: 'text', text: block }, ...content]
+    : `${block}${content ?? ''}`;
+}
+
+function toResponsesInput(message, model, reasoningReuse) {
+  const continuation = reasoningReuse === 'metadata' ? savedContinuation(message, model) : null;
+  if (continuation) return continuation;
+
+  const reasoning = reasoningReuse === 'think' ? message.reasoning_content : '';
 
   if (message.role === 'tool') {
     return [{
@@ -66,10 +86,9 @@ function toResponsesInput(message, model) {
     }];
   }
   if (message.role === 'assistant' && message.tool_calls?.length) {
-    const assistantText = [
-      message.reasoning_content ? `<think>${message.reasoning_content}</think>` : '',
-      message.content ?? '',
-    ].filter(Boolean).join('');
+    const assistantText = reasoning
+      ? withThinkBlock(message.content, reasoning)
+      : message.content ?? '';
     return [
       ...(assistantText
         ? [{
@@ -87,32 +106,38 @@ function toResponsesInput(message, model) {
     ];
   }
 
-  const {
-    reasoning_content: reasoningContent,
-    ...inputMessage
-  } = message;
+  const { reasoning_content: _reasoningContent, ...inputMessage } = message;
+  const content = reasoning ? withThinkBlock(message.content, reasoning) : message.content;
   return [{
     ...inputMessage,
-    content: Array.isArray(message.content)
-      ? toResponsesContent(message.content)
-      : reasoningContent
-        ? `<think>${reasoningContent}</think>${message.content ?? ''}`
-        : message.content,
+    content: Array.isArray(content) ? toResponsesContent(content) : content,
   }];
 }
 
 const reasoningFormatField = {
   id: 'reasoningFormat',
-  label: 'Reasoning format',
+  label: 'Reasoning effort format',
   type: 'select',
   default: 'default',
-  description: 'Controls how the selected reasoning effort is mapped into the request body.',
+  description: 'Controls how the selected reasoning effort is mapped into the request body. Default uses $.reasoning_effort for Chat completions and $.reasoning.effort for Responses.',
   options: [
-    { value: 'default', label: 'Default ($.reasoning_effort)' },
+    { value: 'default', label: 'Default (by interface)' },
     { value: 'modern', label: 'Modern ($.reasoning.effort)' },
     { value: 'anthropic', label: 'Anthropic ($.reasoning.max_tokens)' },
     { value: 'qwen', label: 'Qwen ($.enable_thinking + $.thinking_budget)' },
     { value: 'mistral', label: 'Mistral ($.reasoning_effort + thinking chunks)' },
+  ],
+};
+const reasoningReuseField = {
+  id: 'reasoningReuse',
+  label: 'Reasoning reuse',
+  type: 'select',
+  default: 'metadata',
+  description: 'Controls how previous assistant reasoning is sent back to the model.',
+  options: [
+    { value: 'metadata', label: 'Forward as metadata' },
+    { value: 'think', label: 'Forward as <think> block' },
+    { value: 'none', label: 'Do not forward reasoning' },
   ],
 };
 const inferenceParameterFields = [
@@ -167,6 +192,7 @@ export const responsesApi = {
   }) {
     const prepared = await prepareProviderInvocation(invocationContext);
     const serializedTools = serializeTools(tools);
+    const reasoningReuse = provider.reasoningReuse || 'metadata';
 
     return applyCustomJson({
       model: model.modelId,
@@ -174,51 +200,54 @@ export const responsesApi = {
       ...(model.context?.output ? { max_output_tokens: model.context.output } : {}),
       ...(prepared.dynamicContext ? { instructions: prepared.dynamicContext } : {}),
       input: [
-        ...messages.flatMap((message) => toResponsesInput(message, model)),
-        ...toolHistory.flatMap((round) => [
-          ...(round.continuation ?? []),
-          ...((round.reasoningContent || round.assistantContent)
-            && !round.continuation?.some((item) => item.type === 'message')
-            ? [{
-                type: 'message',
-                role: 'assistant',
-                content: [{
-                  type: 'output_text',
-                  text: `${round.reasoningContent ? `<think>${round.reasoningContent}</think>` : ''}${round.assistantContent ?? ''}`,
-                }],
-              }]
-            : []),
-          ...round.toolCalls
-            .filter((toolCall) => !round.continuation?.some((item) => (
-              item.type === 'function_call' && item.call_id === toolCall.callId
-            )))
-            .map((toolCall) => ({
-              type: 'function_call',
-              call_id: toolCall.callId,
-              name: toolCall.name,
-              arguments: toolCall.argumentsText,
-            })),
-          ...round.results.flatMap((result) => [
-            {
-              type: 'function_call_output',
-              call_id: result.callId,
-              output: result.output,
-            },
-            ...(result.mediaContent?.length
+        ...messages.flatMap((message) => toResponsesInput(message, model, reasoningReuse)),
+        ...toolHistory.flatMap((round) => {
+          const continuation = reasoningReuse === 'metadata' ? round.continuation ?? [] : [];
+          const assistantText = reasoningReuse === 'think' && round.reasoningContent
+            ? withThinkBlock(round.assistantContent, round.reasoningContent)
+            : round.assistantContent;
+
+          return [
+            ...continuation,
+            ...(assistantText && !continuation.some((item) => item.type === 'message')
               ? [{
                   type: 'message',
-                  role: 'user',
-                  content: toResponsesContent(result.mediaContent),
+                  role: 'assistant',
+                  content: [{ type: 'output_text', text: assistantText }],
                 }]
               : []),
-          ]),
-          ...(round.messages ?? []).map((message) => ({
-            ...message,
-            content: Array.isArray(message.content)
-              ? toResponsesContent(message.content)
-              : message.content,
-          })),
-        ]),
+            ...round.toolCalls
+              .filter((toolCall) => !continuation.some((item) => (
+                item.type === 'function_call' && item.call_id === toolCall.callId
+              )))
+              .map((toolCall) => ({
+                type: 'function_call',
+                call_id: toolCall.callId,
+                name: toolCall.name,
+                arguments: toolCall.argumentsText,
+              })),
+            ...round.results.flatMap((result) => [
+              {
+                type: 'function_call_output',
+                call_id: result.callId,
+                output: result.output,
+              },
+              ...(result.mediaContent?.length
+                ? [{
+                    type: 'message',
+                    role: 'user',
+                    content: toResponsesContent(result.mediaContent),
+                  }]
+                : []),
+            ]),
+            ...(round.messages ?? []).map((message) => ({
+              ...message,
+              content: Array.isArray(message.content)
+                ? toResponsesContent(message.content)
+                : message.content,
+            })),
+          ];
+        }),
       ],
       ...(serializedTools.length > 0
         ? {
@@ -231,7 +260,7 @@ export const responsesApi = {
         : {}),
       stream: true,
       store: false,
-      ...reasoningRequestFields(reasoningEffort, provider.reasoningFormat ?? 'modern'),
+      ...reasoningRequestFields(reasoningEffort, provider.reasoningFormat, 'modern'),
       ...(model.serviceTier ? { service_tier: model.serviceTier } : {}),
     }, provider, model);
   },
@@ -363,7 +392,7 @@ export const chatCompletionsApi = {
           content: Array.isArray(message.content)
             ? toChatContent(message.content)
             : message.content,
-        }, provider.reasoningFormat)),
+        }, provider, reasoningDetailsFrom(savedContinuation(message, model)))),
         ...toolHistory.flatMap((round) => [
           toChatReasoningMessage({
             role: 'assistant',
@@ -381,7 +410,7 @@ export const chatCompletionsApi = {
                   })),
                 }
               : {}),
-          }, provider.reasoningFormat),
+          }, provider, reasoningDetailsFrom(round.continuation)),
           ...round.results.map((result) => ({
             role: 'tool',
             tool_call_id: result.callId,
@@ -411,10 +440,10 @@ export const chatCompletionsApi = {
         : {}),
       stream: true,
       stream_options: { include_usage: true },
-      ...reasoningRequestFields(reasoningEffort, provider.reasoningFormat),
+      ...reasoningRequestFields(reasoningEffort, provider.reasoningFormat, 'chat'),
     }, provider, model);
   },
-  eventsFrom(payload) {
+  eventsFrom(payload, state = {}) {
     const events = [];
 
     if (payload?.error) {
@@ -431,19 +460,31 @@ export const chatCompletionsApi = {
       const delta = choice?.delta;
       if (!delta) continue;
 
-      const reasoningDetails = Array.isArray(delta.reasoning_details)
-        ? delta.reasoning_details
-          .map((item) => item?.text ?? item?.summary ?? '')
-          .filter(Boolean)
-          .join('')
-        : '';
+      const incomingDetails = Array.isArray(delta.reasoning_details) ? delta.reasoning_details : [];
+      if (incomingDetails.length > 0) {
+        const details = state.reasoningDetails ??= [];
+        for (const detail of incomingDetails) {
+          const last = details.at(-1);
+          const textField = { 'reasoning.text': 'text', 'reasoning.summary': 'summary' }[detail?.type];
+          if (textField && last?.type === detail.type && last.index === detail.index) {
+            Object.assign(last, { ...detail, [textField]: `${last[textField] ?? ''}${detail[textField] ?? ''}` });
+          } else {
+            details.push({ ...detail });
+          }
+        }
+        events.push({ type: 'continuation', items: [{ type: 'reasoning_details', details }] });
+      }
+      const detailsText = incomingDetails
+        .map((item) => item?.text ?? item?.summary ?? '')
+        .filter(Boolean)
+        .join('');
       const contentParts = Array.isArray(delta.content) ? delta.content : [];
       const partsReasoning = contentParts
         .filter((part) => part?.type === 'thinking')
         .flatMap((part) => Array.isArray(part.thinking) ? part.thinking : [part.thinking])
         .map((item) => typeof item === 'string' ? item : item?.text ?? '')
         .join('');
-      const reasoning = reasoningDetails
+      const reasoning = detailsText
         || delta.reasoning
         || delta.reasoning_content
         || partsReasoning;
@@ -507,7 +548,7 @@ export const openAiCompatibleProviderTypes = [
       connection: 'custom',
       models: 'custom',
       supportsModelListing: true,
-      fields: [reasoningFormatField, ...inferenceParameterFields, customJsonField],
+      fields: [reasoningFormatField, reasoningReuseField, ...inferenceParameterFields, customJsonField],
     },
     ...responsesApi,
     request: (context) => requestOpenAiCompatible(context, '/v1/responses'),
@@ -523,7 +564,7 @@ export const openAiCompatibleProviderTypes = [
       connection: 'custom',
       models: 'custom',
       supportsModelListing: true,
-      fields: [reasoningFormatField, ...inferenceParameterFields, customJsonField],
+      fields: [reasoningFormatField, reasoningReuseField, ...inferenceParameterFields, customJsonField],
     },
     ...chatCompletionsApi,
     request: (context) => requestOpenAiCompatible(context, '/v1/chat/completions'),
@@ -548,12 +589,12 @@ function inferenceRequestFields(provider) {
   }, {});
 }
 
-function reasoningRequestFields(reasoningEffort, format = 'default') {
+function reasoningRequestFields(reasoningEffort, format, interfaceFormat) {
   if (!reasoningEffort) return {};
   const budget = reasoningBudgets[reasoningEffort] ?? 0;
 
   return {
-    default: { reasoning_effort: reasoningEffort },
+    chat: { reasoning_effort: reasoningEffort },
     modern: { reasoning: { effort: reasoningEffort } },
     anthropic: { reasoning: { max_tokens: budget } },
     qwen: {
@@ -561,12 +602,18 @@ function reasoningRequestFields(reasoningEffort, format = 'default') {
       thinking_budget: budget,
     },
     mistral: { reasoning_effort: reasoningEffort },
-  }[format];
+  }[!format || format === 'default' ? interfaceFormat : format];
 }
 
-function toChatReasoningMessage({ reasoning_content: reasoning, ...message }, reasoningFormat) {
+function toChatReasoningMessage({ reasoning_content: reasoning, ...message }, provider, reasoningDetails) {
+  const reasoningReuse = provider.reasoningReuse || 'metadata';
+  if (reasoningReuse === 'none') return message;
+  if (reasoningReuse === 'think') {
+    return reasoning ? { ...message, content: withThinkBlock(message.content, reasoning) } : message;
+  }
+  if (reasoningDetails?.length) return { ...message, reasoning_details: reasoningDetails };
   if (!reasoning) return message;
-  if (reasoningFormat !== 'mistral') return { ...message, reasoning_content: reasoning };
+  if (provider.reasoningFormat !== 'mistral') return { ...message, reasoning_content: reasoning };
 
   return {
     ...message,

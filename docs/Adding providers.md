@@ -2,6 +2,8 @@
 
 Providers contribute models, tools, and auxiliary panels to Avi. Only enabled providers and enabled models enter the runtime catalog.
 
+**Add provider** groups provider types into **Subscriptions**, which sign in with an existing consumer plan and use a managed model catalog, and **API**, which connect an endpoint with an API key. Provider types with a `managed` connection, including plugin types, appear under Subscriptions.
+
 ## OpenAI Subscription
 
 1. Open **Settings → Providers → Add provider**.
@@ -15,6 +17,19 @@ The managed catalog currently includes GPT-6 Astra and Astra (1M); GPT-5.6 Sol, 
 
 OAuth credentials are encrypted locally. **Disconnect** removes the provider session, and removing the provider also signs it out.
 
+## X Subscription
+
+Use a SuperGrok or X Premium subscription through xAI OAuth, the same sign-in used by Grok Build and OpenCode.
+
+1. Open **Settings → Providers → Add provider**.
+2. Select **X Subscription**, choose a name, and save it.
+3. Open the provider and select **Sign in with xAI**.
+4. Enter the displayed **Security code** on the xAI authorization page and complete sign-in.
+
+Requests use the xAI Responses API (`api.x.ai/v1/responses`) with the OAuth access token. The managed catalog includes Grok 4.7 (500,000 input tokens, reasoning up to `xhigh`); Grok 4.6, 4.5, and 4.3 (4.3 has a 1M context window); and Grok Build 0.1. xAI decides which models each subscription can use, so a model outside your plan returns an error from xAI.
+
+Credentials are encrypted locally and refreshed automatically. **Disconnect** or removing the provider signs it out.
+
 ## OpenAI-compatible providers
 
 Choose **OpenAI Compatible · Responses API** or **OpenAI Compatible · Chat completions API**, then configure:
@@ -22,7 +37,8 @@ Choose **OpenAI Compatible · Responses API** or **OpenAI Compatible · Chat com
 - **Name**;
 - an HTTP or HTTPS **Base URL**;
 - **API key**, optional for unauthenticated local endpoints;
-- **Reasoning format**;
+- **Reasoning effort format**;
+- **Reasoning reuse**;
 - optional **Temperature** and **Top K** inference hyperparameters;
 - optional **Custom JSON**;
 - **Enabled**.
@@ -33,14 +49,23 @@ Temperature and Top K are sent as numeric `temperature` and `top_k` request fiel
 
 Avi appends `/v1/responses` or `/v1/chat/completions` when the endpoint path is not already present.
 
-Supported reasoning mappings are:
+**Reasoning effort format** controls how the selected reasoning effort is sent:
 
-- **Default** — `reasoning_effort`;
+- **Default** — depends on the interface: `reasoning_effort` for Chat completions and `reasoning.effort` for Responses;
 - **Modern** — `reasoning.effort`;
 - **Anthropic** — `reasoning.max_tokens`;
-- **Qwen** — `enable_thinking` and `thinking_budget`.
+- **Qwen** — `enable_thinking` and `thinking_budget`;
+- **Mistral** — `reasoning_effort`, with reasoning forwarded as `thinking` content chunks.
 
 Choose the format actually implemented by the endpoint.
+
+**Reasoning reuse** controls how earlier assistant reasoning is sent back on later requests:
+
+- **Forward as metadata** (default) — replays the provider's own reasoning data when the same model and interface produced it: Responses `reasoning` items (including `encrypted_content`) and Chat completions `reasoning_details` (including signed and encrypted entries). Without that data, Chat completions sends the reasoning text as `reasoning_content`; Responses omits it, because reasoning items cannot be rebuilt without their original IDs;
+- **Forward as `<think>` block** — prefixes the reasoning text to the assistant content as `<think>...</think>`, for endpoints that only read reasoning from the message text;
+- **Do not forward reasoning** — sends only assistant text and tool calls.
+
+Reasoning is always shown in the chat; this setting only affects what is sent to the model.
 
 ## Add a custom model
 
@@ -66,6 +91,7 @@ Open **Settings → Routers** to expose multiple configured models as one catalo
 
 - **Fallback** starts with the first available model and moves down the list when a provider exhausts its normal connection retries or is rate-limited.
 - **Round robin** rotates the starting model for each request, then uses the remaining models as fallbacks in order.
+- **Fusion** pairs a lead model with a sidekick model, each with its own reasoning effort. See [Fusion](Fusion.md); the fallback and catalog rules below do not apply to Fusion routers.
 
 A model that exhausts its connection retries, or that answers with HTTP 429 or a quota error such as `INFERENCE_CAP_ERROR`, is skipped immediately and that router does not retry it for 10 minutes. Missing or disabled models remain visible as unavailable in the editor so you can repair the configuration. Other errors, such as invalid requests or unsupported input, are returned immediately instead of trying another model.
 

@@ -127,6 +127,54 @@ for (const api of [chatCompletionsApi, responsesApi]) {
   assert.equal({}.polluted, undefined);
 }
 
+const reasoningModel = { id: 'p:m', modelId: 'm', interface: 'chat-completions' };
+const reasoningDetails = [{ type: 'reasoning.encrypted', data: 'opaque', index: 0 }];
+const assistantWithDetails = { role: 'assistant', content: 'Answer', reasoning_content: 'Thought' };
+Object.defineProperty(assistantWithDetails, Symbol.for('avi.providerContinuation'), {
+  value: { model: 'p:m', interface: 'chat-completions', items: [{ type: 'reasoning_details', details: reasoningDetails }] },
+});
+const reasoningBody = (api, provider, messages = [assistantWithDetails]) => api.createBody({
+  provider,
+  model: { ...reasoningModel, interface: api === responsesApi ? 'responses' : 'chat-completions' },
+  messages,
+  reasoningEffort: 'high',
+  tools: [],
+  toolHistory: [],
+  invocationContext: { auxiliary: true },
+});
+
+assert.equal((await reasoningBody(chatCompletionsApi, { reasoningFormat: 'default' })).reasoning_effort, 'high');
+assert.deepEqual((await reasoningBody(responsesApi, { reasoningFormat: 'default' })).reasoning, { effort: 'high' });
+assert.deepEqual((await reasoningBody(chatCompletionsApi, { reasoningFormat: 'modern' })).reasoning, { effort: 'high' });
+assert.equal((await reasoningBody(responsesApi, { reasoningFormat: 'qwen' })).thinking_budget, 4_096);
+
+const metadataMessage = (await reasoningBody(chatCompletionsApi, { reasoningReuse: 'metadata' })).messages[0];
+assert.deepEqual(metadataMessage.reasoning_details, reasoningDetails);
+assert.equal(metadataMessage.reasoning_content, undefined);
+const plainAssistant = { role: 'assistant', content: 'Answer', reasoning_content: 'Thought' };
+assert.equal((await reasoningBody(chatCompletionsApi, {}, [plainAssistant])).messages[0].reasoning_content, 'Thought');
+const thinkMessage = (await reasoningBody(chatCompletionsApi, { reasoningReuse: 'think' })).messages[0];
+assert.equal(thinkMessage.content, '<think>Thought</think>Answer');
+assert.equal(thinkMessage.reasoning_details, undefined);
+const noneMessage = (await reasoningBody(chatCompletionsApi, { reasoningReuse: 'none' })).messages[0];
+assert.deepEqual(noneMessage, { role: 'assistant', content: 'Answer' });
+
+assert.deepEqual((await reasoningBody(responsesApi, {}, [plainAssistant])).input[0].content, 'Answer');
+assert.equal((await reasoningBody(responsesApi, { reasoningReuse: 'think' }, [plainAssistant])).input[0].content, '<think>Thought</think>Answer');
+
+const streamState = {};
+for (const detail of [
+  { type: 'reasoning.text', text: 'Hel', index: 0 },
+  { type: 'reasoning.text', text: 'lo', index: 0, signature: 'sig' },
+  { type: 'reasoning.encrypted', data: 'opaque', index: 1 },
+]) {
+  chatCompletionsApi.eventsFrom({ choices: [{ delta: { reasoning_details: [detail] } }] }, streamState);
+}
+assert.deepEqual(streamState.reasoningDetails, [
+  { type: 'reasoning.text', text: 'Hello', index: 0, signature: 'sig' },
+  { type: 'reasoning.encrypted', data: 'opaque', index: 1 },
+]);
+
 const subscriptionRegistry = new ModelProviderRegistry({
   getProviders: () => [],
   providerTypes: [openAiSubscriptionProviderType],
