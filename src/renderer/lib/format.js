@@ -17,6 +17,12 @@ export function formatQuota(bytes) {
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
+export function formatMetricDuration(value) {
+  if (!Number.isFinite(value)) return '—';
+  if (value < 1000) return `${Math.round(value)} ms`;
+  return `${(value / 1000).toFixed(value < 10_000 ? 2 : 1)} s`;
+}
+
 export function classNames(...items) {
   return items.filter(Boolean).join(' ');
 }

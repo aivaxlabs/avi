@@ -1,7 +1,5 @@
-import { ArrowUp, ChevronDown, Mic, Paperclip, Square, UploadCloud, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { ArrowUp, ChevronDown, LoaderCircle, Mic, Paperclip, Square, UploadCloud, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { createMp3Attachment } from './lib/audio.js';
 import { fileToAttachment, formatBytes, textToAttachment } from './lib/files.js';
 import { Message } from './components/Message.jsx';
@@ -10,6 +8,7 @@ import { applyTheme, readAppearance } from './lib/apply-theme.js';
 import { useStreamingAutoScroll } from './lib/use-streaming-auto-scroll.js';
 import { setPluginThemes } from './lib/themes.js';
 import { Presence } from './components/Overlay.jsx';
+import { QuestionForm } from './components/QuestionForm.jsx';
 
 const api = window.chatApp;
 const sessionId = new URLSearchParams(window.location.search).get('session');
@@ -87,6 +86,16 @@ export default function QuickChatApp() {
   const selectedModel = models.find((item) => item.id === model);
   const modelName = selectedModel?.name ?? selectedModel?.modelId ?? 'Choose model';
 
+  function resolveQuickQuestion(answers, cancelled) {
+    api.quickChat.answerQuestion({
+      sessionId,
+      questionId: questionRequest.questionId,
+      answers,
+      cancelled,
+    });
+    setQuestionRequest(null);
+  }
+
   return (
     <main
       className="quick-chat-shell"
@@ -144,24 +153,21 @@ export default function QuickChatApp() {
           </div>
         )}
         {questionRequest && (
-          <QuickQuestion
-            request={questionRequest}
-            onActivity={() => {
-              api.quickChat.questionActivity({
-                sessionId,
-                questionId: questionRequest.questionId,
-              }).catch(console.error);
-            }}
-            onResolve={(answers, cancelled = false) => {
-              api.quickChat.answerQuestion({
-                sessionId,
-                questionId: questionRequest.questionId,
-                answers,
-                cancelled,
-              });
-              setQuestionRequest(null);
-            }}
-          />
+          <div className="quick-question">
+            <QuestionForm
+              key={questionRequest.questionId}
+              formId={questionRequest.questionId}
+              questions={questionRequest.questions}
+              onActivity={() => {
+                api.quickChat.questionActivity({
+                  sessionId,
+                  questionId: questionRequest.questionId,
+                }).catch(console.error);
+              }}
+              onSubmit={(answers) => resolveQuickQuestion(answers, false)}
+              onCancel={() => resolveQuickQuestion([], true)}
+            />
+          </div>
         )}
       </section>
       {error && <div className="quick-chat-error">{error}</div>}
@@ -227,7 +233,9 @@ function QuickComposer({
   }
 
   async function toggleRecording() {
+    if (recording?.processing) return;
     if (recording) {
+      setRecording({ ...recording, processing: true });
       recording.recorder.stop();
       return;
     }
@@ -237,9 +245,12 @@ function QuickComposer({
     recorder.addEventListener('dataavailable', (event) => chunks.push(event.data));
     recorder.addEventListener('stop', async () => {
       stream.getTracks().forEach((track) => track.stop());
-      const attachment = await createMp3Attachment(chunks);
-      setAttachments((current) => [...current, attachment]);
-      setRecording(null);
+      try {
+        const attachment = await createMp3Attachment(chunks);
+        setAttachments((current) => [...current, attachment]);
+      } finally {
+        setRecording(null);
+      }
     }, { once: true });
     recorder.start();
     setRecording({ recorder });
@@ -301,11 +312,14 @@ function QuickComposer({
           <button
             className={`quick-icon-button${recording ? ' active' : ''}`}
             type="button"
-            aria-label={recording ? 'Stop recording' : 'Record audio'}
-            title={recording ? 'Stop recording' : 'Record audio'}
+            aria-label={recording?.processing ? 'Processing audio' : recording ? 'Stop recording' : 'Record audio'}
+            title={recording?.processing ? 'Processing audio...' : recording ? 'Stop recording' : 'Record audio'}
+            disabled={recording?.processing}
             onClick={() => void toggleRecording()}
           >
-            {recording ? <Square size={15} /> : <Mic size={18} />}
+            {recording?.processing
+              ? <LoaderCircle className="recording-spinner" size={15} />
+              : recording ? <Square size={15} /> : <Mic size={18} />}
           </button>
         </div>
         <button className="quick-model-button" type="button" onClick={() => setPickerOpen(true)}>
@@ -347,138 +361,4 @@ function hasFileTransfer(dataTransfer) {
     });
   }
   return Array.from(dataTransfer.types ?? []).includes('Files');
-}
-
-function QuickQuestion({ request, onResolve, onActivity }) {
-  const [answers, setAnswers] = useState(() => request.questions.map((question) => (
-    question.type === 'multiple_choice' ? [] : ''
-  )));
-  const [customAnswers, setCustomAnswers] = useState(() => request.questions.map(() => ''));
-  const [customActive, setCustomActive] = useState(() => request.questions.map(() => false));
-  const complete = useMemo(() => request.questions.every((question, index) => {
-    if (question.type === 'free_text') return Boolean(answers[index]?.trim());
-    if (customActive[index]) return Boolean(customAnswers[index]?.trim());
-    return question.type === 'multiple_choice'
-      ? answers[index]?.length > 0
-      : Boolean(answers[index]);
-  }), [answers, customActive, customAnswers, request.questions]);
-
-  return (
-    <form
-      className="quick-question"
-      onPointerMove={onActivity}
-      onPointerDown={onActivity}
-      onClick={onActivity}
-      onKeyDownCapture={onActivity}
-      onInput={onActivity}
-      onWheel={onActivity}
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!complete) return;
-        onResolve(request.questions.map((question, index) => ({
-          question: question.question,
-          answer: customActive[index]
-            ? question.type === 'multiple_choice'
-              ? [...answers[index], customAnswers[index].trim()]
-              : customAnswers[index].trim()
-            : answers[index],
-        })));
-      }}
-    >
-      {request.questions.map((question, index) => (
-        <fieldset key={`${question.question}:${index}`}>
-          <legend>{question.question}</legend>
-          {question.type === 'free_text' ? (
-            <textarea value={answers[index]} onChange={(event) => setAnswers((current) => {
-              const next = [...current];
-              next[index] = event.target.value;
-              return next;
-            })} />
-          ) : (
-            <div className="quick-question-options">
-              {question.options.map((option, optionIndex) => (
-                <label key={option}>
-                  <input
-                    type={question.type === 'multiple_choice' ? 'checkbox' : 'radio'}
-                    name={`question-${index}`}
-                    checked={question.type === 'multiple_choice'
-                      ? answers[index]?.includes(option)
-                      : answers[index] === option && !customActive[index]}
-                    onChange={(event) => {
-                      if (question.type === 'single_choice') {
-                        setCustomActive((current) => {
-                          const next = [...current];
-                          next[index] = false;
-                          return next;
-                        });
-                      }
-                      setAnswers((current) => {
-                        const next = [...current];
-                        if (question.type === 'multiple_choice') {
-                          const selected = new Set(next[index] || []);
-                          if (event.target.checked) selected.add(option);
-                          else selected.delete(option);
-                          next[index] = [...selected];
-                        } else next[index] = option;
-                        return next;
-                      });
-                    }}
-                  />
-                  <span className="quick-question-option-copy">
-                    <span>{option}</span>
-                    {question.optionDescriptions?.[optionIndex] && (
-                      <span className="quick-question-option-description">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            a: ({ node: _node, ...props }) => (
-                              <a {...props} target="_blank" rel="noreferrer" />
-                            ),
-                          }}
-                        >
-                          {question.optionDescriptions[optionIndex]}
-                        </ReactMarkdown>
-                      </span>
-                    )}
-                  </span>
-                </label>
-              ))}
-              <label>
-                <input
-                  type={question.type === 'multiple_choice' ? 'checkbox' : 'radio'}
-                  name={`question-${index}`}
-                  checked={customActive[index]}
-                  onChange={(event) => setCustomActive((current) => {
-                    const next = [...current];
-                    next[index] = event.target.checked;
-                    return next;
-                  })}
-                />
-                Other
-              </label>
-              {customActive[index] && (
-                <input
-                  className="quick-question-custom-input"
-                  type="text"
-                  value={customAnswers[index]}
-                  placeholder="Type your answer"
-                  aria-label={`${question.question} — custom answer`}
-                  autoFocus
-                  onChange={(event) => setCustomAnswers((current) => {
-                    const next = [...current];
-                    next[index] = event.target.value;
-                    return next;
-                  })}
-                />
-              )}
-            </div>
-          )}
-        </fieldset>
-      ))}
-      <div>
-        <button type="button" onClick={() => onResolve([], true)}>Cancel</button>
-        <button type="submit" disabled={!complete}>Continue</button>
-      </div>
-    </form>
-  );
 }

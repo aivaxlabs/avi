@@ -1,8 +1,5 @@
 import {
   Check,
-  ChevronLeft,
-  ChevronRight,
-  CircleHelp,
   Folder,
   MessageCircleQuestionMark,
   MessageSquarePlus,
@@ -18,8 +15,6 @@ import {
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChatFind } from './ChatFind.jsx';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { Composer } from './Composer.jsx';
 import { EmptyChatSummary } from './EmptyChatSummary.jsx';
 import { areComposerPropsEqual } from '../lib/composer-props.js';
@@ -39,17 +34,10 @@ import { useStreamingAutoScroll } from '../lib/use-streaming-auto-scroll.js';
 import { Message } from './Message.jsx';
 import { MessageMarkers } from './MessageMarkers.jsx';
 import { Overlay, Presence } from './Overlay.jsx';
+import { QuestionForm } from './QuestionForm.jsx';
 
 const HISTORY_BATCH_SIZE = 4;
 const HISTORY_LOAD_THRESHOLD = 80;
-const QUESTION_MODE_HINTS = {
-  single_choice: 'Select one',
-  multiple_choice: 'Select all that apply',
-  free_text: 'Write your answer',
-};
-const QUESTION_MARKDOWN_COMPONENTS = {
-  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
-};
 
 const MessageRow = memo(function MessageRow({
   message,
@@ -277,17 +265,11 @@ export const ChatView = memo(function ChatView({
   const composerRef = useRef(null);
   const emptyBackgroundRef = useRef(null);
   const dragDepthRef = useRef(0);
-  const questionCardRef = useRef(null);
   const approvalCardRef = useRef(null);
   const [fileDropActive, setFileDropActive] = useState(false);
   const [droppedFiles, setDroppedFiles] = useState(null);
   const [selectionAction, setSelectionAction] = useState(null);
   const [selectionAnnotation, setSelectionAnnotation] = useState('');
-  const [questionIndex, setQuestionIndex] = useState(0);
-  const [questionAnswers, setQuestionAnswers] = useState([]);
-  const [questionCustomAnswers, setQuestionCustomAnswers] = useState([]);
-  const [questionCustomActive, setQuestionCustomActive] = useState([]);
-  const [questionResolving, setQuestionResolving] = useState(false);
   const [approvalResolving, setApprovalResolving] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState(null);
   const [historyWindow, setHistoryWindow] = useState({
@@ -351,21 +333,6 @@ export const ChatView = memo(function ChatView({
     activeApproval?.approvalId ?? '',
   ].join(':');
   const Root = compact ? 'section' : 'main';
-  const activeQuestion = questionRequest?.questions[questionIndex] ?? null;
-  const allQuestionsAnswered = Boolean(
-    questionRequest
-    && questionRequest.questions.every((question, index) => {
-      if (question.type === 'free_text') {
-        return Boolean(String(questionAnswers[index] ?? '').trim());
-      }
-      if (questionCustomActive[index]) {
-        return Boolean(String(questionCustomAnswers[index] ?? '').trim());
-      }
-      return question.type === 'multiple_choice'
-        ? questionAnswers[index]?.length > 0
-        : Boolean(String(questionAnswers[index] ?? '').trim());
-    }),
-  );
 
   const { scrollRef, prepareForPrepend } = useStreamingAutoScroll({
     scrollKey: streamScrollKey,
@@ -502,26 +469,6 @@ export const ChatView = memo(function ChatView({
     scrollElement.addEventListener('wheel', handleChatWheel, { passive: true });
     return () => scrollElement.removeEventListener('wheel', handleChatWheel);
   }, [handleChatWheel, scrollRef]);
-
-  useEffect(() => {
-    setQuestionIndex(0);
-    setQuestionAnswers(questionRequest?.questions.map((question) => (
-      question.type === 'multiple_choice' ? [] : ''
-    )) ?? []);
-    setQuestionCustomAnswers(questionRequest?.questions.map(() => '') ?? []);
-    setQuestionCustomActive(questionRequest?.questions.map(() => false) ?? []);
-    setQuestionResolving(false);
-  }, [questionRequest?.questionId]);
-
-  useEffect(() => {
-    if (!questionRequest) return undefined;
-    const frame = requestAnimationFrame(() => {
-      questionCardRef.current
-        ?.querySelector('[data-question-control]')
-        ?.focus({ preventScroll: true });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [questionIndex, questionRequest?.questionId]);
 
   useEffect(() => {
     setApprovalResolving(false);
@@ -827,7 +774,7 @@ export const ChatView = memo(function ChatView({
   };
 
   function reportQuestionActivity() {
-    if (!questionRequest || questionResolving) return;
+    if (!questionRequest) return;
     window.chatApp.chat.questionActivity({
       questionId: questionRequest.questionId,
       conversationId: questionRequest.conversationId,
@@ -841,27 +788,6 @@ export const ChatView = memo(function ChatView({
       await onResolveApproval(activeApproval, decision);
     } finally {
       setApprovalResolving(false);
-    }
-  }
-
-  async function resolveQuestion(cancelled) {
-    if (!questionRequest || questionResolving) return;
-    setQuestionResolving(true);
-    try {
-      await onAnswerQuestion(
-        questionRequest,
-        questionRequest.questions.map((question, index) => ({
-          question: question.question,
-          answer: questionCustomActive[index]
-            ? question.type === 'multiple_choice'
-              ? [...questionAnswers[index], questionCustomAnswers[index].trim()]
-              : questionCustomAnswers[index].trim()
-            : questionAnswers[index],
-        })),
-        cancelled,
-      );
-    } finally {
-      setQuestionResolving(false);
     }
   }
 
@@ -1155,265 +1081,19 @@ export const ChatView = memo(function ChatView({
                 </section>
               </article>
             )}
-            {questionRequest && activeQuestion && (
+            {questionRequest && (
               <article
                 className="message-row assistant-row question-inline-row"
                 aria-live="polite"
               >
-                <form
-                  ref={questionCardRef}
-                  className="question-card"
-                  onPointerMove={reportQuestionActivity}
-                  onPointerDown={reportQuestionActivity}
-                  onClick={reportQuestionActivity}
-                  onKeyDownCapture={reportQuestionActivity}
-                  onInput={reportQuestionActivity}
-                  onWheel={reportQuestionActivity}
-                  aria-labelledby={`question-card-title-${questionRequest.questionId}`}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Escape') return;
-                    event.preventDefault();
-                    resolveQuestion(true);
-                  }}
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (allQuestionsAnswered) resolveQuestion(false);
-                  }}
-                >
-                  <header className="question-card-header">
-                    <CircleHelp className="question-card-icon" size={18} aria-hidden="true" />
-                    <div className="question-card-copy">
-                      <div className="question-card-meta">
-                        {questionRequest.questions.length > 1 && (
-                          <span>
-                            Question {questionIndex + 1} of {questionRequest.questions.length}
-                          </span>
-                        )}
-                        <span id={`question-card-hint-${questionRequest.questionId}`}>
-                          {QUESTION_MODE_HINTS[activeQuestion.type]}
-                        </span>
-                      </div>
-                      <div
-                        id={`question-card-title-${questionRequest.questionId}`}
-                        className="question-card-prompt"
-                      >
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={QUESTION_MARKDOWN_COMPONENTS}
-                        >
-                          {activeQuestion.question.replace(
-                            /\s+(?=1\.\s+)/,
-                            '\n\n',
-                          ).replace(/\s+(?=[2-9]\d*\.\s+)/g, '\n')}
-                        </ReactMarkdown>
-                      </div>
-                    </div>
-                  </header>
-                  <fieldset className="question-card-field">
-                    <legend className="sr-only">{activeQuestion.question}</legend>
-                    {activeQuestion.type === 'free_text' ? (
-                      <textarea
-                        data-question-control
-                        value={questionAnswers[questionIndex] ?? ''}
-                        rows={4}
-                        placeholder="Type your answer"
-                        aria-label={activeQuestion.question}
-                        disabled={questionResolving}
-                        onChange={(event) => setQuestionAnswers((state) => {
-                          const next = [...state];
-                          next[questionIndex] = event.target.value;
-                          return next;
-                        })}
-                      />
-                    ) : (
-                      <div className="question-card-options">
-                        {activeQuestion.options.map((option, optionIndex) => {
-                          const inputId = `question-${questionRequest.questionId}-${questionIndex}-${optionIndex}`;
-                          const description = activeQuestion.optionDescriptions?.[optionIndex];
-                          const checked = activeQuestion.type === 'multiple_choice'
-                            ? questionAnswers[questionIndex]?.includes(option)
-                            : questionAnswers[questionIndex] === option
-                              && !questionCustomActive[questionIndex];
-                          return (
-                            <label
-                              key={`${option}:${optionIndex}`}
-                              className="question-card-option"
-                              htmlFor={inputId}
-                            >
-                              <input
-                                id={inputId}
-                                aria-describedby={description ? `${inputId}-description` : undefined}
-                                data-question-control={optionIndex === 0 ? '' : undefined}
-                                type={activeQuestion.type === 'multiple_choice'
-                                  ? 'checkbox'
-                                  : 'radio'}
-                                name={`question-${questionRequest.questionId}-${questionIndex}`}
-                                value={option}
-                                checked={checked}
-                                disabled={questionResolving}
-                                onChange={(event) => setQuestionAnswers((state) => {
-                                  const next = [...state];
-                                  if (activeQuestion.type === 'multiple_choice') {
-                                    const selected = new Set(next[questionIndex] ?? []);
-                                    if (event.target.checked) {
-                                      selected.add(option);
-                                    } else {
-                                      selected.delete(option);
-                                    }
-                                    next[questionIndex] = [...selected];
-                                  } else {
-                                    next[questionIndex] = option;
-                                  }
-                                  return next;
-                                })}
-                                onClick={() => {
-                                  if (activeQuestion.type !== 'single_choice') return;
-                                  setQuestionCustomActive((state) => {
-                                    const next = [...state];
-                                    next[questionIndex] = false;
-                                    return next;
-                                  });
-                                }}
-                              />
-                              <span className="question-card-option-copy">
-                                <span className="question-card-option-label">
-                                  <ReactMarkdown
-                                    remarkPlugins={[remarkGfm]}
-                                    components={{ ...QUESTION_MARKDOWN_COMPONENTS, p: 'span' }}
-                                  >
-                                    {option}
-                                  </ReactMarkdown>
-                                </span>
-                                {description && (
-                                  <span
-                                    id={`${inputId}-description`}
-                                    className="question-card-option-description"
-                                  >
-                                    <ReactMarkdown
-                                      remarkPlugins={[remarkGfm]}
-                                      components={QUESTION_MARKDOWN_COMPONENTS}
-                                    >
-                                      {description}
-                                    </ReactMarkdown>
-                                  </span>
-                                )}
-                              </span>
-                            </label>
-                          );
-                        })}
-                        <div className="question-card-custom-option">
-                          <label className="question-card-option">
-                            <input
-                              type={activeQuestion.type === 'multiple_choice'
-                                ? 'checkbox'
-                                : 'radio'}
-                              name={`question-${questionRequest.questionId}-${questionIndex}`}
-                              checked={Boolean(questionCustomActive[questionIndex])}
-                              disabled={questionResolving}
-                              onChange={(event) => setQuestionCustomActive((state) => {
-                                const next = [...state];
-                                next[questionIndex] = event.target.checked;
-                                return next;
-                              })}
-                            />
-                            <span className="question-card-option-copy">
-                              <span className="question-card-option-label">Other</span>
-                            </span>
-                          </label>
-                          {questionCustomActive[questionIndex] && (
-                            <input
-                              className="question-card-custom-input"
-                              type="text"
-                              value={questionCustomAnswers[questionIndex] ?? ''}
-                              placeholder="Type your answer"
-                              aria-label={`${activeQuestion.question} — custom answer`}
-                              disabled={questionResolving}
-                              autoFocus
-                              onChange={(event) => setQuestionCustomAnswers((state) => {
-                                const next = [...state];
-                                next[questionIndex] = event.target.value;
-                                return next;
-                              })}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </fieldset>
-                  <footer className="question-card-footer">
-                    <button
-                      className="question-card-cancel"
-                      type="button"
-                      disabled={questionResolving}
-                      onClick={() => resolveQuestion(true)}
-                    >
-                      Cancel
-                    </button>
-                    {questionRequest.questions.length > 1 && (
-                    <nav
-                      className="question-card-pagination"
-                      aria-label="Question navigation"
-                    >
-                      {questionRequest.questions.map((question, index) => {
-                        const answered = questionCustomActive[index]
-                          ? Boolean(String(questionCustomAnswers[index] ?? '').trim())
-                          : question.type === 'multiple_choice'
-                            ? questionAnswers[index]?.length > 0
-                            : Boolean(String(questionAnswers[index] ?? '').trim());
-                        return (
-                          <button
-                            key={`${questionRequest.questionId}:${index}`}
-                            className={[
-                              index === questionIndex && 'active',
-                              answered && 'answered',
-                            ].filter(Boolean).join(' ')}
-                            type="button"
-                            disabled={questionResolving}
-                            aria-label={`Go to question ${index + 1}`}
-                            aria-current={index === questionIndex ? 'step' : undefined}
-                            onClick={() => setQuestionIndex(index)}
-                          >
-                            <span>{index + 1}</span>
-                          </button>
-                        );
-                      })}
-                    </nav>
-                    )}
-                    <div className="question-card-actions">
-                      {questionRequest.questions.length > 1 && (
-                        <button
-                          type="button"
-                          disabled={questionResolving || questionIndex === 0}
-                          onClick={() => setQuestionIndex((index) => index - 1)}
-                        >
-                          <ChevronLeft size={14} aria-hidden="true" />
-                          <span>Previous</span>
-                        </button>
-                      )}
-                      {questionIndex < questionRequest.questions.length - 1 ? (
-                        <button
-                          className="primary-mini"
-                          type="button"
-                          disabled={questionResolving}
-                          onClick={() => setQuestionIndex((index) => index + 1)}
-                        >
-                          <span>Next</span>
-                          <ChevronRight size={14} aria-hidden="true" />
-                        </button>
-                      ) : (
-                        <button
-                          className="primary-mini"
-                          type="submit"
-                          disabled={questionResolving || !allQuestionsAnswered}
-                        >
-                          {questionResolving
-                            ? 'Submitting...'
-                            : questionRequest.questions.length > 1 ? 'Submit answers' : 'Submit'}
-                        </button>
-                      )}
-                    </div>
-                  </footer>
-                </form>
+                <QuestionForm
+                  key={questionRequest.questionId}
+                  formId={questionRequest.questionId}
+                  questions={questionRequest.questions}
+                  onActivity={reportQuestionActivity}
+                  onSubmit={(answers) => onAnswerQuestion(questionRequest, answers, false)}
+                  onCancel={() => onAnswerQuestion(questionRequest, [], true)}
+                />
               </article>
             )}
           </div>

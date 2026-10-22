@@ -15,6 +15,7 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
 } from '@modelcontextprotocol/sdk/types.js';
 import WebSocket, { WebSocketServer } from 'ws';
+import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import { CLIENT_TOOLS } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
 import packageMetadata from '../../package.json' with { type: 'json' };
@@ -54,6 +55,8 @@ const GLOBAL_RPC_METHODS = new Set([
   'bots:create',
   'bots:update',
   'bots:delete',
+  'bots:remove-priority-item',
+  'bots:reorder-priority-queue',
   'bots:clear-thread',
   'bots:full-reset',
   'bots:activate',
@@ -109,6 +112,7 @@ const CONVERSATION_RPC_METHODS = new Set([
   'chat:answer-question',
   'chat:question-activity',
   'chat:context-usage',
+  'chat:statistics',
   'chat:compress-quick',
   'chat:compress',
   'chat:cancel-queued',
@@ -130,7 +134,46 @@ const CONVERSATION_SCALAR_METHODS = new Set([
   'chat:stop',
   'tasks:list',
 ]);
-const remoteTools = CLIENT_TOOLS.filter((tool) => REMOTE_TOOL_NAMES.has(tool.name));
+const quickChatInvokeTool = {
+  name: 'quick_chat_invoke',
+  description: 'Run one Quick chat turn with the Quick chat tools and return its final answer. No session or thread is kept: the turn runs to completion and is discarded.',
+  canEditFile: true,
+  canPerformDestructiveActions: true,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      prompt: { type: 'string', minLength: 1, description: 'Message sent to Quick chat.' },
+      model_name: { type: 'string', minLength: 1, description: 'Optional configured model ID. Defaults to the Quick chat model from Settings.' },
+      reasoning_effort: { type: 'string', description: 'Optional reasoning effort supported by the model. Defaults to the Quick chat reasoning effort.' },
+    },
+    required: ['prompt'],
+    additionalProperties: false,
+  },
+  execute: async ({ prompt, model_name, reasoning_effort }, { quickChatRunner }) => {
+    if (!quickChatRunner) throw new Error('Quick chat is not available.');
+    if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('prompt is required.');
+    const message = await quickChatRunner.invoke({
+      text: prompt,
+      model: model_name,
+      reasoningEffort: reasoning_effort,
+    });
+    const error = message.segments.findLast((segment) => segment.type === 'error');
+    if (message.status !== 'completed') throw new Error(error?.message ?? `Quick chat ended with status ${message.status}.`);
+    return {
+      text: answerTextFromTextualBlocks(message.content),
+      model: message.model,
+      toolCalls: message.segments
+        .filter((segment) => segment.type === 'tool-call')
+        .map((segment) => ({ name: segment.name, status: segment.status ?? 'completed' })),
+      attachments: message.attachments.map(({ dataUrl, base64, text, ...metadata }) => metadata),
+      usage: message.usage,
+    };
+  },
+};
+const remoteTools = [
+  ...CLIENT_TOOLS.filter((tool) => REMOTE_TOOL_NAMES.has(tool.name)),
+  quickChatInvokeTool,
+];
 
 function assertRemoteUploadSizes(attachments) {
   if (!Array.isArray(attachments)) return;
@@ -176,6 +219,7 @@ export class RemoteMcpServer {
   constructor({
     chatRunner,
     botManager,
+    quickChatRunner = null,
     providerRegistry,
     getPreferences,
     getApiKeys,
@@ -187,6 +231,7 @@ export class RemoteMcpServer {
   }) {
     this.chatRunner = chatRunner;
     this.botManager = botManager;
+    this.quickChatRunner = quickChatRunner;
     this.providerRegistry = providerRegistry;
     this.getPreferences = getPreferences;
     this.getApiKeys = getApiKeys;
@@ -342,6 +387,10 @@ export class RemoteMcpServer {
       if (!this.isAuthorized(request.headers.get('authorization'), pathParts[1])) return this.unauthorized();
       return this.handleMcpRequest(request);
     }
+    if (pathParts[0] === 'commands' && pathParts.length === 2) {
+      if (!this.isAuthorized(request.headers.get('authorization'))) return this.unauthorized();
+      return this.handleCommandRequest(request, url, decodeURIComponent(pathParts[1]));
+    }
     if (this.resolveWebSocketRoute(url.pathname)) {
       return new Response('Upgrade Required', {
         status: 426,
@@ -349,6 +398,59 @@ export class RemoteMcpServer {
       });
     }
     return new Response('Not found', { status: 404 });
+  }
+
+  async handleCommandRequest(request, url, toolName) {
+    if (request.method !== 'GET' && request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed.' }, { status: 405, headers: { Allow: 'GET, POST' } });
+    }
+
+    const tool = remoteTools.find((item) => item.name === toolName);
+    if (!tool) return Response.json({ error: `Unknown command: ${toolName}` }, { status: 404 });
+
+    let args;
+    if (request.method === 'POST') {
+      const text = await request.text();
+      try {
+        args = text.trim() ? JSON.parse(text) : {};
+      } catch {
+        return Response.json({ error: 'Request body must be a JSON object.' }, { status: 400 });
+      }
+      if (!args || typeof args !== 'object' || Array.isArray(args)) {
+        return Response.json({ error: 'Request body must be a JSON object.' }, { status: 400 });
+      }
+    } else {
+      const properties = tool.inputSchema?.properties ?? {};
+      const jsonTypes = ['integer', 'number', 'boolean', 'object', 'array'];
+      try {
+        args = Object.fromEntries([...url.searchParams].map(([key, value]) => [
+          key,
+          jsonTypes.includes(properties[key]?.type) ? JSON.parse(value) : value,
+        ]));
+      } catch {
+        return Response.json({ error: 'Query parameters of non-string types must be valid JSON values.' }, { status: 400 });
+      }
+    }
+
+    try {
+      const result = await tool.execute(args, this.toolContext());
+      return Response.json(typeof result === 'string' ? { text: result } : result);
+    } catch (error) {
+      return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
+  }
+
+  toolContext() {
+    return {
+      chatRunner: this.chatRunner,
+      botManager: this.botManager,
+      quickChatRunner: this.quickChatRunner,
+      conversationId: null,
+      model: this.getPreferences().lastModel,
+      models: this.providerRegistry.listModels(),
+      defaultModels: this.getPreferences().defaultModels,
+      workspacePath: homedir(),
+    };
   }
 
   unauthorized() {
@@ -712,15 +814,7 @@ export class RemoteMcpServer {
       const tool = remoteTools.find((item) => item.name === requestInfo.params.name);
       if (!tool) throw new Error(`Unknown tool: ${requestInfo.params.name}`);
       try {
-        const result = await tool.execute(requestInfo.params.arguments ?? {}, {
-          chatRunner: this.chatRunner,
-          botManager: this.botManager,
-          conversationId: null,
-          model: this.getPreferences().lastModel,
-          models: this.providerRegistry.listModels(),
-          defaultModels: this.getPreferences().defaultModels,
-          workspacePath: homedir(),
-        });
+        const result = await tool.execute(requestInfo.params.arguments ?? {}, this.toolContext());
         return typeof result === 'string'
           ? { content: [{ type: 'text', text: result }] }
           : { content: [], structuredContent: result };

@@ -78,7 +78,7 @@ Returned by conversation, folder, child-thread, bot-thread, queue, compaction, a
 | `edits` | object[] | Persisted edit history. |
 | `attachments` | `Attachment[]` | Attached media/files/context markers. |
 | `continuations` | object[] | Provider continuation metadata. |
-| `usage` | object | Provider usage data. Common numeric fields include `inputTokens`, `cachedInputTokens`, `outputTokens`, `reasoningTokens`, and `durationMs`. |
+| `usage` | object | Provider usage data. Common numeric fields include `inputTokens`, `cachedInputTokens`, `outputTokens`, `reasoningTokens`, and `durationMs`. Assistant messages may include `requests`, one `{ connectMs, firstTokenMs, streamMs, outputTokens, error }` entry per model request attempt. Errored tool-call segments may include `errorKind` (`invocation`, `execution`, or `interrupted`). |
 | `createdAt` | string or `null` | Creation time. |
 | `updatedAt` | string | Last update time. |
 
@@ -247,7 +247,7 @@ Returned by `conversations:context` for recovery.
 |---|---|---|
 | `type` | `"single_choice"`, `"multiple_choice"`, or `"free_text"` | Answer mode: radio buttons (one answer), checkboxes (one or more answers), or open text. |
 | `question` | string | Prompt and correlation text. |
-| `options` | string[], optional | Option labels for choice questions: up to 3 for `single_choice`, up to 6 for `multiple_choice`. Answers use these labels. |
+| `options` | string[], optional | Option labels for choice questions: up to 10 for `single_choice`, up to 30 for `multiple_choice`. Answers use these labels. |
 | `optionDescriptions` | string[], optional | Markdown descriptions aligned with `options` by index; `""` when an option has none. Present only when at least one option has a description. |
 
 ### `PendingQuestion`
@@ -302,6 +302,19 @@ Each `ContextUsageSegment` has:
 | `contextCharacters` | number | Characters assigned to current token usage after scaling. |
 | `tokens` | number | Estimated tokens for the segment. |
 | `percent` | number | Fraction from 0 to 1 of used context. |
+
+## `ThreadStatistics`
+
+Percentile objects are `{ p50, p95, p99, samples }`; each percentile is a nearest-rank number or `null` without samples.
+
+| Field | Type | Description |
+|---|---|---|
+| `latency.firstToken` | percentiles | Milliseconds from request start to the first content, reasoning, or tool-call delta. |
+| `latency.connection` | percentiles | Milliseconds until the provider accepted the request and returned response headers. |
+| `tokensPerSecond` | percentiles | Output tokens (including hidden reasoning) divided by the streaming time after the connection is accepted, for successful requests. |
+| `tokens` | object | Cumulative `input`, `cached`, `output`, `reasoning`, and `total` tokens, plus `cachedRatio` (cached / input) and `reasoningRatio` (reasoning / output), each from 0 to 1 or `null`. |
+| `requests` | object | `count` of model request attempts and `errors` among them. |
+| `tools` | object | `calls`, `invocationErrors` (unknown tool, invalid JSON, missing required arguments, or schema validation), and `otherErrors`. Interrupted calls are excluded from errors. |
 
 ## Search and folders
 

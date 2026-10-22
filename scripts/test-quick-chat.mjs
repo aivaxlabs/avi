@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { CLIENT_TOOLS, decorateToolsForInvocation } from '../src/main/client-tools.js';
 import { registerPluginTool } from '../src/main/plugin-domain-api.js';
 import { QuickChatRunner } from '../src/main/quick-chat-runner.js';
+import { answerTextFromTextualBlocks } from '../src/shared/textual-blocks.js';
 import {
   limitToolHistoryResults,
   toolOutputLimitForTool,
@@ -384,6 +385,45 @@ assert.equal(
   1,
 );
 rmSync(questionDirectory, { recursive: true, force: true });
+
+let invokeRound = 0;
+let invokeTools = [];
+provider.getContributions = () => ({ tools: [] });
+provider.stream = async ({ tools, toolHistory, onEvent }) => {
+  invokeRound += 1;
+  invokeTools = tools.map((tool) => tool.name);
+  if (invokeRound === 1) {
+    const toolCall = {
+      key: 'invoke-tasks',
+      callId: 'invoke-tasks-call',
+      name: 'update_tasks',
+      argumentsText: JSON.stringify({ __invocation_goal: 'Track invoke.', tasks: [] }),
+    };
+    onEvent({ type: 'tool-call', ...toolCall });
+    return { assistantContent: '', continuation: [], toolCalls: [toolCall] };
+  }
+  assert.equal(toolHistory[0].results[0].output, 'Task list cleared.');
+  onEvent({ type: 'content', text: 'Invoked answer' });
+  return { assistantContent: 'Invoked answer', continuation: [], toolCalls: [] };
+};
+const sessionsBeforeInvoke = runner.sessions.size;
+const invoked = await runner.invoke({ text: 'One shot', model: model.id });
+assert.equal(invoked.status, 'completed');
+assert.equal(answerTextFromTextualBlocks(invoked.content), 'Invoked answer');
+assert.equal(invoked.segments.some((segment) => segment.type === 'tool-call' && segment.name === 'update_tasks'), true);
+assert.equal(invokeTools.includes('update_tasks'), true);
+assert.equal(invokeTools.includes('ask_question'), false);
+assert.equal(runner.sessions.size, sessionsBeforeInvoke);
+
+provider.stream = async () => {
+  throw new Error('Provider failed');
+};
+const failedInvoke = await runner.invoke({ text: 'Fail', model: model.id });
+assert.equal(failedInvoke.status, 'error');
+assert.equal(failedInvoke.segments.findLast((segment) => segment.type === 'error').message, 'Provider failed');
+assert.equal(runner.sessions.size, sessionsBeforeInvoke);
+await assert.rejects(runner.invoke({ text: '   ', model: model.id }), /Write a message/);
+assert.equal(runner.sessions.size, sessionsBeforeInvoke);
 
 preferences.defaultModels.quickChat = null;
 assert.throws(() => runner.createSession(), /Choose a Quick chat model/);

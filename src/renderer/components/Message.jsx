@@ -13,11 +13,9 @@ import {
   FilePenLine,
   FileText,
   FolderDown,
-  FolderOpen,
   FolderTree,
   GitFork,
   Globe,
-  Image,
   Info,
   ListChecks,
   LoaderCircle,
@@ -34,6 +32,7 @@ import {
   Wrench,
   Workflow,
   X,
+  AtSign,
 } from 'lucide-react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-bash';
@@ -47,8 +46,10 @@ import 'prismjs/components/prism-powershell';
 import 'prismjs/components/prism-tsx';
 import 'prismjs/components/prism-typescript';
 import {
+  createContext,
   isValidElement,
   memo,
+  useContext,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -58,13 +59,14 @@ import {
 import { createPortal } from 'react-dom';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import { useFileReferenceMenu } from './FileReferenceMenu.jsx';
+import { useImageContextMenu } from './ImageContextMenu.jsx';
 import remarkDirective from 'remark-directive';
 import remarkGfm from 'remark-gfm';
 import { formatBytes } from '../lib/files.js';
 import { consolidateFileEdits, createUndoPrompt } from '../lib/file-edits.js';
 import { parseStructuredUserMessage } from '../lib/message-groups.js';
 import { remarkAviDirectives } from '../lib/markdown-directives.js';
-import { classNames } from '../lib/format.js';
+import { classNames, formatMetricDuration } from '../lib/format.js';
 import { AttachmentImage, AttachmentVideo } from './AttachmentVideo.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { CopyablePanel, RichContent } from './RichContent.jsx';
@@ -86,6 +88,7 @@ const MARKDOWN_PLUGINS = Object.freeze([
   ...STANDARD_MARKDOWN_PLUGINS,
 ]);
 const MemoizedMarkdown = memo(ReactMarkdown);
+export const MentionContext = createContext({ bots: [], threads: [], onOpenThread: null });
 const fileReferenceUrlTransform = (url) => /^file:\/\//i.test(url) ? url : defaultUrlTransform(url);
 const TOOL_ICONS = Object.freeze({
   ask_question: CircleHelp,
@@ -97,6 +100,7 @@ const TOOL_ICONS = Object.freeze({
   chat_list_threads: MessagesSquare,
   chat_send_prompt: Send,
   chat_spawn_subagent: Bot,
+  dispatch_sidekick: Bot,
   read_file: FileText,
   read_terminal_output: TerminalSquare,
   read_url: Globe,
@@ -215,7 +219,110 @@ function SubagentReportCard({ report }) {
   );
 }
 
-function AttachmentLightbox({ attachment, onClose }) {
+function MentionLink({ kind, target }) {
+  const { bots, threads, onOpenThread } = useContext(MentionContext);
+  const bot = bots.find((item) => (kind === 'bot' ? item.id : item.conversationId) === target);
+  const threadId = kind === 'bot' ? bot?.conversationId : target;
+  const label = bot?.name
+    ?? threads.find((thread) => thread.id === threadId)?.title
+    ?? `${kind === 'bot' ? 'Bot' : 'Thread'} ${target.slice(0, 8)}`;
+  const Icon = bot ? Bot : MessagesSquare;
+  if (!onOpenThread || !threadId) {
+    return <span className="file-reference-link mention-link" title={target}><Icon size={13} aria-hidden="true" /><span>{label}</span></span>;
+  }
+  return (
+    <a
+      className="file-reference-link mention-link"
+      href={`#thread=${encodeURIComponent(threadId)}`}
+      title={`Open ${bot ? 'bot' : 'thread'} ${label}`}
+      onClick={(event) => {
+        event.preventDefault();
+        onOpenThread(threadId);
+      }}
+    >
+      <Icon size={13} aria-hidden="true" />
+      <span>{label}</span>
+    </a>
+  );
+}
+
+function CrossThreadMessageCard({ message }) {
+  const { onOpenThread } = useContext(MentionContext);
+  const source = message.sourceName ?? 'thread';
+  const label = message.mention
+    ? `${message.sourceRole === 'bot' ? 'The bot' : 'The thread'} ${source} mentioned this thread`
+    : `Message from thread ${source}`;
+  return (
+    <section
+      className={classNames('subagent-report-card cross-thread-message-card', message.mention && 'mention')}
+      aria-label={label}
+    >
+      <header className="subagent-report-header">
+        <span className="subagent-report-icon" aria-hidden="true">
+          {message.mention ? <AtSign size={15} /> : <ArrowRightLeft size={15} />}
+        </span>
+        <span className="subagent-report-heading">
+          <small>{message.mention ? 'Mentioned you' : 'Cross-thread message'}</small>
+          <strong>{message.mention ? source : 'From thread'}</strong>
+        </span>
+        {onOpenThread ? (
+          <button
+            type="button"
+            className="cross-thread-source"
+            title={`Open thread ${message.sourceThreadId}`}
+            onClick={() => onOpenThread(message.sourceThreadId)}
+          >
+            <code>{message.sourceThreadId.slice(0, 8)}</code>
+          </button>
+        ) : (
+          <code title={message.sourceThreadId}>{message.sourceThreadId.slice(0, 8)}</code>
+        )}
+        <button
+          type="button"
+          aria-label={`Copy ${label.toLowerCase()}`}
+          title="Copy message"
+          onClick={() => copyText(message.body)}
+        >
+          <Copy size={14} />
+        </button>
+      </header>
+      <div className="subagent-report-body">
+        <MarkdownSegment text={message.body} finalized />
+      </div>
+    </section>
+  );
+}
+
+export function attachmentOpenProps(attachment, onPreview) {
+  const previewable = ['image_url', 'video_url'].includes(attachment.kind)
+    ? Boolean(attachment.dataUrl)
+    : attachment.kind === 'input_audio'
+      ? Boolean(attachment.base64)
+      : typeof attachment.text === 'string';
+  if (attachment.kind === 'context_marker' || !(attachment.path || previewable)) return {};
+
+  const open = () => {
+    const preview = () => previewable && onPreview(attachment);
+    if (attachment.path) window.chatApp.attachments.open(attachment.path).catch(preview);
+    else preview();
+  };
+
+  return {
+    role: 'button',
+    tabIndex: 0,
+    'aria-label': `Open ${attachment.name}`,
+    onClick: (event) => {
+      if (!event.target.closest('button, video')) open();
+    },
+    onKeyDown: (event) => {
+      if (event.target !== event.currentTarget || !['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      open();
+    },
+  };
+}
+
+export function AttachmentLightbox({ attachment, onClose, onImageContextMenu }) {
   useEffect(() => {
     const closeOnEscape = (event) => {
       if (event.key === 'Escape') onClose();
@@ -224,25 +331,32 @@ function AttachmentLightbox({ attachment, onClose }) {
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [onClose]);
 
-  const isVideo = attachment?.kind === 'video_url';
   return createPortal(
     <Overlay
       className="attachment-lightbox"
       role="dialog"
       aria-modal="true"
-      aria-label={`${isVideo ? 'Video' : 'Image'} preview: ${attachment.name}`}
+      aria-label={`Preview: ${attachment.name}`}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      {isVideo ? (
+      {attachment.kind === 'video_url' ? (
         <AttachmentVideo attachment={attachment} controls autoPlay />
+      ) : attachment.kind === 'image_url' ? (
+        <AttachmentImage
+          attachment={attachment}
+          alt={attachment.name}
+          onContextMenu={onImageContextMenu && ((event) => onImageContextMenu(event, attachment))}
+        />
+      ) : attachment.kind === 'input_audio' ? (
+        <audio controls autoPlay src={`data:${attachment.mime};base64,${attachment.base64}`} />
       ) : (
-        <AttachmentImage attachment={attachment} alt={attachment.name} />
+        <pre>{attachment.text}</pre>
       )}
       <button
         type="button"
-        aria-label="Close image preview"
+        aria-label="Close preview"
         title="Close"
         autoFocus
         onClick={onClose}
@@ -256,6 +370,7 @@ function AttachmentLightbox({ attachment, onClose }) {
 
 function UserMessage({ message, editing, onEdit, editor }) {
   const [lightboxAttachment, setLightboxAttachment] = useState(null);
+  const [openImageContextMenu, imageContextMenu] = useImageContextMenu();
   const visibleAttachments = message.attachments;
   const content = (message.content ?? '').trim();
   const report = parseSubagentReport(message);
@@ -275,35 +390,9 @@ function UserMessage({ message, editing, onEdit, editor }) {
     : null;
 
   if (crossMessageEnvelope && sourceThreadId) {
-    const crossMessageBody = crossMessageEnvelope[2].trim();
     return (
       <article className="message-row subagent-report-row" data-message-id={message.id}>
-        <section
-          className="subagent-report-card cross-thread-message-card"
-          aria-label={`Message from thread ${sourceThreadId}`}
-        >
-          <header className="subagent-report-header">
-            <span className="subagent-report-icon" aria-hidden="true">
-              <ArrowRightLeft size={15} />
-            </span>
-            <span className="subagent-report-heading">
-              <small>Cross-thread message</small>
-              <strong>From thread</strong>
-            </span>
-            <code title={sourceThreadId}>{sourceThreadId.slice(0, 8)}</code>
-            <button
-              type="button"
-              aria-label={`Copy message from thread ${sourceThreadId}`}
-              title="Copy message"
-              onClick={() => copyText(crossMessageBody)}
-            >
-              <Copy size={14} />
-            </button>
-          </header>
-          <div className="subagent-report-body">
-            <MarkdownSegment text={crossMessageBody} finalized />
-          </div>
-        </section>
+        <CrossThreadMessageCard message={parseStructuredUserMessage(message)} />
       </article>
     );
   }
@@ -346,6 +435,7 @@ function UserMessage({ message, editing, onEdit, editor }) {
                       aria-label={`Open ${attachment.name}`}
                       title={attachment.name}
                       onClick={() => setLightboxAttachment(attachment)}
+                      onContextMenu={(event) => openImageContextMenu(event, attachment)}
                     >
                       <AttachmentImage attachment={attachment} alt={attachment.name} />
                     </button>
@@ -360,6 +450,7 @@ function UserMessage({ message, editing, onEdit, editor }) {
                     <span
                       key={attachment.id}
                       className={`attachment-pill${attachment.kind === 'context_marker' ? ' context-marker' : ''}`}
+                      {...attachmentOpenProps(attachment, setLightboxAttachment)}
                     >
                       {attachment.kind === 'context_marker' && (
                         attachment.markerType === 'workflow'
@@ -406,8 +497,10 @@ function UserMessage({ message, editing, onEdit, editor }) {
         <AttachmentLightbox
           attachment={lightboxAttachment}
           onClose={() => setLightboxAttachment(null)}
+          onImageContextMenu={openImageContextMenu}
         />
       )}</Presence>
+      {imageContextMenu}
     </article>
   );
 }
@@ -437,7 +530,7 @@ function AssistantMessage({
   const [resuming, setResuming] = useState(false);
   const [responseCopied, setResponseCopied] = useState(false);
   const [lightboxAttachment, setLightboxAttachment] = useState(null);
-  const [imageContextMenu, setImageContextMenu] = useState(null);
+  const [openImageContextMenu, imageContextMenu] = useImageContextMenu();
   const usageRef = useRef(null);
   const copyResetTimerRef = useRef(null);
   const content = message.content || '';
@@ -498,28 +591,6 @@ function AssistantMessage({
     return () => document.removeEventListener('pointerdown', closeUsage);
   }, [usageOpen]);
 
-  useEffect(() => {
-    if (!imageContextMenu) return undefined;
-    const controller = new AbortController();
-    window.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') setImageContextMenu(null);
-    }, { signal: controller.signal });
-    if (imageContextMenu) {
-      window.addEventListener('pointerdown', (event) => {
-        if (event.target.closest?.('.generated-image-context-menu')) return;
-        setImageContextMenu(null);
-      }, { signal: controller.signal });
-      window.addEventListener('resize', () => setImageContextMenu(null), {
-        once: true,
-        signal: controller.signal,
-      });
-      queueMicrotask(() => (
-        document.querySelector('.generated-image-context-menu [role="menuitem"]')?.focus()
-      ));
-    }
-    return () => controller.abort();
-  }, [imageContextMenu]);
-
   return (
     <article className="message-row assistant-row" data-message-id={message.id}>
       <div className="assistant-message">
@@ -576,14 +647,7 @@ function AssistantMessage({
                 aria-label={`Open ${attachment.name}`}
                 title={attachment.name}
                 onClick={() => setLightboxAttachment(attachment)}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  setImageContextMenu({
-                    attachment,
-                    left: Math.min(event.clientX, window.innerWidth - 190),
-                    top: Math.min(event.clientY, window.innerHeight - 170),
-                  });
-                }}
+                onContextMenu={(event) => openImageContextMenu(event, attachment)}
               >
                 <AttachmentImage attachment={attachment} alt={attachment.name} />
               </button>
@@ -594,68 +658,10 @@ function AssistantMessage({
           <AttachmentLightbox
             attachment={lightboxAttachment}
             onClose={() => setLightboxAttachment(null)}
+            onImageContextMenu={openImageContextMenu}
           />
         )}</Presence>
-        <Presence when={imageContextMenu}>{(imageContextMenu) => createPortal(
-          <DropdownMenu
-            className="generated-image-context-menu"
-            fixed
-            role="menu"
-            aria-label={`Actions for ${imageContextMenu.attachment.name}`}
-            style={{ left: imageContextMenu.left, top: imageContextMenu.top }}
-          >
-            <DropdownMenuItem
-              icon={<ExternalLink size={14} />}
-              role="menuitem"
-              disabled={!imageContextMenu.attachment.path}
-              onClick={() => {
-                const { path } = imageContextMenu.attachment;
-                setImageContextMenu(null);
-                void window.chatApp.attachments.imageAction({ action: 'open', path });
-              }}
-            >
-              Open
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              icon={<FolderOpen size={14} />}
-              role="menuitem"
-              disabled={!imageContextMenu.attachment.path}
-              onClick={() => {
-                const { path } = imageContextMenu.attachment;
-                setImageContextMenu(null);
-                void window.chatApp.attachments.imageAction({ action: 'reveal', path });
-              }}
-            >
-              Open in explorer
-            </DropdownMenuItem>
-            <div className="dropdown-menu-divider" role="separator" />
-            <DropdownMenuItem
-              icon={<Image size={14} />}
-              role="menuitem"
-              disabled={!imageContextMenu.attachment.path}
-              onClick={() => {
-                const { path } = imageContextMenu.attachment;
-                setImageContextMenu(null);
-                void window.chatApp.attachments.imageAction({ action: 'copy-image', path });
-              }}
-            >
-              Copy image
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              icon={<Copy size={14} />}
-              role="menuitem"
-              disabled={!imageContextMenu.attachment.path}
-              onClick={() => {
-                const { path } = imageContextMenu.attachment;
-                setImageContextMenu(null);
-                void window.chatApp.attachments.imageAction({ action: 'copy-path', path });
-              }}
-            >
-              Copy path
-            </DropdownMenuItem>
-          </DropdownMenu>,
-          document.body,
-        )}</Presence>
+        {imageContextMenu}
         {activelyStreaming && !questionPending && (
           <div className="assistant-placeholder" aria-live="polite">
             <span key={thinkingLabel} className="assistant-placeholder-label">
@@ -940,11 +946,14 @@ export const MarkdownSegment = memo(function MarkdownSegment({
     return () => controller.abort();
   }, [planMenuOpen]);
   const components = useMemo(
-    () => createMarkdownComponents(
-      finalized,
-      onOpenFileReference,
-      openFileReferenceContextMenu,
-    ),
+    () => ({
+      ...createMarkdownComponents(
+        finalized,
+        onOpenFileReference,
+        openFileReferenceContextMenu,
+      ),
+      'avi-mention': MentionLink,
+    }),
     [finalized, onOpenFileReference, openFileReferenceContextMenu],
   );
   const parts = useMemo(() => {
@@ -1335,18 +1344,7 @@ function WorkedMessage({ message, onOpenFileReference, onFileReferenceAction }) 
   if (message.fromAgent) return <UserMessage message={message} />;
   const structured = parseStructuredUserMessage(message);
   if (structured?.type === 'subagent-report') return <SubagentReportCard report={structured} />;
-  if (structured?.type === 'cross-thread-message') {
-    return (
-      <section className="subagent-report-card cross-thread-message-card">
-        <header className="subagent-report-header">
-          <span className="subagent-report-icon" aria-hidden="true"><ArrowRightLeft size={15} /></span>
-          <span className="subagent-report-heading"><small>Cross-thread message</small><strong>From thread</strong></span>
-          <code title={structured.sourceThreadId}>{structured.sourceThreadId.slice(0, 8)}</code>
-        </header>
-        <div className="subagent-report-body"><MarkdownSegment text={structured.body} finalized /></div>
-      </section>
-    );
-  }
+  if (structured?.type === 'cross-thread-message') return <CrossThreadMessageCard message={structured} />;
   return buildMessageTimeline(message).map((item, index, timeline) => (
     <TimelineItem key={message.id + ':' + item.id} item={item} streaming={false}
       trailing={index === timeline.length - 1} onOpenFileReference={onOpenFileReference}
@@ -2015,12 +2013,6 @@ function formatWorkedDuration(startValue, endValue) {
   ].filter(Boolean);
 
   return `Worked for ${durationParts.join(' ')}`;
-}
-
-function formatMetricDuration(value) {
-  if (!Number.isFinite(value)) return '—';
-  if (value < 1000) return `${Math.round(value)} ms`;
-  return `${(value / 1000).toFixed(value < 10_000 ? 2 : 1)} s`;
 }
 
 function copyText(text) {

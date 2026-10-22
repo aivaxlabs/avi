@@ -22,6 +22,20 @@ See :fileref{path="./src/main/runtime.js" line-from="120" line-to="128"}.
 - `line-to` is optional, requires `line-from`, and must be greater than or equal to it.
 - The directive may be written directly or inside an inline code span; both forms render as a file reference. Fenced and indented code blocks remain literal.
 
+## Bot and thread mentions
+
+Use the `mention` directive to mention a bot or a thread by ID:
+
+```markdown
+::mention{bot-id="8f2c1d4e-..."}
+
+Ask :mention{thread-id="3b9e7a10-..."} for the migration status.
+```
+
+- Use exactly one of `bot-id` or `thread-id`. A bot mention resolves to the bot's main thread.
+- It renders as a link showing the bot or thread title and delivers the whole message to the mentioned target. Mention only when the target must act on or know the message.
+- Inside inline code or code fences the directive stays literal and is not delivered.
+
 ## Callouts
 
 Use a `callout` leaf directive as a short visual marker: a few words that name the status, such as `Not tested`, `Blocked by credentials`, `Assumption`, or `Breaking change`. Never put a full sentence or explanation in the label; write it in the following paragraph.

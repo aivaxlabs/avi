@@ -23,6 +23,7 @@ const apiKey = 'remote-test-key';
 const secondApiKey = 'remote-second-key';
 const expiredApiKey = 'remote-expired-key';
 const rpcOperations = [];
+const quickChatInvocations = [];
 const chatEventListeners = new Set();
 const preferences = {
   lastModel: 'test:model',
@@ -94,6 +95,22 @@ const server = new RemoteMcpServer({
     deleteBotById: async (id) => {
       remoteBots = remoteBots.filter((item) => item.id !== id);
       botOperations.push({ name: 'delete', id });
+    },
+  },
+  quickChatRunner: {
+    invoke: async ({ text, model }) => {
+      quickChatInvocations.push({ text, model });
+      if (text === 'fail') {
+        return { status: 'error', model: 'test:model', content: '', segments: [{ type: 'error', message: 'Provider failed' }], attachments: [], usage: null };
+      }
+      return {
+        status: 'completed',
+        model: model ?? 'test:model',
+        content: '<think>plan</think>Quick answer',
+        segments: [{ type: 'tool-call', name: 'read_file', status: 'completed' }],
+        attachments: [{ id: 'a1', kind: 'image_url', name: 'image.png', dataUrl: 'data:image/png;base64,AAAA' }],
+        usage: { totalTokens: 12 },
+      };
     },
   },
   providerRegistry: {
@@ -285,6 +302,7 @@ try {
       'chat_list_threads',
       'chat_overview',
       'chat_send_prompt',
+      'quick_chat_invoke',
     ],
   );
   const createThread = listed.tools.find((tool) => tool.name === 'chat_create_thread');
@@ -362,6 +380,75 @@ try {
     'delete',
   ]);
   await client.close();
+
+  const commandsEndpoint = `http://127.0.0.1:${server.port}/commands`;
+  const commandHeaders = { Authorization: `Bearer ${apiKey}` };
+  assert.equal((await fetch(`${commandsEndpoint}/bots_list`)).status, 401);
+  assert.equal((await fetch(`${commandsEndpoint}/bots_list`, {
+    headers: { Authorization: `Bearer ${expiredApiKey}` },
+  })).status, 401);
+  assert.equal((await fetch(`${commandsEndpoint}/missing_tool`, { headers: commandHeaders })).status, 404);
+  assert.equal((await fetch(`${commandsEndpoint}/bots_list`, { method: 'PUT', headers: commandHeaders })).status, 405);
+
+  const commandList = await fetch(`${commandsEndpoint}/bots_list`, { headers: commandHeaders });
+  assert.equal(commandList.status, 200);
+  assert.equal((await commandList.json()).bots[0].id, 'remote-bot');
+
+  const commandActivate = await fetch(`${commandsEndpoint}/bots_activate`, {
+    method: 'POST',
+    headers: commandHeaders,
+    body: JSON.stringify({ id: 'remote-bot' }),
+  });
+  assert.deepEqual(await commandActivate.json(), { id: 'remote-bot', activated: true, status: 'started' });
+
+  const commandActivateByQuery = await fetch(`${commandsEndpoint}/bots_activate?id=remote-bot&workQueueId=1`, {
+    headers: commandHeaders,
+  });
+  assert.equal(commandActivateByQuery.status, 200);
+  assert.deepEqual(botOperations.slice(-2).map(({ id, options }) => [id, options.workQueueId]), [
+    ['remote-bot', undefined],
+    ['remote-bot', 1],
+  ]);
+
+  assert.equal((await fetch(`${commandsEndpoint}/bots_activate`, {
+    method: 'POST',
+    headers: commandHeaders,
+    body: '[1]',
+  })).status, 400);
+
+  const quickInvoke = await fetch(`${commandsEndpoint}/quick_chat_invoke`, {
+    method: 'POST',
+    headers: commandHeaders,
+    body: JSON.stringify({ prompt: 'Hello quick' }),
+  });
+  assert.equal(quickInvoke.status, 200);
+  assert.deepEqual(await quickInvoke.json(), {
+    text: 'Quick answer',
+    model: 'test:model',
+    toolCalls: [{ name: 'read_file', status: 'completed' }],
+    attachments: [{ id: 'a1', kind: 'image_url', name: 'image.png' }],
+    usage: { totalTokens: 12 },
+  });
+  const quickInvokeByQuery = await fetch(`${commandsEndpoint}/quick_chat_invoke?prompt=Hi&model_name=test:model`, {
+    headers: commandHeaders,
+  });
+  assert.equal((await quickInvokeByQuery.json()).text, 'Quick answer');
+  assert.deepEqual(quickChatInvocations, [
+    { text: 'Hello quick', model: undefined },
+    { text: 'Hi', model: 'test:model' },
+  ]);
+  const quickFailure = await fetch(`${commandsEndpoint}/quick_chat_invoke`, {
+    method: 'POST',
+    headers: commandHeaders,
+    body: JSON.stringify({ prompt: 'fail' }),
+  });
+  assert.equal(quickFailure.status, 400);
+  assert.deepEqual(await quickFailure.json(), { error: 'Provider failed' });
+  assert.equal((await fetch(`${commandsEndpoint}/quick_chat_invoke`, {
+    method: 'POST',
+    headers: commandHeaders,
+    body: '{}',
+  })).status, 400);
 
   const rpcHttpEndpoint = `http://127.0.0.1:${server.port}/rpc`;
   assert.equal((await fetch(rpcHttpEndpoint, { method: 'POST' })).status, 426);
@@ -457,7 +544,7 @@ try {
   assert.deepEqual(globalDiscovery.methods, [
     'app:check-for-updates', 'app:install-update', 'app:update-state',
     'bots:activate', 'bots:clear-thread', 'bots:complete-pendency', 'bots:create', 'bots:delete', 'bots:full-reset',
-    'bots:list', 'bots:reply-pendency', 'bots:resolve-approval', 'bots:save-settings', 'bots:settings',
+    'bots:list', 'bots:remove-priority-item', 'bots:reorder-priority-queue', 'bots:reply-pendency', 'bots:resolve-approval', 'bots:save-settings', 'bots:settings',
     'bots:snooze', 'bots:snooze-one', 'bots:statistics', 'bots:update',
     'composer-draft:get', 'composer-draft:save',
     'conversations:archive', 'conversations:create', 'conversations:delete',

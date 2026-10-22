@@ -32,7 +32,9 @@ Open **Quick chat** from the Sidebar or tray. The window supports model switchin
 
 Quick Chat uses `$HOME` as the tool and MCP workspace. Although its instructions emphasize speed and restraint, all available normal tools, provider tools, and MCP tools run in Full access without approval cards. Ephemeral storage does not mean the session cannot cause external effects; review the requested work and configured integrations before using Quick Chat.
 
-Quick Chat can implement changes, edit files, execute scripts or commands, and perform operations, including on external systems, when you explicitly request them. A question or discussion alone does not authorize actions. An explicit request covers the tool steps needed to complete it; you do not need to name each tool or move the work to a full thread. Quick Chat can inspect threads across all folders, but it is not focused on any single thread, and it directs main threads or their sub-agents only when explicitly asked to. Answers stay concise without leaving requested work unfinished.
+Quick Chat can implement changes, edit files, execute scripts or commands, and perform operations, including on external systems, when you explicitly request them. A question or discussion alone does not authorize actions. An explicit request covers the tool steps needed to complete it; you do not need to name each tool or move the work to a full thread. Quick Chat can inspect threads across all folders, but it is not focused on any single thread. It can create threads and direct main threads or their sub-agents when your request or the Quick Chat instructions call for it. Answers stay concise without leaving requested work unfinished.
+
+Quick Chat does not load `AGENTS.md` or other instruction files. To give it standing rules, write them in **Settings → Tuning → Quick Chat → Quick Chat instructions**; they apply to the Quick Chat window and to `quick_chat_invoke`.
 
 Quick Chat can create ordinary threads or sub-agents and can keep Tasks or Goal state in memory. Session-only state does not survive closing the window.
 

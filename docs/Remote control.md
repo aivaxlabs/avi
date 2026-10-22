@@ -18,10 +18,11 @@ The UI shows **Listening** or **Not listening** and startup errors such as a por
 
 - HTTP MCP: `/mcp`
 - HTTP MCP with path credential: `/mcp/:key`
+- HTTP command invocation (`GET` or `POST`) of the MCP tools: `/commands/:tool` (see [Avi commands](api.md))
 - global RPC WebSocket (ORPC Draft 2): `/rpc`
 - isolated conversation RPC WebSocket: `/rpc/conversations/streams/:thread-id`
 
-Use `Authorization: Bearer <api-key>` with `/mcp` and native WebSocket clients. Browser RPC clients offer `avi-orpc-draft2` and `avi-api-key.<base64url UTF-8 key>` as WebSocket subprotocols; native clients may authenticate with the Authorization header but every client must still offer `avi-orpc-draft2`, which is the only protocol the server selects. Never place an RPC key in a URL or query string. `/mcp/:key` remains available only for MCP clients that cannot set an Authorization header.
+Use `Authorization: Bearer <api-key>` with `/mcp`, `/commands/:tool`, and native WebSocket clients. Browser RPC clients offer `avi-orpc-draft2` and `avi-api-key.<base64url UTF-8 key>` as WebSocket subprotocols; native clients may authenticate with the Authorization header but every client must still offer `avi-orpc-draft2`, which is the only protocol the server selects. Never place an RPC key in a URL or query string. `/mcp/:key` remains available only for MCP clients that cannot set an Authorization header.
 
 ## API keys
 

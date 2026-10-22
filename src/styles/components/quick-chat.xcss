@@ -233,71 +233,10 @@ html.quick-chat-window #root {
 
 .quick-question {
   margin: 16px 0;
-  padding: 14px;
-  background: var(--background-1);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-}
 
-.quick-question fieldset {
-  display: grid;
-  gap: 8px;
-  margin: 0 0 12px;
-  padding: 0;
-  border: 0;
-}
-
-.quick-question legend {
-  margin-bottom: 8px;
-  font-weight: 600;
-}
-
-.quick-question-options {
-  display: grid;
-  gap: 8px;
-}
-
-.quick-question label {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-
-  input {
-    margin-top: 3px;
+  > .question-card {
+    width: 100%;
   }
-}
-
-.quick-question-option-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-  overflow-wrap: anywhere;
-}
-
-.quick-question-option-description {
-  color: var(--text-2);
-  font-size: .9rem;
-
-  p {
-    margin: 0;
-  }
-}
-
-.quick-question textarea,
-.quick-question-custom-input {
-  width: 100%;
-  min-height: 72px;
-  padding: 8px;
-  color: var(--text-1);
-  background: var(--background-0);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-}
-
-.quick-question > div {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 .quick-question-popover {

@@ -10,7 +10,7 @@ Use Core when building an installed Avi plugin that needs direct, in-process acc
 
 ## MCP API
 
-The [Remote MCP API](mcp/overview.md) is a stateless Streamable HTTP interface for agent-oriented orchestration tools. It exposes selected bot and chat operations through `/mcp` and `/mcp/:key`.
+The [Remote MCP API](mcp/overview.md) is a stateless Streamable HTTP interface for agent-oriented orchestration tools. It exposes selected bot and chat operations through `/mcp` and `/mcp/:key`, and the same tools as plain HTTP calls through the local `/commands/:tool` endpoint. [Avi commands](../api.md) documents every command's arguments and results.
 
 Use MCP when an external agent or MCP client needs Avi orchestration tools rather than the complete application request surface.
 

@@ -143,6 +143,26 @@
     box-shadow: 0 20px 70px rgb(0 0 0 / 45%);
   }
 
+  > pre {
+    width: min(900px, calc(100vw - 96px));
+    max-height: calc(100vh - 96px);
+    margin: 0;
+    padding: 16px;
+    overflow: auto;
+    color: var(--text-1);
+    font-family: var(--font-code);
+    font-size: --font-sm;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--background-1);
+    border-radius: 8px;
+    box-shadow: 0 20px 70px rgb(0 0 0 / 45%);
+  }
+
+  > audio {
+    width: min(480px, calc(100vw - 96px));
+  }
+
   > button {
     position: absolute;
     top: 18px;
@@ -213,9 +233,32 @@
   border-radius: 14px;
 }
 
-.cross-thread-message-card .subagent-report-icon {
-  background: var(--background-3);
+.cross-thread-message-card {
+  .subagent-report-icon {
+    background: var(--background-3);
+  }
+
+  .cross-thread-source {
+    width: auto;
+    padding: 0 6px;
+
+    > code {
+      color: inherit;
+      font-size: .9rem;
+    }
+  }
+
+  &.mention {
+    border-color: color-mix(in srgb, var(--primary-color) 45%, var(--border-color));
+    box-shadow: inset 3px 0 0 var(--primary-color);
+
+    .subagent-report-icon {
+      color: var(--primary-color);
+      background: color-mix(in srgb, var(--primary-color) 14%, var(--background-3));
+    }
+  }
 }
+
 
 .subagent-report-header {
   min-width: 0;

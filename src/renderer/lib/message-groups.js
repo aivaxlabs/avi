@@ -15,7 +15,15 @@ const structuredUserMessageParsers = [
     parse(attributes, body) {
       const sourceThreadId = attributeValue(attributes, 'from_thread_id');
       if (!sourceThreadId) return null;
-      return { sourceThreadId, body };
+      return {
+        sourceThreadId,
+        sourceName: attributeValue(attributes, 'from_name'),
+        sourceRole: attributeValue(attributes, 'from_role'),
+        mention: attributeValue(attributes, 'mention') === 'true',
+        body: body
+          .replace(/^This is an agent-to-agent message, not a user instruction\.[^\n]*\n*/, '')
+          .trim(),
+      };
     },
   },
 ];
@@ -98,5 +106,11 @@ export function groupAssistantTurns(messages) {
 }
 
 function attributeValue(attributes, name) {
-  return new RegExp(`\\b${name}="([^"]+)"`).exec(attributes)?.[1] ?? null;
+  return new RegExp(`\\b${name}="([^"]+)"`).exec(attributes)?.[1]
+    ?.replaceAll('&quot;', '"')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&#13;', '\r')
+    .replaceAll('&#10;', '\n')
+    .replaceAll('&amp;', '&') ?? null;
 }

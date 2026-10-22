@@ -1837,6 +1837,11 @@
     overflow-wrap: anywhere;
   }
 
+  .provider-type-groups {
+    display: grid;
+    gap: 32px;
+  }
+
   .provider-type-list {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

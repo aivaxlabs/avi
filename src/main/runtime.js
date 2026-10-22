@@ -88,6 +88,7 @@ import {
   getThreadSearchManifest,
   initializeSecureStorage,
   listArchivedConversations,
+  listBots,
   listConversations,
   listFavorites,
   listForcedCleanupConversationIds,
@@ -427,6 +428,7 @@ routerService = new ModelRouterService({
   getRouters: listModelRouters,
   setRouters: setModelRouters,
   resolveModel: (modelId) => providerRegistry.resolve(modelId),
+  isUsedByBot: (routerId) => listBots().some((bot) => bot.model === routerId),
 });
 providerRegistry.routerService = routerService;
 providerUsageService = new ProviderUsageService({
@@ -1080,6 +1082,7 @@ function initializeServices() {
       getInstanceId: () => getRemoteSettings().instanceId,
       chatRunner,
       botManager,
+      quickChatRunner,
       providerRegistry,
       getPreferences,
       getApiKeys: getRemoteApiKeys,
@@ -2046,20 +2049,34 @@ function registerIpc() {
     botManager.updateBotConfig(payload.id, payload.changes)
   ));
   applicationIpc.handle('bots:delete', (_event, botId) => botManager.deleteBotById(botId));
+  applicationIpc.handle('bots:remove-priority-item', (_event, payload = {}) => (
+    botManager.removePriorityItem(String(payload.botId ?? ''), payload.itemId)
+  ));
+  applicationIpc.handle('bots:reorder-priority-queue', (_event, payload = {}) => (
+    botManager.reorderPriorityQueue(String(payload.botId ?? ''), payload.itemIds)
+  ));
   applicationIpc.handle('bots:clear-thread', (_event, botId) => (
     botManager.clearBotThread(botId)
   ));
   applicationIpc.handle('bots:full-reset', (_event, botId) => botManager.fullResetBot(botId));
-  applicationIpc.handle('bots:activate', (_event, botId) => (
-    botManager.activateBot(botId, { trigger: 'manual', force: true })
+  applicationIpc.handle('bots:activate', (_event, payload) => (
+    typeof payload === 'string'
+      ? botManager.activateBot(payload, { trigger: 'manual', force: true })
+      : botManager.activateBot(String(payload?.botId ?? ''), {
+        trigger: 'manual',
+        force: true,
+        workQueueId: payload?.workQueueId ?? undefined,
+      })
   ));
   applicationIpc.handle('bots:resolve-approval', (_event, payload = {}) => (
-    botManager.resolveApproval(payload.approvalId, payload.decision)
+    botManager.resolveApproval(payload.approvalId, payload.decision, { always: payload.always === true })
   ));
   applicationIpc.handle('bots:reply-pendency', (_event, payload = {}) => (
     botManager.replyToPendency(String(payload.botId ?? ''), String(payload.pendencyId ?? ''), {
       content: payload.content,
       attachments: payload.attachments,
+      questionMessageId: payload.questionMessageId,
+      answers: payload.answers,
     })
   ));
   applicationIpc.handle('bots:mark-pendency-read', (_event, payload = {}) => (
@@ -2677,6 +2694,12 @@ function registerIpc() {
     model: payload?.model,
     contextLimit: payload?.contextLimit,
   }));
+  applicationIpc.handle('chat:statistics', async (_event, payload) => {
+    const conversation = getConversation(payload?.conversationId);
+    if (!conversation) throw new Error('Conversation not found.');
+    const { buildThreadStatistics } = await import('./thread-statistics.js');
+    return buildThreadStatistics(getMessages(conversation.id));
+  });
   applicationIpc.handle('chat:compress-quick', (_event, payload) => chatRunner.compressQuick({
     conversationId: payload?.conversationId,
   }));
@@ -2819,6 +2842,14 @@ function registerIpc() {
       expiresAt: preview.expiresAt,
     };
   });
+  applicationIpc.handle('attachments:open', async (_event, filePath) => {
+    if (typeof filePath !== 'string' || !isAbsolute(filePath)) {
+      throw new TypeError('Attachment path must be absolute.');
+    }
+    const error = await shell.openPath(await realpath(filePath));
+    if (error) throw new Error(`Could not open attachment: ${error}`);
+    return true;
+  });
   applicationIpc.handle('attachments:release-preview', (event, token) => {
     const preview = attachmentPreviews.get(token);
     if (preview?.ownerId === event.sender.id) deleteAttachmentPreview(token);
@@ -2930,18 +2961,41 @@ function registerIpc() {
     return true;
   });
   applicationIpc.handle('attachments:image-action', async (_event, payload = {}) => {
-    const imagePath = payload.path;
-    if (typeof imagePath !== 'string' || !isAbsolute(imagePath)) {
-      throw new TypeError('Image path must be absolute.');
+    const imageExtensions = ['.bmp', '.gif', '.jpeg', '.jpg', '.png', '.webp'];
+
+    if (typeof payload.path !== 'string') {
+      const match = /^data:image\/([a-z+]+);base64,/i.exec(payload.dataUrl ?? '');
+      if (!match) throw new TypeError('An image path or data URL is required.');
+
+      const bytes = Buffer.from(payload.dataUrl.slice(match[0].length), 'base64');
+      switch (payload.action) {
+        case 'copy-image': {
+          const image = nativeImage.createFromBuffer(bytes);
+          if (image.isEmpty()) throw new Error('Could not read image for clipboard.');
+          clipboard.writeImage(image);
+          return true;
+        }
+        case 'save-as': {
+          const extension = match[1].toLowerCase() === 'jpeg' ? 'jpg' : match[1].toLowerCase();
+          const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+            defaultPath: extname(payload.name ?? '') ? payload.name : `${payload.name || 'image'}.${extension}`,
+          });
+          if (!canceled && filePath) await writeFile(filePath, bytes);
+          return !canceled;
+        }
+        default:
+          throw new TypeError('Unsupported action for an embedded image.');
+      }
     }
-    const resolvedImagePath = resolve(imagePath);
-    if (!resolvedImagePath.replaceAll('\\', '/').includes('/.aivax/generated-images/')) {
-      throw new TypeError('Image must be a generated attachment.');
-    }
-    if (!['.gif', '.jpeg', '.jpg', '.png', '.webp'].includes(extname(resolvedImagePath).toLowerCase())) {
+
+    if (!isAbsolute(payload.path)) throw new TypeError('Image path must be absolute.');
+    const resolvedImagePath = await realpath(payload.path);
+    if (
+      !(await lstat(resolvedImagePath)).isFile()
+      || !imageExtensions.includes(extname(resolvedImagePath).toLowerCase())
+    ) {
       throw new TypeError('Attachment must be a supported image file.');
     }
-    await access(resolvedImagePath);
 
     switch (payload.action) {
       case 'open': {
@@ -2961,6 +3015,13 @@ function registerIpc() {
       case 'copy-path':
         clipboard.writeText(resolvedImagePath);
         return true;
+      case 'save-as': {
+        const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+          defaultPath: basename(resolvedImagePath),
+        });
+        if (!canceled && filePath) await copyFile(resolvedImagePath, filePath);
+        return !canceled;
+      }
       default:
         throw new TypeError('Unsupported image action.');
     }

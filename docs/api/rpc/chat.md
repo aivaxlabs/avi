@@ -205,6 +205,18 @@ Calculates current context-window usage.
 
 [`ContextUsage`](types.md#contextusage).
 
+## `chat:statistics`
+
+Aggregates request latency, token usage, and tool-call statistics for the thread.
+
+### Params
+
+Omit `params`; the URL supplies `conversationId`.
+
+### Result
+
+[`ThreadStatistics`](types.md#threadstatistics).
+
 ## `chat:compress-quick`
 
 Removes replaceable historical tool-result content without calling a model.

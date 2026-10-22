@@ -33,6 +33,8 @@ Desktop toggles save immediately. Chat, Tuning, Personality, and Verbosity chang
 
 Click the context percentage beside the composer to open **Context usage**. Its segmented bar counts serialized characters for Avi and custom instructions, global skills/workflows, Avi and MCP tools, messages, and tool results, then scales those weights to the latest input-token usage reported by the provider. MCP instructions and tools are grouped by server. **Other** is the remaining margin for media, files, provider-specific context, and data that cannot be classified reliably.
 
+The dialog has two tabs. **Context** shows the breakdown above. **Stats** summarizes the whole thread: p50/p95/p99 time to first token, time to connection (until the provider accepts the request and returns headers), and tokens per second per successful model request (output tokens over the whole streaming time, so hidden reasoning before the first visible token is included); cumulative input, cached (with share of input), output (with reasoning share), and total tokens; request count and request errors (failed attempts, including retried ones); and tool calls with errors split into invocation errors (unknown tool, invalid JSON, missing required arguments, or schema validation failures) and other errors. Interrupted tool calls are not counted as errors. Latency samples are recorded per request from this version on; older responses contribute one aggregate first-token sample without connection time or throughput.
+
 The dialog offers two manual modes:
 
 - **Quick compaction** replaces tool results before the latest four user turns with `[output truncated due to context compress - invoke this tool again]`, removes associated tool media/provider continuation data, and does not call a model. Use `/quick-compress` to run it from the composer;
@@ -57,6 +59,10 @@ Side chats also run quick compaction automatically before a response when their 
 **Max concurrent sub-agents per thread** accepts 1–128 and defaults to 128. Despite the UI label, the current runtime counts active sub-agents globally across the Avi process.
 
 **Rubber Duck max turns** defaults to 20, accepts integers from 10–500, and bounds each rubber-duck analysis started with `/rubber-duck`. The analysis presents its critique to the conversation and proposes a plan; it does not act on the report by itself.
+
+## Tuning → Quick Chat
+
+**Quick Chat instructions** accepts up to 20,000 characters of plain text, empty by default. Avi adds it after the built-in Quick Chat prompt in every Quick Chat window and `quick_chat_invoke` call, and the model follows it as direct user instructions. Quick Chat does not load `AGENTS.md` or other instruction files, so use this field for rules such as routing project requests to threads in their folders. Quick questions do not receive it.
 
 ## Tuning → Diagnostics
 
@@ -86,6 +92,6 @@ Full access removes the approval card but does not override higher-level runtime
 
 ## Persistence and validation
 
-Tuning and Desktop settings are stored locally. Values outside accepted ranges are rejected or normalized. **Save changes** is disabled when the selected shell is unavailable or terminal timeout, maximum parallel threads, sub-agent concurrency, or Rubber Duck max turns values are invalid.
+Tuning and Desktop settings are stored locally. Values outside accepted ranges are rejected or normalized. **Save changes** is disabled when the selected shell is unavailable or terminal timeout, maximum parallel threads, sub-agent concurrency, or Rubber Duck max turns values are invalid, or Quick Chat instructions exceed 20,000 characters.
 
 See [Themes](Themes.md), [Personalities](Personalities.md), [Archive](Archive.md), and [Remote control](Remote%20control.md).

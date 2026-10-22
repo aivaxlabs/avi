@@ -55,6 +55,7 @@ import {
   titleCaseEffort,
 } from '../lib/models.js';
 import { AttachmentVideo } from './AttachmentVideo.jsx';
+import { AttachmentLightbox, attachmentOpenProps } from './Message.jsx';
 import { ContextUsageDialog } from './ContextUsageDialog.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { ModelPicker } from './ModelPicker.jsx';
@@ -206,6 +207,7 @@ export function Composer({
   const [mentionCandidates, setMentionCandidates] = useState({ paths: [], servers: [] });
   const [mentionsLoading, setMentionsLoading] = useState(false);
   const [mentionsError, setMentionsError] = useState(false);
+  const [previewAttachment, setPreviewAttachment] = useState(null);
   const [reasoningEffort, setReasoningEffort] = useState(() => initialState?.reasoningEffort ?? readPersistedReasoningEffort(initialModel) ?? null);
   const [recording, setRecording] = useState(null);
   const [audioLevel, setAudioLevel] = useState(0);
@@ -782,7 +784,7 @@ export function Composer({
   }, [queuedMenu, pendingMessages]);
 
   useEffect(() => {
-    if (!recording?.analyser || recording.paused) {
+    if (!recording?.analyser || recording.paused || recording.stopping || recording.error) {
       setAudioLevel(0);
       return undefined;
     }
@@ -1236,8 +1238,18 @@ export function Composer({
   async function sendRecording() {
     const current = recording;
     if (!current || current.stopping || current.mediaRecorder.state === 'inactive') return;
-    setRecording({ ...current, stopping: true });
-    const attachment = await stopRecording(current);
+    setRecording({ ...current, stopping: true, progress: 0 });
+
+    let attachment;
+    try {
+      attachment = await stopRecording(current, (progress) => {
+        setRecording((value) => value && { ...value, progress });
+      });
+    } catch (error) {
+      setRecording({ ...current, stopping: false, error: error?.message || 'Unknown error.' });
+      return;
+    }
+
     setRecording(null);
     await onSend({
       text: '',
@@ -1265,6 +1277,9 @@ export function Composer({
       ref={containerRef}
       className={`composer-wrap${inline ? ' inline-composer-wrap' : ''}`}
     >
+      <Presence when={previewAttachment}>{(attachment) => (
+        <AttachmentLightbox attachment={attachment} onClose={() => setPreviewAttachment(null)} />
+      )}</Presence>
       <Presence when={workspaceCreating}>{() => <WorkspaceDialog onClose={() => setWorkspaceCreating(false)} onSave={(workspace) => switchProjectWithDraft(() => onChooseProject(workspace))} />}</Presence>
       {botMode && onShowBotInPanel && (
         <ComposerChip
@@ -1290,18 +1305,35 @@ export function Composer({
           <span className="edit-counter-deletions">-{editStats.deletions}</span>
         </ComposerChip>
       )}
-      {recording && (
+      {recording?.stopping && (
+        <div className="recording-bar processing" role="status" aria-live="polite">
+          <LoaderCircle className="recording-spinner" size={15} aria-hidden="true" />
+          <span>Processing audio... {Math.round(recording.progress * 100)}%</span>
+          <span className="recording-progress" aria-hidden="true">
+            <span style={{ width: `${recording.progress * 100}%` }} />
+          </span>
+        </div>
+      )}
+      {recording?.error && (
+        <div className="recording-bar failed" role="alert">
+          <span>Could not process the audio: {recording.error}</span>
+          <button type="button" aria-label="Discard recording" onClick={cancelRecording}>
+            <Trash2 size={15} />
+          </button>
+        </div>
+      )}
+      {recording && !recording.stopping && !recording.error && (
         <div className="recording-bar">
           <span className="record-dot" />
           <span>Recording audio</span>
           <AudioWave level={audioLevel} paused={recording.paused} />
-          <button type="button" disabled={recording.stopping} onClick={recording.paused ? resumeRecording : pauseRecording}>
+          <button type="button" onClick={recording.paused ? resumeRecording : pauseRecording}>
             {recording.paused ? <Play size={15} /> : <Pause size={15} />}
           </button>
-          <button type="button" disabled={recording.stopping} onClick={cancelRecording}>
+          <button type="button" onClick={cancelRecording}>
             <Trash2 size={15} />
           </button>
-          <button type="button" className="primary-mini" disabled={recording.stopping} onClick={sendRecording}>
+          <button type="button" className="primary-mini" onClick={sendRecording}>
             Send
           </button>
         </div>
@@ -1729,7 +1761,11 @@ export function Composer({
           <div className="attachment-strip">
             {visibleAttachments.map((attachment) => (
               attachment.kind === 'image_url' && attachment.dataUrl ? (
-                <figure key={attachment.id} className="attachment-image">
+                <figure
+                  key={attachment.id}
+                  className="attachment-image"
+                  {...attachmentOpenProps(attachment, setPreviewAttachment)}
+                >
                   <img src={attachment.dataUrl} alt={attachment.name} draggable="false" />
                   <figcaption>
                     <span title={attachment.name}>{attachment.name}</span>
@@ -1745,7 +1781,11 @@ export function Composer({
                   </button>
                 </figure>
               ) : attachment.kind === 'video_url' && (attachment.path || attachment.dataUrl) ? (
-                <figure key={attachment.id} className="attachment-image attachment-video">
+                <figure
+                  key={attachment.id}
+                  className="attachment-image attachment-video"
+                  {...attachmentOpenProps(attachment, setPreviewAttachment)}
+                >
                   <AttachmentVideo attachment={attachment} controls muted preload="metadata" />
                   <figcaption>
                     <span title={attachment.name}>{attachment.name}</span>
@@ -1764,6 +1804,7 @@ export function Composer({
                 <span
                   key={attachment.id}
                   className={`attachment-chip${attachment.kind === 'context_marker' ? ' context-marker' : ''}`}
+                  {...attachmentOpenProps(attachment, setPreviewAttachment)}
                 >
                   {attachment.kind === 'context_marker'
                     ? attachment.markerType === 'workflow'
@@ -2670,12 +2711,12 @@ function AudioWave({ level, paused }) {
   );
 }
 
-function stopRecording(recording) {
+function stopRecording(recording, onProgress) {
   return new Promise((resolve, reject) => {
     recording.mediaRecorder.addEventListener('stop', async () => {
       try {
         cleanupRecording(recording);
-        resolve(await createMp3Attachment(recording.chunks));
+        resolve(await createMp3Attachment(recording.chunks, onProgress));
       } catch (error) {
         reject(error);
       }

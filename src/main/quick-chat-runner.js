@@ -15,6 +15,7 @@ import {
   updateConversation,
 } from './database.js';
 import { CLIENT_TOOLS, decorateToolsForInvocation, normalizeQuestions } from './client-tools.js';
+import { formatQuestionAnswers } from '../shared/questions.js';
 import { applySubagentModelSchema } from './default-models.js';
 import { normalizeAttachmentsForModel } from './files.js';
 import { StreamAccumulator } from './streaming.js';
@@ -296,8 +297,21 @@ export class QuickChatRunner {
     });
     session.messages.push(userMessage);
     this.emit(sessionId, { type: 'message', message: userMessage });
-    void this.run(session, selection);
+    session.completion = this.run(session, selection);
     return { message: userMessage, model: session.model };
+  }
+
+  async invoke({ text, model, reasoningEffort }) {
+    const { id } = this.createSession();
+    const session = this.sessions.get(id);
+    session.headless = true;
+    try {
+      await this.send({ sessionId: id, text, model, reasoningEffort });
+      await session.completion;
+      return session.messages.at(-1);
+    } finally {
+      this.close(id);
+    }
   }
 
   stop(sessionId) {
@@ -382,10 +396,12 @@ export class QuickChatRunner {
       ];
       const coreTools = CLIENT_TOOLS
           .filter((tool) => !question || QUICK_QUESTION_TOOL_NAMES.has(tool.name))
+          .filter((tool) => !session.headless || tool.name !== 'ask_question')
           .filter((tool) => ![
             'invoke_rubber_duck',
             'rubber_duck_ask_agent',
             'rubber_duck_submit_report',
+            'dispatch_sidekick',
             'sleep_semaphore',
             'release_semaphore',
           ].includes(tool.name))
@@ -657,12 +673,7 @@ export class QuickChatRunner {
         }
         return 'Question cancelled; no answers were collected.';
       }
-      return [
-        'User answers:',
-        ...result.answers.map(({ question, answer }) => (
-          `- ${question}: ${Array.isArray(answer) ? answer.join(', ') : answer}`
-        )),
-      ].join('\n');
+      return formatQuestionAnswers(result.answers);
     }
     if (tool.name === 'update_tasks') {
       session.tasks = input.tasks;

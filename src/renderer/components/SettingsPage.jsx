@@ -868,7 +868,7 @@ export function SettingsPage({
     list: 'Manage the connections and models available in chats.',
     routers: 'Route requests across an ordered set of available models.',
     router: 'Configure the routing mode and ordered model sequence.',
-    type: 'Choose the API interface implemented by this provider.',
+    type: 'Use a subscription you already have, or connect an API endpoint.',
     provider: selectedType
       ? `${selectedType.name} · ${selectedType.description}`
       : 'Configure this provider connection and its models.',
@@ -944,7 +944,7 @@ export function SettingsPage({
               General
             </button>
           )}
-          {(!settingsQuery || 'tuning compaction output terminal timeout sub-agents diagnostics logging logs'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'tuning compaction output terminal timeout sub-agents quick chat instructions diagnostics logging logs'.includes(settingsQuery)) && (
             <button
               className={view === 'tuning' ? 'active' : undefined}
               type="button"
@@ -1436,7 +1436,7 @@ export function SettingsPage({
                         <span className="settings-entity-copy">
                           <strong>{router.name}</strong>
                           <small>
-                            {router.mode === 'round-robin' ? 'Round robin' : 'Fallback'}
+                            {{ 'round-robin': 'Round robin', fusion: 'Fusion' }[router.mode] ?? 'Fallback'}
                             {' · '}
                             {router.models.length} {router.models.length === 1 ? 'model' : 'models'}
                           </small>
@@ -1514,111 +1514,137 @@ export function SettingsPage({
                       onChange={(event) => setRouterDraft({
                         ...routerDraft,
                         mode: event.target.value,
+                        models: (event.target.value === 'fusion') === (routerDraft.mode === 'fusion')
+                          ? routerDraft.models
+                          : [],
                       })}
                     >
                       <option value="fallback">Fallback</option>
                       <option value="round-robin">Round robin</option>
+                      <option value="fusion">Fusion</option>
                     </select>
                     <small>
-                      {routerDraft.mode === 'round-robin'
-                        ? 'Cycles through the configured models in order.'
-                        : 'Tries each configured model in order until one succeeds.'}
+                      {{
+                        'round-robin': 'Cycles through the configured models in order.',
+                        fusion: 'A frontier lead plans, decides, and reviews; a cost-effective sidekick executes delegated work. Bots cannot use Fusion routers.',
+                      }[routerDraft.mode] ?? 'Tries each configured model in order until one succeeds.'}
                     </small>
                   </label>
-                  <label className="settings-field settings-field-wide">
-                    <span>Add model</span>
-                    <select className="select"
-                      value=""
-                      onChange={(event) => {
-                        if (!event.target.value) return;
-                        setRouterDraft({
-                          ...routerDraft,
-                          models: [...routerDraft.models, { modelId: event.target.value }],
-                        });
+                  {routerDraft.mode === 'fusion' && ['Lead', 'Sidekick'].map((role, index) => (
+                    <DefaultModelField
+                      key={role}
+                      label={`${role} model`}
+                      description={index === 0
+                        ? 'Talks to you, plans, decides, and reviews every delegated result.'
+                        : 'Executes the briefs the lead dispatches and reports back to it.'}
+                      models={models.filter((model) => !model.id.startsWith('@'))}
+                      required
+                      value={routerDraft.models[index] ?? null}
+                      onChange={(selection) => {
+                        const nextModels = [routerDraft.models[0] ?? null, routerDraft.models[1] ?? null];
+                        nextModels[index] = selection;
+                        setRouterDraft({ ...routerDraft, models: nextModels });
                       }}
-                    >
-                      <option value="">Select a model</option>
-                      {models.map((model) => (
-                        !model.id.startsWith('@')
-                          && !routerDraft.models.some((entry) => entry.modelId === model.id)
-                          ? (
-                            <option key={model.id} value={model.id}>
-                              {model.providerName ? `${model.providerName} · ` : ''}{model.name}
-                            </option>
-                          )
-                          : null
-                      ))}
-                    </select>
-                    <small>Models are attempted or selected in the order shown below.</small>
-                  </label>
-                </div>
-
-                <div className="settings-router-models" aria-label="Ordered router models">
-                  {routerDraft.models.map((entry, index) => {
-                    const model = models.find((item) => item.id === entry.modelId);
-                    const available = entry.available
-                      ?? entry.availability?.available
-                      ?? Boolean(model);
-                    return (
-                      <div className="settings-router-model" key={entry.modelId}>
-                        <span className="settings-router-model-order">{index + 1}</span>
-                        <span className="settings-router-model-copy">
-                          <strong>{model?.name ?? entry.modelId}</strong>
-                          <small>{model?.providerName ?? (model ? entry.modelId : 'Missing from model catalog')}</small>
-                        </span>
-                        <span className={classNames('settings-status', available ? 'enabled' : 'disabled')}>
-                          {available ? 'Available' : 'Unavailable'}
-                        </span>
-                        <div className="settings-router-model-actions">
-                          <button
-                            className="icon-button"
-                            type="button"
-                            disabled={index === 0}
-                            aria-label={`Move ${model?.name ?? entry.modelId} up`}
-                            onClick={() => {
-                              const nextModels = [...routerDraft.models];
-                              [nextModels[index - 1], nextModels[index]] = [nextModels[index], nextModels[index - 1]];
-                              setRouterDraft({ ...routerDraft, models: nextModels });
-                            }}
-                          >
-                            <ArrowUp size={14} />
-                          </button>
-                          <button
-                            className="icon-button"
-                            type="button"
-                            disabled={index === routerDraft.models.length - 1}
-                            aria-label={`Move ${model?.name ?? entry.modelId} down`}
-                            onClick={() => {
-                              const nextModels = [...routerDraft.models];
-                              [nextModels[index], nextModels[index + 1]] = [nextModels[index + 1], nextModels[index]];
-                              setRouterDraft({ ...routerDraft, models: nextModels });
-                            }}
-                          >
-                            <ArrowDown size={14} />
-                          </button>
-                          <button
-                            className="icon-button danger"
-                            type="button"
-                            aria-label={`Remove ${model?.name ?? entry.modelId}`}
-                            onClick={() => setRouterDraft({
-                              ...routerDraft,
-                              models: routerDraft.models.filter((_, modelIndex) => modelIndex !== index),
-                            })}
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {routerDraft.models.length === 0 && (
-                    <div className="settings-empty">
-                      <Workflow size={22} />
-                      <strong>No models in this router</strong>
-                      <span>Select at least one model to save the router.</span>
-                    </div>
+                    />
+                  ))}
+                  {routerDraft.mode !== 'fusion' && (
+                    <label className="settings-field settings-field-wide">
+                      <span>Add model</span>
+                      <select className="select"
+                        value=""
+                        onChange={(event) => {
+                          if (!event.target.value) return;
+                          setRouterDraft({
+                            ...routerDraft,
+                            models: [...routerDraft.models, { modelId: event.target.value }],
+                          });
+                        }}
+                      >
+                        <option value="">Select a model</option>
+                        {models.map((model) => (
+                          !model.id.startsWith('@')
+                            && !routerDraft.models.some((entry) => entry.modelId === model.id)
+                            ? (
+                              <option key={model.id} value={model.id}>
+                                {model.providerName ? `${model.providerName} · ` : ''}{model.name}
+                              </option>
+                            )
+                            : null
+                        ))}
+                      </select>
+                      <small>Models are attempted or selected in the order shown below.</small>
+                    </label>
                   )}
                 </div>
+
+                {routerDraft.mode !== 'fusion' && (
+                  <div className="settings-router-models" aria-label="Ordered router models">
+                    {routerDraft.models.map((entry, index) => {
+                      const model = models.find((item) => item.id === entry.modelId);
+                      const available = entry.available
+                        ?? entry.availability?.available
+                        ?? Boolean(model);
+                      return (
+                        <div className="settings-router-model" key={entry.modelId}>
+                          <span className="settings-router-model-order">{index + 1}</span>
+                          <span className="settings-router-model-copy">
+                            <strong>{model?.name ?? entry.modelId}</strong>
+                            <small>{model?.providerName ?? (model ? entry.modelId : 'Missing from model catalog')}</small>
+                          </span>
+                          <span className={classNames('settings-status', available ? 'enabled' : 'disabled')}>
+                            {available ? 'Available' : 'Unavailable'}
+                          </span>
+                          <div className="settings-router-model-actions">
+                            <button
+                              className="icon-button"
+                              type="button"
+                              disabled={index === 0}
+                              aria-label={`Move ${model?.name ?? entry.modelId} up`}
+                              onClick={() => {
+                                const nextModels = [...routerDraft.models];
+                                [nextModels[index - 1], nextModels[index]] = [nextModels[index], nextModels[index - 1]];
+                                setRouterDraft({ ...routerDraft, models: nextModels });
+                              }}
+                            >
+                              <ArrowUp size={14} />
+                            </button>
+                            <button
+                              className="icon-button"
+                              type="button"
+                              disabled={index === routerDraft.models.length - 1}
+                              aria-label={`Move ${model?.name ?? entry.modelId} down`}
+                              onClick={() => {
+                                const nextModels = [...routerDraft.models];
+                                [nextModels[index], nextModels[index + 1]] = [nextModels[index + 1], nextModels[index]];
+                                setRouterDraft({ ...routerDraft, models: nextModels });
+                              }}
+                            >
+                              <ArrowDown size={14} />
+                            </button>
+                            <button
+                              className="icon-button danger"
+                              type="button"
+                              aria-label={`Remove ${model?.name ?? entry.modelId}`}
+                              onClick={() => setRouterDraft({
+                                ...routerDraft,
+                                models: routerDraft.models.filter((_, modelIndex) => modelIndex !== index),
+                              })}
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {routerDraft.models.length === 0 && (
+                      <div className="settings-empty">
+                        <Workflow size={22} />
+                        <strong>No models in this router</strong>
+                        <span>Select at least one model to save the router.</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </section>
             )}
 
@@ -2592,6 +2618,29 @@ export function SettingsPage({
                 </section>
                 <section className="settings-section">
                   <div className="settings-section-heading">
+                    <h3>Quick Chat</h3>
+                    <p>Instructions added to every Quick Chat, including quick_chat_invoke calls.</p>
+                  </div>
+                  <div className="settings-section-card settings-form">
+                    <label className="settings-field settings-field-wide" htmlFor="tuning-quick-chat-instructions">
+                      <span>Quick Chat instructions</span>
+                      <LongTextField id="tuning-quick-chat-instructions"
+                        label="Quick Chat instructions" language="plaintext"
+                        value={tuningDraft.quickChatInstructions ?? ''}
+                        invalid={(tuningDraft.quickChatInstructions ?? '').length > 20_000}
+                        placeholder="For example: when a request mentions a project, find its folder and delegate it to a thread there."
+                        onChange={(quickChatInstructions) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({ ...current, quickChatInstructions }));
+                        }} />
+                      <small>
+                        Quick Chat does not load AGENTS.md files. Up to 20,000 characters. Quick questions do not use these instructions.
+                      </small>
+                    </label>
+                  </div>
+                </section>
+                <section className="settings-section">
+                  <div className="settings-section-heading">
                     <h3>Diagnostics</h3>
                     <p>Choose how much operational detail is written to ~/.aivax/trace.log. Fatal errors are always recorded.</p>
                   </div>
@@ -2688,30 +2737,51 @@ export function SettingsPage({
             )}
 
             {view === 'type' && (
-              <section className="settings-section">
-                <div className="provider-type-list">
-                  {providerTypes.map((type) => (
-                    <button
-                      className="provider-type-card"
-                      key={type.id}
-                      type="button"
-                      onClick={() => startProviderCreation(type.id)}
-                    >
-                      <span className="settings-entity-icon">
-                        {type.icon === 'sparkles'
-                          ? <Sparkles size={17} />
-                          : <Server size={17} />}
-                      </span>
-                      <span>
-                        <strong>{type.name}</strong>
-                        <small>{type.description}</small>
-                        <code>{type.endpoint}</code>
-                      </span>
-                      <ArrowRight size={16} />
-                    </button>
-                  ))}
-                </div>
-              </section>
+              <div className="provider-type-groups">
+                {[
+                  {
+                    id: 'subscriptions',
+                    title: 'Subscriptions',
+                    description: 'Sign in with an existing consumer subscription. Models are managed by Avi.',
+                    types: providerTypes.filter((type) => type.connection === 'managed'),
+                  },
+                  {
+                    id: 'api',
+                    title: 'API',
+                    description: 'Connect any endpoint that implements a supported API with an API key.',
+                    types: providerTypes.filter((type) => type.connection !== 'managed'),
+                  },
+                ].filter((group) => group.types.length > 0).map((group) => (
+                  <section className="settings-section" key={group.id} aria-labelledby={`provider-types-${group.id}`}>
+                    <div className="settings-section-heading">
+                      <h3 id={`provider-types-${group.id}`}>{group.title}</h3>
+                      <p>{group.description}</p>
+                    </div>
+                    <div className="provider-type-list">
+                      {group.types.map((type) => (
+                        <button
+                          className="provider-type-card"
+                          key={type.id}
+                          type="button"
+                          onClick={() => startProviderCreation(type.id)}
+                        >
+                          <span className="settings-entity-icon">
+                            {type.icon === 'sparkles'
+                              ? <Sparkles size={17} />
+                              : <Server size={17} />}
+                          </span>
+                          <span>
+                            <strong>{type.name}</strong>
+                            <small>{type.description}</small>
+                            <code>{type.endpoint}</code>
+                          </span>
+                          <ArrowRight size={16} />
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
             )}
 
             {view === 'provider' && providerDraft && (
@@ -3340,7 +3410,9 @@ export function SettingsPage({
                     : view === 'model'
                       ? !modelDraft
                       : view === 'router'
-                        ? !routerDraft?.name.trim() || routerDraft.models.length === 0
+                        ? !routerDraft?.name.trim() || (routerDraft.mode === 'fusion'
+                          ? routerDraft.models.length !== 2 || routerDraft.models.some((entry) => !entry)
+                          : routerDraft.models.length === 0)
                         : view === 'default-models'
                           ? !defaultModelsDraft || invalidModelRules
                           || (defaultModelsDraft.subagents.enabled && [
@@ -3362,6 +3434,7 @@ export function SettingsPage({
                           || !Number.isInteger(tuningDraft.rubberDuckMaxTurns)
                           || tuningDraft.rubberDuckMaxTurns < 10
                           || tuningDraft.rubberDuckMaxTurns > 500
+                          || (tuningDraft.quickChatInstructions ?? '').length > 20_000
                 )}
                 onClick={() => runProviderMutation(async () => {
                   if (view === 'default-models') {
@@ -3381,7 +3454,9 @@ export function SettingsPage({
                       id: routerDraft.id,
                       name: routerDraft.name.trim(),
                       mode: routerDraft.mode,
-                      models: routerDraft.models.map(({ modelId }) => ({ modelId })),
+                      models: routerDraft.models.map(({ modelId, reasoningEffort }) => (
+                        routerDraft.mode === 'fusion' ? { modelId, reasoningEffort } : { modelId }
+                      )),
                     });
                     setRouters(await window.chatApp.routers.list());
                     await onRoutersChange();

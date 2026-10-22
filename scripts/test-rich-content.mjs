@@ -89,8 +89,10 @@ const diff = renderMessage([
 ].join('\n'));
 assert.match(diff, /class="copyable-panel avi-diff"/);
 assert.match(diff, /aria-label="Focused change"/);
-assert.match(diff, /token deleted-sign/);
-assert.match(diff, /token inserted-sign/);
+assert.match(diff, /avi-diff-line hunk/);
+assert.match(diff, /avi-diff-line deleted"><span class="avi-diff-sign">-<\/span><span class="avi-diff-text">const oldValue = 1;/);
+assert.match(diff, /avi-diff-line added"><span class="avi-diff-sign">\+<\/span><span class="avi-diff-text">const newValue = 2;/);
+assert.match(diff, /<ins>\+1<\/ins><del>-1<\/del>/);
 
 const mermaid = renderMessage([
   ':::mermaid-diagram',

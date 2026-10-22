@@ -45,7 +45,7 @@ function transformDirective(node, file, processor) {
   if (
     node.children?.length === 1
     && onlyChild?.type === 'textDirective'
-    && onlyChild.name.toLowerCase() !== 'fileref'
+    && !['fileref', 'mention'].includes(onlyChild.name.toLowerCase())
   ) {
     return transformRichDirective(onlyChild, file) ?? node;
   }
@@ -57,6 +57,8 @@ function transformDirective(node, file, processor) {
 
   const transformed = node.name.toLowerCase() === 'fileref'
     ? transformFileReference(node)
+    : node.name.toLowerCase() === 'mention' && node.type !== 'containerDirective'
+      ? transformMention(node)
     : node.type === 'textDirective'
       ? (node.name.toLowerCase() === 'callout' ? transformHeader(node, 'callout', true) : null)
       : transformRichDirective(node, file);
@@ -103,6 +105,17 @@ function transformFileReference(node) {
     lineFrom: reference.lineFrom ?? undefined,
     lineTo: reference.lineTo ?? undefined,
   });
+}
+
+function transformMention(node) {
+  const kind = node.attributes?.['bot-id'] ? 'bot' : node.attributes?.['thread-id'] ? 'thread' : null;
+  const target = String(node.attributes?.[`${kind}-id`] ?? '').trim();
+  if (!kind || !target) return null;
+  node.children = [];
+  const mention = withElement(node, 'avi-mention', { kind, target });
+  return node.type === 'leafDirective'
+    ? { type: 'paragraph', children: [{ ...mention, type: 'textDirective' }] }
+    : mention;
 }
 
 function transformChart(node) {

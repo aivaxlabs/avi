@@ -10,6 +10,7 @@ import { Menu, PanelRightOpen, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar.jsx';
 import { ActivityBar } from './components/ActivityBar.jsx';
 import { ActionPage } from './components/ActionPage.jsx';
+import { MentionContext } from './components/Message.jsx';
 import { ChatView } from './components/ChatView.jsx';
 import { SearchDialog } from './components/SearchDialog.jsx';
 import { SettingsPage } from './components/SettingsPage.jsx';
@@ -46,6 +47,7 @@ window.localStorage.removeItem('aivax.composer.ultra-mode');
 const minimumAuxiliaryPanelWidth = 280;
 const auxiliaryPanelCloseDuration = 350;
 const minimumMainContentWidth = 320;
+const overviewInboxListWidth = 500;
 const narrowWindowWidth = 700;
 const MESSAGE_PAGE_SIZE = 100;
 const emptyList = Object.freeze([]);
@@ -1139,6 +1141,12 @@ export default function App() {
   ]);
 
   useEffect(() => {
+    if (sideChats.some((sideChat) => sideChat.id === activeAuxiliaryTab)) {
+      void loadInitialMessagePage(activeAuxiliaryTab);
+    }
+  }, [activeAuxiliaryTab, loadInitialMessagePage, sideChats]);
+
+  useEffect(() => {
     const syncWindowWidth = () => {
       setWindowWidth(window.innerWidth);
       if (window.innerWidth > narrowWindowWidth) setNavigationOpen(false);
@@ -1196,7 +1204,9 @@ export default function App() {
 
   async function createBot(preset = {}) {
     try {
-      const modelId = preset.modelId ?? currentModel ?? models[0]?.id;
+      const botModels = models.filter((model) => model.routerMode !== 'fusion');
+      const modelId = preset.modelId
+        ?? (botModels.some((model) => model.id === currentModel) ? currentModel : botModels[0]?.id);
       if (!modelId) throw new Error('Configure at least one model before creating a bot.');
       const bot = await api.bots.create({ name: 'New bot', model: modelId, ...preset });
       await refreshBots();
@@ -1241,10 +1251,14 @@ export default function App() {
   async function activateBot(botId, workQueueIndex = null) {
     try {
       if (workQueueIndex !== null) {
-        await api.bots.update({ id: botId, changes: { workQueueIndex } });
+        const workQueueLength = bots.find((bot) => bot.id === botId)?.workQueue.length ?? 1;
+        await api.bots.update({
+          id: botId,
+          changes: { workQueueIndex: (workQueueIndex + 1) % workQueueLength },
+        });
         await refreshBots();
       }
-      await api.bots.activate(botId);
+      await api.bots.activate(botId, workQueueIndex ?? undefined);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
@@ -1267,8 +1281,8 @@ export default function App() {
     }
   }
 
-  async function resolveBotApproval(approvalId, decision) {
-    const result = await api.bots.resolveApproval({ approvalId, decision });
+  async function resolveBotApproval(approvalId, decision, always = false) {
+    const result = await api.bots.resolveApproval({ approvalId, decision, always });
     await refreshBots();
     return result;
   }
@@ -2132,6 +2146,12 @@ export default function App() {
     setPendingComposerAttachment(null)
   ));
   const chatOnOpenFileReference = useStableCallback(openFileReference);
+  const chatOnOpenThread = useStableCallback(selectConversation);
+  const mentionContext = useMemo(() => ({
+    bots,
+    threads: [...conversations, ...sideChats, ...subagents, ...rubberDucks],
+    onOpenThread: chatOnOpenThread,
+  }), [bots, conversations, sideChats, subagents, rubberDucks, chatOnOpenThread]);
   const chatOnExpandPrompt = useStableCallback(async (payload) => {
     try {
       return await api.chat.expandPrompt(payload);
@@ -2484,10 +2504,12 @@ export default function App() {
       - (orchestrationOpen ? 0 : effectiveSidebarCollapsed ? 58 : effectiveSidebarWidth)
       - minimumMainContentWidth,
   );
-  const effectiveAuxiliaryPanelWidth = Math.min(
-    auxiliaryExpansionActive ? windowWidth * .8 : auxiliaryPanelWidth,
-    auxiliaryPanelWidthMax,
-  );
+  const effectiveAuxiliaryPanelWidth = orchestrationOpen
+    ? Math.max(minimumAuxiliaryPanelWidth, windowWidth - 52 - overviewInboxListWidth)
+    : Math.min(
+        auxiliaryExpansionActive ? windowWidth * .8 : auxiliaryPanelWidth,
+        auxiliaryPanelWidthMax,
+      );
   const shellClassName = [
     'app-shell',
     appState?.platform && `platform-${appState.platform}`,
@@ -2542,6 +2564,7 @@ export default function App() {
   }
 
   return (
+    <MentionContext.Provider value={mentionContext}>
     <div
       className={shellClassName}
       style={{
@@ -2844,9 +2867,9 @@ export default function App() {
               continuationRepliesEnabled={appState.tuning.continuationRepliesEnabled}
               />
             </div>
-            {sidePanelVisible && !auxiliaryExpansionActive && !narrowWindow && (
+            {sidePanelVisible && !auxiliaryExpansionActive && !orchestrationOpen && !narrowWindow && (
               <PanelResizer
-                label={overviewInboxVisible ? 'Resize Inbox panel' : 'Resize auxiliary panel'}
+                label="Resize auxiliary panel"
                 controls="auxiliary-panel"
                 value={effectiveAuxiliaryPanelWidth}
                 min={minimumAuxiliaryPanelWidth}
@@ -2860,7 +2883,7 @@ export default function App() {
                 )}
               />
             )}
-            {(auxiliaryExpansionActive || (sidePanelRendered && !sidePanelVisible)) && !narrowWindow && (
+            {(auxiliaryExpansionActive || (sidePanelRendered && (orchestrationOpen || !sidePanelVisible))) && !narrowWindow && (
               <div aria-hidden="true" />
             )}
             {!orchestrationOpen && !auxiliaryPanelVisible && (
@@ -3064,6 +3087,14 @@ export default function App() {
           }}
           onFullReset={fullResetBot}
           onDeleteBot={deleteBot}
+          onRemovePriorityItem={async (botId, itemId) => {
+            await api.bots.removePriorityItem({ botId, itemId });
+            await refreshBots();
+          }}
+          onReorderPriorityQueue={async (botId, itemIds) => {
+            await api.bots.reorderPriorityQueue({ botId, itemIds });
+            await refreshBots();
+          }}
         />
       )}</Presence>
       <Presence when={error || currentConversationError} duration={350}>{(message) => (
@@ -3118,6 +3149,7 @@ export default function App() {
         }}
       />
     </div>
+    </MentionContext.Provider>
   );
 }
 

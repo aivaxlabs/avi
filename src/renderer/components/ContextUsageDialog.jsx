@@ -12,6 +12,7 @@ import {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { formatMetricDuration } from '../lib/format.js';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { Overlay, Presence } from './Overlay.jsx';
 
@@ -19,6 +20,15 @@ const numberFormatter = new Intl.NumberFormat();
 const percentFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 1,
 });
+const TABS = [['context', 'Context'], ['stats', 'Stats']];
+
+function formatRatio(value) {
+  return Number.isFinite(value) ? `${percentFormatter.format(value * 100)}%` : '—';
+}
+
+function formatRate(value) {
+  return Number.isFinite(value) ? `${value.toFixed(1)} tok/s` : '—';
+}
 
 export function ContextUsageDialog({
   conversationId,
@@ -34,7 +44,12 @@ export function ContextUsageDialog({
   const [message, setMessage] = useState('');
   const [highlightedSegmentId, setHighlightedSegmentId] = useState(null);
   const [compressionMenuOpen, setCompressionMenuOpen] = useState(false);
+  const [tab, setTab] = useState('context');
+  const [stats, setStats] = useState(null);
+  const [statsBusy, setStatsBusy] = useState(false);
+  const [statsError, setStatsError] = useState('');
   const compressionMenuRef = useRef(null);
+  const dialogRef = useRef(null);
 
   const loadUsage = useCallback(async () => {
     if (!conversationId || !model) return;
@@ -53,12 +68,29 @@ export function ContextUsageDialog({
     }
   }, [contextUsage?.limit, conversationId, model]);
 
+  const loadStats = useCallback(async () => {
+    if (!conversationId) return;
+    setStatsBusy(true);
+    setStatsError('');
+    try {
+      setStats(await window.chatApp.chat.statistics({ conversationId }));
+    } catch (nextError) {
+      setStatsError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setStatsBusy(false);
+    }
+  }, [conversationId]);
+
   useEffect(() => {
     if (!open) return;
     setMessage('');
     setHighlightedSegmentId(null);
     void loadUsage();
   }, [loadUsage, open]);
+
+  useEffect(() => {
+    if (open && tab === 'stats') void loadStats();
+  }, [loadStats, open, tab]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -151,22 +183,27 @@ export function ContextUsageDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="context-usage-title"
+        ref={dialogRef}
       >
         <header className="dialog-header">
           <div>
             <h2 id="context-usage-title">Context usage</h2>
-            <p>Estimated from serialized character counts and scaled to the latest provider usage.</p>
+            <p>
+              {tab === 'context'
+                ? 'Estimated from serialized character counts and scaled to the latest provider usage.'
+                : 'Measured from every model request and tool call recorded in this thread.'}
+            </p>
           </div>
           <div className="dialog-header-actions">
             <button
               className="icon-button tiny"
               type="button"
-              disabled={busy}
-              title="Refresh context usage"
-              aria-label="Refresh context usage"
-              onClick={() => void loadUsage()}
+              disabled={busy || statsBusy}
+              title={tab === 'context' ? 'Refresh context usage' : 'Refresh thread statistics'}
+              aria-label={tab === 'context' ? 'Refresh context usage' : 'Refresh thread statistics'}
+              onClick={() => void (tab === 'context' ? loadUsage() : loadStats())}
             >
-              <RefreshCw className={busy ? 'spin' : undefined} size={15} />
+              <RefreshCw className={busy || statsBusy ? 'spin' : undefined} size={15} />
             </button>
             <button
               className="icon-button tiny"
@@ -180,7 +217,110 @@ export function ContextUsageDialog({
           </div>
         </header>
 
-        <div className="context-usage-body">
+        <div
+          className="context-editor-tabs"
+          role="tablist"
+          aria-label="Context usage views"
+          onKeyDown={(event) => {
+            if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+            event.preventDefault();
+            const next = tab === 'context' ? 'stats' : 'context';
+            setTab(next);
+            requestAnimationFrame(() => dialogRef.current?.querySelector(`#context-usage-tab-${next}`)?.focus());
+          }}
+        >
+          {TABS.map(([id, label]) => (
+            <button
+              key={id}
+              id={`context-usage-tab-${id}`}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              aria-controls={`context-usage-panel-${id}`}
+              tabIndex={tab === id ? 0 : -1}
+              onClick={() => setTab(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'stats' ? (
+          <div
+            className="context-usage-body"
+            id="context-usage-panel-stats"
+            role="tabpanel"
+            aria-labelledby="context-usage-tab-stats"
+          >
+            {statsBusy && !stats ? (
+              <div className="context-usage-state">
+                <LoaderCircle className="spin" size={18} />
+                <span>Calculating thread statistics...</span>
+              </div>
+            ) : stats && (
+              <>
+                <table className="thread-stats-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Latency</th>
+                      <th scope="col">p50</th>
+                      <th scope="col">p95</th>
+                      <th scope="col">p99</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      ['Time to first token', stats.latency.firstToken, formatMetricDuration],
+                      ['Time to connection', stats.latency.connection, formatMetricDuration],
+                      ['Tokens per second', stats.tokensPerSecond, formatRate],
+                    ].map(([label, values, format]) => (
+                      <tr key={label}>
+                        <th scope="row">
+                          {label}
+                          <small>{numberFormatter.format(values.samples)} samples</small>
+                        </th>
+                        <td>{format(values.p50)}</td>
+                        <td>{format(values.p95)}</td>
+                        <td>{format(values.p99)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <dl className="thread-stats-list">
+                  {[
+                    ['Input tokens', numberFormatter.format(stats.tokens.input)],
+                    ['Cached tokens', numberFormatter.format(stats.tokens.cached), `${formatRatio(stats.tokens.cachedRatio)} of input`],
+                    ['Output tokens', numberFormatter.format(stats.tokens.output), `${formatRatio(stats.tokens.reasoningRatio)} reasoning`],
+                    ['Total tokens', numberFormatter.format(stats.tokens.total)],
+                    ['Requests', numberFormatter.format(stats.requests.count)],
+                    ['Request errors', numberFormatter.format(stats.requests.errors)],
+                    ['Tool calls', numberFormatter.format(stats.tools.calls)],
+                    [
+                      'Tool call errors',
+                      numberFormatter.format(stats.tools.invocationErrors + stats.tools.otherErrors),
+                      `${numberFormatter.format(stats.tools.invocationErrors)} invocation / ${numberFormatter.format(stats.tools.otherErrors)} other`,
+                    ],
+                  ].map(([label, value, detail]) => (
+                    <div key={label}>
+                      <dt>{label}</dt>
+                      <dd>
+                        <strong>{value}</strong>
+                        {detail && <small>{detail}</small>}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
+            )}
+            {statsError && <p className="context-usage-error" role="alert">{statsError}</p>}
+          </div>
+        ) : (
+        <div
+          className="context-usage-body"
+          id="context-usage-panel-context"
+          role="tabpanel"
+          aria-labelledby="context-usage-tab-context"
+        >
           {busy && !snapshot ? (
             <div className="context-usage-state">
               <LoaderCircle className="spin" size={18} />
@@ -280,8 +420,9 @@ export function ContextUsageDialog({
           {error && <p className="context-usage-error" role="alert">{error}</p>}
           {message && <p className="context-usage-message" role="status">{message}</p>}
         </div>
+        )}
 
-        <footer className="context-compression-actions">
+        {tab === 'context' && <footer className="context-compression-actions">
           <div>
             <strong>Compaction</strong>
             <span>Reduce older context while keeping the latest four turns intact.</span>
@@ -324,7 +465,7 @@ export function ContextUsageDialog({
               </DropdownMenu>
             )}</Presence>
           </div>
-        </footer>
+        </footer>}
       </section>
     </Overlay>,
     document.body,

@@ -8,7 +8,7 @@
   width: min(620px, 100%);
   max-height: min(720px, 86vh);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 14px;
   padding: 18px;
   color: --text-1;
@@ -225,6 +225,96 @@
       font-size: --font-xs;
       font-weight: 400;
       font-variant-numeric: tabular-nums;
+    }
+  }
+}
+
+.thread-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+
+  th,
+  td {
+    padding: 8px 10px;
+    text-align: right;
+    font-size: --font-sm;
+    font-weight: 400;
+    white-space: nowrap;
+  }
+
+  thead th {
+    color: --text-3;
+    font-size: --font-xs;
+  }
+
+  tbody tr {
+    border-top: 1px solid --border-color;
+  }
+
+  th:first-child {
+    text-align: left;
+  }
+
+  tbody th {
+    display: grid;
+    gap: 2px;
+    color: --text-1;
+    font-size: --font-md;
+
+    small {
+      color: --text-3;
+      font-size: --font-xs;
+    }
+  }
+
+  td {
+    color: --text-1;
+    font-weight: 500;
+  }
+}
+
+.thread-stats-list {
+  margin: 0;
+  padding-inline: 10px;
+
+  > div {
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding-block: 8px;
+    border-top: 1px solid --border-color;
+  }
+
+  dt {
+    min-width: 0;
+    overflow: hidden;
+    color: --text-1;
+    font-size: --font-md;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  dd {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+    margin: 0;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+
+    strong {
+      color: --text-1;
+      font-size: --font-md;
+      font-weight: 500;
+    }
+
+    small {
+      color: --text-3;
+      font-size: --font-sm;
+      white-space: nowrap;
     }
   }
 }

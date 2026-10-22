@@ -9,7 +9,6 @@ import {
   X,
 } from 'lucide-react';
 import Prism from 'prismjs';
-import 'prismjs/components/prism-diff';
 import {
   Children,
   isValidElement,
@@ -65,7 +64,7 @@ export function RichContent({ part, onOpenFileReference, onFileReferenceContextM
   );
 }
 
-export function CopyablePanel({ label, value, children, className = '' }) {
+export function CopyablePanel({ label, value, children, badge, className = '' }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     void navigator.clipboard.writeText(value ?? '');
@@ -76,6 +75,7 @@ export function CopyablePanel({ label, value, children, className = '' }) {
     <section className={`copyable-panel ${className}`.trim()} aria-label={label}>
       <header className="copyable-panel-header">
         <span>{label}</span>
+        {badge}
         <button type="button" onClick={handleCopy} aria-label={`Copy ${label}`} title={`Copy ${label}`}>
           <Copy size={13} />
           <span>{copied ? 'Copied' : 'Copy'}</span>
@@ -97,14 +97,40 @@ function DirectiveHeader({ children, className, kind, label, title }) {
 }
 
 function DiffPanel({ diff }) {
-  const highlighted = useMemo(
-    () => Prism.highlight(diff.value, Prism.languages.diff, 'diff'),
-    [diff.value],
-  );
+  const lines = useMemo(() => diff.value.split(/\r?\n/).map((text) => {
+    if (text.startsWith('@@')) return { kind: 'hunk', sign: '', content: text };
+    if (/^(diff --git |index |--- |\+\+\+ |new file|deleted file|rename |similarity )/.test(text)) {
+      return { kind: 'meta', sign: '', content: text };
+    }
+    if (text.startsWith('+')) return { kind: 'added', sign: '+', content: text.slice(1) };
+    if (text.startsWith('-')) return { kind: 'deleted', sign: '-', content: text.slice(1) };
+    return { kind: 'context', sign: ' ', content: text.startsWith(' ') ? text.slice(1) : text };
+  }), [diff.value]);
+
+  const additions = lines.filter((line) => line.kind === 'added').length;
+  const deletions = lines.filter((line) => line.kind === 'deleted').length;
+
   return (
-    <CopyablePanel className="avi-diff" label={diff.title} value={diff.value}>
-      <pre className="avi-diff-code language-diff">
-        <code className="language-diff" dangerouslySetInnerHTML={{ __html: highlighted }} />
+    <CopyablePanel
+      className="avi-diff"
+      label={diff.title}
+      value={diff.value}
+      badge={(
+        <span className="avi-diff-stats">
+          <ins>+{additions}</ins>
+          <del>-{deletions}</del>
+        </span>
+      )}
+    >
+      <pre className="avi-diff-code">
+        <code>
+          {lines.map((line, index) => (
+            <span key={index} className={`avi-diff-line ${line.kind}`}>
+              <span className="avi-diff-sign">{line.sign}</span>
+              <span className="avi-diff-text">{line.content || ' '}</span>
+            </span>
+          ))}
+        </code>
       </pre>
     </CopyablePanel>
   );

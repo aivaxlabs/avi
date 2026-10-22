@@ -40,6 +40,36 @@
     border-radius: 6px;
   }
 
+  &.processing::before {
+    opacity: 0;
+  }
+
+  &.failed {
+    color: var(--danger-color);
+
+    > span {
+      flex: 1;
+      min-width: 0;
+    }
+  }
+
+  .recording-progress {
+    flex: 1;
+    height: 4px;
+    min-width: 80px;
+    overflow: hidden;
+    background: var(--background-4);
+    border-radius: 999px;
+
+    span {
+      display: block;
+      height: 100%;
+      background: var(--text-2);
+      border-radius: inherit;
+      transition: width var(--duration-quick) linear;
+    }
+  }
+
   .record-dot {
     width: 8px;
     height: 8px;
@@ -81,6 +111,21 @@
       opacity: 0.4;
       transform: scaleY(0.55);
     }
+  }
+}
+
+.recording-spinner {
+  flex: none;
+  animation: recording-spin 900ms linear infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation-duration: 2.4s;
+  }
+}
+
+@keyframes recording-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

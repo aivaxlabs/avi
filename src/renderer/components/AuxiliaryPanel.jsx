@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Ellipsis,
   Files,
+  Folder,
   Gauge,
   GitPullRequest,
   Inbox,
@@ -24,7 +25,9 @@ import {
   PencilLine,
   Plus,
   Send,
-  Shield,
+  ShieldCheck,
+  ShieldQuestion,
+  Wrench,
   X,
 } from 'lucide-react';
 import { BOT_PENDENCY_COMPLETION_REASONS, getBotPendencyStatusLabel, hasOpenBotUserAction } from '../../shared/bot-work-items.js';
@@ -37,6 +40,7 @@ import { GitReviewPanel } from './GitReviewPanel.jsx';
 import { MarkdownSegment } from './Message.jsx';
 import { ProviderPanel } from './ProviderPanel.jsx';
 import { Overlay, Presence } from './Overlay.jsx';
+import { QuestionForm } from './QuestionForm.jsx';
 
 const emptyList = Object.freeze([]);
 const emptyObject = Object.freeze({});
@@ -52,26 +56,47 @@ const botPanelTabs = [
 ];
 const subagentAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
 function BotAttachments({ attachments, onRemove }) {
+  const unescape = (value) => value
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&amp;', '&');
+
   return attachments.length > 0 && (
     <ul className="bot-inbox-attachments" aria-label="Attachments">
-      {attachments.map((attachment) => (
-        <li key={attachment.id}>
-          {attachment.kind === 'image_url' ? (
-            <AttachmentImage attachment={attachment} alt={attachment.name} />
-          ) : attachment.kind === 'video_url' ? (
-            <AttachmentVideo attachment={attachment} controls preload="metadata" />
-          ) : null}
-          {typeof attachment.text === 'string' ? (
-            <details><summary>{attachment.name}</summary><pre>{attachment.text}</pre></details>
-          ) : <span title={attachment.path || attachment.name}>{attachment.name}</span>}
-          <small>{formatBytes(attachment.size)}</small>
-          {onRemove && (
-            <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => onRemove(attachment.id)}>
-              <X size={13} aria-hidden="true" />
-            </button>
-          )}
-        </li>
-      ))}
+      {attachments.map((attachment) => {
+        const [, citation, annotation] = attachment.kind === 'context_marker'
+          ? attachment.text?.match(/^<citation>([\s\S]*?)<\/citation>(?:\n<annotation>([\s\S]*?)<\/annotation>)?$/) ?? []
+          : [];
+
+        return (
+          <li key={attachment.id} className={citation ? 'citation' : undefined}>
+            {citation ? (
+              <>
+                <blockquote title={unescape(citation)}>{unescape(citation)}</blockquote>
+                {annotation && <p>{unescape(annotation)}</p>}
+              </>
+            ) : (
+              <>
+                {attachment.kind === 'image_url' ? (
+                  <AttachmentImage attachment={attachment} alt={attachment.name} />
+                ) : attachment.kind === 'video_url' ? (
+                  <AttachmentVideo attachment={attachment} controls preload="metadata" />
+                ) : null}
+                {typeof attachment.text === 'string' ? (
+                  <details><summary>{attachment.name}</summary><pre>{attachment.text}</pre></details>
+                ) : <span title={attachment.path || attachment.name}>{attachment.name}</span>}
+                {attachment.kind !== 'context_marker' && <small>{formatBytes(attachment.size)}</small>}
+              </>
+            )}
+            {onRemove && (
+              <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => onRemove(attachment.id)}>
+                <X size={13} aria-hidden="true" />
+              </button>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -323,7 +348,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
 
   function updateSelectionAction() {
     const selection = window.getSelection();
-    if ((selectedPendency?.status !== 'open' && !onQuickQuestion) || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    if (!selectedPendency || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
       setSelectionAction(null);
       return;
     }
@@ -338,7 +363,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
     }
 
     const rect = range.getBoundingClientRect();
-    const width = (selectedPendency.status === 'open' ? 230 : 0) + (onQuickQuestion ? 130 : 0);
+    const width = 230 + (onQuickQuestion ? 130 : 0);
     const height = 34;
     const above = rect.top - height - 8;
     setSelectionAction({
@@ -398,7 +423,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
     }
   }
 
-  async function actOnPendency(action, reason) {
+  async function actOnPendency(action, detail) {
     if (!selectedPendency || pendencyBusyRef.current) return;
     if (action === 'reply' && !draft.content.trim() && !draft.attachments.length) return;
     pendencyBusyRef.current = true;
@@ -407,15 +432,21 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
     try {
       const result = action === 'reply'
         ? await onReplyBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id, ...draft })
-        : action === 'complete'
-          ? await onCompleteBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id, ...(reason ? { reason } : {}) })
-          : await onResolveBotApproval(selectedPendency.approval.id, action === 'approve');
+        : action === 'answer'
+          ? await onReplyBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id, content: '', ...detail })
+          : action === 'complete'
+            ? await onCompleteBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id, ...(detail ? { reason: detail } : {}) })
+            : await onResolveBotApproval(selectedPendency.approval.id, action !== 'deny', action === 'approve-always');
       if (action === 'reply') updatePendencyDraft({ content: '', attachments: [] });
       setPendencyFeedback((current) => ({ ...current, [draftKey]: {
-        error: result?.delivered === false,
-        text: result?.delivered === false
-          ? `Saved in Inbox, but not delivered to the bot: ${result.error || 'Delivery unavailable.'} Do not resend this message; open the main thread to resume it.`
-          : action === 'reply' ? 'Reply sent to the bot.' : action === 'complete' ? 'Pendency completed.' : 'Decision sent to the bot.',
+        error: false,
+        text: result?.queued === false
+          ? 'Reply saved. The bot reads it after you decide on the pending approval.'
+          : {
+            reply: 'Reply queued for the bot\'s next activation.',
+            answer: 'Answers queued for the bot\'s next activation.',
+            complete: 'Pendency completed.',
+          }[action] ?? 'Decision queued for the bot\'s next activation.',
       } }));
     } catch (error) {
       setPendencyFeedback((current) => ({ ...current, [draftKey]: { error: true, text: error.message || String(error) } }));
@@ -921,33 +952,89 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                                 {message.role === 'bot' && <span className="bot-message-response-indicator">{message.requiresUserResponse !== false ? 'Requires your response' : 'No response required'}</span>}
                                 <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleString()}</time>
                               </header>
-                              <MarkdownSegment text={message.content} finalized />
+                              {message.content && <MarkdownSegment text={message.content} finalized />}
+                              {message.answers && (
+                                <dl className="bot-inbox-answers">
+                                  {message.answers.map(({ question, answer }, index) => (
+                                    <div key={`${message.id}:${index}`}>
+                                      <dt>{question}</dt>
+                                      <dd>{Array.isArray(answer) ? answer.join(', ') : answer}</dd>
+                                    </div>
+                                  ))}
+                                </dl>
+                              )}
+                              {message.questions && selectedPendency.status === 'open' && !selectedPendency.messages.some((entry) => entry.questionMessageId === message.id) && (
+                                <QuestionForm
+                                  key={message.id}
+                                  formId={message.id}
+                                  questions={message.questions}
+                                  disabled={pendencyBusy}
+                                  autoFocus={false}
+                                  onSubmit={(answers) => actOnPendency('answer', { questionMessageId: message.id, answers })}
+                                />
+                              )}
                               <BotAttachments attachments={message.attachments} />
                             </li>
                           ))}
                         </ol>
                         {selectedPendency.approval && (
-                          <section className="bot-inbox-approval" aria-label="Pending approval">
-                            <strong><Shield size={15} aria-hidden="true" />Approval required</strong>
-                            <p>{selectedPendency.approval.prompt}</p>
-                            {selectedPendency.approval.kind === 'tool' && <><p><strong>Tool:</strong> {selectedPendency.approval.toolName}</p><p><strong>Workspace:</strong> {selectedPendency.approval.workspacePath || 'Not specified'}</p><pre>{JSON.stringify(selectedPendency.approval.input ?? null, null, 2)}</pre></>}
-                            <div><button className="button" type="button" disabled={pendencyBusy} onClick={() => actOnPendency('approve')}>Approve</button><button className="button" type="button" disabled={pendencyBusy} onClick={() => actOnPendency('deny')}>Deny</button></div>
+                          <section className="approval-card bot-inbox-approval" aria-label="Pending approval" aria-busy={pendencyBusy}>
+                            <header className="approval-card-header">
+                              <ShieldQuestion className="approval-card-icon" size={18} aria-hidden="true" />
+                              <div className="approval-card-copy">
+                                <div className="approval-card-title-row">
+                                  <strong>{selectedPendency.approval.kind === 'tool' ? 'Allow this tool call?' : 'Approval required'}</strong>
+                                </div>
+                                <p className="approval-card-summary">{selectedPendency.approval.kind === 'tool' ? selectedPendency.title : selectedPendency.approval.prompt}</p>
+                              </div>
+                            </header>
+                            {selectedPendency.approval.kind === 'tool' && (
+                              <div className="approval-card-call">
+                                <div className="approval-card-call-meta">
+                                  <span title="Tool"><Wrench size={12} aria-hidden="true" /><code>{selectedPendency.approval.toolName}</code></span>
+                                  <span title="Folder"><Folder size={12} aria-hidden="true" /><span>{selectedPendency.approval.workspacePath || 'No folder'}</span></span>
+                                </div>
+                                {Object.keys(selectedPendency.approval.input ?? {}).length > 0 && (
+                                  <dl className="approval-card-input">
+                                    {Object.entries(selectedPendency.approval.input).map(([key, value]) => (
+                                      <div key={key}>
+                                        <dt>{key}</dt>
+                                        <dd><pre>{typeof value === 'string' ? value : JSON.stringify(value, null, 2)}</pre></dd>
+                                      </div>
+                                    ))}
+                                  </dl>
+                                )}
+                              </div>
+                            )}
+                            <footer className="approval-card-footer">
+                              <button className="approval-card-deny" type="button" disabled={pendencyBusy} onClick={() => actOnPendency('deny')}>
+                                <X size={14} aria-hidden="true" /><span>Deny</span>
+                              </button>
+                              <div className="approval-card-actions">
+                                {selectedPendency.approval.kind === 'tool' && (
+                                  <button className="approval-card-always" type="button" disabled={pendencyBusy} title="Allow now and remember this command for this folder" onClick={() => actOnPendency('approve-always')}>
+                                    <ShieldCheck size={14} aria-hidden="true" /><span>Always allow</span>
+                                  </button>
+                                )}
+                                <button className="approval-card-allow primary-mini" type="button" disabled={pendencyBusy} onClick={() => actOnPendency('approve')}>
+                                  <Check size={14} aria-hidden="true" /><span>{pendencyBusy ? 'Resolving...' : 'Allow'}</span>
+                                </button>
+                              </div>
+                            </footer>
                           </section>
                         )}
                         </div>
-                        {selectedPendency.status === 'open' && (
-                          <form className="bot-inbox-composer" onSubmit={(event) => { event.preventDefault(); void actOnPendency('reply'); }}>
-                            <label className="sr-only" htmlFor="bot-pendency-reply">Reply to {selectedBot.name}</label>
-                            <textarea id="bot-pendency-reply" value={draft.content} disabled={pendencyBusy} placeholder={`Reply to ${selectedBot.name}...`} rows={3} onChange={(event) => updatePendencyDraft({ content: event.target.value })} onPaste={(event) => {
-                              const files = Array.from(event.clipboardData.files ?? []);
-                              if (files.length) { event.preventDefault(); void attachToPendency(files); }
-                            }} onKeyDown={(event) => {
-                              if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.metaKey && !event.isComposing) { event.preventDefault(); void actOnPendency('reply'); }
-                            }} />
-                            <BotAttachments attachments={draft.attachments} onRemove={pendencyBusy ? undefined : (id) => updatePendencyDraft({ attachments: draft.attachments.filter((attachment) => attachment.id !== id) })} />
-                            <footer><button className="button" type="button" disabled={pendencyBusy} onClick={() => attachToPendency()}><Paperclip size={15} aria-hidden="true" />Attach</button><button className="button primary" type="submit" disabled={pendencyBusy || (!draft.content.trim() && !draft.attachments.length)}><Send size={14} aria-hidden="true" />{pendencyBusy ? 'Sending...' : 'Send reply'}</button></footer>
-                          </form>
-                        )}
+                        <form className="bot-inbox-composer" onSubmit={(event) => { event.preventDefault(); void actOnPendency('reply'); }}>
+                          <label className="sr-only" htmlFor="bot-pendency-reply">Reply to {selectedBot.name}</label>
+                          <textarea id="bot-pendency-reply" value={draft.content} disabled={pendencyBusy} placeholder={`Reply to ${selectedBot.name}...`} rows={3} onChange={(event) => updatePendencyDraft({ content: event.target.value })} onPaste={(event) => {
+                            const files = Array.from(event.clipboardData.files ?? []);
+                            if (files.length) { event.preventDefault(); void attachToPendency(files); }
+                          }} onKeyDown={(event) => {
+                            if (event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.metaKey && !event.isComposing) { event.preventDefault(); void actOnPendency('reply'); }
+                          }} />
+                          <BotAttachments attachments={draft.attachments} onRemove={pendencyBusy ? undefined : (id) => updatePendencyDraft({ attachments: draft.attachments.filter((attachment) => attachment.id !== id) })} />
+                          <footer><button className="button" type="button" disabled={pendencyBusy} onClick={() => attachToPendency()}><Paperclip size={15} aria-hidden="true" />Attach</button><button className="button primary" type="submit" disabled={pendencyBusy || (!draft.content.trim() && !draft.attachments.length)}><Send size={14} aria-hidden="true" />{pendencyBusy ? 'Sending...' : 'Send reply'}</button></footer>
+                        </form>
                         <Presence when={selectionAction}>{(selectionAction) => createPortal(selectionAction.annotating ? (
                           <Overlay
                             as="form"
@@ -990,16 +1077,14 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                             style={{ left: selectionAction.left, top: selectionAction.top }}
                             onMouseDown={(event) => event.preventDefault()}
                           >
-                            {selectedPendency.status === 'open' && <>
-                              <button type="button" onClick={() => mentionSelection()}>
-                                <MessageSquarePlus size={13} aria-hidden="true" />
-                                <span>Mention on Chat</span>
-                              </button>
-                              <button type="button" onClick={() => setSelectionAction((current) => ({ ...current, annotating: true }))}>
-                                <PencilLine size={13} aria-hidden="true" />
-                                <span>Annotate</span>
-                              </button>
-                            </>}
+                            <button type="button" onClick={() => mentionSelection()}>
+                              <MessageSquarePlus size={13} aria-hidden="true" />
+                              <span>Mention on Chat</span>
+                            </button>
+                            <button type="button" onClick={() => setSelectionAction((current) => ({ ...current, annotating: true }))}>
+                              <PencilLine size={13} aria-hidden="true" />
+                              <span>Annotate</span>
+                            </button>
                             {onQuickQuestion && (
                               <button type="button" onClick={() => {
                                 const escape = (value) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
@@ -1037,7 +1122,7 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                       <ul className="bot-inbox-list">
                         {filteredInbox.map((item) => (
                           <li key={item.id}><button id={`bot-pendency-${item.id}`} type="button" className={hasOpenBotUserAction(item) ? 'needs-user' : ''} onClick={(event) => { pendencyOpenerIdRef.current = event.currentTarget.id; setSelectedPendencyId(item.id); }}>
-                            <strong>{item.title}</strong><span className="bot-inbox-preview">{item.messages.at(-1)?.content || 'Attachment'}</span><span className="bot-inbox-meta"><span>{getBotPendencyStatusLabel(item)}</span><time dateTime={item.updatedAt}>{new Date(item.updatedAt).toLocaleString()}</time></span>
+                            <strong>{item.title}</strong><span className="bot-inbox-preview">{item.messages.at(-1)?.content || (item.messages.at(-1)?.answers ? 'Answers submitted' : 'Attachment')}</span><span className="bot-inbox-meta"><span>{getBotPendencyStatusLabel(item)}</span><time dateTime={item.updatedAt}>{new Date(item.updatedAt).toLocaleString()}</time></span>
                           </button></li>
                         ))}
                       </ul>

@@ -2,7 +2,7 @@ import lameScriptUrl from 'lamejs/lame.all.js?url';
 
 let lameLoadPromise = null;
 
-export async function createMp3Attachment(chunks) {
+export async function createMp3Attachment(chunks, onProgress) {
   const sourceBlob = new Blob(chunks);
   const arrayBuffer = await sourceBlob.arrayBuffer();
   const context = new AudioContext();
@@ -11,12 +11,21 @@ export async function createMp3Attachment(chunks) {
   const lame = await loadLame();
   const encoder = new lame.Mp3Encoder(1, audioBuffer.sampleRate, 128);
   const parts = [];
+  let lastYield = performance.now();
 
   for (let i = 0; i < samples.length; i += 1152) {
     const chunk = samples.subarray(i, i + 1152);
     const encoded = encoder.encodeBuffer(chunk);
     if (encoded.length) parts.push(encoded);
+
+    if (performance.now() - lastYield > 40) {
+      onProgress?.(i / samples.length);
+      await new Promise((resolve) => setTimeout(resolve));
+      lastYield = performance.now();
+    }
   }
+
+  onProgress?.(1);
 
   const tail = encoder.flush();
   if (tail.length) parts.push(tail);

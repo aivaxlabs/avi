@@ -1,14 +1,17 @@
 import { effectiveMediaSizeLimit } from '../../shared/attachments.js';
+import { findMentions } from '../../shared/mentions.js';
 import { answerTextFromTextualBlocks } from '../../shared/textual-blocks.js';
 import {
   deleteMessage,
   deleteMessagesFrom,
   ensureConversation,
+  getBotByConversation,
   getConversation,
   getGoalForConversation,
   getMessage,
   getMessages,
   insertMessage,
+  listBots,
   listSubagents,
   messageToApiBlocks,
   setLastModel,
@@ -31,6 +34,7 @@ import {
   modelMessagesToToolHistory,
   traceContext,
 } from './history.js';
+import { formatCrossMessage } from '../tools/shared.js';
 import {
   partitionPendingItems,
   orderPendingItems,
@@ -90,6 +94,88 @@ export const messagingMethods = {
         status: message.status,
         error: forwardError instanceof Error ? forwardError.message : String(forwardError),
       });
+    }
+  },
+
+  async forwardMentions({
+    conversationId,
+    messageId,
+    content,
+    location = null,
+    skipConversationId = null,
+    permissionMode = 'approve_for_me',
+  }) {
+    const source = getConversation(conversationId);
+    if (!source || !content?.includes('mention{')) return;
+
+    const sourceBot = getBotByConversation(source.id);
+    // Not answering a mention with a mention back prevents two agents from pinging each other forever.
+    const triggeringMention = /^<cross-message\b[^>]*\bfrom_thread_id="([^"]+)"[^>]*\bmention="true"/
+      .exec(getMessages(source.id).findLast((item) => item.role === 'user')?.content ?? '')?.[1];
+    const planTeamId = source.orchestrationMode === 'plan'
+      ? source.isSubagent ? source.parentConversationId : source.id
+      : null;
+    const bots = listBots();
+    const targets = new Map();
+    for (const mention of findMentions(content)) {
+      const bot = bots.find((item) => (
+        mention.type === 'bot' ? item.id === mention.id : item.conversationId === mention.id
+      ));
+      const conversation = getConversation(mention.type === 'bot' ? bot?.conversationId : mention.id);
+      if (
+        !conversation
+        || conversation.isSideChat
+        || conversation.id === source.id
+        || conversation.id === skipConversationId
+        || conversation.id === triggeringMention
+        || (source.autoForwardToParent && conversation.id === source.parentConversationId)
+        || (planTeamId && conversation.id !== planTeamId && conversation.parentConversationId !== planTeamId)
+      ) continue;
+      targets.set(conversation.id, { conversation, bot });
+    }
+    const author = sourceBot
+      ? `The bot "${sourceBot.name}"`
+      : `The thread "${source.title || source.id}" (thread:${source.id})`;
+
+    const sourceMessageMarker = `source_message_id="${messageId}"`;
+    for (const { conversation, bot } of targets.values()) {
+      if (getMessages(conversation.id).some((item) => item.content.includes(sourceMessageMarker))) continue;
+      const text = formatCrossMessage({
+        from_thread_id: source.id,
+        from_role: source.conversationType,
+        from_name: sourceBot?.name ?? (source.title || source.id),
+        source_message_id: messageId,
+        mention: 'true',
+      }, [`${author} mentioned you in this message${location ? ` (${location})` : ''}:`, '', content]);
+      try {
+        if (bot) {
+          this.getBotManager()?.enqueueThreadMessage(conversation.id, {
+            sourceConversationId: source.id,
+            kind: 'mention',
+            title: `Mention from ${sourceBot?.name ?? (source.title || source.id)}`,
+            text,
+            sourceMessageId: messageId,
+          });
+          continue;
+        }
+        await this.send({
+          conversationId: conversation.id,
+          model: conversation.model,
+          reasoningEffort: null,
+          // Matches chat_send_prompt: threads reached by a bot run unattended.
+          permissionMode: source.isBot ? 'full_access' : permissionMode,
+          text,
+          fromAgent: true,
+          project: { path: conversation.projectPath },
+        });
+      } catch (error) {
+        traceError('chat.mention-delivery-error', {
+          source_thread_id: source.id,
+          thread_id: conversation.id,
+          message_id: messageId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   },
 
