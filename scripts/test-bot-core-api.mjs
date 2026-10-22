@@ -87,10 +87,14 @@ try {
   assert.equal((await handle.inbox.list())[0].messages[0].content, 'Should I export Acme invoices as CSV or JSON?');
   const attachments = [{ id: 'inline-note', kind: 'text_inline', name: 'notes.txt', text: 'Keep accents: ação.', size: 25, mime: 'text/plain' }];
   const replied = await handle.inbox.reply(pending.id, { content: 'Use CSV.', attachments });
-  assert.equal(replied.delivered, true);
+  assert.equal(replied.queued, true);
   assert.equal(replied.item.messages.at(-1).role, 'user');
+  assert.equal(requests.length, 0, 'Inbox replies wait in the priority queue');
+  const [queued] = manager.describePriorityQueue(bot.id);
+  assert.equal(queued.id, replied.queueItemId);
+  assert.equal(queued.kind, 'inbox');
+  assert.equal(await manager.activateBot(bot.id, { trigger: 'test', chained: true, admitted: true, force: true }), true);
   assert.equal(requests[0].conversationId, bot.conversationId);
-  assert.equal(requests[0].queuePriority, true);
   assert.equal(requests[0].permissionMode, 'full_access');
   assert.deepEqual(requests[0].attachments, attachments);
   assert.deepEqual(replied.item.messages.at(-1).attachments, attachments);
@@ -137,8 +141,9 @@ try {
   await assert.rejects(another.approvals.resolve(approval.id, true), { code: 'NOT_FOUND' });
   const resolved = await handle.approvals.resolve(approval.id, false);
   assert.equal(resolved.resolved, true);
-  assert.equal(resolved.delivered, true);
+  assert.equal(resolved.queued, true);
   assert.equal(handle.approvals.list().length, 0);
+  assert.equal(await manager.activateBot(bot.id, { trigger: 'test', chained: true, admitted: true, force: true }), true);
   assert.match(requests.at(-1).text, /decision="denied"/);
 
   const { RemoteMcpServer } = await import('../src/main/remote-mcp-server.js');
@@ -148,6 +153,8 @@ try {
     invokeApplicationRequest: async (channel, payload) => {
       if (channel === 'bots:reply-pendency') return manager.replyToPendency(payload.botId, payload.pendencyId, payload);
       if (channel === 'bots:complete-pendency') return manager.completePendency(payload.botId, payload.pendencyId);
+      if (channel === 'bots:remove-priority-item') return manager.removePriorityItem(payload.botId, payload.itemId);
+      if (channel === 'bots:reorder-priority-queue') return manager.reorderPriorityQueue(payload.botId, payload.itemIds);
       throw new Error(`Unexpected test channel: ${channel}`);
     },
   });
@@ -179,8 +186,19 @@ try {
   const rpcPending = await tools.find((tool) => tool.name === 'bot_pendency_create').execute({ title: 'Confirm export', content: 'Is the CSV format correct?' });
   const rpcReply = await rpc('bots:reply-pendency', { botId: bot.id, pendencyId: rpcPending.id, content: 'Correct.', attachments });
   assert.equal(rpcReply.error, undefined);
-  assert.equal(rpcReply.result.delivered, true);
+  assert.equal(rpcReply.result.queued, true);
   assert.deepEqual(rpcReply.result.item.messages.at(-1).attachments, attachments);
+  const secondPending = await tools.find((tool) => tool.name === 'bot_pendency_create').execute({ title: 'Second', content: 'Second?' });
+  const secondReply = await rpc('bots:reply-pendency', { botId: bot.id, pendencyId: secondPending.id, content: 'Yes.' });
+  const reordered = await rpc('bots:reorder-priority-queue', {
+    botId: bot.id,
+    itemIds: [secondReply.result.queueItemId, rpcReply.result.queueItemId],
+  });
+  assert.deepEqual(reordered.result.map((item) => item.id), [secondReply.result.queueItemId, rpcReply.result.queueItemId]);
+  assert.ok((await rpc('bots:reorder-priority-queue', { botId: bot.id, itemIds: [secondReply.result.queueItemId] })).error);
+  const removed = await rpc('bots:remove-priority-item', { botId: bot.id, itemId: secondReply.result.queueItemId });
+  assert.deepEqual(removed.result.map((item) => item.id), [rpcReply.result.queueItemId]);
+  assert.ok((await rpc('bots:remove-priority-item', { botId: bot.id, itemId: secondReply.result.queueItemId })).error);
   const rpcComplete = await rpc('bots:complete-pendency', { botId: bot.id, pendencyId: rpcPending.id });
   assert.equal(rpcComplete.result.status, 'completed');
   assert.equal((await rpc('bots:update-work-item', { botId: bot.id })).error.code, -32601);

@@ -73,11 +73,13 @@ ${source.slice(activityStart, activityEnd).replace(/,\s*$/, '')}
   }
 }
 
+const questionForm = readFileSync(new URL('../src/renderer/components/QuestionForm.jsx', import.meta.url), 'utf8');
+for (const event of ['onPointerMove', 'onPointerDown', 'onClick', 'onKeyDownCapture', 'onInput', 'onWheel']) {
+  assert.match(questionForm, new RegExp(`${event}=\\{reportActivity\\}`));
+}
 for (const file of ['components/ChatView.jsx', 'QuickChatApp.jsx']) {
   const source = readFileSync(new URL(`../src/renderer/${file}`, import.meta.url), 'utf8');
-  for (const event of ['onPointerMove', 'onPointerDown', 'onClick', 'onKeyDownCapture', 'onInput', 'onWheel']) {
-    assert.match(source, new RegExp(`${event}=\\{(?:reportQuestionActivity|onActivity)\\}`));
-  }
+  assert.match(source, /<QuestionForm[\s\S]*?onActivity=\{/);
   assert.match(source, /\.questionActivity\(/);
 }
 const preload = readFileSync(new URL('../src/preload/preload.cjs', import.meta.url), 'utf8');

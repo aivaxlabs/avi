@@ -50,6 +50,13 @@ function timeStringToMinute(value) {
 }
 
 const PERIOD_UNIT_MINUTES = { minutes: 1, hours: 60, days: 1440 };
+const PRIORITY_KIND_LABELS = {
+  activation: 'Explicit activation',
+  approval: 'Approval decision',
+  inbox: 'Inbox reply',
+  mention: 'Mention',
+  thread: 'Thread prompt',
+};
 
 export function BotSettingsDialog({
   bot,
@@ -60,8 +67,12 @@ export function BotSettingsDialog({
   onChooseFolder,
   onClearThread,
   onFullReset,
+  onRemovePriorityItem,
+  onReorderPriorityQueue,
 }) {
   const [tab, setTab] = useState('profile');
+  const [priorityDrag, setPriorityDrag] = useState(null);
+  const [priorityError, setPriorityError] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [mcpNavigation, setMcpNavigation] = useState(null);
@@ -98,7 +109,10 @@ export function BotSettingsDialog({
     windowEnd: minuteToTimeString(bot?.activationWindow?.endMinute),
     instructions: bot?.instructions ?? '',
     workQueue: (bot?.workQueue ?? []).map((value) => ({ id: crypto.randomUUID(), value })),
+    priorityAutoContinue: bot?.priorityAutoContinue !== false,
   }));
+  const priorityQueue = bot?.priorityQueue ?? [];
+  const waitingPriorityIds = priorityQueue.filter((item) => !item.claimed).map((item) => item.id);
 
   useEffect(() => {
     const closeOnEscape = (event) => {
@@ -116,6 +130,7 @@ export function BotSettingsDialog({
     const groups = [];
     const byProvider = new Map();
     for (const model of models) {
+      if (model.routerMode === 'fusion') continue;
       let group = byProvider.get(model.providerId);
       if (!group) {
         group = { id: model.providerId, name: model.providerName, models: [] };
@@ -142,6 +157,23 @@ export function BotSettingsDialog({
     const [item] = workQueue.splice(fromIndex, 1);
     workQueue.splice(toIndex, 0, item);
     update({ workQueue });
+  }
+
+  async function changePriorityQueue(action) {
+    setPriorityError('');
+    try {
+      await action();
+    } catch (nextError) {
+      setPriorityError(nextError instanceof Error ? nextError.message : String(nextError));
+    }
+  }
+
+  function movePriorityItem(fromIndex, toIndex) {
+    if (fromIndex === toIndex || toIndex < 0 || toIndex >= waitingPriorityIds.length) return;
+    const itemIds = [...waitingPriorityIds];
+    const [itemId] = itemIds.splice(fromIndex, 1);
+    itemIds.splice(toIndex, 0, itemId);
+    void changePriorityQueue(() => onReorderPriorityQueue?.(bot.id, itemIds));
   }
 
   function toggleDay(day) {
@@ -188,6 +220,7 @@ export function BotSettingsDialog({
           const value = item.value.trim();
           return value ? [value] : [];
         }),
+        priorityAutoContinue: draft.priorityAutoContinue,
       });
       onClose();
     } catch (nextError) {
@@ -447,6 +480,109 @@ export function BotSettingsDialog({
                     Add task
                   </button>
                   <small className="bot-settings-hint">Add tasks to cycle through a specific focus on each activation.</small>
+                </section>
+                <section className="bot-settings-section">
+                  <header>
+                    <h3>Priority queue</h3>
+                    <p>Filled automatically by Inbox replies, approval decisions, mentions, prompts from other threads, and explicit activations. Scheduled activations alternate between this queue and the Work queue.</p>
+                  </header>
+                  {priorityQueue.length > 0 ? (
+                    <ol className="bot-settings-work-queue">
+                      {priorityQueue.map((item) => {
+                        const waitingIndex = waitingPriorityIds.indexOf(item.id);
+                        const label = item.title || PRIORITY_KIND_LABELS[item.kind] || item.kind;
+                        return (
+                          <li
+                            key={item.id}
+                            className={classNames(
+                              'bot-settings-work-queue-item',
+                              'bot-settings-priority-item',
+                              priorityDrag?.id === item.id && 'dragging',
+                              priorityDrag?.overId === item.id && (priorityDrag.after ? 'drop-after' : 'drop-before'),
+                            )}
+                            onDragOver={(event) => {
+                              if (!priorityDrag || priorityDrag.id === item.id || item.claimed) return;
+                              event.preventDefault();
+                              event.dataTransfer.dropEffect = 'move';
+                              const rect = event.currentTarget.getBoundingClientRect();
+                              const after = event.clientY > rect.top + rect.height / 2;
+                              if (priorityDrag.overId !== item.id || priorityDrag.after !== after) {
+                                setPriorityDrag({ ...priorityDrag, overId: item.id, after });
+                              }
+                            }}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              if (!priorityDrag || priorityDrag.id === item.id || item.claimed) return;
+                              const fromIndex = waitingPriorityIds.indexOf(priorityDrag.id);
+                              const targetIndex = waitingIndex + (priorityDrag.after ? 1 : 0);
+                              movePriorityItem(fromIndex, fromIndex < targetIndex ? targetIndex - 1 : targetIndex);
+                              setPriorityDrag(null);
+                            }}
+                          >
+                            <button
+                              className="bot-settings-work-queue-grip"
+                              type="button"
+                              draggable={!item.claimed}
+                              disabled={item.claimed}
+                              title="Drag or use the arrow keys to reorder"
+                              aria-label={`Reorder priority item ${label}`}
+                              onKeyDown={(event) => {
+                                if (!['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+                                event.preventDefault();
+                                movePriorityItem(waitingIndex, waitingIndex + (event.key === 'ArrowUp' ? -1 : 1));
+                              }}
+                              onDragStart={(event) => {
+                                const row = event.currentTarget.closest('li');
+                                event.dataTransfer.effectAllowed = 'move';
+                                event.dataTransfer.setData('text/plain', item.id);
+                                event.dataTransfer.setDragImage(row, 16, 16);
+                                setPriorityDrag({ id: item.id, overId: null, after: false });
+                              }}
+                              onDragEnd={() => setPriorityDrag(null)}
+                            >
+                              <GripVertical size={14} aria-hidden="true" />
+                            </button>
+                            <span className="bot-settings-work-queue-index" aria-hidden="true">
+                              {item.claimed ? '•' : waitingIndex + 1}
+                            </span>
+                            <span className="bot-settings-priority-item-content">
+                              <strong title={label}>{label}</strong>
+                              <small>
+                                {item.claimed
+                                  ? 'Starting now'
+                                  : `${PRIORITY_KIND_LABELS[item.kind] ?? item.kind}${item.messageCount > 1 ? ` · ${item.messageCount} messages` : ''}`}
+                              </small>
+                            </span>
+                            <button
+                              className="bot-settings-work-queue-remove"
+                              type="button"
+                              disabled={item.claimed}
+                              title="Remove from queue"
+                              aria-label={`Remove priority item ${label}`}
+                              onClick={() => changePriorityQueue(() => onRemovePriorityItem?.(bot.id, item.id))}
+                            >
+                              <Trash2 size={14} aria-hidden="true" />
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  ) : (
+                    <p className="bot-settings-work-queue-empty">No pending priority items.</p>
+                  )}
+                  {priorityError && <p className="bot-settings-error" role="alert">{priorityError}</p>}
+                  <small className="bot-settings-hint">Removing or reordering applies immediately. Removed messages stay in the Inbox but are not delivered to the bot.</small>
+                  <label className="bot-settings-toggle">
+                    <span>
+                      <strong>Continue with priority items</strong>
+                      <small>After each finished run, start the next priority item right away. When off, priority items run only at scheduled activations.</small>
+                    </span>
+                    <input className="toggle"
+                      type="checkbox"
+                      checked={draft.priorityAutoContinue}
+                      onChange={(event) => update({ priorityAutoContinue: event.target.checked })}
+                    />
+                  </label>
                 </section>
                 <section className="bot-settings-section">
                   <header>

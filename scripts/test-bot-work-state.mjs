@@ -21,6 +21,7 @@ import {
   readBotWorkState,
 } from '../src/main/bot-work-state.js';
 import { getBotPendencyStatusLabel, hasOpenBotUserAction } from '../src/shared/bot-work-items.js';
+import { normalizeQuestions } from '../src/shared/questions.js';
 
 const root = mkdtempSync(join(tmpdir(), 'bot-ws-test-'));
 let passed = 0;
@@ -274,12 +275,16 @@ await run([
     assert.equal(reopened.completedAt, null);
     assert.equal(hasOpenBotUserAction(reopened), true);
   }),
-  test('message: user cannot reply to a completed pendency', async () => {
+  test('message: user reply reopens a completed pendency', async () => {
     const d = sub('message-user-completed');
     const item = await createBotPendency(d, { title: 'T', content: 'C' }, T);
     await completeBotPendency(d, item.id, T2);
+    const reopened = await appendBotPendencyMessage(d, { pendencyId: item.id, role: 'user', content: 'late reply' }, T2);
+    assert.equal(reopened.status, 'open');
+    assert.equal(reopened.completedAt, null);
+    await completeBotPendency(d, item.id, T2);
     await assert.rejects(
-      () => appendBotPendencyMessage(d, { pendencyId: item.id, role: 'user', content: 'late reply' }, T2),
+      () => appendBotPendencyMessage(d, { pendencyId: item.id, role: 'agent', content: 'late', sender: { botId: 'b', name: 'B' } }, T2),
       /Pendency is completed/,
     );
   }),
@@ -737,6 +742,94 @@ await run([
       stored.messages.slice(-5).map((message) => message.content),
       ['Reply first.', 'Reply second.', 'Reply third.', 'Reply fourth.', 'Reply fifth.'],
     );
+  }),
+]);
+
+// --- Questionnaires ---
+const choiceOptions = (count) => Array.from({ length: count }, (_, index) => ({ label: `Option ${index + 1}` }));
+
+await run([
+  test('questions: option limits are 10 for single and 30 for multiple choice', async () => {
+    assert.equal(normalizeQuestions([{ type: 'single_choice', question: 'One?', options: choiceOptions(10) }])[0].options.length, 10);
+    assert.throws(() => normalizeQuestions([{ type: 'single_choice', question: 'One?', options: choiceOptions(11) }]), /one to 10/);
+    assert.equal(normalizeQuestions([{ type: 'multiple_choice', question: 'Many?', options: choiceOptions(30) }])[0].options.length, 30);
+    assert.throws(() => normalizeQuestions([{ type: 'multiple_choice', question: 'Many?', options: choiceOptions(31) }]), /one to 30/);
+  }),
+  test('questions: normalized questions are idempotent', async () => {
+    const normalized = normalizeQuestions([{
+      type: 'single_choice',
+      question: 'Pick',
+      options: [{ label: 'A', description: 'First' }, { label: 'B' }],
+    }]);
+    assert.deepEqual(normalizeQuestions(normalized), normalized);
+  }),
+  test('questions: bot message stores questionnaire and forces a response', async () => {
+    const d = sub('questions-create');
+    const item = await createBotPendency(d, {
+      title: 'Survey',
+      content: 'Please answer.',
+      requiresUserResponse: false,
+      questions: [
+        { type: 'single_choice', question: 'Env?', options: [{ label: 'Prod' }, { label: 'Dev' }] },
+        { type: 'free_text', question: 'Notes?' },
+      ],
+    }, T);
+    const [message] = item.messages;
+    assert.equal(message.requiresUserResponse, true);
+    assert.deepEqual(message.questions.map((question) => question.type), ['single_choice', 'free_text']);
+    const state = await readBotWorkState(d);
+    assert.deepEqual(state.inbox[0].messages[0].questions, message.questions);
+  }),
+  test('questions: user answers are validated, stored, and accepted once', async () => {
+    const d = sub('questions-answer');
+    const item = await createBotPendency(d, {
+      title: 'Survey',
+      content: 'Please answer.',
+      questions: [{ type: 'multiple_choice', question: 'Langs?', options: [{ label: 'JS' }, { label: 'C#' }] }],
+    }, T);
+    const questionMessageId = item.messages[0].id;
+    await assert.rejects(appendBotPendencyMessage(d, {
+      pendencyId: item.id,
+      role: 'user',
+      content: '',
+      questionMessageId,
+      answers: [{ question: 'Langs?', answer: [] }],
+    }, T2), /selected options/);
+    const answered = await appendBotPendencyMessage(d, {
+      pendencyId: item.id,
+      role: 'user',
+      content: '',
+      questionMessageId,
+      answers: [{ question: 'Langs?', answer: ['JS', ' C# ', 'JS'] }],
+    }, T2);
+    const reply = answered.messages.at(-1);
+    assert.equal(reply.questionMessageId, questionMessageId);
+    assert.deepEqual(reply.answers, [{ question: 'Langs?', answer: ['JS', 'C#'] }]);
+    assert.equal(hasOpenBotUserAction(answered), false);
+    await assert.rejects(appendBotPendencyMessage(d, {
+      pendencyId: item.id,
+      role: 'user',
+      content: '',
+      questionMessageId,
+      answers: [{ question: 'Langs?', answer: ['JS'] }],
+    }, T2), /already answered/);
+  }),
+  test('questions: only bots ask and only users answer', async () => {
+    const d = sub('questions-roles');
+    const item = await createBotPendency(d, { title: 'T', content: 'C' }, T);
+    await assert.rejects(appendBotPendencyMessage(d, {
+      pendencyId: item.id,
+      role: 'user',
+      content: 'Hi',
+      questions: [{ type: 'free_text', question: 'Q?' }],
+    }, T2), /Only bot messages/);
+    await assert.rejects(appendBotPendencyMessage(d, {
+      pendencyId: item.id,
+      role: 'user',
+      content: '',
+      questionMessageId: item.messages[0].id,
+      answers: [{ question: 'Q?', answer: 'A' }],
+    }, T2), /Question message not found/);
   }),
 ]);
 

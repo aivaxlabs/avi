@@ -54,7 +54,7 @@ bot.getThread(): Promise<ThreadHandle>
 bot.clearThread(): Promise<ThreadSnapshot>
 bot.delete(): Promise<boolean>
 bot.inbox.list(): Promise<BotPendency[]>
-bot.inbox.reply(pendencyId, { content, attachments? }): Promise<BotPendencyReply>
+bot.inbox.reply(pendencyId, { content, attachments?, questionMessageId?, answers? }): Promise<BotPendencyReply>
 bot.inbox.complete(pendencyId): Promise<BotPendency>
 bot.activity.list(): Promise<BotActivityEntry[]>
 bot.approvals.list(): BotApproval[]
@@ -62,13 +62,13 @@ bot.approvals.resolve(approvalId, decision): Promise<object>
 bot.tools.register(tool): Disposable
 ```
 
-`activate()` uses BotManager's normal activation path. When it advances the conversation's history boundary, it clears the previous compaction summary and token counter; Inbox and memory provide cross-activation continuity. It does not execute a custom plugin callback in place of the bot runtime. An empty `workQueue` activates without a recurring focus task. `update({ workQueueIndex })` selects the zero-based queue item for the next activation and rejects an index outside the effective queue.
+`activate()` uses BotManager's normal activation path. When it advances the conversation's history boundary, it clears the previous compaction summary and token counter; Inbox and memory provide cross-activation continuity. It does not execute a custom plugin callback in place of the bot runtime. An empty `workQueue` activates without a recurring focus task. `update({ workQueueIndex })` selects the zero-based queue item for the next activation and rejects an index outside the effective queue. `update({ priorityAutoContinue })` controls whether a finished run continues with the next priority queue item. When the bot is working, `activate()` queues the explicit activation to start right after the current run.
 
 ## Inbox and Activity
 
-`inbox.list()` and `activity.list()` return detached persisted snapshots. A pendency is a conversation with the user, not a task board. A reply is recorded as a `user` message and delivered to the bot's main thread inside `<bot-pendency-update>` with the pendency ID and attachments. It uses the priority queue when a run is active and starts a continuation otherwise. The bot answers through its pendency tools, even when it uses workers to prepare that answer.
+`inbox.list()` and `activity.list()` return detached persisted snapshots. A pendency is a conversation with the user, not a task board. A reply is recorded as a `user` message and added to the bot's priority queue as a `<bot-pendency-update>` with the pendency ID and attachments; the bot receives it in a later activation. While the pendency has a pending protected approval, the reply is saved without being queued. `approvals.resolve()` returns `{ resolved, queued, queueItemId, pendencyId }` and queues the decision the same way. The bot answers through its pendency tools, even when it uses workers to prepare that answer.
 
-`reply()` returns `{ item, delivered, error? }`. `delivered: false` means the reply was saved but could not be submitted to the main thread; do not blindly resend it and create a duplicate. `complete()` closes the pendency unless a protected approval is pending. Listing items does not acknowledge them. Bot messages have optional `requiresUserResponse` (missing means `true`) and `readAt` fields. The Desktop records `readAt` only for messages visible in the focused Inbox. An open pendency counts toward attention when its latest bot message requires a response or is still unread; pending approvals always count. Viewing an informational message clears its attention indicator without completing the pendency or activating the bot.
+To answer a bot questionnaire, pass `questionMessageId` and `answers` (one `{ question, answer }` per question, in order); `content` may then be empty. Answers are validated against the stored questions, accepted once per questionnaire, and delivered as `<answers>` inside `<bot-pendency-update>`. `reply()` returns `{ item, delivered, error? }`. `delivered: false` means the reply was saved but could not be submitted to the main thread; do not blindly resend it and create a duplicate. `complete()` closes the pendency unless a protected approval is pending. Listing items does not acknowledge them. Bot messages have optional `requiresUserResponse` (missing means `true`) and `readAt` fields. The Desktop records `readAt` only for messages visible in the focused Inbox. An open pendency counts toward attention when its latest bot message requires a response or is still unread; pending approvals always count. Viewing an informational message clears its attention indicator without completing the pendency or activating the bot.
 
 Activity entries are first-person, self-contained accounts of important work, not automatic logs of routine calls. The two views persist in `inbox.json` and `diary.json` in the isolated bot data folder. Legacy `work-items.json` and `activity.json` are never read or migrated and remain untouched on disk.
 

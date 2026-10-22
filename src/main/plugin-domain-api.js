@@ -397,9 +397,9 @@ function createBotHandle({ runtime, record, botId, storage }) {
       async reply(pendencyId, message) {
         runtime.require(record, 'bots.manage');
         read();
-        const { content, attachments } = clonePluginValue(message) ?? {};
+        const { content, attachments, questionMessageId, answers } = clonePluginValue(message) ?? {};
         return clonePluginValue(await runtime.services.botManager.replyToPendency(
-          botId, pendencyId, { content, attachments },
+          botId, pendencyId, { content, attachments, questionMessageId, answers },
         ));
       },
       async complete(pendencyId) {

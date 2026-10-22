@@ -39,10 +39,11 @@ createRoot(document.getElementById('root')).render(React.createElement(() => {
       const current = inbox.find((item) => item.id === payload.pendencyId);
       const item = { ...current, updatedAt: new Date().toISOString(), messages: [...current.messages, { id: crypto.randomUUID(), role: 'user', content: payload.content, attachments: payload.attachments, createdAt: new Date().toISOString() }] };
       setInbox((items) => items.map((value) => value.id === item.id ? item : value));
-      return { item, delivered: window.__test.mode !== 'delivery-failed', ...(window.__test.mode === 'delivery-failed' ? { error: 'Model unavailable.' } : {}) };
+      const queued = window.__test.mode !== 'approval-pending';
+      return { item, queued, queueItemId: queued ? 'queue-1' : null };
     }}
     onCompleteBotPendency={async ({pendencyId}) => { const item = { ...inbox.find((value) => value.id === pendencyId), status: 'completed' }; setInbox((items) => items.map((value) => value.id === pendencyId ? item : value)); return item; }}
-    onResolveBotApproval={async (id, decision) => { window.__test.decision = decision; setInbox((items) => items.map((item) => item.approval?.id === id ? { ...item, approval: null, messages: [...item.messages, { id: 'decision', role: 'user', content: decision ? 'Approved.' : 'Denied.', attachments: [], createdAt: new Date().toISOString() }] } : item)); return { delivered: true }; }} />;
+    onResolveBotApproval={async (id, decision) => { window.__test.decision = decision; setInbox((items) => items.map((item) => item.approval?.id === id ? { ...item, approval: null, messages: [...item.messages, { id: 'decision', role: 'user', content: decision ? 'Approved.' : 'Denied.', attachments: [], createdAt: new Date().toISOString() }] } : item)); return { resolved: true, queued: true, queueItemId: 'queue-2', pendencyId: 'approval' }; }} />;
 }));
 `;
 let vite;
@@ -107,14 +108,14 @@ try {
     button('Send reply').click();
     await wait(() => document.querySelector('[role="alert"]')?.textContent.includes('Test save failed'));
     check('Save failure preserves draft and attachment', document.querySelector('textarea').value === 'Please use CSV.' && document.querySelector('.bot-inbox-composer summary').textContent === 'notes.txt');
-    window.__test.mode = 'delivery-failed';
+    window.__test.mode = 'approval-pending';
     button('Send reply').click();
-    await wait(() => document.querySelector('[role="alert"]')?.textContent.includes('Saved in Inbox'));
-    check('Delivery failure records message once and clears submitted draft', document.querySelectorAll('.bot-inbox-messages li.from-user').length === 1 && document.querySelector('textarea').value === '');
+    await wait(() => document.querySelector('.bot-inbox-feedback[role="status"]')?.textContent.includes('after you decide on the pending approval'));
+    check('Unqueued reply records message once and clears submitted draft', document.querySelectorAll('.bot-inbox-messages li.from-user').length === 1 && document.querySelector('textarea').value === '');
     check('Payload carries inline attachment', window.__test.replies.at(-1).attachments[0].text === 'Olá, ação.');
     button('Complete').click();
-    await wait(() => !document.querySelector('textarea'));
-    check('Completed conversation has no reply composer', true);
+    await wait(() => !button('Complete'));
+    check('Completed conversation keeps the reply composer', document.querySelector('textarea'));
     button('Activity').click();
     await wait(() => document.querySelector('.bot-diary-list'));
     check('Activity renders title description category date', document.querySelectorAll('.bot-diary-list li').length === 2 && document.querySelector('.bot-diary-list').textContent.includes('invoice totals'));

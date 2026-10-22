@@ -75,6 +75,7 @@ const defaultTuningSettings = Object.freeze({
   terminalTimeoutSeconds: 30,
   maxConcurrentSubagents: 128,
   rubberDuckMaxTurns: 20,
+  quickChatInstructions: '',
   logLevel: 'minimal',
   maxParallelThreads: Math.min(1024, Math.max(1, availableParallelism() * 4)),
   eventLoopWatchdogMs: 1_000,
@@ -378,6 +379,27 @@ db.exec(`
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS bot_priority_queue (
+    id TEXT PRIMARY KEY,
+    bot_id TEXT NOT NULL,
+    source_key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    entries TEXT NOT NULL DEFAULT '[]',
+    work_queue_id INTEGER,
+    position INTEGER NOT NULL,
+    claimed_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_bot_priority_queue_position
+    ON bot_priority_queue(bot_id, position);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_priority_queue_source
+    ON bot_priority_queue(bot_id, source_key) WHERE claimed_by IS NULL;
+
   CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
@@ -575,6 +597,15 @@ if (!botColumns.some((column) => column.name === 'work_queue_index')) {
 }
 if (!botColumns.some((column) => column.name === 'snooze_until')) {
   db.exec('ALTER TABLE bots ADD COLUMN snooze_until TEXT');
+}
+if (!botColumns.some((column) => column.name === 'priority_auto_continue')) {
+  db.exec('ALTER TABLE bots ADD COLUMN priority_auto_continue INTEGER NOT NULL DEFAULT 1');
+}
+if (!botColumns.some((column) => column.name === 'last_activation_kind')) {
+  db.exec('ALTER TABLE bots ADD COLUMN last_activation_kind TEXT');
+}
+if (!botColumns.some((column) => column.name === 'last_activation_at')) {
+  db.exec('ALTER TABLE bots ADD COLUMN last_activation_at TEXT');
 }
 const conversationColumns = db.prepare("PRAGMA table_info('conversations')").all();
 
@@ -1098,14 +1129,14 @@ const statements = {
     INSERT INTO bots (
       id, conversation_id, name, icon_seed, personality, working_folder, model,
       reasoning_effort, context_size, activation_period_minutes, activation_mode, execution_mode, permission_mode,
-      max_activations, activation_window, instructions, work_queue, enabled, status,
+      max_activations, activation_window, instructions, work_queue, priority_auto_continue, enabled, status,
       next_activation_at, idle_until, activation_count, work_queue_index,
       active_assistant_message_id, snooze_until, created_at, updated_at
     )
     VALUES (
       @id, @conversationId, @name, @iconSeed, @personality, @workingFolder, @model,
       @reasoningEffort, @contextSize, @activationPeriodMinutes, @activationMode, @executionMode, @permissionMode,
-      @maxActivations, @activationWindow, @instructions, @workQueue, @enabled, @status,
+      @maxActivations, @activationWindow, @instructions, @workQueue, @priorityAutoContinue, @enabled, @status,
       @nextActivationAt, @idleUntil, @activationCount, @workQueueIndex,
       @activeAssistantMessageId, @snoozeUntil, @createdAt, @updatedAt
     )
@@ -1128,6 +1159,7 @@ const statements = {
         instructions = COALESCE(@instructions, instructions),
         work_queue = COALESCE(@workQueue, work_queue),
         work_queue_index = CASE WHEN @workQueueChanged = 1 THEN 0 ELSE work_queue_index END,
+        priority_auto_continue = COALESCE(@priorityAutoContinue, priority_auto_continue),
         enabled = COALESCE(@enabled, enabled),
         status = COALESCE(@status, status),
         updated_at = @updatedAt
@@ -1151,6 +1183,8 @@ const statements = {
           WHEN @snoozeUntilChanged = 1 THEN @snoozeUntil
           ELSE snooze_until
         END,
+        last_activation_kind = COALESCE(@lastActivationKind, last_activation_kind),
+        last_activation_at = COALESCE(@lastActivationAt, last_activation_at),
         updated_at = @updatedAt
     WHERE id = @id
   `),
@@ -1158,6 +1192,46 @@ const statements = {
   getBotByConversation: db.prepare('SELECT * FROM bots WHERE conversation_id = ?'),
   listBots: db.prepare('SELECT * FROM bots ORDER BY created_at ASC'),
   deleteBot: db.prepare('DELETE FROM bots WHERE id = ?'),
+  listBotPriorityItems: db.prepare(`
+    SELECT * FROM bot_priority_queue WHERE bot_id = ? ORDER BY position ASC, created_at ASC
+  `),
+  getBotPriorityItem: db.prepare('SELECT * FROM bot_priority_queue WHERE id = ?'),
+  getOpenBotPriorityItemBySource: db.prepare(`
+    SELECT * FROM bot_priority_queue
+    WHERE bot_id = ? AND source_key = ? AND claimed_by IS NULL
+  `),
+  getBotPriorityPositionBounds: db.prepare(`
+    SELECT MIN(position) AS min_position, MAX(position) AS max_position
+    FROM bot_priority_queue WHERE bot_id = ?
+  `),
+  insertBotPriorityItem: db.prepare(`
+    INSERT INTO bot_priority_queue (
+      id, bot_id, source_key, kind, title, entries, work_queue_id, position, claimed_by, created_at, updated_at
+    )
+    VALUES (
+      @id, @botId, @sourceKey, @kind, @title, @entries, @workQueueId, @position, NULL, @createdAt, @updatedAt
+    )
+  `),
+  updateBotPriorityItem: db.prepare(`
+    UPDATE bot_priority_queue
+    SET title = @title, entries = @entries, work_queue_id = @workQueueId, position = @position, updated_at = @updatedAt
+    WHERE id = @id
+  `),
+  claimBotPriorityItem: db.prepare(`
+    UPDATE bot_priority_queue SET claimed_by = ?, updated_at = ? WHERE id = ? AND claimed_by IS NULL
+  `),
+  unclaimBotPriorityItem: db.prepare(`
+    UPDATE bot_priority_queue SET claimed_by = NULL, updated_at = ? WHERE id = ?
+  `),
+  deleteBotPriorityItem: db.prepare('DELETE FROM bot_priority_queue WHERE id = ?'),
+  deleteUnclaimedBotPriorityItem: db.prepare(`
+    DELETE FROM bot_priority_queue WHERE id = ? AND bot_id = ? AND claimed_by IS NULL
+  `),
+  setBotPriorityItemPosition: db.prepare(`
+    UPDATE bot_priority_queue SET position = ?, updated_at = ? WHERE id = ? AND bot_id = ?
+  `),
+  clearBotPriorityQueue: db.prepare('DELETE FROM bot_priority_queue WHERE bot_id = ?'),
+  listClaimedBotPriorityItems: db.prepare('SELECT id FROM bot_priority_queue WHERE claimed_by IS NOT NULL'),
   updateBotConversation: db.prepare('UPDATE bots SET conversation_id = ?, updated_at = ? WHERE id = ?'),
   hardDeleteConversation: db.prepare('DELETE FROM conversations WHERE id = ?'),
   hardDeleteChildConversations: db.prepare(`
@@ -2242,6 +2316,9 @@ function mapBot(row) {
     workQueueIndex: workQueue.length > 0
       ? Math.max(0, Number(row.work_queue_index) || 0) % workQueue.length
       : 0,
+    priorityAutoContinue: row.priority_auto_continue !== 0,
+    lastActivationKind: ['priority', 'work'].includes(row.last_activation_kind) ? row.last_activation_kind : null,
+    lastActivationAt: row.last_activation_at || null,
     enabled: row.enabled !== 0,
     status: ['active', 'sleeping', 'paused'].includes(row.status) ? row.status : 'active',
     nextActivationAt: row.next_activation_at || null,
@@ -2271,6 +2348,7 @@ export function createBot({
   activationWindow = {},
   instructions = '',
   workQueue = [],
+  priorityAutoContinue = true,
   enabled = true,
   status = 'active',
   nextActivationAt = null,
@@ -2297,6 +2375,7 @@ export function createBot({
     activationWindow: stringify(normalizeActivationWindow(activationWindow)),
     instructions: String(instructions ?? ''),
     workQueue: stringify(normalizeWorkQueue(workQueue)),
+    priorityAutoContinue: priorityAutoContinue === false ? 0 : 1,
     enabled: enabled ? 1 : 0,
     status: ['active', 'sleeping', 'paused'].includes(status) ? status : 'active',
     nextActivationAt,
@@ -2349,6 +2428,9 @@ export function updateBot(id, changes = {}) {
     instructions: changes.instructions ?? null,
     workQueue: workQueue === null ? null : stringify(workQueue),
     workQueueChanged: workQueueChanged ? 1 : 0,
+    priorityAutoContinue: changes.priorityAutoContinue === undefined
+      ? null
+      : (changes.priorityAutoContinue ? 1 : 0),
     enabled: changes.enabled === undefined ? null : (changes.enabled ? 1 : 0),
     status: changes.status ?? null,
     updatedAt: timestamp(),
@@ -2372,9 +2454,157 @@ export function updateBotScheduler(id, changes = {}) {
     ) ? 1 : 0,
     snoozeUntil: changes.snoozeUntil === 'clear' ? null : (changes.snoozeUntil ?? null),
     snoozeUntilChanged: Object.prototype.hasOwnProperty.call(changes, 'snoozeUntil') ? 1 : 0,
+    lastActivationKind: changes.lastActivationKind ?? null,
+    lastActivationAt: changes.lastActivationAt ?? null,
     updatedAt: timestamp(),
   });
   return getBot(id);
+}
+
+function mapBotPriorityItem(row) {
+  return {
+    id: row.id,
+    botId: row.bot_id,
+    sourceKey: row.source_key,
+    kind: row.kind,
+    title: row.title,
+    entries: parse(row.entries, []),
+    workQueueId: row.work_queue_id ?? null,
+    position: row.position,
+    claimed: Boolean(row.claimed_by),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function inImmediateTransaction(operation) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const result = operation();
+    db.exec('COMMIT');
+    return result;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
+export function listBotPriorityItems(botId) {
+  return statements.listBotPriorityItems.all(botId).map(mapBotPriorityItem);
+}
+
+export function getBotPriorityItem(id) {
+  const row = statements.getBotPriorityItem.get(id);
+  return row ? mapBotPriorityItem(row) : null;
+}
+
+// Items are keyed by source: a new delivery from a source that is already waiting merges into its
+// item instead of creating another activation. Claimed items never absorb new deliveries.
+export function enqueueBotPriorityItem({
+  botId,
+  sourceKey,
+  kind,
+  title = '',
+  entry = null,
+  workQueueId = null,
+  front = false,
+}) {
+  const id = inImmediateTransaction(() => {
+    const now = timestamp();
+    const existing = statements.getOpenBotPriorityItemBySource.get(botId, sourceKey);
+    const bounds = statements.getBotPriorityPositionBounds.get(botId);
+    const frontPosition = (bounds.min_position ?? 1) - 1;
+    if (existing) {
+      statements.updateBotPriorityItem.run({
+        id: existing.id,
+        title: title || existing.title,
+        entries: stringify([...parse(existing.entries, []), ...(entry ? [entry] : [])]),
+        workQueueId: workQueueId ?? existing.work_queue_id,
+        position: front ? frontPosition : existing.position,
+        updatedAt: now,
+      });
+      return existing.id;
+    }
+    const itemId = crypto.randomUUID();
+    statements.insertBotPriorityItem.run({
+      id: itemId,
+      botId,
+      sourceKey,
+      kind,
+      title,
+      entries: stringify(entry ? [entry] : []),
+      workQueueId,
+      position: front ? frontPosition : (bounds.max_position ?? -1) + 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return itemId;
+  });
+  return getBotPriorityItem(id);
+}
+
+export function claimBotPriorityItem(id, claimId) {
+  const { changes } = statements.claimBotPriorityItem.run(claimId, timestamp(), id);
+  return changes > 0 ? getBotPriorityItem(id) : null;
+}
+
+export function completeBotPriorityItem(id) {
+  statements.deleteBotPriorityItem.run(id);
+}
+
+// Returns a claimed item to the queue. When the same source received new deliveries meanwhile,
+// the claimed entries are merged ahead of them so nothing is lost or delivered twice.
+export function releaseBotPriorityItem(id) {
+  inImmediateTransaction(() => {
+    const row = statements.getBotPriorityItem.get(id);
+    if (!row?.claimed_by) return;
+    const open = statements.getOpenBotPriorityItemBySource.get(row.bot_id, row.source_key);
+    if (!open) {
+      statements.unclaimBotPriorityItem.run(timestamp(), id);
+      return;
+    }
+    statements.updateBotPriorityItem.run({
+      id: open.id,
+      title: open.title,
+      entries: stringify([...parse(row.entries, []), ...parse(open.entries, [])]),
+      workQueueId: open.work_queue_id,
+      position: Math.min(row.position, open.position),
+      updatedAt: timestamp(),
+    });
+    statements.deleteBotPriorityItem.run(id);
+  });
+}
+
+// A claim only lives between selecting an item and delivering it; claims found at startup were interrupted.
+export function releaseStaleBotPriorityClaims() {
+  for (const { id } of statements.listClaimedBotPriorityItems.all()) releaseBotPriorityItem(id);
+}
+
+export function removeBotPriorityItem(botId, id) {
+  const { changes } = statements.deleteUnclaimedBotPriorityItem.run(id, botId);
+  if (changes === 0) throw new Error('Priority queue item not found or already running.');
+  return listBotPriorityItems(botId);
+}
+
+export function reorderBotPriorityQueue(botId, itemIds) {
+  inImmediateTransaction(() => {
+    const waiting = listBotPriorityItems(botId).filter((item) => !item.claimed).map((item) => item.id);
+    if (
+      !Array.isArray(itemIds)
+      || itemIds.length !== waiting.length
+      || new Set(itemIds).size !== itemIds.length
+      || itemIds.some((itemId) => !waiting.includes(itemId))
+    ) throw new Error('itemIds must list every waiting priority queue item exactly once.');
+    const now = timestamp();
+    itemIds.forEach((itemId, position) => {
+      statements.setBotPriorityItemPosition.run(position, now, itemId, botId);
+    });
+  });
+  return listBotPriorityItems(botId);
+}
+
+export function clearBotPriorityQueue(botId) {
+  statements.clearBotPriorityQueue.run(botId);
 }
 
 export function getBot(id) {
@@ -3808,6 +4038,10 @@ function normalizeTuningSettings(value, strict = false) {
       && rubberDuckMaxTurns <= 500
       ? rubberDuckMaxTurns
       : defaultTuningSettings.rubberDuckMaxTurns,
+    quickChatInstructions: typeof tuning.quickChatInstructions === 'string'
+      && tuning.quickChatInstructions.length <= 20_000
+      ? tuning.quickChatInstructions
+      : defaultTuningSettings.quickChatInstructions,
     logLevel: ['verbose', 'minimal', 'disabled', 'requests'].includes(tuning.logLevel)
       ? tuning.logLevel
       : defaultTuningSettings.logLevel,

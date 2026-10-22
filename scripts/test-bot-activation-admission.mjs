@@ -100,16 +100,27 @@ try {
   });
   manager.chatRunner.runs.set(nestedWorker.id, {});
   const requestsBeforeBusy = requests.length;
-  assert.equal(await manager.activateBot(bots[2].id, { force: true }), null);
+  assert.deepEqual(await manager.activateBot(bots[2].id, { force: true }), { queued: true, reason: 'working' });
   assert.equal(requests.length, requestsBeforeBusy);
   assert.equal(manager.describeBots()[2].scheduleState, 'working');
+  assert.equal(database.listBotPriorityItems(bots[2].id).filter((item) => item.kind === 'activation').length, 1);
   manager.chatRunner.runs.delete(nestedWorker.id);
   manager.chatRunner.semaphores = {
     waitSnapshot: (conversationId) => (conversationId === bots[2].conversationId ? { position: 1 } : null),
   };
-  assert.equal(await manager.activateBot(bots[2].id, { force: true }), null);
+  assert.deepEqual(await manager.activateBot(bots[2].id, { force: true }), { queued: true, reason: 'working' });
   assert.equal(requests.length, requestsBeforeBusy);
+  assert.equal(
+    database.listBotPriorityItems(bots[2].id).filter((item) => item.kind === 'activation').length,
+    1,
+    'repeated explicit activations merge into one next item',
+  );
   delete manager.chatRunner.semaphores;
+  await manager.drainActivationQueue();
+  assert.equal(requests.length, requestsBeforeBusy + 1, 'queued explicit activation starts once the bot is free');
+  assert.equal(requests.at(-1).conversationId, bots[2].conversationId);
+  assert.equal(database.listBotPriorityItems(bots[2].id).length, 0);
+  manager.chatRunner.runs.delete(bots[2].conversationId);
 
   const lostThreadId = database.getBot(bots[1].id).conversationId;
   assert.throws(() => database.deleteConversation(lostThreadId), /belongs to a bot/);

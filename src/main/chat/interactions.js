@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ASK_QUESTION_AFK_TIMEOUT_MS } from './constants.js';
+import { normalizeQuestionAnswers } from '../../shared/questions.js';
 
 export const interactionMethods = {
   async askQuestion({ conversationId, questions, signal, workMode }) {
@@ -131,41 +132,7 @@ export const interactionMethods = {
       return true;
     }
 
-    if (!Array.isArray(answers) || answers.length !== pending.questions.length) {
-      throw new Error('Every question must have exactly one answer.');
-    }
-    const normalizedAnswers = pending.questions.map((question, index) => {
-      const answer = answers[index];
-      if (
-        !answer
-        || typeof answer !== 'object'
-        || Array.isArray(answer)
-        || answer.question !== question.question
-      ) {
-        throw new Error(`Answer ${index + 1} does not match its question.`);
-      }
-      if (question.type === 'multiple_choice') {
-        if (
-          !Array.isArray(answer.answer)
-          || answer.answer.length === 0
-          || answer.answer.some((option) => typeof option !== 'string' || !option.trim())
-        ) {
-          throw new Error(`Answer ${index + 1} must contain selected options.`);
-        }
-        return {
-          question: question.question,
-          answer: [...new Set(answer.answer.map((option) => option.trim()))],
-        };
-      }
-      const value = typeof answer.answer === 'string' ? answer.answer.trim() : '';
-      if (!value) {
-        throw new Error(`Answer ${index + 1} must be non-empty.`);
-      }
-      return {
-        question: question.question,
-        answer: value,
-      };
-    });
+    const normalizedAnswers = normalizeQuestionAnswers(pending.questions, answers);
 
     this.pendingQuestions.delete(questionId);
     pending.finish({

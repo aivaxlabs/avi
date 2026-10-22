@@ -39,6 +39,7 @@ const BOT_CONFIG_PROPERTIES = Object.freeze({
     description: 'Ordered round-robin tasks. The bot does not activate while this list is empty.',
     items: { type: 'string', minLength: 1 },
   },
+  priorityAutoContinue: { type: 'boolean', description: 'When true (default), the bot consumes waiting priority-queue items right after each finished run. When false, priority items run only at scheduled activations.' },
   enabled: { type: 'boolean', description: 'Whether automatic scheduling may activate the bot.' },
 });
 
@@ -94,6 +95,9 @@ export const botTools = [
           workQueue: bot.workQueue,
           workQueueItems: bot.workQueue.map((task, id) => ({ id, task })),
           workQueueIndex: bot.workQueueIndex,
+          priorityQueue: bot.priorityQueue,
+          priorityAutoContinue: bot.priorityAutoContinue,
+          lastActivationKind: bot.lastActivationKind,
           enabled: bot.enabled,
           running: bot.running,
           scheduleState: bot.scheduleState,
@@ -229,7 +233,7 @@ export const botTools = [
   },
   {
     name: 'bots_send_work_log_message',
-    description: 'Append a message to an existing bot inbox work log and deliver it to the bot’s main thread. Returns the persisted item and delivery status; does not resolve pending approvals. When a bot calls this tool, the message is recorded and delivered as written by that bot, not by the user.',
+    description: 'Append a message to an existing bot inbox work log and add it to that bot’s priority queue, delivered in a later activation. Returns the persisted item and the queue item ID; does not resolve pending approvals. When a bot calls this tool, the message is recorded and delivered as written by that bot, not by the user.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -237,7 +241,7 @@ export const botTools = [
       properties: {
         id: { type: 'string', minLength: 1, description: 'Bot ID.' },
         workLogId: { type: 'string', minLength: 1, description: 'Inbox pendency ID from bots_read_work_log.' },
-        message: { type: 'string', minLength: 1 },
+        message: { type: 'string', minLength: 1, description: 'Markdown structured like a short work email: lead sentence, short paragraphs separated by blank lines, and lists for parallel items.' },
       },
       required: ['id', 'workLogId', 'message'],
       additionalProperties: false,
@@ -253,7 +257,7 @@ export const botTools = [
   },
   {
     name: 'bots_activate',
-    description: 'Activate a bot immediately. Explicit activation ignores every automatic scheduling rule: enabled state, period, idle, individual and global activation hours, Snoozes, activation limit, and FIFO capacity. With an empty work queue, the bot reviews its full scope. Does not start duplicate runs.',
+    description: 'Activate a bot explicitly. The activation becomes the bot’s next item: it starts immediately when the bot is free, or right after its current run otherwise. Explicit activation ignores every automatic scheduling rule: enabled state, period, idle, individual and global activation hours, Snoozes, activation limit, and FIFO capacity. With an empty work queue, the bot reviews its full scope.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
@@ -271,7 +275,7 @@ export const botTools = [
       return {
         id,
         activated: activated === true,
-        status: activated === true ? 'started' : 'already_running_or_start_failed',
+        status: activated === true ? 'started' : activated?.queued ? 'queued_next' : 'start_failed',
       };
     },
   },

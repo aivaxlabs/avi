@@ -3,7 +3,10 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { availableParallelism, homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  claimBotPriorityItem,
+  clearBotPriorityQueue,
   clearConversationMessages,
+  completeBotPriorityItem,
   createBot,
   createConversation,
   deleteBot,
@@ -15,8 +18,15 @@ import {
   getConversation,
   getMessage,
   getMessages,
+  enqueueBotPriorityItem,
   listAllConversations,
+  listBotPriorityItems,
   listBots,
+  listModelRouters,
+  releaseBotPriorityItem,
+  releaseStaleBotPriorityClaims,
+  removeBotPriorityItem,
+  reorderBotPriorityQueue,
   setBotConversation,
   setBotSchedulerSnoozeUntil,
   updateBot,
@@ -29,6 +39,7 @@ import {
   decideActivation,
   describeActivationWindow,
   isWithinActivationWindow,
+  isWorkQueuePaused,
   nextActivationFrom,
   smartIdleUntil,
 } from './bot-scheduling.js';
@@ -50,14 +61,22 @@ import {
 } from './bot-work-state.js';
 import { filePathToAttachment } from './files.js';
 import { traceError, traceInfo } from './trace-log.js';
+import { QUESTIONS_SCHEMA, formatQuestionAnswers } from '../shared/questions.js';
 
 const TICK_INTERVAL_MS = 30_000;
+const PENDENCY_QUESTIONS_DESCRIPTION = 'Optional questionnaire shown below the message, in the same format as ask_question. The user answers it from the Inbox at any time; the answers arrive later as <answers> inside <bot-pendency-update>. Do not wait for them in the current run.';
 const SNOOZE_DURATIONS_MINUTES = new Set([60, 360, 1_440]);
 const WORK_FILES = Object.freeze({
   'MEMORY.md': '# Memory\n\nDurable knowledge for this bot across activations.\n',
   [BOT_WORK_STATE_FILES.inbox]: '[]\n',
   [BOT_WORK_STATE_FILES.activity]: '[]\n',
 });
+
+function assertBotModelAllowed(modelId) {
+  if (listModelRouters().some((router) => router.id === modelId && router.mode === 'fusion')) {
+    throw new Error('Bots cannot use Fusion routers. Choose a regular model or another router.');
+  }
+}
 
 function defaultWorkingFolder(botId) {
   return join(homedir(), '.aivax', 'bots', botId);
@@ -116,6 +135,7 @@ export class BotManager {
     this.approvals = new Map();
     this.activating = new Map();
     this.activationQueue = new Map();
+    this.continueAfterRun = new Set();
     this.botSnoozeUntilRestart = new Set();
     this.schedulerSnoozeUntil = getBotSchedulerSnoozeUntil();
     this.schedulerSnoozeUntilRestart = false;
@@ -127,6 +147,7 @@ export class BotManager {
 
   async start() {
     if (this.timer) return;
+    releaseStaleBotPriorityClaims();
     await this.loadPersistedApprovals();
     for (const bot of listBots()) {
       if (!bot.enabled || !bot.activeAssistantMessageId) continue;
@@ -144,6 +165,7 @@ export class BotManager {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.activationQueue.clear();
+    this.continueAfterRun.clear();
     this.activating.clear();
   }
 
@@ -247,6 +269,7 @@ export class BotManager {
     const bot = getBotByConversation(conversationId);
     if (!bot || bot.activeAssistantMessageId !== assistantMessageId) return;
     updateBotScheduler(bot.id, { activeAssistantMessageId: null });
+    if (!getMessage(assistantMessageId)?.stoppedByUser) this.continueAfterRun.add(bot.id);
     this.broadcast('bots:updated');
   }
 
@@ -405,6 +428,7 @@ export class BotManager {
           .filter((entry) => entry.botId === bot.id).length,
         snooze: this.getBotSnooze(bot.id),
         queued: this.activationQueue.has(bot.id),
+        priorityQueue: this.describePriorityQueue(bot.id),
         scheduleState: this.isBotBusy(bot)
           ? 'working'
           : bot.enabled === false
@@ -416,7 +440,7 @@ export class BotManager {
                 ? 'sleep'
                 : this.activationQueue.has(bot.id)
                   ? 'queued'
-                  : ['idle', 'max-activations', 'paused'].includes(decideActivation({ bot, now: Date.now() }).reason)
+                  : isWorkQueuePaused(bot) && !this.hasWaitingPriorityWork(bot.id)
                     ? 'sleep'
                     : 'active',
         activationWindowDescription: describeActivationWindow(bot.activationWindow),
@@ -465,6 +489,7 @@ export class BotManager {
   }
 
   async createBotFromConfig(config) {
+    assertBotModelAllowed(config?.model);
     const name = String(config?.name ?? '').trim() || 'New bot';
     const botId = randomUUID();
     const workingFolder = config?.workingFolder?.trim()
@@ -494,6 +519,7 @@ export class BotManager {
       activationWindow: config?.activationWindow ?? {},
       instructions: config?.instructions ?? '',
       workQueue: config?.workQueue ?? [],
+      priorityAutoContinue: config?.priorityAutoContinue ?? true,
       enabled: config?.enabled ?? true,
       nextActivationAt: new Date(
         nextActivationFrom(config?.activationPeriodMinutes ?? 10, Date.now()),
@@ -508,6 +534,7 @@ export class BotManager {
   async updateBotConfig(id, changes = {}) {
     const bot = getBot(id);
     if (!bot) throw new Error('Bot not found.');
+    if (changes.model !== undefined) assertBotModelAllowed(changes.model);
     if (changes.workQueueIndex !== undefined) {
       const workQueue = changes.workQueue === undefined
         ? bot.workQueue
@@ -654,6 +681,8 @@ export class BotManager {
       activeAssistantMessageId: null,
       snoozeUntil: 'clear',
     });
+    clearBotPriorityQueue(bot.id);
+    this.continueAfterRun.delete(id);
     this.botSnoozeUntilRestart.delete(id);
     const conversation = clearConversationMessages(bot.conversationId, { resetState: true });
     traceInfo('bots.full-reset', { bot_id: id });
@@ -731,7 +760,7 @@ export class BotManager {
     return item.approval;
   }
 
-  async resolveApproval(approvalId, decision) {
+  async resolveApproval(approvalId, decision, { always = false } = {}) {
     if (typeof decision !== 'boolean') {
       throw new Error('Approval decision must be an explicit boolean.');
     }
@@ -748,6 +777,13 @@ export class BotManager {
     }
     const { item, approval } = await consumeBotPendencyApproval(dataFolder, approvalId, decision);
     this.approvals.delete(approvalId);
+    if (decision && always === true && approval.kind === 'tool' && this.chatRunner) {
+      await this.chatRunner.savePermissionGuidance?.({
+        workspacePath: approval.workspacePath,
+        invocationSummary: item.title,
+      });
+      this.chatRunner.approvedToolPatterns.add(`${approval.workspacePath ?? ''}\0${item.title.toLowerCase()}`);
+    }
     this.noteUserInteraction(bot.conversationId);
     const detailLines = approval.kind === 'tool'
       ? [
@@ -769,34 +805,17 @@ export class BotManager {
           'Choose a safe alternative or cancel this pendency with a clear reason. Do not retry the denied action.',
           '</bot-approval-resolved>',
         ].join('\n');
-    let delivered = false;
-    let error = null;
-    try {
-      if (!this.chatRunner?.send) throw new Error('Chat runner is not available.');
-      await this.chatRunner.send({
-        conversationId: bot.conversationId,
-        model: bot.model,
-        reasoningEffort: bot.reasoningEffort,
-        permissionMode: bot.permissionMode,
-        text,
-        fromAgent: true,
-        queuePriority: true,
-        project: { path: resolveBotWorkingFolder(bot) },
-      });
-      delivered = true;
-    } catch (sendError) {
-      error = sendError instanceof Error ? sendError.message : String(sendError);
-      traceError('bots.approval-delivery-error', {
-        bot_id: bot.id,
-        pendency_id: item.id,
-        error,
-      });
-    }
+    const queueItem = this.enqueuePriorityWork(bot, {
+      sourceKey: `pendency:${item.id}`,
+      kind: 'approval',
+      title: item.title,
+      text,
+    });
     this.broadcast('bots:work-state');
-    return { resolved: true, delivered, pendencyId: item.id, ...(error ? { error } : {}) };
+    return { resolved: true, queued: true, queueItemId: queueItem.id, pendencyId: item.id };
   }
 
-  async replyToPendency(botId, pendencyId, { content, attachments = [], senderBotId = null } = {}) {
+  async replyToPendency(botId, pendencyId, { content, attachments = [], senderBotId = null, questionMessageId, answers } = {}) {
     const bot = this.ensureBotConversation(getBot(botId));
     if (!bot) throw new Error('Bot not found.');
     if (typeof pendencyId !== 'string' || pendencyId.length === 0) {
@@ -808,13 +827,13 @@ export class BotManager {
       throw new Error('Use bot_pendency_message to write in this bot\'s own Inbox.');
     }
     const { dataFolder } = await ensureBotFolders(bot);
-    // The message is persisted before delivery: a failed send must not lose it.
     const item = await appendBotPendencyMessage(dataFolder, {
       pendencyId,
       role: senderBot ? 'agent' : 'user',
       content: typeof content === 'string' ? content.trim() : '',
       attachments: attachments ?? [],
       ...(senderBot ? { sender: { botId: senderBot.id, name: senderBot.name } } : {}),
+      ...(answers !== undefined ? { questionMessageId, answers } : {}),
     });
     if (!senderBot) this.noteUserInteraction(bot.conversationId);
     const message = item.messages.at(-1);
@@ -827,6 +846,9 @@ export class BotManager {
         : []),
       `<title>${escapeMarkupText(item.title)}</title>`,
       `<message>${escapeMarkupText(message.content)}</message>`,
+      ...(message.answers
+        ? [`<answers question-message-id="${escapeMarkupText(message.questionMessageId)}">${escapeMarkupText(formatQuestionAnswers(message.answers))}</answers>`]
+        : []),
       ...(message.attachments.length > 0
         ? [`<attachments>${message.attachments
           .map((attachment) => escapeMarkupText(attachment.path || attachment.name || attachment.id))
@@ -834,32 +856,31 @@ export class BotManager {
         : []),
       '</bot-pendency-update>',
     ].join('\n');
-    let delivered = false;
-    let error = null;
-    try {
-      if (!this.chatRunner?.send) throw new Error('Chat runner is not available.');
-      await this.chatRunner.send({
-        conversationId: bot.conversationId,
-        model: bot.model,
-        reasoningEffort: bot.reasoningEffort,
-        permissionMode: bot.permissionMode,
+    // A pending approval blocks the work log; the approval decision queues it and the bot reads this reply then.
+    const queueItem = item.approval?.status === 'pending'
+      ? null
+      : this.enqueuePriorityWork(bot, {
+        sourceKey: `pendency:${item.id}`,
+        kind: 'inbox',
+        title: item.title,
         text: payload,
         attachments: message.attachments,
-        fromAgent: true,
-        queuePriority: true,
-        project: { path: resolveBotWorkingFolder(bot) },
       });
-      delivered = true;
-    } catch (sendError) {
-      error = sendError instanceof Error ? sendError.message : String(sendError);
-      traceError('bots.pendency-delivery-error', {
-        bot_id: bot.id,
-        pendency_id: pendencyId,
-        error,
-      });
-    }
     this.broadcast('bots:work-state');
-    return { item, delivered, ...(error ? { error } : {}) };
+    if (senderBot) await this.forwardPendencyMentions(senderBot, item, bot);
+    return { item, queued: Boolean(queueItem), queueItemId: queueItem?.id ?? null };
+  }
+
+  async forwardPendencyMentions(author, pendency, inboxBot = author) {
+    const message = pendency.messages.at(-1);
+    await this.chatRunner?.forwardMentions?.({
+      conversationId: author.conversationId,
+      messageId: message.id,
+      content: message.content,
+      location: `in the Inbox of bot "${inboxBot.name}", pendency "${pendency.title}" (${pendency.id})`,
+      // The Inbox owner already receives this message as a <bot-pendency-update>.
+      skipConversationId: inboxBot.conversationId,
+    });
   }
 
   async markPendencyRead(botId, pendencyId, messageIds) {
@@ -888,6 +909,7 @@ export class BotManager {
     if (this.drainingActivations) return;
     this.drainingActivations = true;
     try {
+      await this.continueQueues();
       for (const [botId, options] of this.activationQueue) {
         const bot = getBot(botId);
         if (!bot || !bot.enabled) {
@@ -944,6 +966,7 @@ export class BotManager {
         bot: currentBot,
         now: Date.now(),
         isRunning: this.isBotBusy(currentBot),
+        hasPriorityWork: this.hasWaitingPriorityWork(bot.id),
       });
       if (decision.action === 'activate') {
         await this.activateBot(bot.id, { trigger: 'scheduler' });
@@ -976,15 +999,129 @@ export class BotManager {
     }
   }
 
-  async activateBot(botId, { trigger = 'scheduler', force = false, workQueueId, admitted = false } = {}) {
+  hasWaitingPriorityWork(botId) {
+    return listBotPriorityItems(botId).some((item) => !item.claimed && item.kind !== 'activation');
+  }
+
+  describePriorityQueue(botId) {
+    return listBotPriorityItems(botId).map(({ entries, ...item }) => ({
+      ...item,
+      messageCount: entries.length,
+    }));
+  }
+
+  enqueuePriorityWork(bot, { sourceKey, kind, title, text, attachments = [], sourceMessageId = null }) {
+    if (sourceMessageId && listBotPriorityItems(bot.id).some((item) => (
+      item.entries.some((entry) => entry.sourceMessageId === sourceMessageId)
+    ))) return null;
+    const item = enqueueBotPriorityItem({
+      botId: bot.id,
+      sourceKey,
+      kind,
+      title,
+      entry: {
+        text,
+        attachments,
+        ...(sourceMessageId ? { sourceMessageId } : {}),
+        receivedAt: new Date().toISOString(),
+      },
+    });
+    traceInfo('bots.priority-enqueued', { bot_id: bot.id, queue_item_id: item.id, kind });
+    this.broadcast('bots:updated');
+    return item;
+  }
+
+  enqueueThreadMessage(conversationId, { sourceConversationId, kind, title, text, sourceMessageId }) {
+    const bot = getBotByConversation(conversationId);
+    if (!bot) return null;
+    return this.enqueuePriorityWork(bot, {
+      sourceKey: `thread:${sourceConversationId}`,
+      kind,
+      title,
+      text,
+      sourceMessageId,
+    });
+  }
+
+  removePriorityItem(botId, itemId) {
+    if (!getBot(botId)) throw new Error('Bot not found.');
+    removeBotPriorityItem(botId, String(itemId ?? ''));
+    this.broadcast('bots:updated');
+    return this.describePriorityQueue(botId);
+  }
+
+  reorderPriorityQueue(botId, itemIds) {
+    if (!getBot(botId)) throw new Error('Bot not found.');
+    reorderBotPriorityQueue(botId, itemIds);
+    this.broadcast('bots:updated');
+    return this.describePriorityQueue(botId);
+  }
+
+  // Runs when bots become free: explicit activations start immediately and bypass admission;
+  // after a finished run, waiting priority items are admitted next when auto-continuation is on.
+  async continueQueues() {
+    for (const bot of listBots()) {
+      if (this.activating.has(bot.id) || this.isBotBusy(bot)) continue;
+      const waiting = listBotPriorityItems(bot.id).filter((item) => !item.claimed);
+      const continuing = this.continueAfterRun.delete(bot.id);
+      if (waiting.some((item) => item.kind === 'activation')) {
+        await this.activateBot(bot.id, { trigger: 'explicit', force: true, admitted: true });
+      } else if (
+        continuing
+        && bot.enabled
+        && bot.priorityAutoContinue
+        && waiting.length > 0
+        && !this.activationQueue.has(bot.id)
+      ) {
+        this.activationQueue.set(bot.id, { trigger: 'priority-continuation', chained: true });
+      }
+    }
+  }
+
+  selectActivation(bot, { chained = false } = {}) {
+    const waiting = listBotPriorityItems(bot.id).filter((item) => !item.claimed);
+    const explicit = waiting.find((item) => item.kind === 'activation');
+    if (explicit && explicit.workQueueId !== null) {
+      return { kind: 'work', item: explicit, workQueueId: explicit.workQueueId };
+    }
+    const priority = waiting.filter((item) => item.kind !== 'activation');
+    if (chained) return priority[0] ? { kind: 'priority', item: priority[0] } : null;
+    // An unfocused explicit activation picks its work like the scheduler, ignoring work-queue pauses.
+    const workAvailable = Boolean(explicit) || !isWorkQueuePaused(bot);
+    if (priority.length === 0) return workAvailable ? { kind: 'work', item: explicit } : null;
+    if (bot.lastActivationKind === 'priority' && workAvailable && bot.workQueue.length > 0) {
+      return { kind: 'work', item: explicit };
+    }
+    return { kind: 'priority', item: priority[0], explicit };
+  }
+
+  async activateBot(botId, {
+    trigger = 'scheduler',
+    force = false,
+    workQueueId,
+    admitted = false,
+    chained = false,
+  } = {}) {
     const bot = this.ensureBotConversation(getBot(botId));
     if (!bot) throw new Error('Bot not found.');
     if (workQueueId !== undefined && (!Number.isInteger(workQueueId) || workQueueId < 0 || workQueueId >= bot.workQueue.length)) {
       throw new Error('workQueueId must identify an existing work queue item.');
     }
+    if (force && !admitted) {
+      enqueueBotPriorityItem({
+        botId: bot.id,
+        sourceKey: 'activation',
+        kind: 'activation',
+        title: workQueueId === undefined ? '' : bot.workQueue[workQueueId],
+        workQueueId: workQueueId ?? null,
+        front: true,
+      });
+      this.broadcast('bots:updated');
+    }
     if (!bot.enabled && !force) return null;
-    if (this.activating.has(bot.id)) return null;
+    if (this.activating.has(bot.id)) return force ? { queued: true, reason: 'working' } : null;
     if (this.isBotBusy(bot)) {
+      if (force) return { queued: true, reason: 'working' };
       updateBotScheduler(bot.id, {
         nextActivationAt: new Date(
           nextActivationFrom(bot.activationPeriodMinutes, Date.now()),
@@ -996,7 +1133,7 @@ export class BotManager {
       this.activationQueue.delete(botId);
     } else if (!admitted) {
       if (!this.activationQueue.has(botId)) {
-        this.activationQueue.set(botId, { trigger, workQueueId });
+        this.activationQueue.set(botId, { trigger, workQueueId, chained });
       }
       const request = this.activationQueue.get(botId);
       await this.drainActivationQueue();
@@ -1006,20 +1143,37 @@ export class BotManager {
     }
     const activation = {};
     this.activating.set(bot.id, activation);
+    let claimedItem = null;
+    let claimedExplicit = null;
     try {
       const folders = await ensureBotFolders(bot);
-      const { inbox } = await readBotWorkState(folders.dataFolder);
-      const actionablePendency = inbox.find((pendency) => (
-        pendency.status === 'open'
-        && !pendency.approval
-        && pendency.messages.at(-1)?.role !== 'bot'
-      ));
-      const focusTask = workQueueId !== undefined
-        ? bot.workQueue[workQueueId]
-        : actionablePendency?.title ?? bot.workQueue[bot.workQueueIndex];
-      const activationPrompt = [`<bot-activation at="${new Date().toISOString()}">`];
+      const selection = this.selectActivation(bot, { chained });
+      if (!selection) return null;
+      if (selection.item) {
+        claimedItem = claimBotPriorityItem(selection.item.id, randomUUID());
+        if (!claimedItem) return null;
+      }
+      if (selection.explicit) {
+        claimedExplicit = claimBotPriorityItem(selection.explicit.id, randomUUID());
+      }
+      const focusWorkQueueId = selection.workQueueId ?? workQueueId;
+      const focusTask = selection.kind === 'work'
+        ? bot.workQueue[focusWorkQueueId ?? bot.workQueueIndex]
+        : null;
+      const activationPrompt = [
+        `<bot-activation at="${new Date().toISOString()}" kind="${selection.kind}"${claimedItem
+          ? ` queue-item-id="${escapeMarkupText(claimedItem.id)}"`
+          : ''}>`,
+      ];
       if (focusTask) {
         activationPrompt.push(`<focus-task>${escapeMarkupText(focusTask)}</focus-task>`);
+      }
+      if (selection.kind === 'priority') {
+        activationPrompt.push(
+          `<priority-item kind="${escapeMarkupText(claimedItem.kind)}" title="${escapeMarkupText(claimedItem.title).replaceAll('"', '&quot;')}">`,
+          ...claimedItem.entries.map((entry) => entry.text),
+          '</priority-item>',
+        );
       }
       activationPrompt.push('</bot-activation>');
       if (this.activating.get(bot.id) !== activation || !getBot(bot.id)) return null;
@@ -1040,31 +1194,51 @@ export class BotManager {
         reasoningEffort: bot.reasoningEffort,
         permissionMode: bot.permissionMode,
         text: activationPrompt.join('\n'),
+        attachments: (claimedItem?.entries ?? []).flatMap((entry) => entry.attachments ?? []),
         fromAgent: true,
         project: { path: folders.workingFolder },
       });
-      const activationCount = bot.activationCount + 1;
-      const sleeping = bot.maxActivations > 0 && activationCount >= bot.maxActivations;
-      const currentBot = getBot(bot.id);
-      const workQueueIndex = workQueueId !== undefined || actionablePendency || bot.workQueue.length === 0
-        ? currentBot.workQueueIndex
-        : JSON.stringify(currentBot.workQueue) === JSON.stringify(bot.workQueue)
-          ? (bot.workQueueIndex + 1) % bot.workQueue.length
-          : currentBot.workQueueIndex;
+      if (claimedItem) completeBotPriorityItem(claimedItem.id);
       const activatedAt = Date.now();
-      const nextActivationAt = new Date(
-        sleeping
-          ? smartIdleUntil(bot.activationPeriodMinutes, activatedAt)
-          : nextActivationFrom(bot.activationPeriodMinutes, activatedAt),
-      ).toISOString();
-      updateBotScheduler(bot.id, {
-        activationCount: sleeping ? 0 : activationCount,
-        workQueueIndex,
-        idleUntil: sleeping ? nextActivationAt : 'clear',
-        nextActivationAt,
-        status: 'active',
+      if (selection.kind === 'work') {
+        const activationCount = bot.activationCount + 1;
+        const sleeping = bot.maxActivations > 0 && activationCount >= bot.maxActivations;
+        const currentBot = getBot(bot.id);
+        const workQueueIndex = focusWorkQueueId !== undefined || bot.workQueue.length === 0
+          ? currentBot.workQueueIndex
+          : JSON.stringify(currentBot.workQueue) === JSON.stringify(bot.workQueue)
+            ? (bot.workQueueIndex + 1) % bot.workQueue.length
+            : currentBot.workQueueIndex;
+        const nextActivationAt = new Date(
+          sleeping
+            ? smartIdleUntil(bot.activationPeriodMinutes, activatedAt)
+            : nextActivationFrom(bot.activationPeriodMinutes, activatedAt),
+        ).toISOString();
+        updateBotScheduler(bot.id, {
+          activationCount: sleeping ? 0 : activationCount,
+          workQueueIndex,
+          idleUntil: sleeping ? nextActivationAt : 'clear',
+          nextActivationAt,
+          status: 'active',
+          lastActivationKind: 'work',
+          lastActivationAt: new Date(activatedAt).toISOString(),
+        });
+      } else {
+        // Priority work does not consume the Work queue's activation limit or end idle/pause.
+        updateBotScheduler(bot.id, {
+          nextActivationAt: new Date(
+            nextActivationFrom(bot.activationPeriodMinutes, activatedAt),
+          ).toISOString(),
+          lastActivationKind: 'priority',
+          lastActivationAt: new Date(activatedAt).toISOString(),
+        });
+      }
+      traceInfo('bots.activated', {
+        bot_id: bot.id,
+        trigger,
+        kind: selection.kind,
+        ...(claimedItem ? { queue_item_id: claimedItem.id, queue_item_kind: claimedItem.kind } : {}),
       });
-      traceInfo('bots.activated', { bot_id: bot.id, trigger });
       this.broadcast('bots:updated');
       return true;
     } catch (error) {
@@ -1080,6 +1254,13 @@ export class BotManager {
       this.broadcast('bots:updated');
       return null;
     } finally {
+      // Delivered items were already deleted; anything still claimed here was not delivered.
+      // Failed explicit activations are dropped (the caller sees the failure); messages are kept.
+      if (claimedItem && getBot(bot.id)) {
+        if (claimedItem.kind === 'activation') completeBotPriorityItem(claimedItem.id);
+        else releaseBotPriorityItem(claimedItem.id);
+      }
+      if (claimedExplicit) completeBotPriorityItem(claimedExplicit.id);
       if (this.activating.get(bot.id) === activation) this.activating.delete(bot.id);
     }
   }
@@ -1190,26 +1371,29 @@ export class BotManager {
           type: 'object',
           properties: {
             title: { type: 'string', description: 'Short recognizable label.' },
-            content: { type: 'string', description: 'The first message: what this pendency needs from the user and why.' },
-            requiresUserResponse: { type: 'boolean', description: 'True when the user must respond or act (default). Set false for an informational message: viewing it clears its attention indicator without completing the pendency.' },
+            content: { type: 'string', description: 'The first message: what this pendency needs from the user and why. Markdown structured like a short work email: lead sentence, short paragraphs separated by blank lines, lists for parallel items, and the requested action at the end.' },
+            requiresUserResponse: { type: 'boolean', description: 'True when the user must respond or act (default). Set false for an informational message: viewing it clears its attention indicator without completing the pendency. Ignored (always true) when questions are attached.' },
             attachmentPaths: {
               type: 'array',
               items: { type: 'string' },
               description: 'Paths of files to attach to the first message.',
             },
+            questions: { ...QUESTIONS_SCHEMA, description: PENDENCY_QUESTIONS_DESCRIPTION },
           },
           required: ['title', 'content'],
           additionalProperties: false,
         },
-        execute: async ({ title, content, attachmentPaths = [], requiresUserResponse = true }) => {
+        execute: async ({ title, content, attachmentPaths = [], requiresUserResponse = true, questions }) => {
           await ensureBotFolders(bot);
           const pendency = await createBotPendency(dataFolder, {
             title,
             content,
             requiresUserResponse,
+            questions,
             attachments: attachmentPaths.map((path) => filePathToAttachment(path)),
           });
           this.broadcast('bots:work-state');
+          await this.forwardPendencyMentions(bot, pendency);
           return pendency;
         },
       },
@@ -1223,27 +1407,30 @@ export class BotManager {
           type: 'object',
           properties: {
             id: { type: 'string', description: 'Pendency id returned by bot_pendencies_list or bot_pendency_create.' },
-            content: { type: 'string' },
-            requiresUserResponse: { type: 'boolean', description: 'True when the user must respond or act (default). Set false for an informational message: viewing it clears its attention indicator without completing the pendency.' },
+            content: { type: 'string', description: 'Markdown structured like a short work email: lead sentence, short paragraphs separated by blank lines, lists for parallel items, and the requested action at the end.' },
+            requiresUserResponse: { type: 'boolean', description: 'True when the user must respond or act (default). Set false for an informational message: viewing it clears its attention indicator without completing the pendency. Ignored (always true) when questions are attached.' },
             attachmentPaths: {
               type: 'array',
               items: { type: 'string' },
               description: 'Paths of files to attach to the message.',
             },
+            questions: { ...QUESTIONS_SCHEMA, description: PENDENCY_QUESTIONS_DESCRIPTION },
           },
           required: ['id', 'content'],
           additionalProperties: false,
         },
-        execute: async ({ id, content, attachmentPaths = [], requiresUserResponse = true }) => {
+        execute: async ({ id, content, attachmentPaths = [], requiresUserResponse = true, questions }) => {
           await ensureBotFolders(bot);
           const pendency = await appendBotPendencyMessage(dataFolder, {
             pendencyId: id,
             role: 'bot',
             content,
             requiresUserResponse,
+            questions,
             attachments: attachmentPaths.map((path) => filePathToAttachment(path)),
           });
           this.broadcast('bots:work-state');
+          await this.forwardPendencyMentions(bot, pendency);
           return pendency;
         },
       },

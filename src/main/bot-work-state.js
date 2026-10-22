@@ -2,6 +2,7 @@ import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { BOT_PENDENCY_COMPLETION_REASONS } from '../shared/bot-work-items.js';
+import { normalizeQuestionAnswers, normalizeQuestions } from '../shared/questions.js';
 
 export const BOT_PENDENCY_STATUSES = new Set(['open', 'completed']);
 export const BOT_MESSAGE_ROLES = new Set(['bot', 'user', 'agent']);
@@ -81,6 +82,28 @@ function validateMessage(message) {
     throw new Error('Invalid requiresUserResponse: expected boolean');
   }
   if (message.readAt !== undefined && message.readAt !== null) requireString(message.readAt, 'message.readAt');
+  if (message.questions !== undefined) {
+    if (message.role !== 'bot') throw new Error('Invalid message questions: only bot messages have questions');
+    normalizeQuestions(message.questions);
+  }
+  if ((message.answers === undefined) !== (message.questionMessageId === undefined)) {
+    throw new Error('Invalid message answers: answers and questionMessageId must be set together');
+  }
+  if (message.answers !== undefined && message.role !== 'user') {
+    throw new Error('Invalid message answers: only user messages answer questions');
+  }
+}
+
+function validateQuestionAnswers(messages) {
+  const answered = new Set();
+  messages.forEach((message, index) => {
+    if (message.answers === undefined) return;
+    const questionMessage = messages.slice(0, index).find((entry) => entry.id === message.questionMessageId);
+    if (!questionMessage?.questions) throw new Error(`Question message not found: ${message.questionMessageId}`);
+    if (answered.has(message.questionMessageId)) throw new Error(`Questions already answered: ${message.questionMessageId}`);
+    answered.add(message.questionMessageId);
+    normalizeQuestionAnswers(questionMessage.questions, message.answers);
+  });
 }
 
 function validateApprovalObject(value) {
@@ -104,6 +127,7 @@ function validatePendency(pendency) {
   if (!BOT_PENDENCY_STATUSES.has(pendency.status)) throw new Error(`Invalid pendency status: ${pendency.status}`);
   if (!Array.isArray(pendency.messages)) throw new Error('Invalid pendency messages: expected array');
   for (const message of pendency.messages) validateMessage(message);
+  validateQuestionAnswers(pendency.messages);
   validateApprovalObject(pendency.approval);
   if (pendency.approval && (
     pendency.approval.pendencyId !== pendency.id
@@ -212,16 +236,26 @@ export async function readBotWorkState(dataFolder) {
 }
 
 export async function createBotPendency(dataFolder, input, now) {
-  const { title, content, attachments = [], requiresUserResponse = true } = input;
+  const { title, content, attachments = [], requiresUserResponse = true, questions } = input;
   requireString(title, 'title');
   requireString(content, 'content');
   const messageAttachments = validateAttachments(attachments);
+  const messageQuestions = questions === undefined ? undefined : normalizeQuestions(questions);
   const ts = now ?? new Date().toISOString();
   const pendency = {
     id: randomUUID(),
     title,
     status: 'open',
-    messages: [{ id: randomUUID(), role: 'bot', content, attachments: messageAttachments, createdAt: ts, requiresUserResponse, readAt: null }],
+    messages: [{
+      id: randomUUID(),
+      role: 'bot',
+      content,
+      attachments: messageAttachments,
+      createdAt: ts,
+      requiresUserResponse: messageQuestions ? true : requiresUserResponse,
+      readAt: null,
+      ...(messageQuestions ? { questions: messageQuestions } : {}),
+    }],
     approval: null,
     createdAt: ts,
     updatedAt: ts,
@@ -282,13 +316,27 @@ export async function attachBotPendencyApproval(dataFolder, input, now) {
 }
 
 export async function appendBotPendencyMessage(dataFolder, input, now) {
-  const { pendencyId, role, content, attachments = [], requiresUserResponse = true, sender } = input;
+  const {
+    pendencyId,
+    role,
+    content,
+    attachments = [],
+    requiresUserResponse = true,
+    sender,
+    questions,
+    answers,
+    questionMessageId,
+  } = input;
   if (typeof requiresUserResponse !== 'boolean') throw new Error('Invalid requiresUserResponse: expected boolean');
   requireString(pendencyId, 'pendencyId');
   if (!BOT_MESSAGE_ROLES.has(role)) throw new Error(`Invalid message role: ${role}`);
   if (typeof content !== 'string') throw new Error('Invalid content: expected string');
   const messageAttachments = validateAttachments(attachments);
-  if (content.trim().length === 0 && messageAttachments.length === 0) {
+  if (questions !== undefined && role !== 'bot') throw new Error('Only bot messages can ask questions.');
+  if (answers !== undefined && role !== 'user') throw new Error('Only the user can answer Inbox questions.');
+  if (answers !== undefined) requireString(questionMessageId, 'questionMessageId');
+  const messageQuestions = questions === undefined ? undefined : normalizeQuestions(questions);
+  if (content.trim().length === 0 && messageAttachments.length === 0 && !messageQuestions && answers === undefined) {
     throw new Error('Invalid message: write a content or attach at least one file');
   }
   const ts = now ?? new Date().toISOString();
@@ -298,8 +346,17 @@ export async function appendBotPendencyMessage(dataFolder, input, now) {
     const idx = inbox.findIndex((entry) => entry.id === pendencyId);
     if (idx === -1) throw new Error(`Pendency not found: ${pendencyId}`);
     const existing = inbox[idx];
-    if (role !== 'bot' && existing.status === 'completed') {
+    if (role === 'agent' && existing.status === 'completed') {
       throw new Error('Pendency is completed; the bot must reopen it with a new message first.');
+    }
+    let messageAnswers;
+    if (answers !== undefined) {
+      const questionMessage = existing.messages.find((message) => message.id === questionMessageId);
+      if (!questionMessage?.questions) throw new Error(`Question message not found: ${questionMessageId}`);
+      if (existing.messages.some((message) => message.questionMessageId === questionMessageId)) {
+        throw new Error('These questions were already answered.');
+      }
+      messageAnswers = normalizeQuestionAnswers(questionMessage.questions, answers);
     }
 
     const updated = {
@@ -312,8 +369,10 @@ export async function appendBotPendencyMessage(dataFolder, input, now) {
         content,
         attachments: messageAttachments,
         createdAt: ts,
-        ...(role === 'bot' ? { requiresUserResponse, readAt: null } : {}),
+        ...(role === 'bot' ? { requiresUserResponse: messageQuestions ? true : requiresUserResponse, readAt: null } : {}),
         ...(role === 'agent' ? { sender: { botId: sender?.botId, name: sender?.name } } : {}),
+        ...(messageQuestions ? { questions: messageQuestions } : {}),
+        ...(messageAnswers ? { questionMessageId, answers: messageAnswers } : {}),
       }],
       updatedAt: ts,
     };

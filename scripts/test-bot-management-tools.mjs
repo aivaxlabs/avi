@@ -83,6 +83,14 @@ try {
     chatRunner,
     models: [model],
   };
+  // Delivers the next waiting priority item through a regular priority activation.
+  const deliverPriority = async (botId) => {
+    const before = activationRequests.length;
+    assert.equal(await botManager.activateBot(botId, { chained: true, admitted: true, force: true }), true);
+    assert.equal(activationRequests.length, before + 1);
+    chatRunner.runs.clear();
+    return activationRequests.at(-1);
+  };
   const tool = (name) => {
     const result = CLIENT_TOOLS.find((item) => item.name === name);
     assert.ok(result, `${name} must be registered`);
@@ -118,6 +126,23 @@ try {
     assert.equal(getBot(created.bot.id).permissionMode, 'approve_for_me', 'agent tools cannot escalate permissions');
   }
   await botManager.updateBotConfig(created.bot.id, { permissionMode: 'full_access' });
+  database.setModelRouters([{
+    id: '@fusion-test',
+    name: 'Fusion test',
+    mode: 'fusion',
+    models: [{ modelId: model.id, reasoningEffort: null }, { modelId: model.id, reasoningEffort: null }],
+  }]);
+  await assert.rejects(
+    () => botManager.createBotFromConfig({ name: 'Fusion bot', model: '@fusion-test' }),
+    /Bots cannot use Fusion routers/,
+  );
+  assert.equal(botManager.describeBots().length, botCount, 'rejected Fusion bot has no side effects');
+  await assert.rejects(
+    () => botManager.updateBotConfig(created.bot.id, { model: '@fusion-test' }),
+    /Bots cannot use Fusion routers/,
+  );
+  assert.equal(getBot(created.bot.id).model, model.id);
+  database.setModelRouters([]);
   assert.deepEqual(created.bot.workQueue, ['Review releases & risks', 'Triage failures']);
   assert.equal(getConversation(created.bot.conversationId).conversationType, 'bot');
 
@@ -266,24 +291,37 @@ try {
   const activePendency = await botRuntime.tools
     .find((item) => item.name === 'bot_pendency_create')
     .execute({ title: 'Current release & follow-up', content: 'Finish the active release work.' });
-  // A user reply makes the pendency the bot's actionable focus task.
+  // An open pendency answered outside the queue no longer overrides the recurring focus.
   await appendBotPendencyMessage(resolveBotDataFolder(created.bot), {
     pendencyId: activePendency.id,
     role: 'user',
     content: 'Please proceed with the release work.',
   });
-  const activeWorkActivation = await tool('bots_activate').execute({ id: created.bot.id }, context);
-  assert.equal(activeWorkActivation.activated, true);
-  assert.match(
-    activationRequests[3].text,
-    /<focus-task>Current release &amp; follow-up<\/focus-task>/,
-    'active Current work must replace the recurring queue task in the activation prompt',
-  );
+  await botManager.replyToPendency(created.bot.id, activePendency.id, { content: 'Ship it.' });
+  const flowchartBot = { ...getBot(created.bot.id), enabled: true };
+  assert.equal(botManager.selectActivation({ ...flowchartBot, lastActivationKind: 'work' }).kind, 'priority');
+  assert.equal(botManager.selectActivation({ ...flowchartBot, lastActivationKind: 'priority' }).kind, 'work');
   assert.equal(
-    getBot(created.bot.id).workQueueIndex,
-    0,
-    'active Current work must not advance the recurring work queue',
+    botManager.selectActivation({ ...flowchartBot, lastActivationKind: 'priority', status: 'paused' }).kind,
+    'priority',
+    'a paused Work queue still lets the priority queue run',
   );
+  const explicitActivation = await tool('bots_activate').execute({ id: created.bot.id }, context);
+  assert.equal(explicitActivation.activated, true);
+  chatRunner.runs.clear();
+  const priorityActivation = activationRequests[3];
+  assert.match(
+    priorityActivation.text,
+    /kind="priority"/,
+    'an unfocused explicit activation selects work like a scheduled activation',
+  );
+  assert.doesNotMatch(priorityActivation.text, /<focus-task>/);
+  assert.match(priorityActivation.text, /<title>Current release &amp; follow-up<\/title>/);
+  assert.match(priorityActivation.text, /Ship it\./);
+  assert.equal(database.listBotPriorityItems(created.bot.id).length, 0, 'delivered items leave the queue');
+  assert.equal(getBot(created.bot.id).lastActivationKind, 'priority');
+  assert.equal(getBot(created.bot.id).workQueueIndex, 0, 'priority activations do not advance the Work queue');
+  activationRequests.splice(4);
   await botRuntime.tools
     .find((item) => item.name === 'bot_pendency_complete')
     .execute({ id: activePendency.id });
@@ -313,9 +351,14 @@ try {
   chatRunner.runs.set(created.bot.conversationId, {});
   const duplicate = await tool('bots_activate').execute({ id: created.bot.id }, context);
   assert.equal(duplicate.activated, false);
-  assert.equal(duplicate.status, 'already_running_or_start_failed');
+  assert.equal(duplicate.status, 'queued_next');
   assert.equal(activationRequests.length, 5, 'explicit activation must not start duplicate runs');
   chatRunner.runs.clear();
+  await botManager.continueQueues();
+  assert.equal(activationRequests.length, 6, 'the queued explicit activation runs after the current run');
+  assert.match(activationRequests.at(-1).text, /<focus-task>Resume protected work<\/focus-task>/);
+  chatRunner.runs.clear();
+  activationRequests.splice(5);
   const protectedPendency = await botRuntime.tools
     .find((item) => item.name === 'bot_pendency_create')
     .execute({ title: 'Protected work', content: 'Verify approval ownership.' });
@@ -347,40 +390,43 @@ try {
   );
 
   // --- Pendency reply, delivery, completion, and approval resolution ---
+  const requestsBeforeReply = activationRequests.length;
   const replyResult = await botManager.replyToPendency(created.bot.id, protectedPendency.id, {
     content: 'Please proceed carefully.  ',
   });
-  assert.equal(replyResult.delivered, true);
-  assert.equal(replyResult.error, undefined);
+  assert.equal(replyResult.queued, true);
+  assert.ok(replyResult.queueItemId);
+  assert.equal(activationRequests.length, requestsBeforeReply, 'Inbox replies are queued, not sent immediately');
   assert.equal(replyResult.item.messages.at(-1).role, 'user');
   assert.equal(replyResult.item.messages.at(-1).content, 'Please proceed carefully.');
   assert.deepEqual(replyResult.item.messages.at(-1).attachments, []);
-  const replyRequest = activationRequests.at(-1);
-  assert.equal(replyRequest.permissionMode, 'full_access');
-  assert.equal(replyRequest.queuePriority, true);
-  assert.equal(replyRequest.fromAgent, true);
-  assert.match(replyRequest.text, new RegExp(`<bot-pendency-update id="${protectedPendency.id}"`));
-  assert.match(replyRequest.text, /<title>Protected work<\/title>/);
-  assert.match(replyRequest.text, /Please proceed carefully\./);
 
   failNextReplySends = 1;
-  const failedReply = await botManager.replyToPendency(created.bot.id, protectedPendency.id, {
-    content: 'This delivery must fail.',
-  });
-  assert.equal(failedReply.delivered, false);
-  assert.equal(failedReply.error, 'Delivery failed');
-  assert.ok(failedReply.item, 'a failed delivery must still return the persisted pendency');
+  await assert.rejects(() => botManager.activateBot(created.bot.id, { chained: true, admitted: true, force: true }).then((result) => {
+    if (result !== true) throw new Error('Delivery failed');
+  }), /Delivery failed/);
+  assert.equal(
+    database.listBotPriorityItems(created.bot.id).filter((item) => !item.claimed).length,
+    1,
+    'a failed delivery returns its item to the queue',
+  );
   let persistedInbox = JSON.parse(await readFile(inboxPath, 'utf8'));
   let persistedPendency = persistedInbox.find((item) => item.id === protectedPendency.id);
-  assert.equal(persistedPendency.messages.at(-1).role, 'user');
-  assert.equal(persistedPendency.messages.at(-1).content, 'This delivery must fail.');
+  assert.equal(persistedPendency.messages.at(-1).content, 'Please proceed carefully.');
 
   const concurrentReplies = await Promise.all(['a', 'b', 'c'].map((suffix) => (
     botManager.replyToPendency(created.bot.id, protectedPendency.id, { content: `Concurrent ${suffix}.` })
   )));
   for (const result of concurrentReplies) {
-    assert.equal(result.delivered, true);
+    assert.equal(result.queueItemId, replyResult.queueItemId, 'replies to one pendency merge into one item');
   }
+  const replyRequest = await deliverPriority(created.bot.id);
+  assert.equal(replyRequest.permissionMode, 'full_access');
+  assert.equal(replyRequest.fromAgent, true);
+  assert.match(replyRequest.text, new RegExp(`<bot-pendency-update id="${protectedPendency.id}"`));
+  assert.match(replyRequest.text, /<title>Protected work<\/title>/);
+  assert.match(replyRequest.text, /Please proceed carefully\.[\s\S]*Concurrent/);
+  assert.equal(replyRequest.text.match(/<bot-pendency-update /g).length, 4);
   persistedInbox = JSON.parse(await readFile(inboxPath, 'utf8'));
   persistedPendency = persistedInbox.find((item) => item.id === protectedPendency.id);
   assert.deepEqual(
@@ -415,12 +461,11 @@ try {
 
   const resolved = await botManager.resolveApproval(approvalId, true);
   assert.equal(resolved.resolved, true);
-  assert.equal(resolved.delivered, true);
+  assert.equal(resolved.queued, true);
   assert.equal(resolved.pendencyId, approvalPendency.id);
   assert.equal(botManager.approvals.has(approvalId), false);
-  const resolveRequest = activationRequests.at(-1);
+  const resolveRequest = await deliverPriority(created.bot.id);
   assert.equal(resolveRequest.permissionMode, 'full_access');
-  assert.equal(resolveRequest.queuePriority, true);
   assert.match(
     resolveRequest.text,
     new RegExp(`<bot-approval-resolved pendency-id="${approvalPendency.id}" decision="approved">`),
@@ -444,8 +489,8 @@ try {
   persistedInbox = JSON.parse(await readFile(inboxPath, 'utf8'));
   const deniedPendency = persistedInbox.filter((item) => item.approval).at(-1);
   const denied = await botManager.resolveApproval(deniedPendency.approval.id, false);
-  assert.equal(denied.delivered, true);
-  assert.match(activationRequests.at(-1).text, /decision="denied"/);
+  assert.equal(denied.queued, true);
+  assert.match((await deliverPriority(created.bot.id)).text, /decision="denied"/);
   persistedInbox = JSON.parse(await readFile(inboxPath, 'utf8'));
   const deniedAfter = persistedInbox.find((item) => item.id === deniedPendency.id);
   assert.match(deniedAfter.messages.at(-1).content, /denied this request/);
@@ -479,11 +524,11 @@ try {
   assert.equal(workLog.inbox.length, 1);
   assert.ok(Array.isArray(workLog.activity));
   const sentWorkLog = await tool('bots_send_work_log_message').execute({ id: created.bot.id, workLogId: contentOnlyPendency.id, message: 'Continue this task.' }, context);
-  assert.equal(sentWorkLog.delivered, true);
+  assert.equal(sentWorkLog.queued, true);
   assert.equal(sentWorkLog.item.messages.at(-1).content, 'Continue this task.');
   await assert.rejects(() => tool('bots_read_work_log').execute({ id: 'missing' }, context), /Bot not found/);
   await assert.rejects(() => tool('bots_read_work_log').execute({ id: created.bot.id, workLogId: 'missing' }, context), /Work log not found/);
-  assert.match(activationRequests.at(-1).text, /<bot-pendency-update [^>]*from="user">/);
+  assert.match((await deliverPriority(created.bot.id)).text, /<bot-pendency-update [^>]*from="user">/);
   assert.equal(sentWorkLog.item.messages.at(-1).role, 'user');
 
   const peer = await tool('bots_create').execute({
@@ -508,10 +553,10 @@ try {
     workLogId: contentOnlyPendency.id,
     message: 'I can take the audit part.',
   }, peerContext);
-  assert.equal(crossReply.delivered, true);
+  assert.equal(crossReply.queued, true);
   assert.deepEqual(crossReply.item.messages.at(-1).sender, { botId: peer.bot.id, name: 'Peer "auditor"' });
   assert.equal(crossReply.item.messages.at(-1).role, 'agent');
-  const crossEnvelope = activationRequests.at(-1);
+  const crossEnvelope = await deliverPriority(created.bot.id);
   assert.equal(crossEnvelope.conversationId, created.bot.conversationId);
   assert.match(crossEnvelope.text, new RegExp(`from="bot" from-bot-id="${peer.bot.id}" from-bot-name="Peer &quot;auditor&quot;"`));
   assert.match(crossEnvelope.text, /written by another bot, not by the user/);

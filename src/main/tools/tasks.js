@@ -1,51 +1,6 @@
-export function normalizeQuestions(questions) {
-  if (!Array.isArray(questions) || questions.length === 0) {
-    throw new Error('questions must be a non-empty array.');
-  }
+import { QUESTIONS_SCHEMA, formatQuestionAnswers, normalizeQuestions } from '../../shared/questions.js';
 
-  return questions.map((item, index) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new Error(`questions[${index}] must be an object.`);
-    }
-    if (!['single_choice', 'multiple_choice', 'free_text'].includes(item.type)) {
-      throw new Error(`questions[${index}].type is invalid.`);
-    }
-    const question = typeof item.question === 'string' ? item.question.trim() : '';
-    if (!question) {
-      throw new Error(`questions[${index}].question must be a non-empty string.`);
-    }
-    if (item.type === 'free_text') return { type: item.type, question };
-
-    if (item.options === undefined) {
-      throw new Error(`questions[${index}].options is required for ${item.type}.`);
-    }
-    const maxOptions = item.type === 'multiple_choice' ? 6 : 3;
-    if (!Array.isArray(item.options) || item.options.length < 1 || item.options.length > maxOptions) {
-      throw new Error(`questions[${index}].options must contain one to ${maxOptions} options for ${item.type}.`);
-    }
-    const options = item.options.map((option, optionIndex) => {
-      const isObject = option && typeof option === 'object' && !Array.isArray(option);
-      const label = typeof option === 'string'
-        ? option.trim()
-        : isObject && typeof option.label === 'string' ? option.label.trim() : '';
-      if (!label || (isObject && option.description !== undefined && typeof option.description !== 'string')) {
-        throw new Error(`questions[${index}].options[${optionIndex}] must be a non-empty string or an object with a non-empty label and an optional string description.`);
-      }
-      return { label, description: isObject ? (option.description ?? '').trim() : '' };
-    });
-    if (new Set(options.map((option) => option.label)).size !== options.length) {
-      throw new Error(`questions[${index}].options must have unique labels.`);
-    }
-    return {
-      type: item.type,
-      question,
-      options: options.map((option) => option.label),
-      ...(options.some((option) => option.description)
-        ? { optionDescriptions: options.map((option) => option.description) }
-        : {}),
-    };
-  });
-}
+export { normalizeQuestions };
 
 export const taskTools = [
   {
@@ -191,42 +146,7 @@ export const taskTools = [
     inputSchema: {
       type: 'object',
       properties: {
-        questions: {
-          type: 'array',
-          minItems: 1,
-          items: {
-            type: 'object',
-            properties: {
-              type: {
-                type: 'string',
-                enum: ['single_choice', 'multiple_choice', 'free_text'],
-                description: 'single_choice: radio buttons, exactly one answer. multiple_choice: checkboxes, the user may select several options. free_text: open answer without options.',
-              },
-              question: {
-                type: 'string',
-                minLength: 1,
-              },
-              options: {
-                type: 'array',
-                minItems: 1,
-                maxItems: 6,
-                description: 'Required for single_choice (up to 3) and multiple_choice (up to 6). Omit for free_text. Answers are returned as option labels.',
-                items: {
-                  type: 'object',
-                  description: 'An option with a label and an optional description.',
-                  properties: {
-                    label: { type: 'string', minLength: 1, description: 'Short option text returned as the answer.' },
-                    description: { type: 'string', description: 'Optional Markdown shown under the label.' },
-                  },
-                  required: ['label'],
-                  additionalProperties: false,
-                },
-              },
-            },
-            required: ['type', 'question'],
-            additionalProperties: false,
-          },
-        },
+        questions: QUESTIONS_SCHEMA,
       },
       required: ['questions'],
       additionalProperties: false,
@@ -244,12 +164,7 @@ export const taskTools = [
         }
         return 'Question cancelled; no answers were collected.';
       }
-      return [
-        'User answers:',
-        ...result.answers.map(({ question, answer }) => (
-          `- ${question}: ${Array.isArray(answer) ? answer.join(', ') : answer}`
-        )),
-      ].join('\n');
+      return formatQuestionAnswers(result.answers);
     },
   },
 ];

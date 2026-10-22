@@ -85,12 +85,15 @@ export function describeActivationWindow(window) {
   return `${dayLabel}, ${timeLabel}`;
 }
 
-export function decideActivation({ bot, now = Date.now(), isRunning = false }) {
+// Reasons that pause only the user's Work queue. Waiting priority items still activate the bot.
+export const WORK_QUEUE_PAUSE_REASONS = Object.freeze(new Set(['paused', 'idle', 'max-activations']));
+
+export function decideActivation({ bot, now = Date.now(), isRunning = false, hasPriorityWork = false }) {
   if (!bot) return { action: 'skip', reason: 'missing-bot' };
   if (bot.enabled === false) return { action: 'skip', reason: 'disabled' };
-  if (bot.status === 'paused') return { action: 'skip', reason: 'paused' };
+  if (bot.status === 'paused' && !hasPriorityWork) return { action: 'skip', reason: 'paused' };
   if (isRunning) return { action: 'skip', reason: 'running' };
-  if (bot.idleUntil && new Date(bot.idleUntil).getTime() > now) {
+  if (!hasPriorityWork && bot.idleUntil && new Date(bot.idleUntil).getTime() > now) {
     return { action: 'skip', reason: 'idle' };
   }
   if (!isWithinActivationWindow(bot.activationWindow, new Date(now))) {
@@ -100,21 +103,32 @@ export function decideActivation({ bot, now = Date.now(), isRunning = false }) {
       nextActivationAt: new Date(nextWindowOpening(bot.activationWindow, now)).toISOString(),
     };
   }
-  if (bot.status === 'sleeping' && !bot.idleUntil) {
-    return { action: 'wake', reason: 'sleep-complete' };
+  if (!hasPriorityWork) {
+    if (bot.status === 'sleeping' && !bot.idleUntil) {
+      return { action: 'wake', reason: 'sleep-complete' };
+    }
+    if (
+      Number.isInteger(bot.maxActivations)
+      && bot.maxActivations > 0
+      && bot.activationCount >= bot.maxActivations
+    ) {
+      return bot.idleUntil
+        ? { action: 'wake', reason: 'sleep-complete' }
+        : { action: 'sleep', reason: 'max-activations' };
+    }
+    if (bot.status === 'sleeping') return { action: 'wake', reason: 'sleep-complete' };
   }
-  if (
-    Number.isInteger(bot.maxActivations)
-    && bot.maxActivations > 0
-    && bot.activationCount >= bot.maxActivations
-  ) {
-    return bot.idleUntil
-      ? { action: 'wake', reason: 'sleep-complete' }
-      : { action: 'sleep', reason: 'max-activations' };
-  }
-  if (bot.status === 'sleeping') return { action: 'wake', reason: 'sleep-complete' };
-  if (bot.nextActivationAt && new Date(bot.nextActivationAt).getTime() > now) {
+  const scheduledAt = bot.nextActivationAt ? new Date(bot.nextActivationAt).getTime() : null;
+  // Idle and activation-limit sleeps push nextActivationAt forward; priority work keeps the regular period.
+  const dueAt = hasPriorityWork && bot.lastActivationAt
+    ? Math.min(scheduledAt ?? Infinity, nextActivationFrom(bot.activationPeriodMinutes, new Date(bot.lastActivationAt).getTime()))
+    : scheduledAt;
+  if (dueAt !== null && dueAt > now) {
     return { action: 'skip', reason: 'not-due' };
   }
   return { action: 'activate' };
+}
+
+export function isWorkQueuePaused(bot, now = Date.now()) {
+  return WORK_QUEUE_PAUSE_REASONS.has(decideActivation({ bot, now }).reason);
 }

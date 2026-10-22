@@ -227,6 +227,10 @@ interface BotSnapshot {
   idleUntil: string | null;
   activationCount: number;
   activeAssistantMessageId: string | null;
+  /** Continue with the next priority queue item after a finished run. */
+  priorityAutoContinue: boolean;
+  lastActivationKind: 'work' | 'priority' | null;
+  lastActivationAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -267,10 +271,13 @@ interface BotPendencyMessage {
   createdAt: string;
   requiresUserResponse?: boolean;
   readAt?: string | null;
+  questions?: Question[];
+  questionMessageId?: string;
+  answers?: Array<{ question: string; answer: string | string[] }>;
 }
 ```
 
-`role: 'agent'` marks a reply written by another bot; only those messages have `sender`. `createdAt` is an ISO 8601 timestamp including the date and time. Attachments use the existing [Attachment](../rpc/types.md#attachment) descriptor. A message requires non-empty content or an attachment.
+`questions` appear only on bot messages and use the `ask_question` [Question](../rpc/types.md#question) format (up to 10 `single_choice` and 30 `multiple_choice` options). `questionMessageId` and `answers` appear together only on user messages that answer that questionnaire; each questionnaire accepts one answer message. `role: 'agent'` marks a reply written by another bot; only those messages have `sender`. `createdAt` is an ISO 8601 timestamp including the date and time. Attachments use the existing [Attachment](../rpc/types.md#attachment) descriptor. A message requires non-empty content, an attachment, questions, or answers.
 
 ### BotPendency
 
@@ -288,12 +295,13 @@ interface BotPendency {
 
 interface BotPendencyReply {
   item: BotPendency;
-  delivered: boolean;
-  error?: string;
+  /** False while the pendency has a pending protected approval. */
+  queued: boolean;
+  queueItemId: string | null;
 }
 ```
 
-A new bot message reopens the pendency. A user reply leaves it open, waiting for the bot, except that protected approvals still need an explicit decision. Completion sets `completedAt`; it cannot bypass a pending approval.
+A new bot message or user reply reopens the pendency; replies from other bots cannot. A user reply leaves it open, waiting for the bot, except that protected approvals still need an explicit decision. Completion sets `completedAt`; it cannot bypass a pending approval.
 
 ### BotActivityEntry
 
@@ -359,8 +367,11 @@ interface ModelSnapshot extends ModelConfig {
   providerName: string;
   interface: string;
   endpoint?: string;
+  routerMode?: 'fusion';
 }
 ```
+
+Model router entries use `@`-prefixed IDs and `interface: 'router'`. Fusion routers also expose `routerMode: 'fusion'`, an empty `reasoning` list (the lead and sidekick efforts are fixed in the router), and the lead model's capabilities and context limits.
 
 ### ProviderTypeDescriptor
 
