@@ -67,8 +67,8 @@ try {
       assert.equal(install, updater.install());
       assert.equal((await install).status, 'installing');
       assert.equal(quits, 1);
-      assert.ok(spawned.at(-1).args.includes('-Command'));
-      assert.ok(spawned.at(-1).args.at(-1).includes('--force-run'));
+      assert.ok(spawned.at(-1).command.endsWith(name));
+      assert.deepEqual(spawned.at(-1).args, ['/S', '--force-run', '--updated']);
       await updater.install();
       assert.equal(quits, 1);
     }

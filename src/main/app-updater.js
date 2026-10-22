@@ -9,21 +9,6 @@ import { diagnosticFetch } from './request-diagnostics.js';
 const repository = 'https://github.com/aivaxlabs/avi';
 const downloadHosts = new Set(['github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com']);
 const maximumDownloadSize = 2 * 1024 ** 3;
-const windowsHelper = `$ParentId = [int]$env:AVI_UPDATE_PARENT
-$Installer = $env:AVI_UPDATE_INSTALLER
-$LogPath = $env:AVI_UPDATE_LOG
-$ErrorActionPreference = 'Stop'
-try {
-  $parent = Get-Process -Id $ParentId -ErrorAction SilentlyContinue
-  if ($parent -and !$parent.WaitForExit(120000)) { throw 'Avi did not finish shutting down.' }
-  $process = Start-Process -FilePath $Installer -ArgumentList '/S','--force-run','--updated' -PassThru -Wait
-  if ($process.ExitCode -ne 0) { throw "Installer exited with code $($process.ExitCode)." }
-  Remove-Item -LiteralPath $Installer
-} catch {
-  $_ | Out-File -LiteralPath $LogPath -Append
-  exit 1
-}
-`;
 const unixHelper = `#!/bin/sh
 set -eu
 old_pid="$1"
@@ -252,8 +237,8 @@ export class AppUpdater {
         let command;
         let args;
         if (this.platform === 'win32') {
-          command = join(this.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-          args = ['-NoProfile', '-NonInteractive', '-Command', windowsHelper];
+          command = installer;
+          args = ['/S', '--force-run', '--updated'];
         } else {
           const helper = join(directory, 'install.sh');
           await writeFile(helper, unixHelper, { flag: 'wx', mode: 0o700 });
@@ -262,8 +247,7 @@ export class AppUpdater {
         }
         await new Promise((resolveSpawn, rejectSpawn) => {
           const child = this.spawn(command, args, {
-            detached: true, stdio: 'ignore', windowsHide: true,
-            env: { ...this.env, AVI_UPDATE_PARENT: String(process.pid), AVI_UPDATE_INSTALLER: installer, AVI_UPDATE_LOG: join(directory, 'debug.log') },
+            detached: true, stdio: 'ignore', windowsHide: true, env: this.env,
           });
           child.once('error', rejectSpawn);
           child.once('spawn', () => { child.unref(); resolveSpawn(); });

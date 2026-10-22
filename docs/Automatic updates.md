@@ -13,12 +13,12 @@ Installed Avi builds check the latest stable [GitHub release](https://github.com
 
 ## Platform requirements
 
-- **Windows:** uses the NSIS `.exe` installer in silent mode with relaunch enabled. Windows may request elevation for an installation that requires it.
+- **Windows:** starts the NSIS `.exe` installer directly with `/S --force-run --updated`. The installer waits for Avi to close, installs silently, and reopens Avi itself. The downloaded installer remains in the temporary update directory.
 - **macOS:** uses the `.dmg` release asset to replace the installed `.app`, then opens it. Run Avi from a writable installation location, not directly from a mounted DMG. The update helper waits for Avi to exit before replacement.
 - **Linux:** updates the running `.AppImage` identified by `APPIMAGE`, then launches the replacement. The AppImage and its containing directory must be writable. Other Linux installation formats are not supported by this updater.
 - **Development builds and unsupported architectures:** in-app installation is unavailable; About explains why.
 
-The updater supports x64 and ARM64. On an emulated installation it follows the architecture of the running Avi process. A successful installation handoff is not proof that the external installer completed: operating-system security policy, permissions, or a subsequent installer failure can still prevent relaunch. If Avi does not reopen, launch it manually and check its version; download the installer from GitHub if recovery is necessary. Post-shutdown helper errors are recorded in `debug.log` inside the system temporary directory under `.avi/visualizations/<timestamp>/app-update-<id>/`.
+The updater supports x64 and ARM64. On an emulated installation it follows the architecture of the running Avi process. A successful installation handoff is not proof that the external installer completed: operating-system security policy, permissions, or a subsequent installer failure can still prevent relaunch. If Avi does not reopen, launch it manually and check its version; download the installer from GitHub if recovery is necessary. On macOS and Linux, post-shutdown helper errors are recorded in `debug.log` inside the system temporary directory under `.avi/visualizations/<timestamp>/app-update-<id>/`.
 
 ## Release publishing
 
