@@ -84,6 +84,16 @@ export class RouterProvider {
       throw new Error(`No models are currently available for router "${this.router.name}".`);
     }
 
+    if (this.router.mode === 'fusion') {
+      const [lead] = candidates;
+      return lead.provider.stream({
+        ...options,
+        model: lead.model,
+        invocationContext: { ...options.invocationContext, virtualModelId: this.router.id },
+        reasoningEffort: adaptReasoningEffort(this.router.models[0].reasoningEffort, lead.model.reasoning),
+      });
+    }
+
     let failoverError = null;
     let failoverEvent = null;
     for (const candidate of candidates) {
@@ -120,23 +130,25 @@ export class ModelRouterService {
   #unavailableUntil = new Map();
   #roundRobinCursors = new Map();
 
-  constructor({ getRouters, setRouters, resolveModel }) {
+  constructor({ getRouters, setRouters, resolveModel, isUsedByBot = () => false }) {
     this.getRouters = getRouters;
     this.setRouters = setRouters;
     this.resolveModel = resolveModel;
+    this.isUsedByBot = isUsedByBot;
   }
 
   list() {
     const now = Date.now();
     return this.getRouters().map((router) => ({
       ...router,
-      models: router.models.map(({ modelId }) => {
+      models: router.models.map((entry) => {
+        const { modelId } = entry;
         const unavailableUntil = this.#unavailableUntil.get(`${router.id}\u0000${modelId}`) ?? 0;
         const available = !modelId.startsWith('@')
           && Boolean(this.resolveModel(modelId))
           && unavailableUntil <= now;
         return {
-          modelId,
+          ...entry,
           available,
           ...(unavailableUntil > now && { unavailableUntil }),
         };
@@ -149,24 +161,33 @@ export class ModelRouterService {
     const rawId = String(router.id ?? '').trim().replace(/^@+/, '');
     const id = rawId || randomUUID();
     const name = String(router.name ?? '').trim();
-    const mode = router.mode === 'round-robin' ? 'round-robin' : router.mode === 'fallback'
-      ? 'fallback'
-      : null;
+    const mode = ['fallback', 'round-robin', 'fusion'].includes(router.mode) ? router.mode : null;
+    const fusion = mode === 'fusion';
 
     if (!name) throw new Error('Router name is required.');
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id)) {
       throw new Error('Router ID must be a slug or UUID.');
     }
     if (!mode) throw new Error('Choose a supported router mode.');
+    if (fusion && (!Array.isArray(router.models) || router.models.length !== 2)) {
+      throw new Error('Fusion routers require a lead model and a sidekick model.');
+    }
 
     const modelIds = new Set();
     const models = Array.isArray(router.models) ? router.models.map((candidate) => {
       const modelId = String(candidate?.modelId ?? '').trim();
       if (!modelId) throw new Error('Every router candidate requires a model ID.');
       if (modelId.startsWith('@')) throw new Error('Routers cannot use other routers as candidates.');
-      if (modelIds.has(modelId)) throw new Error(`Model "${modelId}" is duplicated in this router.`);
+      if (!fusion && modelIds.has(modelId)) throw new Error(`Model "${modelId}" is duplicated in this router.`);
       modelIds.add(modelId);
-      return { modelId };
+      if (!fusion) return { modelId };
+
+      const reasoningEffort = String(candidate?.reasoningEffort ?? '').trim() || null;
+      const resolved = this.resolveModel(modelId);
+      if (reasoningEffort && resolved && !resolved.model.reasoning?.includes(reasoningEffort)) {
+        throw new Error(`Reasoning effort "${reasoningEffort}" is not supported by ${resolved.model.name}.`);
+      }
+      return { modelId, reasoningEffort };
     }) : [];
     if (models.length === 0) throw new Error('Router requires at least one candidate model.');
 
@@ -175,6 +196,9 @@ export class ModelRouterService {
 
   save(value) {
     const router = this.normalize(value);
+    if (router.mode === 'fusion' && this.isUsedByBot(router.id)) {
+      throw new Error('Bots cannot use Fusion routers. Move the bots using this router to another model first.');
+    }
     const routers = this.getRouters();
     this.setRouters(routers.some((item) => item.id === router.id)
       ? routers.map((item) => item.id === router.id ? router : item)
@@ -202,6 +226,13 @@ export class ModelRouterService {
     return this.getRouters().flatMap((router) => new RouterProvider(this, router).listModels());
   }
 
+  resolveFusion(routerId) {
+    const router = this.getRouters().find((item) => item.id === routerId && item.mode === 'fusion');
+    if (!router) return null;
+    const [lead, sidekick] = router.models;
+    return { lead, sidekick };
+  }
+
   resolveCandidates(router, { includeUnavailable = false } = {}) {
     const now = Date.now();
     return router.models.flatMap(({ modelId }) => {
@@ -216,6 +247,11 @@ export class ModelRouterService {
   }
 
   orderCandidates(router) {
+    if (router.mode === 'fusion') {
+      return this.resolveCandidates({ ...router, models: router.models.slice(0, 1) }, {
+        includeUnavailable: true,
+      });
+    }
     const candidates = this.resolveCandidates(router);
     if (router.mode !== 'round-robin' || candidates.length < 2) return candidates;
 
@@ -230,7 +266,11 @@ export class ModelRouterService {
   }
 
   createCatalogModel(router) {
-    const candidates = this.resolveCandidates(router, { includeUnavailable: true });
+    const fusion = router.mode === 'fusion';
+    const candidates = this.resolveCandidates(
+      fusion ? { ...router, models: router.models.slice(0, 1) } : router,
+      { includeUnavailable: true },
+    );
     if (candidates.length === 0) return null;
     const models = candidates.map(({ model }) => model);
     const capabilityNames = ['images', 'audio', 'pdfFiles', 'video'];
@@ -254,9 +294,10 @@ export class ModelRouterService {
         input: contextLimit('input'),
         output: contextLimit('output'),
       },
-      reasoning: REASONING_ORDER.filter((effort) => (
+      reasoning: fusion ? [] : REASONING_ORDER.filter((effort) => (
         models.every((model) => model.reasoning?.includes(effort))
       )),
+      ...(fusion && { routerMode: 'fusion' }),
     };
   }
 }

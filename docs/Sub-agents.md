@@ -8,13 +8,15 @@ The orchestrator uses `chat_spawn_subagent` with a self-contained task. The tool
 
 Rules:
 
-- only a normal orchestrator thread can spawn sub-agents;
+- only a normal orchestrator thread can spawn sub-agents, and in a Fusion conversation only the lead can, through `dispatch_sidekick`;
 - side chats and sub-agents cannot spawn nested sub-agents;
 - the prompt should include the objective, scope, acceptance criteria, relevant context, available tools, and expected evidence;
 - automatic names include Euclid, Archimedes, Pythagoras, and others;
 - the child does not copy the parent’s full history or checkpoint.
 
 When a sub-agent completes or fails, Avi automatically steers a `<subagent_report>` back to the parent.
+
+In a conversation that uses a [Fusion](Fusion.md) router, the lead uses `dispatch_sidekick` instead of `chat_spawn_subagent` and `chat_create_thread`, and every sub-agent runs the router's sidekick model. Sidekicks cannot call `ask_question`; they send questions, blockers, and permission needs to the lead.
 
 ## Coordination tools
 
@@ -65,6 +67,14 @@ Messages sent by `chat_send_prompt` are persisted and delivered inside a `<cross
 Automatic final/error reports also persist `fromAgent: true` and identify themselves as sub-agent reports, not user instructions. When reconstructing model input (including retries), Avi wraps every persisted `fromAgent` user-role message in an `<agent_message>` notice. The transport role remains `user` for provider compatibility; it does not represent human authorship. Attachments and the original source envelope are preserved. Existing rows are not migrated: previously flagged messages gain the model-only notice, but old unflagged final reports are not retroactively reclassified.
 
 Calls without a source thread, such as global MCP calls, use `from_thread_id="external"` and `from_role="external_agent"`, with no name. The caller cannot supply origin fields through the tool arguments.
+
+### Mentions
+
+When any thread or bot completes a response containing a `::mention{bot-id="<bot id>"}` or `::mention{thread-id="<thread id>"}` directive (inline `:mention{...}` also works; quotes are optional), Avi delivers that response to each mentioned target: the bot's main thread or the referenced thread. Directives inside code are ignored. It arrives in a `<cross-message from_thread_id="..." from_role="..." from_name="..." source_message_id="..." mention="true">` envelope starting with `The bot "<name>" mentioned you in this message:` or `The thread "<title>" (thread:<id>) mentioned you in this message:`. Each target receives a message once. Self-mentions, side chats, unknown targets, mentions back to the thread whose mention triggered the response, and mentions of the parent orchestrator that already receives the final report are ignored. In Plan mode, mentions are limited to the current orchestration team.
+
+Mentions also work in bot Inbox messages: a pendency created or messaged by a bot (`bot_pendency_create`, `bot_pendency_message`) or a bot reply in another bot's pendency (`bots_send_work_log_message`) delivers that message to each mentioned target, with the bot as author and the Inbox, pendency title, and pendency ID in the opening line. The Inbox owner is not notified twice: it already receives the reply as `<bot-pendency-update>`. User replies in the Inbox do not trigger mentions. Mentions sent by a bot run with the target bot's permission mode, or Full access for ordinary threads; other sources use the sender run's permission mode.
+
+In the chat and Inbox, mention directives render like file reference links, with a bot or thread icon and the bot name or thread title, and open the target when clicked. Unknown titles fall back to a shortened ID; and received mentions appear as a highlighted **Mentioned you** card with a link to the source thread.
 
 ## Plan and Ultra teams
 

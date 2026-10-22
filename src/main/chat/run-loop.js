@@ -5,7 +5,10 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { effectiveMediaSizeLimit } from '../../shared/attachments.js';
-import { executionPlansFromTextualBlocks } from '../../shared/textual-blocks.js';
+import {
+  answerTextFromTextualBlocks,
+  executionPlansFromTextualBlocks,
+} from '../../shared/textual-blocks.js';
 import {
   checkpointMessage,
   getConversation,
@@ -279,6 +282,7 @@ export const runLoopMethods = {
       const currentGoal = goalId ? getGoal(goalId) : getGoalForConversation(conversationId);
       const goalContinues = currentGoal && CONTINUING_GOAL_STATUSES.has(currentGoal.status);
       const rubberDuckMode = currentConversation?.conversationType === 'rubber_duck';
+      const fusion = this.resolveFusion(currentConversation);
       const pluginTools = workMode === 'plan' || rubberDuckMode ? [] : this.getPluginTools(conversationId);
       const providerContributionContext = {
         model: selection.model,
@@ -352,8 +356,11 @@ export const runLoopMethods = {
           ].includes(tool.name))
           .filter((tool) => (
             tool.name !== 'chat_spawn_subagent'
-            || (!currentConversation?.isSubagent && !currentConversation?.isSideChat)
+            || (!currentConversation?.isSubagent && !currentConversation?.isSideChat && !fusion)
           ))
+          .filter((tool) => tool.name !== 'chat_create_thread' || !fusion)
+          .filter((tool) => tool.name !== 'dispatch_sidekick' || fusion?.role === 'lead')
+          .filter((tool) => tool.name !== 'ask_question' || fusion?.role !== 'sidekick')
           .map((tool) => {
             if (tool.name === 'read_media_file') {
               const supportedMedia = [
@@ -489,6 +496,25 @@ export const runLoopMethods = {
       let liveContextTokens = currentConversation?.contextTokens ?? 0;
       let finalAssistantContent = '';
       let firstResponseAt = null;
+      let requestAttempt = null;
+      // Throughput spans the whole stream: providers may generate hidden reasoning before the first visible token.
+      const recordRequest = (error) => {
+        accumulator.usage = {
+          ...(accumulator.usage ?? {}),
+          requests: [...(accumulator.usage?.requests ?? []), {
+            connectMs: requestAttempt?.connectMs ?? null,
+            firstTokenMs: requestAttempt?.firstTokenAt == null
+              ? null
+              : requestAttempt.firstTokenAt - requestAttempt.startedAt,
+            streamMs: requestAttempt
+              ? Date.now() - requestAttempt.startedAt - requestAttempt.connectMs
+              : null,
+            outputTokens: requestAttempt?.outputTokens ?? 0,
+            error,
+          }],
+        };
+        requestAttempt = null;
+      };
       let retriedAfterContextCompaction = false;
       let contextCompactionRequested = false;
       let roundTools = [];
@@ -497,7 +523,9 @@ export const runLoopMethods = {
         accumulator.segments = accumulator.segments.map((segment) => (
           segment.type === 'context-compression' ? segment : { ...segment, compacted: true }
         ));
-        accumulator.usage = null;
+        accumulator.usage = accumulator.usage?.requests
+          ? { requests: accumulator.usage.requests }
+          : null;
         accumulator.error = null;
         liveContextTokens = compressedConversation.contextTokens;
         contextCompactionRequested = false;
@@ -605,6 +633,7 @@ export const runLoopMethods = {
               permissionMode,
               workMode,
               ultraMode,
+              fusionRole: fusion?.role ?? null,
               orchestrationRole: currentConversation?.isSubagent
                 ? 'subagent'
                 : currentConversation?.isSideChat
@@ -633,9 +662,25 @@ export const runLoopMethods = {
                   data: { round: roundIndex, event },
                 });
               }
+              if (event.type === 'request-connected') {
+                if (requestAttempt) recordRequest(true);
+                requestAttempt = {
+                  startedAt: Date.now() - event.connectMs,
+                  connectMs: event.connectMs,
+                  firstTokenAt: null,
+                  outputTokens: 0,
+                };
+              }
+              if (event.type === 'retry' || event.type === 'error') recordRequest(true);
               if (['content', 'reasoning', 'tool-call'].includes(event.type)) {
                 run.phase = 'inference';
                 if (firstResponseAt === null) firstResponseAt = Date.now();
+                if (requestAttempt && requestAttempt.firstTokenAt === null) {
+                  requestAttempt.firstTokenAt = Date.now();
+                }
+              }
+              if (event.type === 'usage' && requestAttempt) {
+                requestAttempt.outputTokens += event.usage.outputTokens ?? 0;
               }
               if (event.type === 'usage') {
                 liveContextTokens = (
@@ -705,6 +750,7 @@ export const runLoopMethods = {
             }),
           }));
           if (!pendingRound) {
+            if (requestAttempt) recordRequest(false);
             this.sendPluginEvent('inference.turn.completed', {
               threadId: conversationId,
               runId: assistantMessage.id,
@@ -714,6 +760,7 @@ export const runLoopMethods = {
             retriedAfterContextCompaction = false;
           }
         } catch (error) {
+          if (requestAttempt) recordRequest(!controller.signal.aborted);
           this.sendPluginEvent('inference.turn.failed', {
             threadId: conversationId,
             runId: assistantMessage.id,
@@ -822,6 +869,7 @@ export const runLoopMethods = {
               callId: result.callId,
               output: result.output,
               isError: true,
+              errorKind: 'invocation',
             });
           }
           persistToolState({ force: true });
@@ -893,6 +941,8 @@ export const runLoopMethods = {
           let mediaContent;
           let isError = false;
           let toolError = null;
+          let errorKind = null;
+          let validatingInvocation = true;
           let toolStartedAt = null;
           try {
             if (!args || typeof args !== 'object' || Array.isArray(args)) {
@@ -911,6 +961,7 @@ export const runLoopMethods = {
             ) {
               throw new Error(`Tool ${toolCall.name} is not available in Plan mode.`);
             }
+            validatingInvocation = false;
 
             const intercepted = await this.beforeToolExecute({
               tool: {
@@ -984,7 +1035,10 @@ export const runLoopMethods = {
               }
             }
 
-            if (tool.name === 'chat_spawn_subagent' && !this.canCreateDisposableConversation()) {
+            if (
+              ['chat_spawn_subagent', 'dispatch_sidekick'].includes(tool.name)
+              && !this.canCreateDisposableConversation()
+            ) {
               throw new Error('Sub-agents cannot be created during forced cleanup.');
             }
             run.phase = 'tool';
@@ -1040,6 +1094,7 @@ export const runLoopMethods = {
                       permissionMode,
                       workMode,
                       ultraMode,
+                      fusion,
                       goal: goalContext,
                       tuning,
                       aivax,
@@ -1125,6 +1180,14 @@ export const runLoopMethods = {
             isError = true;
             toolError = error instanceof Error ? error.message : String(error);
             const errorMessage = error instanceof Error ? error.message : String(error);
+            // MCP servers report schema violations as JSON-RPC InvalidParams (-32602), often only inside the error text.
+            const invalidInvocation = validatingInvocation
+              || error?.code === 'VALIDATION_FAILED'
+              || error?.code === -32602
+              || /\bMCP error -32602\b|Input validation error/.test(errorMessage);
+            errorKind = controller.signal.aborted
+              ? 'interrupted'
+              : invalidInvocation ? 'invocation' : 'execution';
             output = toolCall.name === 'ask_question'
               ? `Error: ${errorMessage}\nNo user answer was collected. Correct the arguments and call ask_question again. Do not infer an answer.`
               : `Error: ${errorMessage}`;
@@ -1184,6 +1247,7 @@ export const runLoopMethods = {
             callId: toolCall.callId,
             output,
             isError,
+            errorKind,
             mediaContent,
           });
           persistToolState({ force: true });
@@ -1327,6 +1391,12 @@ export const runLoopMethods = {
       }
       if (!run.suspendAfterTools) {
         await this.forwardSubagentResult(completedMessage, run.permissionMode);
+        await this.forwardMentions({
+          conversationId,
+          messageId: completedMessage.id,
+          content: answerTextFromTextualBlocks(completedMessage.content),
+          permissionMode: run.permissionMode,
+        });
       }
       this.sendPluginEvent('inference.request.completed', {
         threadId: conversationId,

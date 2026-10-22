@@ -604,6 +604,21 @@ try {
   assert.ok(!quickChatVerbosityContext.includes('Do not implement changes or take material actions'));
   assert.ok(quickChatVerbosityContext.includes(highVerbosity.trim()));
   assert.ok(!quickChatVerbosityContext.includes(mediumVerbosity.trim()));
+  assert.ok(!quickChatVerbosityContext.includes('on your own initiative'));
+  assert.ok(!quickChatVerbosityContext.includes('<quick_chat_user_instructions>'));
+
+  const quickChatCustomContext = await resolveDynamicContext({
+    quickChat: true,
+    tuning: { quickChatInstructions: '  Delegate project requests to their folder thread.  ' },
+  });
+  assert.ok(quickChatCustomContext.includes('<quick_chat_user_instructions>'));
+  assert.ok(quickChatCustomContext.includes('\nDelegate project requests to their folder thread.\n</quick_chat_user_instructions>'));
+  assert.ok(quickChatCustomContext.indexOf('Quick Chat is not read-only') < quickChatCustomContext.indexOf('<quick_chat_user_instructions>'));
+  assert.ok(!(await resolveDynamicContext({
+    quickChat: true,
+    quickQuestion: true,
+    tuning: { quickChatInstructions: 'Delegate project requests.' },
+  })).includes('Delegate project requests.'));
 
   const quickQuestionContext = await resolveDynamicContext({
     quickChat: true,
@@ -776,6 +791,95 @@ try {
     ultraMode: true,
     orchestrationRole: 'subagent',
   })).includes('role="orchestrator"'));
+
+  const mainDelegationMarker = 'retain the main implementation yourself';
+  assert.ok(!baseInstructions.includes(mainDelegationMarker), 'Delegation guidance must be injected by role');
+  assert.ok(!ultraContext.includes(mainDelegationMarker), 'Ultra must not receive the main delegation guidance');
+  for (const orchestrationRole of ['subagent', 'side_chat']) {
+    assert.ok(!(await resolveDynamicContext({ workspacePath: root, orchestrationRole }))
+      .includes(mainDelegationMarker));
+  }
+  assert.ok(!(await resolveDynamicContext({ quickChat: true })).includes(mainDelegationMarker));
+
+  const leadContext = await resolveDynamicContext({
+    workspacePath: root,
+    orchestrationRole: 'orchestrator',
+    fusionRole: 'lead',
+  });
+  for (const requirement of [
+    '<fusion_mode role="lead">',
+    'dispatch_sidekick',
+    'Do not delegate exploration that decides the plan',
+    'disjoint file scopes',
+    'milestones that each end in a state you can verify yourself',
+    'Authorize only the current milestone',
+    'Size milestones by risk',
+    'Do not micromanage individual edits',
+    'Make pointwise adjustments yourself',
+    'send the next milestone to the same sidekick thread with chat_send_prompt',
+    'Do not redo the sidekick\'s work',
+    'only after repeated failure',
+    'Do not ask them for diffs',
+    'Be skeptical of sidekick work',
+    'Permissions come from you',
+    'chat_approve_tool_call',
+  ]) {
+    assert.ok(leadContext.includes(requirement), `Fusion lead context is missing: ${requirement}`);
+  }
+  assert.ok(!leadContext.includes(mainDelegationMarker));
+  assert.ok(!leadContext.includes('<work_mode mode="ultra"'));
+
+  const ultraLeadContext = await resolveDynamicContext({
+    workspacePath: root,
+    orchestrationRole: 'orchestrator',
+    fusionRole: 'lead',
+    ultraMode: true,
+  });
+  const ultraLeadBlock = ultraLeadContext.match(
+    /<work_mode mode="ultra" role="lead">[\s\S]*?<\/work_mode>/,
+  )?.[0] ?? '';
+  for (const requirement of [
+    'You are the Fusion lead in Ultra mode',
+    'skepticism toward sidekick work to its maximum',
+    'Review every delegated change adversarially',
+    'smaller milestones than usual',
+    'Still do not execute the milestones yourself',
+    'Do not invent requirements',
+    'Ultra mode is incompatible with Plan mode',
+  ]) {
+    assert.ok(ultraLeadBlock.includes(requirement), `Ultra Fusion context is missing: ${requirement}`);
+  }
+  for (const teamMarker of ['chat_spawn_subagent', 'Commission independent critics', 'Personally implement']) {
+    assert.ok(!ultraLeadBlock.includes(teamMarker), `Ultra Fusion context leaked team orchestration: ${teamMarker}`);
+  }
+  assert.ok(ultraLeadContext.includes('<fusion_mode role="lead">'));
+
+  const sidekickContext = await resolveDynamicContext({
+    workspacePath: root,
+    orchestrationRole: 'subagent',
+    fusionRole: 'sidekick',
+    ultraMode: true,
+  });
+  for (const requirement of [
+    '<fusion_mode role="sidekick">',
+    'Execute only the milestone the lead authorized',
+    'Do not expand scope',
+    'cannot ask the user questions',
+    'Do not include diffs',
+  ]) {
+    assert.ok(sidekickContext.includes(requirement), `Fusion sidekick context is missing: ${requirement}`);
+  }
+  assert.ok(!sidekickContext.includes('<fusion_mode role="lead">'));
+  assert.ok(!sidekickContext.includes('<work_mode mode="ultra"'));
+
+  const planLeadContext = await resolveDynamicContext({
+    workspacePath: root,
+    orchestrationRole: 'orchestrator',
+    fusionRole: 'lead',
+    workMode: 'plan',
+  });
+  assert.ok(planLeadContext.includes('as the Fusion lead, use dispatch_sidekick'));
+  assert.ok(!planLeadContext.includes('use chat_spawn_subagent for focused exploration'));
 
   for (const status of ['active', 'paused']) {
     const goalContext = await resolveDynamicContext({

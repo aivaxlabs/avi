@@ -49,6 +49,7 @@ try {
     terminalTimeoutSeconds: 30,
     maxConcurrentSubagents: 128,
     rubberDuckMaxTurns: 20,
+    quickChatInstructions: '',
     logLevel: 'minimal',
     maxParallelThreads: Math.min(1024, availableParallelism() * 4),
     eventLoopWatchdogMs: 1_000,
@@ -67,6 +68,7 @@ try {
     terminalTimeoutSeconds: 45,
     maxConcurrentSubagents: 4,
     rubberDuckMaxTurns: 20,
+    quickChatInstructions: 'Delegate project requests.',
     logLevel: 'verbose',
     maxParallelThreads: 8,
     eventLoopWatchdogMs: 3_000,
@@ -84,6 +86,7 @@ try {
     terminalTimeoutSeconds: 45,
     maxConcurrentSubagents: 4,
     rubberDuckMaxTurns: 20,
+    quickChatInstructions: 'Delegate project requests.',
     logLevel: 'verbose',
     maxParallelThreads: 8,
     eventLoopWatchdogMs: 3_000,
@@ -1359,6 +1362,70 @@ try {
   await forwardingRunner.forwardSubagentResult(planResult);
   assert.equal(forwardingCalls.at(-1).conversationId, planParent.id);
   assert.equal(forwardingCalls.at(-1).workMode, 'plan');
+
+  const dispatchTool = CLIENT_TOOLS.find((tool) => tool.name === 'dispatch_sidekick');
+  const fusionPair = {
+    lead: { modelId: 'lead/model', reasoningEffort: 'max' },
+    sidekick: { modelId: 'sidekick/model', reasoningEffort: 'high' },
+  };
+  const fusionLead = createConversation({ title: 'Fusion lead', model: '@fusion' });
+  const fusionResolver = {
+    registry: { routerService: { resolveFusion: (id) => (id === '@fusion' ? fusionPair : null) } },
+  };
+  const { contextMethods } = await import('../src/main/chat/context.js');
+  assert.deepEqual(contextMethods.resolveFusion.call(fusionResolver, getConversation(fusionLead.id)), {
+    role: 'lead',
+    ...fusionPair,
+  });
+  await assert.rejects(
+    dispatchTool.execute({ brief: 'Edit files.' }, {
+      chatRunner: { runs: new Map() },
+      conversationId: parent.id,
+      models: [],
+      fusion: null,
+    }),
+    /Only a Fusion lead thread/,
+  );
+  const dispatchCalls = [];
+  const dispatched = await dispatchTool.execute(
+    { brief: 'Rename the helper and run the focused test.' },
+    {
+      chatRunner: {
+        runs: new Map(),
+        emit: () => {},
+        send: async (payload) => {
+          dispatchCalls.push(payload);
+          return { queued: false, message: { id: 'dispatch-prompt' } };
+        },
+      },
+      conversationId: fusionLead.id,
+      models: [{
+        id: 'sidekick/model',
+        modelId: 'model',
+        providerId: 'sidekick',
+        name: 'Sidekick model',
+        reasoning: ['high'],
+      }],
+      permissionMode: 'approve_for_me',
+      workMode: null,
+      fusion: { role: 'lead', ...fusionPair },
+    },
+  );
+  assert.match(dispatched, /^Sidekick dispatched\./);
+  const sidekickId = dispatchCalls[0].conversationId;
+  assert.equal(getConversation(sidekickId).isSubagent, true);
+  assert.equal(getConversation(sidekickId).model, 'sidekick/model');
+  assert.equal(getConversation(sidekickId).orchestrationMode, null);
+  assert.equal(dispatchCalls[0].reasoningEffort, 'high');
+  assert.equal(dispatchCalls[0].ultraMode, false);
+  assert.deepEqual(contextMethods.resolveFusion.call(fusionResolver, getConversation(sidekickId)), {
+    role: 'sidekick',
+    ...fusionPair,
+  });
+  const fusionBot = createConversation({ title: 'Fusion bot', model: '@fusion', conversationType: 'bot' });
+  assert.equal(contextMethods.resolveFusion.call(fusionResolver, getConversation(fusionBot.id)), null);
+  deleteConversation(fusionBot.id);
+  deleteConversation(fusionLead.id);
 
   deleteConversation(planParent.id);
   deleteConversation(parent.id);

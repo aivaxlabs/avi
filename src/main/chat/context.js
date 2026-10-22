@@ -44,6 +44,18 @@ import {
 } from './history.js';
 
 export const contextMethods = {
+  resolveFusion(conversation) {
+    if (!conversation || conversation.isBot || conversation.isSideChat || conversation.isRubberDuck) {
+      return null;
+    }
+    const lead = conversation.isSubagent
+      ? getConversation(conversation.parentConversationId)
+      : conversation;
+    if (!lead || lead.isBot) return null;
+    const pair = this.registry.routerService?.resolveFusion(lead.model);
+    return pair ? { role: conversation.isSubagent ? 'sidekick' : 'lead', ...pair } : null;
+  },
+
   async contextUsage({ conversationId, model, contextLimit = null }) {
     const conversation = getConversation(conversationId);
     if (!conversation) throw new Error('Conversation not found.');
@@ -59,6 +71,7 @@ export const contextMethods = {
     const workMode = latestUser?.workMode ?? null;
     const permissionMode = latestUser?.permissionMode ?? preferences.defaultPermissionMode ?? 'approve_for_me';
     const botRuntime = conversation.isBot ? this.getBotRuntimeContext(conversation.id) : null;
+    const fusion = this.resolveFusion(conversation);
     const mcpRuntime = workMode === 'plan' || !this.mcpManager
       ? { tools: [], instructions: [] }
       : botRuntime
@@ -123,8 +136,11 @@ export const contextMethods = {
       ].includes(tool.name))
       .filter((tool) => (
         tool.name !== 'chat_spawn_subagent'
-        || (!conversation.isSubagent && !conversation.isSideChat)
-      ));
+        || (!conversation.isSubagent && !conversation.isSideChat && !fusion)
+      ))
+      .filter((tool) => tool.name !== 'chat_create_thread' || !fusion)
+      .filter((tool) => tool.name !== 'dispatch_sidekick' || fusion?.role === 'lead')
+      .filter((tool) => tool.name !== 'ask_question' || fusion?.role !== 'sidekick');
     const extensionTools = [
       ...(rubberDuckMode ? [] : botRuntime?.tools ?? []),
       ...providerTools.map((tool) => ({ ...tool, providerTool: true })),
@@ -172,6 +188,7 @@ export const contextMethods = {
       permissionMode,
       workMode,
       ultraMode: latestUser?.ultraMode ?? false,
+      fusionRole: fusion?.role ?? null,
       goal: goal && CONTINUING_GOAL_STATUSES.has(goal.status) ? goal : null,
       tasks: listTasks(conversation.id),
       semaphoreHoldings: this.semaphores.holdings(conversation.id),

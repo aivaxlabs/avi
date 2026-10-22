@@ -53,6 +53,8 @@ When a **Compactation model** is configured, manual and automatic context compac
 
 When **Use model levels** is enabled, Small, Medium, and Large become required. Orchestration tools receive a `model_level` value instead of explicit `model_name` and `reasoning_effort` fields.
 
+Model levels do not apply to [Fusion](Fusion.md) conversations: the lead dispatches only the router's sidekick model.
+
 If a configured level model is missing, disabled, or no longer supports its saved reasoning effort, Avi tries the orchestrator or last-used model. If that fallback is also unavailable, thread creation fails.
 
 When model levels are disabled:

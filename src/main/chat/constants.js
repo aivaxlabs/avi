@@ -32,6 +32,7 @@ export const PLAN_TOOL_NAMES = new Set([
   'list_semaphores',
   'chat_send_prompt',
   'chat_spawn_subagent',
+  'dispatch_sidekick',
   'read_file',
   'read_terminal_output',
   'run_in_terminal',

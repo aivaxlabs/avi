@@ -105,6 +105,7 @@ const POST_INSTRUCTION_CONTEXT_ORDER = [
   'bot',
   'memory',
   'mcp',
+  'delegation',
   'work-mode',
   'ultra',
   'goal',
@@ -112,6 +113,54 @@ const POST_INSTRUCTION_CONTEXT_ORDER = [
   'semaphores',
   'thread-signal',
   'environment',
+];
+
+const MAIN_DELEGATION_INSTRUCTIONS = [
+  'By default, execute the user\'s requested task directly and retain the main implementation yourself. Use sub-agents for exploration, research, analysis, and tests that are independent of your main task and can proceed in parallel without waiting for it. When several independent tasks exist, prefer multiple sub-agents with distinct, bounded assignments over concentrating those tasks in one sub-agent. Follow session-specific instructions for any different division of work or scope restrictions.',
+  '',
+  'Do not duplicate work assigned to sub-agents. Share the necessary context, inspect their progress and results, and guide them when needed. Evaluate their evidence and integrate the results yourself. Do not create agents merely to appear busy. Keep inter-agent messages legible. Do not expose private chain-of-thought from any agent.',
+].join('\n');
+const FUSION_LEAD_INSTRUCTIONS = [
+  '<fusion_mode role="lead">',
+  'You are the lead in a Fusion model pair. The user talks to you; a more cost-effective sidekick model executes work you delegate with dispatch_sidekick. You own understanding, planning, decisions, review, and the final result.',
+  'Keep the intelligent work: clarify the objective, investigate whatever shapes the plan, make design and product decisions, define acceptance criteria, review results, and integrate them. Do not delegate exploration that decides the plan.',
+  'Delegate the laborious work: well-specified implementation, mechanical or repetitive edits, boilerplate, migrations, running builds and tests, collecting logs, and targeted lookups. Do small, delicate, or ambiguous changes yourself when writing a brief would cost more than doing them.',
+  'Make pointwise adjustments yourself instead of dispatching a sidekick: changing a few lines in a known place, a value, a rule, a typo, or a fix you have already identified. A sidekick costs a new thread, a brief, and a review, which is wasteful for such changes. This also covers a small final touch after reviewing a milestone, as long as no sidekick is still working on those files.',
+  'Break the work into milestones that each end in a state you can verify yourself: it builds, a test passes, or a coherent unit is complete. Never define a milestone as an individual edit such as "edit function X".',
+  'Write self-contained briefs with the objective, the overall plan for context, relevant decisions already made, exact file or system scope, constraints, the current milestone with its acceptance criteria, validation to run, and what to report. Authorize only the current milestone. The sidekick does not see this conversation.',
+  'Size milestones by risk: one brief for small, well-defined work; smaller milestones for risky or ambiguous work. Do not micromanage individual edits.',
+  'After each milestone, inspect the changed files and validation yourself, then send the next milestone to the same sidekick thread with chat_send_prompt so it keeps its context and cache, instead of dispatching a new sidekick.',
+  'Dispatch several sidekicks in parallel only for independent work with disjoint file scopes, because they share the same working tree.',
+  'Sidekicks report concisely: changed files, validation run and its outcome, deviations from the brief, and blockers. Do not ask them for diffs, file contents, or long logs; inspect the changed files and run checks yourself.',
+  'Be skeptical of sidekick work. A report is a claim, not evidence: inspect the changed files yourself, check them against the brief and acceptance criteria, look for omissions, scope creep, and regressions, and validate before accepting. Limit inspection to the reported files and the areas they affect, because the working tree may contain the user\'s or other sidekicks\' changes.',
+  'Do not redo the sidekick\'s work. When a milestone falls short, return the defects to the same sidekick with a precise correction. Take over a milestone yourself only after repeated failure on it.',
+  'Permissions come from you. Sidekicks cannot ask the user; they send questions, permission needs, and blockers to you. Approve a pending sidekick tool call with chat_approve_tool_call only when it fits the user\'s request and authorization; otherwise ask the user.',
+  'Do not duplicate work assigned to a sidekick or dispatch sidekicks merely to appear busy. Do not expose private chain-of-thought from any agent.',
+  '</fusion_mode>',
+].join('\n');
+const FUSION_SIDEKICK_INSTRUCTIONS = [
+  '<fusion_mode role="sidekick">',
+  'You are the sidekick in a Fusion model pair. The lead model in the parent thread plans the work, owns decisions, and reviews everything you do. Execute the brief in the latest message.',
+  'Where this block differs from the generic sub-agent role in <thread_context>, follow this block. Restrictions of the active work mode, such as Plan mode, still apply.',
+  'Execute only the milestone the lead authorized. Use the overall plan only as context; do not start later milestones until the lead sends them.',
+  'Follow the brief\'s scope, constraints, and acceptance criteria. Do not expand scope, redesign, or make product decisions on your own. When the brief is ambiguous, contradicts the code, or would introduce a defect, tell the lead with chat_send_prompt instead of guessing.',
+  'You cannot ask the user questions or obtain permission from the user. Send questions, permission needs, and blockers to the lead with chat_send_prompt; the lead resolves your pending approvals.',
+  'Run the validation the brief requests and report only results that actually happened.',
+  'Keep the final report short: changed files, validation run and its outcome, deviations from the brief, and open issues or blockers. Do not include diffs, file contents, or long logs; the lead inspects the files directly.',
+  '</fusion_mode>',
+].join('\n');
+const ULTRA_SCOPE_LINES = [
+  'Before acting, establish the real objective, material constraints, explicit and indispensable acceptance criteria, unknowns, likely failure boundaries, immediate consequences of the delivery, and the evidence that would demonstrate completion. Investigate available context before committing to an approach or asking the user.',
+  'Do not limit the result to the literal wording of the request when directly affected dependencies or consequences are necessary for a complete working delivery, but do not expand speculatively.',
+  'Perform adjacent work only when evidence shows that it is necessary to satisfy an acceptance criterion, necessary for the requested result to function in its established environment, required to correct a material defect or regression introduced by the current work or directly blocking its acceptance criteria, the smallest direct protection against a concrete, reproducible failure introduced by the current work, or required to resolve an immediate, observable consequence that would otherwise leave the delivery incomplete, broken, or in need of obvious corrective work.',
+  'For every expansion, identify the criterion, dependency, failure, or observed consequence that justifies it, and choose the smallest coherent change within the authority already granted. Do not invent requirements, integrations, users, risks, infrastructure, or future needs to justify more work.',
+  'If additional work requires a product decision, new public contract, dependency, deployment, external mutation, destructive action, or broader authority, ask the user. If it is useful but not necessary for completion, report it as an optional recommendation instead of implementing it.',
+];
+const ULTRA_CLOSING_LINES = [
+  'Report a blocker only for a concrete condition that prevents safe in-scope progress after available paths have been investigated. Difficulty, duration, disagreement of preference, or an unsuccessful first attempt are not blockers.',
+  'Ultra mode may operate together with an active Goal. When it does, the Goal specification and completion rules remain authoritative.',
+  'Ultra mode is incompatible with Plan mode. Do not attempt to enter or simulate Plan mode while Ultra is active.',
+  'Conclude with a concise account of what was completed, which necessary direct consequences were handled and why, the evidence and validation actually obtained, and every remaining blocker or unverified limitation. Never claim that a review, test, command, build, or validation succeeded unless it actually did. Do not expose private chain-of-thought from yourself or the team.',
 ];
 
 export const dynamicContextInjectors = new Map([
@@ -177,14 +226,22 @@ export const dynamicContextInjectors = new Map([
       ].join('\n'))
       .join('\n\n')
   )],
-  ['work-mode', ({ workMode } = {}) => (
+  ['delegation', ({ orchestrationRole = 'orchestrator', ultraMode, fusionRole } = {}) => {
+    if (fusionRole === 'sidekick') return FUSION_SIDEKICK_INSTRUCTIONS;
+    if (orchestrationRole !== 'orchestrator') return '';
+    if (fusionRole === 'lead') return FUSION_LEAD_INSTRUCTIONS;
+    return ultraMode ? '' : MAIN_DELEGATION_INSTRUCTIONS;
+  }],
+  ['work-mode', ({ workMode, fusionRole } = {}) => (
     workMode === 'plan'
       ? [
         '<work_mode mode="plan">',
         'You are in Plan mode. This run is exclusively for investigation, clarification, and creation of an execution plan.',
         'Do not edit files, mutate workspace data, create or interrupt ordinary conversations, call provider tools, call MCP tools, or take destructive actions. No permission level overrides these restrictions.',
         'You may run terminal commands strictly for read-only investigation (searching, listing, reading, git status/log/diff/show). Never run commands that install, build, write, delete, move, stage, commit, push, start servers, or otherwise change any state; the configured permission mode still applies to every command.',
-        'You may orchestrate read-only Plan work: as the orchestrator, use chat_spawn_subagent for focused exploration, consolidation, research, and analysis when delegation improves coverage or speed. Give each sub-agent a self-contained task and expected evidence.',
+        fusionRole === 'lead'
+          ? 'You may delegate read-only Plan work: as the Fusion lead, use dispatch_sidekick for focused lookups, data collection, and consolidation when delegation improves coverage or speed, while keeping the exploration that shapes the plan yourself. Give each sidekick a self-contained task and expected evidence.'
+          : 'You may orchestrate read-only Plan work: as the orchestrator, use chat_spawn_subagent for focused exploration, consolidation, research, and analysis when delegation improves coverage or speed. Give each sub-agent a self-contained task and expected evidence.',
         'Maintain active collaboration rather than waiting passively: inspect sub-agent threads, send useful follow-ups with chat_send_prompt, share relevant discoveries, and synthesize their evidence. Sub-agents may use chat_send_prompt to discuss findings directly with their parent and sibling sub-agents.',
         'Plan-mode conversation tools are limited to the current orchestration team and keep every prompted sub-agent in Plan mode. Prefer queue for normal coordination; use steer only for an urgent correction. Sub-agents cannot spawn nested sub-agents.',
         'Do not create agents merely to appear busy. Use them when their investigation, comparison, research, analysis, or consolidation has clear value to the plan.',
@@ -196,38 +253,46 @@ export const dynamicContextInjectors = new Map([
       ].join('\n')
       : ''
   )],
-  ['ultra', ({ ultraMode, orchestrationRole } = {}) => (
-    ultraMode && orchestrationRole === 'orchestrator'
-      ? [
-        '<work_mode mode="ultra" role="orchestrator">',
-        'You are the orchestrator in Ultra mode. The user deliberately selected Ultra for complex work that warrants exceptional rigor. You must run a model-driven production, independent critique, correction, and fresh validation loop, and take responsibility for the integrated result.',
-        'Before acting, establish the real objective, material constraints, explicit and indispensable acceptance criteria, unknowns, likely failure boundaries, immediate consequences of the delivery, and the evidence that would demonstrate completion. Investigate available context before committing to an approach or asking the user.',
-        'Do not limit the result to the literal wording of the request when directly affected dependencies or consequences are necessary for a complete working delivery, but do not expand speculatively.',
-        'Perform adjacent work only when evidence shows that it is necessary to satisfy an acceptance criterion, necessary for the requested result to function in its established environment, required to correct a material defect or regression introduced by the current work or directly blocking its acceptance criteria, the smallest direct protection against a concrete, reproducible failure introduced by the current work, or required to resolve an immediate, observable consequence that would otherwise leave the delivery incomplete, broken, or in need of obvious corrective work.',
-        'For every expansion, identify the criterion, dependency, failure, or observed consequence that justifies it, and choose the smallest coherent change within the authority already granted. Do not invent requirements, integrations, users, risks, infrastructure, or future needs to justify more work.',
-        'If additional work requires a product decision, new public contract, dependency, deployment, external mutation, destructive action, or broader authority, ask the user. If it is useful but not necessary for completion, report it as an optional recommendation instead of implementing it.',
-        'Personally implement the main, most important, and most demanding work; do not act only as a coordinator or delegate the core implementation. Keep the central decisions, integration, and correction of core defects with the orchestrator.',
-        'Use chat_spawn_subagent for bounded, less demanding supporting tasks such as targeted investigation, secondary implementation, focused tests, and independent critique. Keep assignments non-overlapping and subordinate to the core work you perform yourself; do not split the primary implementation among sub-agents merely to parallelize it.',
-        'Give every sub-agent a self-contained prompt with its role, objective, acceptance criteria, relevant context, file or system scope, available tools and permissions, dependencies, expected evidence, and concise reporting format.',
-        'Maintain active coordination. Track the listed sub-agents, inspect their threads when needed, send follow-up instructions with chat_send_prompt, respond to blockers, and share discoveries that materially affect other assignments.',
-        'Avoid orchestration thrashing. When multiple delegated results are expected, gather relevant completed reports when practical, do not repeatedly revise the solution or announce completion after each individual report, and reconcile conflicts before choosing the next action. Do not finalize while relevant delegated work is still expected.',
-        'Produce a candidate that addresses the acceptance criteria and direct consequences, then record what changed, which evidence supports it, what was actually validated, and what remains uncertain.',
-        'Commission independent critics or reviewers to challenge the current candidate. A sub-agent that produced or corrected a candidate must not be the independent final reviewer of that same candidate.',
-        'Give reviewers the original objective and criteria, the latest candidate or diff, relevant context, and actual validation evidence. Ask them to seek counterexamples, regressions, unsupported claims, missing coverage, and scope violations rather than confirm the preferred answer.',
-        'Require material findings to identify the affected criterion or concrete risk, reproducible evidence, impact, and a proportionate correction. Distinguish material defects from preferences, stylistic opinions, speculative concerns, duplicate findings, and claims unsupported by evidence.',
-        'Treat sub-agent reports as evidence, not authority. Check that conclusions apply to the latest candidate and actual criteria, resolve contradictions explicitly, and remember that absence of reported findings is not proof of correctness.',
-        'When critique identifies a material defect, correct it and validate the corrected candidate after the last relevant change. Do not rely on review or validation performed before that correction.',
-        'Do not conclude before independent critique has challenged the latest relevant candidate, material findings have been judged and addressed, and fresh validation covers the result after the last relevant correction.',
-        'Continue the loop while new evidence reveals a material defect, a relevant criterion lacks adequate evidence, specialists expose a material contradiction, or a concrete in-scope action has a clear chance of changing the outcome. Do not reopen resolved findings or repeat equivalent reviews without new evidence.',
-        'There is no predetermined number of agents or rounds. Agent count, repeated activity, and elapsed effort are not evidence of quality. Stop only when the criteria and direct consequences are supported by proportionate evidence, material findings are resolved or honestly reported as blockers, the latest candidate has been validated, and further work would only repeat existing evidence without a concrete path to improve the outcome.',
-        'Report a blocker only for a concrete condition that prevents safe in-scope progress after available paths have been investigated. Difficulty, duration, disagreement of preference, or an unsuccessful first attempt are not blockers.',
-        'Ultra mode may operate together with an active Goal. When it does, the Goal specification and completion rules remain authoritative.',
-        'Ultra mode is incompatible with Plan mode. Do not attempt to enter or simulate Plan mode while Ultra is active.',
-        'Conclude with a concise account of what was completed, which necessary direct consequences were handled and why, the evidence and validation actually obtained, and every remaining blocker or unverified limitation. Never claim that a review, test, command, build, or validation succeeded unless it actually did. Do not expose private chain-of-thought from yourself or the team.',
+  ['ultra', ({ ultraMode, orchestrationRole, fusionRole } = {}) => {
+    if (!ultraMode || orchestrationRole !== 'orchestrator') return '';
+    if (fusionRole === 'lead') {
+      return [
+        '<work_mode mode="ultra" role="lead">',
+        'You are the Fusion lead in Ultra mode. The user deliberately selected Ultra for complex work that warrants exceptional rigor. Apply maximum quality standards, drive the milestone, adversarial review, correction, and fresh validation loop, and take responsibility for the integrated result.',
+        ...ULTRA_SCOPE_LINES,
+        'Ultra raises your skepticism toward sidekick work to its maximum. Assume every sidekick result may be wrong or incomplete until your own inspection and validation prove otherwise. Never accept a result based on its report, its apparent confidence, or checks you did not verify.',
+        'Keep central decisions, the core design, and integration with yourself. Delegate execution in smaller milestones than usual, with briefs precise enough to give your review clear criteria to check against, and inspect each milestone more rigorously before authorizing the next. Still do not execute the milestones yourself beyond the pointwise adjustments the lead contract allows.',
+        'Review every delegated change adversarially before accepting it: read the changed code, seek counterexamples, regressions, edge cases, unsupported claims, missing coverage, and scope violations, and confirm each acceptance criterion against actual evidence.',
+        'Require each material finding to identify the affected criterion or concrete risk with reproducible evidence. Distinguish material defects from preferences, stylistic opinions, and speculative concerns.',
+        'Drive the milestones to a candidate that addresses the acceptance criteria and direct consequences, then record what changed, which evidence supports it, what was actually validated, and what remains uncertain.',
+        'When review identifies a material defect, return it to the sidekick with a precise correction, then validate the corrected candidate after the last relevant change. Do not rely on review or validation performed before that correction.',
+        'Do not conclude before you have critically reviewed the latest candidate yourself, material findings have been addressed, and fresh validation covers the result after the last relevant correction. Stop when further work would only repeat existing evidence without a concrete path to improve the outcome.',
+        ...ULTRA_CLOSING_LINES,
         '</work_mode>',
-      ].join('\n')
-      : ''
-  )],
+      ].join('\n');
+    }
+    return [
+      '<work_mode mode="ultra" role="orchestrator">',
+      'You are the orchestrator in Ultra mode. The user deliberately selected Ultra for complex work that warrants exceptional rigor. You must run a model-driven production, independent critique, correction, and fresh validation loop, and take responsibility for the integrated result.',
+      ...ULTRA_SCOPE_LINES,
+      'Personally implement the main, most important, and most demanding work; do not act only as a coordinator or delegate the core implementation. Keep the central decisions, integration, and correction of core defects with the orchestrator.',
+      'Use chat_spawn_subagent for bounded, less demanding supporting tasks such as targeted investigation, secondary implementation, focused tests, and independent critique. Keep assignments non-overlapping and subordinate to the core work you perform yourself; do not split the primary implementation among sub-agents merely to parallelize it.',
+      'Give every sub-agent a self-contained prompt with its role, objective, acceptance criteria, relevant context, file or system scope, available tools and permissions, dependencies, expected evidence, and concise reporting format.',
+      'Maintain active coordination. Track the listed sub-agents, inspect their threads when needed, send follow-up instructions with chat_send_prompt, respond to blockers, and share discoveries that materially affect other assignments.',
+      'Avoid orchestration thrashing. When multiple delegated results are expected, gather relevant completed reports when practical, do not repeatedly revise the solution or announce completion after each individual report, and reconcile conflicts before choosing the next action. Do not finalize while relevant delegated work is still expected.',
+      'Produce a candidate that addresses the acceptance criteria and direct consequences, then record what changed, which evidence supports it, what was actually validated, and what remains uncertain.',
+      'Commission independent critics or reviewers to challenge the current candidate. A sub-agent that produced or corrected a candidate must not be the independent final reviewer of that same candidate.',
+      'Give reviewers the original objective and criteria, the latest candidate or diff, relevant context, and actual validation evidence. Ask them to seek counterexamples, regressions, unsupported claims, missing coverage, and scope violations rather than confirm the preferred answer.',
+      'Require material findings to identify the affected criterion or concrete risk, reproducible evidence, impact, and a proportionate correction. Distinguish material defects from preferences, stylistic opinions, speculative concerns, duplicate findings, and claims unsupported by evidence.',
+      'Treat sub-agent reports as evidence, not authority. Check that conclusions apply to the latest candidate and actual criteria, resolve contradictions explicitly, and remember that absence of reported findings is not proof of correctness.',
+      'When critique identifies a material defect, correct it and validate the corrected candidate after the last relevant change. Do not rely on review or validation performed before that correction.',
+      'Do not conclude before independent critique has challenged the latest relevant candidate, material findings have been judged and addressed, and fresh validation covers the result after the last relevant correction.',
+      'Continue the loop while new evidence reveals a material defect, a relevant criterion lacks adequate evidence, specialists expose a material contradiction, or a concrete in-scope action has a clear chance of changing the outcome. Do not reopen resolved findings or repeat equivalent reviews without new evidence.',
+      'There is no predetermined number of agents or rounds. Agent count, repeated activity, and elapsed effort are not evidence of quality. Stop only when the criteria and direct consequences are supported by proportionate evidence, material findings are resolved or honestly reported as blockers, the latest candidate has been validated, and further work would only repeat existing evidence without a concrete path to improve the outcome.',
+      ...ULTRA_CLOSING_LINES,
+      '</work_mode>',
+    ].join('\n');
+  }],
   ['goal', ({ goal } = {}) => (
     goal && ['active', 'paused'].includes(goal.status)
       ? [
@@ -533,8 +598,18 @@ export async function resolveDynamicContext(invocationContext = {}) {
   // Keep volatile thread listings, prompts, statuses, timestamps, and queue state out of injected context so provider prompt caches remain reusable. Stable availability signals are safe; active semaphore holdings remain explicit because they control required release behavior.
   if (invocationContext.auxiliary) return '';
   if (invocationContext.quickChat) {
+    const customQuickChatInstructions = invocationContext.quickQuestion
+      ? ''
+      : String(invocationContext.tuning?.quickChatInstructions ?? '').trim();
     return [
       invocationContext.quickQuestion ? quickQuestionInstructions : quickChatInstructions,
+      customQuickChatInstructions && [
+        '<quick_chat_user_instructions>',
+        'The user configured these instructions for every Quick Chat. Follow them as direct user instructions.',
+        '',
+        customQuickChatInstructions,
+        '</quick_chat_user_instructions>',
+      ].join('\n'),
       dynamicContextInjectors.get('verbosity')?.(invocationContext),
       invocationContext.quickQuestion ? '' : dynamicContextInjectors.get('memory')?.(invocationContext),
       dynamicContextInjectors.get('mcp')?.(invocationContext),

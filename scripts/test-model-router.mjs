@@ -318,4 +318,92 @@ assert.deepEqual(
   [false, false],
 );
 
+providers.get('one:model').stream = async (options) => {
+  calls.push({ id: 'one:model', reasoningEffort: options.reasoningEffort });
+  const error = new Error('too many requests');
+  error.status = 429;
+  throw error;
+};
+providers.get('two:model').stream = async (options) => {
+  calls.push({ id: 'two:model', reasoningEffort: options.reasoningEffort });
+  return { assistantContent: 'two:model', continuation: [], toolCalls: [] };
+};
+assert.throws(
+  () => service.normalize({ name: 'Solo', mode: 'fusion', models: [{ modelId: 'one:model' }] }),
+  /lead model and a sidekick model/i,
+);
+assert.throws(
+  () => service.normalize({ name: 'Bad effort', mode: 'fusion', models: [
+    { modelId: 'one:model', reasoningEffort: 'medium' },
+    { modelId: 'two:model' },
+  ] }),
+  /not supported/i,
+);
+service.save({
+  id: '@fusion',
+  name: 'Fusion',
+  mode: 'fusion',
+  models: [
+    { modelId: 'two:model', reasoningEffort: 'high', available: true },
+    { modelId: 'two:model', reasoningEffort: 'medium' },
+  ],
+});
+assert.deepEqual(persisted.find((router) => router.id === '@fusion').models, [
+  { modelId: 'two:model', reasoningEffort: 'high' },
+  { modelId: 'two:model', reasoningEffort: 'medium' },
+]);
+assert.deepEqual(service.resolveFusion('@fusion'), {
+  lead: { modelId: 'two:model', reasoningEffort: 'high' },
+  sidekick: { modelId: 'two:model', reasoningEffort: 'medium' },
+});
+assert.equal(service.resolveFusion('@reliable'), null);
+
+service.save({
+  id: '@fusion-mixed',
+  name: 'Fusion mixed',
+  mode: 'fusion',
+  models: [
+    { modelId: 'one:model', reasoningEffort: 'high' },
+    { modelId: 'two:model', reasoningEffort: null },
+  ],
+});
+const fusionCatalog = service.resolve('@fusion-mixed').model;
+assert.equal(fusionCatalog.routerMode, 'fusion');
+assert.deepEqual(fusionCatalog.reasoning, []);
+assert.deepEqual(fusionCatalog.context, { input: 100_000, output: 20_000 });
+assert.equal(fusionCatalog.capabilities.audio, true);
+
+calls.length = 0;
+await assert.rejects(
+  service.resolve('@fusion-mixed').provider.stream({
+    model: fusionCatalog,
+    messages: [],
+    reasoningEffort: 'low',
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  }),
+  (error) => error.status === 429,
+);
+assert.deepEqual(calls, [{ id: 'one:model', reasoningEffort: 'high' }]);
+
+const botRouters = new Set(['@reliable']);
+const guardedService = new ModelRouterService({
+  getRouters: () => structuredClone(persisted),
+  setRouters: (routers) => {
+    persisted = structuredClone(routers);
+    return structuredClone(persisted);
+  },
+  resolveModel: (modelId) => models.get(modelId) ?? null,
+  isUsedByBot: (routerId) => botRouters.has(routerId),
+});
+assert.throws(
+  () => guardedService.save({
+    id: '@reliable',
+    name: 'Reliable',
+    mode: 'fusion',
+    models: [{ modelId: 'one:model' }, { modelId: 'two:model' }],
+  }),
+  /Bots cannot use Fusion routers/,
+);
+
 console.log('Model router tests passed.');
