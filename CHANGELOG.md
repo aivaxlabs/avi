@@ -1,5 +1,54 @@
 # Avi Changelog
 
+## [Canary]
+
+## [0.10.0] — 2026-10-22
+
+### Added
+- **X Subscription provider** — sign in with a SuperGrok or X Premium subscription through xAI OAuth device authorization and use Grok 4.7, 4.6, 4.5, 4.3, and Grok Build 0.1 through the xAI Responses API. Credentials are encrypted locally and refreshed automatically.
+- **Reasoning reuse** — OpenAI-compatible providers have a new **Reasoning reuse** setting, separate from the reasoning effort format: **Forward as metadata** (default), **Forward as `<think>` block**, or **Do not forward reasoning**. In metadata mode, Chat completions now preserves streamed `reasoning_details`, including signed and encrypted entries, and replays them on later requests from the same model.
+- **Fusion model routers** — a new **Fusion** routing mode pairs a lead model with a sidekick model, each with its own reasoning effort chosen with the Models page pickers. The conversation runs on the lead, which receives the new `dispatch_sidekick` tool instead of `chat_spawn_subagent` and `chat_create_thread` and delegates by verifiable milestones, inspecting each one before sending the next to the same sidekick thread; sidekicks run the sidekick model, cannot ask the user or create threads, escalate permissions to the lead, and report concisely. With Ultra, the lead uses smaller milestones with stricter inspection, without delegating to an Ultra team. Bots cannot use Fusion routers. Catalog entries expose `routerMode: "fusion"`.
+- **Thread and bot mentions** — any thread or bot can write `::mention{bot-id="..."}` or `::mention{thread-id="..."}` in a response or a bot Inbox message to deliver it to that bot or thread inside a `<cross-message mention="true">` envelope ("The bot ... mentioned you in this message:"). Mentions render like file reference links showing the bot or thread title and open the target in the chat and Inbox, and received mentions appear as a highlighted **Mentioned you** card.
+- **Thread statistics** — the Context usage dialog now has **Context** and **Stats** tabs. Stats shows p50/p95/p99 time to first token, time to connection, and tokens per second; cumulative input, cached, output, and total tokens with cached and reasoning shares; request and request-error counts; and tool calls with invocation and other errors. Assistant `usage` records per-request `requests` metrics and errored tool-call segments record `errorKind`. Desktop bridge: `window.chatApp.chat.statistics({ conversationId })` (`chat:statistics`, also available over RPC).
+- **Inbox questionnaires** — bots can attach a questionnaire (`questions`, same format as `ask_question`) to `bot_pendency_create` and `bot_pendency_message`. The Inbox shows it below the message with the chat question form. Submitting it saves a user reply with `questionMessageId` and `answers` and delivers `<answers>` inside `<bot-pendency-update>`. A questionnaire is answered once and has no timeout. Desktop bridge and RPC: `bots:reply-pendency` accepts `questionMessageId` and `answers`.
+- **Bot priority queue** — each bot now has a persisted, system-generated priority queue next to its Work queue, holding Inbox replies, approval decisions, mentions, prompts from other threads, and explicit activations. Bot settings list it under **Priority queue**, where items can be reordered or removed (not added), and the new **Continue with priority items** option (on by default) starts the next item as soon as a run finishes. Messages from the same work log or thread merge into one item. Desktop bridge and RPC: `bots:remove-priority-item` and `bots:reorder-priority-queue`; bot snapshots expose `priorityQueue`, `priorityAutoContinue`, `lastActivationKind`, and `lastActivationAt`.
+- **Command endpoint** — Remote Control serves `/commands/:tool` locally, invoking the Remote MCP tools as plain HTTP calls: `GET` takes arguments from the query string and `POST` from a JSON body, for example `curl -H "Authorization: Bearer <key>" http://127.0.0.1:18992/commands/bots_activate -d '{"id":"<bot-id>"}'`. It uses the Remote API keys and returns the tool result as JSON.
+- **`quick_chat_invoke`** — new Remote MCP tool and command that runs one Quick chat turn with the Quick chat tools and returns its answer, tool calls, attachments, and usage. The session is discarded when the turn ends; `ask_question` is unavailable in it.
+- **Quick Chat instructions** — **Settings → Tuning → Quick Chat** has a new **Quick Chat instructions** field (up to 20,000 characters) added after the built-in prompt of every Quick Chat and `quick_chat_invoke` call. Quick Chat does not load `AGENTS.md` files, so this is where its standing rules go. Saved as the `quickChatInstructions` tuning setting.
+
+### Changed
+- **Quick Chat delegation** — Quick Chat no longer forbids steering, interrupting, or queueing work on other threads on its own initiative. It can create and direct threads when the request or the Quick Chat instructions call for it.
+- **Add provider page** — provider types are grouped into **Subscriptions** (managed sign-in) and **API** (endpoint and API key) sections.
+- **Reasoning effort format** — the provider setting was renamed from **Reasoning format**, and **Default** now follows the interface: `reasoning_effort` for Chat completions and `reasoning.effort` for Responses (it previously sent `reasoning_effort` on Responses). Responses no longer prefixes earlier reasoning as `<think>` text by default; choose **Forward as `<think>` block** to keep that behavior.
+- **Delegation instructions by role** — the default sub-agent delegation guidance moved from the base instructions to runtime injection for the main role. Ultra, Fusion lead, Ultra + Fusion lead, and Fusion sidekick receive their own contracts; sub-agents, side chats, and Quick Chat receive none.
+- **Bot activation scheduling** — activations alternate between the Work queue and the priority queue. Manual pause, smart idle, and the activation limit now stop only the Work queue; waiting priority items still activate the bot on its period. Priority activations receive a `<priority-item>` instead of `<focus-task>` and do not advance the Work queue or the activation count.
+- **Replies to completed pendencies** — the Inbox reply composer and selection actions stay available after a pendency is completed, so you can keep sending replies after answering the bot. A user reply reopens the pendency and joins any waiting priority item of the same work log, so all pending replies from one pendency reach the bot in a single activation. Replies from other bots still cannot reopen completed pendencies.
+- **Queued bot deliveries** — Inbox replies, approval decisions, bot mentions, and `chat_send_prompt` messages to a bot's main thread no longer interrupt or start the bot directly; they enter its priority queue. `bots:reply-pendency` and `bots:resolve-approval` return `queued` and `queueItemId` instead of `delivered`; `bots_send_work_log_message` follows the same result. Replies to a work log waiting for approval are saved without being queued.
+- **Explicit activations** — **Activate now**, `bots_activate`, RPC, and plugin activations of a working bot become the next item and start right after the current run; `bots:activate` returns `{ queued: true, reason: "working" }` and `bots_activate` reports `queued_next`. An explicit activation that fails to start is discarded.
+- **Windows updates** — the updater now starts the NSIS installer directly with `/S --force-run --updated`, letting the installer close and reopen Avi instead of a PowerShell helper waiting for shutdown. The downloaded installer is no longer deleted after installation.
+- `ask_question` choice limits raised: `single_choice` accepts up to 10 options (was 3) and `multiple_choice` up to 30 (was 6).
+- Chat, Quick Chat, and the Inbox now share one question form (`QuestionForm`) and one validation module (`src/shared/questions.js`). Quick Chat questions now use the same paged card as the main chat.
+- **Inbox conversation layout** — opening a conversation from the Inbox page now gives it all the window width except a 500px Inbox list, replacing the shared draggable width. The conversation, its reply box, and feedback are centered in a column of at most 950px.
+- **Bot Inbox writing** — bot instructions and the `content`/`message` descriptions of `bot_pendency_create`, `bot_pendency_message`, and `bots_send_work_log_message` ask bots to write Inbox messages like a short work email: a lead sentence, short paragraphs, lists for parallel items, and the requested action at the end.
+
+### Fixed
+- **Bot activations stuck on an Inbox work log** — an open work log whose latest message was not from the bot replaced the Work queue focus on every activation, repeating the same work and freezing the queue cursor. Work logs no longer set the activation focus.
+
+### Docs
+- Added `docs/Fusion.md` and referenced Fusion in model routers, Sub-agents, Default models, Bots, the bots RPC reference, and `ModelSnapshot`.
+- Documented Inbox questionnaires and the new option limits in Bots, RPC, and Core API references.
+- Documented the bot priority queue, its scheduling rules, and the queued delivery results in Bots, RPC, Core, and MCP references.
+- Documented the `/commands/:tool` endpoint in Remote Control, the API overview, and the Remote MCP reference.
+- Added `docs/api.md`, a reference of every Avi command with arguments, result shapes, statuses, and errors.
+
+### Tests
+- Added Fusion coverage to the model router, context injection, sub-agent tool, and bot management tests.
+- Added `scripts/test-thread-statistics.mjs` for percentile, token, request, and tool-error aggregation.
+- Added questionnaire and option-limit cases to `scripts/test-bot-work-state.mjs`; updated `scripts/test-question-activity.mjs` for the shared question form.
+- Added `scripts/test-bot-priority-queue.mjs` for queue ordering, merging, auto-continuation, pause and idle bypass, explicit activations, and concurrent claims; updated bot admission, management-tool, and Core API tests for queued deliveries.
+- Added `/commands/:tool` authentication, method, argument-parsing, and error cases to `scripts/test-remote-mcp.mjs`.
+- Added `quick_chat_invoke` cases to `scripts/test-remote-mcp.mjs` and one-shot `QuickChatRunner.invoke` cases to `scripts/test-quick-chat.mjs`.
+
 ## [0.9.0] — 2026-10-16
 
 ### Added
