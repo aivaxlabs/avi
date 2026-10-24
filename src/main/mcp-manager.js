@@ -27,6 +27,7 @@ const GLOBAL_ROOT = resolve(homedir());
 const CLIENT_INFO = Object.freeze({ name: 'Avi', version: packageMetadata.version });
 const MAX_LOG_ENTRIES = 200;
 const PASSIVE_LEASE_MS = 30 * 60 * 1000;
+const CONNECTION_TIMEOUT_MS = 30 * 1000;
 
 class McpOAuthProvider {
   constructor({
@@ -150,8 +151,10 @@ export class McpManager {
     openExternal,
     globalRoot = GLOBAL_ROOT,
     managedServers = [],
+    connectionTimeoutMs = CONNECTION_TIMEOUT_MS,
   }) {
     this.sendEvent = sendEvent;
+    this.connectionTimeoutMs = connectionTimeoutMs;
     this.openExternal = openExternal;
     this.globalRoot = resolve(globalRoot);
     this.managedServers = managedServers;
@@ -677,6 +680,15 @@ export class McpManager {
     this.appendLog(record, 'info', 'Starting MCP server.');
     this.emitState();
 
+    let deadlineTimer;
+    const deadline = new Promise((_, reject) => {
+      deadlineTimer = setTimeout(() => reject(new Error(
+        `Connection timed out after ${this.connectionTimeoutMs / 1000} s during ${phase}.`,
+      )), this.connectionTimeoutMs);
+    });
+    deadline.catch(() => {});
+    const withinDeadline = (promise) => Promise.race([promise, deadline]);
+
     try {
       let transport;
       if (record.config.type === 'stdio') {
@@ -714,7 +726,7 @@ export class McpManager {
         });
         const useOAuth = ['auto', 'oauth2'].includes(record.config.auth.type);
         if (useOAuth) {
-          await this.ensureOAuthServer();
+          await withinDeadline(this.ensureOAuthServer());
           record.oauthProvider = new McpOAuthProvider({
             redirectUrl: this.oauthRedirectUrl,
             serverKey: record.key,
@@ -772,7 +784,7 @@ export class McpManager {
         },
       });
       record.client = client;
-      await client.connect(transport);
+      await withinDeadline(client.connect(transport));
       traceVerbose('mcp.server-phase-completed', {
         operation: 'connect-server',
         scope: record.scope,
@@ -786,7 +798,7 @@ export class McpManager {
       const listedTools = [];
       let cursor;
       do {
-        const result = await client.listTools(cursor ? { cursor } : undefined);
+        const result = await withinDeadline(client.listTools(cursor ? { cursor } : undefined));
         listedTools.push(...result.tools);
         cursor = result.nextCursor;
       } while (cursor);
@@ -850,6 +862,8 @@ export class McpManager {
         server: this.publicRecord(record),
       });
       this.emitState();
+    } finally {
+      clearTimeout(deadlineTimer);
     }
   }
 

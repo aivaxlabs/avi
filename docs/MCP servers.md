@@ -76,7 +76,7 @@ Saving or editing a passive server, or running `/reset-context`, returns it to t
 6. Save and enable the server.
 7. Use **Inspect** to review tools, schemas, server instructions, and connection logs.
 
-Possible states include Passive, Not started, Starting, Connected, Authentication required, Failed, Disabled, and Overridden by folder. In a conversation, `/mcp` shows the available runtime and `/reset-context` rereads every loaded `mcpconfig.json`, including manual edits, and restarts the servers. It also reloads instructions, skills, and workflows; see [Context management](Context%20management.md#troubleshooting-discovery).
+Possible states include Passive, Not started, Starting, Connected, Authentication required, Failed, Disabled, and Overridden by folder. Each server has 30 seconds to connect, complete the handshake, and list its tools; otherwise it becomes Failed and its log names the phase that timed out. In a conversation, `/mcp` shows the available runtime and `/reset-context` rereads every loaded `mcpconfig.json`, including manual edits, and restarts the servers. It also reloads instructions, skills, and workflows; see [Context management](Context%20management.md#troubleshooting-discovery).
 
 ## Runtime behavior
 

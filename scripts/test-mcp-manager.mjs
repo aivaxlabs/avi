@@ -385,6 +385,37 @@ try {
     /conflicts with a managed plugin server/,
   );
 
+  const hangingRoot = join(testRoot, 'hanging-global');
+  await mkdir(join(hangingRoot, '.agents'), { recursive: true });
+  await writeFile(join(hangingRoot, '.agents', 'mcpconfig.json'), JSON.stringify({
+    servers: {
+      Hanging: {
+        type: 'stdio',
+        command: process.execPath,
+        args: ['-e', 'setInterval(() => {}, 1000)'],
+        env: { ELECTRON_RUN_AS_NODE: '1' },
+      },
+    },
+  }));
+  const hangingManager = new McpManager({
+    globalRoot: hangingRoot,
+    sendEvent: () => {},
+    openExternal: async () => {},
+    connectionTimeoutMs: 500,
+  });
+  try {
+    await hangingManager.ensureWorkspace(hangingRoot);
+    const [hangingServer] = await hangingManager.listWorkspace(hangingRoot);
+    if (hangingServer?.status !== 'error' || !/timed out after 0\.5 s during handshake/.test(hangingServer.error)) {
+      throw new Error(`Hanging MCP server did not time out. Status=${hangingServer?.status} Error=${hangingServer?.error}`);
+    }
+    if (hangingManager.snapshot().loadingCount !== 0) {
+      throw new Error('Timed-out MCP server remained counted as starting.');
+    }
+  } finally {
+    await hangingManager.closeAll();
+  }
+
   console.log('MCP manager test passed.');
 } finally {
   console.log('Closing test MCP server...');
