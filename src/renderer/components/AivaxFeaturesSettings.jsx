@@ -1,8 +1,8 @@
 import {
   ChevronDown,
   ExternalLink,
+  Folder,
   KeyRound,
-  LoaderCircle,
   LogOut,
   Plus,
   RefreshCw,
@@ -17,6 +17,86 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
   currency: 'USD',
   maximumFractionDigits: 4,
 });
+const countFormatter = new Intl.NumberFormat('en-US');
+const FEATURE_TABS = [
+  ['account', 'Account'],
+  ['memory', 'Memory'],
+  ['web', 'Web'],
+  ['media', 'Media'],
+  ['search', 'Search'],
+  ['grep', 'Semantic Grep'],
+];
+const RERANKERS = [
+  ['rrf', 'RRF'],
+  ['none', 'None'],
+  ['lexical', 'Lexical'],
+  ['smart', 'Smart'],
+];
+
+function collectionChanges(target, collection) {
+  if (target === 'memory') {
+    return { memoryCollectionId: collection.id, memoryCollectionName: collection.name };
+  }
+  if (target === 'semanticGrep') {
+    return { semanticGrepCollectionId: collection.id, semanticGrepCollectionName: collection.name };
+  }
+  return { threadSearchCollectionId: collection.id, threadSearchCollectionName: collection.name };
+}
+
+function selectedCollectionId(target, settings) {
+  if (target === 'memory') return settings.memoryCollectionId;
+  if (target === 'semanticGrep') return settings.semanticGrepCollectionId;
+  return settings.threadSearchCollectionId;
+}
+
+function semanticGrepStatusLines(state) {
+  const status = state.semanticGrep;
+  if (!state.settings.semanticGrepCollectionId) {
+    return { headline: 'Choose a collection before indexing can start.' };
+  }
+  if (!state.settings.semanticGrepDirectories?.length) {
+    return { headline: 'Add a directory to start indexing.' };
+  }
+  if (!status || (status.state === 'idle' && !status.finishedAt)) {
+    return { headline: 'Waiting for the first index.' };
+  }
+  if (status.state === 'indexing') {
+    return { headline: `Reading files... ${countFormatter.format(status.files || 0)} read.` };
+  }
+  if (status.state === 'error') {
+    return { headline: status.error || 'The last index failed.' };
+  }
+  const when = status.finishedAt
+    ? new Date(status.finishedAt).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+    : null;
+  const counts = [
+    status.updated > 0 && `${countFormatter.format(status.updated)} updated`,
+    status.skipped > 0 && `${countFormatter.format(status.skipped)} unchanged`,
+    status.removed > 0 && `${countFormatter.format(status.removed)} removed`,
+    status.cost != null && currencyFormatter.format(status.cost),
+  ].filter(Boolean);
+  const queued = status.queuedDocuments > 0
+    ? `${countFormatter.format(status.queuedDocuments)} still indexing`
+    : null;
+  return {
+    headline: queued ?? (when ? `Up to date · ${when}` : 'Up to date'),
+    detail: [queued ? when : null, ...counts].filter(Boolean).join(' · ') || null,
+  };
+}
+
+function collectionInUse(target, collection, settings) {
+  const usedByOthers = [
+    target === 'memory' ? null : settings.memoryCollectionId,
+    target === 'threadSearch' ? null : settings.threadSearchCollectionId,
+    target === 'semanticGrep' ? null : settings.semanticGrepCollectionId,
+  ];
+  return usedByOthers.includes(collection.id);
+}
 
 export function AivaxFeaturesSettings() {
   const [state, setState] = useState(null);
@@ -29,6 +109,9 @@ export function AivaxFeaturesSettings() {
   const [collectionCreateTarget, setCollectionCreateTarget] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [tab, setTab] = useState('account');
+  const [recommendations, setRecommendations] = useState([]);
+  const directoryKey = state?.settings?.semanticGrepDirectories?.join('\0') ?? '';
 
   useEffect(() => {
     let active = true;
@@ -64,6 +147,29 @@ export function AivaxFeaturesSettings() {
     };
   }, [state?.connected]);
 
+  useEffect(() => {
+    if (!state?.connected || tab !== 'grep') return undefined;
+    let active = true;
+    const refresh = () => window.chatApp.aivax.semanticGrepStatus()
+      .then((semanticGrep) => {
+        if (active) setState((current) => (current ? { ...current, semanticGrep } : current));
+      })
+      .catch(() => {});
+    refresh();
+    const timer = setInterval(refresh, 3000);
+    window.chatApp.aivax.semanticGrepRecommendations()
+      .then((items) => {
+        if (active) setRecommendations(Array.isArray(items) ? items : []);
+      })
+      .catch((nextError) => {
+        if (active) setError(nextError instanceof Error ? nextError.message : String(nextError));
+      });
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [state?.connected, tab, directoryKey]);
+
   async function saveSettings(changes) {
     setBusy(true);
     setError('');
@@ -85,9 +191,9 @@ export function AivaxFeaturesSettings() {
 
   if (!state) {
     return (
-      <div className="aivax-settings-loading">
-        <LoaderCircle size={18} />
-        Loading AIVAX account&hellip;
+      <div className="aivax-settings-loading" role="status">
+        <span className="aivax-spinner" aria-hidden="true" />
+        Loading AIVAX account...
       </div>
     );
   }
@@ -148,6 +254,10 @@ export function AivaxFeaturesSettings() {
             <div>
               <dt>Thread search</dt>
               <dd>Find previous conversations by meaning instead of exact wording.</dd>
+            </div>
+            <div>
+              <dt>Semantic Grep</dt>
+              <dd>Index chosen directories and search them by meaning from the current chat folder.</dd>
             </div>
           </dl>
         </section>
@@ -235,7 +345,7 @@ export function AivaxFeaturesSettings() {
                     type="submit"
                     disabled={busy || !loginKey.trim()}
                   >
-                    {busy ? <LoaderCircle className="aivax-spinner" size={15} /> : <KeyRound size={15} />}
+                    {busy ? <span className="aivax-spinner" aria-hidden="true" /> : <KeyRound size={15} />}
                     {busy ? <>Linking&hellip;</> : 'Link account'}
                   </button>
                 </div>
@@ -247,9 +357,39 @@ export function AivaxFeaturesSettings() {
     );
   }
 
+  const indexingStatus = semanticGrepStatusLines(state);
+
   return (
     <div className="settings-tuning aivax-features-settings">
-      <section className="settings-section">
+      <div className="maintenance-tabs" role="tablist" aria-label="AIVAX feature sessions" onKeyDown={(event) => {
+        const index = FEATURE_TABS.findIndex(([id]) => id === tab);
+        const nextIndex = event.key === 'ArrowRight' ? index + 1
+          : event.key === 'ArrowLeft' ? index - 1
+            : event.key === 'Home' ? 0
+              : event.key === 'End' ? FEATURE_TABS.length - 1
+                : -1;
+        if (nextIndex < 0) return;
+        event.preventDefault();
+        const next = FEATURE_TABS[(nextIndex + FEATURE_TABS.length) % FEATURE_TABS.length][0];
+        setTab(next);
+        document.getElementById(`aivax-feature-tab-${next}`)?.focus();
+      }}>
+        {FEATURE_TABS.map(([id, label]) => (
+          <button
+            id={`aivax-feature-tab-${id}`}
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            aria-controls={`aivax-feature-panel-${id}`}
+            tabIndex={tab === id ? 0 : -1}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <section className="settings-section" id="aivax-feature-panel-account" role="tabpanel" aria-labelledby="aivax-feature-tab-account" hidden={tab !== 'account'}>
         <div className="settings-section-heading">
           <h3>Account</h3>
           <p>Connect Avi to AIVAX using a login key. The resulting access token is encrypted locally.</p>
@@ -337,7 +477,7 @@ export function AivaxFeaturesSettings() {
         </div>
       </section>
 
-      <section className="settings-section">
+      <section className="settings-section" id="aivax-feature-panel-memory" role="tabpanel" aria-labelledby="aivax-feature-tab-memory" hidden={tab !== 'memory'}>
         <div className="settings-section-heading">
           <h3>Memory</h3>
           <p>Give Avi persistent memory tools through an AIVAX RAG collection.</p>
@@ -403,11 +543,11 @@ export function AivaxFeaturesSettings() {
             <header className="dialog-header">
               <div>
                 <h2 id="aivax-collection-dialog-title">
-                  Choose a {collectionPickerTarget === 'memory' ? 'memory' : 'thread search'} collection
+                  Choose a {collectionPickerTarget === 'memory' ? 'memory' : collectionPickerTarget === 'semanticGrep' ? 'Semantic Grep' : 'thread search'} collection
                 </h2>
                 <p>{collectionPickerTarget === 'memory'
                   ? 'Select where Avi can save and retrieve persistent memory.'
-                  : 'Select a dedicated collection. Avi replaces its complete contents during each thread sync.'}</p>
+                  : 'Select a dedicated collection. Sync mode replaces documents that are not part of this session.'}</p>
               </div>
               <button className="icon-button tiny" type="button" aria-label="Close collection picker" disabled={busy} onClick={() => setCollectionPickerTarget(null)}>
                 <X size={16} />
@@ -415,12 +555,8 @@ export function AivaxFeaturesSettings() {
             </header>
             <div className="aivax-collection-list" role="listbox" aria-label="AIVAX collections">
               {collections.map((collection) => {
-                const selectedId = collectionPickerTarget === 'memory'
-                  ? state.settings.memoryCollectionId
-                  : state.settings.threadSearchCollectionId;
-                const unavailable = collectionPickerTarget === 'memory'
-                  ? collection.id === state.settings.threadSearchCollectionId
-                  : collection.id === state.settings.memoryCollectionId;
+                const selectedId = selectedCollectionId(collectionPickerTarget, state.settings);
+                const unavailable = collectionInUse(collectionPickerTarget, collection, state.settings);
                 const selected = collection.id === selectedId;
                 return (
                   <button
@@ -436,15 +572,7 @@ export function AivaxFeaturesSettings() {
                       try {
                         const settings = await window.chatApp.aivax.save({
                           ...state.settings,
-                          ...(collectionPickerTarget === 'memory'
-                            ? {
-                                memoryCollectionId: collection.id,
-                                memoryCollectionName: collection.name,
-                              }
-                            : {
-                                threadSearchCollectionId: collection.id,
-                                threadSearchCollectionName: collection.name,
-                              }),
+                          ...collectionChanges(collectionPickerTarget, collection),
                         });
                         setState((current) => ({ ...current, settings }));
                         setCollectionPickerTarget(null);
@@ -517,15 +645,7 @@ export function AivaxFeaturesSettings() {
                   if (created.collection) {
                     const settings = await window.chatApp.aivax.save({
                       ...state.settings,
-                      ...(collectionCreateTarget === 'memory'
-                        ? {
-                            memoryCollectionId: created.collection.id,
-                            memoryCollectionName: created.collection.name,
-                          }
-                        : {
-                            threadSearchCollectionId: created.collection.id,
-                            threadSearchCollectionName: created.collection.name,
-                          }),
+                      ...collectionChanges(collectionCreateTarget, created.collection),
                     });
                     setState((current) => ({ ...current, settings }));
                   }
@@ -546,7 +666,7 @@ export function AivaxFeaturesSettings() {
                   Cancel
                 </button>
                 <button className="button primary" type="submit" disabled={busy || !newCollectionName.trim()}>
-                  {busy ? <LoaderCircle className="aivax-spinner" size={14} /> : <Plus size={14} />}
+                  {busy ? <span className="aivax-spinner" aria-hidden="true" /> : <Plus size={14} />}
                   Create collection
                 </button>
               </div>
@@ -555,7 +675,7 @@ export function AivaxFeaturesSettings() {
         </Overlay>
       )}</Presence>
 
-      <section className="settings-section">
+      <section className="settings-section" id="aivax-feature-panel-web" role="tabpanel" aria-labelledby="aivax-feature-tab-web" hidden={tab !== 'web'}>
         <div className="settings-section-heading">
           <h3>Web utilities</h3>
           <p>Use AIVAX content extraction and current web search in agent tools.</p>
@@ -597,7 +717,7 @@ export function AivaxFeaturesSettings() {
         </div>
       </section>
 
-      <section className="settings-section">
+      <section className="settings-section" id="aivax-feature-panel-media" role="tabpanel" aria-labelledby="aivax-feature-tab-media" hidden={tab !== 'media'}>
         <div className="settings-section-heading">
           <h3>Media generation</h3>
           <p>Let agents generate images and speech audio with AIVAX models. Generation consumes AIVAX balance.</p>
@@ -666,7 +786,7 @@ export function AivaxFeaturesSettings() {
         </div>
       </section>
 
-      <section className="settings-section">
+      <section className="settings-section" id="aivax-feature-panel-search" role="tabpanel" aria-labelledby="aivax-feature-tab-search" hidden={tab !== 'search'}>
         <div className="settings-section-heading">
           <h3>In-app search</h3>
           <p>Search indexed thread turns semantically through a dedicated AIVAX RAG collection.</p>
@@ -694,6 +814,126 @@ export function AivaxFeaturesSettings() {
               <small>Avi synchronizes on startup and every 15 minutes, replacing all documents in this collection. Do not share it with Memory or other data.</small>
             </span>
           </div>
+        </div>
+      </section>
+
+      <section className="settings-section" id="aivax-feature-panel-grep" role="tabpanel" aria-labelledby="aivax-feature-tab-grep" hidden={tab !== 'grep'}>
+        <div className="settings-section-heading">
+          <h3>Semantic Grep</h3>
+          <p>Index directories into a dedicated collection. Agents can then use file_search as the first search in the current chat directory. It does not replace rg.</p>
+        </div>
+        <div className="settings-section-card settings-form settings-row-card">
+          <div className="settings-card-row aivax-collection-row">
+            <span>
+              <strong>Collection</strong>
+              <small>{state.settings.semanticGrepCollectionName ?? 'Choose a dedicated collection. Sync removes documents that are no longer in these directories.'}</small>
+            </span>
+            <button className="button aivax-collection-picker-trigger" type="button" disabled={busy} onClick={() => setCollectionPickerTarget('semanticGrep')}>
+              {state.settings.semanticGrepCollectionName ?? 'Select a collection'}
+              <ChevronDown size={14} />
+            </button>
+          </div>
+          <div className="settings-card-row aivax-media-row">
+            <span>
+              <strong>Reranker</strong>
+              <small>RRF is the default. It reorders semantic matches before file_search returns them.</small>
+            </span>
+            <select
+              className="select"
+              aria-label="Semantic Grep reranker"
+              disabled={busy}
+              value={state.settings.semanticGrepReranker ?? 'rrf'}
+              onChange={(event) => saveSettings({ semanticGrepReranker: event.target.value })}
+            >
+              {RERANKERS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </div>
+          <div className="settings-card-row aivax-account-row">
+            <span>
+              <strong>Indexing</strong>
+              <small className="aivax-index-status">{indexingStatus.headline}</small>
+              {indexingStatus.detail && (
+                <small className="aivax-index-status">{indexingStatus.detail}</small>
+              )}
+            </span>
+          </div>
+          <div className="settings-card-row aivax-account-row">
+            <span>
+              <strong>Directories</strong>
+              <small>{(state.settings.semanticGrepDirectories ?? []).length === 0
+                ? 'Add at least one directory to start background indexing.'
+                : 'Avi reindexes these directories every 15 minutes in sync mode.'}</small>
+            </span>
+            <button
+              className="button"
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                const picked = await window.chatApp.bots.chooseFolder();
+                if (!picked) return;
+                const existing = state.settings.semanticGrepDirectories ?? [];
+                if (existing.some((item) => item.toLowerCase() === picked.toLowerCase())) return;
+                await saveSettings({ semanticGrepDirectories: [...existing, picked] });
+              }}
+            >
+              <Plus size={14} />
+              Add directory
+            </button>
+          </div>
+          {(state.settings.semanticGrepDirectories ?? []).length > 0 && (
+            <div className="aivax-folder-list" role="list" aria-label="Indexed directories">
+              {(state.settings.semanticGrepDirectories ?? []).map((directory) => (
+                <div className="aivax-folder-item" role="listitem" key={directory}>
+                  <Folder size={15} aria-hidden="true" />
+                  <span className="aivax-folder-copy">
+                    <strong className="aivax-path" title={directory}>{directory}</strong>
+                  </span>
+                  <button
+                    className="icon-button tiny"
+                    type="button"
+                    aria-label={`Remove ${directory}`}
+                    disabled={busy}
+                    onClick={() => saveSettings({
+                      semanticGrepDirectories: state.settings.semanticGrepDirectories.filter((item) => item !== directory),
+                    })}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {recommendations.length > 0 && (
+            <div className="settings-card-row aivax-account-row">
+              <span>
+                <strong>Recommended</strong>
+                <small>Frequent chat folders. A worktree suggests that worktree root.</small>
+              </span>
+            </div>
+          )}
+          {recommendations.length > 0 && (
+            <div className="aivax-folder-list" role="list" aria-label="Recommended directories">
+              {recommendations.map((item) => (
+                <div className="aivax-folder-item" role="listitem" key={item.path}>
+                  <Folder size={15} aria-hidden="true" />
+                  <span className="aivax-folder-copy">
+                    <strong className="aivax-path" title={item.path}>{item.path}</strong>
+                    <small>{item.worktree ? 'Worktree' : 'Frequent chat folder'} · {item.conversations} chats</small>
+                  </span>
+                  <button
+                    className="button"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => saveSettings({
+                      semanticGrepDirectories: [...(state.settings.semanticGrepDirectories ?? []), item.path],
+                    })}
+                  >
+                    Add
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 

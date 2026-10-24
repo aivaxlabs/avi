@@ -10,7 +10,7 @@ process.env.USERPROFILE = resolvedProfile;
 
 const {
   AIVAX_LONG_INFERENCE_BASE_URL,
-  indexAivaxDocuments,
+  importAivaxDocuments,
   loginToAivax,
   requestAivax,
 } = await import('../src/main/aivax-client.js');
@@ -115,34 +115,77 @@ try {
     minScore: 0.2,
   });
 
-  response = new Response(JSON.stringify({ data: { enqueued: 1, skipped: 2 } }), {
-    headers: { 'Consumed-Credits': '0.00125' },
-  });
-  const indexed = await indexAivaxDocuments('collection/id', [{
+  const sockets = [];
+  class FakeImportSocket {
+    constructor(url, options) {
+      this.url = String(url);
+      this.options = options;
+      this.readyState = 0;
+      this.bufferedAmount = 0;
+      this.sent = [];
+      this.listeners = new Map();
+      sockets.push(this);
+      queueMicrotask(() => {
+        this.readyState = 1;
+        this.emit('open');
+      });
+    }
+
+    on(event, listener) {
+      const listeners = this.listeners.get(event) ?? [];
+      listeners.push(listener);
+      this.listeners.set(event, listeners);
+      return this;
+    }
+
+    once(event, listener) {
+      const wrapped = (...args) => {
+        this.listeners.set(event, (this.listeners.get(event) ?? []).filter((item) => item !== wrapped));
+        listener(...args);
+      };
+      return this.on(event, wrapped);
+    }
+
+    emit(event, ...args) {
+      for (const listener of [...(this.listeners.get(event) ?? [])]) listener(...args);
+    }
+
+    send(data) {
+      this.sent.push(String(data));
+      if (String(data).includes('END')) {
+        queueMicrotask(() => this.emit('message', JSON.stringify({
+          type: 'completed',
+          received: 1,
+          updated: 1,
+          skipped: 0,
+          removed: 2,
+        })));
+      }
+    }
+
+    close() {
+      this.readyState = 3;
+    }
+
+    terminate() {
+      this.close();
+    }
+  }
+  const indexed = await importAivaxDocuments('collection/id', [{
     docid: 'avi-thread:thread-id:user-id',
     text: 'Title: Thread\nUser: Hello\nAssistant: Hi',
     __meta: { threadId: 'thread-id' },
-  }], { accessToken: 'test-access-token' });
-  assert.deepEqual(indexed, {
-    data: { enqueued: 1, skipped: 2 },
-    consumedCredits: 0.00125,
-    status: 200,
-  });
-  const indexRequest = requests.at(-1);
-  assert.equal(indexRequest.url, 'https://inference.aivax.net/api/v1/collections/collection%2Fid/documents?insert-mode=sync');
-  assert.equal(indexRequest.options.method, 'POST');
-  assert.equal(indexRequest.options.headers.Authorization, 'Bearer test-access-token');
-  assert.equal(indexRequest.options.headers['Content-Type'], undefined);
-  assert.ok(indexRequest.options.body instanceof FormData);
-  assert.equal(indexRequest.options.body.get('insert-mode'), null);
-  const jsonlFile = indexRequest.options.body.get('documents');
-  assert.equal(jsonlFile.name, 'avi-thread-search.jsonl');
-  assert.equal(jsonlFile.type, 'application/x-ndjson');
-  assert.deepEqual(JSON.parse(await jsonlFile.text()), {
-    docid: 'avi-thread:thread-id:user-id',
+  }], { accessToken: 'test-access-token', WebSocket: FakeImportSocket });
+  assert.deepEqual(indexed, { received: 1, updated: 1, skipped: 0, removed: 2 });
+  assert.equal(sockets[0].url, 'wss://inference.aivax.net/api/v2/collections/collection%2Fid/documents/index-jsonl?insert-mode=sync');
+  assert.equal(sockets[0].options.headers.Authorization, 'Bearer test-access-token');
+  const lines = sockets.flatMap((socket) => socket.sent).join('').trim().split('\n');
+  assert.deepEqual(JSON.parse(lines[0]), {
+    docId: 'avi-thread:thread-id:user-id',
     text: 'Title: Thread\nUser: Hello\nAssistant: Hi',
     __meta: { threadId: 'thread-id' },
   });
+  assert.equal(lines.at(-1), 'END');
 
   for (const [path, payload] of [
     ['/api/v1/collections', { collectionId: 'collection-id' }],

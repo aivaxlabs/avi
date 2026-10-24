@@ -1,6 +1,8 @@
 # AIVAX Features
 
-AIVAX Features is an optional external integration for persistent memory, richer web tools, image and audio generation, and semantic thread search. Avi’s core local conversations and local search do not require it.
+AIVAX Features is an optional external integration for persistent memory, richer web tools, image and audio generation, semantic thread search, and Semantic Grep. Avi’s core local conversations and local search do not require it.
+
+The page separates each session into tabs: Account, Memory, Web, Media, Search, and Semantic Grep.
 
 ## Connect an account
 
@@ -62,9 +64,27 @@ The video leaves the computer for external processing and the request can consum
 
 Select a dedicated **Thread search collection** to enable semantic thread search. Do not use the Memory collection or a collection containing other documents: Avi synchronizes the complete thread-search corpus with `sync` mode, which removes remote documents that are not part of the current corpus.
 
-Avi synchronizes the collection when the app opens, when the collection is selected, and every 15 minutes. Each eligible conversation contributes at most its three most recent completed `user → assistant` turns. Each turn is a separate document containing the conversation title, user message, and assistant response; every component is limited to approximately 256 tokens. Hidden messages, agent-authored user messages, incomplete responses, archived conversations, deleted conversations, side chats, and sub-agent threads are excluded.
+Avi synchronizes the collection when the app opens, when the collection is selected, and every 15 minutes. Synchronization streams JSONL over the v2 WebSocket import (`/api/v2/collections/<id>/documents/index-jsonl?insert-mode=sync`) and finishes with `END`. Each eligible conversation contributes at most its three most recent completed `user → assistant` turns. Each turn is a separate document containing the conversation title, user message, and assistant response; every component is limited to approximately 256 tokens. Hidden messages, agent-authored user messages, incomplete responses, archived conversations, deleted conversations, side chats, and sub-agent threads are excluded.
 
-Search uses AIVAX semantic search with RRF reranking, a minimum score of `0.2`, and up to 20 results. Each semantic match is resolved by thread ID against local threads, so deleted threads never appear and the folder, last-update, and archive filters use the thread's current data. Avi requests up to 60 candidates when a folder or date filter is active; a filtered search may still return fewer matches than local search. If indexing or remote search fails, Avi records the failure in `~/.aivax/trace.log` and local thread search remains available. Successful index and search requests log elapsed time, consumed credits, and applicable document/result counts without logging message content.
+Search uses AIVAX semantic search with RRF reranking, a minimum score of `0.2`, and up to 20 results. Each semantic match is resolved by thread ID against local threads, so deleted threads never appear and the folder, last-update, and archive filters use the thread's current data. Avi requests up to 60 candidates when a folder or date filter is active; a filtered search may still return fewer matches than local search. If indexing or remote search fails, Avi records the failure in `~/.aivax/trace.log` and local thread search remains available. A successful index logs elapsed time and the WebSocket completion counts (received, updated, skipped, removed) without logging message content. The WebSocket import does not return a per-request credit total.
+
+## Semantic Grep
+
+Semantic Grep indexes directories you choose into a dedicated collection, then gives agents `file_search` for the current chat directory. It is the first search for meaning. It does not replace `rg`: exact symbols, strings, and configuration keys still belong to `rg` or a similar tool, and so does any search that returns no matches.
+
+1. Connect the account.
+2. Open **Settings → AIVAX Features → Semantic Grep**.
+3. Select a dedicated collection. Do not reuse the Memory or Thread search collection: indexing uses `sync` mode and removes remote documents that are not part of the current directories.
+4. Choose a reranker. The default is `rrf`. The other built-in choices are `none`, `lexical`, and `smart`.
+5. Add one or more directories, or accept a recommendation.
+
+Recommendations come from frequent chat directories. When a frequent directory is a Git worktree, Avi suggests that worktree's root rather than the main checkout. A managed Avi workspace suggests its linked folders instead of the workspace directory itself.
+
+With at least one directory and a collection, Avi indexes in the background when the app opens, when the directory list or collection changes, and every 15 minutes. The same v2 WebSocket import runs in `sync` mode, so files removed from the directories are removed from the collection. The indexer skips VCS metadata, dependency folders, common build output, lockfiles, generated files, and files larger than 1 MB. Symbolic links and directory junctions inside the tree are followed; a repeated real path is skipped so a cycle cannot loop. Changing the directory list or collection while an index is running aborts that run and starts another with the new list. Only recognized text extensions are uploaded, in chunks of about 6,000 characters.
+
+The session shows indexing state and, after a sync that can read account usage, the document-embedding cost during that window. That cost is account-wide for the window, so other embedding work in the same minute can be included.
+
+`file_search` is added only while the account is connected, a collection is selected, and at least one directory is configured. It searches by `metadata.real_path startswith` the current chat directory, not a path supplied by the model. A parent folder still finds indexed children, such as worktrees below it. If the query has no matches, the tool tells the agent to use `rg` or a similar exact search. Each indexed chunk stores `source_line_start` and `source_line_end`. Results are one line per file, `score  relative/path:start-end`, with every matching range on that line. They do not include file contents. A chunk indexed before those fields existed is listed by path only until the next sync; that sync updates metadata without re-embedding unchanged text.
 
 ## Security, cost, and availability
 
@@ -74,4 +94,4 @@ Tool queries and source content may be sent to AIVAX as required by the selected
 
 ## Troubleshooting
 
-If memory cannot be enabled, verify both the account connection and selected Memory collection. If semantic thread search is unavailable, verify that a different, dedicated Thread search collection is selected and allow time for AIVAX to index queued documents. If a tool is missing, confirm its toggle and start a new turn so the runtime context and tool catalog are rebuilt. Account or service failures do not prevent core local conversations or basic local thread search.
+If memory cannot be enabled, verify both the account connection and selected Memory collection. If semantic thread search is unavailable, verify that a different, dedicated Thread search collection is selected and allow time for AIVAX to index queued documents. If a tool is missing, confirm its toggle and start a new turn so the runtime context and tool catalog are rebuilt. `file_search` appears only after Semantic Grep has a collection and at least one directory; a new turn is required after that change too. Account or service failures do not prevent core local conversations or basic local thread search.

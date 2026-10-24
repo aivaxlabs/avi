@@ -1,4 +1,31 @@
 .settings-page {
+  .aivax-settings-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-3);
+  }
+
+  .aivax-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--text-2);
+    border-radius: 9999px;
+    animation: aivax-settings-spin 800ms linear infinite;
+    flex: 0 0 auto;
+    vertical-align: -2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .aivax-spinner {
+      animation: none;
+      border-top-color: var(--text-3);
+    }
+  }
+
   grid-column: 1 / -1;
   min-width: 0;
   min-height: 0;
@@ -365,6 +392,10 @@
   .settings-section {
     display: grid;
     gap: 16px;
+
+    &[hidden] {
+      display: none;
+    }
   }
 
   .settings-update {
@@ -501,9 +532,54 @@
       color: var(--text-3);
     }
 
-    .aivax-spinner,
-    .aivax-settings-loading svg {
-      animation: aivax-settings-spin 800ms linear infinite;
+    .aivax-folder-list {
+      display: grid;
+      margin: 0 14px 14px;
+      overflow: hidden;
+      background: var(--background-2);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+    }
+
+    .aivax-folder-item {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 16px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      min-height: 36px;
+      padding: 7px 8px 7px 10px;
+
+      + .aivax-folder-item {
+        border-top: 1px solid var(--border-color);
+      }
+
+      > svg {
+        color: var(--text-3);
+      }
+    }
+
+    .aivax-folder-copy {
+      min-width: 0;
+      display: grid;
+      gap: 1px;
+
+      small {
+        overflow: hidden;
+        color: var(--text-3);
+        font-size: var(--font-xs);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+    }
+
+    .aivax-path {
+      overflow: hidden;
+      font-family: var(--font-code);
+      font-size: var(--font-sm);
+      font-weight: 400;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .aivax-account-row > span,
@@ -520,6 +596,12 @@
         overflow: hidden;
         color: var(--text-3);
         text-overflow: ellipsis;
+
+        &.aivax-index-status {
+          overflow: visible;
+          white-space: normal;
+          text-overflow: unset;
+        }
       }
     }
 
