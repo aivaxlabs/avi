@@ -1,0 +1,543 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 28px 32px;
+    font-size: var(--font-md, 14px);
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    max-width: 980px;
+    margin: 0 auto 20px;
+  }
+
+  h1 { margin: 0; font-size: 1.4rem; font-weight: 500; }
+  header p { margin: 4px 0 0; color: var(--text-3); }
+
+  button, select, input {
+    height: 30px;
+    padding: 0 12px;
+    color: var(--text-1);
+    font: inherit;
+    background: var(--background-3);
+    border: 0;
+    border-radius: 9999px;
+  }
+
+  button { cursor: pointer; white-space: nowrap; }
+  button:hover { background: var(--item-active); }
+  button:disabled { color: var(--text-4); cursor: default; background: var(--background-3); }
+  button.primary { color: var(--text-5); background: var(--background-5); }
+  button.danger:hover { color: var(--danger-color); }
+  button.small { height: 26px; padding: 0 10px; font-size: var(--font-sm, 13px); }
+
+  :focus-visible { outline: 2px solid color-mix(in srgb, var(--primary-color) 55%, transparent); outline-offset: 1px; }
+
+  input { width: 100%; }
+  input:focus { background: var(--background-0); outline: 2px solid color-mix(in srgb, var(--primary-color) 55%, transparent); }
+  input[aria-invalid="true"] { outline: 1px solid var(--danger-color); }
+
+  .list { display: grid; gap: 8px; max-width: 980px; margin: 0 auto; }
+
+  .process {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 14px 16px;
+    background: var(--background-2);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+  }
+
+  .process.disabled .info { opacity: .6; }
+
+  .title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .title strong { overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+
+  .meta {
+    margin-top: 4px;
+    overflow: hidden;
+    color: var(--text-3);
+    font-family: var(--font-code);
+    font-size: var(--font-sm, 13px);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .detail { margin-top: 4px; color: var(--text-3); font-size: var(--font-sm, 13px); }
+  .detail.error { color: var(--danger-color); }
+
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    padding: 2px 8px;
+    color: var(--text-2);
+    font-size: var(--font-xs, 12px);
+    background: var(--background-3);
+    border-radius: 9999px;
+  }
+
+  .status::before { width: 7px; height: 7px; content: ""; background: var(--text-4); border-radius: 50%; }
+  .status.running::before { background: var(--success-color); }
+  .status.retrying::before { background: var(--warn-color); }
+  .status.exited::before { background: var(--danger-color); }
+
+  .actions { display: flex; align-items: center; gap: 10px; }
+
+  .icon-button {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    padding: 0;
+    color: var(--text-2);
+    background: transparent;
+  }
+
+  .icon-button:hover, .icon-button[aria-expanded="true"] { color: var(--text-1); background: var(--item-active); }
+
+  .menu {
+    position: fixed;
+    z-index: 10;
+    display: grid;
+    gap: 2px;
+    min-width: 150px;
+    padding: 4px;
+    background: var(--background-1);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    box-shadow: 0 4px 9px #00000011;
+  }
+
+  .menu button {
+    height: auto;
+    padding: 6px 12px;
+    font-size: .9rem;
+    text-align: left;
+    background: transparent;
+    border-radius: 12px;
+  }
+
+  .menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--item-hover); outline: 0; }
+  .menu button.danger:hover { color: var(--danger-color); }
+  .menu hr { width: 100%; margin: 2px 0; border: 0; border-top: 1px solid var(--border-color); }
+
+  .toggle {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    padding: 0;
+    margin: 0;
+    appearance: none;
+    cursor: pointer;
+    background: var(--background-4);
+    border-radius: 9999px;
+    outline: 0;
+  }
+
+  .toggle::after {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 14px;
+    height: 14px;
+    content: "";
+    background: var(--background-0);
+    border-radius: 50%;
+    transition: transform .15s;
+  }
+
+  .toggle:checked { background: var(--primary-color); }
+  .toggle:checked::after { transform: translateX(16px); }
+  .toggle:focus { background: var(--background-4); }
+  .toggle:checked:focus { background: var(--primary-color); }
+
+  label.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+
+  .empty {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 48px 16px;
+    color: var(--text-3);
+    text-align: center;
+    border: 1px dashed var(--border-color);
+    border-radius: 14px;
+  }
+
+  .notice { max-width: 980px; margin: 0 auto 12px; color: var(--danger-color); }
+
+  dialog {
+    width: min(560px, calc(100vw - 32px));
+    padding: 0;
+    color: var(--text-1);
+    background: var(--background-1);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    box-shadow: 0 18px 48px rgb(0 0 0 / .28);
+  }
+
+  dialog.logs-dialog { width: min(900px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgb(0 0 0 / .35); }
+
+  .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px 0; }
+  .dialog-header h2 { margin: 0; font-size: var(--font-lg, 16px); font-weight: 500; }
+  .dialog-body { display: grid; gap: 14px; padding: 16px 20px; }
+  .dialog-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 0 20px 16px; }
+
+  .field { display: grid; gap: 6px; }
+  .field span { font-weight: 500; }
+  .field small { color: var(--text-3); }
+
+  .form-error { color: var(--danger-color); }
+
+  .tabs { display: flex; gap: 4px; }
+  .tabs button[aria-selected="true"] { color: var(--text-5); background: var(--background-5); }
+
+  pre {
+    height: min(60vh, 520px);
+    margin: 0;
+    padding: 12px 14px;
+    overflow: auto;
+    color: var(--text-1);
+    font-family: var(--font-code);
+    font-size: var(--font-sm, 13px);
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: var(--background-0);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+  }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Background Processes</h1>
+    <p>Run while Avi is open and stop when Avi closes.</p>
+  </div>
+  <button class="primary" id="add">Add process</button>
+</header>
+
+<div class="notice" id="notice" role="alert" hidden></div>
+<div class="list" id="list"></div>
+
+<dialog id="editor">
+  <form method="dialog" id="form">
+    <div class="dialog-header"><h2 id="editor-title">Add process</h2></div>
+    <div class="dialog-body">
+      <label class="field">
+        <span>Executable</span>
+        <input name="executable" required autocomplete="off" spellcheck="false" placeholder="node, python, C:\Tools\server.exe">
+      </label>
+      <label class="field">
+        <span>Arguments</span>
+        <input name="arguments" autocomplete="off" spellcheck="false" placeholder="Optional">
+      </label>
+      <label class="field">
+        <span>Working directory</span>
+        <input name="workingDirectory" autocomplete="off" spellcheck="false" placeholder="Optional, defaults to the home directory">
+      </label>
+      <label class="field">
+        <span>Retry</span>
+        <small>Restart the process after it exits.</small>
+        <select name="retry">
+          <option value="2s">After 2 seconds</option>
+          <option value="5s">After 5 seconds</option>
+          <option value="none">Do not retry</option>
+        </select>
+      </label>
+      <label class="switch"><input type="checkbox" class="toggle" name="enabled"> Enabled</label>
+      <div class="form-error" id="form-error" role="alert" hidden></div>
+    </div>
+    <div class="dialog-footer">
+      <button type="button" id="cancel">Cancel</button>
+      <button type="submit" class="primary" id="submit">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="logs" class="logs-dialog">
+  <div class="dialog-header">
+    <h2 id="logs-title">Logs</h2>
+    <div class="tabs" role="tablist">
+      <button class="small" role="tab" data-stream="stdout" aria-selected="true">stdout</button>
+      <button class="small" role="tab" data-stream="stderr" aria-selected="false">stderr</button>
+    </div>
+  </div>
+  <div class="dialog-body"><pre id="logs-output"></pre></div>
+  <div class="dialog-footer"><button id="logs-close">Close</button></div>
+</dialog>
+
+<script>
+  const list = document.getElementById('list');
+  const notice = document.getElementById('notice');
+  const editor = document.getElementById('editor');
+  const form = document.getElementById('form');
+  const formError = document.getElementById('form-error');
+  const logsDialog = document.getElementById('logs');
+  const logsOutput = document.getElementById('logs-output');
+
+  let processes = [];
+  let rendered = '';
+  let editingId = null;
+  let logs = { id: null, stream: 'stdout' };
+
+  const statusLabels = {
+    running: 'Running',
+    stopped: 'Stopped',
+    disabled: 'Disabled',
+    exited: 'Exited',
+    retrying: 'Retrying',
+  };
+
+  const element = (tag, props = {}, children = []) => {
+    const node = Object.assign(document.createElement(tag), props);
+    node.append(...children);
+    return node;
+  };
+
+  const showNotice = (message) => {
+    notice.textContent = message;
+    notice.hidden = !message;
+  };
+
+  const call = async (action, input) => {
+    try {
+      const result = await avi.invoke(action, input);
+      showNotice('');
+      return result;
+    } catch (error) {
+      showNotice(error.message);
+      throw error;
+    }
+  };
+
+  const describe = (process) => {
+    if (process.error) return { text: process.error, error: true };
+    if (process.status === 'running') {
+      return { text: `PID ${process.pid ?? '...'} · started ${new Date(process.startedAt).toLocaleTimeString()}` };
+    }
+    if (process.status === 'retrying') {
+      return { text: `Exited with code ${process.exitCode ?? '?'} · retrying at ${new Date(process.retryAt).toLocaleTimeString()}` };
+    }
+    if (process.exitCode != null) return { text: `Exited with code ${process.exitCode}`, error: process.exitCode !== 0 };
+    return null;
+  };
+
+  let menu = null;
+  let pendingRender = false;
+
+  const closeMenu = () => {
+    if (!menu) return;
+    menu.trigger.setAttribute('aria-expanded', 'false');
+    menu.node.remove();
+    menu = null;
+    if (pendingRender) render();
+  };
+
+  const openMenu = (trigger, process) => {
+    const wasOpen = menu?.trigger === trigger;
+    closeMenu();
+    if (wasOpen) return;
+
+    const running = process.status === 'running' || process.status === 'retrying';
+    const item = (label, onclick, props = {}) => element('button', {
+      type: 'button',
+      role: 'menuitem',
+      textContent: label,
+      onclick: () => {
+        closeMenu();
+        onclick();
+      },
+      ...props,
+    });
+
+    const node = element('div', { className: 'menu', role: 'menu' }, [
+      running
+        ? item('Stop', () => call('stop', { id: process.id }).then(update))
+        : item('Start', () => call('start', { id: process.id }).then(update), { disabled: !process.enabled }),
+      item('Restart', () => call('restart', { id: process.id }).then(update), { disabled: !process.enabled }),
+      item('Logs', () => openLogs(process)),
+      item('Edit', () => openEditor(process)),
+      element('hr'),
+      item('Remove', () => {
+        if (confirm(`Remove "${process.executable}"? A running process is stopped.`)) call('remove', { id: process.id }).then(update);
+      }, { className: 'danger' }),
+    ]);
+
+    document.body.append(node);
+    const anchor = trigger.getBoundingClientRect();
+    const below = anchor.bottom + 4 + node.offsetHeight <= window.innerHeight;
+    node.style.top = `${below ? anchor.bottom + 4 : Math.max(4, anchor.top - 4 - node.offsetHeight)}px`;
+    node.style.left = `${Math.max(4, anchor.right - node.offsetWidth)}px`;
+
+    trigger.setAttribute('aria-expanded', 'true');
+    menu = { node, trigger };
+    node.querySelector('button:not(:disabled)')?.focus();
+  };
+
+  document.addEventListener('pointerdown', (event) => {
+    if (menu && !menu.node.contains(event.target) && !menu.trigger.contains(event.target)) closeMenu();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !menu) return;
+    const { trigger } = menu;
+    closeMenu();
+    trigger.focus();
+  });
+  window.addEventListener('blur', closeMenu);
+  window.addEventListener('resize', closeMenu);
+  document.addEventListener('scroll', closeMenu, true);
+
+  const render = () => {
+    pendingRender = Boolean(menu);
+    if (pendingRender) return;
+
+    if (!processes.length) {
+      list.replaceChildren(element('div', { className: 'empty', textContent: 'No background processes yet.' }));
+      return;
+    }
+
+    list.replaceChildren(...processes.map((process) => {
+      const detail = describe(process);
+      const toggle = element('input', {
+        type: 'checkbox',
+        className: 'toggle',
+        checked: process.enabled,
+        title: process.enabled ? 'Disable' : 'Enable',
+        onchange: (event) => call('setEnabled', { id: process.id, enabled: event.target.checked })
+          .then(update, () => { event.target.checked = process.enabled; }),
+      });
+      toggle.setAttribute('aria-label', `${process.enabled ? 'Disable' : 'Enable'} ${process.executable}`);
+
+      return element('article', { className: `process ${process.enabled ? '' : 'disabled'}` }, [
+        element('div', { className: 'info' }, [
+          element('div', { className: 'title' }, [
+            element('strong', { textContent: process.executable, title: process.executable }),
+            element('span', { className: `status ${process.status}`, textContent: statusLabels[process.status] ?? process.status }),
+          ]),
+          element('div', {
+            className: 'meta',
+            textContent: [process.arguments, process.workingDirectory && `in ${process.workingDirectory}`].filter(Boolean).join(' ') || 'No arguments',
+          }),
+          ...(detail ? [element('div', { className: `detail ${detail.error ? 'error' : ''}`, textContent: detail.text })] : []),
+        ]),
+        element('div', { className: 'actions' }, [
+          element('label', { className: 'switch' }, [toggle]),
+          moreButton(process),
+        ]),
+      ]);
+    }));
+  };
+
+  const moreButton = (process) => {
+    const button = element('button', {
+      type: 'button',
+      className: 'icon-button',
+      title: 'Actions',
+      innerHTML: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+      onclick: () => openMenu(button, process),
+    });
+    button.setAttribute('aria-label', `Actions for ${process.executable}`);
+    button.setAttribute('aria-haspopup', 'menu');
+    button.setAttribute('aria-expanded', 'false');
+    return button;
+  };
+
+  const update = (next) => {
+    const serialized = JSON.stringify(next);
+    if (serialized === rendered) return;
+    rendered = serialized;
+    processes = next;
+    render();
+  };
+
+  const refresh = () => avi.invoke('list').then(update, (error) => showNotice(error.message));
+
+  const openEditor = (process) => {
+    editingId = process?.id ?? null;
+    document.getElementById('editor-title').textContent = process ? 'Edit process' : 'Add process';
+    form.executable.value = process?.executable ?? '';
+    form.arguments.value = process?.arguments ?? '';
+    form.workingDirectory.value = process?.workingDirectory ?? '';
+    form.retry.value = process?.retry ?? '5s';
+    form.enabled.checked = process?.enabled ?? true;
+    formError.hidden = true;
+    editor.showModal();
+    form.executable.focus();
+  };
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const submit = document.getElementById('submit');
+    submit.disabled = true;
+    try {
+      update(await avi.invoke('save', {
+        id: editingId,
+        executable: form.executable.value,
+        arguments: form.arguments.value,
+        workingDirectory: form.workingDirectory.value,
+        retry: form.retry.value,
+        enabled: form.enabled.checked,
+      }));
+      editor.close();
+    } catch (error) {
+      formError.textContent = error.message;
+      formError.hidden = false;
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  const loadLogs = async () => {
+    if (!logs.id) return;
+    const output = logsOutput;
+    const atBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 8;
+    const result = await avi.invoke('logs', { id: logs.id }).catch((error) => ({ stdout: error.message, stderr: error.message }));
+    output.textContent = result[logs.stream] || `No ${logs.stream} output.`;
+    if (atBottom) output.scrollTop = output.scrollHeight;
+  };
+
+  const openLogs = (process) => {
+    logs = { id: process.id, stream: 'stdout' };
+    document.getElementById('logs-title').textContent = `Logs · ${process.executable}`;
+    for (const tab of logsDialog.querySelectorAll('[role="tab"]')) tab.setAttribute('aria-selected', String(tab.dataset.stream === 'stdout'));
+    logsOutput.textContent = '';
+    logsDialog.showModal();
+    loadLogs().then(() => { logsOutput.scrollTop = logsOutput.scrollHeight; });
+  };
+
+  for (const tab of logsDialog.querySelectorAll('[role="tab"]')) {
+    tab.addEventListener('click', () => {
+      logs.stream = tab.dataset.stream;
+      for (const other of logsDialog.querySelectorAll('[role="tab"]')) other.setAttribute('aria-selected', String(other === tab));
+      loadLogs().then(() => { logsOutput.scrollTop = logsOutput.scrollHeight; });
+    });
+  }
+
+  logsDialog.addEventListener('close', () => { logs.id = null; });
+  document.getElementById('logs-close').addEventListener('click', () => logsDialog.close());
+  document.getElementById('cancel').addEventListener('click', () => editor.close());
+  document.getElementById('add').addEventListener('click', () => openEditor(null));
+
+  refresh();
+  setInterval(() => {
+    refresh();
+    loadLogs();
+  }, 1500);
+</script>
+</body>
+</html>

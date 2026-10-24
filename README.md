@@ -40,6 +40,7 @@ Avi is a harness built from scratch which brings model conversations, cross-prov
   - Trusted plugins integrate lifecycle hooks, domain APIs, storage, tools, events, interceptors, provider panels, and bot capabilities.
   - Plugins can declare settings sections rendered by Avi and backed by JSON Schema validation.
   - Plugin packages are validated before installation and loaded atomically at startup.
+  - Background Processes built-in plugin: run executables with Avi from a dedicated page, with retries, start/stop/restart, enable/disable, and the latest 10 KiB of stdout/stderr per process.
   - Child Processes plugin: start supervised command lines with Avi, with per-process start, stop, and restart controls, retries, and rotating stdout/stderr logs.
 - **AIVAX Features**: optional integration for persistent memory, advanced web tools, and remote conversation-search reranking.
   - Connect an AIVAX account and choose which external capabilities to enable.

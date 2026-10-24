@@ -1,0 +1,6 @@
+{
+  "id": "background-processes",
+  "name": "Background Processes",
+  "version": "1.0.0",
+  "description": "Run executables in the background while Avi is open, with retries, controls and recent stdout/stderr logs."
+}

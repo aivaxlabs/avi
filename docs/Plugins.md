@@ -75,6 +75,14 @@ Provides `computer_get_context`, `computer_focus_window`, `computer_toggle_sessi
 
 The desktop backend includes its own Electron overlay and native input/image/window dependencies; these increase installer size. macOS may require Accessibility and Screen Recording permissions; Linux focus support uses `xdotool` when available. Native behavior must be validated on each supported release platform.
 
+### Background Processes
+
+Runs executables in the background while Avi is open. After enabling it and restarting Avi, open **Background Processes** in the Activity Bar. Each process has an executable, optional arguments (one string passed as written; on macOS and Linux the command line is run by the system shell), an optional absolute working directory (defaulting to `$HOME`), a retry policy (**After 2 seconds**, **After 5 seconds**, or **Do not retry**), and an enabled state. Retries apply to every exit that was not requested from the page.
+
+Add or edit a process in its modal; saving restarts it with the new configuration when it is enabled. Each row can start, stop, restart, enable, disable, edit, or remove its process, and **Logs** shows the newest 10 KiB of stdout and stderr. Logs are kept in memory only. Stopping lasts until the process is started again, re-enabled, or Avi restarts; disabling persists.
+
+On Windows, each executable is a direct child of Avi in Avi's kill-on-close Job Object, so Windows terminates it and its descendants when Avi exits, crashes, or is killed, including by the installer. `.cmd` and `.bat` files run through `cmd.exe`. Stopping a process uses `taskkill /T /F`. On macOS and Linux, each process runs under a small supervisor connected to Avi through an IPC channel; when the process is stopped or Avi exits, the channel closes and the supervisor terminates the process group. Configuration is stored in the plugin's isolated storage. Processes run with your user permissions, so only add programs you trust.
+
 Run `bun run built-ins:prepare` before using enabled built-ins from a fresh development checkout. `bun run package` prepares dependencies automatically and requires packaging on the target OS and architecture. All runtime dependencies are included in the dedicated resources directory; the user's reference project paths are never used at runtime. Preparation runs the `get-windows` native addon installer only on Windows, retaining its source-build fallback for Windows ARM64. macOS and Linux keep their existing non-addon window-enumeration backends; Computer Use tool names, arguments, and results are unchanged.
 
 ## Other reference plugins

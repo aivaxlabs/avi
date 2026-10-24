@@ -12,6 +12,7 @@ import {
   PowerOff,
   RefreshCw,
   Settings2,
+  SquareTerminal,
   Trash2,
   Wrench,
 } from 'lucide-react';
@@ -139,7 +140,8 @@ export function PluginsSettings() {
                 <div className={`plugin-card-icon ${plugin.builtIn ? plugin.id : ''}`} aria-hidden="true">
                   {plugin.builtIn && plugin.id === 'chrome-integration' ? <Chrome size={23} />
                     : plugin.builtIn && plugin.id === 'computer-use' ? <Monitor size={23} />
-                      : <FileCode2 size={23} />}
+                      : plugin.builtIn && plugin.id === 'background-processes' ? <SquareTerminal size={23} />
+                        : <FileCode2 size={23} />}
                 </div>
                 <div className="plugin-card-main">
                   <div className="plugin-card-title"><strong>{plugin.name || plugin.id || plugin.fileName}</strong>{plugin.version && <span>{plugin.version}</span>}<span className={`plugin-status ${String(plugin.status || 'loaded').replaceAll(' ', '-')}`}>{plugin.status || 'loaded'}</span></div>
