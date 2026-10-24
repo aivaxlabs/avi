@@ -13,6 +13,12 @@ const AUTH_BASE_URL = 'https://auth.x.ai';
 const DEVICE_URL = `${AUTH_BASE_URL}/oauth2/device/code`;
 const TOKEN_URL = `${AUTH_BASE_URL}/oauth2/token`;
 const RESPONSES_URL = 'https://api.x.ai/v1/responses';
+const PROXY_BASE_URL = 'https://cli-chat-proxy.grok.com/v1';
+// Workaround: xAI has no official usage API for subscriptions. Usage is read from the Grok CLI
+// proxy, which rejects clients below its minimum Grok CLI version (1.0.13 as of 2026-10-22).
+// Raise this value when usage reports an outdated version; replace the proxy once xAI publishes
+// a supported usage endpoint. Inference does not use the proxy.
+const PROXY_CLIENT_VERSION = '1.0.13';
 const CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828';
 const SCOPE = 'openid profile email offline_access grok-cli:access api:access';
 const DEVICE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code';
@@ -73,13 +79,18 @@ export const xSubscriptionProviderType = defineProvider({
     modelsDescription: 'Grok 4.7, 4.6, 4.5, and 4.3; Grok Build 0.1.',
   },
   ...responsesApi,
-  getContributions: () => ({
+  getContributions: ({ provider, services }) => ({
     models: modelDefinitions.map((model) => ({
       ...model,
       modelId: model.id,
       capabilities: { images: true, audio: false, pdfFiles: true },
       enabled: true,
     })),
+    usageProviders: [{
+      id: 'usage',
+      title: `${provider.name} usage`,
+      load: () => readUsage(provider.id, services),
+    }],
   }),
   request: requestXSubscription,
   getState: getXSubscriptionState,
@@ -279,6 +290,92 @@ async function getTokens(providerId, services, forceRefresh = false) {
   }
 
   return refreshPromises.get(providerId);
+}
+
+async function requestProxyJson(providerId, path, services, userId) {
+  const send = async (forceRefresh = false) => {
+    const tokens = await getTokens(providerId, services, forceRefresh);
+    return fetch(`${PROXY_BASE_URL}${path}`, {
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${tokens.accessToken}`,
+        'User-Agent': USER_AGENT,
+        'X-XAI-Token-Auth': 'xai-grok-cli',
+        'x-grok-client-version': PROXY_CLIENT_VERSION,
+        'x-grok-client-mode': 'interactive',
+        ...(userId ? { 'x-userid': userId } : {}),
+      },
+    });
+  };
+
+  let response = await send();
+  if (response.status === 401) response = await send(true);
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 500);
+    throw new Error(`xAI usage request failed (${response.status})${detail ? `: ${detail}` : ''}`);
+  }
+  return response.json();
+}
+
+async function readUsage(providerId, services) {
+  const { userId } = await requestProxyJson(providerId, '/user', services);
+  if (typeof userId !== 'string' || !userId) {
+    throw new Error('xAI did not return the account identity required to read usage.');
+  }
+
+  const billing = await requestProxyJson(providerId, '/billing?format=credits', services, userId);
+  const config = billing?.config ?? {};
+  const cents = (value) => (value && typeof value === 'object' && Number.isFinite(Number(value.val ?? 0))
+    ? Number(value.val ?? 0)
+    : null);
+  const dollars = (value) => `$${(value / 100).toFixed(2)}`;
+  const used = cents(config.used);
+  const monthlyLimit = cents(config.monthlyLimit);
+  const onDemandUsed = cents(config.onDemandUsed);
+  const onDemandCap = cents(config.onDemandCap);
+  const prepaid = cents(config.prepaidBalance);
+  const percent = Number.isFinite(config.creditUsagePercent)
+    ? config.creditUsagePercent / 100
+    : used !== null && monthlyLimit > 0 ? used / monthlyLimit : null;
+  const resetAt = Date.parse(config.currentPeriod?.end ?? config.billingPeriodEnd ?? '');
+
+  return {
+    accountDetails: typeof billing?.subscriptionTier === 'string' && billing.subscriptionTier
+      ? `${billing.subscriptionTier} subscription`
+      : 'xAI subscription',
+    limits: [
+      ...(percent !== null
+        ? [{
+            label: 'Included usage',
+            amountConsumed: Math.max(0, Math.min(percent, 1)),
+            resetsAt: Number.isFinite(resetAt) ? new Date(resetAt) : null,
+          }]
+        : []),
+      ...(onDemandUsed !== null && onDemandCap > 0
+        ? [{
+            label: 'On-demand credits',
+            amountConsumed: Math.max(0, Math.min(onDemandUsed / onDemandCap, 1)),
+            resetsAt: Number.isFinite(resetAt) ? new Date(resetAt) : null,
+          }]
+        : []),
+    ],
+    counters: [
+      ...(used !== null
+        ? [{
+            label: 'Included credits',
+            description: 'Credits used in the current billing period.',
+            valueString: monthlyLimit !== null ? `${dollars(used)} of ${dollars(monthlyLimit)}` : dollars(used),
+          }]
+        : []),
+      ...(prepaid !== null && prepaid > 0
+        ? [{
+            label: 'Prepaid balance',
+            description: 'Prepaid credits available for on-demand usage.',
+            valueString: dollars(prepaid),
+          }]
+        : []),
+    ],
+  };
 }
 
 async function requestXSubscription({

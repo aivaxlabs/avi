@@ -28,6 +28,8 @@ Use a SuperGrok or X Premium subscription through xAI OAuth, the same sign-in us
 
 Requests use the xAI Responses API (`api.x.ai/v1/responses`) with the OAuth access token. The managed catalog includes Grok 4.7 (500,000 input tokens, reasoning up to `xhigh`); Grok 4.6, 4.5, and 4.3 (4.3 has a 1M context window); and Grok Build 0.1. xAI decides which models each subscription can use, so a model outside your plan returns an error from xAI.
 
+The provider also reports usage in the Composer usage indicator and `/usage`: included usage for the current billing period with its reset date, on-demand credits when a cap exists, included credits, and prepaid balance. xAI has no official usage API for subscriptions, so Avi reads it from the endpoint used by the Grok CLI; if xAI changes that endpoint, usage fails to load while chats keep working.
+
 Credentials are encrypted locally and refreshed automatically. **Disconnect** or removing the provider signs it out.
 
 ## OpenAI-compatible providers
