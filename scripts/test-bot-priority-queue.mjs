@@ -161,6 +161,24 @@ try {
   assert.ok(manager.enqueueThreadMessage(bot.conversationId, { sourceConversationId: 's', kind: 'mention', title: 'm', text: 'x', sourceMessageId: 'msg-1' }));
   assert.equal(manager.enqueueThreadMessage(bot.conversationId, { sourceConversationId: 's', kind: 'mention', title: 'm', text: 'x', sourceMessageId: 'msg-1' }), null);
 
+  // Next work item must consume a waiting priority item even after a priority activation.
+  database.clearBotPriorityQueue(bot.id);
+  database.updateBotScheduler(bot.id, { lastActivationKind: 'priority', status: 'active', idleUntil: 'clear' });
+  const indexBeforeNext = database.getBot(bot.id).workQueueIndex;
+  enqueue('thread:next-item', 'automatic queue item');
+  chatRunner.runs.delete(bot.conversationId);
+  await manager.activateBot(bot.id, { trigger: 'manual', force: true });
+  assert.match(requests.at(-1).text, /kind="priority"[\s\S]*automatic queue item/);
+  assert.doesNotMatch(requests.at(-1).text, /<focus-task>/);
+  assert.equal(database.getBot(bot.id).workQueueIndex, indexBeforeNext);
+  finishRun();
+  chatRunner.runs.delete(bot.conversationId);
+  await manager.activateBot(bot.id, { trigger: 'manual', force: true });
+  assert.match(
+    requests.at(-1).text,
+    new RegExp(`kind="work"[\\s\\S]*<focus-task>${database.getBot(bot.id).workQueue[indexBeforeNext]}</focus-task>`),
+  );
+
   await manager.fullResetBot(bot.id);
   assert.equal(manager.describePriorityQueue(bot.id).length, 0, 'full reset clears the priority queue');
 

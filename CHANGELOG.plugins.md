@@ -36,6 +36,7 @@
 - **Provider model instance identities** — `ModelConfig` snapshots now include Avi-managed `instanceId`; configured model `id` values may repeat and continue to be sent unchanged to inference, while catalog `ModelSnapshot.id` is qualified as `providerId:instanceId`. Compatibility: Backward compatible; supports API v2.
 
 ### Fixed
+- **Unfocused bot activation** — `bot.activate()` runs the next waiting priority item before the Work queue, including after a priority activation. Compatibility: Backward compatible; supports API v2.
 - **Provider removal and default models** — `provider.remove()` now also clears default model assignments that reference the removed provider, as removing a provider in Settings does. Model rules are kept. Compatibility: Backward compatible; supports API v2.
 - **Tool interruption** — when a run is stopped, Avi no longer waits for a plugin tool's `execute()` to settle: the call is recorded as interrupted as soon as `context.signal` aborts. Any later result is discarded, and side effects continue unless the tool honors `context.signal`. Compatibility: Backward compatible; supports API v2.
 - **Fork and activation lifecycle** — copied streaming messages become completed partial-response snapshots; bot activation clears the previous compaction summary and token counter when advancing its history boundary. Compatibility: Backward compatible; supports API v2.

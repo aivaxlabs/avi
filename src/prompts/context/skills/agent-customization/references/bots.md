@@ -10,7 +10,7 @@ Normal threads and Quick Chat can manage bots with:
 - `bots_create`: creates a persistent bot and main conversation.
 - `bots_update`: changes selected configuration fields without replacing the full configuration.
 - `bots_delete`: removes the bot, its main conversation, and pending approvals. Persistent files and work threads remain available. This is destructive and requires approval outside Full access.
-- `bots_activate`: starts an immediate activation while ignoring every automatic rule: enabled, period, idle, individual and global windows, Snoozes, activation limit, and FIFO capacity. An empty Work queue reviews the bot's full scope without a recurring focus task. It never starts a duplicate run for a bot that is already running.
+- `bots_activate`: starts an immediate activation while ignoring every automatic rule: enabled, period, idle, individual and global windows, Snoozes, activation limit, and FIFO capacity. Without `workQueueId`, a waiting priority item runs first; otherwise the next Work queue item runs. An empty Work queue and an empty priority queue review the bot's full scope without a recurring focus task. It never starts a duplicate run for a bot that is already running.
 
 These tools are intentionally unavailable inside autonomous bot conversations. A bot may coordinate its worker threads, but it must not create or control other bots.
 

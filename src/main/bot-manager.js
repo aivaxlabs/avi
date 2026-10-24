@@ -1086,9 +1086,14 @@ export class BotManager {
     }
     const priority = waiting.filter((item) => item.kind !== 'activation');
     if (chained) return priority[0] ? { kind: 'priority', item: priority[0] } : null;
-    // An unfocused explicit activation picks its work like the scheduler, ignoring work-queue pauses.
-    const workAvailable = Boolean(explicit) || !isWorkQueuePaused(bot);
-    if (priority.length === 0) return workAvailable ? { kind: 'work', item: explicit } : null;
+    // Next work item / unfocused Activate now consumes the automatic queue first.
+    // A waiting priority item runs even after a priority activation; the Work queue is only the fallback.
+    if (explicit) {
+      if (priority.length > 0) return { kind: 'priority', item: priority[0], explicit };
+      return { kind: 'work', item: explicit };
+    }
+    const workAvailable = !isWorkQueuePaused(bot);
+    if (priority.length === 0) return workAvailable ? { kind: 'work' } : null;
     if (bot.lastActivationKind === 'priority' && workAvailable && bot.workQueue.length > 0) {
       return { kind: 'work', item: explicit };
     }

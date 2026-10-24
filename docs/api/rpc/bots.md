@@ -338,7 +338,7 @@ Performs a destructive bot reset: stops descendant work, clears pending approval
 
 ## `bots:activate`
 
-Adds an explicit activation at the front of the priority queue and starts it immediately, bypassing enabled, individual and global activation-window, Snooze, period, idle, activation-limit, and FIFO capacity checks. When the bot is working, the activation starts right after the current run. Repeated requests merge into one item. Without `workQueueId`, it selects work exactly like a scheduled activation (waiting priority items and Work queue alternation) and does not start a duplicate run. With `workQueueId`, it runs that Work queue item. If it fails to start, the item is discarded.
+Adds an explicit activation at the front of the priority queue and starts it immediately, bypassing enabled, individual and global activation-window, Snooze, period, idle, activation-limit, and FIFO capacity checks. When the bot is working, the activation starts right after the current run. Repeated requests merge into one item. Without `workQueueId`, a waiting priority item runs first, even if the previous activation was also priority; the next Work queue item runs only when no priority item is waiting. It does not start a duplicate run. With `workQueueId`, it runs that Work queue item. If it fails to start, the item is discarded.
 
 ### Params
 

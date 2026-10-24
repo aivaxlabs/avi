@@ -62,7 +62,7 @@ bot.approvals.resolve(approvalId, decision): Promise<object>
 bot.tools.register(tool): Disposable
 ```
 
-`activate()` uses BotManager's normal activation path. When it advances the conversation's history boundary, it clears the previous compaction summary and token counter; Inbox and memory provide cross-activation continuity. It does not execute a custom plugin callback in place of the bot runtime. An empty `workQueue` activates without a recurring focus task. `update({ workQueueIndex })` selects the zero-based queue item for the next activation and rejects an index outside the effective queue. `update({ priorityAutoContinue })` controls whether a finished run continues with the next priority queue item. When the bot is working, `activate()` queues the explicit activation to start right after the current run.
+`activate()` uses BotManager's normal activation path. Without a Work queue focus, a waiting priority item runs first; otherwise the next Work queue item runs. When it advances the conversation's history boundary, it clears the previous compaction summary and token counter; Inbox and memory provide cross-activation continuity. It does not execute a custom plugin callback in place of the bot runtime. An empty `workQueue` and an empty priority queue activate without a recurring focus task. `update({ workQueueIndex })` selects the zero-based queue item for the next activation and rejects an index outside the effective queue. `update({ priorityAutoContinue })` controls whether a finished run continues with the next priority queue item. When the bot is working, `activate()` queues the explicit activation to start right after the current run.
 
 ## Inbox and Activity
 

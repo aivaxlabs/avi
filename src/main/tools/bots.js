@@ -257,7 +257,7 @@ export const botTools = [
   },
   {
     name: 'bots_activate',
-    description: 'Activate a bot explicitly. The activation becomes the bot’s next item: it starts immediately when the bot is free, or right after its current run otherwise. Explicit activation ignores every automatic scheduling rule: enabled state, period, idle, individual and global activation hours, Snoozes, activation limit, and FIFO capacity. With an empty work queue, the bot reviews its full scope.',
+    description: 'Activate a bot explicitly. The activation becomes the bot’s next item: it starts immediately when the bot is free, or right after its current run otherwise. Explicit activation ignores every automatic scheduling rule: enabled state, period, idle, individual and global activation hours, Snoozes, activation limit, and FIFO capacity. Without workQueueId, a waiting priority item runs first; otherwise the next Work queue item runs. With an empty work queue and no priority item, the bot reviews its full scope.',
     canEditFile: false,
     canPerformDestructiveActions: false,
     inputSchema: {
