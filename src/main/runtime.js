@@ -57,6 +57,7 @@ import {
   rotateRemoteApiKey,
   deleteAivaxAccessToken,
   deleteConversation,
+  deleteQuickChats,
   deleteProviderCredentials,
   deleteRemoteApiKey,
   forkConversation,
@@ -71,9 +72,11 @@ import {
   getArchiveStats,
   getAivaxAccessToken,
   getAivaxSettings,
+  getSemanticGrepStatus,
   getComposerDraft,
   getComposerState,
   getConversation,
+  promoteQuickChat,
   listSearchThreads,
   getFolderColors,
   getKeyboardShortcuts,
@@ -123,9 +126,11 @@ import {
   setThreadSearchManifest,
   setTuningSettings,
   updateConversation,
+  updateConversationProject,
   updateMessage,
 } from './database.js';
-import { indexAivaxDocuments, loginToAivax, requestAivax } from './aivax-client.js';
+import { importAivaxDocuments, loginToAivax, requestAivax } from './aivax-client.js';
+import { recommendSemanticGrepDirectories, SEMANTIC_GREP_SYNC_INTERVAL_MS, synchronizeSemanticGrep } from './semantic-grep.js';
 import {
   projectChatEventForClient,
   projectMessageForClient,
@@ -284,6 +289,7 @@ let aivaxModelCatalogExpiresAt = 0;
 let aivaxModelCatalogRequest = null;
 let threadSearchSyncInterval;
 let threadSearchSyncPromise = null;
+let semanticGrepSyncInterval;
 const botInitialization = Promise.withResolvers();
 const ipcHandlers = new Map();
 const remoteChatEventListeners = new Set();
@@ -361,6 +367,7 @@ app.on('before-quit', (event) => {
   clearInterval(resourceSnapshotInterval);
   memoryTraceProcess?.kill();
   clearInterval(threadSearchSyncInterval);
+  clearInterval(semanticGrepSyncInterval);
   botManager?.stop();
   for (const sessionId of [...quickChatWindows.keys(), ...quickQuestionSessions]) {
     quickChatRunner?.close(sessionId);
@@ -624,6 +631,10 @@ for (const failure of pluginManager.getFailures().filter((item) => String(item.e
 }
 threadSearchSyncInterval = setInterval(() => void synchronizeThreadSearchIndex(), THREAD_SEARCH_SYNC_INTERVAL_MS);
 threadSearchSyncInterval.unref();
+semanticGrepSyncInterval = setInterval(() => void synchronizeSemanticGrep(), SEMANTIC_GREP_SYNC_INTERVAL_MS);
+semanticGrepSyncInterval.unref();
+void synchronizeThreadSearchIndex();
+void synchronizeSemanticGrep();
 
 async function synchronizeThreadSearchIndex() {
   const settings = getAivaxSettings();
@@ -640,15 +651,15 @@ async function synchronizeThreadSearchIndex() {
       nextManifest,
     );
     try {
-      const response = await indexAivaxDocuments(collectionId, documents);
+      const response = await importAivaxDocuments(collectionId, documents, { sync: true });
       setThreadSearchManifest(collectionId, nextManifest);
       traceInfo('aivax.thread-search-index-completed', {
-        consumed_credits: response.consumedCredits,
         document_count: documents.length,
+        documents_received: response.received,
         documents_indexed: changes.added,
-        documents_updated: changes.updated,
-        documents_skipped: response.data.skipped ?? changes.skipped,
-        documents_removed: changes.removed,
+        documents_updated: response.updated,
+        documents_skipped: response.skipped,
+        documents_removed: response.removed,
         duration_ms: Date.now() - startedAt,
       });
       return response;
@@ -751,6 +762,11 @@ function sendChatEvent(payload) {
   }
   const clientEvent = projectChatEventForClient(payload);
   sendRendererEvent('chat:event', clientEvent);
+  const quickWindow = quickChatWindows.get(payload.conversationId)
+    ?? quickChatWindows.get(payload.conversation?.id);
+  if (quickWindow && !quickWindow.isDestroyed() && quickWindow.webContents !== mainWindow?.webContents) {
+    quickWindow.webContents.send('chat:event', clientEvent);
+  }
   for (const listener of remoteChatEventListeners) listener(clientEvent);
 }
 
@@ -782,7 +798,11 @@ async function executeShortcut(shortcut, contents = BrowserWindow.getFocusedWind
     return;
   }
   if (shortcut.id === 'quick-chat') {
-    createQuickChatWindow();
+    void createQuickChatWindow().catch((error) => {
+      traceError('quick-chat.open-failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
     return;
   }
   if (!contents || contents.isDestroyed()) return;
@@ -794,19 +814,33 @@ async function executeShortcut(shortcut, contents = BrowserWindow.getFocusedWind
   contents.send('shortcuts:execute', { id: shortcut.id });
 }
 
-function createQuickChatWindow() {
+async function createQuickChatWindow(projectPath) {
   initializeServices();
-  const session = quickChatRunner.createSession();
+  const model = quickChatRunner.resolveInitialModel();
+  let directory = homedir();
+  if (projectPath) {
+    const resolved = resolve(String(projectPath));
+    const info = await lstat(resolved).catch(() => null);
+    if (!info?.isDirectory()) throw new Error('Quick chat directory does not exist.');
+    directory = resolved;
+  }
+  const conversation = createConversation({
+    title: 'Quick chat',
+    model,
+    projectPath: directory,
+    conversationType: 'quick',
+    titleStatus: 'pending',
+  });
   const icon = nativeImage.createFromPath(join(__dirname, '../../assets/icon/avi-bg.png'));
   const quickWindow = new BrowserWindow({
     title: 'Quick chat',
-    width: 540,
-    height: 680,
-    minWidth: 380,
-    minHeight: 460,
+    width: 720,
+    height: 780,
+    minWidth: 420,
+    minHeight: 520,
     frame: true,
     show: false,
-    maximizable: false,
+    maximizable: true,
     fullscreenable: false,
     icon,
     webPreferences: {
@@ -816,11 +850,15 @@ function createQuickChatWindow() {
       sandbox: true,
     },
   });
-  quickChatWindows.set(session.id, quickWindow);
+  quickChatWindows.set(conversation.id, quickWindow);
   quickWindow.setMenu(null);
   quickWindow.on('closed', () => {
-    quickChatWindows.delete(session.id);
-    quickChatRunner.close(session.id);
+    quickChatWindows.delete(conversation.id);
+    const current = getConversation(conversation.id);
+    if (!current?.isQuickChat) return;
+    chatRunner.stop(conversation.id);
+    chatRunner.removeConversationSemaphores([conversation.id]);
+    deleteConversation(conversation.id, { hard: true });
   });
   quickWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url);
@@ -836,14 +874,14 @@ function createQuickChatWindow() {
   if (process.env.VITE_DEV_SERVER_URL) {
     const url = new URL(process.env.VITE_DEV_SERVER_URL);
     url.searchParams.set('window', 'quick-chat');
-    url.searchParams.set('session', session.id);
+    url.searchParams.set('conversation', conversation.id);
     void quickWindow.loadURL(url.href);
   } else {
     void quickWindow.loadFile(join(app.getAppPath(), 'dist', 'index.html'), {
-      query: { window: 'quick-chat', session: session.id },
+      query: { window: 'quick-chat', conversation: conversation.id },
     });
   }
-  return { sessionId: session.id };
+  return { conversationId: conversation.id, sessionId: conversation.id };
 }
 
 function createWindow() {
@@ -966,6 +1004,24 @@ function initializeServices() {
             .includes(payload.type)
           || (payload.type === 'message' && payload.message?.role === 'user')
         ) refreshTrayMenu();
+
+        if (
+          payload.type !== 'question-request'
+          || !getPreferences().desktop?.notifyOnCompletion
+          || !Notification.isSupported()
+        ) return;
+
+        try {
+          new Notification({
+            title: getConversation(payload.conversationId)?.title || 'Avi',
+            body: payload.questions?.[0]?.question?.trim() || 'The agent is waiting for your answer.',
+          }).show();
+        } catch (error) {
+          traceError('desktop.question-notification-error', {
+            conversation_id: payload.conversationId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       },
       sendCompletionNotification: ({ conversation, message }) => {
         if (!getPreferences().desktop?.notifyOnCompletion || !Notification.isSupported()) return;
@@ -1024,6 +1080,7 @@ function initializeServices() {
     botManager.attachChatRunner(chatRunner);
   }
   if (!quickChatRunner) {
+    deleteQuickChats();
     quickChatRunner = new QuickChatRunner({
       registry: providerRegistry,
       mcpManager,
@@ -1220,7 +1277,13 @@ function refreshTrayMenu() {
   });
   tray.setContextMenu(Menu.buildFromTemplate([
     ...(recentChats.length > 0 ? [...recentChats, { type: 'separator' }] : []),
-    { label: 'Quick chat', click: createQuickChatWindow },
+    { label: 'Quick chat', click: () => {
+      void createQuickChatWindow().catch((error) => {
+        traceError('quick-chat.open-failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    } },
     { label: 'Open Avi', click: showMainWindow },
     { type: 'separator' },
     { label: 'Settings', click: () => openMainView({ view: 'settings' }) },
@@ -1323,7 +1386,18 @@ function registerIpc() {
     }
     return sessionId;
   };
-  applicationIpc.handle('quick-chat:open', () => createQuickChatWindow());
+  applicationIpc.handle('quick-chat:open', (_event, payload) => (
+    createQuickChatWindow(typeof payload === 'string' ? payload : payload?.projectPath)
+  ));
+  applicationIpc.handle('quick-chat:fork', async (event, conversationId) => {
+    const id = ownedQuickChatSession(event, conversationId);
+    const conversation = promoteQuickChat(id);
+    if (!conversation) throw new Error('This Quick chat cannot be converted to a thread.');
+    const refreshed = await refreshConversationProject(conversation);
+    openMainView({ view: 'conversation', conversationId: refreshed.id });
+    quickChatWindows.get(id)?.close();
+    return { conversation: refreshed };
+  });
   applicationIpc.handle('quick-chat:state', (event, sessionId) => (
     quickChatRunner.state(ownedQuickChatSession(event, sessionId))
   ));
@@ -1538,10 +1612,11 @@ function registerIpc() {
 
   const aivaxState = async () => {
     const connected = Boolean(getAivaxAccessToken());
-    if (!connected) return { connected, account: null, settings: getAivaxSettings() };
+    const semanticGrep = getSemanticGrepStatus();
+    if (!connected) return { connected, account: null, settings: getAivaxSettings(), semanticGrep };
     try {
       const account = await requestAivax('/api/v1/information/balance', { responseType: 'object' });
-      return { connected, account, settings: getAivaxSettings() };
+      return { connected, account, settings: getAivaxSettings(), semanticGrep };
     } catch (error) {
       if (error?.status !== 401) throw error;
       deleteAivaxAccessToken();
@@ -1555,7 +1630,7 @@ function registerIpc() {
         imageGenerationEnabled: false,
         audioGenerationEnabled: false,
       });
-      return { connected: false, account: null, settings };
+      return { connected: false, account: null, settings, semanticGrep: getSemanticGrepStatus() };
     }
   };
   applicationIpc.handle('aivax:state', aivaxState);
@@ -1571,7 +1646,8 @@ function registerIpc() {
     setAivaxAccessToken(login.accessToken);
     await synchronizeRemoteRelay();
     void synchronizeThreadSearchIndex();
-    return { connected: true, account, settings: getAivaxSettings() };
+    void synchronizeSemanticGrep();
+    return { connected: true, account, settings: getAivaxSettings(), semanticGrep: getSemanticGrepStatus() };
   });
   applicationIpc.handle('aivax:disconnect', async () => {
     deleteAivaxAccessToken();
@@ -1585,18 +1661,26 @@ function registerIpc() {
       imageGenerationEnabled: false,
       audioGenerationEnabled: false,
     });
-    return { connected: false, account: null, settings };
+    return { connected: false, account: null, settings, semanticGrep: getSemanticGrepStatus() };
   });
   applicationIpc.handle('aivax:save', (_event, settings) => {
     if (!getAivaxAccessToken()) throw new Error('Connect an AIVAX account first.');
-    const previousCollectionId = getAivaxSettings().threadSearchCollectionId;
+    const previous = getAivaxSettings();
     const saved = setAivaxSettings(settings);
     if (
       saved.threadSearchCollectionId
-      && saved.threadSearchCollectionId !== previousCollectionId
+      && saved.threadSearchCollectionId !== previous.threadSearchCollectionId
     ) void synchronizeThreadSearchIndex();
+    const directoriesChanged = saved.semanticGrepDirectories.join('\0') !== previous.semanticGrepDirectories.join('\0');
+    if (
+      saved.semanticGrepCollectionId
+      && saved.semanticGrepDirectories.length > 0
+      && (directoriesChanged || saved.semanticGrepCollectionId !== previous.semanticGrepCollectionId)
+    ) void synchronizeSemanticGrep();
     return saved;
   });
+  applicationIpc.handle('aivax:semantic-grep:status', () => getSemanticGrepStatus());
+  applicationIpc.handle('aivax:semantic-grep:recommendations', () => recommendSemanticGrepDirectories());
   applicationIpc.handle('aivax:collections', () => requestAivax('/api/v1/collections', {
     responseType: 'array',
   }));
@@ -3032,8 +3116,21 @@ function registerIpc() {
     clearWorkspaceMentionCache();
     return { ...await inspectProjectFolder(workspace.path), folders: workspace.folders };
   });
-  applicationIpc.handle('projects:select', async (_event, payload = {}) => {
-    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+  applicationIpc.handle('conversations:set-project', async (_event, payload = {}) => {
+    const conversation = getConversation(payload.conversationId);
+    if (!conversation?.isQuickChat) {
+      throw new Error('Only a Quick chat can change its directory.');
+    }
+    const info = await lstat(resolve(String(payload.projectPath ?? ''))).catch(() => null);
+    if (!info?.isDirectory()) throw new Error('Quick chat directory does not exist.');
+    return refreshConversationProject(updateConversationProject(
+      conversation.id,
+      payload.projectPath,
+    ));
+  });
+  applicationIpc.handle('projects:select', async (event, payload = {}) => {
+    const owner = BrowserWindow.fromWebContents(event.sender) ?? mainWindow;
+    const { canceled, filePaths } = await dialog.showOpenDialog(owner, {
       defaultPath: payload.defaultPath || homedir(),
       properties: ['openDirectory'],
     });

@@ -614,6 +614,21 @@ try {
   assert.ok(quickChatCustomContext.includes('<quick_chat_user_instructions>'));
   assert.ok(quickChatCustomContext.includes('\nDelegate project requests to their folder thread.\n</quick_chat_user_instructions>'));
   assert.ok(quickChatCustomContext.indexOf('Quick Chat is not read-only') < quickChatCustomContext.indexOf('<quick_chat_user_instructions>'));
+  assert.ok(!quickChatCustomContext.includes('# AGENTS.md'));
+
+  const quickChatThreadContext = await resolveDynamicContext({
+    quickChatThread: true,
+    workspacePath: root,
+    traceOperation: 'chat',
+    orchestrationRole: 'orchestrator',
+    tuning: { quickChatInstructions: 'Route folder work locally.' },
+  });
+  assert.ok(quickChatThreadContext.includes('When a working directory is selected'));
+  assert.ok(quickChatThreadContext.includes('set_directory'));
+  assert.ok(quickChatThreadContext.includes('# AGENTS.md'));
+  assert.ok(quickChatThreadContext.includes('<quick_chat_user_instructions>'));
+  assert.ok(quickChatThreadContext.includes('Route folder work locally.'));
+  assert.ok(quickChatThreadContext.indexOf('When a working directory is selected') < quickChatThreadContext.indexOf('# AGENTS.md'));
   assert.ok(!(await resolveDynamicContext({
     quickChat: true,
     quickQuestion: true,

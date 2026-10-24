@@ -157,6 +157,7 @@ export function Composer({
   onChooseModel,
   project,
   projectLocked,
+  projectSelectable = false,
   showProject = true,
   onChooseProject,
   onUseHome,
@@ -179,6 +180,7 @@ export function Composer({
   botMode = false,
   onShowBotInPanel,
   onCancel,
+  floatActions = null,
 }) {
   const [text, setText] = useState(initialState?.text ?? '');
   const [attachments, setAttachments] = useState(() => initialState?.attachments ?? []);
@@ -1277,6 +1279,7 @@ export function Composer({
       ref={containerRef}
       className={`composer-wrap${inline ? ' inline-composer-wrap' : ''}`}
     >
+      {floatActions}
       <Presence when={previewAttachment}>{(attachment) => (
         <AttachmentLightbox attachment={attachment} onClose={() => setPreviewAttachment(null)} />
       )}</Presence>
@@ -2425,11 +2428,11 @@ export function Composer({
           <button
           className="project-picker"
           type="button"
-          disabled={projectLocked || projectSelecting}
-          title={projectLocked
+          disabled={(projectLocked && !projectSelectable) || projectSelecting}
+          title={projectLocked && !projectSelectable
             ? 'The project folder is fixed after the conversation starts.'
             : `Choose project folder · ${project?.displayPath ?? '~/'}`}
-          aria-label={projectLocked
+          aria-label={projectLocked && !projectSelectable
             ? `Project folder: ${project?.displayPath ?? '~/'}. Fixed for this conversation.`
             : `Choose project folder. Current folder: ${project?.displayPath ?? '~/'}`}
             aria-expanded={projectMenuOpen}
@@ -2448,9 +2451,9 @@ export function Composer({
               <span>{project.gitBranch}</span>
             </span>
           )}
-          {projectLocked && <LockKeyhole className="project-picker-lock" size={12} />}
+          {projectLocked && !projectSelectable && <LockKeyhole className="project-picker-lock" size={12} />}
           </button>
-          <Presence when={projectMenuOpen && !projectLocked}>{() => (
+          <Presence when={projectMenuOpen && (!projectLocked || projectSelectable)}>{() => (
             <Overlay
               className="project-picker-menu"
               role="dialog"

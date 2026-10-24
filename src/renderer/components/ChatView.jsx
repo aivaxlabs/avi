@@ -38,6 +38,7 @@ import { QuestionForm } from './QuestionForm.jsx';
 
 const HISTORY_BATCH_SIZE = 4;
 const HISTORY_LOAD_THRESHOLD = 80;
+const MESSAGE_MARKERS_MIN_WIDTH = 900;
 
 const MessageRow = memo(function MessageRow({
   message,
@@ -239,6 +240,7 @@ export const ChatView = memo(function ChatView({
   onOpenInbox,
   onShowBotInPanel,
   onChooseProject,
+  allowProjectChange = false,
   onUseHome,
   onToggleFavorite,
   workMode,
@@ -254,6 +256,9 @@ export const ChatView = memo(function ChatView({
   messageDeliveryMode = 'queue',
   defaultPermissionMode = 'approve_for_me',
   continuationRepliesEnabled = true,
+  composerFloat = null,
+  emptyHint = '',
+  homeEmpty = true,
   compact = false,
   emptyBackgroundEnabled = true,
   emptyBackgroundThemeKey,
@@ -267,6 +272,7 @@ export const ChatView = memo(function ChatView({
   const dragDepthRef = useRef(0);
   const approvalCardRef = useRef(null);
   const [fileDropActive, setFileDropActive] = useState(false);
+  const [markersFit, setMarkersFit] = useState(true);
   const [droppedFiles, setDroppedFiles] = useState(null);
   const [selectionAction, setSelectionAction] = useState(null);
   const [selectionAnnotation, setSelectionAnnotation] = useState('');
@@ -491,6 +497,16 @@ export const ChatView = memo(function ChatView({
     observer.observe(composerRef.current);
     return () => observer.disconnect();
   }, [currentConversation?.id]);
+
+  useEffect(() => {
+    if (!chatAreaRef.current) return undefined;
+
+    const observer = new ResizeObserver(([entry]) => {
+      setMarkersFit(entry.contentRect.width >= MESSAGE_MARKERS_MIN_WIDTH);
+    });
+    observer.observe(chatAreaRef.current);
+    return () => observer.disconnect();
+  }, [compact]);
 
   useEffect(() => {
     const canvas = emptyBackgroundRef.current;
@@ -794,7 +810,7 @@ export const ChatView = memo(function ChatView({
   return (
     <Root
       ref={chatAreaRef}
-      className={`chat-area ${compact ? 'auxiliary-chat-view' : ''} ${isEmptyChat ? 'chat-empty' : ''} ${isEmptyChat && !compact ? 'chat-empty-home' : ''}`}
+      className={`chat-area ${compact ? 'auxiliary-chat-view' : ''} ${isEmptyChat ? 'chat-empty' : ''} ${isEmptyChat && homeEmpty && !compact ? 'chat-empty-home' : ''}`}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -819,7 +835,7 @@ export const ChatView = memo(function ChatView({
           aria-hidden="true"
         />
       )}
-      {messagesLoaded && (
+      {messagesLoaded && markersFit && (
         <MessageMarkers messages={humanMessages} onSelect={handleMarkerSelect} />
       )}
       {fileDropActive && (
@@ -848,7 +864,8 @@ export const ChatView = memo(function ChatView({
         ) : isEmptyChat ? (
           <div className="empty-chat">
             <h1>How can I help you today?</h1>
-            {!compact && <EmptyChatSummary
+            {emptyHint && <p>{emptyHint}</p>}
+            {!compact && homeEmpty && <EmptyChatSummary
               bots={bots} botDataByBot={botDataByBot} botsLoading={botsLoading} botsError={botsError}
               onOpenInbox={onOpenInbox} />}
           </div>
@@ -1101,6 +1118,8 @@ export const ChatView = memo(function ChatView({
       </div>
       <MemoizedComposer
         containerRef={composerRef}
+        projectSelectable={allowProjectChange}
+        floatActions={composerFloat}
         conversationId={currentConversation?.id ?? null}
         isRunning={isRunning}
         onSend={onSend}

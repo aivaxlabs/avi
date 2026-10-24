@@ -22,7 +22,7 @@ All Desktop options are disabled by default:
 
 - **Keep Avi in the background** — closing the window hides it in the tray;
 - **Start Avi on logon** — starts Avi hidden with the operating system;
-- **Notify when a conversation finishes** — shows a system notification after a user-created main thread finishes and none of its sub-agents are still running;
+- **Notify when a conversation finishes or asks a question** — shows a system notification after a user-created main thread finishes and none of its sub-agents are still running, and whenever an agent asks a question in the chat (`ask_question`), with the first question as its text;
 - **Transparent sidebar**, under **Settings → Personalization → Mode** — uses the supported operating-system window effect and active theme surfaces.
 
 Desktop toggles save immediately. Chat, Tuning, Personality, and Verbosity changes require **Save changes**.
@@ -62,7 +62,7 @@ Side chats also run quick compaction automatically before a response when their 
 
 ## Tuning → Quick Chat
 
-**Quick Chat instructions** accepts up to 20,000 characters of plain text, empty by default. Avi adds it after the built-in Quick Chat prompt in every Quick Chat window and `quick_chat_invoke` call, and the model follows it as direct user instructions. Quick Chat does not load `AGENTS.md` or other instruction files, so use this field for rules such as routing project requests to threads in their folders. Quick questions do not receive it.
+**Quick Chat instructions** accepts up to 20,000 characters of plain text, empty by default. Avi adds it after the built-in Quick Chat prompt in every Quick Chat window and `quick_chat_invoke` call, and the model follows it as direct user instructions. A Quick Chat window also loads the selected directory's instruction files. Use this field for rules that should apply even when no directory is selected, including headless `quick_chat_invoke`. Quick questions do not receive it.
 
 ## Tuning → Diagnostics
 

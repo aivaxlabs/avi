@@ -795,6 +795,16 @@ export const Sidebar = memo(function Sidebar({
                   >
                     Copy path
                   </DropdownMenuItem>
+                  <DropdownMenuItem
+                    icon={<Zap size={14} />}
+                    role="menuitem"
+                    onClick={() => {
+                      setFolderMenu(null);
+                      onQuickChat(group.preset.project);
+                    }}
+                  >
+                    Quick chat
+                  </DropdownMenuItem>
                   <div className="dropdown-menu-divider" role="separator" />
                   <DropdownMenuItem
                     icon={<FolderCog size={14} />}

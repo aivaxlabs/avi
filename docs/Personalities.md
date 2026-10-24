@@ -25,7 +25,7 @@ Select **Save changes**. Unlike theme changes, personality and verbosity changes
 
 ## Behavior and precedence
 
-The selected personality and verbosity are stored as Tuning preferences. Personality is injected into ordinary conversations; verbosity is injected into ordinary conversations and Quick Chat. Unknown personalities fall back to None; missing or invalid verbosity values fall back to Medium.
+The selected personality and verbosity are stored as Tuning preferences. Personality is injected into ordinary conversations and Quick Chat windows. Verbosity is injected into those and into headless Quick Chat calls. Unknown personalities fall back to None; missing or invalid verbosity values fall back to Medium.
 
 Verbosity changes presentation detail, not reasoning effort or work quality. Low still requires material risks, uncertainty, failed validation, and blockers to be disclosed. High asks for more structure and supporting detail, but not repeated conclusions, routine tool narration, or generic background.
 

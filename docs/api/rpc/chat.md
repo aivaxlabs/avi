@@ -165,6 +165,15 @@ Quick questions are Desktop-only and have no RPC, MCP, or Core API method. The m
 | `close(sessionId)` | `quick-question:close` | Stops and discards the session. Returns `false` for an unknown session. |
 | `onEvent(callback)` | `quick-question:event` | Receives `message`, `run-state`, and `error` events with `sessionId`, in the same shapes as `quick-chat:event`. |
 
+The Quick Chat window is also desktop-only. It is a temporary thread, not an in-memory session. `window.chatApp.quickChat`:
+
+| Method | Logical IPC | Description |
+| --- | --- | --- |
+| `open(payload?)` | `quick-chat:open` | Opens a maximizable window. `payload` may be `{ projectPath }` for an existing directory; omitted, it starts in `$HOME`. Returns `{ conversationId, sessionId }`. Rejects when the Quick chat model is missing or the directory does not exist. |
+| `fork(conversationId)` | `quick-chat:fork` | Converts that window's temporary conversation into an ordinary thread, opens it in the main window, and closes the Quick Chat window without deleting it. The caller must own the window. Returns `{ conversation }`. |
+
+`window.chatApp.conversations.setProject({ conversationId, projectPath })` changes the directory of a Quick Chat only. Later turns and `set_directory` use the same project path. Ordinary threads remain fixed after creation. The window receives the same `chat:event` stream as the main window for its conversation, and uses `window.chatApp.chat` for send, stop, retry, compaction, questions, and approvals.
+
 ## `chat:answer-question`
 
 Answers or cancels a pending structured question request.

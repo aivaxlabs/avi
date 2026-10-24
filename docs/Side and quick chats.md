@@ -6,13 +6,13 @@ Side Chat and Quick Chat are both temporary surfaces, but they have different st
 
 | | Side Chat | Quick Chat |
 |---|---|---|
-| Origin | Fork of an existing thread | Independent window |
-| Storage | SQLite while the side chat remains open | In-memory session only |
-| Initial context | Copies visible history and checkpoint | Reduced instructions; tools use `$HOME` |
-| Visibility | Private and absent from the orchestration team directory | Absent from conversations, search, and Archive |
-| Closing | Interrupts and hard-deletes the child thread | Discards the in-memory session |
-| Initial model | Inherited from the fork | Requires a configured Quick chat model |
-| Tool permissions | Has its own composer state; approvals appear inline in its panel | Available tools run in Full access without approval cards |
+| Origin | Fork of an existing thread | Independent window, optionally opened from a folder |
+| Storage | SQLite while the side chat remains open | Temporary thread, hard-deleted on close unless forked |
+| Initial context | Copies visible history and checkpoint | Same directory context as a thread, plus Quick Chat instructions |
+| Visibility | Private and absent from the orchestration team directory | Absent until **Fork in thread** |
+| Closing | Interrupts and hard-deletes the child thread | Interrupts and hard-deletes the thread unless it was forked |
+| Initial model | Inherited from the fork | Requires a configured Quick chat model; the composer can change it |
+| Tool permissions | Has its own composer state; approvals appear inline in its panel | Same composer permission mode, approvals, compaction, and retry as a thread |
 
 ## Side Chat
 
@@ -28,17 +28,17 @@ A side chat defaults to exploration and discussion, preferring to propose delega
 
 First select **Settings → Models → Auxiliar models → Quick chat model**. There is no automatic model fallback.
 
-Open **Quick chat** from the Sidebar or tray. The window supports model switching, attachments and drag-and-drop, audio recording, stopping a response, and answering structured questions. Its conversation disappears when the window closes and is never added to Archive or conversation search.
+Open **Quick chat** from the Sidebar, the tray, or a folder's right-click menu. The folder action opens the window already in that directory. The window can be maximized. It uses the same chat and composer as a normal thread: model switching, directory selection, attachments, recording, queueing, approvals, compaction, retry, Goals, and structured questions.
 
-Quick Chat uses `$HOME` as the tool and MCP workspace. Although its instructions emphasize speed and restraint, all available normal tools, provider tools, and MCP tools run in Full access without approval cards. Ephemeral storage does not mean the session cannot cause external effects; review the requested work and configured integrations before using Quick Chat.
+A new window starts in the chosen directory, or in `$HOME` when opened without one. The composer directory picker and the `set_directory` tool both change it. The next step then loads that directory's instructions, skills, workflows, and MCP servers. Sibling tool calls in the same step still use the previous directory.
 
-Quick Chat can implement changes, edit files, execute scripts or commands, and perform operations, including on external systems, when you explicitly request them. A question or discussion alone does not authorize actions. An explicit request covers the tool steps needed to complete it; you do not need to name each tool or move the work to a full thread. Quick Chat can inspect threads across all folders, but it is not focused on any single thread. It can create threads and direct main threads or their sub-agents when your request or the Quick Chat instructions call for it. Answers stay concise without leaving requested work unfinished.
+Quick Chat instructions are added on top of that context. They still emphasize speed and restraint: implement changes, edit files, execute scripts or commands, and perform operations, including on external systems, only when you explicitly request them. A question or discussion alone does not authorize actions. An explicit request covers the tool steps needed to complete it. Quick Chat can inspect threads across folders, but it is not focused on any single thread. It can create threads and direct main threads or their sub-agents when your request or the Quick Chat instructions call for it.
 
-Quick Chat does not load `AGENTS.md` or other instruction files. To give it standing rules, write them in **Settings → Tuning → Quick Chat → Quick Chat instructions**; they apply to the Quick Chat window and to `quick_chat_invoke`.
+The window is temporary. Closing it interrupts the run and permanently deletes the conversation, including from search and Archive. After the first message, **Fork in thread** floats above the composer and converts that same conversation into an ordinary thread, then opens it in the main window. Forked threads are kept when the Quick Chat window closes.
 
-Quick Chat can create ordinary threads or sub-agents and can keep Tasks or Goal state in memory. Session-only state does not survive closing the window.
+Model rules for the main role apply to the window. Side Chat remains a separate full chat and also uses the `main` role.
 
-Model rules do not apply to Quick Chat. Side Chat is a full chat for rule matching and uses the `main` role.
+`quick_chat_invoke` is different: it still runs one headless turn in `$HOME` with reduced instructions, full access, and no `set_directory`, then discards the session. Quick questions stay read-only and do not load directory instructions or Quick Chat instructions.
 
 ## Quick questions
 
@@ -51,7 +51,7 @@ A Quick question is a small popover for asking about something you selected, ans
 
 The question receives the selection plus where it came from: the folder, the source thread, or the bot and work log. File references include the file's text (up to 40,000 characters), folder references include a listing, and Git Review tree items include the file diff or the list of changed files. For text selected in a chat or side chat, the question also receives the source thread history up to and including the selected message (from its latest compaction checkpoint), so the model does not need to inspect the thread. When that history reaches the automatic compaction threshold minus 10% of the Quick chat model's context, older tool results are quick-compressed for the question only; the source thread is not changed. Press **Enter** to ask and **Shift+Enter** for a new line. You can keep asking follow-ups in the same popover; the selection stays in context.
 
-Quick questions are read-only. Instructions favor short, direct, accurate answers, and the model can use only `read_file`, `read_media_file`, `read_url`, `web_search`, `memory_search`, `chat_list_folders`, `chat_list_threads`, `chat_inspect_thread`, and `bots_read_work_log` when the selection is not enough. Availability of media, web, and memory tools follows the same rules as Quick Chat. MCP, plugin, and provider tools are not offered.
+Quick questions are read-only. Instructions favor short, direct, accurate answers, and the model can use only `file_search`, `read_file`, `read_media_file`, `read_url`, `web_search`, `memory_search`, `chat_list_folders`, `chat_list_threads`, `chat_inspect_thread`, and `bots_read_work_log` when the selection is not enough. Availability of media, web, memory, and Semantic Grep tools follows the same rules as Quick Chat. MCP, plugin, and provider tools are not offered.
 
 **Fork to thread** creates an ordinary thread in the source folder with the questions, answers, and selected context, then opens it so you can continue with full tools. A question about chat text forks the source thread through the selected message and appends the questions and answers after it, keeping the prior conversation. **Close** or **Esc** stops any answer and discards the session. Unforked sessions are never saved and are discarded when the main window reloads or closes.
 

@@ -555,7 +555,7 @@ export default function App() {
         setProviderTypes(nextProviderTypes);
         setModels(nextModels);
         setFavorites(nextFavorites);
-        setMcpState(nextMcpState);
+        setMcpState((current) => current ?? nextMcpState);
         hydrateLiveRuns(nextChatState);
         setApprovalRequests(nextChatState.approvals ?? []);
         setQuestionRequests(nextChatState.questions ?? []);
@@ -822,6 +822,8 @@ export default function App() {
               ? upsertById(state, event.conversation)
               : state
           ));
+        } else if (event.conversation.isQuickChat) {
+          // The Quick chat window owns this temporary conversation.
         } else if (event.conversation.isSideChat) {
           setSideChats((state) => (
             state.some((sideChat) => sideChat.id === event.conversation.id)
@@ -2184,7 +2186,9 @@ export default function App() {
   const sidebarOnSetFolderColor = useStableCallback(setFolderColor);
   const sidebarOnSaveChatTags = useStableCallback(saveChatTags);
   const orchestrationOnRefreshBots = useStableCallback(refreshBots);
-  const sidebarOnQuickChat = useStableCallback(() => api.quickChat.open().catch((nextError) => {
+  const sidebarOnQuickChat = useStableCallback((project) => api.quickChat.open(
+    project?.path ? { projectPath: project.path } : {},
+  ).catch((nextError) => {
     setError(nextError instanceof Error ? nextError.message : String(nextError));
   }));
   const sidebarOnNewChat = useStableCallback((preset = {}) => {

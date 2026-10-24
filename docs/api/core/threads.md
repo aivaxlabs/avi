@@ -107,4 +107,4 @@ Global semaphore reads require `threads.read`. Snapshots include `waitingCount`,
 - `threads.run`: send, retry, stop, compress, or wait for runs.
 - `threads.delete`: archive, restore, or delete.
 
-Direct creation of side chats and sub-agents is intentionally not exposed because those conversation types have orchestration invariants.
+Direct creation of side chats and sub-agents is intentionally not exposed because those conversation types have orchestration invariants. Quick Chat windows use a temporary `quick` conversation that is absent from thread lists and is hard-deleted on close unless the desktop bridge converts it to a thread. Plugin and RPC thread APIs do not create or list that temporary type.

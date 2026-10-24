@@ -478,7 +478,7 @@ curl -H "Authorization: Bearer $AVI_KEY" http://127.0.0.1:18992/commands/quick_c
 | `attachments` | Metadata of files the tools produced, such as generated images, with their local `path`; inline data is omitted. |
 | `usage` | Token usage reported by the provider, or `null`. |
 
-Tools follow the Quick chat window: core tools, MCP servers for the user home folder, plugin and provider tools, and AIVAX tools enabled in Settings. They run with full access and no approvals. `ask_question` is unavailable because nobody can answer it; tools such as `chat_create_thread` can still create threads, and those remain.
+This headless turn does not use the Quick Chat window runtime. It keeps reduced instructions, uses `$HOME` as the tool and MCP workspace, and does not offer `set_directory` or load a selected directory's instruction files. Tools run with full access and no approvals. `ask_question` is unavailable because nobody can answer it; tools such as `chat_create_thread` can still create threads, and those remain.
 
 **Errors:** blank prompt, no Quick chat model configured, unavailable model, or a failed turn. A failed turn returns its provider error message.
 

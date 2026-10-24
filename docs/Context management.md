@@ -50,7 +50,7 @@ See [Plugins](Plugins.md) for the complete contract, security model, contributio
 
 Depending on the turn, Avi may inject personality, response verbosity, AIVAX memory guidance, MCP server instructions, Plan/Goal/Ultra contracts, Tasks, the orchestration team, current-thread identity, and environment information.
 
-Quick Chat uses reduced instructions and does not receive the full ordinary-thread orchestration context or any discovered instruction file. Its only custom instructions come from **Settings → Tuning → Quick Chat instructions**.
+A Quick Chat window receives the same discovered instruction files, skills, workflows, and MCP instructions as a thread in its selected directory, plus the built-in Quick Chat prompt and **Settings → Tuning → Quick Chat instructions**. Headless `quick_chat_invoke` and Quick questions do not receive discovered instruction files.
 
 ## Context management UI
 

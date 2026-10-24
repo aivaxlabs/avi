@@ -45,7 +45,7 @@ Avi injects delegation instructions by role instead of keeping them in the base 
 | Ultra + Fusion | Lead contract plus Ultra's maximum rigor, without team delegation. |
 | Fusion sidekick | Sidekick contract: follow the brief, escalate to the lead, report concisely. |
 
-Sub-agents, side chats, and Quick Chat receive no delegation instructions.
+Sub-agents, side chats, Quick questions, and headless `quick_chat_invoke` receive no delegation instructions. A Quick Chat window uses the main role, so it receives the same delegation instructions as an ordinary thread.
 
 ## Bots
 

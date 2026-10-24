@@ -1,279 +1,55 @@
 html.quick-chat-window,
 html.quick-chat-window body,
 html.quick-chat-window #root {
+  height: 100%;
+  min-height: 0;
   background: var(--background-1);
   overflow: hidden;
+}
+
+html.quick-chat-window #root {
+  position: relative;
 }
 
 .quick-chat-shell {
-  position: relative;
-  height: 100%;
-  max-width: 800px;
-  margin: 0 auto;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
   color: var(--text-1);
   background: var(--background-1);
   overflow: hidden;
-}
 
-.quick-chat-scroll {
-  min-height: 0;
-  overflow-y: auto;
-  padding: 20px 12px 8px;
-  scroll-behavior: smooth;
-}
-
-.quick-file-drop-overlay {
-  position: absolute;
-  inset: 12px;
-  z-index: 20;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 8px;
-  color: var(--text-1);
-  background: color-mix(in srgb, var(--background-0) 88%, transparent);
-  border: 1px dashed var(--border-color);
-  border-radius: 14px;
-  pointer-events: none;
-}
-
-.quick-chat-scroll .message-row {
-  width: 100%;
-
-  + .message-row {
-    margin-top: 1.25em;
+  > .chat-view-slot {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
-  .message-action-icon[title="Fork"] {
-    display: none;
-  }
-}
-
-.quick-chat-empty {
-  height: 100%;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 6px;
-  color: var(--text-2);
-  text-align: center;
-
-  strong {
-    color: var(--text-1);
-    font-size: 1.7rem;
-    font-weight: 400;
+  .chat-area {
+    position: absolute;
+    inset: 0;
+    height: auto;
   }
 
-  span {
-    max-width: 260px;
-    font-size: .9rem;
+  .empty-chat > p {
+    max-width: 360px;
+    margin: 8px 0 0;
     color: var(--text-3);
+    font-size: var(--font-sm);
   }
 }
 
-.quick-chat-messages {
-  display: block;
-}
-
-.quick-chat-error {
-  margin: 0 18px 8px;
-  padding: 8px 10px;
-  color: var(--danger-color);
-  background: color-mix(in srgb, var(--danger-color) 9%, transparent);
-  border: 1px solid color-mix(in srgb, var(--danger-color) 28%, transparent);
-  border-radius: 8px;
-  font-size: .9rem;
-}
-
-.quick-composer {
-  margin: 10px 16px 16px;
-  padding: 4px;
-  background: var(--background-1);
-  border: 1px solid var(--border-color);
-  border-radius: 20px;
-  box-shadow: 0 8px 16px #00000011;
-
-  & :has(> textarea:focus),
-  & :focus-within {
-    background: var(--background-0);
-    border-color: --primary-color;
-    outline: 3px solid --primary-color-opaque;
-  }
-
-  textarea {
-    width: 100%;
-    min-height: 52px;
-    max-height: 260px;
-    field-sizing: content;
-    resize: none;
-    overflow-y: auto;
-    color: var(--text-1);
-    background: transparent;
-    border: 0;
-    outline: 0;
-    font: inherit;
-  }
-}
-
-.quick-composer-actions,
-.quick-composer-tools {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.quick-composer-actions {
-  justify-content: flex-end;
-}
-
-.quick-composer-tools {
-  margin-right: auto;
-}
-
-.quick-icon-button,
-.quick-send-button {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  color: var(--text-2);
-  background: transparent;
-  border: 0;
-  border-radius: 50%;
-  line-height: 0;
-  cursor: pointer;
-}
-
-.quick-icon-button svg,
-.quick-send-button svg {
-  display: block;
-  width: 16px;
-  height: 16px;
-}
-
-.quick-icon-button:hover,
-.quick-icon-button.active {
-  color: var(--text-1);
-  background: var(--background-3);
-}
-
-.quick-icon-button input {
+html.quick-chat-window .message-action-icon[title="Fork"] {
   display: none;
 }
 
-.quick-model-button {
-  min-width: 0;
-  max-width: 180px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 10px;
-  color: var(--text-2);
-  background: transparent;
-  border: 0;
-  border-radius: 9px;
-
-  &:hover {
-    color: var(--text-1);
-    background: var(--background-3);
-  }
-
-  span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.quick-send-button {
-  color: var(--text-5);
-  background: var(--background-5);
-}
-
-.quick-send-button:hover {
-  opacity: 0.86;
-}
-
-.quick-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-
-  > span {
-    max-width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 5px 7px;
-    color: var(--text-2);
-    background: var(--background-3);
-    border-radius: 7px;
-    font-size: .9rem;
-  }
-
-  small {
-    color: var(--text-3);
-  }
-
-  button {
-    display: grid;
-    place-items: center;
-    padding: 0;
-    color: inherit;
-    background: transparent;
-    border: 0;
-  }
-}
-
-.quick-question {
-  margin: 16px 0;
-
-  > .question-card {
-    width: 100%;
-  }
-}
-
-.quick-question-popover {
-  width: min(440px, calc(100vw - 16px));
-  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
-
-  > .quick-question-messages {
-    min-height: 0;
-    max-height: 340px;
-    overflow-y: auto;
-    padding: 0 4px;
-    font-size: var(--font-sm);
-
-    &:empty {
-      display: none;
-    }
-
-    .message-row {
-      width: 100%;
-
-      + .message-row {
-        margin-top: .9em;
-      }
-    }
-
-    .message-action-icon[title="Fork"] {
-      display: none;
-    }
-  }
-
-  > .quick-question-error {
-    margin: 0;
-    color: var(--danger-color);
-    font-size: var(--font-sm);
-  }
-
-  > textarea {
-    min-height: 52px;
-  }
+.quick-chat-error {
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  color: var(--danger-color);
+  background: color-mix(in srgb, var(--danger-color) 12%, var(--background-2));
+  border: 1px solid color-mix(in srgb, var(--danger-color) 35%, var(--border-color));
+  border-radius: 8px;
+  font-size: var(--font-sm);
 }

@@ -30,6 +30,7 @@ import { traceError, traceVerbose } from './trace-log.js';
 
 const ASK_QUESTION_AFK_TIMEOUT_MS = 60_000;
 const QUICK_QUESTION_TOOL_NAMES = new Set([
+  'file_search',
   'read_file',
   'read_media_file',
   'read_url',
@@ -418,6 +419,11 @@ export class QuickChatRunner {
           ))
           .filter((tool) => tool.name !== 'web_search' || (
             aivax?.connected && aivax.webSearchEnabled
+          ))
+          .filter((tool) => tool.name !== 'file_search' || (
+            aivax?.connected
+            && aivax.semanticGrepCollectionId
+            && aivax.semanticGrepDirectories?.length > 0
           ))
           .filter((tool) => tool.name !== 'generate_image' || (
             aivax?.connected && aivax.imageGenerationEnabled && aivax.imageGenerationModel

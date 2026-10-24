@@ -97,6 +97,26 @@ const defaultAivaxSettings = Object.freeze({
   audioGenerationModel: null,
   threadSearchCollectionId: null,
   threadSearchCollectionName: null,
+  semanticGrepCollectionId: null,
+  semanticGrepCollectionName: null,
+  semanticGrepReranker: 'rrf',
+  semanticGrepDirectories: [],
+});
+const semanticGrepRerankers = new Set(['none', 'rrf', 'lexical', 'smart']);
+const defaultSemanticGrepStatus = Object.freeze({
+  state: 'idle',
+  startedAt: null,
+  finishedAt: null,
+  files: 0,
+  documents: 0,
+  updated: 0,
+  skipped: 0,
+  removed: 0,
+  queuedDocuments: null,
+  indexedDocuments: null,
+  cost: null,
+  tokens: null,
+  error: null,
 });
 const defaultDesktopSettings = Object.freeze({
   closeToTray: false,
@@ -844,6 +864,12 @@ const statements = {
   `),
   setConversationTags: db.prepare('UPDATE conversations SET tags = ? WHERE id = ?'),
   updateConversationProject: db.prepare('UPDATE conversations SET project_path = ?, updated_at = ? WHERE id = ?'),
+  listQuickChatIds: db.prepare("SELECT id FROM conversations WHERE conversation_type = 'quick'"),
+  promoteQuickChat: db.prepare(`
+    UPDATE conversations
+    SET conversation_type = 'thread', updated_at = ?
+    WHERE id = ? AND conversation_type = 'quick'
+  `),
   listConversationsWithTags: db.prepare("SELECT id, tags FROM conversations WHERE tags != '[]'"),
   updateConversation: db.prepare(`
     UPDATE conversations
@@ -1800,6 +1826,32 @@ export function setThreadSearchManifest(collectionId, manifest) {
   return manifest;
 }
 
+export function getSemanticGrepStatus() {
+  return { ...defaultSemanticGrepStatus, ...(readJson('semanticGrepStatus') ?? {}) };
+}
+
+export function setSemanticGrepStatus(status) {
+  const next = { ...defaultSemanticGrepStatus, ...status };
+  writeJson('semanticGrepStatus', next);
+  return next;
+}
+
+export function listFrequentProjectPaths(limit = 24) {
+  return db.prepare(`
+    SELECT project_path AS path, COUNT(*) AS conversations
+    FROM conversations
+    WHERE deleted_at IS NULL
+      AND project_path IS NOT NULL
+      AND trim(project_path) != ''
+    GROUP BY project_path
+    ORDER BY conversations DESC
+    LIMIT ?
+  `).all(limit).map((row) => ({
+    path: resolve(row.path),
+    conversations: row.conversations,
+  }));
+}
+
 export function getAivaxAccessToken() {
   return secureStorage.aivaxAccessToken;
 }
@@ -2184,6 +2236,17 @@ export function setConversationTags(id, tags) {
 export function updateConversationProject(id, projectPath) {
   statements.updateConversationProject.run(resolve(projectPath), timestamp(), id);
   return getConversation(id);
+}
+
+export function promoteQuickChat(id) {
+  const result = statements.promoteQuickChat.run(timestamp(), id);
+  return result.changes > 0 ? getConversation(id) : null;
+}
+
+export function deleteQuickChats() {
+  const ids = statements.listQuickChatIds.all().map((row) => row.id);
+  for (const id of ids) deleteConversation(id, { hard: true });
+  return ids.length;
 }
 
 export function listConversations() {
@@ -3948,7 +4011,22 @@ function normalizeAivaxSettings(value, strict = false) {
     threadSearchCollectionName: typeof settings.threadSearchCollectionName === 'string' && settings.threadSearchCollectionName.trim()
       ? settings.threadSearchCollectionName.trim()
       : null,
+    semanticGrepCollectionId: typeof settings.semanticGrepCollectionId === 'string' && settings.semanticGrepCollectionId.trim()
+      ? settings.semanticGrepCollectionId.trim()
+      : null,
+    semanticGrepCollectionName: typeof settings.semanticGrepCollectionName === 'string' && settings.semanticGrepCollectionName.trim()
+      ? settings.semanticGrepCollectionName.trim()
+      : null,
+    semanticGrepReranker: semanticGrepRerankers.has(settings.semanticGrepReranker)
+      ? settings.semanticGrepReranker
+      : 'rrf',
+    semanticGrepDirectories: normalizeSemanticGrepDirectories(settings.semanticGrepDirectories, strict),
   };
+  const collectionIds = [
+    normalized.memoryCollectionId,
+    normalized.threadSearchCollectionId,
+    normalized.semanticGrepCollectionId,
+  ].filter(Boolean);
   if (strict && (
     typeof settings.memoryEnabled !== 'boolean'
     || ![null, 'string'].includes(settings.memoryCollectionId === null ? null : typeof settings.memoryCollectionId)
@@ -3965,11 +4043,49 @@ function normalizeAivaxSettings(value, strict = false) {
     || ![null, 'string'].includes(settings.threadSearchCollectionId === null ? null : typeof settings.threadSearchCollectionId)
     || ![null, 'string'].includes(settings.threadSearchCollectionName === null ? null : typeof settings.threadSearchCollectionName)
     || (normalized.memoryEnabled && !normalized.memoryCollectionId)
-    || (normalized.threadSearchCollectionId && normalized.threadSearchCollectionId === normalized.memoryCollectionId)
+    || ![null, 'string'].includes(settings.semanticGrepCollectionId === null ? null : typeof settings.semanticGrepCollectionId)
+    || ![null, 'string'].includes(settings.semanticGrepCollectionName === null ? null : typeof settings.semanticGrepCollectionName)
+    || new Set(collectionIds).size !== collectionIds.length
+    || (settings.semanticGrepReranker != null && !semanticGrepRerankers.has(settings.semanticGrepReranker))
   )) {
     throw new Error('AIVAX feature settings are invalid.');
   }
   return { ...defaultAivaxSettings, ...normalized };
+}
+
+function normalizeSemanticGrepDirectories(value, strict) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) {
+    if (strict) throw new Error('AIVAX feature settings are invalid.');
+    return [];
+  }
+  const directories = [];
+  const seen = new Set();
+  for (const item of value) {
+    if (typeof item !== 'string' || !isAbsolute(item)) {
+      if (strict) throw new Error('Semantic Grep directories must be absolute paths.');
+      continue;
+    }
+    const path = resolve(item);
+    let info;
+    try {
+      info = statSync(path);
+    } catch (error) {
+      if (strict) throw new Error(`Semantic Grep directory was not found: ${path}`);
+      if (error.code !== 'ENOENT') throw error;
+      continue;
+    }
+    if (!info.isDirectory()) {
+      if (strict) throw new Error(`Semantic Grep path is not a directory: ${path}`);
+      continue;
+    }
+    const key = process.platform === 'win32' ? path.toLowerCase() : path;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    directories.push(path);
+  }
+  if (directories.length > 32) throw new Error('Semantic Grep supports up to 32 directories.');
+  return directories;
 }
 
 function normalizeTuningSettings(value, strict = false) {
@@ -4087,6 +4203,7 @@ function mapConversation(row) {
     isSubagent: row.conversation_type === 'subagent',
     isRubberDuck: ['rubber_duck', 'rubber_duck_subject'].includes(row.conversation_type),
     isBot: row.conversation_type === 'bot',
+    isQuickChat: row.conversation_type === 'quick',
     createdBy: row.created_by === 'agent' ? 'agent' : 'user',
     parentConversationId: row.parent_conversation_id || null,
     initialPrompt: row.initial_prompt || null,

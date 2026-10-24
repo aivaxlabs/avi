@@ -27,6 +27,7 @@ import {
 } from '../context-usage.js';
 import { resolveDynamicContextUsage } from '../context-injection.js';
 import { composeToolsWithPlugins } from '../tool-composition.js';
+import { setDirectoryTool } from '../tools/quick-chat.js';
 import { limitToolHistoryResults } from '../tool-output.js';
 import { traceVerbose } from '../trace-log.js';
 import {
@@ -104,6 +105,11 @@ export const contextMethods = {
       .filter((tool) => tool.name !== 'web_search' || (
         preferences.aivax?.connected && preferences.aivax.webSearchEnabled
       ))
+      .filter((tool) => tool.name !== 'file_search' || (
+        preferences.aivax?.connected
+        && preferences.aivax.semanticGrepCollectionId
+        && preferences.aivax.semanticGrepDirectories?.length > 0
+      ))
       .filter((tool) => tool.name !== 'generate_image' || (
         preferences.aivax?.connected
         && preferences.aivax.imageGenerationEnabled
@@ -141,6 +147,7 @@ export const contextMethods = {
       .filter((tool) => tool.name !== 'chat_create_thread' || !fusion)
       .filter((tool) => tool.name !== 'dispatch_sidekick' || fusion?.role === 'lead')
       .filter((tool) => tool.name !== 'ask_question' || fusion?.role !== 'sidekick');
+    if (conversation.isQuickChat && workMode !== 'plan') coreTools.push(setDirectoryTool);
     const extensionTools = [
       ...(rubberDuckMode ? [] : botRuntime?.tools ?? []),
       ...providerTools.map((tool) => ({ ...tool, providerTool: true })),
@@ -178,6 +185,7 @@ export const contextMethods = {
             : conversation.conversationType === 'rubber_duck_subject' ? 'subject' : 'orchestrator',
       conversationId: conversation.id,
       workspacePath: conversation.projectPath,
+      quickChatThread: conversation.isQuickChat,
       mcpInstructions: mcpRuntime.instructions,
       ...this.getPluginContext({
         conversationId: conversation.id,

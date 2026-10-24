@@ -36,6 +36,7 @@ import { applySubagentModelSchema } from '../default-models.js';
 import { StreamAccumulator } from '../streaming.js';
 import { composeToolsWithPlugins } from '../tool-composition.js';
 import { mapToolCalls } from '../tool-concurrency.js';
+import { setDirectoryTool } from '../tools/quick-chat.js';
 import {
   minifyToolOutputJson,
   toolOutputLimitForTool,
@@ -214,7 +215,7 @@ export const runLoopMethods = {
     let traceSelection = null;
     try {
       const conversationAtStart = getConversation(conversationId);
-      const workspacePath = conversationAtStart?.projectPath;
+      let workspacePath = conversationAtStart?.projectPath;
       const botRuntime = conversationAtStart?.isBot
         ? this.getBotRuntimeContext(conversationId)
         : null;
@@ -333,6 +334,11 @@ export const runLoopMethods = {
           .filter((tool) => tool.name !== 'web_search' || (
             aivax?.connected && aivax.webSearchEnabled
           ))
+          .filter((tool) => tool.name !== 'file_search' || (
+            aivax?.connected
+            && aivax.semanticGrepCollectionId
+            && aivax.semanticGrepDirectories?.length > 0
+          ))
           .filter((tool) => tool.name !== 'generate_image' || (
             aivax?.connected && aivax.imageGenerationEnabled && aivax.imageGenerationModel
           ))
@@ -412,6 +418,9 @@ export const runLoopMethods = {
             }
             return tool;
           });
+      if (conversationAtStart?.isQuickChat && workMode !== 'plan') {
+        coreTools.push(setDirectoryTool);
+      }
       const toolHistory = initialToolHistory.map((round) => ({
         ...round,
         toolCalls: [...round.toolCalls],
@@ -558,6 +567,25 @@ export const runLoopMethods = {
       });
 
       while (true) {
+        const activeConversation = getConversation(conversationId) ?? conversationAtStart;
+        const nextWorkspacePath = activeConversation?.projectPath ?? workspacePath;
+        if (
+          nextWorkspacePath !== workspacePath
+          || (
+            workMode !== 'plan'
+            && this.mcpManager
+            && !this.mcpManager.isWorkspaceReady(nextWorkspacePath, botRuntime?.bot.id)
+          )
+        ) {
+          workspacePath = nextWorkspacePath;
+          if (workMode !== 'plan' && this.mcpManager) {
+            await this.mcpManager.ensureWorkspace(
+              workspacePath,
+              controller.signal,
+              botRuntime?.bot.id,
+            );
+          }
+        }
         const pendingRoundIndex = toolHistory.findIndex((round) => {
           const resultCallIds = new Set(round.results.map((result) => result.callId));
           return round.toolCalls.some((toolCall) => !resultCallIds.has(toolCall.callId));
@@ -597,7 +625,7 @@ export const runLoopMethods = {
           || listAllConversations().some((conversation) => (
             conversation.id !== conversationId
             && (currentConversation?.isSideChat || !conversation.isSideChat)
-            && conversation.projectPath === currentConversation?.projectPath
+            && conversation.projectPath === workspacePath
           ));
         const pendingRound = pendingRoundIndex >= 0 ? toolHistory[pendingRoundIndex] : null;
         if (!pendingRound) {
@@ -620,6 +648,7 @@ export const runLoopMethods = {
             invocationContext: {
               conversationId,
               workspacePath,
+              quickChatThread: Boolean(activeConversation?.isQuickChat),
               traceOperation: 'chat',
               modelRules: preferences.defaultModels?.rules ?? [],
               traceRound: roundIndex,

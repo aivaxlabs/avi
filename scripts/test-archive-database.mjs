@@ -115,6 +115,10 @@ try {
     audioGenerationModel: null,
     threadSearchCollectionId: null,
     threadSearchCollectionName: null,
+    semanticGrepCollectionId: null,
+    semanticGrepCollectionName: null,
+    semanticGrepReranker: 'rrf',
+    semanticGrepDirectories: [],
   });
   assert.throws(() => setAivaxSettings({
     ...getAivaxSettings(),

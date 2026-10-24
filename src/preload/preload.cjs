@@ -83,7 +83,8 @@ contextBridge.exposeInMainWorld('chatApp', {
     onError: (callback) => subscribe('shortcuts:error', callback),
   },
   quickChat: {
-    open: () => invoke('quick-chat:open'),
+    open: (payload) => invoke('quick-chat:open', payload),
+    fork: (conversationId) => invoke('quick-chat:fork', conversationId),
     state: (sessionId) => invoke('quick-chat:state', sessionId),
     send: (payload) => invoke('quick-chat:send', payload),
     stop: (sessionId) => invoke('quick-chat:stop', sessionId),
@@ -118,6 +119,8 @@ contextBridge.exposeInMainWorld('chatApp', {
     collections: () => invoke('aivax:collections'),
     createCollection: (name) => invoke('aivax:collections:create', name),
     mediaModels: () => invoke('aivax:media-models'),
+    semanticGrepStatus: () => invoke('aivax:semantic-grep:status'),
+    semanticGrepRecommendations: () => invoke('aivax:semantic-grep:recommendations'),
   },
   tuning: {
     shells: () => invoke('tuning:shells'),
@@ -146,6 +149,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     archive: (conversationId) => invoke('conversations:archive', conversationId),
     delete: (conversationId) => invoke('conversations:delete', conversationId),
     fork: (payload) => invoke('conversations:fork', payload),
+    setProject: (payload) => invoke('conversations:set-project', payload),
     search: (payload) => invoke('conversations:search', payload),
     setTags: (conversationId, tags) => invoke('conversations:set-tags', { conversationId, tags }),
   },

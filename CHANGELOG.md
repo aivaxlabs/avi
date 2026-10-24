@@ -2,10 +2,37 @@
 
 ## [Canary]
 
+### Added
+- **Background Processes built-in plugin** — enable it in Settings → Plugins to run executables while Avi is open. Its Activity Bar page lists processes (executable, optional arguments and working directory, retry after 2 s, 5 s or never, enabled state) and adds, edits, removes, starts, stops, restarts, enables, and disables them. Saving starts the process. The newest 10 KiB of stdout and stderr per process is kept in memory and shown in a logs dialog. On Windows each executable is a direct child in Avi's kill-on-close job, so it ends whenever Avi exits, crashes, or is killed; on macOS and Linux a supervisor tied to Avi terminates the process group.
+- **Semantic Grep** — Settings → AIVAX Features → Semantic Grep indexes chosen directories into a dedicated AIVAX collection and adds `file_search` for the current chat directory. It is the first semantic search, not a replacement for `rg`. The session has a collection, an `rrf` reranker by default, a directory list, recommendations from frequent chat folders (Git worktree roots when the folder is a worktree), and indexing status with embedding cost. Indexing runs on startup, on changes, and every 15 minutes in `sync` mode.
+- **Quick Chat window** — the window now runs a temporary thread with the same chat, composer, tools, compaction, retry, and permission mode as a normal conversation, plus the Quick Chat prompt. It can be maximized. The composer directory picker and the Quick Chat-only `set_directory` tool change the directory; the next step loads that directory's instructions, skills, workflows, and MCP servers. Right-click a folder in the Sidebar and choose **Quick chat** to open the window there. After the first message, **Fork in thread** converts the conversation into an ordinary thread and opens it in the main window. Closing an unforked window permanently deletes it.
+
+### Changed
+- **Question notifications** — with **Settings → General → Desktop → Notify when a conversation finishes or asks a question** enabled, Avi shows a system notification whenever an agent asks a question in the chat (`ask_question`). The notification uses the thread title and the first question.
+- **Semantic Grep search** — `file_search` returns one line per file, `score  relative/path:start-end`, and no longer includes content excerpts. Indexing stores `source_line_start` and `source_line_end` on each chunk. Documents indexed before that list the path only until the next sync.
+- **Semantic Grep indexing** — symbolic links and directory junctions inside an indexed tree are followed. Changing the directory list or collection while an index is running aborts that run and starts another.
+- **Semantic Grep search** — `file_search` filters by `metadata.real_path startswith` the current chat directory, so a parent folder finds indexed children such as worktrees. It no longer refuses the search when that folder is not itself an indexed root.
+- **AIVAX sync** — thread search and Semantic Grep now stream documents through the v2 WebSocket import (`/api/v2/collections/<id>/documents/index-jsonl`) instead of the v1 JSONL upload. `insert-mode=sync` still removes documents that are not in the current corpus. The WebSocket completion counts replace the old per-request credit header in the thread-search trace.
+- **AIVAX Features page** — sessions are tabs (Account, Memory, Web, Media, Search, Semantic Grep), and the loading indicator is a centered spinner.
+- **Headless Quick Chat** — `quick_chat_invoke` remains a discarded `$HOME` turn with reduced instructions and full access. It does not follow the window's directory, `set_directory`, or approval flow.
+
+### Fixed
+- **MCP startup stuck on "Starting N MCP servers"** — each MCP server now has 30 seconds to connect, finish the handshake, and list its tools. A server that exceeds the limit is marked Failed with the phase where it stopped, instead of staying in Starting and blocking messages. The startup banner also no longer reverts to a stale MCP state loaded while the window opened.
+
+### Docs
+- Advanced settings describes question notifications.
+- MCP servers documents the 30-second connection limit.
+- Updated Side and quick chats, Context management, Advanced settings, Personalities, Fusion, the Remote API, and the chat RPC reference for the temporary Quick Chat window.
+
+### Tests
+- `test-background-processes.mjs` (in `test:built-ins`) covers validation, persistence, 10 KiB log trimming, restart, enable/disable, retries, deactivation, and process-tree cleanup when the host dies.
+- `test:mcp` covers a stdio server that never answers the handshake and is marked Failed by the connection limit.
+- Context injection covers a directory-backed Quick Chat window, and an Electron test covers `set_directory`, promotion to a thread, and startup deletion of leftover Quick Chats.
+
 ## [0.10.0] — 2026-10-22
 
 ### Added
-- **X Subscription provider** — sign in with a SuperGrok or X Premium subscription through xAI OAuth device authorization and use Grok 4.7, 4.6, 4.5, 4.3, and Grok Build 0.1 through the xAI Responses API. Credentials are encrypted locally and refreshed automatically.
+- **X Subscription provider** — sign in with a SuperGrok or X Premium subscription through xAI OAuth device authorization and use Grok 4.7, 4.6, 4.5, 4.3, and Grok Build 0.1 through the xAI Responses API. Credentials are encrypted locally and refreshed automatically. The provider reports subscription usage (included usage with reset date, on-demand credits, included credits, and prepaid balance) in the usage indicator and `/usage`.
 - **Reasoning reuse** — OpenAI-compatible providers have a new **Reasoning reuse** setting, separate from the reasoning effort format: **Forward as metadata** (default), **Forward as `<think>` block**, or **Do not forward reasoning**. In metadata mode, Chat completions now preserves streamed `reasoning_details`, including signed and encrypted entries, and replays them on later requests from the same model.
 - **Fusion model routers** — a new **Fusion** routing mode pairs a lead model with a sidekick model, each with its own reasoning effort chosen with the Models page pickers. The conversation runs on the lead, which receives the new `dispatch_sidekick` tool instead of `chat_spawn_subagent` and `chat_create_thread` and delegates by verifiable milestones, inspecting each one before sending the next to the same sidekick thread; sidekicks run the sidekick model, cannot ask the user or create threads, escalate permissions to the lead, and report concisely. With Ultra, the lead uses smaller milestones with stricter inspection, without delegating to an Ultra team. Bots cannot use Fusion routers. Catalog entries expose `routerMode: "fusion"`.
 - **Thread and bot mentions** — any thread or bot can write `::mention{bot-id="..."}` or `::mention{thread-id="..."}` in a response or a bot Inbox message to deliver it to that bot or thread inside a `<cross-message mention="true">` envelope ("The bot ... mentioned you in this message:"). Mentions render like file reference links showing the bot or thread title and open the target in the chat and Inbox, and received mentions appear as a highlighted **Mentioned you** card.
@@ -32,6 +59,7 @@
 - **Bot Inbox writing** — bot instructions and the `content`/`message` descriptions of `bot_pendency_create`, `bot_pendency_message`, and `bots_send_work_log_message` ask bots to write Inbox messages like a short work email: a lead sentence, short paragraphs, lists for parallel items, and the requested action at the end.
 
 ### Fixed
+- **Next work item** — **Activate now → Next work item**, and unfocused `bots_activate` / plugin `activate()`, run the next waiting priority item instead of skipping it for the Work queue after a priority activation. A listed Work queue task still runs that task. With no priority item waiting, the next Work queue task runs.
 - **Bot activations stuck on an Inbox work log** — an open work log whose latest message was not from the bot replaced the Work queue focus on every activation, repeating the same work and freezing the queue cursor. Work logs no longer set the activation focus.
 
 ### Docs

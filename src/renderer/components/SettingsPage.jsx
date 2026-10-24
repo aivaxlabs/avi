@@ -2405,8 +2405,8 @@ export function SettingsPage({
                     </label>
                     <label className="settings-toggle-row">
                       <span>
-                        <strong>Notify when a conversation finishes</strong>
-                        <small>Notify after a user-created main thread finishes with no sub-agents still running.</small>
+                        <strong>Notify when a conversation finishes or asks a question</strong>
+                        <small>Notify after a user-created main thread finishes with no sub-agents still running, and whenever an agent asks you a question in the chat.</small>
                       </span>
                       <input
                         className="toggle"
@@ -2634,7 +2634,7 @@ export function SettingsPage({
                           setTuningDraft((current) => ({ ...current, quickChatInstructions }));
                         }} />
                       <small>
-                        Quick Chat does not load AGENTS.md files. Up to 20,000 characters. Quick questions do not use these instructions.
+                        Added to every Quick Chat, including when a directory is selected. Up to 20,000 characters. Quick questions do not use these instructions.
                       </small>
                     </label>
                   </div>

@@ -104,6 +104,7 @@ const CONTEXT_ITEM_TEMPLATES = {
 const POST_INSTRUCTION_CONTEXT_ORDER = [
   'bot',
   'memory',
+  'semantic-grep',
   'mcp',
   'delegation',
   'work-mode',
@@ -174,6 +175,16 @@ export const dynamicContextInjectors = new Map([
         'For significant changes, record what changed, why, how it was implemented and validated, the affected files or services, and any remaining limitations.',
         'Keep entries concise, avoid duplicating existing memories, and update an existing entry when appropriate.',
         'Each memory entry must include Markdown frontmatter with folder, title, and tags, followed by content organized with level-3 headings (###).'
+      ].join('\n')
+      : ''
+  )],
+  ['semantic-grep', ({ aivax } = {}) => (
+    aivax?.connected && aivax.semanticGrepCollectionId && aivax.semanticGrepDirectories?.length > 0
+      ? [
+        '## Semantic file search',
+        'file_search searches indexed files under the current chat directory by meaning, including indexed subfolders and worktrees. Use it as the first search when you do not already know the exact text, symbol, or file. It does not replace rg.',
+        'Each result is a score, a relative path, and the source line ranges of the matching chunks, as `score  path:start-end`. It does not include file contents. Read those lines when you need the text.',
+        'Use rg, or an equivalent exact search, for symbols, strings, configuration keys, and whenever file_search returns no matches.',
       ].join('\n')
       : ''
   )],
@@ -612,6 +623,7 @@ export async function resolveDynamicContext(invocationContext = {}) {
       ].join('\n'),
       dynamicContextInjectors.get('verbosity')?.(invocationContext),
       invocationContext.quickQuestion ? '' : dynamicContextInjectors.get('memory')?.(invocationContext),
+      dynamicContextInjectors.get('semantic-grep')?.(invocationContext),
       dynamicContextInjectors.get('mcp')?.(invocationContext),
       dynamicContextInjectors.get('environment')?.(invocationContext),
     ]
@@ -654,10 +666,21 @@ export async function resolveDynamicContext(invocationContext = {}) {
         .map((rule) => rule.instructions)
     )))
     : [];
+  const customQuickChatInstructions = invocationContext.quickChatThread
+    ? String(invocationContext.tuning?.quickChatInstructions ?? '').trim()
+    : '';
   const contexts = [
     baseInstructions,
     personalityContext,
     verbosityContext,
+    ...(invocationContext.quickChatThread ? [quickChatInstructions] : []),
+    ...(customQuickChatInstructions ? [[
+      '<quick_chat_user_instructions>',
+      'The user configured these instructions for every Quick Chat. Follow them as direct user instructions.',
+      '',
+      customQuickChatInstructions,
+      '</quick_chat_user_instructions>',
+    ].join('\n')] : []),
     ...(modelRules.length ? [
       '<model_rules>',
       'These user-configured model instructions override the default working-style and delegation guidance, not direct user requests, permissions, or safety constraints. Role-specific rules follow and take precedence over all-role rules. Within the same role, virtual-model rules follow and take precedence over concrete-model rules.',

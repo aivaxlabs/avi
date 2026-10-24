@@ -1,364 +1,409 @@
-import { ArrowUp, ChevronDown, LoaderCircle, Mic, Paperclip, Square, UploadCloud, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import { createMp3Attachment } from './lib/audio.js';
-import { fileToAttachment, formatBytes, textToAttachment } from './lib/files.js';
-import { Message } from './components/Message.jsx';
-import { ModelPicker } from './components/ModelPicker.jsx';
+import { GitFork } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChatView } from './components/ChatView.jsx';
+import { ComposerFloatButton, ComposerFloatButtonStrip } from './components/ComposerFloatButtons.jsx';
 import { applyTheme, readAppearance } from './lib/apply-theme.js';
-import { useStreamingAutoScroll } from './lib/use-streaming-auto-scroll.js';
 import { setPluginThemes } from './lib/themes.js';
-import { Presence } from './components/Overlay.jsx';
-import { QuestionForm } from './components/QuestionForm.jsx';
 
 const api = window.chatApp;
-const sessionId = new URLSearchParams(window.location.search).get('session');
+const conversationId = new URLSearchParams(window.location.search).get('conversation');
 
 export default function QuickChatApp() {
+  const [appState, setAppState] = useState(null);
   const [models, setModels] = useState([]);
   const [favorites, setFavorites] = useState([]);
-  const [model, setModel] = useState('');
+  const [recentProjects, setRecentProjects] = useState([]);
+  const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
   const [running, setRunning] = useState(false);
   const [questionRequest, setQuestionRequest] = useState(null);
+  const [approvalRequests, setApprovalRequests] = useState([]);
+  const [semaphoreWait, setSemaphoreWait] = useState(null);
+  const [tasks, setTasks] = useState([]);
+  const [contextUsage, setContextUsage] = useState(null);
+  const [goalPreparation, setGoalPreparation] = useState(null);
   const [error, setError] = useState('');
-  const [fileDropActive, setFileDropActive] = useState(false);
-  const [droppedFiles, setDroppedFiles] = useState(null);
-  const dragDepthRef = useRef(0);
-  const questionRequestRef = useRef(null);
+  const [forking, setForking] = useState(false);
 
   useEffect(() => {
-    questionRequestRef.current = questionRequest;
-  }, [questionRequest]);
+    document.title = 'Quick chat';
+  }, []);
 
   useEffect(() => {
+    if (!conversationId) {
+      setError('This Quick chat is missing its conversation.');
+      return undefined;
+    }
+    let cancelled = false;
     Promise.all([
       api.app.state(),
-      api.quickChat.state(sessionId),
+      api.conversations.context(conversationId),
       api.models.list(),
       api.models.favorites(),
-    ]).then(([appState, state, availableModels, favoriteModels]) => {
-      setPluginThemes(appState.pluginCatalog?.themes);
+      api.conversations.list(),
+    ]).then(([state, context, availableModels, favoriteModels, threads]) => {
+      if (cancelled) return;
+      setPluginThemes(state.pluginCatalog?.themes);
       applyTheme(readAppearance());
-      setModel(state.model);
-      setMessages(state.messages);
-      setRunning(state.running);
+      setAppState(state);
+      setConversation(context.conversation);
+      setMessages(context.messages ?? []);
+      setRunning(Boolean(context.run?.active));
+      setQuestionRequest(context.questions?.[0] ?? null);
+      setApprovalRequests(context.approvals ?? []);
+      setSemaphoreWait(context.semaphoreWaits?.[0] ?? null);
+      setTasks(context.tasks ?? []);
+      setContextUsage(context.contextUsage ?? null);
       setModels(availableModels);
       setFavorites(favoriteModels);
-    }).catch((nextError) => setError(nextError.message));
-    return api.quickChat.onEvent((event) => {
-      if (event.sessionId !== sessionId) return;
+      setRecentProjects(recentProjectsFrom(threads, state.defaultProject?.path));
+    }).catch((nextError) => {
+      if (!cancelled) setError(nextError.message);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!conversationId) return undefined;
+    return api.onChatEvent((event) => {
+      if (event.conversationId !== conversationId && event.conversation?.id !== conversationId) return;
       if (event.type === 'message') {
-        setMessages((current) => {
-          const index = current.findIndex((message) => message.id === event.message.id);
-          if (index < 0) return [...current, event.message];
-          const next = [...current];
-          next[index] = event.message;
-          return next;
-        });
+        setMessages((current) => upsertMessage(current, event.message));
+      } else if (event.type === 'message-delete') {
+        setMessages((current) => current.filter((message) => message.id !== event.messageId));
+      } else if (event.type === 'queue-order') {
+        setMessages((current) => applyPendingOrder(current, event));
+      } else if (event.type === 'conversation') {
+        setConversation(event.conversation);
+        if (event.conversation.contextTokens) {
+          setContextUsage((current) => ({
+            ...(current ?? {}),
+            tokens: event.conversation.contextTokens,
+          }));
+        }
       } else if (event.type === 'run-state') {
-        setRunning(event.running);
+        setRunning(Boolean(event.running));
+      } else if (event.type === 'tasks') {
+        setTasks(event.tasks ?? []);
       } else if (event.type === 'question-request') {
         setQuestionRequest(event);
       } else if (event.type === 'question-cancelled') {
-        if (event.questionId === questionRequestRef.current?.questionId) {
-          setQuestionRequest(null);
-        }
+        setQuestionRequest((current) => (
+          current?.questionId === event.questionId ? null : current
+        ));
+      } else if (event.type === 'permission-request') {
+        setApprovalRequests((current) => (
+          current.some((request) => request.approvalId === event.approvalId)
+            ? current
+            : [...current, event]
+        ));
+      } else if (['permission-cancelled', 'permission-resolved'].includes(event.type)) {
+        setApprovalRequests((current) => current.filter(
+          (request) => request.approvalId !== event.approvalId,
+        ));
+      } else if (event.type === 'semaphore-state') {
+        setSemaphoreWait((event.waits ?? []).find((item) => item.conversationId === conversationId) ?? null);
       } else if (event.type === 'error') {
         setError(event.message);
       }
     });
   }, []);
 
-  const lastMessage = messages.at(-1);
-  const streamScrollKey = [
-    lastMessage?.id ?? '',
-    lastMessage?.updatedAt ?? '',
-    String(lastMessage?.content ?? '').length,
-    questionRequest?.questionId ?? '',
-  ].join(':');
+  const currentProject = useMemo(() => (
+    conversation ? {
+      path: conversation.projectPath,
+      name: conversation.projectName,
+      displayPath: conversation.projectDisplayPath,
+      gitBranch: conversation.gitBranch,
+    } : null
+  ), [conversation]);
+  const hasMessage = messages.some((message) => (
+    !message.hidden && ['user', 'assistant'].includes(message.role)
+  ));
+  const workMode = conversation?.orchestrationMode === 'plan' ? 'plan' : null;
+  const ultraMode = conversation?.orchestrationMode === 'ultra';
 
-  const { scrollRef } = useStreamingAutoScroll({
-    scrollKey: streamScrollKey,
-    isRunning: running,
-    resetKey: sessionId,
-  });
-
-  const selectedModel = models.find((item) => item.id === model);
-  const modelName = selectedModel?.name ?? selectedModel?.modelId ?? 'Choose model';
-
-  function resolveQuickQuestion(answers, cancelled) {
-    api.quickChat.answerQuestion({
-      sessionId,
-      questionId: questionRequest.questionId,
-      answers,
-      cancelled,
+  function retryMessage(messageId, resumeFromFailure, model = conversation?.model) {
+    return api.chat.retry({
+      conversationId,
+      model,
+      assistantMessageId: messageId,
+      resumeFromFailure,
+      permissionMode: window.localStorage.getItem('aivax.composer.permission-mode')
+        || appState?.tuning?.defaultPermissionMode
+        || 'approve_for_me',
     });
-    setQuestionRequest(null);
+  }
+
+  async function chooseProject(project) {
+    const selected = project ?? await api.projects.select({
+      defaultPath: currentProject?.path ?? appState?.defaultProject?.path,
+    });
+    if (!selected?.path || !conversation) return null;
+    const updated = await api.conversations.setProject({
+      conversationId: conversation.id,
+      projectPath: selected.path,
+    });
+    setConversation(updated);
+    return {
+      path: updated.projectPath,
+      name: updated.projectName,
+      displayPath: updated.projectDisplayPath,
+      gitBranch: updated.gitBranch,
+    };
+  }
+
+  async function sendMessage(payload) {
+    if (!conversation) return false;
+    setError('');
+    const model = payload.model || conversation.model;
+    const messageWorkMode = payload.workMode ?? workMode;
+    if (
+      messageWorkMode === 'goal'
+      && (!conversation.goal || conversation.goal.status === 'discarded')
+    ) {
+      setGoalPreparation({ specification: payload.text });
+      try {
+        await api.goals.start({
+          conversationId: conversation.id,
+          model,
+          project: currentProject,
+          specification: payload.text,
+          attachments: payload.attachments ?? [],
+          reasoningEffort: payload.reasoningEffort ?? null,
+          permissionMode: payload.permissionMode,
+          ultraMode: Boolean(payload.ultraMode),
+        });
+        return true;
+      } catch (nextError) {
+        setError(nextError.message);
+        return false;
+      } finally {
+        setGoalPreparation(null);
+      }
+    }
+    try {
+      const result = await api.chat.send({
+        conversationId: conversation.id,
+        model,
+        text: payload.text,
+        attachments: payload.attachments ?? [],
+        steer: Boolean(payload.steer),
+        reasoningEffort: payload.reasoningEffort ?? null,
+        permissionMode: payload.permissionMode,
+        workMode: messageWorkMode,
+        ultraMode: Boolean(payload.ultraMode),
+        project: currentProject,
+      });
+      setConversation(result.conversation);
+      setMessages((current) => {
+        let next = upsertMessage(current, result.message);
+        if (result.assistantMessage) next = upsertMessage(next, result.assistantMessage);
+        return applyPendingOrder(next, result);
+      });
+      return true;
+    } catch (nextError) {
+      setError(nextError.message);
+      return false;
+    }
   }
 
   return (
-    <main
-      className="quick-chat-shell"
-      onDragEnter={(event) => {
-        if (!hasFileTransfer(event.dataTransfer)) return;
-        event.preventDefault();
-        dragDepthRef.current += 1;
-        setFileDropActive(true);
-      }}
-      onDragOver={(event) => {
-        if (!hasFileTransfer(event.dataTransfer)) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'copy';
-        setFileDropActive(true);
-      }}
-      onDragLeave={(event) => {
-        if (!hasFileTransfer(event.dataTransfer)) return;
-        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-        if (dragDepthRef.current === 0) setFileDropActive(false);
-      }}
-      onDrop={(event) => {
-        if (!hasFileTransfer(event.dataTransfer)) return;
-        event.preventDefault();
-        dragDepthRef.current = 0;
-        setFileDropActive(false);
-        const files = Array.from(event.dataTransfer.files ?? []).filter((file) => file instanceof File);
-        if (files.length > 0) setDroppedFiles({ id: crypto.randomUUID(), files });
-      }}
-    >
-      {fileDropActive && (
-        <div className="quick-file-drop-overlay">
-          <UploadCloud size={24} />
-          <span>Drop files to attach</span>
-        </div>
-      )}
-      <section className="quick-chat-scroll" ref={scrollRef}>
-        {messages.length === 0 ? (
-          <div className="quick-chat-empty">
-            <strong>What can I help with?</strong>
-            <span>This conversation disappears when you close the window.</span>
-          </div>
-        ) : (
-          <div className="quick-chat-messages">
-            {messages.map((message, index) => (
-              <Message
-                key={message.id}
-                message={message}
-                modelName={modelName}
-                workedMessages={[]}
-                runActive={running && index === messages.length - 1 && message.role === 'assistant'}
-                questionPending={Boolean(questionRequest && index === messages.length - 1)}
-                showContinuations={false}
-              />
-            ))}
-          </div>
-        )}
-        {questionRequest && (
-          <div className="quick-question">
-            <QuestionForm
-              key={questionRequest.questionId}
-              formId={questionRequest.questionId}
-              questions={questionRequest.questions}
-              onActivity={() => {
-                api.quickChat.questionActivity({
-                  sessionId,
-                  questionId: questionRequest.questionId,
-                }).catch(console.error);
-              }}
-              onSubmit={(answers) => resolveQuickQuestion(answers, false)}
-              onCancel={() => resolveQuickQuestion([], true)}
-            />
-          </div>
-        )}
-      </section>
-      {error && <div className="quick-chat-error">{error}</div>}
-      <QuickComposer
-        models={models}
-        favorites={favorites}
-        model={model}
-        modelName={modelName}
-        running={running}
-        droppedFiles={droppedFiles}
-        onChooseModel={setModel}
-        onToggleFavorite={async (modelId) => setFavorites(await api.models.favorite({
-          modelId,
-          favorited: !favorites.includes(modelId),
-        }))}
-        onSend={async ({ text, attachments }) => {
-          setError('');
-          await api.quickChat.send({ sessionId, text, attachments, model });
-        }}
-        onStop={() => api.quickChat.stop(sessionId)}
-      />
+    <main className="quick-chat-shell">
+      {error && <div className="quick-chat-error" role="alert">{error}</div>}
+      <div className="chat-view-slot">
+        <ChatView
+          currentConversation={conversation}
+          currentMessages={messages}
+          messagesLoaded={Boolean(conversation)}
+          currentModel={conversation?.model ?? ''}
+          currentProject={currentProject}
+          contextUsage={contextUsage}
+          recentProjects={recentProjects}
+          models={models}
+          favorites={favorites}
+          intelligenceLevels={appState?.defaultModels?.intelligence?.levels ?? []}
+          isRunning={running}
+          semaphoreWait={semaphoreWait}
+          onRunSemaphoreNow={() => api.chat.runSemaphoreNow(conversationId)}
+          onCancelSemaphore={() => api.chat.cancelSemaphore(conversationId)}
+          onSend={sendMessage}
+          onReplaceUserMessage={async (messageId, payload) => {
+            const result = await api.chat.replaceUserMessage({
+              conversationId,
+              messageId,
+              ...payload,
+            });
+            setConversation(result.conversation);
+            setMessages((current) => upsertMessage(current, result.message));
+          }}
+          onExpandPrompt={(payload) => api.chat.expandPrompt(payload)}
+          onStop={() => api.chat.stop(conversationId)}
+          onQuickCompress={() => api.chat.compressQuick({ conversationId })}
+          onCompress={() => api.chat.compress({
+            conversationId,
+            model: conversation?.model,
+          })}
+          tasks={tasks}
+          onRetry={(messageId) => retryMessage(messageId, false)}
+          onResume={(messageId, model) => retryMessage(messageId, true, model)}
+          onCancelQueued={async (messageId) => {
+            const result = await api.chat.cancelQueued({ conversationId, messageId });
+            setMessages((current) => applyPendingOrder(
+              current.filter((message) => !result?.cancelled || message.id !== messageId),
+              result,
+            ));
+            return Boolean(result?.cancelled);
+          }}
+          onReorderQueued={(queueType, messageIds, steerMessageId, dispatchNext) => api.chat.reorderQueued({
+            conversationId,
+            queueType,
+            messageIds,
+            steerMessageId,
+            dispatchNext,
+          })}
+          onSteerQueued={(messageId, messageIds) => api.chat.reorderQueued({
+            conversationId,
+            queueType: 'steer',
+            messageIds,
+            steerMessageId: messageId,
+          })}
+          onChooseModel={async (modelId) => {
+            setConversation(await api.conversations.update({ id: conversationId, model: modelId }));
+          }}
+          onChooseProject={chooseProject}
+          allowProjectChange
+          onUseHome={() => chooseProject(appState?.defaultProject)}
+          onToggleFavorite={async (modelId) => setFavorites(await api.models.favorite({
+            modelId,
+            favorited: !favorites.includes(modelId),
+          }))}
+          workMode={workMode}
+          onWorkModeChange={async (next) => {
+            const updated = await api.conversations.update({
+              id: conversationId,
+              orchestrationMode: next === 'plan' ? 'plan' : null,
+            });
+            setConversation(updated);
+            return true;
+          }}
+          ultraMode={ultraMode}
+          onUltraModeChange={async (enabled) => {
+            const updated = await api.conversations.update({
+              id: conversationId,
+              orchestrationMode: enabled ? 'ultra' : null,
+            });
+            setConversation(updated);
+            return true;
+          }}
+          goalPreparation={goalPreparation}
+          onGoalAction={async (action, specification) => {
+            const result = await api.goals.change({
+              conversationId,
+              action,
+              ...(specification == null ? {} : { specification }),
+            });
+            setConversation(result.conversation);
+            return true;
+          }}
+          questionRequest={questionRequest}
+          onAnswerQuestion={async (request, answers, cancelled) => {
+            const resolved = await api.chat.answerQuestion({
+              questionId: request.questionId,
+              cancelled,
+              answers: cancelled ? [] : answers,
+            });
+            if (resolved) setQuestionRequest(null);
+            return resolved;
+          }}
+          approvalRequests={approvalRequests}
+          onResolveApproval={async (request, decision) => {
+            const resolved = await api.chat.resolveApproval({
+              approvalId: request.approvalId,
+              decision,
+            });
+            if (resolved) {
+              setApprovalRequests((current) => current.filter(
+                (item) => item.approvalId !== request.approvalId,
+              ));
+            }
+            return resolved;
+          }}
+          onOpenFileReference={(reference) => api.files.reveal({
+            folderPath: currentProject?.path,
+            filePath: reference.path,
+            allowExternalReference: true,
+          })}
+          onFileReferenceAction={async (action, reference) => {
+            await api.files[action === 'reveal' ? 'reveal' : 'copyPath']({
+              folderPath: currentProject?.path,
+              filePath: reference.path,
+              allowExternalReference: true,
+            });
+          }}
+          messageDeliveryMode={appState?.tuning?.messageDeliveryMode}
+          defaultPermissionMode={appState?.tuning?.defaultPermissionMode}
+          continuationRepliesEnabled={appState?.tuning?.continuationRepliesEnabled}
+          emptyHint="This conversation disappears when you close the window, unless you fork it into a thread."
+          homeEmpty={false}
+          composerFloat={hasMessage ? (
+            <ComposerFloatButtonStrip>
+              <ComposerFloatButton
+                icon={GitFork}
+                disabled={forking}
+                onClick={() => {
+                  setForking(true);
+                  api.quickChat.fork(conversationId).catch((nextError) => {
+                    setForking(false);
+                    setError(nextError.message);
+                  });
+                }}
+              >
+                Fork in thread
+              </ComposerFloatButton>
+            </ComposerFloatButtonStrip>
+          ) : null}
+        />
+      </div>
     </main>
   );
 }
 
-function QuickComposer({
-  models,
-  favorites,
-  model,
-  modelName,
-  running,
-  droppedFiles,
-  onChooseModel,
-  onToggleFavorite,
-  onSend,
-  onStop,
-}) {
-  const [text, setText] = useState('');
-  const [attachments, setAttachments] = useState([]);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [recording, setRecording] = useState(null);
-  const inputRef = useRef(null);
-
-  async function attachFiles(files, source = null) {
-    const nextAttachments = await Promise.all(
-      [...files].map((file) => fileToAttachment(file, source)),
-    );
-    setAttachments((current) => [...current, ...nextAttachments]);
+function recentProjectsFrom(threads, homePath) {
+  const paths = new Set();
+  const projects = [];
+  for (const thread of threads) {
+    if (!thread.projectPath || thread.projectPath === homePath || paths.has(thread.projectPath)) continue;
+    paths.add(thread.projectPath);
+    projects.push({
+      path: thread.projectPath,
+      name: thread.projectName,
+      displayPath: thread.projectDisplayPath,
+      gitBranch: thread.gitBranch,
+    });
+    if (projects.length === 30) break;
   }
-
-  useEffect(() => {
-    if (droppedFiles?.files.length > 0) void attachFiles(droppedFiles.files, 'drop');
-  }, [droppedFiles?.id]);
-
-  async function submit() {
-    if (running) return onStop();
-    const normalizedText = text.trim();
-    if (!normalizedText && attachments.length === 0) return;
-    const payload = { text: normalizedText, attachments };
-    setText('');
-    setAttachments([]);
-    await onSend(payload);
-  }
-
-  async function toggleRecording() {
-    if (recording?.processing) return;
-    if (recording) {
-      setRecording({ ...recording, processing: true });
-      recording.recorder.stop();
-      return;
-    }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream);
-    const chunks = [];
-    recorder.addEventListener('dataavailable', (event) => chunks.push(event.data));
-    recorder.addEventListener('stop', async () => {
-      stream.getTracks().forEach((track) => track.stop());
-      try {
-        const attachment = await createMp3Attachment(chunks);
-        setAttachments((current) => [...current, attachment]);
-      } finally {
-        setRecording(null);
-      }
-    }, { once: true });
-    recorder.start();
-    setRecording({ recorder });
-  }
-
-  return (
-    <footer className="quick-composer">
-      {attachments.length > 0 && (
-        <div className="quick-attachments">
-          {attachments.map((attachment) => (
-            <span key={attachment.id}>
-              {attachment.name} <small>{formatBytes(attachment.size)}</small>
-              <button
-                type="button"
-                aria-label={`Remove ${attachment.name}`}
-                onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
-              >
-                <X size={12} />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <textarea
-        ref={inputRef}
-        value={text}
-        rows={1}
-        placeholder="Message Avi"
-        onChange={(event) => setText(event.target.value)}
-        onPaste={(event) => {
-          const files = Array.from(event.clipboardData.files ?? []);
-          if (files.length > 0) {
-            event.preventDefault();
-            void attachFiles(files, 'clipboard');
-            return;
-          }
-          const pastedText = event.clipboardData.getData('text');
-          if (pastedText.length > 2048) {
-            event.preventDefault();
-            setAttachments((current) => [...current, textToAttachment(pastedText)]);
-          }
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault();
-            void submit();
-          }
-        }}
-      />
-      <div className="quick-composer-actions">
-        <div className="quick-composer-tools">
-          <label className="quick-icon-button" aria-label="Attach files" title="Attach files">
-            <Paperclip size={18} />
-            <input type="file" multiple onChange={(event) => {
-              void attachFiles(event.target.files);
-              event.target.value = '';
-            }} />
-          </label>
-          <button
-            className={`quick-icon-button${recording ? ' active' : ''}`}
-            type="button"
-            aria-label={recording?.processing ? 'Processing audio' : recording ? 'Stop recording' : 'Record audio'}
-            title={recording?.processing ? 'Processing audio...' : recording ? 'Stop recording' : 'Record audio'}
-            disabled={recording?.processing}
-            onClick={() => void toggleRecording()}
-          >
-            {recording?.processing
-              ? <LoaderCircle className="recording-spinner" size={15} />
-              : recording ? <Square size={15} /> : <Mic size={18} />}
-          </button>
-        </div>
-        <button className="quick-model-button" type="button" onClick={() => setPickerOpen(true)}>
-          <span>{modelName}</span>
-          <ChevronDown size={14} />
-        </button>
-        <button
-          className="quick-send-button"
-          type="button"
-          aria-label={running ? 'Stop' : 'Send'}
-          onClick={() => void submit()}
-        >
-          {running ? <Square size={15} /> : <ArrowUp size={18} />}
-        </button>
-      </div>
-      <Presence when={pickerOpen}>{() => (
-        <ModelPicker
-          models={models}
-          favorites={favorites}
-          currentModel={model}
-          onClose={() => setPickerOpen(false)}
-          onChoose={onChooseModel}
-          onToggleFavorite={onToggleFavorite}
-        />
-      )}</Presence>
-    </footer>
-  );
+  return projects;
 }
 
-function hasFileTransfer(dataTransfer) {
-  if (!dataTransfer) return false;
-  const items = Array.from(dataTransfer.items ?? []);
-  if (items.length > 0) {
-    return items.some((item) => {
-      if (item.kind !== 'file') return false;
-      if (typeof item.webkitGetAsEntry !== 'function') return true;
-      const entry = item.webkitGetAsEntry();
-      return !entry || entry.isFile;
-    });
-  }
-  return Array.from(dataTransfer.types ?? []).includes('Files');
+function applyPendingOrder(messages, order) {
+  const positions = new Map([
+    ...(order?.steerMessageIds ?? []).map((messageId, index) => [messageId, index]),
+    ...(order?.queuedMessageIds ?? []).map((messageId, index) => [messageId, index]),
+  ]);
+  return messages.map((message) => (
+    positions.has(message.id)
+      ? { ...message, queuePosition: positions.get(message.id) }
+      : message
+  ));
+}
+
+function upsertMessage(items, item) {
+  const index = items.findIndex((current) => current.id === item.id);
+  const next = index === -1
+    ? [...items, item]
+    : items.map((current) => (current.id === item.id ? item : current));
+  return next.sort((left, right) => new Date(left.createdAt) - new Date(right.createdAt));
 }
