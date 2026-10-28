@@ -98,13 +98,13 @@ Updated [`Conversation`](types.md#conversation), or `null` when the ID does not 
 
 ## `conversations:archive`
 
-Archives a conversation, stops active runs in it and its children, and clears their semaphore waits.
+Archives one or more conversations, stops active runs in them and their children, and clears their semaphore waits.
 
 ### Params
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `payload` | string | Yes | Conversation ID. |
+| `payload` | string or string[] | Yes | Conversation ID, or an array of IDs to archive together. |
 
 ### Result
 

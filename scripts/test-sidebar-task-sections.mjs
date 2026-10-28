@@ -22,7 +22,7 @@ const conversation = (id, title, projectName, needsAttention = false) => ({
   updatedAt: `2026-08-13T12:0${id}:00.000Z`,
 });
 
-const markup = renderToStaticMarkup(React.createElement(Sidebar, {
+const sidebarProps = {
   conversations: [
     conversation('1', 'Active task', 'Alpha'),
     conversation('2', 'Needs attention', 'Beta', true),
@@ -63,6 +63,27 @@ const markup = renderToStaticMarkup(React.createElement(Sidebar, {
   orchestrationOpen: false,
   onToggleCollapsed: () => {},
   homePath: 'C:\\Users\\test',
+};
+
+const markup = renderToStaticMarkup(React.createElement(Sidebar, sidebarProps));
+
+const agentMarkup = renderToStaticMarkup(React.createElement(Sidebar, {
+  ...sidebarProps,
+  bots: [],
+  conversations: [
+    { ...conversation('1', 'Agent approval thread', 'Delta'), createdBy: 'agent' },
+    { ...conversation('2', 'Agent input thread', 'Delta'), createdBy: 'agent' },
+    { ...conversation('3', 'Agent failed thread', 'Delta', true), createdBy: 'agent' },
+    { ...conversation('4', 'Agent blocked thread', 'Delta'), createdBy: 'agent', workStatus: 'blocked' },
+    { ...conversation('5', 'Agent running thread', 'Delta', true), createdBy: 'agent' },
+    { ...conversation('6', 'Agent healthy thread', 'Delta'), createdBy: 'agent' },
+    { ...conversation('7', 'Agent completed thread', 'Delta'), createdBy: 'agent' },
+    { ...conversation('8', 'User chat', 'Delta'), createdBy: 'user' },
+  ],
+  running: { 5: true },
+  completedUnseen: { 7: true },
+  approvalPending: { 1: true },
+  inputPending: { 2: true },
 }));
 
 const stickyTopIndex = markup.indexOf('class="sidebar-sticky-top"');
@@ -115,6 +136,19 @@ for (const title of ['Active task', 'Needs attention', 'Completed task', 'Ordina
   assert.match(foldersMarkup, new RegExp(title));
 }
 assert.doesNotMatch(markup, /Agent-created thread/);
+
+for (const title of [
+  'Agent approval thread',
+  'Agent input thread',
+  'Agent failed thread',
+  'Agent blocked thread',
+  'User chat',
+]) {
+  assert.match(agentMarkup, new RegExp(title), `${title} should be shown by default.`);
+}
+for (const title of ['Agent running thread', 'Agent healthy thread', 'Agent completed thread']) {
+  assert.doesNotMatch(agentMarkup, new RegExp(title), `${title} should stay hidden by default.`);
+}
 
 assert.match(markup, /class="lucide lucide-loader-circle run-spinner"[^>]*aria-label="Working"/);
 assert.match(markup, /class="bot-status-dot active" aria-label="Active"/);

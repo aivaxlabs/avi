@@ -130,7 +130,14 @@ export const Sidebar = memo(function Sidebar({
   const conversationGroups = useMemo(() => {
     const sortedConversations = [...conversations]
       .filter((conversation) => (
-        (showAgentCreatedThreads || conversation.createdBy !== 'agent')
+        (
+          showAgentCreatedThreads
+          || conversation.createdBy !== 'agent'
+          || approvalPending[conversation.id]
+          || inputPending[conversation.id]
+          || conversation.workStatus === 'blocked'
+          || (conversation.needsAttention && !running[conversation.id])
+        )
         && (activeTagIds.size === 0
           || (conversation.tags ?? []).some((id) => activeTagIds.has(id)))
       ))
@@ -700,7 +707,7 @@ export const Sidebar = memo(function Sidebar({
               <div
                 className="conversation-group-header"
                 data-flip-id={`group:${group.key}`}
-                onContextMenu={conversationGrouping === 'folder' && !group.isHome && !group.isTaskGroup
+                onContextMenu={!group.isTaskGroup
                   ? (event) => {
                     event.preventDefault();
                     folderMenuButtonRef.current = event.currentTarget;
@@ -720,41 +727,41 @@ export const Sidebar = memo(function Sidebar({
                   )}
                   <span>{groupLabel}</span>
                 </span>
-                {conversationGrouping !== 'chronological' && !group.isTaskGroup && (
+                {!group.isTaskGroup && (
                   <div className="conversation-group-actions">
-                    <button
-                      type="button"
-                      aria-label={`New chat with ${groupLabel}`}
-                      title={`New chat with ${groupLabel}`}
-                      onClick={() => onNewChat(group.preset)}
-                    >
-                      <Plus size={13} />
-                    </button>
-                    {conversationGrouping === 'folder' && !group.isHome && (
+                    {conversationGrouping !== 'chronological' && (
                       <button
-                        className={folderMenu?.key === group.key ? 'active' : undefined}
                         type="button"
-                        aria-label={`Actions for ${group.label}`}
-                        aria-haspopup="menu"
-                        aria-expanded={folderMenu?.key === group.key}
-                        title={`Actions for ${group.label}`}
-                        onClick={(event) => {
-                          if (folderMenu?.key === group.key) {
-                            setFolderMenu(null);
-                            return;
-                          }
-                          const rect = event.currentTarget.getBoundingClientRect();
-                          folderMenuButtonRef.current = event.currentTarget;
-                          setFolderMenu({
-                            key: group.key,
-                            top: rect.bottom + 4,
-                            left: Math.max(8, Math.min(rect.right - 184, window.innerWidth - 192)),
-                          });
-                        }}
+                        aria-label={`New chat with ${groupLabel}`}
+                        title={`New chat with ${groupLabel}`}
+                        onClick={() => onNewChat(group.preset)}
                       >
-                        <MoreHorizontal size={13} />
+                        <Plus size={13} />
                       </button>
                     )}
+                    <button
+                      className={folderMenu?.key === group.key ? 'active' : undefined}
+                      type="button"
+                      aria-label={`Actions for ${group.label}`}
+                      aria-haspopup="menu"
+                      aria-expanded={folderMenu?.key === group.key}
+                      title={`Actions for ${group.label}`}
+                      onClick={(event) => {
+                        if (folderMenu?.key === group.key) {
+                          setFolderMenu(null);
+                          return;
+                        }
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        folderMenuButtonRef.current = event.currentTarget;
+                        setFolderMenu({
+                          key: group.key,
+                          top: rect.bottom + 4,
+                          left: Math.max(8, Math.min(rect.right - 184, window.innerWidth - 192)),
+                        });
+                      }}
+                    >
+                      <MoreHorizontal size={13} />
+                    </button>
                   </div>
                 )}
               </div>
@@ -765,102 +772,119 @@ export const Sidebar = memo(function Sidebar({
                   role="menu"
                   style={{ top: folderMenu.top, left: folderMenu.left }}
                 >
-                  <DropdownMenuItem
-                    icon={<FolderOpen size={14} />}
-                    role="menuitem"
-                    onClick={() => {
-                      setFolderMenu(null);
-                      onOpenProject(group.preset.project);
-                    }}
-                  >
-                    Open in explorer
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    icon={<SquareTerminal size={14} />}
-                    role="menuitem"
-                    onClick={() => {
-                      setFolderMenu(null);
-                      onOpenTerminal(group.preset.project);
-                    }}
-                  >
-                    Open in terminal
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    icon={<Copy size={14} />}
-                    role="menuitem"
-                    onClick={() => {
-                      setFolderMenu(null);
-                      onCopyPath(group.preset.project);
-                    }}
-                  >
-                    Copy path
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    icon={<Zap size={14} />}
-                    role="menuitem"
-                    onClick={() => {
-                      setFolderMenu(null);
-                      onQuickChat(group.preset.project);
-                    }}
-                  >
-                    Quick chat
-                  </DropdownMenuItem>
-                  <div className="dropdown-menu-divider" role="separator" />
-                  <DropdownMenuItem
-                    icon={<FolderCog size={14} />}
-                    role="menuitem"
-                    onClick={() => {
-                      setFolderMenu(null);
-                      onSettings(group.preset.project);
-                    }}
-                  >
-                    Manage Context
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    icon={<Server size={14} />}
-                    role="menuitem"
-                    onClick={() => {
-                      setFolderMenu(null);
-                      onSettings(group.preset.project, 'mcp');
-                    }}
-                  >
-                    Manage MCP Servers
-                  </DropdownMenuItem>
-                  {group.preset.project?.isWorkspace && (
-                    <DropdownMenuItem icon={<Network size={14} />} role="menuitem" onClick={() => {
-                      setFolderMenu(null);
-                      setEditingWorkspace(group.preset.project);
-                    }}>Edit workspace</DropdownMenuItem>
+                  {conversationGrouping === 'folder' && !group.isHome && (
+                    <>
+                      <DropdownMenuItem
+                        icon={<FolderOpen size={14} />}
+                        role="menuitem"
+                        onClick={() => {
+                          setFolderMenu(null);
+                          onOpenProject(group.preset.project);
+                        }}
+                      >
+                        Open in explorer
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        icon={<SquareTerminal size={14} />}
+                        role="menuitem"
+                        onClick={() => {
+                          setFolderMenu(null);
+                          onOpenTerminal(group.preset.project);
+                        }}
+                      >
+                        Open in terminal
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        icon={<Copy size={14} />}
+                        role="menuitem"
+                        onClick={() => {
+                          setFolderMenu(null);
+                          onCopyPath(group.preset.project);
+                        }}
+                      >
+                        Copy path
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        icon={<Zap size={14} />}
+                        role="menuitem"
+                        onClick={() => {
+                          setFolderMenu(null);
+                          onQuickChat(group.preset.project);
+                        }}
+                      >
+                        Quick chat
+                      </DropdownMenuItem>
+                      <div className="dropdown-menu-divider" role="separator" />
+                      <DropdownMenuItem
+                        icon={<FolderCog size={14} />}
+                        role="menuitem"
+                        onClick={() => {
+                          setFolderMenu(null);
+                          onSettings(group.preset.project);
+                        }}
+                      >
+                        Manage Context
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        icon={<Server size={14} />}
+                        role="menuitem"
+                        onClick={() => {
+                          setFolderMenu(null);
+                          onSettings(group.preset.project, 'mcp');
+                        }}
+                      >
+                        Manage MCP Servers
+                      </DropdownMenuItem>
+                      {group.preset.project?.isWorkspace && (
+                        <DropdownMenuItem icon={<Network size={14} />} role="menuitem" onClick={() => {
+                          setFolderMenu(null);
+                          setEditingWorkspace(group.preset.project);
+                        }}>Edit workspace</DropdownMenuItem>
+                      )}
+                      <div className="dropdown-menu-divider" role="separator" />
+                      <DropdownMenuItem
+                        icon={folderColor
+                          ? <span className="tag-dot" style={{ backgroundColor: folderColor }} aria-hidden="true" />
+                          : <Palette size={14} />}
+                        role="menuitem"
+                        aria-haspopup="menu"
+                        aria-expanded={Boolean(folderMenu.colorMenu)}
+                        onClick={(event) => {
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          const width = 232;
+                          const fitsRight = rect.right + 8 + width <= window.innerWidth;
+                          setFolderMenu((menu) => (menu ? {
+                            ...menu,
+                            colorMenu: menu.colorMenu
+                              ? null
+                              : {
+                                top: Math.max(8, Math.min(rect.top - 6, window.innerHeight - 120)),
+                                left: Math.max(
+                                  8,
+                                  fitsRight
+                                    ? rect.right + 8
+                                    : Math.min(rect.left - 8 - width, window.innerWidth - width - 8),
+                                ),
+                              },
+                          } : menu));
+                        }}
+                      >
+                        Color
+                      </DropdownMenuItem>
+                      <div className="dropdown-menu-divider" role="separator" />
+                    </>
                   )}
-                  <div className="dropdown-menu-divider" role="separator" />
                   <DropdownMenuItem
-                    icon={folderColor
-                      ? <span className="tag-dot" style={{ backgroundColor: folderColor }} aria-hidden="true" />
-                      : <Palette size={14} />}
+                    icon={<Archive size={14} />}
                     role="menuitem"
-                    aria-haspopup="menu"
-                    aria-expanded={Boolean(folderMenu.colorMenu)}
-                    onClick={(event) => {
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      const width = 232;
-                      const fitsRight = rect.right + 8 + width <= window.innerWidth;
-                      setFolderMenu((menu) => (menu ? {
-                        ...menu,
-                        colorMenu: menu.colorMenu
-                          ? null
-                          : {
-                            top: Math.max(8, Math.min(rect.top - 6, window.innerHeight - 120)),
-                            left: Math.max(
-                              8,
-                              fitsRight
-                                ? rect.right + 8
-                                : Math.min(rect.left - 8 - width, window.innerWidth - width - 8),
-                            ),
-                          },
-                      } : menu));
+                    onClick={() => {
+                      setFolderMenu(null);
+                      const count = group.items.length;
+                      if (!window.confirm(`Archive ${count} ${count === 1 ? 'chat' : 'chats'} in "${groupLabel}"? Running chats are stopped. You can restore them from the Archive.`)) return;
+                      onArchive(group.items.map((conversation) => conversation.id));
                     }}
                   >
-                    Color
+                    Archive all
                   </DropdownMenuItem>
                 </DropdownMenu>,
                 document.body,

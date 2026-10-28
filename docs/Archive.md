@@ -13,6 +13,8 @@ Available values are 7, 30, or Never for automatic archiving; 30, 60, or Never f
 
 ## Archive operations
 
+The actions menu (... or right-click) of every Sidebar group header — a date, model, or folder group — has **Archive all**, which archives every chat currently listed in that group after a confirmation. Running chats are stopped. Hidden agent-created threads and chats removed by the tag filter are not included.
+
 Open **Folders → Global or a working folder → Archive** to search, restore, or permanently delete archived threads in that folder. Pagination and search remain scoped to the selected folder. Global here means the home folder, not all folders.
 
 Open **Settings → Maintenance → Archive** for the all-folder archive and global retention controls, including:
