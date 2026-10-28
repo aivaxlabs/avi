@@ -181,6 +181,7 @@ import { clearWorkspaceMentionCache, searchWorkspaceMentions } from './workspace
 import { PluginManager } from './plugin-manager.js';
 import { createPluginDomainApi, registerPluginTool } from './plugin-domain-api.js';
 import { RemoteMcpServer } from './remote-mcp-server.js';
+import { TaskScheduler } from './task-scheduler.js';
 import { RemoteRelay } from './remote-relay.js';
 import {
   listInstalledTerminalShells,
@@ -253,6 +254,7 @@ let tray;
 let chatRunner;
 let botManager;
 let quickChatRunner;
+let taskScheduler;
 let mcpManager;
 let remoteMcpServer;
 let remoteStartError = '';
@@ -369,6 +371,7 @@ app.on('before-quit', (event) => {
   clearInterval(threadSearchSyncInterval);
   clearInterval(semanticGrepSyncInterval);
   botManager?.stop();
+  taskScheduler?.stop();
   for (const sessionId of [...quickChatWindows.keys(), ...quickQuestionSessions]) {
     quickChatRunner?.close(sessionId);
   }
@@ -620,6 +623,7 @@ const startBots = inactiveBots ? Promise.resolve() : globalMcpInitialization
   error: error instanceof Error ? error.message : String(error),
   }));
 void startBots.finally(() => botInitialization.resolve());
+if (!inactiveBots) void globalMcpInitialization.finally(() => taskScheduler.start());
 if (inactiveBots) {
   traceInfo('bots.initialization-skipped', { operation: 'startup', status: 'inactive-by-flag' });
 }
@@ -1078,6 +1082,21 @@ function initializeServices() {
       },
     });
     botManager.attachChatRunner(chatRunner);
+  }
+  if (!taskScheduler) {
+    taskScheduler = new TaskScheduler({
+      getChatRunner: () => chatRunner,
+      getModels: () => providerRegistry.listModels(),
+      getPreferences,
+      sendEvent: (payload) => {
+        pluginManager.runtime.emit(payload.type === 'task' ? 'scheduler.task.changed' : 'scheduler.recurring-job.changed', {
+          threadId: payload.task?.conversationId ?? undefined,
+          data: payload,
+        });
+        sendRendererEvent('task-scheduler:event', payload);
+      },
+    });
+    chatRunner.taskScheduler = taskScheduler;
   }
   if (!quickChatRunner) {
     deleteQuickChats();
@@ -1629,6 +1648,9 @@ function registerIpc() {
         mediaDescriptionsEnabled: false,
         imageGenerationEnabled: false,
         audioGenerationEnabled: false,
+        fastCompressEnabled: false,
+        fastNameEnabled: false,
+        smartApproveEnabled: false,
       });
       return { connected: false, account: null, settings, semanticGrep: getSemanticGrepStatus() };
     }
@@ -1660,6 +1682,9 @@ function registerIpc() {
       mediaDescriptionsEnabled: false,
       imageGenerationEnabled: false,
       audioGenerationEnabled: false,
+      fastCompressEnabled: false,
+      fastNameEnabled: false,
+      smartApproveEnabled: false,
     });
     return { connected: false, account: null, settings, semanticGrep: getSemanticGrepStatus() };
   });
@@ -2093,6 +2118,18 @@ function registerIpc() {
     setComposerDraft(payload.projectPath, payload)
   ));
   applicationIpc.handle('tasks:list', (_event, conversationId) => listTasks(conversationId));
+  applicationIpc.handle('task-scheduler:list-tasks', (_event, options = {}) => taskScheduler.listTasks(options ?? {}));
+  applicationIpc.handle('task-scheduler:view-task', (_event, id) => taskScheduler.viewTask(id));
+  applicationIpc.handle('task-scheduler:schedule-task', (_event, input = {}) => taskScheduler.scheduleTask(input ?? {}));
+  applicationIpc.handle('task-scheduler:cancel-task', (_event, id) => taskScheduler.cancelTask(id));
+  applicationIpc.handle('task-scheduler:delete-task', (_event, id) => taskScheduler.deleteTask(id));
+  applicationIpc.handle('task-scheduler:list-recurring-jobs', () => taskScheduler.listRecurringJobs());
+  applicationIpc.handle('task-scheduler:view-recurring-job', (_event, id) => taskScheduler.viewRecurringJob(id));
+  applicationIpc.handle('task-scheduler:create-recurring-job', (_event, input = {}) => taskScheduler.createRecurringJob(input ?? {}));
+  applicationIpc.handle('task-scheduler:update-recurring-job', (_event, { id, changes } = {}) => (
+    taskScheduler.updateRecurringJob(id, changes ?? {})
+  ));
+  applicationIpc.handle('task-scheduler:delete-recurring-job', (_event, id) => taskScheduler.deleteRecurringJob(id));
   applicationIpc.handle('bots:list', async () => {
     const botDataByBot = await botManager.listBotDataByBot();
     return {
@@ -2176,9 +2213,11 @@ function registerIpc() {
     });
     return canceled ? null : filePaths[0];
   });
-  applicationIpc.handle('conversations:archive', (_event, conversationId) => {
-    cleanupConversation(conversationId);
-    archiveConversation(conversationId);
+  applicationIpc.handle('conversations:archive', (_event, payload) => {
+    for (const conversationId of [payload].flat()) {
+      cleanupConversation(conversationId);
+      archiveConversation(conversationId);
+    }
     chatRunner.semaphores.cleanMissingConversations();
     return listConversationsWithProjects();
   });

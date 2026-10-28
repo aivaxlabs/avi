@@ -36,6 +36,14 @@ const REMOTE_TOOL_NAMES = new Set([
   'chat_interrupt_thread',
   'chat_inspect_thread',
   'chat_export_thread',
+  'task_scheduler_schedule_task',
+  'task_scheduler_cancel_task',
+  'task_scheduler_list_tasks',
+  'task_scheduler_view_task',
+  'task_scheduler_create_recurring_job',
+  'task_scheduler_delete_recurring_job',
+  'task_scheduler_list_recurring_jobs',
+  'task_scheduler_view_recurring_job',
 ]);
 const GLOBAL_RPC_METHODS = new Set([
   'rpc:discover',
@@ -87,6 +95,16 @@ const GLOBAL_RPC_METHODS = new Set([
   'sidebar:mark-seen',
   'tags:list',
   'tags:save',
+  'task-scheduler:list-tasks',
+  'task-scheduler:view-task',
+  'task-scheduler:schedule-task',
+  'task-scheduler:cancel-task',
+  'task-scheduler:delete-task',
+  'task-scheduler:list-recurring-jobs',
+  'task-scheduler:view-recurring-job',
+  'task-scheduler:create-recurring-job',
+  'task-scheduler:update-recurring-job',
+  'task-scheduler:delete-recurring-job',
 ]);
 const CONVERSATION_RPC_METHODS = new Set([
   'rpc:discover',

@@ -63,6 +63,8 @@ plugin.activated
 plugin.deactivated
 bot.updated
 bot.work-state
+scheduler.task.changed
+scheduler.recurring-job.changed
 ```
 
 Unknown internal chat event types are exposed under `chat.<normalized-type>` so observers can log them without changing execution.

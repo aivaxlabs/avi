@@ -178,6 +178,7 @@ Authenticated global `/rpc` clients can invoke `remote:state` with no payload. I
 - [Threads, messages, composer state, tasks, and recovery](conversations.md)
 - [Child conversations](child-threads.md)
 - [Bots](bots.md)
+- [Task scheduler](task-scheduler.md)
 - [Chat, queue, semaphores, and Goals](chat.md)
 - [Conversation notifications](streaming.md)
 - [Remote MCP](../mcp/overview.md)

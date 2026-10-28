@@ -45,6 +45,7 @@ The endpoint is local only. AIVAX Remote does not publish `/commands`; remote cl
 | [`chat_inspect_thread`](#chat_inspect_thread) | Text | Peek at a thread's latest turns and status. |
 | [`chat_export_thread`](#chat_export_thread) | Text | Export a full thread transcript to disk. |
 | [`quick_chat_invoke`](#quick_chat_invoke) | JSON | Run one Quick chat turn and return its answer. |
+| [`task_scheduler_*`](#scheduled-jobs) | JSON | Schedule, cancel, list, and view tasks; create, delete, list, and view recurring jobs. |
 
 ## Bots
 
@@ -482,9 +483,31 @@ This headless turn does not use the Quick Chat window runtime. It keeps reduced 
 
 **Errors:** blank prompt, no Quick chat model configured, unavailable model, or a failed turn. A failed turn returns its provider error message.
 
+## Scheduled jobs
+
+Manage [Scheduled jobs](Scheduled%20jobs.md). Results use the `ScheduledTask` and `RecurringJob` shapes from the [task scheduler RPC](api/rpc/task-scheduler.md).
+
+| Command | Arguments | Result |
+| --- | --- | --- |
+| `task_scheduler_schedule_task` | `instruction` (required), `title`, `folderPath`, `model`, `reasoningEffort`, `permissionMode`, `runAt` (ISO 8601, default now) | `ScheduledTask` |
+| `task_scheduler_cancel_task` | `id` | `ScheduledTask` |
+| `task_scheduler_list_tasks` | `status`, `recurringJobId`, `limit` (1–500, default 50) | `{ tasks }` without `output`; instructions truncated to 200 characters |
+| `task_scheduler_view_task` | `id` | `ScheduledTask` with output, error, and stats |
+| `task_scheduler_create_recurring_job` | `instruction`, `cron` (required), `title`, `folderPath`, `model`, `reasoningEffort`, `permissionMode`, `enabled`, `endsAt` | `RecurringJob` |
+| `task_scheduler_delete_recurring_job` | `id` | `{ deleted, id }` |
+| `task_scheduler_list_recurring_jobs` | none | `{ jobs }` |
+| `task_scheduler_view_recurring_job` | `id` | `RecurringJob` with `recentTasks` |
+
+```sh
+curl -H "Authorization: Bearer $AVI_KEY" http://127.0.0.1:18992/commands/task_scheduler_create_recurring_job -d '{"instruction":"Summarize yesterday'\''s commits in C:/repo","cron":"0 9 * * 1-5","folderPath":"C:/repo"}'
+```
+
+Commands have no source thread: `folderPath` defaults to the user home folder and `model` to the last used model.
+
 ## Related documents
 
 - [Remote Control](Remote%20control.md)
 - [Remote MCP API](api/mcp/overview.md)
 - [API reference](api/overview.md)
 - [Bots](Bots.md)
+- [Scheduled jobs](Scheduled%20jobs.md)

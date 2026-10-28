@@ -44,6 +44,10 @@ assert.match(updatedSettingsMarkup, /class="activity-update-badge"/);
 const selectedMarkup = render({ active: 'settings' });
 assert.match(selectedMarkup, /aria-label="Settings" aria-current="page"/);
 
+const activityLabels = [...defaultMarkup.matchAll(/aria-label="([^"]+)"/g)].map((match) => match[1]);
+assert.deepEqual(activityLabels, ['Main navigation', 'Home', 'Inbox', 'Folders', 'Scheduled jobs', 'Settings']);
+assert.match(render({ active: 'scheduled-jobs' }), /aria-label="Scheduled jobs" aria-current="page"/);
+
 const appSource = readFileSync(new URL('../src/renderer/App.jsx', import.meta.url), 'utf8');
 const countsStart = appSource.indexOf('  const activityCounts = useMemo(() => ({');
 const countsEnd = appSource.indexOf('  }), [conversations, approvalPending, inputPending, completedUnseen, botDataByBot]);', countsStart);

@@ -1,0 +1,215 @@
+.settings-page.scheduled-jobs-page {
+  grid-template-columns: minmax(0, 1fr);
+
+  .scheduled-jobs-header-actions {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .scheduled-jobs-header-note,
+  .scheduled-jobs-muted,
+  .scheduled-jobs-next {
+    color: --text-3;
+    font-size: .9rem;
+  }
+
+  .scheduled-jobs-next {
+    white-space: nowrap;
+
+    @media (max-width: 700px) {
+      display: none;
+    }
+  }
+
+  .scheduled-jobs-list,
+  .scheduled-jobs-editor {
+    display: grid;
+    align-content: start;
+    gap: 24px;
+  }
+
+  .scheduled-jobs-list > .settings-section {
+    gap: 12px;
+  }
+
+  .settings-entity-row > .toggle {
+    justify-self: center;
+  }
+
+  .scheduled-jobs-fieldset {
+    min-width: 0;
+    margin: 0;
+  }
+
+  .scheduled-jobs-field-control {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    min-width: 0;
+
+    > .select {
+      max-width: 100%;
+    }
+  }
+
+  .maintenance-tabs.scheduled-jobs-field-control {
+    gap: 2px;
+
+    > button:not(.button) {
+      padding-inline: 8px;
+    }
+  }
+
+  .settings-card-row > span {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+
+    small {
+      color: --text-3;
+      font-size: .9rem;
+    }
+  }
+
+  .scheduled-jobs-preview {
+    align-items: flex-start;
+
+    code {
+      color: --text-3;
+      font-family: --font-code;
+      font-size: .9rem;
+    }
+
+    ol {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      color: --text-2;
+      font-size: .9rem;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+
+    > .scheduled-jobs-preview-error {
+      margin: 0;
+      color: --danger-color;
+      font-size: .9rem;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .scheduled-jobs-status {
+    --status-color: var(--text-3);
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 1px 8px 1px 7px;
+    color: --text-2;
+    background: color-mix(in srgb, var(--status-color) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--status-color) 28%, transparent);
+    border-radius: 999px;
+    font-size: --font-xs;
+    line-height: 1.5;
+    white-space: nowrap;
+
+    &::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      background: var(--status-color);
+      border-radius: 50%;
+    }
+
+    &[data-status="scheduled"] {
+      --status-color: var(--primary-color);
+    }
+
+    &[data-status="running"] {
+      --status-color: var(--primary-color);
+
+      &::before {
+        animation: scheduled-jobs-pulse 1.4s var(--ease-smooth-out) infinite alternate;
+      }
+    }
+
+    &[data-status="completed"] {
+      --status-color: var(--success-color);
+    }
+
+    &[data-status="failed"] {
+      --status-color: var(--danger-color);
+
+      &::before {
+        border-radius: 1px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      &::before {
+        animation: none !important;
+      }
+    }
+  }
+
+  .scheduled-jobs-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px 24px;
+    margin: 0;
+
+    > div {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+    }
+
+    dt {
+      color: --text-3;
+      font-size: .9rem;
+    }
+
+    dd {
+      min-width: 0;
+      margin: 0;
+      overflow: hidden;
+      color: --text-1;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .scheduled-jobs-text {
+    margin: 0;
+    color: --text-1;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.5;
+  }
+
+  .scheduled-jobs-output {
+    min-width: 0;
+    overflow-x: auto;
+
+    .markdown-body > :first-child {
+      margin-top: 0;
+    }
+  }
+}
+
+@keyframes scheduled-jobs-pulse {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: .35;
+  }
+}

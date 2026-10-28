@@ -3,6 +3,8 @@
 ## [Canary]
 
 ### Added
+- **Read-only permission mode** — `permissionMode` accepts `'read_only'` in thread send/retry options, tool execution context, and bot create/update and snapshots. Tool calls that require approval fail instead of prompting. Plugins that switch exhaustively on the previous three values must handle the new one. Compatibility: Backward compatible; supports API v2.
+- **Scheduler namespace** — `avi.scheduler` exposes `listTasks`, `viewTask`, `scheduleTask`, `cancelTask`, `deleteTask`, `listRecurringJobs`, `viewRecurringJob`, `createRecurringJob`, `updateRecurringJob`, and `deleteRecurringJob`, gated by the new `scheduler.read` and `scheduler.manage` capabilities. Changes emit `scheduler.task.changed` and `scheduler.recurring-job.changed`. Compatibility: Backward compatible; supports API v2.
 - **Inbox questionnaires** — `BotPendencyMessage` can include `questions` (bot messages) or `questionMessageId` with `answers` (user messages). `bot.inbox.reply(pendencyId, { content, attachments?, questionMessageId?, answers? })` answers a questionnaire once, and the answers are validated against the stored questions. Choice limits are 10 (`single_choice`) and 30 (`multiple_choice`). Compatibility: Backward compatible; supports API v2.
 - **Action pages** — new `actionPages.register` capability and `avi.actionPages.register({ id, title, kind: 'html' | 'native', icon?, load, invokeAction? })` add Activity Bar pages exposed as `plugin:<plugin-id>:<id>`. `icon` accepts a Lucide name or `{ svg }`; HTML pages return `{ html }` and call `window.avi.invoke(action, input)` from a sandboxed iframe; native pages return auxiliary panel sections. The handle exposes `refresh()` and `dispose()`. Compatibility: Backward compatible; supports API v2.
 - **Context item creation time** — `ContextItem` returned by `avi.context.items.list()` includes `createdAt` (ISO string or null). Compatibility: Backward compatible; supports API v2.
@@ -41,5 +43,8 @@
 - **Tool interruption** — when a run is stopped, Avi no longer waits for a plugin tool's `execute()` to settle: the call is recorded as interrupted as soon as `context.signal` aborts. Any later result is discarded, and side effects continue unless the tool honors `context.signal`. Compatibility: Backward compatible; supports API v2.
 - **Fork and activation lifecycle** — copied streaming messages become completed partial-response snapshots; bot activation clears the previous compaction summary and token counter when advancing its history boundary. Compatibility: Backward compatible; supports API v2.
 - **Thread fork handles and checkpoints** — `ThreadHandle.fork()` returns a usable handle for the copied conversation and preserves hidden checkpoint boundaries without replaying compacted history. Compatibility: Backward compatible; supports API v2.
+
+### Docs
+- **Electron main-process modules** — documents that plugins may `import('electron')` to own windows, global shortcuts, and screen capture, with cleanup on deactivation and no changes to Avi's windows, IPC, or shortcuts. Existing behavior; no new API or capability. Compatibility: Backward compatible; supports API v2.
 
 ---

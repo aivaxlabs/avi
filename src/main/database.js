@@ -101,6 +101,9 @@ const defaultAivaxSettings = Object.freeze({
   semanticGrepCollectionName: null,
   semanticGrepReranker: 'rrf',
   semanticGrepDirectories: [],
+  fastCompressEnabled: false,
+  fastNameEnabled: false,
+  smartApproveEnabled: false,
 });
 const semanticGrepRerankers = new Set(['none', 'rrf', 'lexical', 'smart']);
 const defaultSemanticGrepStatus = Object.freeze({
@@ -506,7 +509,55 @@ db.exec(`
     model_id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS recurring_jobs (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    folder_path TEXT NOT NULL,
+    model TEXT NOT NULL,
+    reasoning_effort TEXT,
+    instruction TEXT NOT NULL,
+    permission_mode TEXT NOT NULL DEFAULT 'approve_for_me',
+    cron TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    ends_at TEXT,
+    next_run_at TEXT,
+    last_run_at TEXT,
+    created_by TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    recurring_job_id TEXT,
+    folder_path TEXT NOT NULL,
+    model TEXT NOT NULL,
+    reasoning_effort TEXT,
+    instruction TEXT NOT NULL,
+    permission_mode TEXT NOT NULL DEFAULT 'approve_for_me',
+    run_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'scheduled',
+    conversation_id TEXT,
+    output TEXT,
+    error TEXT,
+    stats TEXT,
+    started_at TEXT,
+    finished_at TEXT,
+    created_by TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (recurring_job_id) REFERENCES recurring_jobs(id) ON DELETE SET NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_status_run_at
+    ON scheduled_tasks(status, run_at);
 `);
+
+if (!db.prepare("PRAGMA table_info('recurring_jobs')").all().some((column) => column.name === 'ends_at')) {
+  db.exec('ALTER TABLE recurring_jobs ADD COLUMN ends_at TEXT');
+}
 
 const messageColumns = db.prepare("PRAGMA table_info('messages')").all();
 if (!messageColumns.some((column) => column.name === 'usage')) {
@@ -847,6 +898,14 @@ const statements = {
     SELECT * FROM goals
     WHERE status = 'active'
     ORDER BY started_at ASC
+  `),
+  sumGoalTokens: db.prepare(`
+    SELECT COALESCE(SUM(
+      COALESCE(json_extract(usage, '$.inputTokens'), 0)
+      + COALESCE(json_extract(usage, '$.outputTokens'), 0)
+    ), 0) AS tokens
+    FROM messages
+    WHERE conversation_id = ? AND goal_id = ? AND role = 'assistant'
   `),
   insertConversation: db.prepare(`
     INSERT INTO conversations (
@@ -2327,6 +2386,7 @@ export function clearConversationMessages(conversationId, { resetState = false }
 }
 
 const botActivationModes = Object.freeze(['static', 'smart']);
+const botPermissionModes = Object.freeze(['read_only', 'approve_for_me', 'full_access']);
 
 function normalizeActivationWindow(window) {
   const source = typeof window === 'string' ? parse(window, {}) : (window ?? {});
@@ -2373,7 +2433,7 @@ function mapBot(row) {
     maxActivations: Math.max(0, Number(row.max_activations) || 0),
     activationWindow: normalizeActivationWindow(row.activation_window),
     executionMode: row.execution_mode || null,
-    permissionMode: row.permission_mode === 'full_access' ? 'full_access' : 'approve_for_me',
+    permissionMode: botPermissionModes.includes(row.permission_mode) ? row.permission_mode : 'approve_for_me',
     instructions: row.instructions || '',
     workQueue,
     workQueueIndex: workQueue.length > 0
@@ -2433,7 +2493,7 @@ export function createBot({
     activationPeriodMinutes: Math.max(1, Number(activationPeriodMinutes) || 10),
     activationMode: botActivationModes.includes(activationMode) ? activationMode : 'static',
     executionMode,
-    permissionMode: permissionMode === 'full_access' ? 'full_access' : 'approve_for_me',
+    permissionMode: botPermissionModes.includes(permissionMode) ? permissionMode : 'approve_for_me',
     maxActivations: Math.max(0, Number(maxActivations) || 0),
     activationWindow: stringify(normalizeActivationWindow(activationWindow)),
     instructions: String(instructions ?? ''),
@@ -2483,7 +2543,7 @@ export function updateBot(id, changes = {}) {
     executionModeChanged: changed('executionMode'),
     permissionMode: changes.permissionMode === undefined
       ? null
-      : changes.permissionMode === 'full_access' ? 'full_access' : 'approve_for_me',
+      : botPermissionModes.includes(changes.permissionMode) ? changes.permissionMode : 'approve_for_me',
     maxActivations: changes.maxActivations ?? null,
     activationWindow: changes.activationWindow === undefined
       ? null
@@ -2763,7 +2823,7 @@ function composerDraftKey(projectPath) {
 function normalizeComposerState(state) {
   const workMode = ['plan', 'goal'].includes(state.workMode) ? state.workMode : null;
   return {
-    permissionMode: ['ask_for_approval', 'approve_for_me', 'full_access'].includes(state.permissionMode)
+    permissionMode: ['read_only', 'ask_for_approval', 'approve_for_me', 'full_access'].includes(state.permissionMode)
       ? state.permissionMode
       : 'approve_for_me',
     model: typeof state.model === 'string' ? state.model : '',
@@ -2975,6 +3035,7 @@ export function insertMessage(message) {
     model: message.model ?? null,
     reasoningEffort: message.reasoningEffort ?? null,
     permissionMode: [
+      'read_only',
       'ask_for_approval',
       'approve_for_me',
       'full_access',
@@ -4021,6 +4082,9 @@ function normalizeAivaxSettings(value, strict = false) {
       ? settings.semanticGrepReranker
       : 'rrf',
     semanticGrepDirectories: normalizeSemanticGrepDirectories(settings.semanticGrepDirectories, strict),
+    fastCompressEnabled: settings.fastCompressEnabled === true,
+    fastNameEnabled: settings.fastNameEnabled === true,
+    smartApproveEnabled: settings.smartApproveEnabled === true,
   };
   const collectionIds = [
     normalized.memoryCollectionId,
@@ -4047,6 +4111,8 @@ function normalizeAivaxSettings(value, strict = false) {
     || ![null, 'string'].includes(settings.semanticGrepCollectionName === null ? null : typeof settings.semanticGrepCollectionName)
     || new Set(collectionIds).size !== collectionIds.length
     || (settings.semanticGrepReranker != null && !semanticGrepRerankers.has(settings.semanticGrepReranker))
+    || [settings.fastCompressEnabled, settings.fastNameEnabled, settings.smartApproveEnabled]
+      .some((value) => value != null && typeof value !== 'boolean')
   )) {
     throw new Error('AIVAX feature settings are invalid.');
   }
@@ -4127,6 +4193,7 @@ function normalizeTuningSettings(value, strict = false) {
       ? mediaSizeLimit
       : defaultTuningSettings.mediaSizeLimit,
     defaultPermissionMode: [
+      'read_only',
       'ask_for_approval',
       'approve_for_me',
       'full_access',
@@ -4180,7 +4247,13 @@ function normalizeTuningSettings(value, strict = false) {
 function mapConversation(row) {
   const projectPath = resolve(row.project_path || homedir());
   const relativeProjectPath = relative(homedir(), projectPath);
-  const goal = getGoalForConversation(row.id);
+  const storedGoal = getGoalForConversation(row.id);
+  const goal = storedGoal && ['active', 'paused'].includes(storedGoal.status)
+    ? {
+        ...storedGoal,
+        tokensTransacted: Number(statements.sumGoalTokens.get(row.id, storedGoal.id)?.tokens) || 0,
+      }
+    : storedGoal;
   const tasks = parse(row.tasks, []);
   const blocked = goal?.status === 'blocked'
     || tasks.some((task) => task.status === 'inconclusive');
@@ -4246,6 +4319,7 @@ function mapMessage(row) {
     model: row.model,
     reasoningEffort: row.reasoning_effort,
     permissionMode: [
+      'read_only',
       'ask_for_approval',
       'approve_for_me',
       'full_access',
@@ -4405,4 +4479,162 @@ function daysBefore(date, days) {
 
 function timestamp() {
   return new Date().toISOString();
+}
+
+const SCHEDULED_TASK_COLUMNS = {
+  title: 'title',
+  recurringJobId: 'recurring_job_id',
+  folderPath: 'folder_path',
+  model: 'model',
+  reasoningEffort: 'reasoning_effort',
+  instruction: 'instruction',
+  permissionMode: 'permission_mode',
+  runAt: 'run_at',
+  status: 'status',
+  conversationId: 'conversation_id',
+  output: 'output',
+  error: 'error',
+  stats: 'stats',
+  startedAt: 'started_at',
+  finishedAt: 'finished_at',
+  createdBy: 'created_by',
+};
+
+const RECURRING_JOB_COLUMNS = {
+  title: 'title',
+  folderPath: 'folder_path',
+  model: 'model',
+  reasoningEffort: 'reasoning_effort',
+  instruction: 'instruction',
+  permissionMode: 'permission_mode',
+  cron: 'cron',
+  enabled: 'enabled',
+  endsAt: 'ends_at',
+  nextRunAt: 'next_run_at',
+  lastRunAt: 'last_run_at',
+  createdBy: 'created_by',
+};
+
+function toSchedulerColumnValue(key, value) {
+  if (key === 'stats') return value == null ? null : stringify(value);
+  if (key === 'enabled') return value ? 1 : 0;
+  return value ?? null;
+}
+
+function insertSchedulerRow(table, columns, values) {
+  const now = timestamp();
+  const row = { id: crypto.randomUUID(), ...values, createdAt: now, updatedAt: now };
+  const keys = Object.keys(columns).filter((key) => row[key] !== undefined);
+  const names = ['id', ...keys.map((key) => columns[key]), 'created_at', 'updated_at'];
+  db.prepare(`INSERT INTO ${table} (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`).run(
+    row.id,
+    ...keys.map((key) => toSchedulerColumnValue(key, row[key])),
+    row.createdAt,
+    row.updatedAt,
+  );
+  return row.id;
+}
+
+function updateSchedulerRow(table, columns, id, changes) {
+  const keys = Object.keys(changes).filter((key) => columns[key] && changes[key] !== undefined);
+  db.prepare(`UPDATE ${table} SET ${[...keys.map((key) => `${columns[key]} = ?`), 'updated_at = ?'].join(', ')} WHERE id = ?`).run(
+    ...keys.map((key) => toSchedulerColumnValue(key, changes[key])),
+    timestamp(),
+    id,
+  );
+}
+
+function mapScheduledTask(row) {
+  return row ? {
+    id: row.id,
+    title: row.title,
+    recurringJobId: row.recurring_job_id || null,
+    folderPath: row.folder_path,
+    model: row.model,
+    reasoningEffort: row.reasoning_effort || null,
+    instruction: row.instruction,
+    permissionMode: row.permission_mode === 'full_access' ? 'full_access' : 'approve_for_me',
+    runAt: row.run_at,
+    status: row.status,
+    conversationId: row.conversation_id || null,
+    output: row.output ?? null,
+    error: row.error ?? null,
+    stats: row.stats ? parse(row.stats, null) : null,
+    startedAt: row.started_at || null,
+    finishedAt: row.finished_at || null,
+    createdBy: row.created_by === 'agent' ? 'agent' : 'user',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  } : null;
+}
+
+function mapRecurringJob(row) {
+  return row ? {
+    id: row.id,
+    title: row.title,
+    folderPath: row.folder_path,
+    model: row.model,
+    reasoningEffort: row.reasoning_effort || null,
+    instruction: row.instruction,
+    permissionMode: row.permission_mode === 'full_access' ? 'full_access' : 'approve_for_me',
+    cron: row.cron,
+    enabled: row.enabled !== 0,
+    endsAt: row.ends_at || null,
+    nextRunAt: row.next_run_at || null,
+    lastRunAt: row.last_run_at || null,
+    createdBy: row.created_by === 'agent' ? 'agent' : 'user',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  } : null;
+}
+
+export function getScheduledTask(id) {
+  return mapScheduledTask(db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(id));
+}
+
+export function createScheduledTask(task) {
+  return getScheduledTask(insertSchedulerRow('scheduled_tasks', SCHEDULED_TASK_COLUMNS, task));
+}
+
+export function updateScheduledTask(id, changes) {
+  updateSchedulerRow('scheduled_tasks', SCHEDULED_TASK_COLUMNS, id, changes);
+  return getScheduledTask(id);
+}
+
+export function deleteScheduledTask(id) {
+  db.prepare('DELETE FROM scheduled_tasks WHERE id = ?').run(id);
+}
+
+export function listScheduledTasks({ status = null, recurringJobId = null, dueBefore = null, limit = 200 } = {}) {
+  const filters = [
+    ...(status ? [['status = ?', status]] : []),
+    ...(recurringJobId ? [['recurring_job_id = ?', recurringJobId]] : []),
+    ...(dueBefore ? [['run_at <= ?', dueBefore]] : []),
+  ];
+  const where = filters.length > 0 ? `WHERE ${filters.map(([clause]) => clause).join(' AND ')}` : '';
+  const order = dueBefore ? 'run_at ASC' : 'run_at DESC';
+  return db.prepare(`SELECT * FROM scheduled_tasks ${where} ORDER BY ${order} LIMIT ?`)
+    .all(...filters.map(([, value]) => value), limit)
+    .map(mapScheduledTask);
+}
+
+export function getRecurringJob(id) {
+  return mapRecurringJob(db.prepare('SELECT * FROM recurring_jobs WHERE id = ?').get(id));
+}
+
+export function createRecurringJob(job) {
+  return getRecurringJob(insertSchedulerRow('recurring_jobs', RECURRING_JOB_COLUMNS, job));
+}
+
+export function updateRecurringJob(id, changes) {
+  updateSchedulerRow('recurring_jobs', RECURRING_JOB_COLUMNS, id, changes);
+  return getRecurringJob(id);
+}
+
+export function deleteRecurringJob(id) {
+  db.prepare('DELETE FROM recurring_jobs WHERE id = ?').run(id);
+}
+
+export function listRecurringJobs() {
+  return db.prepare('SELECT * FROM recurring_jobs ORDER BY created_at ASC').all().map(mapRecurringJob);
 }

@@ -37,6 +37,7 @@ The definition supports `apiVersion`, optional `minApiVersion`, `id`, `name`, `v
 - `avi.app`
 - `avi.threads`
 - `avi.semaphores`
+- `avi.scheduler`
 - `avi.bots`
 - `avi.tools`
 - `avi.interceptors`
@@ -67,6 +68,8 @@ bots.manage
 bots.run
 bots.readState
 bots.approvals.resolve
+scheduler.read
+scheduler.manage
 tools.register
 tools.intercept
 events.subscribe
@@ -102,6 +105,26 @@ The optional top-level `settings` array adds application-rendered sections to th
 
 Plugins are not sandboxed. They can use Node.js, access files and network resources available to Avi, and inspect process data. Install only reviewed code. Panels remain declarative and cannot inject renderer JavaScript. HTML [action pages](./action-pages.md) run plugin HTML, CSS, and JavaScript only inside a sandboxed, opaque-origin iframe that reaches the plugin solely through `window.avi.invoke()`. Provider credentials exposed through `avi.providers` are write-only.
 
+## Electron main-process modules
+
+Plugin code runs in Avi's Electron main process after the app is ready, so it can `import('electron')` and use main-process modules such as `BrowserWindow`, `screen`, `globalShortcut`, `desktopCapturer`, and `nativeImage`. This is how a plugin owns its desktop runtime without bundling a second Electron. No capability is required, and the Plugin API does not wrap these modules.
+
+Rules:
+
+- Release everything you create in `avi.lifecycle.onDeactivate()` or `deactivate()`: destroy windows, unregister the accelerators you registered, and remove listeners added to shared objects such as `screen` or `app`.
+- Use your own windows, preload scripts, and IPC channels. Do not modify Avi's windows, `webContents`, sessions, or IPC handlers; they are not part of the public contract.
+- `globalShortcut` is shared with Avi. `register()` returns `false` when the accelerator is already taken, so handle that case. Unregister only your own accelerators and never call `unregisterAll()`.
+- Open windows keep Avi running after its main window closes. Destroy them when they are no longer needed.
+- Renderer-only modules such as `ipcRenderer` and `contextBridge` are available only in your preload scripts.
+
+```js
+async activate(avi) {
+  const { BrowserWindow } = await import('electron');
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  avi.lifecycle.onDeactivate(() => win.destroy());
+}
+```
+
 ## Related documents
 
 - [All API surfaces](../overview.md)
@@ -109,6 +132,7 @@ Plugins are not sandboxed. They can use Node.js, access files and network resour
 - [Lifecycle](./lifecycle.md)
 - [Threads](./threads.md)
 - [Bots](./bots.md)
+- [Scheduler](./scheduler.md)
 - [Tools](./tools.md)
 - [Action pages](./action-pages.md)
 - [Events](./events.md)

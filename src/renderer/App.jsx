@@ -16,6 +16,7 @@ import { SearchDialog } from './components/SearchDialog.jsx';
 import { SettingsPage } from './components/SettingsPage.jsx';
 import { McpOverlay } from './components/McpOverlay.jsx';
 import { OrchestrationPage } from './components/OrchestrationPage.jsx';
+import { ScheduledJobsPage } from './components/ScheduledJobsPage.jsx';
 import { AuxiliaryPanel } from './components/AuxiliaryPanel.jsx';
 import { BotSettingsDialog } from './components/BotSettingsDialog.jsx';
 import { PanelResizer } from './components/PanelResizer.jsx';
@@ -170,6 +171,8 @@ export default function App() {
     if (foldersOpen) setVisitedFolders(true);
   }, [foldersOpen, settingsOpen]);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
+  const [scheduledJobsOpen, setScheduledJobsOpen] = useState(false);
+  const scheduledJobsActive = scheduledJobsOpen && !settingsOpen && !foldersOpen;
   const [actionPages, setActionPages] = useState(emptyList);
   const [actionPageId, setActionPageId] = useState(null);
   const [visitedActionPageIds, setVisitedActionPageIds] = useState(emptyList);
@@ -242,10 +245,10 @@ export default function App() {
   const navigationToggleRef = useRef(null);
 
   useLayoutEffect(() => {
-    inspectedConversationIdRef.current = settingsOpen || foldersOpen || orchestrationOpen || activeActionPageId
+    inspectedConversationIdRef.current = settingsOpen || foldersOpen || orchestrationOpen || activeActionPageId || scheduledJobsActive
       ? null
       : selectedId;
-  }, [activeActionPageId, foldersOpen, orchestrationOpen, selectedId, settingsOpen]);
+  }, [activeActionPageId, foldersOpen, orchestrationOpen, scheduledJobsActive, selectedId, settingsOpen]);
 
   useEffect(() => {
     const refreshActionPages = () => api.actionPages.list()
@@ -690,7 +693,7 @@ export default function App() {
   }, [refreshBots]);
 
   useEffect(() => {
-    if (!selectedId || settingsOpen || foldersOpen || orchestrationOpen || activeActionPageId) return;
+    if (!selectedId || settingsOpen || foldersOpen || orchestrationOpen || activeActionPageId || scheduledJobsActive) return;
     void api.sidebar.markSeen(selectedId).catch(() => {});
     setCompletedUnseen((state) => {
       if (!state[selectedId]) return state;
@@ -698,7 +701,7 @@ export default function App() {
       delete next[selectedId];
       return next;
     });
-  }, [activeActionPageId, foldersOpen, orchestrationOpen, selectedId, settingsOpen]);
+  }, [activeActionPageId, foldersOpen, orchestrationOpen, scheduledJobsActive, selectedId, settingsOpen]);
 
   useEffect(() => api.sidebar.onSeen(({ conversationId }) => {
     setCompletedUnseen((state) => {
@@ -718,6 +721,7 @@ export default function App() {
 
   useEffect(() => api.app.onNavigate(async ({ view, conversationId, project, draftText }) => {
     setActionPageId(null);
+    setScheduledJobsOpen(false);
     setFoldersOpen(false);
     setOrchestrationOpen(false);
     setSearchOpen(false);
@@ -1180,6 +1184,7 @@ export default function App() {
 
   async function selectConversation(id) {
     setActionPageId(null);
+    setScheduledJobsOpen(false);
     setSettingsOpen(false);
     setFoldersOpen(false);
     setOrchestrationOpen(false);
@@ -1874,17 +1879,19 @@ export default function App() {
     setAppState((current) => (current ? { ...current, folderColors } : current));
   }
 
-  async function archiveConversation(id) {
-    const next = await api.conversations.archive(id);
+  async function archiveConversation(idOrIds) {
+    const ids = [idOrIds].flat();
+    const next = await api.conversations.archive(idOrIds);
     setConversations(next);
+    const selectedArchived = ids.includes(selectedId);
     const removedIds = [
-      id,
-      ...(selectedId === id
+      ...ids,
+      ...(selectedArchived
         ? [...sideChats, ...subagents, ...rubberDucks].map((thread) => thread.id)
         : []),
     ];
     deleteMessageCache(removedIds);
-    if (selectedId === id) {
+    if (selectedArchived) {
       setSideChats([]);
       setSubagents([]);
       setRubberDucks([]);
@@ -2193,6 +2200,7 @@ export default function App() {
   }));
   const sidebarOnNewChat = useStableCallback((preset = {}) => {
     setActionPageId(null);
+    setScheduledJobsOpen(false);
     setSettingsOpen(false);
     setFoldersOpen(false);
     setOrchestrationOpen(false);
@@ -2278,6 +2286,7 @@ export default function App() {
     setSettingsOpen(!contextFolder);
     setOrchestrationOpen(false);
     setActionPageId(null);
+    setScheduledJobsOpen(false);
     setNavigationOpen(false);
   });
   const onSelectActivity = useStableCallback(async (activity) => {
@@ -2302,6 +2311,7 @@ export default function App() {
     setSettingsOpen(activity === 'settings');
     setFoldersOpen(activity === 'folders');
     setOrchestrationOpen(activity === 'inbox');
+    setScheduledJobsOpen(activity === 'scheduled-jobs');
     setSearchOpen(false);
     setNavigationOpen(false);
   });
@@ -2576,7 +2586,7 @@ export default function App() {
         '--auxiliary-panel-width': `${effectiveAuxiliaryPanelWidth}px`,
       }}
     >
-      {narrowWindow && (navigationOpen || !sidePanelVisible || settingsOpen || foldersOpen || activeActionPageId) && (
+      {narrowWindow && (navigationOpen || !sidePanelVisible || settingsOpen || foldersOpen || activeActionPageId || scheduledJobsActive) && (
         <button
           ref={navigationToggleRef}
           className="auxiliary-panel-toggle navigation-toggle"
@@ -2592,7 +2602,8 @@ export default function App() {
       <ActivityBar
         active={settingsOpen
           ? 'settings'
-          : foldersOpen ? 'folders' : activeActionPageId ?? (orchestrationOpen ? 'inbox' : 'home')}
+          : foldersOpen ? 'folders' : scheduledJobsActive ? 'scheduled-jobs'
+            : activeActionPageId ?? (orchestrationOpen ? 'inbox' : 'home')}
         onSelect={onSelectActivity}
         counts={activityCounts}
         actionPages={actionPages}
@@ -2701,7 +2712,17 @@ export default function App() {
           <ActionPage page={page} refreshKey={actionPageRefreshKeys[page.id] ?? 0} />
         </div>
       ))}
-        <div className="home-composer" hidden={settingsOpen || foldersOpen || Boolean(activeActionPageId)}>
+      {scheduledJobsActive && (
+        <div className="settings-composer" inert={navigationOpen}>
+          <ScheduledJobsPage
+            models={models}
+            defaultFolder={currentProject}
+            defaultModel={currentModel}
+            onOpenThread={sidebarOnSelect}
+          />
+        </div>
+      )}
+        <div className="home-composer" hidden={settingsOpen || foldersOpen || Boolean(activeActionPageId) || scheduledJobsActive}>
           <div className="home-sidebar" hidden={orchestrationOpen}>
           <Sidebar
             conversations={conversations}

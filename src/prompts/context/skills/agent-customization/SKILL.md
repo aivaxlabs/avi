@@ -5,7 +5,7 @@ user-invocable: false
 ---
 # Context Customization
 
-Use this skill to customize the application with five supported primitives: **instructions, skills, workflows, MCP, and plugins**. Bots are persistent autonomous teammates configured through built-in agent tools rather than an additional context primitive.
+Use this skill to customize the application with five supported primitives: **instructions, skills, workflows, MCP, and plugins**. Bots are persistent autonomous teammates, and scheduled tasks and recurring jobs run unattended prompts at a set time; both are configured through built-in agent tools rather than additional context primitives.
 
 The application does not discover VS Code or Copilot prompt files, hooks, custom-agent files, `.github` customization folders, or `.claude` skill folders. Runtime features such as Plan, Goal, Ultra, and sub-agents are built-in features, not additional context file types.
 
@@ -109,4 +109,5 @@ Some legacy instruction filenames may be recognized for compatibility, but new p
 - [MCP configuration](./references/mcp.md)
 - [Plugins](./references/plugins.md)
 - [Skills](./references/skills.md)
+- [Task scheduler](./references/task-scheduler.md)
 - [Workflows](./references/workflows.md)

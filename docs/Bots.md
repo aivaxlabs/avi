@@ -20,6 +20,8 @@ Use the moon button beside **+** to snooze scheduled bot activations for 1 hour,
 
 Agents can read inbox messages and activity with `bots_read_work_log`, and reply to existing work logs with `bots_send_work_log_message`. `chat_overview` summarizes active threads, recently finished turns, and open bot inbox items. `bots_list` includes `workQueueItems` with zero-based IDs; pass `workQueueId` to `bots_activate` to focus that item once without advancing the recurring cursor. Refresh IDs after queue edits. Replies do not resolve approvals; they are saved in the Inbox and added to the bot's priority queue.
 
+Do not use [recurring scheduled jobs](Scheduled%20jobs.md) to activate bots; configure the bot's own schedule and queues instead. A one-off scheduled task that activates a bot at a specific moment is fine.
+
 Agents in normal threads, Quick Chat, and bot conversations can also manage bots with `bots_list`, `bots_create`, `bots_update`, `bots_delete`, and `bots_activate`. Select `/create-bot` in the composer for a guided setup that checks existing bots, defines the purpose and schedule, creates the bot, verifies its configuration, and optionally starts its first activation. `bots_delete` requires approval unless the calling conversation uses **Full access**.
 
 ### Cross-bot Inbox access
@@ -132,7 +134,7 @@ The root bot acts as a central orchestrator and can supervise shared capacity ac
 
 ## Approvals and the Bots panel
 
-Each bot has its own permission mode under **Bot settings → Schedule → Tool permissions**. Existing and new bots default to **Approve for me**. Agent tools can read the mode but cannot change it or create bots with Full access; choose it through Bot settings. **Full access** skips automatic tool approval prompts, including tools marked as requiring approval; it does not grant authority beyond the bot's instructions or resolve existing protected Inbox approvals.
+Each bot has its own permission mode under **Bot settings → Schedule → Tool permissions**. Existing and new bots default to **Approve for me**. Agent tools can read the mode but cannot change it or create bots with Full access; choose it through Bot settings. **Full access** skips automatic tool approval prompts, including tools marked as requiring approval; it does not grant authority beyond the bot's instructions or resolve existing protected Inbox approvals. **Read-only** lets the bot read, search, and query without approval and blocks every tool call that would create, modify, or delete anything instead of queuing it in the Inbox.
 
 In **Approve for me**, permission handling is based on the authority already granted, not merely the category of work:
 
@@ -141,7 +143,7 @@ In **Approve for me**, permission handling is based on the authority already gra
 - If the user explicitly requested the sensitive action itself, that is the approval. The bot must not ask the user to repeat the same decision.
 - The bot may create a protected Inbox pendency with `queue_user_approval` for a genuinely new decision and continue independent work while it is pending.
 
-Threads the bot creates or messages always run in **Full access**: unattended threads have no one to answer a permission prompt, so only the bot's own conversation uses the approval queue above.
+Threads the bot creates or messages run in **Full access**: unattended threads have no one to answer a permission prompt, so only the bot's own conversation uses the approval queue above. A **Read-only** bot's threads run in Read-only instead.
 
 Protected approvals appear inside Inbox conversations. Tool approvals show the exact tool name, workspace path, and formatted input before **Approve** or **Deny**. The decision is recorded as a user message and sent to the main thread; denial tells the bot not to retry the denied action. Replying with ordinary text does not grant permission, and completion is unavailable until that explicit decision is resolved.
 

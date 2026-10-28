@@ -480,6 +480,29 @@ export function createPluginDomainApi({ runtime, record, storage }) {
     },
   });
 
+  const scheduler = Object.freeze(Object.fromEntries([
+    ['listTasks', 'scheduler.read', (taskScheduler, options = {}) => taskScheduler.listTasks(options)],
+    ['viewTask', 'scheduler.read', (taskScheduler, id) => taskScheduler.viewTask(id)],
+    ['scheduleTask', 'scheduler.manage', (taskScheduler, input = {}) => taskScheduler.scheduleTask(input, { createdBy: 'agent' })],
+    ['cancelTask', 'scheduler.manage', (taskScheduler, id) => taskScheduler.cancelTask(id)],
+    ['deleteTask', 'scheduler.manage', (taskScheduler, id) => taskScheduler.deleteTask(id)],
+    ['listRecurringJobs', 'scheduler.read', (taskScheduler) => taskScheduler.listRecurringJobs()],
+    ['viewRecurringJob', 'scheduler.read', (taskScheduler, id) => taskScheduler.viewRecurringJob(id)],
+    ['createRecurringJob', 'scheduler.manage', (taskScheduler, input = {}) => taskScheduler.createRecurringJob(input, { createdBy: 'agent' })],
+    ['updateRecurringJob', 'scheduler.manage', (taskScheduler, id, changes = {}) => taskScheduler.updateRecurringJob(id, changes)],
+    ['deleteRecurringJob', 'scheduler.manage', (taskScheduler, id) => taskScheduler.deleteRecurringJob(id)],
+  ].map(([name, capability, operation]) => [name, async (...args) => {
+    runtime.require(record, capability);
+    const taskScheduler = runtime.services.chatRunner.taskScheduler;
+    if (!taskScheduler) throw new AviError('UNAVAILABLE', 'The task scheduler is not available.');
+    try {
+      return clonePluginValue(await operation(taskScheduler, ...clonePluginValue(args)));
+    } catch (error) {
+      if (error instanceof AviError) throw error;
+      throw new AviError(/not found/i.test(error.message) ? 'NOT_FOUND' : 'VALIDATION_FAILED', error.message);
+    }
+  }])));
+
   const bots = Object.freeze({
     async list(options = {}) {
       runtime.require(record, 'bots.read');
@@ -698,5 +721,5 @@ export function createPluginDomainApi({ runtime, record, storage }) {
     },
   });
 
-  return { threads, semaphores, bots, panels, providers, context };
+  return { threads, semaphores, scheduler, bots, panels, providers, context };
 }

@@ -303,6 +303,14 @@ try {
       'chat_overview',
       'chat_send_prompt',
       'quick_chat_invoke',
+      'task_scheduler_cancel_task',
+      'task_scheduler_create_recurring_job',
+      'task_scheduler_delete_recurring_job',
+      'task_scheduler_list_recurring_jobs',
+      'task_scheduler_list_tasks',
+      'task_scheduler_schedule_task',
+      'task_scheduler_view_recurring_job',
+      'task_scheduler_view_task',
     ],
   );
   const createThread = listed.tools.find((tool) => tool.name === 'chat_create_thread');
@@ -553,6 +561,10 @@ try {
     'remote:state', 'rpc:discover', 'rubber-ducks:list', 'shortcuts:list', 'shortcuts:save',
     'side-chats:close', 'side-chats:create', 'side-chats:list',
     'sidebar:mark-seen', 'sidebar:status', 'subagents:list', 'tags:list', 'tags:save',
+    'task-scheduler:cancel-task', 'task-scheduler:create-recurring-job', 'task-scheduler:delete-recurring-job',
+    'task-scheduler:delete-task', 'task-scheduler:list-recurring-jobs', 'task-scheduler:list-tasks',
+    'task-scheduler:schedule-task', 'task-scheduler:update-recurring-job', 'task-scheduler:view-recurring-job',
+    'task-scheduler:view-task',
     'workspaces:get', 'workspaces:save',
   ]);
   assert.deepEqual((await callRpc(globalSocket, 'models:list')).result, {
