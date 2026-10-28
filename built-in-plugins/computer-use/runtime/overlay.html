@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Avi Computer Use overlay</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
+html,body{margin:0;width:100%;height:100%;background:transparent;overflow:hidden;font-family:Segoe UI,Arial,sans-serif}
+.frame{position:fixed;inset:0;border:4px solid rgba(63,180,255,.95);box-shadow:inset 0 0 22px rgba(63,180,255,.8),0 0 28px rgba(63,180,255,.7);box-sizing:border-box;animation:pulse 1.8s ease-in-out infinite}
+.badge{position:fixed;top:14px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:14px;padding:8px 10px 8px 14px;border-radius:999px;background:rgba(5,20,32,.88);color:#fff;font-size:13px;font-weight:600;box-shadow:0 8px 30px rgba(0,0,0,.35);letter-spacing:.2px}
+.badge-text{white-space:nowrap}
+.stop-button{display:flex;align-items:center;gap:7px;height:30px;padding:0 8px 0 13px;border:0;border-radius:999px;background:rgba(255,255,255,.22);color:#fff;font:inherit;font-weight:500;letter-spacing:0;cursor:pointer}
+.stop-button:hover{background:rgba(255,255,255,.3)}
+.stop-button:active{background:rgba(255,255,255,.18)}
+.stop-button:focus-visible{outline:2px solid rgba(255,255,255,.82);outline-offset:2px}
+.stop-key{display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid rgba(255,255,255,.22);border-radius:7px;color:rgba(255,255,255,.6);font-size:11px;font-weight:500}
+.cursor-indicator{position:fixed;left:0;top:0;width:72px;height:72px;margin:-36px 0 0 -36px;border:3px solid rgba(0,120,212,.98);border-radius:50%;box-shadow:0 0 22px rgba(44,196,255,.78),0 0 34px rgba(44,196,255,.48),inset 0 0 10px rgba(255,255,255,.55);opacity:0;pointer-events:none;z-index:8;will-change:transform,opacity;transition:opacity .12s ease}
+.paused .frame{border-color:rgba(255,190,68,.96);box-shadow:inset 0 0 22px rgba(255,190,68,.75),0 0 28px rgba(255,190,68,.6)}
+.pulse{position:fixed;width:28px;height:28px;margin:-14px 0 0 -14px;border:3px solid rgba(255,255,255,.96);border-radius:50%;box-shadow:0 0 0 4px rgba(63,180,255,.5),0 0 24px rgba(63,180,255,.9);animation:flash .75s ease-out forwards}
+@keyframes pulse{0%,100%{opacity:.86}50%{opacity:1}}
+@keyframes flash{0%{transform:scale(.6);opacity:1}100%{transform:scale(2.8);opacity:0}}
+</style>
+</head>
+<body>
+<div class="frame"></div>
+<div class="cursor-indicator" id="cursor-indicator"></div>
+<div class="badge">
+  <span class="badge-text" id="badge-text"></span>
+  <button class="stop-button" id="stop-button" type="button" aria-label="Stop computer control">
+    <span>Stop</span>
+    <span class="stop-key">ESC</span>
+  </button>
+</div>
+<script>
+const badgeText = document.getElementById('badge-text');
+const stopButton = document.getElementById('stop-button');
+const cursorIndicator = document.getElementById('cursor-indicator');
+let mouseCaptureEnabled = false;
+
+function setMouseCapture(enabled) {
+  if (mouseCaptureEnabled === enabled) return;
+  mouseCaptureEnabled = enabled;
+  window.overlay.setMouseCapture(enabled);
+}
+
+window.addEventListener('mousemove', (event) => setMouseCapture(event.target.closest('#stop-button') !== null));
+window.addEventListener('mouseleave', () => setMouseCapture(false));
+stopButton.addEventListener('click', () => window.overlay.stop());
+
+window.overlay.onState((state) => {
+  document.body.classList.toggle('paused', state.status === 'paused');
+  badgeText.textContent = state.text;
+});
+
+window.overlay.onCursor((point) => {
+  if (!point.visible) {
+    cursorIndicator.style.opacity = '0';
+    return;
+  }
+  cursorIndicator.style.transform = `translate(${point.x}px,${point.y}px)`;
+  cursorIndicator.style.opacity = '1';
+});
+
+window.overlay.onFlash((point) => {
+  const pulse = document.createElement('div');
+  pulse.className = 'pulse';
+  pulse.style.left = `${point.x}px`;
+  pulse.style.top = `${point.y}px`;
+  document.body.appendChild(pulse);
+  setTimeout(() => pulse.remove(), 850);
+});
+</script>
+</body>
+</html>

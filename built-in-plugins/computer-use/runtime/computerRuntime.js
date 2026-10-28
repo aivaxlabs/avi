@@ -1,12 +1,11 @@
 import { Button, Key, keyboard, mouse, Point, } from '@nut-tree-fork/nut-js';
-import { spawn, execFile, execFileSync, } from 'node:child_process';
+import { execFile, execFileSync, } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import sharp from 'sharp';
 import { toKeys } from './xdotoolStringToKeys.js';
-import { debugLog, getDebugRunId, saveDebugMedia } from './utils/debugLog.js';
+import { debugLog, saveDebugMedia } from './utils/debugLog.js';
 const execFileAsync = promisify(execFile);
 const maxLongEdge = 1568;
 const maxPixels = 1.15 * 1024 * 1024;
@@ -16,6 +15,9 @@ const previewDelayMs = 500;
 const actionDelayMs = 250;
 const maxVisibleApplicationsPerMonitor = 12;
 const minVisibleApplicationCoverage = 0.05;
+const overlayTitle = 'Avi Computer Use overlay';
+const displayEvents = ['display-added', 'display-removed', 'display-metrics-changed'];
+const crosshairBgra = Buffer.from([0, 0, 255, 255]);
 const enumerateVisibleWindows = async () => {
     debugLog('window-enumerator', 'start', {
         platform: process.platform,
@@ -39,7 +41,8 @@ const enumerateVisibleWindows = async () => {
         },
     }))
         .filter((window) => window.name && window.bounds.width > 0 && window.bounds.height > 0)
-        .filter((window) => window.title || window.name.toLowerCase() !== 'electron');
+        .filter((window) => window.title || window.name.toLowerCase() !== 'electron')
+        .filter((window) => window.title !== overlayTitle);
     debugLog('window-enumerator', 'complete', {
         raw_count: windows.length,
         filtered_count: mappedWindows.length,
@@ -175,192 +178,224 @@ export function localToGlobal(monitor, coordinate, imageSize) {
     };
 }
 export class ElectronComputerDriver {
-    child;
-    buffer = '';
-    ready;
-    readyResolve;
-    readyReject;
-    port;
+    electron;
+    windows = new Map();
+    statusText = 'Agent is using your computer';
+    cursorTimer;
+    escapeRegistered = false;
     escapeCallback;
     displaysChangedCallback;
+    notifyDisplaysChanged = () => {
+        this.displaysChangedCallback?.();
+    };
     onEscape(callback) {
         this.escapeCallback = callback;
     }
     onDisplaysChanged(callback) {
         this.displaysChangedCallback = callback;
     }
+    async start() {
+        if (!this.electron) {
+            this.electron = await import('electron');
+            for (const event of displayEvents) {
+                this.electron.screen.on(event, this.notifyDisplaysChanged);
+            }
+        }
+        return this.electron;
+    }
     async listDisplays() {
-        debugLog('electron-driver', 'list-displays');
-        const result = await this.request('displays');
-        const displays = result.displays ?? [];
+        const { screen } = await this.start();
+        const primaryId = String(screen.getPrimaryDisplay().id);
+        const displays = screen.getAllDisplays().map((display, index) => {
+            // nut-js and get-windows use physical pixels on Windows and X11, but points (DIP) on macOS.
+            const origin = process.platform === 'win32' ? screen.dipToScreenRect(null, display.bounds) : display.nativeOrigin;
+            return {
+                id: String(display.id),
+                index: index + 1,
+                name: display.label || `Monitor ${index + 1}`,
+                x: display.bounds.x,
+                y: display.bounds.y,
+                width: display.bounds.width,
+                height: display.bounds.height,
+                scale_factor: display.scaleFactor,
+                input_bounds: process.platform === 'darwin' ? { ...display.bounds } : {
+                    x: origin.x,
+                    y: origin.y,
+                    width: Math.round(display.bounds.width * display.scaleFactor),
+                    height: Math.round(display.bounds.height * display.scaleFactor),
+                },
+                is_primary: String(display.id) === primaryId,
+            };
+        });
         debugLog('electron-driver', 'list-displays-result', { displays });
         return displays;
     }
     async showOverlay() {
-        debugLog('electron-driver', 'show-overlay');
-        const result = await this.request('show');
-        const displays = result.displays ?? [];
+        const { BrowserWindow } = await this.start();
+        const displays = await this.listDisplays();
+        const activeIds = new Set(displays.map((display) => display.id));
+        for (const [id, win] of this.windows) {
+            if (!activeIds.has(id)) {
+                win.destroy();
+                this.windows.delete(id);
+            }
+        }
+        await Promise.all(displays.map(async (display) => {
+            let win = this.windows.get(display.id);
+            if (!win || win.isDestroyed()) {
+                const overlay = new BrowserWindow({
+                    title: overlayTitle,
+                    x: display.x,
+                    y: display.y,
+                    width: display.width,
+                    height: display.height,
+                    show: false,
+                    frame: false,
+                    transparent: true,
+                    resizable: false,
+                    movable: false,
+                    focusable: false,
+                    alwaysOnTop: true,
+                    skipTaskbar: true,
+                    hasShadow: false,
+                    webPreferences: {
+                        preload: fileURLToPath(new URL('./overlayPreload.cjs', import.meta.url)),
+                        contextIsolation: true,
+                        nodeIntegration: false,
+                        sandbox: true,
+                        backgroundThrottling: false,
+                    },
+                });
+                overlay.setAlwaysOnTop(true, 'screen-saver');
+                overlay.setIgnoreMouseEvents(true, { forward: true });
+                overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+                overlay.setContentProtection(true);
+                overlay.webContents.ipc.on('stop-session', () => this.escapeCallback?.());
+                overlay.webContents.ipc.on('mouse-capture', (_event, enabled) => {
+                    if (!overlay.isDestroyed()) {
+                        overlay.setIgnoreMouseEvents(enabled !== true, { forward: true });
+                    }
+                });
+                await overlay.loadFile(fileURLToPath(new URL('./overlay.html', import.meta.url)));
+                this.windows.set(display.id, overlay);
+                win = overlay;
+            }
+            win.setBounds({ x: display.x, y: display.y, width: display.width, height: display.height });
+            win.showInactive();
+            win.webContents.send('state', { status: 'active', text: this.statusText });
+        }));
+        this.startCursorIndicator();
+        await this.setEscapeShortcut(true);
         debugLog('electron-driver', 'show-overlay-result', { displays });
         return displays;
     }
     async hideOverlay() {
         debugLog('electron-driver', 'hide-overlay');
-        await this.request('hide');
+        this.stopCursorIndicator();
+        await this.setEscapeShortcut(false);
+        for (const win of this.windows.values()) {
+            if (!win.isDestroyed()) {
+                win.destroy();
+            }
+        }
+        this.windows.clear();
     }
     async setEscapeShortcut(enabled) {
-        await this.request('escape_shortcut', { enabled });
+        const { globalShortcut } = await this.start();
+        if (!enabled && this.escapeRegistered) {
+            globalShortcut.unregister('Escape');
+            this.escapeRegistered = false;
+        }
+        else if (enabled && !this.escapeRegistered && this.windows.size > 0) {
+            this.escapeRegistered = globalShortcut.register('Escape', () => this.escapeCallback?.());
+        }
+        debugLog('electron-driver', 'escape-shortcut', { enabled, registered: this.escapeRegistered });
     }
     async setOverlayStatus(status, text) {
         debugLog('electron-driver', 'set-overlay-status', { status, text });
-        await this.request('status', { status, text });
+        this.statusText = text;
+        this.sendToOverlays('state', { status, text });
     }
     async flash(monitorId, x, y) {
-        debugLog('electron-driver', 'flash', { monitor_id: monitorId, x, y });
-        await this.request('flash', { displayId: monitorId, x, y });
+        const win = this.windows.get(monitorId);
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('flash', { x, y });
+        }
     }
     async screenshot(monitorId) {
-        debugLog('electron-driver', 'screenshot-request', { monitor_id: monitorId });
-        const result = await this.request('screenshot', { displayId: monitorId });
-        const screenshot = {
-            data: Buffer.from(String(result.data), 'base64'),
-            width: Number(result.width),
-            height: Number(result.height),
-        };
+        const { desktopCapturer } = await this.start();
+        const displays = await this.listDisplays();
+        const display = displays.find((candidate) => candidate.id === monitorId);
+        if (!display) {
+            throw new Error(`Unknown monitor_id: ${monitorId}`);
+        }
+        const sources = await desktopCapturer.getSources({
+            types: ['screen'],
+            thumbnailSize: {
+                width: Math.max(1, Math.round(display.width * display.scale_factor)),
+                height: Math.max(1, Math.round(display.height * display.scale_factor)),
+            },
+        });
+        const source = sources.find((candidate) => candidate.display_id === display.id)
+            ?? sources[displays.indexOf(display)];
+        if (!source) {
+            throw new Error(`No screenshot source for monitor_id: ${monitorId}`);
+        }
+        const { width, height } = source.thumbnail.getSize();
         debugLog('electron-driver', 'screenshot-result', {
             monitor_id: monitorId,
-            width: screenshot.width,
-            height: screenshot.height,
-            bytes: screenshot.data.length,
+            source_id: source.id,
+            width,
+            height,
         });
-        return screenshot;
+        return { image: source.thumbnail, width, height };
     }
     async dispose() {
-        if (!this.child) {
+        if (!this.electron) {
             return;
         }
-        try {
-            debugLog('electron-driver', 'dispose');
-            await this.request('shutdown', undefined, 1000);
+        debugLog('electron-driver', 'dispose');
+        await this.hideOverlay();
+        for (const event of displayEvents) {
+            this.electron.screen.removeListener(event, this.notifyDisplaysChanged);
         }
-        catch {
-            debugLog('electron-driver', 'dispose-kill-child');
-            this.child.kill();
+        this.electron = undefined;
+    }
+    sendToOverlays(channel, payload) {
+        for (const win of this.windows.values()) {
+            if (!win.isDestroyed()) {
+                win.webContents.send(channel, payload);
+            }
         }
     }
-    async request(method, params, timeoutMs = 30_000) {
-        await this.ensureStarted();
-        if (!this.port) {
-            throw new Error('Overlay process did not publish an HTTP port');
+    startCursorIndicator() {
+        if (this.cursorTimer) {
+            return;
         }
-        const startedAt = now();
-        debugLog('electron-driver', 'rpc-request', { method, params, timeout_ms: timeoutMs });
-        const controller = new AbortController();
-        const timeout = setTimeout(() => {
-            controller.abort();
-        }, timeoutMs);
-        try {
-            const response = await fetch(`http://127.0.0.1:${this.port}/rpc`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ method, params }),
-                signal: controller.signal,
-            });
-            const payload = await response.json();
-            if (!response.ok || payload.error) {
-                debugLog('electron-driver', 'rpc-error', {
-                    method,
-                    status: response.status,
-                    error: payload.error,
-                    elapsed_ms: now() - startedAt,
+        const update = () => {
+            const cursor = this.electron.screen.getCursorScreenPoint();
+            for (const win of this.windows.values()) {
+                if (win.isDestroyed()) {
+                    continue;
+                }
+                const bounds = win.getBounds();
+                win.webContents.send('cursor-indicator', {
+                    visible: cursor.x >= bounds.x && cursor.x < bounds.x + bounds.width && cursor.y >= bounds.y && cursor.y < bounds.y + bounds.height,
+                    x: cursor.x - bounds.x,
+                    y: cursor.y - bounds.y,
                 });
-                throw new Error(payload.error ?? `Overlay request failed: ${method}`);
             }
-            debugLog('electron-driver', 'rpc-result', {
-                method,
-                elapsed_ms: now() - startedAt,
-                result_keys: Object.keys(payload.result ?? {}),
-            });
-            return payload.result ?? {};
-        }
-        finally {
-            clearTimeout(timeout);
-        }
+        };
+        update();
+        this.cursorTimer = setInterval(update, 33);
     }
-    async ensureStarted() {
-        if (this.child) {
-            await this.ready;
+    stopCursorIndicator() {
+        if (!this.cursorTimer) {
             return;
         }
-        const electronRoot = new URL('../node_modules/electron/dist/', import.meta.url);
-        const electronPath = fileURLToPath(new URL(process.platform === 'win32' ? 'electron.exe' : process.platform === 'darwin' ? 'Electron.app/Contents/MacOS/Electron' : 'electron', electronRoot));
-        const overlayPath = fileURLToPath(new URL('./overlayProcess.cjs', import.meta.url));
-        debugLog('electron-driver', 'spawn-overlay', {
-            electron_path: electronPath,
-            overlay_path: overlayPath,
-            debug_run_id: getDebugRunId(),
-        });
-        const childEnv = {
-            ...process.env,
-            COMPUTER_USE_DEBUG_RUN_ID: getDebugRunId(),
-        };
-        delete childEnv.ELECTRON_RUN_AS_NODE;
-        const child = spawn(electronPath, [overlayPath], {
-            stdio: ['ignore', 'pipe', 'pipe'],
-            windowsHide: true,
-            env: childEnv,
-        });
-        this.child = child;
-        this.ready = new Promise((resolve, reject) => {
-            this.readyResolve = resolve;
-            this.readyReject = reject;
-        });
-        child.stdout?.setEncoding('utf8');
-        child.stdout?.on('data', (chunk) => {
-            this.readStdout(chunk);
-        });
-        child.stderr?.on('data', (chunk) => {
-            debugLog('electron-driver', 'overlay-stderr', { text: String(chunk) });
-            process.stderr.write(String(chunk));
-        });
-        child.on('exit', () => {
-            debugLog('electron-driver', 'overlay-exit');
-            const error = new Error('Overlay process exited');
-            this.port = undefined;
-            this.child = undefined;
-            this.readyReject?.(error);
-        });
-        await this.ready;
-    }
-    readStdout(chunk) {
-        this.buffer += chunk;
-        let newlineIndex = this.buffer.indexOf('\n');
-        while (newlineIndex >= 0) {
-            const line = this.buffer.slice(0, newlineIndex).trim();
-            this.buffer = this.buffer.slice(newlineIndex + 1);
-            if (line) {
-                this.handleMessage(line);
-            }
-            newlineIndex = this.buffer.indexOf('\n');
-        }
-    }
-    handleMessage(line) {
-        const message = JSON.parse(line);
-        debugLog('electron-driver', 'overlay-message', { message });
-        if (message.event) {
-            if (message.event === 'ready') {
-                this.port = message.port;
-                this.readyResolve?.();
-            }
-            else if (message.event === 'escape') {
-                this.escapeCallback?.();
-            }
-            else if (message.event === 'displays_changed') {
-                this.displaysChangedCallback?.();
-            }
-            else if (message.event === 'error') {
-                this.readyReject?.(new Error(message.error ?? 'Overlay process error'));
-            }
-        }
+        clearInterval(this.cursorTimer);
+        this.cursorTimer = undefined;
+        this.sendToOverlays('cursor-indicator', { visible: false });
     }
 }
 export class UserInputMonitor {
@@ -949,7 +984,7 @@ export class ComputerSessionManager {
         const imageHeight = Math.max(1, Math.floor(screenshot.height * apiScale));
         this.imageSizes.set(monitor.monitor_id, { width: imageWidth, height: imageHeight });
         const cursor = await this.cursorInMonitorImage(monitor, imageWidth, imageHeight);
-        const optimized = await this.renderScreenshot(screenshot.data, imageWidth, imageHeight, cursor);
+        const optimized = await this.renderScreenshot(screenshot.image, imageWidth, imageHeight, cursor);
         const debugMediaPath = saveDebugMedia('mcp-screenshot-response', optimized, 'png', {
             session_id: sessionId,
             monitor_id: monitor.monitor_id,
@@ -999,16 +1034,25 @@ export class ComputerSessionManager {
             },
         };
     }
-    async renderScreenshot(buffer, width, height, cursor) {
-        const image = sharp(buffer).resize(width, height);
+    async renderScreenshot(image, width, height, cursor) {
+        const resized = image.resize({ width, height, quality: 'best' });
         if (!cursor) {
-            return image.png({ quality: 80, compressionLevel: 9 }).toBuffer();
+            return resized.toPNG();
         }
-        const crosshair = Buffer.from(`<svg width="${width}" height="${height}">
-<line x1="${Math.max(0, cursor.x - 20)}" y1="${cursor.y}" x2="${Math.min(width, cursor.x + 20)}" y2="${cursor.y}" stroke="#ff0000" stroke-width="3"/>
-<line x1="${cursor.x}" y1="${Math.max(0, cursor.y - 20)}" x2="${cursor.x}" y2="${Math.min(height, cursor.y + 20)}" stroke="#ff0000" stroke-width="3"/>
-</svg>`);
-        return image.composite([{ input: crosshair, left: 0, top: 0 }]).png({ quality: 80, compressionLevel: 9 }).toBuffer();
+        const bitmap = resized.toBitmap();
+        const paint = (x, y) => {
+            if (x >= 0 && x < width && y >= 0 && y < height) {
+                bitmap.set(crosshairBgra, (y * width + x) * 4);
+            }
+        };
+        for (let offset = -20; offset <= 20; offset += 1) {
+            for (let stroke = -1; stroke <= 1; stroke += 1) {
+                paint(cursor.x + offset, cursor.y + stroke);
+                paint(cursor.x + stroke, cursor.y + offset);
+            }
+        }
+        const { nativeImage } = await this.driver.start();
+        return nativeImage.createFromBitmap(bitmap, { width, height }).toPNG();
     }
     async cursorInMonitorImage(monitor, imageWidth, imageHeight) {
         const pos = await mouse.getPosition();
@@ -1217,12 +1261,9 @@ export class ComputerSessionManager {
         const cropHeight = Math.min(320, screenshot.height);
         const left = Math.max(0, Math.min(screenshot.width - cropWidth, centerX - Math.round(cropWidth / 2)));
         const top = Math.max(0, Math.min(screenshot.height - cropHeight, centerY - Math.round(cropHeight / 2)));
-        const data = await sharp(screenshot.data)
-            .extract({
-            left, top, width: cropWidth, height: cropHeight,
-        })
-            .png({ quality: 80, compressionLevel: 9 })
-            .toBuffer();
+        const data = screenshot.image
+            .crop({ x: left, y: top, width: cropWidth, height: cropHeight })
+            .toPNG();
         debugLog('preview', 'capture-complete', {
             monitor_id: target.monitor.monitor_id,
             source_width: screenshot.width,

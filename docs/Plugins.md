@@ -4,6 +4,8 @@ Plugins extend Avi with trusted JavaScript executed in the Electron main process
 
 > **Security boundary:** plugins are not sandboxed. Importing a plugin executes code with Avi's operating-system and main-process privileges. Review all source before installation.
 
+Plugins can import `electron` to create their own windows, global shortcuts, screen captures, and other main-process resources; Avi does not provide a wrapper for them. Release those resources on deactivation and leave Avi's windows and shortcuts untouched; see [Electron main-process modules](./api/core/overview.md#electron-main-process-modules).
+
 The current public contract is **Plugin API v2**. Avi accepts a range of API versions, from `minApiVersion` to `apiVersion` in the factory argument (currently v2–v2); see [API version compatibility](#api-version-compatibility).
 
 
@@ -73,7 +75,7 @@ The tools use live ephemeral tab IDs, snapshots, screenshots, JavaScript actions
 
 Provides `computer_get_context`, `computer_focus_window`, `computer_toggle_session`, `computer_use` and a `computer-use` skill. The bundled backend preserves monitor-local screenshot coordinates at any display scaling, including monitors with different scales, a visible overlay, Escape to stop (an agent-sent Escape key reaches the focused application instead), and a five-second pause after manual input when the input monitor is available. Control sessions are owned by their initiating conversation. Cancellation ends that conversation's session; native input already dispatched cannot be rolled back.
 
-The desktop backend includes its own Electron overlay and native input/image/window dependencies; these increase installer size. macOS may require Accessibility and Screen Recording permissions; Linux focus support uses `xdotool` when available. Native behavior must be validated on each supported release platform.
+The overlay, screenshots and image resizing run in Avi's main process with the host Electron; native input and window dependencies increase installer size. macOS may require Accessibility and Screen Recording permissions; Linux focus support uses `xdotool` when available. Native behavior must be validated on each supported release platform.
 
 ### Background Processes
 
@@ -227,6 +229,7 @@ Updating from Avi 0.8.0 or earlier, the Windows installer copies `$INSTALL_DIR\p
 - [Lifecycle](./api/core/lifecycle.md)
 - [Threads and runs](./api/core/threads.md)
 - [Bots](./api/core/bots.md)
+- [Scheduler](./api/core/scheduler.md)
 - [Tools](./api/core/tools.md)
 - [Events](./api/core/events.md)
 - [Tool interceptors](./api/core/interceptors.md)
