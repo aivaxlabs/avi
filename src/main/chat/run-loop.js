@@ -32,6 +32,7 @@ import {
   CLIENT_TOOLS,
   decorateToolsForInvocation,
 } from '../client-tools.js';
+import { requestAivax } from '../aivax-client.js';
 import { applySubagentModelSchema } from '../default-models.js';
 import { StreamAccumulator } from '../streaming.js';
 import { composeToolsWithPlugins } from '../tool-composition.js';
@@ -53,6 +54,8 @@ import {
   SIDE_CHAT_QUICK_COMPRESSION_MARGIN,
   CROSS_BOT_INBOX_TOOL_NAMES,
   PLAN_TOOL_NAMES,
+  SMART_APPROVE_MODEL,
+  SMART_APPROVE_TIMEOUT_MS,
 } from './constants.js';
 import {
   modelMessagesToToolHistory,
@@ -88,6 +91,7 @@ export const runLoopMethods = {
       throw new Error('Ultra mode cannot be used with Plan mode.');
     }
     permissionMode = [
+      'read_only',
       'ask_for_approval',
       'approve_for_me',
       'full_access',
@@ -1009,8 +1013,65 @@ export const runLoopMethods = {
               requiresHumanApproval,
             });
             input = intercepted.input;
-            const needsApproval = tool.approval !== 'never'
-              && (tool.forceApproval || requiresHumanApproval || intercepted.requireApproval)
+            let flaggedForApproval = tool.approval !== 'never'
+              && (tool.forceApproval || requiresHumanApproval || intercepted.requireApproval);
+            if (
+              !flaggedForApproval
+              && tool.approval !== 'never'
+              && permissionMode === 'approve_for_me'
+              && aivax?.connected
+              && aivax.smartApproveEnabled
+              && !(tool.canEditFile === false && tool.canPerformDestructiveActions === false)
+              && !this.approvedToolPatterns.has(approvalPattern)
+            ) {
+              try {
+                const decision = await requestAivax('/api/v1/generations/decisions', {
+                  body: {
+                    model: SMART_APPROVE_MODEL,
+                    state: {
+                      tool: tool.name,
+                      toolDescription: String(tool.description ?? '').slice(0, 2_000),
+                      invocationGoal,
+                      workingFolder: workspacePath ?? null,
+                      arguments: JSON.stringify(input).slice(0, 16_000),
+                    },
+                    questions: {
+                      dangerous: {
+                        type: 'noul',
+                        instructions: 'Does this tool invocation need explicit human approval before it runs?',
+                        criteria: {
+                          false: 'It only reads, searches, or inspects, or it makes ordinary reversible edits, builds, or tests inside the working folder.',
+                          true: 'It deletes or overwrites data irreversibly, changes files outside the working folder, sends messages, publishes, deploys, pushes, spends money, or changes credentials, permissions, or production systems.',
+                        },
+                      },
+                    },
+                  },
+                  responseType: 'object',
+                  signal: AbortSignal.any([controller.signal, AbortSignal.timeout(SMART_APPROVE_TIMEOUT_MS)]),
+                });
+                const answer = decision.answers?.dangerous;
+                const danger = answer?.noul ?? answer?.probabilities?.true;
+                if (typeof danger !== 'number') throw new Error('The decision model returned no answer.');
+                flaggedForApproval = danger >= 0.5;
+                traceVerbose('chat.smart-approve', {
+                  thread_id: conversationId,
+                  tool_name: tool.name,
+                  danger,
+                  requires_approval: flaggedForApproval,
+                });
+              } catch (error) {
+                if (controller.signal.aborted) throw error;
+                traceError('chat.smart-approve-error', {
+                  thread_id: conversationId,
+                  tool_name: tool.name,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              }
+            }
+            if (flaggedForApproval && permissionMode === 'read_only') {
+              throw new Error('Read-only mode blocked this tool call because it requires approval. Creating, modifying, or deleting anything is never allowed in Read-only mode; continue with read-only actions only.');
+            }
+            const needsApproval = flaggedForApproval
               && permissionMode !== 'full_access'
               && (intercepted.inputChanged || !this.approvedToolPatterns.has(approvalPattern));
             if (needsApproval && botRuntime) {

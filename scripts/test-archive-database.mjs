@@ -119,6 +119,30 @@ try {
     semanticGrepCollectionName: null,
     semanticGrepReranker: 'rrf',
     semanticGrepDirectories: [],
+    fastCompressEnabled: false,
+    fastNameEnabled: false,
+    smartApproveEnabled: false,
+  });
+  assert.deepEqual(setAivaxSettings({
+    ...getAivaxSettings(),
+    fastCompressEnabled: true,
+    fastNameEnabled: true,
+    smartApproveEnabled: true,
+  }), {
+    ...getAivaxSettings(),
+    fastCompressEnabled: true,
+    fastNameEnabled: true,
+    smartApproveEnabled: true,
+  });
+  assert.throws(() => setAivaxSettings({
+    ...getAivaxSettings(),
+    smartApproveEnabled: 'yes',
+  }), /AIVAX feature settings are invalid/);
+  setAivaxSettings({
+    ...getAivaxSettings(),
+    fastCompressEnabled: false,
+    fastNameEnabled: false,
+    smartApproveEnabled: false,
   });
   assert.throws(() => setAivaxSettings({
     ...getAivaxSettings(),

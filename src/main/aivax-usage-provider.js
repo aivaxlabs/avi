@@ -22,6 +22,9 @@ export function listAivaxUsageProviders({ accessToken, settings, requestBalance 
     || settings?.mediaDescriptionsEnabled
     || settings?.imageGenerationEnabled
     || settings?.audioGenerationEnabled
+    || settings?.fastCompressEnabled
+    || settings?.fastNameEnabled
+    || settings?.smartApproveEnabled
     || settings?.threadSearchCollectionId,
   );
   if (!active) return [];

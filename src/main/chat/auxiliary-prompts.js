@@ -6,27 +6,58 @@ import {
   messageToApiBlocks,
   updateConversation,
 } from '../database.js';
+import { summarizeWithAivax } from '../aivax-client.js';
 import { traceError } from '../trace-log.js';
 import {
   AUXILIARY_MODEL_TIMEOUT_MS,
   AUXILIARY_GOAL_CONTEXT_TURN_COUNT,
   AUXILIARY_PROMPT_CONTEXT_TURN_COUNT,
+  FAST_NAME_INSTRUCTIONS,
 } from './constants.js';
+
+function normalizeGeneratedTitle(value) {
+  const title = value.replace(/^["'“”]+|["'“”]+$/g, '').replace(/\s+/g, ' ').trim();
+  return title.length > 48 ? `${title.slice(0, 48).trim()}...` : title;
+}
 
 export const auxiliaryPromptMethods = {
   async prepareInitialPrompt(conversation, prompt, { improveGoal = false } = {}) {
     const normalizedPrompt = String(prompt ?? '').trim();
-    const shouldGenerateTitle = conversation?.titleStatus === 'pending'
+    let shouldGenerateTitle = conversation?.titleStatus === 'pending'
       && conversation.title === 'New chat'
       && normalizedPrompt;
     if (!shouldGenerateTitle && !improveGoal) return normalizedPrompt;
 
-    const configuredModel = this.getPreferences().defaultModels?.auxiliary;
-    if (!configuredModel?.modelId) return normalizedPrompt;
-
     const fallbackTitle = shouldGenerateTitle
       ? normalizedPrompt.replace(/\s+/g, ' ').slice(0, 48).trim()
       : null;
+    const aivax = this.getPreferences().aivax;
+    if (shouldGenerateTitle && aivax?.connected && aivax.fastNameEnabled) {
+      let fastTitle = fallbackTitle;
+      try {
+        fastTitle = normalizeGeneratedTitle(await summarizeWithAivax(
+          normalizedPrompt,
+          FAST_NAME_INSTRUCTIONS,
+          { signal: AbortSignal.timeout(AUXILIARY_MODEL_TIMEOUT_MS) },
+        )) || fallbackTitle;
+      } catch (error) {
+        traceError('auxiliary.fast-name-error', {
+          thread_id: conversation.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      const updatedConversation = updateConversation(conversation.id, {
+        title: fastTitle,
+        titleStatus: 'generated',
+      });
+      this.emit(conversation.id, { type: 'conversation', conversation: updatedConversation });
+      if (!improveGoal) return normalizedPrompt;
+      shouldGenerateTitle = false;
+    }
+
+    const configuredModel = this.getPreferences().defaultModels?.auxiliary;
+    if (!configuredModel?.modelId) return normalizedPrompt;
+
     let title = fallbackTitle;
     let goalSpecification = normalizedPrompt;
     const selection = this.registry.resolve(configuredModel.modelId);
@@ -130,10 +161,7 @@ export const auxiliaryPromptMethods = {
         .replace(/\s*```$/, '');
       const generated = JSON.parse(output);
       if (shouldGenerateTitle && typeof generated.title === 'string' && generated.title.trim()) {
-        const normalizedTitle = generated.title.replace(/\s+/g, ' ').trim();
-        title = normalizedTitle.length > 48
-          ? `${normalizedTitle.slice(0, 48).trim()}...`
-          : normalizedTitle;
+        title = normalizeGeneratedTitle(generated.title);
       }
       if (
         improveGoal

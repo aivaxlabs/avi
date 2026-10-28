@@ -25,6 +25,7 @@ const FEATURE_TABS = [
   ['media', 'Media'],
   ['search', 'Search'],
   ['grep', 'Semantic Grep'],
+  ['enhancements', 'Enhancements'],
 ];
 const RERANKERS = [
   ['rrf', 'RRF'],
@@ -934,6 +935,34 @@ export function AivaxFeaturesSettings() {
               ))}
             </div>
           )}
+        </div>
+      </section>
+
+      <section className="settings-section" id="aivax-feature-panel-enhancements" role="tabpanel" aria-labelledby="aivax-feature-tab-enhancements" hidden={tab !== 'enhancements'}>
+        <div className="settings-section-heading">
+          <h3>Enhancements</h3>
+          <p>Replace local model work with faster AIVAX services. These consume AIVAX balance; if a request fails, Avi falls back to its usual behavior.</p>
+        </div>
+        <div className="settings-section-card settings-form settings-row-card">
+          {[
+            ['fastCompressEnabled', 'Fast Compress', 'Compress chat context with the AIVAX summarization endpoint instead of the compactation model.'],
+            ['fastNameEnabled', 'Fast Name', 'Generate thread titles with the AIVAX summarization model instead of the auxiliary model.'],
+            ['smartApproveEnabled', 'Smart Approve for Me', 'In Approve for me, ask the @perplexity/pplx-decider-flash decision model whether a tool call the agent marked as safe still needs your approval.'],
+          ].map(([key, title, description]) => (
+            <label className="settings-toggle-row" key={key}>
+              <span>
+                <strong>{title}</strong>
+                <small>{description}</small>
+              </span>
+              <input
+                className="toggle"
+                type="checkbox"
+                disabled={busy}
+                checked={state.settings[key]}
+                onChange={(event) => saveSettings({ [key]: event.target.checked })}
+              />
+            </label>
+          ))}
         </div>
       </section>
 

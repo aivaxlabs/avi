@@ -13,6 +13,7 @@ const {
   importAivaxDocuments,
   loginToAivax,
   requestAivax,
+  summarizeWithAivax,
 } = await import('../src/main/aivax-client.js');
 const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
 const { closeDatabase, getRemoteSettings } = await import('../src/main/database.js');
@@ -67,6 +68,21 @@ try {
     requests.at(-1).url,
     'https://direct.inference.aivax.net/api/v1/generations/teach-skill',
   );
+
+  reply({ message: null, data: ['  Fix login redirect  '] });
+  assert.equal(await summarizeWithAivax('Chat transcript', 'Title it.', {
+    accessToken: 'test-access-token',
+  }), 'Fix login redirect');
+  assert.equal(requests.at(-1).url, 'https://direct.inference.aivax.net/api/v1/generations/summarize');
+  assert.equal(requests.at(-1).options.headers.Authorization, 'Bearer test-access-token');
+  assert.deepEqual(JSON.parse(requests.at(-1).options.body), {
+    instructions: 'Title it.',
+    documents: [{ type: 'text', text: 'Chat transcript' }],
+  });
+  reply({ message: null, data: [''] });
+  await assert.rejects(summarizeWithAivax('Chat transcript', 'Title it.', {
+    accessToken: 'test-access-token',
+  }), /empty summary/);
 
   const collectionsPayload = [{
     id: 'collection-id',

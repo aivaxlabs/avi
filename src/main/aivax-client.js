@@ -79,6 +79,19 @@ export async function requestAivax(path, {
   });
 }
 
+export async function summarizeWithAivax(text, instructions, options = {}) {
+  const [summary] = await requestAivax('/api/v1/generations/summarize', {
+    baseUrl: AIVAX_LONG_INFERENCE_BASE_URL,
+    ...options,
+    body: { instructions, documents: [{ type: 'text', text }] },
+    responseType: 'array',
+  });
+  if (typeof summary !== 'string' || !summary.trim()) {
+    throw new Error('AIVAX returned an empty summary.');
+  }
+  return summary.trim();
+}
+
 const IMPORT_FLUSH_BYTES = 256 * 1024;
 const IMPORT_FLUSH_MS = 1_000;
 const IMPORT_KEEPALIVE_MS = 15_000;

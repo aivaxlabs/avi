@@ -15,6 +15,7 @@ import {
   updateConversation,
   updateMessage,
 } from '../database.js';
+import { summarizeWithAivax } from '../aivax-client.js';
 import {
   CLIENT_TOOLS,
   decorateToolsForInvocation,
@@ -414,6 +415,36 @@ export const contextMethods = {
       ];
       let successfulCompressionMessages = compressionMessages;
       let turn;
+      const aivax = this.getPreferences().aivax;
+      if (aivax?.connected && aivax.fastCompressEnabled) {
+        const transcript = [...messages, ...inFlightMessages].map((message) => [
+          `[${message.role}${message.tool_call_id ? ` ${message.tool_call_id}` : ''}]`,
+          Array.isArray(message.content)
+            ? message.content.map((part) => (part.type === 'text' ? part.text : `[${part.type}]`)).join('\n')
+            : message.content ?? '',
+          ...(message.tool_calls ?? []).map((call) => (
+            `[tool call ${call.id}] ${call.function.name} ${call.function.arguments}`
+          )),
+        ].filter(Boolean).join('\n')).join('\n\n');
+        try {
+          turn = {
+            assistantContent: await summarizeWithAivax(transcript, COMPACTION_PROMPT, {
+              signal: controller.signal,
+            }),
+            toolCalls: [],
+          };
+          traceVerbose('chat.context-compaction-fast', traceContext(conversation.id, selection, {
+            operation: automatic ? 'automatic' : 'manual',
+            input_characters: transcript.length,
+          }));
+        } catch (error) {
+          if (controller.signal.aborted) throw error;
+          traceVerbose('chat.context-compaction-fast-fallback', traceContext(conversation.id, selection, {
+            operation: automatic ? 'automatic' : 'manual',
+            error: error instanceof Error ? error.message : String(error),
+          }));
+        }
+      }
       for (
         let selectionIndex = 0;
         selectionIndex < compactionSelections.length && !turn;

@@ -16,6 +16,9 @@ export const AUXILIARY_CONTINUATION_CONTEXT_TURN_COUNT = 8;
 export const MAX_CONTINUATION_COUNT = 4;
 export const MAX_CONSECUTIVE_CONTEXT_COMPACTION_FAILURES = 3;
 export const SIDE_CHAT_QUICK_COMPRESSION_MARGIN = 0.1;
+export const FAST_NAME_INSTRUCTIONS = 'Write a concise task title for this request, with at most 48 characters, in the same language as the request. Return only the title, without quotes, punctuation at the end, or any other text.';
+export const SMART_APPROVE_MODEL = '@perplexity/pplx-decider-flash';
+export const SMART_APPROVE_TIMEOUT_MS = 30_000;
 export const CROSS_BOT_INBOX_TOOL_NAMES = new Set([
   'bots_list',
   'bots_read_work_log',
