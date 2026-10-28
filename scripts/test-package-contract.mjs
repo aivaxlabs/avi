@@ -17,6 +17,17 @@ for (const section of ['win', 'mac', 'linux']) {
 }
 console.log('ok - package.json has no Chisel packaging hooks or resources');
 
+for (const rendererOnly of ['boring-avatars', 'diff', 'dompurify', 'katex', 'mdast-util-to-string', 'mermaid', 'monaco-editor', 'remark-directive']) {
+  assert.equal(pkg.dependencies[rendererOnly], undefined, `${rendererOnly} is bundled by Vite and stays out of app.asar`);
+  assert.ok(pkg.devDependencies[rendererOnly], `${rendererOnly} remains available to the renderer build`);
+}
+assert.deepEqual(pkg.build.electronLanguages, ['en-US']);
+const pluginFilter = pkg.build.extraResources.find((entry) => entry.from === 'built-in-plugins').filter;
+for (const excluded of ['node-gyp', '@types']) {
+  assert.ok(pluginFilter.includes(`!**/node_modules/${excluded}/**/*`), `built-in plugins exclude ${excluded}`);
+}
+console.log('ok - package excludes renderer sources, unused locales and build-only plugin modules');
+
 for (const removed of ['scripts/before-pack.mjs', 'scripts/prepare-chisel.mjs', 'scripts/test-prepare-chisel.mjs']) {
   assert.ok(!existsSync(join(repoRoot, removed)), `${removed} is removed`);
 }

@@ -1,6 +1,6 @@
 {
   "name": "avi",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Local desktop workspace for AI conversations, tools, and orchestration.",
   "author": "AIVAX Labs",
   "homepage": "https://avi.aivax.net",
@@ -38,6 +38,7 @@
     "test:provider-usages": "bun scripts/test-provider-usages.mjs",
     "test:interruptions": "bun scripts/test-interruption-propagation.mjs",
     "test:chat-send": "electron --no-sandbox scripts/electron-test.mjs scripts/test-chat-send-result.mjs",
+    "test:task-scheduler": "electron --no-sandbox scripts/electron-test.mjs scripts/test-task-scheduler.mjs",
     "test:semaphores": "electron --no-sandbox scripts/electron-test.mjs scripts/test-semaphores.mjs",
     "test:mcp": "bun scripts/test-mcp-manager.mjs",
     "test:remote": "electron --no-sandbox scripts/electron-test.mjs scripts/test-remote-mcp.mjs",
@@ -61,15 +62,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
-    "boring-avatars": "2.0.4",
-    "diff": "8.0.3",
-    "dompurify": "^3.4.14",
     "extract-zip": "^2.0.1",
-    "katex": "^0.18.4",
-    "mdast-util-to-string": "^4.0.0",
-    "mermaid": "^11.17.2",
-    "monaco-editor": "^0.57.0",
-    "remark-directive": "^4.0.0",
     "semver": "^7.8.5",
     "ws": "^8.21.3",
     "zod": "^3.25.76"
@@ -78,15 +71,23 @@
     "@cypherpotato/cascadium": "^1.2",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.22",
+    "boring-avatars": "2.0.4",
+    "diff": "8.0.3",
+    "dompurify": "^3.4.14",
     "electron": "43.2.0",
     "electron-builder": "26.15.3",
+    "katex": "^0.18.4",
     "lamejs": "^1.2.1",
     "lucide-react": "^0.555.0",
+    "mdast-util-to-string": "^4.0.0",
+    "mermaid": "^11.17.2",
+    "monaco-editor": "^0.57.0",
     "postcss": "^8.5.6",
     "prismjs": "^1.30.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
+    "remark-directive": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "vite": "^7.2.4",
     "yazl": "^3.3.1"
@@ -113,7 +114,15 @@
       {
         "from": "built-in-plugins",
         "to": "built-in-plugins",
-        "filter": ["**/*", "**/.avi-plugin.json", "!**/node_modules/.cache/**/*"]
+        "filter": [
+          "**/*",
+          "**/.avi-plugin.json",
+          "!**/node_modules/.cache/**/*",
+          "!**/node_modules/node-gyp/**/*",
+          "!**/node_modules/@types/**/*",
+          "!**/node_modules/**/*.d.ts",
+          "!**/node_modules/**/*.map"
+        ]
       },
       {
         "from": "src/prompts/context",
@@ -128,6 +137,7 @@
       }
     ],
     "asar": true,
+    "electronLanguages": ["en-US"],
     "win": {
       "icon": "assets/icon/avi-bg.ico",
       "target": [
