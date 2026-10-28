@@ -6,7 +6,7 @@ RPC results are detached JSON values. Timestamps are ISO 8601 strings unless a f
 
 | Type | Values and meaning |
 |---|---|
-| `PermissionMode` | `"ask_for_approval"`, `"approve_for_me"`, or `"full_access"`. |
+| `PermissionMode` | `"read_only"`, `"ask_for_approval"`, `"approve_for_me"`, or `"full_access"`. `read_only` fails every tool call that requires approval instead of asking. |
 | `WorkMode` | `"plan"`, `"goal"`, or `null`. |
 | `ConversationType` | `"thread"`, `"side"`, `"subagent"`, `"rubber_duck"`, `"rubber_duck_subject"`, or `"bot"`. `rubber_duck_subject` is the thread where the subject agent answers a Rubber Duck interview. |
 | `GoalStatus` | `"active"`, `"paused"`, `"completed"`, `"blocked"`, `"cancelled"`, or `"discarded"`. |
@@ -142,7 +142,7 @@ Historical message attachments returned by `conversations:messages`, `conversati
 | `activeElapsedMs` | number | Accumulated active time in milliseconds. |
 | `resumedAt` | string or `null` | Start of the current active interval. |
 | `resultSummary` | string or `null` | Completion, blocker, or cancellation summary. |
-| `tokensTransacted` | number or `null` | Sum of recorded assistant input/output tokens for the Goal. |
+| `tokensTransacted` | number or `null` | Sum of recorded assistant input/output tokens for the Goal. Computed live in conversation snapshots while the Goal is active or paused; stored when it ends. |
 | `startedAt` | string | Start time. |
 | `updatedAt` | string | Last change time. |
 | `endedAt` | string or `null` | Terminal time. |

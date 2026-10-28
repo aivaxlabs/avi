@@ -50,6 +50,8 @@ try {
   assert.equal(updateBot(bot.id, { permissionMode: 'full_access' }).permissionMode, 'full_access');
   assert.equal(getBot(bot.id).permissionMode, 'full_access', 'permission mode survives a fresh read');
   assert.equal(updateBot(bot.id, { name: bot.name }).permissionMode, 'full_access', 'unrelated changes preserve permission mode');
+  assert.equal(updateBot(bot.id, { permissionMode: 'read_only' }).permissionMode, 'read_only');
+  assert.equal(getBot(bot.id).permissionMode, 'read_only', 'read-only mode survives a fresh read');
   for (const permissionMode of ['invalid', 'ask_for_approval', null, 'approve_for_me']) {
     assert.equal(updateBot(bot.id, { permissionMode }).permissionMode, 'approve_for_me');
   }

@@ -337,6 +337,66 @@ try {
   assert.equal(raceFinishCount, 1);
   assert.equal(runner.pendingApprovals.has('race-approval'), false);
 
+  const readOnlyPath = join(resolvedProfile, 'read-only.txt');
+  const readOnlyResults = [];
+  let readOnlyRequest = null;
+  const readOnlyProvider = {
+    getContributions: () => ({ tools: [] }),
+    stream: async (request) => {
+      if (request.toolHistory.length > 0) {
+        readOnlyResults.push(...request.toolHistory[0].results);
+        return { assistantContent: 'Read-only finished.', toolCalls: [] };
+      }
+      readOnlyRequest = request;
+      return {
+        assistantContent: '',
+        toolCalls: [
+          {
+            callId: 'read-only-write',
+            name: 'write_file',
+            argumentsText: JSON.stringify({
+              filePath: readOnlyPath,
+              content: 'blocked',
+              __invocation_goal: 'Write while read-only.',
+              __requires_human_approval: true,
+            }),
+          },
+          {
+            callId: 'read-only-list',
+            name: 'chat_list_threads',
+            argumentsText: JSON.stringify({
+              __invocation_goal: 'List threads while read-only.',
+              __requires_human_approval: false,
+            }),
+          },
+        ],
+      };
+    },
+  };
+  const readOnlyRunner = new ChatRunner({
+    registry: {
+      resolve: () => ({ model, provider: readOnlyProvider }),
+      listModels: () => [model],
+    },
+    sendEvent: () => {},
+  });
+  const readOnlyConversation = createConversation({ model: model.id, projectPath: resolvedProfile });
+  await readOnlyRunner.send({
+    conversationId: readOnlyConversation.id,
+    model: model.id,
+    text: 'Try to write while read-only.',
+    permissionMode: 'read_only',
+  });
+  await waitFor(() => !readOnlyRunner.runs.has(readOnlyConversation.id));
+  assert.equal(readOnlyRequest.invocationContext.permissionMode, 'read_only');
+  assert.equal(readOnlyRunner.getPendingApprovals(readOnlyConversation.id).length, 0);
+  assert.equal(existsSync(readOnlyPath), false);
+  const blockedWrite = readOnlyResults.find((result) => result.callId === 'read-only-write');
+  const allowedRead = readOnlyResults.find((result) => result.callId === 'read-only-list');
+  assert.equal(blockedWrite?.isError, true);
+  assert.match(String(blockedWrite?.output), /Read-only mode blocked this tool call/);
+  assert.notEqual(allowedRead?.isError, true);
+
   const planCalls = [];
   const planProvider = {
     getContributions: () => ({ tools: [] }),

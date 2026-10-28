@@ -31,6 +31,7 @@ export function decorateToolsForInvocation(
           description: tool.approval === 'never'
             ? 'Set this to false because this tool does not require a separate approval.'
             : {
+              read_only: 'Set this to false only when this invocation strictly reads, searches, queries, or inspects without changing any state. Set it to true for any invocation that creates, modifies, deletes, sends, publishes, installs, executes state-changing commands, or otherwise changes local or external state; the user selected Read-only, so the runtime blocks it.',
               ask_for_approval: 'Set this to true for every tool invocation because the user selected Ask for approval, unless explicit user guidance always allows this invocation.',
               approve_for_me: honorExplicitAuthorization
                 ? 'Set this to false when the invocation is within the user’s current request, the bot owner’s recurring instructions, or a prior approval for this exact action. This includes ordinary local edits, implementation, builds, tests, regeneration, and validation needed to complete the authorized outcome. Set it to true only for a materially new, unapproved action with meaningful external, irreversible, financial, credential, privacy, production, or destructive impact. Never ask the user to approve the same decision twice.'

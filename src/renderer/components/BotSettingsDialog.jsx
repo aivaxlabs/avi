@@ -15,6 +15,7 @@ import {
   ShieldOff,
   Trash2,
   UserRound,
+  Eye,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -100,7 +101,7 @@ export function BotSettingsDialog({
     activationPeriodUnit: initialPeriodUnit,
     activationMode: bot?.activationMode ?? 'static',
     executionMode: bot?.executionMode ?? '',
-    permissionMode: bot?.permissionMode === 'full_access' ? 'full_access' : 'approve_for_me',
+    permissionMode: ['read_only', 'full_access'].includes(bot?.permissionMode) ? bot.permissionMode : 'approve_for_me',
     enabled: bot?.enabled !== false,
     maxActivationsEnabled: (bot?.maxActivations ?? 10) > 0,
     maxActivations: bot?.maxActivations > 0 ? bot.maxActivations : 10,
@@ -785,11 +786,12 @@ export function BotSettingsDialog({
                 <section className="bot-settings-section">
                   <header>
                     <h3>Tool permissions</h3>
-                    <p>Full access skips tool approvals, including destructive actions. Changes apply to new turns after saving.</p>
+                    <p>Read-only blocks every change and allows only reads and searches. Full access skips tool approvals, including destructive actions. Changes apply to new turns after saving.</p>
                   </header>
                   <fieldset className="bot-settings-choices" disabled={saving}>
                     <legend className="sr-only">Permission mode</legend>
                     {[
+                      { id: 'read_only', label: 'Read-only', description: 'Only read and search; never modify', icon: Eye },
                       { id: 'approve_for_me', label: 'Approve for me', description: 'Ask only before destructive actions', icon: ShieldCheck },
                       { id: 'full_access', label: 'Full access', description: 'Run tool calls without approval', icon: ShieldOff },
                     ].map(({ id, label, description, icon: Icon }) => (

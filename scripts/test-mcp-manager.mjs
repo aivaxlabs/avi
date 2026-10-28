@@ -107,6 +107,7 @@ try {
     'ask_for_approval',
     'approve_for_me',
     'full_access',
+    'read_only',
   ].map((permissionMode) => (
     decorateToolsForInvocation([tool], permissionMode)[0]
       .inputSchema
@@ -118,6 +119,7 @@ try {
     !permissionDescriptions[0].includes('true for every tool invocation')
     || !permissionDescriptions[1].includes('true only when')
     || !permissionDescriptions[2].includes('false')
+    || !permissionDescriptions[3].includes('Read-only')
   ) {
     throw new Error('Permission mode was not reflected in the approval parameter contract.');
   }

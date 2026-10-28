@@ -513,7 +513,7 @@ export const threadActionTools = [
           model: selectedModel.id,
           reasoningEffort: selectedReasoningEffort,
           // Bot-delegated threads run unattended: permission requests would never be answered.
-          permissionMode: sourceConversation?.isBot ? 'full_access' : permissionMode,
+          permissionMode: sourceConversation?.isBot && permissionMode !== 'read_only' ? 'full_access' : permissionMode,
           text: normalizedPrompt,
           fromAgent: true,
           project: { path: projectPath },
@@ -880,7 +880,7 @@ export const threadActionTools = [
         model: conversation.model,
         text,
         // Bot-delegated threads run unattended: permission requests would never be answered.
-        permissionMode: sourceConversation?.isBot ? 'full_access' : permissionMode,
+        permissionMode: sourceConversation?.isBot && permissionMode !== 'read_only' ? 'full_access' : permissionMode,
         steer: !low_priority,
         fromAgent: true,
         workMode: planMode ? 'plan' : workMode,

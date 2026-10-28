@@ -90,6 +90,8 @@ Under **Approve for me**, each tool call includes a model-supplied `__requires_h
 
 Full access removes the approval card but does not override higher-level runtime restrictions. Plan remains read-only under every permission mode.
 
+**Read-only** is enforced by instruction plus the same classification. The model is told it may only read, search, query, and inspect, and must mark every state-changing call with `__requires_human_approval: true`. Calls marked that way, tools that always require approval, and calls flagged by a plugin interceptor fail immediately with an error instead of showing an approval card; calls marked `false` run without approval. A misclassified write is not detected by the runtime. Threads created or messaged from a Read-only conversation, including by a Read-only bot, also run in Read-only.
+
 ## Persistence and validation
 
 Tuning and Desktop settings are stored locally. Values outside accepted ranges are rejected or normalized. **Save changes** is disabled when the selected shell is unavailable or terminal timeout, maximum parallel threads, sub-agent concurrency, or Rubber Duck max turns values are invalid, or Quick Chat instructions exceed 20,000 characters.

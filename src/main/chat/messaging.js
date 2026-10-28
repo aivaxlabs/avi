@@ -163,7 +163,7 @@ export const messagingMethods = {
           model: conversation.model,
           reasoningEffort: null,
           // Matches chat_send_prompt: threads reached by a bot run unattended.
-          permissionMode: source.isBot ? 'full_access' : permissionMode,
+          permissionMode: source.isBot && permissionMode !== 'read_only' ? 'full_access' : permissionMode,
           text,
           fromAgent: true,
           project: { path: conversation.projectPath },

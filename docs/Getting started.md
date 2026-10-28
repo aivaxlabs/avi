@@ -44,6 +44,7 @@ Use instructions for durable rules, workflows for reusable procedures, skills fo
 Before sending a message, review:
 
 - **Model** and **Reasoning effort**;
+- **Read-only** — run reads, searches, and queries without approval and block every call that would create, modify, or delete anything;
 - **Ask for approval** — ask before every tool call;
 - **Approve for me** — ask when a call is marked as requiring approval;
 - **Full access** — run tool calls without an approval card;

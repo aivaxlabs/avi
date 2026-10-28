@@ -1073,7 +1073,7 @@ export function SettingsPage({
           )}
 
           <SettingsNavigationSeparator />
-          {(!settingsQuery || 'aivax features memory account balance plan web search fetch semantic thread rag collection index image audio speech tts generation'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'aivax features memory account balance plan web search fetch semantic thread rag collection index image audio speech tts generation enhancements fast compress name smart approve'.includes(settingsQuery)) && (
             <button
               className={view === 'aivax' ? 'active' : undefined}
               type="button"
@@ -2296,6 +2296,7 @@ export function SettingsPage({
                           }));
                         }}
                       >
+                        <option value="read_only">Read-only</option>
                         <option value="ask_for_approval">Ask for approval</option>
                         <option value="approve_for_me">Approve for me</option>
                         <option value="full_access">Full access</option>

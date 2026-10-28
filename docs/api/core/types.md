@@ -158,7 +158,7 @@ interface MessageSnapshot {
   role: string;
   model: string | null;
   reasoningEffort: string | null;
-  permissionMode: 'ask_for_approval' | 'approve_for_me' | 'full_access' | null;
+  permissionMode: 'read_only' | 'ask_for_approval' | 'approve_for_me' | 'full_access' | null;
   workMode: 'plan' | 'goal' | null;
   ultraMode: boolean;
   goalId: string | null;
@@ -210,7 +210,7 @@ interface BotSnapshot {
   contextSize: number | null;
   activationPeriodMinutes: number;
   activationMode: 'static' | 'smart';
-  permissionMode: 'approve_for_me' | 'full_access';
+  permissionMode: 'read_only' | 'approve_for_me' | 'full_access';
   maxActivations: number;
   activationWindow: {
     days: number[];
