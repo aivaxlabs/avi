@@ -7,9 +7,11 @@ import {
   ChevronRight,
   Clock3,
   CornerDownLeft,
+  Eye,
   FileDiff,
   FileText,
   FolderOpen,
+  Gauge,
   GitBranch,
   GripVertical,
   HardDrive,
@@ -95,6 +97,11 @@ function writePersistedReasoningEffort(modelId, effort) {
 
 const permissionModes = [
   {
+    id: 'read_only',
+    label: 'Read-only',
+    description: 'Only read and search; never modify',
+  },
+  {
     id: 'ask_for_approval',
     label: 'Ask for approval',
     description: 'Ask before every tool call',
@@ -169,6 +176,7 @@ export function Composer({
   goal = null,
   goalPreparation = null,
   onGoalAction,
+  onGoalProgress,
   pendingAttachment,
   onPendingAttachmentConsumed,
   messageDeliveryMode = 'queue',
@@ -501,13 +509,13 @@ export function Composer({
       : finishedGoal?.status === 'blocked'
         ? 'Blocked'
         : 'Stopped';
-  const finishedTokens = finishedGoal?.tokensTransacted ?? 0;
-  const finishedTokenLabel = finishedTokens > 0
-    ? finishedTokens >= 1_000_000
-      ? `${(finishedTokens / 1_000_000).toFixed(finishedTokens >= 10_000_000 ? 0 : 1)}M`
-      : finishedTokens >= 1_000
-        ? `${Math.round(finishedTokens / 1_000)}K`
-        : String(finishedTokens)
+  const goalTokens = visibleGoal?.tokensTransacted ?? 0;
+  const goalTokenLabel = goalTokens > 0
+    ? goalTokens >= 1_000_000
+      ? `${(goalTokens / 1_000_000).toFixed(goalTokens >= 10_000_000 ? 0 : 1)}M`
+      : goalTokens >= 1_000
+        ? `${Math.round(goalTokens / 1_000)}K`
+        : String(goalTokens)
     : null;
   const filteredRecentProjects = useMemo(() => {
     const query = projectQuery.trim().toLowerCase();
@@ -1371,20 +1379,30 @@ export function Composer({
           <span className="goal-strip-copy">
             <strong title={visibleGoal.specification}>{visibleGoal.specification}</strong>
             <small>
+              {goalTokenLabel && (
+                <>
+                  <span title={`${goalTokens.toLocaleString()} tokens`}>{goalTokenLabel} tokens</span>
+                  <span aria-hidden="true">·</span>
+                </>
+              )}
               <Clock3 size={12} aria-hidden="true" />
               <span>{goalElapsedLabel}</span>
               <span aria-hidden="true">·</span>
               <span>{goalStatusLabel}</span>
-              {finishedTokenLabel && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span>{finishedTokenLabel}</span>
-                </>
-              )}
             </small>
           </span>
           {activeGoal && (
           <span className="goal-strip-actions">
+            {onGoalProgress && (
+              <button
+                type="button"
+                title="Ask about Goal progress"
+                aria-label="Ask about Goal progress"
+                onClick={(event) => onGoalProgress(event.currentTarget.getBoundingClientRect())}
+              >
+                <Gauge size={14} aria-hidden="true" />
+              </button>
+            )}
             <button
               type="button"
               disabled={Boolean(goalAction)}
@@ -1960,6 +1978,7 @@ export function Composer({
                 title={activePermissionMode?.description}
                 onClick={() => setPermissionMenuOpen((value) => !value)}
               >
+                {permissionMode === 'read_only' && <Eye size={14} />}
                 {permissionMode === 'ask_for_approval' && <ShieldQuestion size={14} />}
                 {permissionMode === 'approve_for_me' && <ShieldCheck size={14} />}
                 {permissionMode === 'full_access' && <ShieldOff size={14} />}
@@ -1972,11 +1991,11 @@ export function Composer({
                     <DropdownMenuItem
                       key={mode.id}
                       active={mode.id === permissionMode}
-                      icon={mode.id === 'ask_for_approval'
-                        ? <ShieldQuestion size={14} />
-                        : mode.id === 'approve_for_me'
-                          ? <ShieldCheck size={14} />
-                          : <ShieldOff size={14} />}
+                      icon={{
+                        read_only: <Eye size={14} />,
+                        ask_for_approval: <ShieldQuestion size={14} />,
+                        approve_for_me: <ShieldCheck size={14} />,
+                      }[mode.id] ?? <ShieldOff size={14} />}
                       role="menuitemradio"
                       aria-checked={mode.id === permissionMode}
                       onClick={() => {

@@ -137,6 +137,66 @@ try {
   assert.match(compressedPrompt, /output truncated due to context compress/);
   assert.ok(JSON.stringify(database.getMessages(large.id)).includes('OLD_TOOL_RESULT'));
   runner.close(compressedSession.id);
+
+  const goalThread = database.createConversation({ title: 'Goal', model: model.id, projectPath: profile });
+  const goalNow = new Date().toISOString();
+  database.insertGoal({
+    id: 'progress-goal',
+    conversationId: goalThread.id,
+    specification: 'Ship the importer.',
+    status: 'active',
+    revision: 1,
+    model: model.id,
+    reasoningEffort: null,
+    permissionMode: 'full_access',
+    activeElapsedMs: 65_000,
+    resumedAt: null,
+    resultSummary: null,
+    tokensTransacted: null,
+    startedAt: goalNow,
+    updatedAt: goalNow,
+    endedAt: null,
+  });
+  database.replaceTasks(goalThread.id, [{ title: 'Write parser', done: true }, { title: 'Write tests', done: false }]);
+  const goalAt = Date.now() - 1_000;
+  database.insertMessage({ conversationId: goalThread.id, role: 'user', status: 'sent', content: 'Ship it', goalId: 'progress-goal', createdAt: new Date(goalAt).toISOString() });
+  database.insertMessage({
+    conversationId: goalThread.id,
+    role: 'assistant',
+    status: 'streaming',
+    content: 'Working on parser.',
+    goalId: 'progress-goal',
+    usage: { inputTokens: 1_200, outputTokens: 300 },
+    segments: [
+      { type: 'content', text: 'Working on parser.' },
+      { type: 'tool-call', key: 'round:0:pending', callId: 'pending', name: 'read_file', argumentsText: '{}' },
+    ],
+    createdAt: new Date(goalAt + 1).toISOString(),
+  });
+  assert.equal(database.getConversation(goalThread.id).goal.tokensTransacted, 1_500);
+  let goalTools = null;
+  provider.stream = async ({ tools, messages, onEvent }) => {
+    goalTools = tools;
+    streamedMessages = messages;
+    onEvent({ type: 'content', text: 'Answer.' });
+    return { assistantContent: 'Answer.', continuation: [], toolCalls: [] };
+  };
+  const goalSession = await runner.createQuestionSession({ source: 'goal', workspacePath: profile, threadId: goalThread.id });
+  await runner.send({ sessionId: goalSession.id, text: 'How is the Goal progressing?' });
+  while (runner.state(goalSession.id).running) await new Promise((resolve) => setTimeout(resolve, 1));
+  const goalPrompt = JSON.stringify(streamedMessages);
+  assert.equal(goalTools.length, 0);
+  assert.match(goalPrompt, /Working on parser/);
+  assert.ok(!goalPrompt.includes('"pending"'));
+  assert.match(goalPrompt, /Tokens transacted \(assistant input \+ output\): 1500/);
+  assert.match(goalPrompt, /Active time: 0h 1m 5s/);
+  assert.match(goalPrompt, /\[x\] Write parser/);
+  assert.match(goalPrompt, /Do not call any tools/);
+  runner.close(goalSession.id);
+  await assert.rejects(
+    runner.createQuestionSession({ source: 'goal', workspacePath: profile, threadId: source.id }),
+    /does not have an active Goal/,
+  );
   console.log('Quick question fork tests passed.');
 } finally {
   database?.closeDatabase?.();

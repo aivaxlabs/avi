@@ -11,6 +11,8 @@ import {
   getConversation,
   getMessages,
   insertMessage,
+  listSubagents,
+  listTasks,
   messageToApiBlocks,
   updateConversation,
 } from './database.js';
@@ -41,7 +43,7 @@ const QUICK_QUESTION_TOOL_NAMES = new Set([
   'chat_inspect_thread',
   'bots_read_work_log',
 ]);
-const QUICK_QUESTION_SOURCES = new Set(['chat', 'files', 'git-review', 'inbox']);
+const QUICK_QUESTION_SOURCES = new Set(['chat', 'files', 'git-review', 'inbox', 'goal']);
 const QUICK_QUESTION_MARKER_LIMIT = 60_000;
 const QUICK_QUESTION_FILE_LIMIT = 40_000;
 const QUICK_QUESTION_DIRECTORY_LIMIT = 200;
@@ -116,10 +118,55 @@ export class QuickChatRunner {
           QUICK_QUESTION_MARKER_LIMIT,
         ),
       })));
-    const sourceConversation = source === 'chat' && typeof threadId === 'string' && threadId
+    const sourceConversation = ['chat', 'goal'].includes(source) && typeof threadId === 'string' && threadId
       ? getConversation(threadId)
       : null;
     const sourceMessages = sourceConversation ? getMessages(sourceConversation.id) : [];
+    const goal = source === 'goal' ? sourceConversation?.goal : null;
+    if (source === 'goal') {
+      if (!['active', 'paused'].includes(goal?.status)) throw new Error('This thread does not have an active Goal.');
+      messageId = sourceMessages.findLast((message) => (
+        !message.hidden
+        && ['user', 'assistant'].includes(message.role)
+        && !['queued', 'steered'].includes(message.status)
+      ))?.id ?? null;
+      const elapsedSeconds = Math.floor((goal.activeElapsedMs + (
+        goal.status === 'active' && goal.resumedAt
+          ? Math.max(0, Date.now() - new Date(goal.resumedAt).getTime())
+          : 0
+      )) / 1000);
+      const tasks = listTasks(sourceConversation.id);
+      const subagents = listSubagents(sourceConversation.id);
+      markers.unshift({
+        id: randomUUID(),
+        kind: 'context_marker',
+        markerType: 'goal_progress_context',
+        name: 'Goal progress',
+        size: 0,
+        text: truncateContext([
+          '<goal_progress_context>',
+          `Specification: ${goal.specification}`,
+          `Status: ${goal.status} (revision ${goal.revision})`,
+          `Started at: ${goal.startedAt}; now: ${new Date().toISOString()}`,
+          `Active time: ${Math.floor(elapsedSeconds / 3600)}h ${Math.floor((elapsedSeconds % 3600) / 60)}m ${elapsedSeconds % 60}s`,
+          `Tokens transacted (assistant input + output): ${goal.tokensTransacted ?? 0}`,
+          `Running now: ${this.chatRunner?.runs?.has(sourceConversation.id) ? 'yes' : 'no'}`,
+          `Tasks (${tasks.filter((task) => task.done).length}/${tasks.length} done):`,
+          ...tasks.map((task) => `- [${task.done ? 'x' : ' '}] ${task.title}${task.status && task.status !== 'pending' ? ` (${task.status})` : ''}${task.result ? ` — ${task.result}` : ''}`),
+          `Sub-agents (${subagents.length}):`,
+          ...subagents.map((subagent) => `- ${subagent.title}: ${this.chatRunner?.runs?.has(subagent.id) ? 'working' : 'not running'}`),
+          '</goal_progress_context>',
+          'This is a Goal progress check from the user. Do not call any tools and do not continue the Goal. Answer only from the thread history above and this context, in the language of the thread, with these sections:',
+          '1. Progress: an estimated completion percentage.',
+          '2. Estimated time to completion, extrapolated from active time, tokens, and work remaining.',
+          '3. Currently doing.',
+          '4. Done so far.',
+          '5. Remaining.',
+          '6. Difficulties or blockers.',
+          'Keep each section short. When an estimate is uncertain, say so briefly.',
+        ].join('\n'), QUICK_QUESTION_MARKER_LIMIT),
+      });
+    }
     const throughIndex = typeof messageId === 'string' && messageId
       ? sourceMessages.findIndex((message) => message.id === messageId)
       : -1;
@@ -140,6 +187,16 @@ export class QuickChatRunner {
         .filter((message) => !message.hidden && ['user', 'assistant'].includes(message.role))
         .filter((message) => (
           ['completed', 'sent', 'aborted'].includes(message.status) || message.id === messageId
+        ))
+        .map((message) => (
+          message.status === 'streaming'
+            ? {
+                ...message,
+                segments: (message.segments ?? []).filter((segment) => (
+                  segment.type !== 'tool-call' || segment.resultText !== undefined
+                )),
+              }
+            : message
         )),
     ];
     const state = this.createSession();
@@ -174,6 +231,7 @@ export class QuickChatRunner {
       history,
       sourceThreadId: history.length > 0 ? sourceConversation.id : null,
       sourceMessageId: history.length > 0 ? messageId : null,
+      toolsDisabled: source === 'goal',
       attachments: [{
         id: randomUUID(),
         kind: 'context_marker',
@@ -183,7 +241,9 @@ export class QuickChatRunner {
         text: history.length > 0
           ? [
             `<quick_question_context source="${source}" workspace="${escapeXml(workspace)}"${contextAttributes}>`,
-            'This is a Quick question. The messages before this one are the source thread history through the message where the user selected the text below. Answer the question about that selection using this history; do not continue the source thread\'s task. Earlier tool calls belong to the source thread, not to this session.',
+            source === 'goal'
+              ? 'This is a Quick question about the source thread\'s Goal. The messages before this one are the source thread history through its latest message, which may still be in progress. Do not continue the source thread\'s task. Earlier tool calls belong to the source thread, not to this session.'
+              : 'This is a Quick question. The messages before this one are the source thread history through the message where the user selected the text below. Answer the question about that selection using this history; do not continue the source thread\'s task. Earlier tool calls belong to the source thread, not to this session.',
             '</quick_question_context>',
           ].join('\n')
           : `<quick_question_context source="${source}" workspace="${escapeXml(workspace)}"${contextAttributes} />`,
@@ -396,6 +456,7 @@ export class QuickChatRunner {
           .filter((tool) => !selectedProviderToolNames.has(tool.name)),
       ];
       const coreTools = CLIENT_TOOLS
+          .filter(() => !session.question?.toolsDisabled)
           .filter((tool) => !question || QUICK_QUESTION_TOOL_NAMES.has(tool.name))
           .filter((tool) => !session.headless || tool.name !== 'ask_question')
           .filter((tool) => ![

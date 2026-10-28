@@ -40,8 +40,15 @@ export function QuickQuestionPopover({ request, models, onClose, onForked }) {
       }
       sessionRef.current = session.id;
       setSessionId(session.id);
+      if (request.initialQuestion) {
+        setRunning(true);
+        return window.chatApp.quickQuestion.ask({ sessionId: session.id, text: request.initialQuestion });
+      }
+      return null;
     }).catch((failure) => {
-      if (active) setError(failure.message || String(failure));
+      if (!active) return;
+      setRunning(false);
+      setError(failure.message || String(failure));
     });
     return () => {
       active = false;
@@ -49,7 +56,7 @@ export function QuickQuestionPopover({ request, models, onClose, onForked }) {
       if (sessionRef.current) void window.chatApp.quickQuestion.close(sessionRef.current);
       sessionRef.current = null;
     };
-  }, [request.context]);
+  }, [request.context, request.initialQuestion]);
 
   const lastMessage = messages.at(-1);
   const { scrollRef } = useStreamingAutoScroll({

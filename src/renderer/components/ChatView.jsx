@@ -38,7 +38,7 @@ import { QuestionForm } from './QuestionForm.jsx';
 
 const HISTORY_BATCH_SIZE = 4;
 const HISTORY_LOAD_THRESHOLD = 80;
-const MESSAGE_MARKERS_MIN_WIDTH = 900;
+const MESSAGE_MARKERS_WIDTH = 50;
 
 const MessageRow = memo(function MessageRow({
   message,
@@ -377,6 +377,17 @@ export const ChatView = memo(function ChatView({
     setSelectionAction(null);
     if (scrollingUp && scrollTop <= HISTORY_LOAD_THRESHOLD) loadOlderMessages();
   }, [loadOlderMessages]);
+  const handleGoalProgress = useCallback((anchor) => onQuickQuestion?.({
+    label: currentConversation?.goal?.specification ?? 'Goal progress',
+    left: anchor.right - 440,
+    top: anchor.top - 360,
+    initialQuestion: 'How is the Goal progressing?',
+    context: {
+      source: 'goal',
+      workspacePath: currentProject?.path,
+      threadId: currentConversation?.id,
+    },
+  }), [currentConversation?.goal?.specification, currentConversation?.id, currentProject?.path, onQuickQuestion]);
   const handleChatWheel = useCallback((event) => {
     if (event.deltaY >= 0 || event.currentTarget.scrollTop > HISTORY_LOAD_THRESHOLD) return;
     loadOlderMessages();
@@ -501,12 +512,15 @@ export const ChatView = memo(function ChatView({
   useEffect(() => {
     if (!chatAreaRef.current) return undefined;
 
-    const observer = new ResizeObserver(([entry]) => {
-      setMarkersFit(entry.contentRect.width >= MESSAGE_MARKERS_MIN_WIDTH);
+    const chatArea = chatAreaRef.current;
+    const observer = new ResizeObserver(() => {
+      const column = chatArea.querySelector('.messages-column');
+      setMarkersFit(Boolean(column)
+        && column.getBoundingClientRect().left - chatArea.getBoundingClientRect().left >= MESSAGE_MARKERS_WIDTH);
     });
-    observer.observe(chatAreaRef.current);
+    observer.observe(chatArea);
     return () => observer.disconnect();
-  }, [compact]);
+  }, [compact, messagesLoaded, isEmptyChat]);
 
   useEffect(() => {
     const canvas = emptyBackgroundRef.current;
@@ -1160,6 +1174,7 @@ export const ChatView = memo(function ChatView({
         goal={currentConversation?.goal}
         goalPreparation={goalPreparation}
         onGoalAction={onGoalAction}
+        onGoalProgress={onQuickQuestion && currentConversation ? handleGoalProgress : undefined}
         pendingAttachment={pendingAttachment}
         onPendingAttachmentConsumed={onPendingAttachmentConsumed}
         messageDeliveryMode={messageDeliveryMode}
