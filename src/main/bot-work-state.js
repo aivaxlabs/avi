@@ -82,6 +82,7 @@ function validateMessage(message) {
     throw new Error('Invalid requiresUserResponse: expected boolean');
   }
   if (message.readAt !== undefined && message.readAt !== null) requireString(message.readAt, 'message.readAt');
+  if (message.dismissedApprovalId !== undefined) requireString(message.dismissedApprovalId, 'message.dismissedApprovalId');
   if (message.questions !== undefined) {
     if (message.role !== 'bot') throw new Error('Invalid message questions: only bot messages have questions');
     normalizeQuestions(message.questions);
@@ -353,8 +354,8 @@ export async function appendBotPendencyMessage(dataFolder, input, now) {
     if (answers !== undefined) {
       const questionMessage = existing.messages.find((message) => message.id === questionMessageId);
       if (!questionMessage?.questions) throw new Error(`Question message not found: ${questionMessageId}`);
-      if (existing.messages.some((message) => message.questionMessageId === questionMessageId)) {
-        throw new Error('These questions were already answered.');
+      if (existing.messages.at(-1).id !== questionMessageId) {
+        throw new Error('These questions were already answered or dismissed by a later message.');
       }
       messageAnswers = normalizeQuestionAnswers(questionMessage.questions, answers);
     }
@@ -363,6 +364,7 @@ export async function appendBotPendencyMessage(dataFolder, input, now) {
       ...existing,
       status: 'open',
       completedAt: null,
+      approval: null,
       messages: [...existing.messages, {
         id: randomUUID(),
         role,
@@ -373,6 +375,7 @@ export async function appendBotPendencyMessage(dataFolder, input, now) {
         ...(role === 'agent' ? { sender: { botId: sender?.botId, name: sender?.name } } : {}),
         ...(messageQuestions ? { questions: messageQuestions } : {}),
         ...(messageAnswers ? { questionMessageId, answers: messageAnswers } : {}),
+        ...(existing.approval ? { dismissedApprovalId: existing.approval.id } : {}),
       }],
       updatedAt: ts,
     };

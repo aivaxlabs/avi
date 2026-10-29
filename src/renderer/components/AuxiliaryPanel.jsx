@@ -430,23 +430,21 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
     setPendencyBusy(true);
     setPendencyFeedback((current) => ({ ...current, [draftKey]: null }));
     try {
-      const result = action === 'reply'
-        ? await onReplyBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id, ...draft })
+      await (action === 'reply'
+        ? onReplyBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id, ...draft })
         : action === 'answer'
-          ? await onReplyBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id, content: '', ...detail })
+          ? onReplyBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id, content: '', ...detail })
           : action === 'complete'
-            ? await onCompleteBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id, ...(detail ? { reason: detail } : {}) })
-            : await onResolveBotApproval(selectedPendency.approval.id, action !== 'deny', action === 'approve-always');
+            ? onCompleteBotPendency({ botId: selectedBot.id, pendencyId: selectedPendency.id, ...(detail ? { reason: detail } : {}) })
+            : onResolveBotApproval(selectedPendency.approval.id, action !== 'deny', action === 'approve-always'));
       if (action === 'reply') updatePendencyDraft({ content: '', attachments: [] });
       setPendencyFeedback((current) => ({ ...current, [draftKey]: {
         error: false,
-        text: result?.queued === false
-          ? 'Reply saved. The bot reads it after you decide on the pending approval.'
-          : {
-            reply: 'Reply queued for the bot\'s next activation.',
-            answer: 'Answers queued for the bot\'s next activation.',
-            complete: 'Pendency completed.',
-          }[action] ?? 'Decision queued for the bot\'s next activation.',
+        text: {
+          reply: 'Reply queued for the bot\'s next activation.',
+          answer: 'Answers queued for the bot\'s next activation.',
+          complete: 'Pendency completed.',
+        }[action] ?? 'Decision queued for the bot\'s next activation.',
       } }));
     } catch (error) {
       setPendencyFeedback((current) => ({ ...current, [draftKey]: { error: true, text: error.message || String(error) } }));
@@ -942,41 +940,6 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                           </>}
                         </header>
                         <h2 id="bot-pendency-title" ref={pendencyHeadingRef} tabIndex={-1}>{selectedPendency.title}</h2>
-                        <ol className="bot-inbox-messages" onMouseUp={updateSelectionAction} onKeyUp={updateSelectionAction}>
-                          {selectedPendency.messages.toSorted((left, right) => new Date(right.createdAt) - new Date(left.createdAt)).map((message) => (
-                            <li key={message.id} className={`from-${message.role}`}>
-                              <header data-bot-message-id={message.role === 'bot' ? message.id : undefined}>
-                                {message.role !== 'user' && <span className="bot-avatar" aria-hidden="true"><img src={`https://orb.aivax.net/${encodeURIComponent(message.role === 'agent' ? message.sender.botId : selectedBot.id)}`} width={22} height={22} alt="" /></span>}
-                                <strong>{message.role === 'user' ? 'You' : message.role === 'agent' ? message.sender.name : selectedBot.name}</strong>
-                                {message.role === 'agent' && <span className="bot-message-response-indicator">Sent by another bot</span>}
-                                {message.role === 'bot' && <span className="bot-message-response-indicator">{message.requiresUserResponse !== false ? 'Requires your response' : 'No response required'}</span>}
-                                <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleString()}</time>
-                              </header>
-                              {message.content && <MarkdownSegment text={message.content} finalized />}
-                              {message.answers && (
-                                <dl className="bot-inbox-answers">
-                                  {message.answers.map(({ question, answer }, index) => (
-                                    <div key={`${message.id}:${index}`}>
-                                      <dt>{question}</dt>
-                                      <dd>{Array.isArray(answer) ? answer.join(', ') : answer}</dd>
-                                    </div>
-                                  ))}
-                                </dl>
-                              )}
-                              {message.questions && selectedPendency.status === 'open' && !selectedPendency.messages.some((entry) => entry.questionMessageId === message.id) && (
-                                <QuestionForm
-                                  key={message.id}
-                                  formId={message.id}
-                                  questions={message.questions}
-                                  disabled={pendencyBusy}
-                                  autoFocus={false}
-                                  onSubmit={(answers) => actOnPendency('answer', { questionMessageId: message.id, answers })}
-                                />
-                              )}
-                              <BotAttachments attachments={message.attachments} />
-                            </li>
-                          ))}
-                        </ol>
                         {selectedPendency.approval && (
                           <section className="approval-card bot-inbox-approval" aria-label="Pending approval" aria-busy={pendencyBusy}>
                             <header className="approval-card-header">
@@ -1023,6 +986,41 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                             </footer>
                           </section>
                         )}
+                        <ol className="bot-inbox-messages" onMouseUp={updateSelectionAction} onKeyUp={updateSelectionAction}>
+                          {selectedPendency.messages.toSorted((left, right) => new Date(right.createdAt) - new Date(left.createdAt)).map((message) => (
+                            <li key={message.id} className={`from-${message.role}`}>
+                              <header data-bot-message-id={message.role === 'bot' ? message.id : undefined}>
+                                {message.role !== 'user' && <span className="bot-avatar" aria-hidden="true"><img src={`https://orb.aivax.net/${encodeURIComponent(message.role === 'agent' ? message.sender.botId : selectedBot.id)}`} width={22} height={22} alt="" /></span>}
+                                <strong>{message.role === 'user' ? 'You' : message.role === 'agent' ? message.sender.name : selectedBot.name}</strong>
+                                {message.role === 'agent' && <span className="bot-message-response-indicator">Sent by another bot</span>}
+                                {message.role === 'bot' && <span className="bot-message-response-indicator">{message.requiresUserResponse !== false ? 'Requires your response' : 'No response required'}</span>}
+                                <time dateTime={message.createdAt} title={new Date(message.createdAt).toLocaleString()}>{new Date(message.createdAt).toLocaleString()}</time>
+                              </header>
+                              {message.content && <MarkdownSegment text={message.content} finalized />}
+                              {message.answers && (
+                                <dl className="bot-inbox-answers">
+                                  {message.answers.map(({ question, answer }, index) => (
+                                    <div key={`${message.id}:${index}`}>
+                                      <dt>{question}</dt>
+                                      <dd>{Array.isArray(answer) ? answer.join(', ') : answer}</dd>
+                                    </div>
+                                  ))}
+                                </dl>
+                              )}
+                              {message.questions && selectedPendency.status === 'open' && selectedPendency.messages.at(-1).id === message.id && (
+                                <QuestionForm
+                                  key={message.id}
+                                  formId={message.id}
+                                  questions={message.questions}
+                                  disabled={pendencyBusy}
+                                  autoFocus={false}
+                                  onSubmit={(answers) => actOnPendency('answer', { questionMessageId: message.id, answers })}
+                                />
+                              )}
+                              <BotAttachments attachments={message.attachments} />
+                            </li>
+                          ))}
+                        </ol>
                         </div>
                         <form className="bot-inbox-composer" onSubmit={(event) => { event.preventDefault(); void actOnPendency('reply'); }}>
                           <label className="sr-only" htmlFor="bot-pendency-reply">Reply to {selectedBot.name}</label>

@@ -400,16 +400,14 @@ await run([
     assert.equal(required.messages.at(-1).requiresUserResponse, true);
     assert.equal(hasOpenBotUserAction(required), true);
   }),
-  test('read: approval stays pending and user messages are not modified', async () => {
+  test('read: approval stays pending after reading', async () => {
     const d = sub('read-approval');
     const item = await attachBotPendencyApproval(d, { botId: 'b', kind: 'work', title: 'T', context: 'C', prompt: 'P' }, T);
-    const replied = await appendBotPendencyMessage(d, { pendencyId: item.id, role: 'user', content: 'Comment' }, T);
-    const read = await markBotPendencyMessagesRead(d, item.id, replied.messages.map((message) => message.id), T2);
+    const read = await markBotPendencyMessagesRead(d, item.id, item.messages.map((message) => message.id), T2);
     assert.deepEqual(read.approval, item.approval);
     assert.equal(read.status, 'open');
     assert.equal(hasOpenBotUserAction(read), true);
     assert.equal(read.messages[0].requiresUserResponse, true);
-    assert.deepEqual(read.messages[1], replied.messages[1]);
   }),
   test('read: invalid inputs and flags do not mutate stored data', async () => {
     const d = sub('read-invalid');
@@ -587,6 +585,19 @@ await run([
   test('consume: unknown approval throws', async () => {
     const d = sub('consume-missing');
     await assert.rejects(() => consumeBotPendencyApproval(d, 'nonexistent', true, T), /Approval not found/);
+  }),
+  test('dismiss: a later message discards the pending approval', async () => {
+    const d = sub('approval-dismissed');
+    const item = await attachBotPendencyApproval(d, {
+      botId: 'b', kind: 'tool', title: 'T', context: 'c', prompt: 'p', toolName: 'run_in_terminal',
+    }, T);
+    const updated = await appendBotPendencyMessage(d, { pendencyId: item.id, role: 'user', content: 'Never mind.' }, T2);
+    assert.equal(updated.approval, null);
+    assert.equal(updated.messages.at(-1).dismissedApprovalId, item.approval.id);
+    await assert.rejects(() => consumeBotPendencyApproval(d, item.approval.id, true, T2), /Approval not found/);
+    const stored = (await readBotWorkState(d)).inbox[0];
+    assert.equal(stored.approval, null);
+    assert.equal(stored.messages.at(-1).dismissedApprovalId, item.approval.id);
   }),
 ]);
 
@@ -813,6 +824,22 @@ await run([
       questionMessageId,
       answers: [{ question: 'Langs?', answer: ['JS'] }],
     }, T2), /already answered/);
+  }),
+  test('questions: a later message dismisses unanswered questions', async () => {
+    const d = sub('questions-dismissed');
+    const item = await createBotPendency(d, {
+      title: 'Survey',
+      content: 'Please answer.',
+      questions: [{ type: 'free_text', question: 'Name?' }],
+    }, T);
+    await appendBotPendencyMessage(d, { pendencyId: item.id, role: 'user', content: 'Skip this.' }, T2);
+    await assert.rejects(appendBotPendencyMessage(d, {
+      pendencyId: item.id,
+      role: 'user',
+      content: '',
+      questionMessageId: item.messages[0].id,
+      answers: [{ question: 'Name?', answer: 'Ana' }],
+    }, T2), /dismissed/);
   }),
   test('questions: only bots ask and only users answer', async () => {
     const d = sub('questions-roles');

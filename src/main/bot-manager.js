@@ -837,6 +837,7 @@ export class BotManager {
     });
     if (!senderBot) this.noteUserInteraction(bot.conversationId);
     const message = item.messages.at(-1);
+    if (message.dismissedApprovalId) this.approvals.delete(message.dismissedApprovalId);
     const payload = [
       `<bot-pendency-update id="${escapeMarkupText(item.id)}" message-id="${escapeMarkupText(message.id)}"${senderBot
         ? ` from="bot" from-bot-id="${escapeMarkupText(senderBot.id)}" from-bot-name="${escapeMarkupText(senderBot.name).replaceAll('"', '&quot;')}"`
@@ -846,6 +847,9 @@ export class BotManager {
         : []),
       `<title>${escapeMarkupText(item.title)}</title>`,
       `<message>${escapeMarkupText(message.content)}</message>`,
+      ...(message.dismissedApprovalId
+        ? ['This message dismissed the pending approval in this pendency. Treat that action as not approved and do not retry it unless asked again.']
+        : []),
       ...(message.answers
         ? [`<answers question-message-id="${escapeMarkupText(message.questionMessageId)}">${escapeMarkupText(formatQuestionAnswers(message.answers))}</answers>`]
         : []),
@@ -856,19 +860,16 @@ export class BotManager {
         : []),
       '</bot-pendency-update>',
     ].join('\n');
-    // A pending approval blocks the work log; the approval decision queues it and the bot reads this reply then.
-    const queueItem = item.approval?.status === 'pending'
-      ? null
-      : this.enqueuePriorityWork(bot, {
-        sourceKey: `pendency:${item.id}`,
-        kind: 'inbox',
-        title: item.title,
-        text: payload,
-        attachments: message.attachments,
-      });
+    const queueItem = this.enqueuePriorityWork(bot, {
+      sourceKey: `pendency:${item.id}`,
+      kind: 'inbox',
+      title: item.title,
+      text: payload,
+      attachments: message.attachments,
+    });
     this.broadcast('bots:work-state');
     if (senderBot) await this.forwardPendencyMentions(senderBot, item, bot);
-    return { item, queued: Boolean(queueItem), queueItemId: queueItem?.id ?? null };
+    return { item, queued: true, queueItemId: queueItem.id };
   }
 
   async forwardPendencyMentions(author, pendency, inboxBot = author) {
@@ -1434,6 +1435,8 @@ export class BotManager {
             questions,
             attachments: attachmentPaths.map((path) => filePathToAttachment(path)),
           });
+          const dismissedApprovalId = pendency.messages.at(-1).dismissedApprovalId;
+          if (dismissedApprovalId) this.approvals.delete(dismissedApprovalId);
           this.broadcast('bots:work-state');
           await this.forwardPendencyMentions(bot, pendency);
           return pendency;
