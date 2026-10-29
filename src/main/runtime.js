@@ -3318,6 +3318,26 @@ function registerIpc() {
     traceVerbose('context.item-moved', { operation: 'context:set-visibility', visibility: payload.visibility });
     return result;
   });
+  applicationIpc.handle('context:delete', async (_event, targetPath) => {
+    const target = resolve(String(targetPath ?? ''));
+    if (isReadOnlyContextPath(target)) throw new Error('Installation and plugin context is read-only.');
+    if (extname(target).toLowerCase() !== '.md' || !(await lstat(target)).isFile()) {
+      throw new Error('Only Markdown context files can be deleted.');
+    }
+
+    const skillDirectory = dirname(target);
+    const isSkillFolder = /^skill\.md$/i.test(basename(target))
+      && basename(skillDirectory).toLowerCase() !== 'skills'
+      && dirname(skillDirectory).split(/[\\/]/).some((part) => part.toLowerCase() === 'skills');
+    await shell.trashItem(isSkillFolder ? skillDirectory : target);
+    clearContextCaches();
+    traceVerbose('context.item-deleted', { operation: 'context:delete', skill_folder: isSkillFolder });
+    return true;
+  });
+  applicationIpc.handle('context:refresh', () => {
+    clearContextCaches();
+    return true;
+  });
   applicationIpc.handle('context:open', async (_event, targetPath) => {
     const error = await shell.openPath(resolve(targetPath));
     if (error) throw new Error(`Could not open "${targetPath}": ${error}`);

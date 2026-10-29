@@ -27,6 +27,7 @@ import {
   Pencil,
   Plus,
   RadioTower,
+  RefreshCw,
   Save,
   ScanSearch,
   Search,
@@ -1777,6 +1778,19 @@ export function SettingsPage({
                                     );
                                   });
                                 },
+                              }, {
+                                label: 'Refresh',
+                                icon: <RefreshCw size={14} />,
+                                onClick: () => {
+                                  setError('');
+                                  window.chatApp.context.refresh()
+                                    .then(() => setContextReload((current) => current + 1))
+                                    .catch((nextError) => {
+                                      setError(
+                                        nextError instanceof Error ? nextError.message : String(nextError),
+                                      );
+                                    });
+                                },
                               }]}
                             />
                           </div>
@@ -1792,6 +1806,27 @@ export function SettingsPage({
                               kind: group.id,
                             });
                           }}
+                          onReveal={(item) => {
+                            setError('');
+                            window.chatApp.files.reveal({
+                              folderPath: group.folderPath,
+                              filePath: item.path,
+                              allowExternalReference: true,
+                            }).catch((nextError) => {
+                              setError(nextError instanceof Error ? nextError.message : String(nextError));
+                            });
+                          }}
+                          onDelete={!contextFolder.readOnly && ((item) => {
+                            if (!window.confirm(group.id === 'skill'
+                              ? `Delete skill "${item.title}" and its whole folder? It will be moved to the trash.`
+                              : `Delete ${singular} "${item.title}"? It will be moved to the trash.`)) return;
+                            setError('');
+                            window.chatApp.context.delete(item.path)
+                              .then(() => setContextReload((current) => current + 1))
+                              .catch((nextError) => {
+                                setError(nextError instanceof Error ? nextError.message : String(nextError));
+                              });
+                          })}
                         />
                       </section>
                     </>

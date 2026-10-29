@@ -358,6 +358,8 @@ contextBridge.exposeInMainWorld('chatApp', {
     folder: (folderPath) => invoke('context:folder', folderPath),
     commands: (folderPath) => invoke('context:commands', folderPath),
     reset: (folderPath) => invoke('context:reset', folderPath),
+    refresh: () => invoke('context:refresh'),
+    delete: (targetPath) => invoke('context:delete', targetPath),
     open: (targetPath) => invoke('context:open', targetPath),
     create: (payload) => invoke('context:create', payload),
     read: (targetPath) => invoke('context:read', targetPath),
