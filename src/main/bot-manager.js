@@ -1476,7 +1476,7 @@ export class BotManager {
             description: { type: 'string', description: 'Material detail about the event.' },
             category: { type: 'string', enum: [...BOT_ACTIVITY_CATEGORIES] },
           },
-          required: ['title', 'category'],
+          required: ['title', 'description', 'category'],
           additionalProperties: false,
         },
         execute: async (input) => {

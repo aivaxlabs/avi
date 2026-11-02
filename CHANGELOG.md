@@ -8,6 +8,9 @@
 ### Changed
 - **Scheduled task cleanup** — startup archive maintenance now permanently deletes completed and failed scheduled tasks whose finish time is older than the **Automatically delete disposable conversations** period. Scheduled, running, and cancelled tasks are kept, and Never disables the cleanup.
 
+### Fixed
+- **Bot Activity entries without a description** — `bot_activity_append` now requires a non-empty `description`, so an entry can no longer be written blank in the Activity.
+
 ### Tests
 - `bun run test:secret-vault` checks encrypted persistence, overwrite and removal, rename, placeholder resolution, thread scoping, expiry, excluded tools, and output masking in an isolated Electron profile.
 
