@@ -2,6 +2,9 @@
 
 ## [Canary]
 
+### Changed
+- **Scheduled task cleanup** — startup archive maintenance now permanently deletes completed and failed scheduled tasks whose finish time is older than the **Automatically delete disposable conversations** period. Scheduled, running, and cancelled tasks are kept, and Never disables the cleanup.
+
 ## [0.11.0] — 2026-10-29
 
 ### Added

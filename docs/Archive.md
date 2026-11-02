@@ -7,6 +7,7 @@ Archive keeps the active conversation list small and applies local retention pol
 - archive old ordinary threads after 7 days;
 - permanently delete archived threads after 30 days;
 - permanently delete eligible disposable conversations, such as side chats and sub-agents, after 1 day;
+- permanently delete completed and failed scheduled tasks after the same disposable deletion period;
 - keep 7 days of bot conversation history.
 
 Available values are 7, 30, or Never for automatic archiving; 30, 60, or Never for archived deletion; 1, 7, 30, or Never for disposable deletion; and 3, 7, or 30 days for bot history. Changes are saved immediately.

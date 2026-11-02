@@ -1376,6 +1376,11 @@ const statements = {
       AND conversation_type IN ('side', 'subagent', 'rubber_duck', 'rubber_duck_subject')
       AND updated_at < ?
   `),
+  deleteExpiredScheduledTasks: db.prepare(`
+    DELETE FROM scheduled_tasks
+    WHERE status IN ('completed', 'failed')
+      AND COALESCE(finished_at, updated_at) < ?
+  `),
   listForcedCleanupConversationIds: db.prepare(`
     WITH RECURSIVE targets(id) AS (
       SELECT id FROM conversations
@@ -2902,9 +2907,9 @@ export function runArchiveMaintenance({
         ).changes);
       }
       if (settings.deleteDisposableAfterDays !== null) {
-        result.deletedDisposable = Number(statements.deleteExpiredDisposable.run(
-          daysBefore(now, settings.deleteDisposableAfterDays),
-        ).changes);
+        const disposableCutoff = daysBefore(now, settings.deleteDisposableAfterDays);
+        result.deletedDisposable = Number(statements.deleteExpiredDisposable.run(disposableCutoff).changes);
+        statements.deleteExpiredScheduledTasks.run(disposableCutoff);
       }
     }
     const botCutoff = now.getTime() - settings.botHistoryRetentionDays * 86_400_000;

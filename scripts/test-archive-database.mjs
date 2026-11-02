@@ -72,6 +72,7 @@ try {
     countArchivedConversations,
     createBot,
     createConversation,
+    createScheduledTask,
     deleteConversation,
     forkConversation,
     getArchiveSettings,
@@ -79,6 +80,7 @@ try {
     getAivaxSettings,
     getConversation,
     getMessages,
+    getScheduledTask,
     getThreadSearchManifest,
     insertInferenceUsage,
     insertMessage,
@@ -332,6 +334,29 @@ try {
   assert.equal(getConversation(disposableParent.id).id, disposableParent.id);
   assert.equal(listSideChats(disposableParent.id).length, 0);
   assert.equal(listSubagents(disposableParent.id).length, 0);
+
+  const oldFinishedAt = new Date(now.getTime() - 2 * 86_400_000).toISOString();
+  const scheduledTasks = Object.fromEntries([
+    ['completed', 'completed', oldFinishedAt],
+    ['failed', 'failed', oldFinishedAt],
+    ['cancelled', 'cancelled', oldFinishedAt],
+    ['recent', 'completed', now.toISOString()],
+    ['scheduled', 'scheduled', null],
+  ].map(([key, status, finishedAt]) => [key, createScheduledTask({
+    title: key,
+    folderPath: process.cwd(),
+    model: 'test/model',
+    instruction: key,
+    runAt: oldFinishedAt,
+    status,
+    finishedAt,
+  }).id]));
+  runArchiveMaintenance({ now });
+  assert.equal(getScheduledTask(scheduledTasks.completed), null);
+  assert.equal(getScheduledTask(scheduledTasks.failed), null);
+  for (const key of ['cancelled', 'recent', 'scheduled']) {
+    assert.equal(getScheduledTask(scheduledTasks[key]).id, scheduledTasks[key]);
+  }
 
   const botConversation = createConversation({
     title: 'Retention bot',
