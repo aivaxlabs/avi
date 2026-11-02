@@ -57,6 +57,7 @@ const secureStorage = {
   mcpOAuthSessions: {},
   providerCredentials: {},
   remoteApiKeys: [],
+  secretVault: {},
 };
 const secureWrites = new Set();
 let providerCredentialsKey = null;
@@ -1930,6 +1931,58 @@ export function deleteAivaxAccessToken() {
   secureStorage.aivaxAccessToken = null;
 }
 
+const SECRET_VAULT_NAME = /^[A-Za-z0-9_.@-]{1,128}$/;
+
+function secretVaultEntry(name, { description, createdAt, updatedAt }) {
+  return { name, description, createdAt, updatedAt };
+}
+
+function writeSecretVault(vault) {
+  writeSecureFileValue('secret-vault', JSON.stringify(vault));
+  secureStorage.secretVault = vault;
+}
+
+export function listSecretVaultEntries() {
+  return Object.entries(secureStorage.secretVault)
+    .map(([name, entry]) => secretVaultEntry(name, entry))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function getSecretVaultValue(name) {
+  return secureStorage.secretVault[name]?.value ?? null;
+}
+
+export function saveSecretVaultEntry({ name, previousName = name, value, description }) {
+  if (!SECRET_VAULT_NAME.test(String(name ?? ''))) {
+    throw new Error('Secret names must have 1 to 128 letters, digits, ".", "_", "-", or "@".');
+  }
+  const vault = { ...secureStorage.secretVault };
+  const current = vault[previousName];
+  if (previousName !== name && !current) throw new Error(`Secret "${previousName}" was not found.`);
+  if (previousName !== name && vault[name]) throw new Error(`Secret "${name}" already exists.`);
+
+  const nextValue = value ?? current?.value;
+  if (typeof nextValue !== 'string' || !nextValue) throw new Error('Secret value is required.');
+
+  const now = timestamp();
+  delete vault[previousName];
+  vault[name] = {
+    value: nextValue,
+    description: String(description ?? current?.description ?? '').trim(),
+    createdAt: current?.createdAt ?? now,
+    updatedAt: now,
+  };
+  writeSecretVault(vault);
+  return secretVaultEntry(name, vault[name]);
+}
+
+export function deleteSecretVaultEntry(name) {
+  if (!(name in secureStorage.secretVault)) return false;
+  const { [name]: _removed, ...vault } = secureStorage.secretVault;
+  writeSecretVault(vault);
+  return true;
+}
+
 function readStoredRemoteApiKeys(stored) {
   const keys = parse(stored, []);
   if (!Array.isArray(keys)) return [];
@@ -2078,6 +2131,10 @@ export async function initializeSecureStorage() {
   const storedRemoteApiKeys = readSecureFileValue('remote-api-keys');
   const legacyRemoteApiKey = readSecureFileValue('remote-api-key');
   const aivaxAccessToken = readSecureFileValue('aivax-access-token');
+  const secretVault = parse(readSecureFileValue('secret-vault'), {});
+  secureStorage.secretVault = secretVault && typeof secretVault === 'object' && !Array.isArray(secretVault)
+    ? secretVault
+    : {};
   secureStorage.mcpOAuthSessions = mcpOAuthSessions ? parse(mcpOAuthSessions, {}) : {};
   secureStorage.remoteApiKeys = readStoredRemoteApiKeys(storedRemoteApiKeys);
   secureStorage.aivaxAccessToken = aivaxAccessToken || null;

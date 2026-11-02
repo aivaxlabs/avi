@@ -8,6 +8,7 @@ import { terminalTools } from './tools/terminal.js';
 import { fileTools } from './tools/files.js';
 import { semanticGrepTools } from './tools/semantic-grep.js';
 import { taskSchedulerTools } from './tools/task-scheduler.js';
+import { secretVaultTools } from './tools/secret-vault.js';
 
 export { normalizeQuestions } from './tools/tasks.js';
 export { stopConversationTerminals } from './tools/terminal.js';
@@ -26,4 +27,5 @@ export const CLIENT_TOOLS = Object.freeze([
   ...fileTools,
   ...semanticGrepTools,
   ...taskSchedulerTools,
+  ...secretVaultTools,
 ]);

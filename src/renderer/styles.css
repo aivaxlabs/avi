@@ -18037,6 +18037,69 @@ input:not([type="checkbox"]):not([type="radio"]), textarea:not([readonly]), sele
     background: #1a1b26;
     color: #a9b1d6;
 }
+/* components\secret-vault.xcss */
+.settings-page.secret-vault-page {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-page.secret-vault-page .secret-vault-header-actions {
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+}
+
+.settings-page.secret-vault-page .secret-vault-list, .settings-page.secret-vault-page .secret-vault-editor {
+    display: grid;
+    align-content: start;
+    gap: 24px;
+}
+
+.settings-page.secret-vault-page .secret-vault-list > .settings-section {
+    gap: 12px;
+}
+
+.settings-page.secret-vault-page .settings-list-summary > .input {
+    width: min(280px, 100%);
+}
+
+.settings-page.secret-vault-page .secret-vault-fieldset {
+    min-width: 0;
+    margin: 0;
+}
+
+.settings-page.secret-vault-page .settings-card-row > span {
+    min-width: 0;
+    display: grid;
+    gap: 4px;
+}
+
+.settings-page.secret-vault-page .settings-card-row > span small {
+    color: var(--text-3);
+    font-size: .9rem;
+}
+
+.settings-page.secret-vault-page .secret-vault-value-field > .secret-vault-value-actions {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.settings-page.secret-vault-page .secret-vault-value-field > .secret-vault-value {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    font-family: var(--font-code);
+    overflow-wrap: anywhere;
+}
+
+.settings-page.secret-vault-page .secret-vault-value-field > .secret-vault-value[data-masked="true"] {
+    -webkit-text-security: disc;
+}
 /* components\appearance.xcss */
 .settings-page .settings-appearance {
     display: grid;

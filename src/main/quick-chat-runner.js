@@ -17,6 +17,7 @@ import {
   updateConversation,
 } from './database.js';
 import { CLIENT_TOOLS, decorateToolsForInvocation, normalizeQuestions } from './client-tools.js';
+import { redactSecrets, resolveSecretPlaceholders } from './tools/secret-vault.js';
 import { formatQuestionAnswers } from '../shared/questions.js';
 import { applySubagentModelSchema } from './default-models.js';
 import { normalizeAttachmentsForModel } from './files.js';
@@ -627,7 +628,7 @@ export class QuickChatRunner {
               mcpServerName: tool.mcp?.serverName ?? null,
             });
             this.updateAssistant(session, assistantMessage, accumulator, 'streaming');
-            const value = await this.executeTool(tool, input, {
+            const value = await this.executeTool(tool, resolveSecretPlaceholders(tool.name, input, session.id), {
               session,
               selection,
               models,
@@ -662,6 +663,7 @@ export class QuickChatRunner {
               error: error instanceof Error ? error.message : String(error),
             });
           }
+          output = redactSecrets(output, session.id);
           const outputLimit = toolOutputLimitForTool(
             tool,
             preferences.tuning.toolOutputLimit,

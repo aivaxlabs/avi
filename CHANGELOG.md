@@ -2,8 +2,14 @@
 
 ## [Canary]
 
+### Added
+- **Secret Vault** — a new Activity Bar page below Scheduled jobs stores credentials (name, value, optional description, created and updated dates) in `secure-storage.json` under `secret-vault`, encrypted with Electron `safeStorage`. Entries can be listed, filtered, added, edited, renamed, deleted, and copied, and **Reveal secret** shows a value. Agents in threads, Quick Chat, and bots get `secret_vault_put` (`overwrite` required to replace; empty content removes), `secret_vault_list` (names and metadata only), and `secret_vault_get`, which returns a `{{name:TOKEN}}` placeholder valid for 1 minute in that thread. Placeholders in later tool arguments are replaced in memory only at execution; the chat, stored tool call, approvals, and interceptors keep the placeholder, and chat, thread, bot, memory, scheduler, task, goal, and vault tools never resolve them. Later tool outputs in the thread mask resolved values as `[secret:<name>]`. A new injected instruction tells agents to save credentials there, one value per entry, and never print or write them. Not exposed in Plan mode or Remote MCP. Desktop bridge: `window.chatApp.secretVault.list/reveal/save/remove` (`secret-vault:list`, `secret-vault:reveal`, `secret-vault:save`, `secret-vault:delete`).
+
 ### Changed
 - **Scheduled task cleanup** — startup archive maintenance now permanently deletes completed and failed scheduled tasks whose finish time is older than the **Automatically delete disposable conversations** period. Scheduled, running, and cancelled tasks are kept, and Never disables the cleanup.
+
+### Tests
+- `bun run test:secret-vault` checks encrypted persistence, overwrite and removal, rename, placeholder resolution, thread scoping, expiry, excluded tools, and output masking in an isolated Electron profile.
 
 ## [0.11.0] — 2026-10-29
 

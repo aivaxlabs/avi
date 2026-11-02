@@ -104,6 +104,7 @@ const CONTEXT_ITEM_TEMPLATES = {
 const POST_INSTRUCTION_CONTEXT_ORDER = [
   'bot',
   'memory',
+  'secret-vault',
   'semantic-grep',
   'mcp',
   'delegation',
@@ -178,6 +179,17 @@ export const dynamicContextInjectors = new Map([
         'Each memory entry must include Markdown frontmatter with folder, title, and tags, followed by content organized with level-3 headings (###).'
       ].join('\n')
       : ''
+  )],
+  ['secret-vault', ({ workMode } = {}) => (
+    workMode === 'plan'
+      ? ''
+      : [
+        '## Secret Vault',
+        'Credentials belong in the Secret Vault, an encrypted store on the user\'s device, accessed through secret_vault_put, secret_vault_list, and secret_vault_get.',
+        'Whenever the user provides, or you create, a login, password, API key, token, or similar credential, save it with secret_vault_put. Store one value per entry with dotted names, such as `user_john_doe_gmail.email` and `user_john_doe_gmail.password`; never combine several values in one entry.',
+        'secret_vault_get returns a placeholder such as `{{name:TOKEN}}` that is valid for 1 minute in the current thread. Place it in a later tool call\'s arguments, for example a terminal command or an environment variable export; the runtime substitutes the value only for that execution.',
+        'Never print, echo, or log a placeholder or a secret value, and never write either to a file, chat message, or memory. Resolved values in tool output appear as `[secret:<name>]`.',
+      ].join('\n')
   )],
   ['semantic-grep', ({ aivax } = {}) => (
     aivax?.connected && aivax.semanticGrepCollectionId && aivax.semanticGrepDirectories?.length > 0
@@ -639,6 +651,7 @@ export async function resolveDynamicContext(invocationContext = {}) {
       ].join('\n'),
       dynamicContextInjectors.get('verbosity')?.(invocationContext),
       invocationContext.quickQuestion ? '' : dynamicContextInjectors.get('memory')?.(invocationContext),
+      invocationContext.quickQuestion ? '' : dynamicContextInjectors.get('secret-vault')?.(invocationContext),
       dynamicContextInjectors.get('semantic-grep')?.(invocationContext),
       dynamicContextInjectors.get('mcp')?.(invocationContext),
       dynamicContextInjectors.get('environment')?.(invocationContext),

@@ -152,6 +152,12 @@ contextBridge.exposeInMainWorld('chatApp', {
     deleteRecurringJob: (id) => invoke('task-scheduler:delete-recurring-job', id),
     onEvent: (callback) => subscribe('task-scheduler:event', callback),
   },
+  secretVault: {
+    list: () => invoke('secret-vault:list'),
+    reveal: (name) => invoke('secret-vault:reveal', name),
+    save: (entry) => invoke('secret-vault:save', entry),
+    remove: (name) => invoke('secret-vault:delete', name),
+  },
   conversations: {
     list: () => invoke('conversations:list'),
     create: (payload) => invoke('conversations:create', payload),

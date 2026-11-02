@@ -60,6 +60,7 @@ import {
   deleteQuickChats,
   deleteProviderCredentials,
   deleteRemoteApiKey,
+  deleteSecretVaultEntry,
   forkConversation,
   flushSecureStorage,
   getArchiveSettings,
@@ -88,6 +89,7 @@ import {
   getProviderCredentials,
   getRemoteApiKeys,
   getRemoteSettings,
+  getSecretVaultValue,
   getThreadSearchManifest,
   initializeSecureStorage,
   listArchivedConversations,
@@ -99,12 +101,14 @@ import {
   listProviders,
   listRemoteApiKeys,
   listRubberDucks,
+  listSecretVaultEntries,
   listSideChats,
   listSubagents,
   listTasks,
   listThreadSearchMessages,
   restoreConversation,
   runArchiveMaintenance,
+  saveSecretVaultEntry,
   setArchiveSettings,
   setBuiltInPluginState,
   setKeyboardShortcuts,
@@ -2130,6 +2134,14 @@ function registerIpc() {
     taskScheduler.updateRecurringJob(id, changes ?? {})
   ));
   applicationIpc.handle('task-scheduler:delete-recurring-job', (_event, id) => taskScheduler.deleteRecurringJob(id));
+  applicationIpc.handle('secret-vault:list', () => listSecretVaultEntries());
+  applicationIpc.handle('secret-vault:reveal', (_event, name) => {
+    const value = getSecretVaultValue(name);
+    if (value === null) throw new Error(`Secret "${name}" was not found.`);
+    return value;
+  });
+  applicationIpc.handle('secret-vault:save', (_event, payload = {}) => saveSecretVaultEntry(payload ?? {}));
+  applicationIpc.handle('secret-vault:delete', (_event, name) => deleteSecretVaultEntry(name));
   applicationIpc.handle('bots:list', async () => {
     const botDataByBot = await botManager.listBotDataByBot();
     return {

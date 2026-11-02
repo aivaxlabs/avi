@@ -38,6 +38,7 @@ import { StreamAccumulator } from '../streaming.js';
 import { composeToolsWithPlugins } from '../tool-composition.js';
 import { mapToolCalls } from '../tool-concurrency.js';
 import { setDirectoryTool } from '../tools/quick-chat.js';
+import { redactSecrets, resolveSecretPlaceholders } from '../tools/secret-vault.js';
 import {
   minifyToolOutputJson,
   toolOutputLimitForTool,
@@ -1157,6 +1158,7 @@ export const runLoopMethods = {
                   }),
                 }
               : input;
+            const resolvedInput = resolveSecretPlaceholders(tool.name, executionInput, conversationId);
             if (controller.signal.aborted) throw new Error('The run was interrupted.');
 
             // Tools that ignore the signal would otherwise keep Stop waiting until they finish.
@@ -1166,7 +1168,7 @@ export const runLoopMethods = {
             let value;
             try {
               value = await Promise.race([
-                tool.execute(executionInput, tool.providerTool
+                tool.execute(resolvedInput, tool.providerTool
                   ? {
                       signal: controller.signal,
                       workspacePath,
@@ -1318,6 +1320,7 @@ export const runLoopMethods = {
             traceVerbose('tool.completed', toolDetails);
           }
 
+          output = redactSecrets(output, conversationId);
           const outputLimit = toolOutputLimitForTool(
             tool,
             tuning.toolOutputLimit,

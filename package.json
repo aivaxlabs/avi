@@ -56,6 +56,7 @@
     "test:export-thread": "electron --no-sandbox scripts/electron-test.mjs scripts/test-export-thread.mjs",
     "test:temporary-storage": "bun scripts/test-temporary-storage.mjs",
     "test:search": "electron --no-sandbox scripts/electron-test.mjs scripts/test-search-core.mjs",
+    "test:secret-vault": "electron --no-sandbox scripts/electron-test.mjs scripts/test-secret-vault.mjs",
     "test:fatal-errors": "bun scripts/test-trace-fatal.mjs && electron --no-sandbox scripts/electron-test.mjs scripts/test-fatal-errors.mjs",
     "test:package": "bun scripts/test-package-contract.mjs",
     "package": "bun run build && bun scripts/package.mjs"

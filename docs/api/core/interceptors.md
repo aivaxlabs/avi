@@ -61,7 +61,10 @@ The pipeline is:
 3. run `beforeExecute` interceptors;
 4. validate transformed input;
 5. recalculate approval;
-6. execute the tool;
-7. run `afterExecute` interceptors;
-8. normalize and limit output;
-9. return the result to the model.
+6. substitute [Secret Vault](../../Secret%20Vault.md) placeholders in an in-memory copy of the input;
+7. execute the tool;
+8. run `afterExecute` interceptors;
+9. mask Secret Vault values resolved earlier in the thread, then normalize and limit output;
+10. return the result to the model.
+
+Interceptors receive the unresolved input, with `{{name:TOKEN}}` placeholders, and the output before Secret Vault masking. `secret_vault_put`, `secret_vault_list`, and `secret_vault_get` are reserved core tool names.

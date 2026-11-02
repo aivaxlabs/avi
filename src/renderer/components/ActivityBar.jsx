@@ -1,4 +1,4 @@
-import { CalendarClock, Folder, Home, Inbox, Puzzle, Settings } from 'lucide-react';
+import { CalendarClock, Folder, Home, Inbox, Puzzle, Settings, Vault } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 const activities = [
@@ -6,6 +6,7 @@ const activities = [
   { id: 'inbox', label: 'Inbox', icon: Inbox },
   { id: 'folders', label: 'Folders', icon: Folder },
   { id: 'scheduled-jobs', label: 'Scheduled jobs', icon: CalendarClock },
+  { id: 'secret-vault', label: 'Secret Vault', icon: Vault },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 

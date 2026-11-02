@@ -17,6 +17,7 @@ import { SettingsPage } from './components/SettingsPage.jsx';
 import { McpOverlay } from './components/McpOverlay.jsx';
 import { OrchestrationPage } from './components/OrchestrationPage.jsx';
 import { ScheduledJobsPage } from './components/ScheduledJobsPage.jsx';
+import { SecretVaultPage } from './components/SecretVaultPage.jsx';
 import { AuxiliaryPanel } from './components/AuxiliaryPanel.jsx';
 import { BotSettingsDialog } from './components/BotSettingsDialog.jsx';
 import { PanelResizer } from './components/PanelResizer.jsx';
@@ -172,7 +173,10 @@ export default function App() {
   }, [foldersOpen, settingsOpen]);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
   const [scheduledJobsOpen, setScheduledJobsOpen] = useState(false);
+  const [secretVaultOpen, setSecretVaultOpen] = useState(false);
+  const secretVaultActive = secretVaultOpen && !settingsOpen && !foldersOpen;
   const scheduledJobsActive = scheduledJobsOpen && !settingsOpen && !foldersOpen;
+  const fullPageActive = scheduledJobsActive || secretVaultActive;
   const [actionPages, setActionPages] = useState(emptyList);
   const [actionPageId, setActionPageId] = useState(null);
   const [visitedActionPageIds, setVisitedActionPageIds] = useState(emptyList);
@@ -245,10 +249,10 @@ export default function App() {
   const navigationToggleRef = useRef(null);
 
   useLayoutEffect(() => {
-    inspectedConversationIdRef.current = settingsOpen || foldersOpen || orchestrationOpen || activeActionPageId || scheduledJobsActive
+    inspectedConversationIdRef.current = settingsOpen || foldersOpen || orchestrationOpen || activeActionPageId || fullPageActive
       ? null
       : selectedId;
-  }, [activeActionPageId, foldersOpen, orchestrationOpen, scheduledJobsActive, selectedId, settingsOpen]);
+  }, [activeActionPageId, foldersOpen, orchestrationOpen, fullPageActive, selectedId, settingsOpen]);
 
   useEffect(() => {
     const refreshActionPages = () => api.actionPages.list()
@@ -693,7 +697,7 @@ export default function App() {
   }, [refreshBots]);
 
   useEffect(() => {
-    if (!selectedId || settingsOpen || foldersOpen || orchestrationOpen || activeActionPageId || scheduledJobsActive) return;
+    if (!selectedId || settingsOpen || foldersOpen || orchestrationOpen || activeActionPageId || fullPageActive) return;
     void api.sidebar.markSeen(selectedId).catch(() => {});
     setCompletedUnseen((state) => {
       if (!state[selectedId]) return state;
@@ -701,7 +705,7 @@ export default function App() {
       delete next[selectedId];
       return next;
     });
-  }, [activeActionPageId, foldersOpen, orchestrationOpen, scheduledJobsActive, selectedId, settingsOpen]);
+  }, [activeActionPageId, foldersOpen, orchestrationOpen, fullPageActive, selectedId, settingsOpen]);
 
   useEffect(() => api.sidebar.onSeen(({ conversationId }) => {
     setCompletedUnseen((state) => {
@@ -722,6 +726,7 @@ export default function App() {
   useEffect(() => api.app.onNavigate(async ({ view, conversationId, project, draftText }) => {
     setActionPageId(null);
     setScheduledJobsOpen(false);
+    setSecretVaultOpen(false);
     setFoldersOpen(false);
     setOrchestrationOpen(false);
     setSearchOpen(false);
@@ -1185,6 +1190,7 @@ export default function App() {
   async function selectConversation(id) {
     setActionPageId(null);
     setScheduledJobsOpen(false);
+    setSecretVaultOpen(false);
     setSettingsOpen(false);
     setFoldersOpen(false);
     setOrchestrationOpen(false);
@@ -2201,6 +2207,7 @@ export default function App() {
   const sidebarOnNewChat = useStableCallback((preset = {}) => {
     setActionPageId(null);
     setScheduledJobsOpen(false);
+    setSecretVaultOpen(false);
     setSettingsOpen(false);
     setFoldersOpen(false);
     setOrchestrationOpen(false);
@@ -2287,6 +2294,7 @@ export default function App() {
     setOrchestrationOpen(false);
     setActionPageId(null);
     setScheduledJobsOpen(false);
+    setSecretVaultOpen(false);
     setNavigationOpen(false);
   });
   const onSelectActivity = useStableCallback(async (activity) => {
@@ -2312,6 +2320,7 @@ export default function App() {
     setFoldersOpen(activity === 'folders');
     setOrchestrationOpen(activity === 'inbox');
     setScheduledJobsOpen(activity === 'scheduled-jobs');
+    setSecretVaultOpen(activity === 'secret-vault');
     setSearchOpen(false);
     setNavigationOpen(false);
   });
@@ -2586,7 +2595,7 @@ export default function App() {
         '--auxiliary-panel-width': `${effectiveAuxiliaryPanelWidth}px`,
       }}
     >
-      {narrowWindow && (navigationOpen || !sidePanelVisible || settingsOpen || foldersOpen || activeActionPageId || scheduledJobsActive) && (
+      {narrowWindow && (navigationOpen || !sidePanelVisible || settingsOpen || foldersOpen || activeActionPageId || fullPageActive) && (
         <button
           ref={navigationToggleRef}
           className="auxiliary-panel-toggle navigation-toggle"
@@ -2602,7 +2611,7 @@ export default function App() {
       <ActivityBar
         active={settingsOpen
           ? 'settings'
-          : foldersOpen ? 'folders' : scheduledJobsActive ? 'scheduled-jobs'
+          : foldersOpen ? 'folders' : scheduledJobsActive ? 'scheduled-jobs' : secretVaultActive ? 'secret-vault'
             : activeActionPageId ?? (orchestrationOpen ? 'inbox' : 'home')}
         onSelect={onSelectActivity}
         counts={activityCounts}
@@ -2722,7 +2731,12 @@ export default function App() {
           />
         </div>
       )}
-        <div className="home-composer" hidden={settingsOpen || foldersOpen || Boolean(activeActionPageId) || scheduledJobsActive}>
+      {secretVaultActive && (
+        <div className="settings-composer" inert={navigationOpen}>
+          <SecretVaultPage />
+        </div>
+      )}
+        <div className="home-composer" hidden={settingsOpen || foldersOpen || Boolean(activeActionPageId) || fullPageActive}>
           <div className="home-sidebar" hidden={orchestrationOpen}>
           <Sidebar
             conversations={conversations}
