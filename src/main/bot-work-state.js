@@ -491,9 +491,9 @@ export async function consumeBotPendencyApproval(dataFolder, approvalId, decisio
 }
 
 export async function appendBotActivity(dataFolder, input, now) {
-  const { title, description = '', category } = input;
+  const { title, description, category } = input;
   requireString(title, 'title');
-  if (typeof description !== 'string') throw new Error('Invalid description: expected string');
+  requireString(description, 'description');
   if (!BOT_ACTIVITY_CATEGORIES.has(category)) throw new Error(`Invalid activity category: ${category}`);
 
   const ts = now ?? new Date().toISOString();

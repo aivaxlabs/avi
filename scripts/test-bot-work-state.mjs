@@ -141,7 +141,7 @@ await run([
     assert.equal(await readFile(join(d, 'activity.json'), 'utf8'), legacy);
     await writeFile(join(d, 'diary.json'), '{}');
     await assert.rejects(readBotWorkState(d), /Invalid diary.json/);
-    await assert.rejects(appendBotActivity(d, { title: 'A result', description: '', category: 'progress' }), /Invalid diary.json/);
+    await assert.rejects(appendBotActivity(d, { title: 'A result', description: 'A result summary.', category: 'progress' }), /Invalid diary.json/);
   }),
 ]);
 
@@ -613,17 +613,24 @@ await run([
     assert.equal(entry.title, 'Found root cause');
     assert.equal(entry.category, 'discovery');
     assert.equal(entry.createdAt, T);
-    const empty = await appendBotActivity(d, { title: 'T', category: 'progress' }, T);
-    assert.equal(empty.description, '');
+    await assert.rejects(
+      () => appendBotActivity(d, { title: 'T', category: 'progress' }, T),
+      /Invalid description/,
+    );
+    await assert.rejects(
+      () => appendBotActivity(d, { title: 'T', description: '   ', category: 'progress' }, T),
+      /Invalid description/,
+    );
+    assert.equal((await readBotWorkState(d)).activity.length, 1);
   }),
   test('activity: rejects invalid category and whitespace title', async () => {
     const d = sub('activity-invalid');
     await assert.rejects(
-      () => appendBotActivity(d, { title: 'T', category: 'material' }, T),
+      () => appendBotActivity(d, { title: 'T', description: 'Detail.', category: 'material' }, T),
       /Invalid activity category/,
     );
     await assert.rejects(
-      () => appendBotActivity(d, { title: '  ', category: 'progress' }, T),
+      () => appendBotActivity(d, { title: '  ', description: 'Detail.', category: 'progress' }, T),
       /Invalid title/,
     );
   }),
