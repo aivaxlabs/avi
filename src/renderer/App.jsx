@@ -1978,7 +1978,10 @@ export default function App() {
         ...state,
         [conversationId]: applyPendingOrder(
           (state[conversationId] ?? []).map((message) => (
-            result?.reordered && result?.steered && message.id === steerMessageId
+            result?.reordered
+              && result?.steered
+              && message.id === steerMessageId
+              && message.status === 'queued'
               ? { ...message, status: 'steered' }
               : message
           )),
