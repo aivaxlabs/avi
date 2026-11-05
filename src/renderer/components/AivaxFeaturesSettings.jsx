@@ -34,6 +34,37 @@ const RERANKERS = [
   ['smart', 'Smart'],
 ];
 
+function groupMediaModels(models) {
+  const groups = new Map();
+
+  for (const model of models) {
+    const [, providerSlug = '', slug = model.name] = model.name.match(/^@([^/]+)\/(.+)$/) ?? [];
+    const group = groups.get(providerSlug) ?? { slug: providerSlug, label: '', models: [] };
+    const prefixed = model.displayName.includes(': ');
+
+    if (prefixed && !group.label) group.label = model.displayName.split(': ')[0];
+    group.models.push({
+      ...model,
+      shortName: prefixed ? model.displayName.split(': ').slice(1).join(': ') : (model.displayName === model.name ? slug : model.displayName),
+    });
+    groups.set(providerSlug, group);
+  }
+
+  const releasedAt = (model) => model.releaseDate ?? '';
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      label: group.label || group.slug.replace(/(^|-)(\w)/g, (_, dash, letter) => `${dash && ' '}${letter.toUpperCase()}`),
+      models: group.models.sort((a, b) => releasedAt(b).localeCompare(releasedAt(a)) || a.shortName.localeCompare(b.shortName)),
+    }))
+    .sort((a, b) => releasedAt(b.models[0]).localeCompare(releasedAt(a.models[0])) || a.label.localeCompare(b.label));
+}
+
+function shortPrice(pricingDescription) {
+  const [, amount, unit] = pricingDescription?.match(/^(\$[\d.,]+) per ([^+(]+?)(?: \+|\s*\(|$)/) ?? [];
+  return amount ? `${amount}/${unit.replace('output image', 'image').replace('1,000 characters', '1K chars')}` : '';
+}
+
 function collectionChanges(target, collection) {
   if (target === 'memory') {
     return { memoryCollectionId: collection.id, memoryCollectionName: collection.name };
@@ -766,10 +797,18 @@ export function AivaxFeaturesSettings() {
                     {state.settings[modelKey] && !selectedModel && (
                       <option value={state.settings[modelKey]}>{state.settings[modelKey]}</option>
                     )}
-                    {models.map((model) => (
-                      <option key={model.name} value={model.name} title={model.description}>
-                        {model.displayName}
-                      </option>
+                    {groupMediaModels(models).map((group) => (
+                      <optgroup key={group.slug} label={group.label}>
+                        {group.models.map((model) => (
+                          <option
+                            key={model.name}
+                            value={model.name}
+                            title={[model.releaseDate, model.description].filter(Boolean).join(' · ')}
+                          >
+                            {[model.shortName, shortPrice(model.pricingDescription)].filter(Boolean).join(' · ')}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                   <input

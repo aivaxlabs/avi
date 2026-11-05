@@ -1725,13 +1725,15 @@ function registerIpc() {
         displayName: model.displayName ?? model.name,
         description: model.description ?? '',
         pricingDescription: model.pricingDescription ?? '',
+        releaseDate: model.releaseDate ?? null,
         referenceImages: Array.isArray(model.flags) && model.flags.includes('AllowReferenceImage'),
       })),
       audio: audioModels.map((model) => ({
         name: model.name,
-        displayName: model.name,
+        displayName: model.displayName ?? model.name,
         description: model.description ?? '',
         pricingDescription: model.pricingDescription ?? '',
+        releaseDate: model.releaseDate ?? null,
       })),
     };
   });
