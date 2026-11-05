@@ -529,7 +529,12 @@ export const threadActionTools = [
           model: selectedModel.id,
           reasoningEffort: selectedReasoningEffort,
           // Bot-delegated threads run unattended: permission requests would never be answered.
-          permissionMode: sourceConversation?.isBot && permissionMode !== 'read_only' ? 'full_access' : permissionMode,
+          // Other agent-created threads inherit the default thread permission; Read-only callers stay Read-only.
+          permissionMode: permissionMode === 'read_only'
+            ? 'read_only'
+            : sourceConversation?.isBot
+              ? 'full_access'
+              : getPreferences().tuning.defaultPermissionMode,
           text: normalizedPrompt,
           fromAgent: true,
           project: { path: projectPath },
@@ -973,7 +978,10 @@ export const threadActionTools = [
         model: conversation.model,
         text,
         // Bot-delegated threads run unattended: permission requests would never be answered.
-        permissionMode: sourceConversation?.isBot && permissionMode !== 'read_only' ? 'full_access' : permissionMode,
+        // External MCP callers have no run permission, so they follow the target thread's selector.
+        permissionMode: sourceConversation?.isBot && permissionMode !== 'read_only'
+          ? 'full_access'
+          : permissionMode ?? getComposerState(conversation.id)?.permissionMode,
         steer: !low_priority,
         fromAgent: true,
         workMode: planMode ? 'plan' : workMode,

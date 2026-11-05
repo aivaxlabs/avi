@@ -14,6 +14,8 @@
 
 ### Fixed
 - **Bot Activity entries without a description** — `bot_activity_append` now requires a non-empty `description`, so an entry can no longer be written blank in the Activity.
+- **Remote MCP prompt permissions** — `chat_send_prompt` called by an external agent through Remote MCP now runs the target thread with the permission mode selected in its composer instead of falling back to **Approve for me**, so a thread set to **Full access** no longer asks to approve each tool call.
+- **Agent-created thread permissions** — threads started with `chat_create_thread` now inherit the default thread permission mode (Settings → Tuning) instead of the caller's mode, which was **Approve for me** for Remote MCP callers. Bot callers still use **Full access**, and Read-only callers keep **Read-only**.
 
 ### Tests
 - `bun scripts/test-semantic-grep.mjs` builds real Git repositories and checks `.gitignore` filtering, nested repositories, submodules, worktree deduplication by common directory, and the choice of canonical worktree.
