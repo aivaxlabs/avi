@@ -125,13 +125,14 @@ assert.match(leadingWhitespace, /Final answer/);
 assert.equal(answerTextFromTextualBlocks(' \n\t<think>Private reasoning</think>Final answer'), 'Final answer');
 
 const inlineThink = renderContent('Initial answer <think>Private reasoning</think>Final answer');
-assert.match(inlineThink, /class="worked-block"/);
-assert.doesNotMatch(inlineThink, /Private reasoning/);
+assert.doesNotMatch(inlineThink, /class="worked-block"/);
+assert.match(inlineThink, /Initial answer/);
 assert.match(inlineThink, /Final answer/);
-assert.equal(
-  answerTextFromTextualBlocks('Initial answer <think>Private reasoning</think>Final answer'),
-  'Final answer',
-);
+
+const lineStartThink = renderContent('Initial answer\n<think>Private reasoning</think>Final answer');
+assert.match(lineStartThink, /class="worked-block"/);
+assert.doesNotMatch(lineStartThink, /Private reasoning/);
+assert.match(lineStartThink, /Final answer/);
 
 const adjacentThink = renderContent('<think>First reasoning</think><think>Second reasoning</think>Final answer');
 assert.equal((adjacentThink.match(/class="worked-block"/g) ?? []).length, 1);
@@ -183,10 +184,10 @@ const consolidatedMcpTools = toolGroup(mcpTools, mcpTools.map((name, index) => (
 })));
 assert.match(consolidatedMcpTools, /class="thinking-label">Called Foobar MCP</);
 
-const afterCompression = renderContent('Answer<think>Private reasoning</think>Final answer', [{
+const afterCompression = renderContent('Answer\n<think>Private reasoning</think>Final answer', [{
   id: 'compression',
   type: 'context-compression',
-  contentOffset: 6,
+  contentOffset: 7,
   status: 'completed',
   inputTokens: 100,
   outputTokens: 50,

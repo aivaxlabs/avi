@@ -40,7 +40,11 @@ export class StreamAccumulator {
         }
         return '';
       })
-      .join('');
+      .reduce((content, part, index) => (
+        this.segments[index].type === 'reasoning' && content && !content.endsWith('\n')
+          ? `${content}\n${part}`
+          : content + part
+      ), '');
   }
 
   apply(event) {

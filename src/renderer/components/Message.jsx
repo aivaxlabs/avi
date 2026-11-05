@@ -1895,10 +1895,16 @@ function findNextThinkingMarker(text, start) {
     { type: 'answer', openTag: '<assistant-answer>', closeTag: '</assistant-answer>' },
   ];
 
+  // `</think>` and `</tool>` lookbehinds keep messages persisted before
+  // reasoning was serialized on its own line rendering as thinking blocks.
+  const thinkPattern = /(?<=^[ \t]*|<\/think>|<\/tool>)<think>/gm;
+  thinkPattern.lastIndex = start;
+  const thinkStart = thinkPattern.exec(text)?.index ?? -1;
+
   return candidates
     .map((candidate) => ({
       ...candidate,
-      start: findTag(text, candidate.openTag, start),
+      start: candidate.type === 'think' ? thinkStart : findTag(text, candidate.openTag, start),
     }))
     .filter((candidate) => candidate.start >= 0)
     .sort((a, b) => a.start - b.start)[0] ?? null;
