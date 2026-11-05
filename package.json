@@ -27,7 +27,7 @@
     "test:plan": "bun scripts/test-plan-mode.mjs",
     "test:goal": "electron --no-sandbox scripts/electron-test.mjs scripts/test-goal-mode.mjs",
     "test:prompt-expansion": "electron --no-sandbox scripts/electron-test.mjs scripts/test-prompt-expansion.mjs",
-    "test:ultra": "bun scripts/test-ultra-mode.mjs",
+    "test:ultra": "electron --no-sandbox scripts/electron-test.mjs scripts/test-ultra-mode.mjs",
     "test:server-retry": "bun scripts/test-server-retry.mjs",
     "test:truncated-generation": "bun scripts/test-truncated-generation.mjs",
     "test:compaction-failures": "electron --no-sandbox scripts/electron-test.mjs scripts/test-context-compaction-failure-limit.mjs",

@@ -8,7 +8,7 @@ The Models page keeps one draft across four tabs: **Auxiliar models**, **Sub-age
 
 | Setting | Used for | Behavior when unset |
 |---|---|---|
-| Auxiliary model | Supporting tasks such as title and Goal preparation, plus optional continuation replies | The flow uses its direct fallback behavior |
+| Auxiliary model | Supporting tasks such as title and Goal preparation, the read-only Ultra scout map, plus optional continuation replies | The flow uses its direct fallback behavior; Ultra runs without a map |
 | Supervision model | Reviewing Goal completion | The Goal or orchestrator model is used |
 | Compactation model | Context compactation checkpoints | The chat model performs the compactation |
 | Quick chat model | Required initial model for Quick Chat | Quick Chat cannot open |
@@ -54,6 +54,8 @@ When a **Compactation model** is configured, manual and automatic context compac
 When **Use model levels** is enabled, Small, Medium, and Large become required. Orchestration tools receive a `model_level` value instead of explicit `model_name` and `reasoning_effort` fields.
 
 Model levels do not apply to [Fusion](Fusion.md) conversations: the lead dispatches only the router's sidekick model.
+
+Model levels do not apply to Ultra threads either: `chat_spawn_subagent` has no `model_level`, `model_name`, or `reasoning_effort` fields there, and every Ultra sub-agent runs on the orchestrator's model and reasoning effort.
 
 If a configured level model is missing, disabled, or no longer supports its saved reasoning effort, Avi tries the orchestrator or last-used model. If that fallback is also unavailable, thread creation fails.
 

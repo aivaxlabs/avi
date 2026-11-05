@@ -35,6 +35,9 @@ Returned by conversation, folder, child-thread, bot-thread, queue, compaction, a
 | `parentConversationId` | string or `null` | Parent ID for child conversations. |
 | `initialPrompt` | string or `null` | Initial sub-agent or Rubber Duck prompt/context. |
 | `orchestrationMode` | `"plan"`, `"ultra"`, or `null` | Persisted orchestration mode. Goal mode is represented by `goal`. |
+| `ultraMap` | string | Ultra scout map. Empty when Ultra is off or no map was produced. |
+| `ultraContext` | `UltraContext` or `null` | Shared Ultra team context recorded with `ultra_set_context`: `objective`, `motivation`, `expectedOutcome`, `constraints`, `decisions`, `outOfScope`, `currentState`, `changeNote`, `userRequests` (string[]), `revision`, and `updatedAt`. |
+| `ultraScoutedAt` | string or `null` | When the Ultra scout ran, including failed attempts. Cleared when Ultra is turned off. |
 | `autoForwardToParent` | boolean | Whether completed sub-agent output is forwarded to its parent. |
 | `nextSubagentNameIndex` | number | Internal next-name cursor for generated sub-agent names. |
 | `contextCheckpoint` | string | Current compacted context checkpoint. Empty when no checkpoint exists. |

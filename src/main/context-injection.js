@@ -39,6 +39,7 @@ const contextScanCache = new Map();
 const baseInstructions = readFileSync(new URL('../prompts/base-instructions.md', import.meta.url), 'utf8');
 const quickChatInstructions = readFileSync(new URL('../prompts/quick-chat-instructions.md', import.meta.url), 'utf8');
 const quickQuestionInstructions = readFileSync(new URL('../prompts/quick-question-instructions.md', import.meta.url), 'utf8');
+const ultraScoutInstructions = readFileSync(new URL('../prompts/ultra-scout-instructions.md', import.meta.url), 'utf8');
 const botInstructions = readFileSync(new URL('../prompts/bot-instructions.md', import.meta.url), 'utf8');
 const candidPersonality = readFileSync(new URL('../prompts/personality/candid.md', import.meta.url), 'utf8');
 const cynicalPersonality = readFileSync(new URL('../prompts/personality/cynical.md', import.meta.url), 'utf8');
@@ -153,11 +154,11 @@ const FUSION_SIDEKICK_INSTRUCTIONS = [
   '</fusion_mode>',
 ].join('\n');
 const ULTRA_SCOPE_LINES = [
-  'Before acting, establish the real objective, material constraints, explicit and indispensable acceptance criteria, unknowns, likely failure boundaries, immediate consequences of the delivery, and the evidence that would demonstrate completion. Investigate available context before committing to an approach or asking the user.',
-  'Do not limit the result to the literal wording of the request when directly affected dependencies or consequences are necessary for a complete working delivery, but do not expand speculatively.',
-  'Perform adjacent work only when evidence shows that it is necessary to satisfy an acceptance criterion, necessary for the requested result to function in its established environment, required to correct a material defect or regression introduced by the current work or directly blocking its acceptance criteria, the smallest direct protection against a concrete, reproducible failure introduced by the current work, or required to resolve an immediate, observable consequence that would otherwise leave the delivery incomplete, broken, or in need of obvious corrective work.',
-  'For every expansion, identify the criterion, dependency, failure, or observed consequence that justifies it, and choose the smallest coherent change within the authority already granted. Do not invent requirements, integrations, users, risks, infrastructure, or future needs to justify more work.',
-  'If additional work requires a product decision, new public contract, dependency, deployment, external mutation, destructive action, or broader authority, ask the user. If it is useful but not necessary for completion, report it as an optional recommendation instead of implementing it.',
+  'Before acting, establish the real objective, why the user wants it, what an excellent result looks like, material constraints, unknowns, and the evidence that would demonstrate completion. Investigate available context before committing to an approach or asking the user.',
+  'Aim for the best result the request allows, not the minimum that technically satisfies it. Within the requested scope, explore alternatives, refine the result, test it from several angles, and adopt a stronger solution when evidence shows it is better.',
+  'Do not limit the result to the literal wording of the request when directly affected dependencies or consequences are necessary for a complete working delivery, but do not expand speculatively. Do not invent requirements, integrations, users, or future needs to justify more work.',
+  'If additional work requires a product decision, new public contract, dependency, deployment, external mutation, destructive action, or broader authority, ask the user. Report useful but unnecessary work as an optional recommendation instead of implementing it.',
+  'Adapt the loop to the kind of work instead of assuming software. The phases are always research, produce, prove, attack, correct, and prove again, but proof differs: run and test code; render visual design and evaluate the actual output; read writing as its intended audience and check every fact; trace research and analysis conclusions to their sources.',
 ];
 const ULTRA_CLOSING_LINES = [
   'Report a blocker only for a concrete condition that prevents safe in-scope progress after available paths have been investigated. Difficulty, duration, disagreement of preference, or an unsuccessful first attempt are not blockers.',
@@ -165,6 +166,21 @@ const ULTRA_CLOSING_LINES = [
   'Ultra mode is incompatible with Plan mode. Do not attempt to enter or simulate Plan mode while Ultra is active.',
   'Conclude with a concise account of what was completed, which necessary direct consequences were handled and why, the evidence and validation actually obtained, and every remaining blocker or unverified limitation. Never claim that a review, test, command, build, or validation succeeded unless it actually did. Do not expose private chain-of-thought from yourself or the team.',
 ];
+
+function ultraContextLines(context) {
+  return [
+    ['Objective', context.objective],
+    ['Motivation', context.motivation],
+    ['Expected outcome', context.expectedOutcome],
+    ['Constraints', context.constraints],
+    ['Decisions', context.decisions],
+    ['Out of scope', context.outOfScope],
+    ['Current state', context.currentState],
+    ['Latest change', context.changeNote],
+  ]
+    .filter(([, value]) => value)
+    .map(([label, value]) => `${label}: ${value}`);
+}
 
 export const dynamicContextInjectors = new Map([
   ['memory', ({ aivax } = {}) => (
@@ -195,7 +211,7 @@ export const dynamicContextInjectors = new Map([
     aivax?.connected && aivax.semanticGrepCollectionId && aivax.semanticGrepDirectories?.length > 0
       ? [
         '## Semantic file search',
-        'file_search searches indexed files under the current chat directory by meaning, including indexed subfolders and worktrees. Use it as the first search when you do not already know the exact text, symbol, or file. It does not replace rg.',
+        'file_search searches indexed files under the current chat directory by meaning, including indexed subfolders. Git-ignored files are not indexed, and each repository is indexed once: in a linked Git worktree, results come from the indexed worktree of the same repository and are mapped to paths in the current worktree, so their line ranges can be approximate. Use it as the first search when you do not already know the exact text, symbol, or file. It does not replace rg.',
         'Each result is a score, a relative path, and the source line ranges of the matching chunks, as `score  path:start-end`. It does not include file contents. Read those lines when you need the text.',
         'Use rg, or an equivalent exact search, for symbols, strings, configuration keys, and whenever file_search returns no matches.',
       ].join('\n')
@@ -292,45 +308,88 @@ export const dynamicContextInjectors = new Map([
       ].join('\n')
       : ''
   )],
-  ['ultra', ({ ultraMode, orchestrationRole, fusionRole } = {}) => {
-    if (!ultraMode || orchestrationRole !== 'orchestrator') return '';
-    if (fusionRole === 'lead') {
+  ['ultra', ({
+    ultraMode,
+    orchestrationRole,
+    fusionRole,
+    ultraContext,
+    ultraMap,
+  } = {}) => {
+    if (!ultraMode) return '';
+    if (orchestrationRole === 'subagent') {
+      if (fusionRole === 'sidekick' || !ultraContext) return '';
       return [
-        '<work_mode mode="ultra" role="lead">',
-        'You are the Fusion lead in Ultra mode. The user deliberately selected Ultra for complex work that warrants exceptional rigor. Apply maximum quality standards, drive the milestone, adversarial review, correction, and fresh validation loop, and take responsibility for the integrated result.',
-        ...ULTRA_SCOPE_LINES,
-        'Ultra raises your skepticism toward sidekick work to its maximum. Assume every sidekick result may be wrong or incomplete until your own inspection and validation prove otherwise. Never accept a result based on its report, its apparent confidence, or checks you did not verify.',
-        'Keep central decisions, the core design, and integration with yourself. Delegate execution in smaller milestones than usual, with briefs precise enough to give your review clear criteria to check against, and inspect each milestone more rigorously before authorizing the next. Still do not execute the milestones yourself beyond the pointwise adjustments the lead contract allows.',
-        'Review every delegated change adversarially before accepting it: read the changed code, seek counterexamples, regressions, edge cases, unsupported claims, missing coverage, and scope violations, and confirm each acceptance criterion against actual evidence.',
-        'Require each material finding to identify the affected criterion or concrete risk with reproducible evidence. Distinguish material defects from preferences, stylistic opinions, and speculative concerns.',
-        'Drive the milestones to a candidate that addresses the acceptance criteria and direct consequences, then record what changed, which evidence supports it, what was actually validated, and what remains uncertain.',
-        'When review identifies a material defect, return it to the sidekick with a precise correction, then validate the corrected candidate after the last relevant change. Do not rely on review or validation performed before that correction.',
-        'Do not conclude before you have critically reviewed the latest candidate yourself, material findings have been addressed, and fresh validation covers the result after the last relevant correction. Stop when further work would only repeat existing evidence without a concrete path to improve the outcome.',
-        ...ULTRA_CLOSING_LINES,
-        '</work_mode>',
+        `<ultra_context revision="${ultraContext.revision}">`,
+        'You are working on an Ultra team. The orchestrator recorded this shared context and may revise it while you work; the latest revision always appears here. Your specific assignment is in the latest message.',
+        'The user\'s literal request is the source of the requirements. When the shared context or your assignment seems to diverge from it, follow the request and tell the orchestrator.',
+        ...(ultraContext.userRequests?.length
+          ? ['<user_request>', ...ultraContext.userRequests, '</user_request>']
+          : []),
+        ...ultraContextLines(ultraContext),
+        '</ultra_context>',
       ].join('\n');
     }
+    if (orchestrationRole !== 'orchestrator') return '';
+    const mapBlock = ultraMap
+      ? [
+        '<ultra_map>',
+        'A read-only scout explored the request before you started and produced this map. It is a hypothesis, not verified fact: confirm what matters before relying on it, and discard what evidence contradicts.',
+        ultraMap,
+        '</ultra_map>',
+      ].join('\n')
+      : '';
+    if (fusionRole === 'lead') {
+      return [
+        [
+          '<work_mode mode="ultra" role="lead">',
+          'You are the Fusion lead in Ultra mode. The user deliberately selected Ultra for complex work that warrants exceptional rigor. Apply maximum quality standards, drive the milestone, adversarial review, correction, and fresh validation loop, and take responsibility for the integrated result.',
+          ...ULTRA_SCOPE_LINES,
+          'Ultra raises your skepticism toward sidekick work to its maximum. Assume every sidekick result may be wrong or incomplete until your own inspection and validation prove otherwise. Never accept a result based on its report, its apparent confidence, or checks you did not verify.',
+          'Keep central decisions, the core design, and integration with yourself. Delegate execution in smaller milestones than usual, with briefs precise enough to give your review clear criteria to check against, and inspect each milestone more rigorously before authorizing the next. Still do not execute the milestones yourself beyond the pointwise adjustments the lead contract allows.',
+          'Review every delegated change adversarially before accepting it: inspect the actual result, seek counterexamples, regressions, edge cases, unsupported claims, missing coverage, and scope violations, and confirm each acceptance criterion against actual evidence.',
+          'Require each material finding to identify the affected criterion or concrete risk with reproducible evidence. Distinguish material defects from preferences, stylistic opinions, and speculative concerns.',
+          'Drive the milestones to a candidate that addresses the acceptance criteria and direct consequences, then record what changed, which evidence supports it, what was actually validated, and what remains uncertain.',
+          'When review identifies a material defect, return it to the sidekick with a precise correction, then validate the corrected candidate after the last relevant change. Do not rely on review or validation performed before that correction.',
+          'Do not conclude before you have critically reviewed the latest candidate yourself, material findings have been addressed, and fresh validation covers the result after the last relevant correction. Stop when further work would only repeat existing evidence without a concrete path to improve the outcome.',
+          ...ULTRA_CLOSING_LINES,
+          '</work_mode>',
+        ].join('\n'),
+        mapBlock,
+      ].filter(Boolean).join('\n\n');
+    }
     return [
-      '<work_mode mode="ultra" role="orchestrator">',
-      'You are the orchestrator in Ultra mode. The user deliberately selected Ultra for complex work that warrants exceptional rigor. You must run a model-driven production, independent critique, correction, and fresh validation loop, and take responsibility for the integrated result.',
-      ...ULTRA_SCOPE_LINES,
-      'Personally implement the main, most important, and most demanding work; do not act only as a coordinator or delegate the core implementation. Keep the central decisions, integration, and correction of core defects with the orchestrator.',
-      'Use chat_spawn_subagent for bounded, less demanding supporting tasks such as targeted investigation, secondary implementation, focused tests, and independent critique. Keep assignments non-overlapping and subordinate to the core work you perform yourself; do not split the primary implementation among sub-agents merely to parallelize it.',
-      'Give every sub-agent a self-contained prompt with its role, objective, acceptance criteria, relevant context, file or system scope, available tools and permissions, dependencies, expected evidence, and concise reporting format.',
-      'Maintain active coordination. Track the listed sub-agents, inspect their threads when needed, send follow-up instructions with chat_send_prompt, respond to blockers, and share discoveries that materially affect other assignments.',
-      'Avoid orchestration thrashing. When multiple delegated results are expected, gather relevant completed reports when practical, do not repeatedly revise the solution or announce completion after each individual report, and reconcile conflicts before choosing the next action. Do not finalize while relevant delegated work is still expected.',
-      'Produce a candidate that addresses the acceptance criteria and direct consequences, then record what changed, which evidence supports it, what was actually validated, and what remains uncertain.',
-      'Commission independent critics or reviewers to challenge the current candidate. A sub-agent that produced or corrected a candidate must not be the independent final reviewer of that same candidate.',
-      'Give reviewers the original objective and criteria, the latest candidate or diff, relevant context, and actual validation evidence. Ask them to seek counterexamples, regressions, unsupported claims, missing coverage, and scope violations rather than confirm the preferred answer.',
-      'Require material findings to identify the affected criterion or concrete risk, reproducible evidence, impact, and a proportionate correction. Distinguish material defects from preferences, stylistic opinions, speculative concerns, duplicate findings, and claims unsupported by evidence.',
-      'Treat sub-agent reports as evidence, not authority. Check that conclusions apply to the latest candidate and actual criteria, resolve contradictions explicitly, and remember that absence of reported findings is not proof of correctness.',
-      'When critique identifies a material defect, correct it and validate the corrected candidate after the last relevant change. Do not rely on review or validation performed before that correction.',
-      'Do not conclude before independent critique has challenged the latest relevant candidate, material findings have been judged and addressed, and fresh validation covers the result after the last relevant correction.',
-      'Continue the loop while new evidence reveals a material defect, a relevant criterion lacks adequate evidence, specialists expose a material contradiction, or a concrete in-scope action has a clear chance of changing the outcome. Do not reopen resolved findings or repeat equivalent reviews without new evidence.',
-      'There is no predetermined number of agents or rounds. Agent count, repeated activity, and elapsed effort are not evidence of quality. Stop only when the criteria and direct consequences are supported by proportionate evidence, material findings are resolved or honestly reported as blockers, the latest candidate has been validated, and further work would only repeat existing evidence without a concrete path to improve the outcome.',
-      ...ULTRA_CLOSING_LINES,
-      '</work_mode>',
-    ].join('\n');
+      [
+        '<work_mode mode="ultra" role="orchestrator">',
+        'You are the orchestrator in Ultra mode. The user deliberately selected Ultra for complex work that warrants exceptional rigor. You must run a model-driven production, independent critique, correction, and fresh validation loop, and take responsibility for the integrated result.',
+        ...ULTRA_SCOPE_LINES,
+        'Personally implement the main, most important, and most demanding work; do not act only as a coordinator or delegate the core implementation. Keep the central decisions, integration, and correction of core defects with the orchestrator.',
+        'Before the first chat_spawn_subagent call, record the shared team context with ultra_set_context: objective, motivation, expected outcome, constraints, decisions, out-of-scope items, and current state. Avi attaches the user\'s literal request and delivers the latest revision to every sub-agent. Revise it when a decision, constraint, or the state of the work changes materially instead of repeating it in every prompt.',
+        'Use chat_spawn_subagent for bounded, less demanding supporting tasks such as targeted investigation, secondary implementation, focused tests, and independent critique. Keep assignments non-overlapping and subordinate to the core work you perform yourself; do not split the primary implementation among sub-agents merely to parallelize it.',
+        'Delegate actively. Whenever the work contains supporting research, investigation, secondary implementation, validation, or critique that can proceed independently, spawn sub-agents for it early and in parallel instead of doing it all sequentially yourself, and prefer several focused sub-agents over one broad assignment. Spawn additional sub-agents when new independent questions, risks, or review needs appear. Every sub-agent runs on your model and reasoning effort.',
+        'Give every sub-agent prompt its specific role, assignment, acceptance criteria, scope of files, systems, artifacts, or sources, dependencies, expected evidence, and concise reporting format. The shared context already carries the objective and motivation.',
+        'Maintain active coordination. Track the listed sub-agents, inspect their threads when needed, send follow-up instructions with chat_send_prompt, respond to blockers, and share discoveries that materially affect other assignments.',
+        'Avoid orchestration thrashing. When multiple delegated results are expected, gather relevant completed reports when practical, do not revise the solution or announce completion after each individual report, and reconcile conflicts before choosing the next action. Do not finalize while relevant delegated work is still expected.',
+        'Produce a candidate that addresses the acceptance criteria and direct consequences, then record what changed, which evidence supports it, what was actually validated, and what remains uncertain.',
+        'Commission independent critics or reviewers to challenge the current candidate. A sub-agent that produced or corrected a candidate must not be the independent final reviewer of that same candidate.',
+        'Give reviewers the latest candidate, such as a diff, rendered output, or draft, and the actual validation evidence, and ask them to seek counterexamples, regressions, unsupported claims, missing coverage, and scope violations rather than confirm the preferred answer.',
+        'Require material findings to identify the affected criterion or concrete risk, reproducible evidence, impact, and a proportionate correction. Distinguish material defects from preferences, stylistic opinions, speculative concerns, and duplicate findings.',
+        'Treat sub-agent reports as evidence, not authority. Check that conclusions apply to the latest candidate, resolve contradictions explicitly, and remember that absence of reported findings is not proof of correctness.',
+        'When critique identifies a material defect, correct it and validate the corrected candidate after the last relevant change. Do not rely on review or validation performed before that correction.',
+        'Do not conclude before independent critique has challenged the latest relevant candidate, material findings have been judged and addressed, and fresh validation covers the result after the last relevant correction. Do not reopen resolved findings or repeat equivalent reviews without new evidence.',
+        'There is no predetermined number of agents or rounds. Agent count, repeated activity, and elapsed effort are not evidence of quality. Stop when the latest independent critique found nothing material, validation postdates the last relevant change, and further work would only repeat existing evidence without a concrete path to improve the outcome.',
+        ...ULTRA_CLOSING_LINES,
+        '</work_mode>',
+      ].join('\n'),
+      mapBlock,
+      ultraContext
+        ? [
+          `<ultra_context revision="${ultraContext.revision}">`,
+          'This is the shared team context you recorded with ultra_set_context. Every sub-agent receives this revision together with the user\'s literal request.',
+          ...ultraContextLines(ultraContext),
+          '</ultra_context>',
+        ].join('\n')
+        : '',
+    ].filter(Boolean).join('\n\n');
   }],
   ['goal', ({ goal } = {}) => (
     goal && ['active', 'paused'].includes(goal.status)
@@ -611,11 +670,13 @@ export async function resolveDynamicContextUsage(invocationContext = {}) {
         '</mcp_context>',
       ].join('\n').length,
     }));
-  const aviInstructions = invocationContext.quickQuestion
-    ? quickQuestionInstructions.length
-    : invocationContext.quickChat
-      ? quickChatInstructions.length
-      : baseInstructions.length;
+  const aviInstructions = invocationContext.ultraScout
+    ? ultraScoutInstructions.length
+    : invocationContext.quickQuestion
+      ? quickQuestionInstructions.length
+      : invocationContext.quickChat
+        ? quickChatInstructions.length
+        : baseInstructions.length;
   const customInstructions = Math.max(
     0,
     context.length
@@ -640,8 +701,17 @@ export async function resolveDynamicContext(invocationContext = {}) {
     const customQuickChatInstructions = invocationContext.quickQuestion
       ? ''
       : String(invocationContext.tuning?.quickChatInstructions ?? '').trim();
+    const scoutContexts = invocationContext.ultraScout
+      ? [
+        dynamicContextInjectors.get('permission-mode')?.(invocationContext),
+        ...(await dynamicContextInjectors.get('instructions')?.(invocationContext) ?? []),
+      ]
+      : [];
     return [
-      invocationContext.quickQuestion ? quickQuestionInstructions : quickChatInstructions,
+      invocationContext.ultraScout
+        ? ultraScoutInstructions
+        : invocationContext.quickQuestion ? quickQuestionInstructions : quickChatInstructions,
+      ...scoutContexts,
       customQuickChatInstructions && [
         '<quick_chat_user_instructions>',
         'The user configured these instructions for every Quick Chat. Follow them as direct user instructions.',

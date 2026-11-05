@@ -48,9 +48,9 @@ See [Plugins](Plugins.md) for the complete contract, security model, contributio
 
 ## Dynamic runtime context
 
-Depending on the turn, Avi may inject personality, response verbosity, AIVAX memory guidance, MCP server instructions, Plan/Goal/Ultra contracts, Tasks, the orchestration team, current-thread identity, and environment information.
+Depending on the turn, Avi may inject personality, response verbosity, AIVAX memory guidance, MCP server instructions, Plan/Goal/Ultra contracts, the Ultra map (`<ultra_map>`, orchestrator only) and team context (`<ultra_context>`), Tasks, the orchestration team, current-thread identity, and environment information.
 
-A Quick Chat window receives the same discovered instruction files, skills, workflows, and MCP instructions as a thread in its selected directory, plus the built-in Quick Chat prompt and **Settings → Tuning → Quick Chat instructions**. Headless `quick_chat_invoke` and Quick questions do not receive discovered instruction files.
+A Quick Chat window receives the same discovered instruction files, skills, workflows, and MCP instructions as a thread in its selected directory, plus the built-in Quick Chat prompt and **Settings → Tuning → Quick Chat instructions**. Headless `quick_chat_invoke` and Quick questions do not receive discovered instruction files. The Ultra scout uses `src/prompts/ultra-scout-instructions.md` in Read-only mode and does receive the discovered instruction files of the thread folder.
 
 ## Context management UI
 

@@ -337,6 +337,8 @@ export class PluginRuntime {
           delete snapshot.content;
           delete snapshot.initialPrompt;
           delete snapshot.contextCheckpoint;
+          delete snapshot.ultraMap;
+          delete snapshot.ultraContext;
           delete snapshot.firstPrompt;
           delete snapshot.projectPath;
           delete snapshot.goal;

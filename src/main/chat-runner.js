@@ -70,6 +70,7 @@ export class ChatRunner {
     this.pendingCompletionNotifications = new Map();
     this.rubberDuckReports = new Map();
     this.rubberDuckInterviews = new Map();
+    this.quickChatRunner = null;
     this.shuttingDown = false;
     this.capacityHolders = new Set();
     this.capacityQueue = [];

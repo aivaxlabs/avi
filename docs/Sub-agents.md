@@ -78,7 +78,7 @@ In the chat and Inbox, mention directives render like file reference links, with
 
 ## Plan and Ultra teams
 
-In Plan mode, the entire team remains read-only and conversation tools are restricted to the current Plan orchestration team. In Ultra mode, sub-agents receive a specialist contract, while the orchestrator remains responsible for independent critique, correction, fresh validation, and the integrated final result.
+In Plan mode, the entire team remains read-only and conversation tools are restricted to the current Plan orchestration team. In Ultra mode, sub-agents receive a specialist contract and the shared `<ultra_context>` recorded by the orchestrator with `ultra_set_context`, including the user's literal requests, while the orchestrator remains responsible for independent critique, correction, fresh validation, and the integrated final result. `chat_spawn_subagent` fails in Ultra until that context exists, and every Ultra sub-agent runs on the orchestrator's model and reasoning effort. Sub-agents do not receive the Ultra map. See [UI basics](UI%20basics.md#ultra).
 
 ## Models and concurrency
 

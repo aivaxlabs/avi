@@ -147,7 +147,10 @@ export const contextMethods = {
       ))
       .filter((tool) => tool.name !== 'chat_create_thread' || !fusion)
       .filter((tool) => tool.name !== 'dispatch_sidekick' || fusion?.role === 'lead')
-      .filter((tool) => tool.name !== 'ask_question' || fusion?.role !== 'sidekick');
+      .filter((tool) => tool.name !== 'ask_question' || fusion?.role !== 'sidekick')
+      .filter((tool) => tool.name !== 'ultra_set_context' || (
+        latestUser?.ultraMode && !fusion && conversation.conversationType === 'thread'
+      ));
     if (conversation.isQuickChat && workMode !== 'plan') coreTools.push(setDirectoryTool);
     const extensionTools = [
       ...(rubberDuckMode ? [] : botRuntime?.tools ?? []),
@@ -197,6 +200,10 @@ export const contextMethods = {
       permissionMode,
       workMode,
       ultraMode: latestUser?.ultraMode ?? false,
+      ultraContext: conversation.isSubagent
+        ? getConversation(conversation.parentConversationId)?.ultraContext ?? null
+        : conversation.ultraContext,
+      ultraMap: conversation.ultraMap,
       fusionRole: fusion?.role ?? null,
       goal: goal && CONTINUING_GOAL_STATUSES.has(goal.status) ? goal : null,
       tasks: listTasks(conversation.id),

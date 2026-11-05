@@ -16,18 +16,34 @@ import {
   createConversation,
   deleteConversation,
   forkConversation,
+  getComposerState,
   getConversation,
   getMessages,
+  getPreferences,
   listAllConversations,
   listTasks,
   listSubagents,
   updateConversation,
+  updateUltraState,
 } from '../database.js';
 import { resolveSubagentModel } from '../default-models.js';
 import { traceVerbose } from '../trace-log.js';
 import { formatCrossMessage, isThreadWaitingForInput } from './shared.js';
 
 const MAX_INSPECTED_TURNS = 4;
+const ULTRA_CONTEXT_REQUEST_LIMIT = 6;
+const ULTRA_CONTEXT_REQUEST_CHARACTERS = 12_000;
+const ULTRA_CONTEXT_REQUEST_BUDGET = 16_000;
+const ULTRA_CONTEXT_FIELDS = [
+  'objective',
+  'motivation',
+  'expectedOutcome',
+  'constraints',
+  'decisions',
+  'outOfScope',
+  'currentState',
+  'changeNote',
+];
 
 async function startSubagent({
   chatRunner,
@@ -700,22 +716,25 @@ export const threadActionTools = [
       }
       const normalizedPrompt = String(prompt ?? '').trim();
       if (!normalizedPrompt) throw new Error('prompt is required.');
+      if (ultraMode && !parent.ultraContext) {
+        throw new Error('Record the shared Ultra team context with ultra_set_context before spawning a sub-agent. Tool calls in the same message run in parallel, so call ultra_set_context first and spawn sub-agents after it returns.');
+      }
 
-      const levelSelection = defaultModels?.subagents?.enabled
+      const levelSelection = !ultraMode && defaultModels?.subagents?.enabled
         ? resolveSubagentModel(model_level, defaultModels, models, {
           modelId: model,
           reasoningEffort,
         })
         : null;
       const selectedModelId = levelSelection?.modelId
-        ?? (model_name === undefined ? model : String(model_name).trim());
+        ?? (ultraMode || model_name === undefined ? model : String(model_name).trim());
       const selectedModel = models.find((item) => item.id === selectedModelId);
       if (!selectedModel) {
         throw new Error(`Model "${selectedModelId}" is not configured.`);
       }
       const selectedReasoningEffort = levelSelection
         ? levelSelection.reasoningEffort
-        : reasoning_effort === undefined
+        : ultraMode || reasoning_effort === undefined
           ? reasoningEffort
           : String(reasoning_effort).trim();
       if (
@@ -743,6 +762,80 @@ export const threadActionTools = [
         'Sub-agent started.',
         `Thread ID: ${subagent.id}`,
         `Status: ${status}`,
+      ].join('\n');
+    },
+  },
+  {
+    name: 'ultra_set_context',
+    description: 'Ultra orchestrator only. Record or revise the shared team context that every Ultra sub-agent receives with its assignment. Avi attaches the user\'s literal request automatically. Required before the first chat_spawn_subagent call; revise it when a decision, constraint, or the state of the work changes materially. Running sub-agents receive the new revision on their next model request.',
+    approval: 'never',
+    canEditFile: false,
+    canPerformDestructiveActions: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        objective: { type: 'string', minLength: 1, maxLength: 4000, description: 'What the team must achieve.' },
+        motivation: { type: 'string', maxLength: 4000, description: 'Why the user wants it and what the result is for.' },
+        expectedOutcome: { type: 'string', minLength: 1, maxLength: 4000, description: 'What an excellent result looks like and how it will be proven.' },
+        constraints: { type: 'string', maxLength: 4000, description: 'Constraints, conventions, and permissions the team must respect.' },
+        decisions: { type: 'string', maxLength: 4000, description: 'Decisions already made, with brief reasons.' },
+        outOfScope: { type: 'string', maxLength: 4000, description: 'What the team must not do or change.' },
+        currentState: { type: 'string', maxLength: 4000, description: 'Current state of the work and the latest validated evidence.' },
+        changeNote: { type: 'string', maxLength: 2000, description: 'For a revision, what changed since the previous revision and why. Empty for the first revision.' },
+      },
+      required: ['objective', 'expectedOutcome'],
+      additionalProperties: false,
+    },
+    execute: async (input, { chatRunner, conversationId, ultraMode, fusion }) => {
+      const conversation = getConversation(conversationId);
+      if (
+        !ultraMode
+        || fusion
+        || conversation?.conversationType !== 'thread'
+        || conversation.orchestrationMode !== 'ultra'
+      ) {
+        throw new Error('Only an Ultra orchestrator thread can record the Ultra team context.');
+      }
+      const fields = Object.fromEntries(ULTRA_CONTEXT_FIELDS.map((field) => [
+        field,
+        String(input[field] ?? '').trim(),
+      ]));
+      if (!fields.objective || !fields.expectedOutcome) {
+        throw new Error('objective and expectedOutcome are required.');
+      }
+      const userRequests = getMessages(conversationId)
+        .filter((message) => (
+          message.role === 'user'
+          && message.ultraMode
+          && !message.hidden
+          && !message.fromAgent
+          && !['queued', 'aborted', 'error'].includes(message.status)
+          && message.content.trim()
+        ))
+        .slice(-ULTRA_CONTEXT_REQUEST_LIMIT)
+        .map((message) => message.content.trim().slice(0, ULTRA_CONTEXT_REQUEST_CHARACTERS))
+        .reduceRight((kept, request) => {
+          const used = kept.reduce((total, item) => total + item.length, 0);
+          return used + request.length > ULTRA_CONTEXT_REQUEST_BUDGET ? kept : [request, ...kept];
+        }, []);
+      const revision = (conversation.ultraContext?.revision ?? 0) + 1;
+      const updated = updateUltraState(conversationId, {
+        context: {
+          ...fields,
+          userRequests,
+          revision,
+          updatedAt: new Date().toISOString(),
+        },
+      });
+      chatRunner.emit(conversationId, { type: 'conversation', conversation: updated });
+      const runningSubagents = listSubagents(conversationId)
+        .filter((subagent) => subagent.orchestrationMode === 'ultra' && chatRunner.runs.has(subagent.id));
+      return [
+        `Ultra team context recorded (revision ${revision}).`,
+        `User requests attached: ${userRequests.length}`,
+        runningSubagents.length > 0
+          ? `Running sub-agents that receive it on their next model request: ${runningSubagents.map((subagent) => subagent.title).join(', ')}`
+          : 'No sub-agent is running; new sub-agents receive this revision.',
       ].join('\n');
     },
   },

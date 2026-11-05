@@ -18,6 +18,7 @@ import {
   getMessage,
   getMessages,
   hydratePersistedMediaContent,
+  insertInferenceUsage,
   insertMessage,
   listAllConversations,
   listSubagents,
@@ -27,6 +28,7 @@ import {
   toModelMessages,
   updateConversation,
   updateMessage,
+  updateUltraState,
 } from '../database.js';
 import {
   CLIENT_TOOLS,
@@ -49,6 +51,7 @@ import {
   traceVerbose,
 } from '../trace-log.js';
 import {
+  AUXILIARY_MODEL_TIMEOUT_MS,
   CONTINUING_GOAL_STATUSES,
   STREAM_PERSIST_INTERVAL_MS,
   STREAM_RENDER_INTERVAL_MS,
@@ -250,6 +253,92 @@ export const runLoopMethods = {
         this.emit(conversationId, { type: 'mcp-waiting', waiting: false });
       }
 
+      const scoutConversation = getConversation(conversationId);
+      const auxiliaryModel = this.getPreferences().defaultModels?.auxiliary;
+      if (
+        ultraMode
+        && !retryMessages
+        && !resumeAssistantMessageId
+        && scoutConversation?.conversationType === 'thread'
+        && !scoutConversation.ultraScoutedAt
+        && auxiliaryModel?.modelId
+        && this.quickChatRunner
+      ) {
+        const scoutStartedAt = Date.now();
+        accumulator.apply({ type: 'reasoning', text: '**Mapping the task**' });
+        accumulator.apply({ type: 'item-complete' });
+        const scoutStatus = accumulator.segments.at(-1);
+        persistAssistant({ force: true });
+        let map = '';
+        let scoutStep = '';
+        try {
+          const scout = await this.quickChatRunner.invoke({
+            text: 'Produce the Ultra map for the latest request.',
+            model: auxiliaryModel.modelId,
+            reasoningEffort: auxiliaryModel.reasoningEffort,
+            ultraScout: {
+              workspacePath,
+              threadId: conversationId,
+              messageId: run.userMessageIds.at(-1) ?? null,
+            },
+            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(AUXILIARY_MODEL_TIMEOUT_MS)]),
+            onProgress: (message) => {
+              const step = String(
+                message.segments.findLast((segment) => segment.type === 'tool-call')?.invocationGoal ?? '',
+              )
+                .replaceAll('*', '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 120);
+              if (!step || step === scoutStep) return;
+              scoutStep = step;
+              scoutStatus.text = `**Mapping the task: ${step}**`;
+              persistAssistant({ force: true });
+            },
+          });
+          if (scout.usage) {
+            insertInferenceUsage({
+              type: 'auxiliary',
+              model: scout.model,
+              projectPath: workspacePath,
+              usage: scout.usage,
+            });
+          }
+          if (scout.status !== 'completed') {
+            throw new Error(
+              scout.segments.findLast((segment) => segment.type === 'error')?.message
+                ?? `The Ultra scout ended with status ${scout.status}.`,
+            );
+          }
+          map = answerTextFromTextualBlocks(scout.content);
+        } catch (error) {
+          if (!controller.signal.aborted) {
+            traceError('chat.ultra-scout-error', {
+              thread_id: conversationId,
+              model_role: 'auxiliary',
+              requested_model: auxiliaryModel.modelId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        } finally {
+          accumulator.segments = accumulator.segments.filter((segment) => segment !== scoutStatus);
+          persistAssistant({ force: true });
+        }
+        if (controller.signal.aborted) throw new Error('The run was interrupted.');
+        this.emit(conversationId, {
+          type: 'conversation',
+          conversation: updateUltraState(conversationId, {
+            map,
+            scoutedAt: new Date().toISOString(),
+          }),
+        });
+        traceVerbose('chat.ultra-scout-completed', {
+          thread_id: conversationId,
+          duration_ms: Date.now() - scoutStartedAt,
+          map_characters: map.length,
+        });
+      }
+
       const selection = this.registry.resolve(model);
       if (!selection) {
         throw new Error('The selected model is no longer configured. Choose another model in Settings.');
@@ -372,6 +461,9 @@ export const runLoopMethods = {
           .filter((tool) => tool.name !== 'chat_create_thread' || !fusion)
           .filter((tool) => tool.name !== 'dispatch_sidekick' || fusion?.role === 'lead')
           .filter((tool) => tool.name !== 'ask_question' || fusion?.role !== 'sidekick')
+          .filter((tool) => tool.name !== 'ultra_set_context' || (
+            ultraMode && !fusion && currentConversation?.conversationType === 'thread'
+          ))
           .map((tool) => {
             if (tool.name === 'read_media_file') {
               const supportedMedia = [
@@ -391,6 +483,17 @@ export const runLoopMethods = {
               };
             }
             if (['chat_create_thread', 'chat_spawn_subagent'].includes(tool.name)) {
+              const inputSchema = applySubagentModelSchema(
+                tool,
+                models,
+                this.getPreferences().defaultModels,
+              );
+              if (ultraMode && tool.name === 'chat_spawn_subagent') {
+                delete inputSchema.properties.model_name;
+                delete inputSchema.properties.model_level;
+                delete inputSchema.properties.reasoning_effort;
+                inputSchema.required = inputSchema.required.filter((name) => name !== 'model_level');
+              }
               return {
                 ...tool,
                 ...(botRuntime && tool.name === 'chat_create_thread'
@@ -398,11 +501,7 @@ export const runLoopMethods = {
                       description: 'Create a worker thread only for a genuinely long-running or context-heavy deliverable. Bots must execute exploration, research, listings, data collection, status checks, audits, and short diagnostics directly instead of creating a thread.',
                     }
                   : {}),
-                inputSchema: applySubagentModelSchema(
-                  tool,
-                  models,
-                  this.getPreferences().defaultModels,
-                ),
+                inputSchema,
               };
             }
             if (tool.name === 'run_in_terminal') {
@@ -667,6 +766,10 @@ export const runLoopMethods = {
               permissionMode,
               workMode,
               ultraMode,
+              ultraContext: activeConversation?.isSubagent
+                ? getConversation(activeConversation.parentConversationId)?.ultraContext ?? null
+                : activeConversation?.ultraContext ?? null,
+              ultraMap: activeConversation?.ultraMap ?? '',
               fusionRole: fusion?.role ?? null,
               orchestrationRole: currentConversation?.isSubagent
                 ? 'subagent'

@@ -35,6 +35,9 @@ interface ThreadSnapshot {
   parentConversationId: string | null;
   initialPrompt: string | null;
   orchestrationMode: 'plan' | 'ultra' | null;
+  ultraMap: string; // Ultra scout map; empty when Ultra is off or no map was produced.
+  ultraContext: UltraContext | null; // Shared team context recorded with ultra_set_context; fields in RPC types (UltraContext).
+  ultraScoutedAt: string | null; // Cleared when Ultra is turned off.
   autoForwardToParent: boolean;
   nextSubagentNameIndex: number;
   contextCheckpoint: string;

@@ -84,13 +84,13 @@ export class QuickChatRunner {
     this.pendingQuestions = new Map();
   }
 
-  createSession() {
+  createSession({ model = null } = {}) {
     const id = randomUUID();
     this.sessions.set(id, {
       id,
       messages: [],
       run: null,
-      model: this.resolveInitialModel(),
+      model: model ?? this.resolveInitialModel(),
       reasoningEffort: this.getPreferences().defaultModels?.quickChat?.reasoningEffort ?? null,
       tasks: [],
       goal: null,
@@ -98,8 +98,17 @@ export class QuickChatRunner {
     return this.state(id);
   }
 
-  async createQuestionSession({ source, workspacePath, threadId, messageId, botId, workLogId, attachments = [] } = {}) {
-    if (!QUICK_QUESTION_SOURCES.has(source)) throw new Error('Unsupported Quick question source.');
+  async createQuestionSession({
+    source,
+    workspacePath,
+    threadId,
+    messageId,
+    botId,
+    workLogId,
+    attachments = [],
+    model = null,
+  } = {}, { ultraScout = false } = {}) {
+    if (!ultraScout && !QUICK_QUESTION_SOURCES.has(source)) throw new Error('Unsupported Quick question source.');
     const workspaceStat = isAbsolute(String(workspacePath ?? ''))
       ? await stat(workspacePath).catch(() => null)
       : null;
@@ -119,7 +128,7 @@ export class QuickChatRunner {
           QUICK_QUESTION_MARKER_LIMIT,
         ),
       })));
-    const sourceConversation = ['chat', 'goal'].includes(source) && typeof threadId === 'string' && threadId
+    const sourceConversation = (ultraScout || ['chat', 'goal'].includes(source)) && typeof threadId === 'string' && threadId
       ? getConversation(threadId)
       : null;
     const sourceMessages = sourceConversation ? getMessages(sourceConversation.id) : [];
@@ -200,7 +209,7 @@ export class QuickChatRunner {
             : message
         )),
     ];
-    const state = this.createSession();
+    const state = this.createSession({ model });
     const sessionModel = this.registry.resolve(state.model)?.model;
     const contextLimit = sessionModel?.context?.input;
     const historyUsage = countMessageContext(sourceHistory.flatMap((message) => (
@@ -233,13 +242,22 @@ export class QuickChatRunner {
       sourceThreadId: history.length > 0 ? sourceConversation.id : null,
       sourceMessageId: history.length > 0 ? messageId : null,
       toolsDisabled: source === 'goal',
+      ultraScout,
       attachments: [{
         id: randomUUID(),
         kind: 'context_marker',
-        markerType: 'quick_question_context',
-        name: 'Quick question context',
+        markerType: ultraScout ? 'ultra_scout_context' : 'quick_question_context',
+        name: ultraScout ? 'Ultra scout context' : 'Quick question context',
         size: 0,
-        text: history.length > 0
+        text: ultraScout
+          ? [
+            `<ultra_scout_context workspace="${escapeXml(workspace)}"${contextAttributes}>`,
+            history.length > 0
+              ? 'The messages before this one are the source thread history through the request that started Ultra mode. Explore read-only and produce the Ultra map for that request. Do not continue the source thread\'s task. Earlier tool calls belong to the source thread, not to this session.'
+              : 'The source thread history is unavailable. Inspect the source thread with chat_inspect_thread, then explore read-only and produce the Ultra map for its latest request.',
+            '</ultra_scout_context>',
+          ].join('\n')
+          : history.length > 0
           ? [
             `<quick_question_context source="${source}" workspace="${escapeXml(workspace)}"${contextAttributes}>`,
             source === 'goal'
@@ -363,15 +381,23 @@ export class QuickChatRunner {
     return { message: userMessage, model: session.model };
   }
 
-  async invoke({ text, model, reasoningEffort }) {
-    const { id } = this.createSession();
+  async invoke({ text, model, reasoningEffort, ultraScout = null, signal = null, onProgress = null }) {
+    const { id } = ultraScout
+      ? await this.createQuestionSession({ ...ultraScout, model }, { ultraScout: true })
+      : this.createSession();
     const session = this.sessions.get(id);
     session.headless = true;
+    session.onProgress = onProgress;
+    const stop = () => this.stop(id);
+    signal?.addEventListener('abort', stop, { once: true });
     try {
+      if (signal?.aborted) throw new Error('The response was stopped.');
       await this.send({ sessionId: id, text, model, reasoningEffort });
+      if (signal?.aborted) stop();
       await session.completion;
       return session.messages.at(-1);
     } finally {
+      signal?.removeEventListener('abort', stop);
       this.close(id);
     }
   }
@@ -434,6 +460,8 @@ export class QuickChatRunner {
 
     try {
       const question = Boolean(session.question);
+      const ultraScout = Boolean(session.question?.ultraScout);
+      const permissionMode = ultraScout ? 'read_only' : 'full_access';
       const workspacePath = session.question?.workspacePath ?? homedir();
       const mcpRuntime = this.mcpManager && !question
         ? await this.mcpManager.ensureWorkspace(workspacePath, controller.signal)
@@ -465,6 +493,7 @@ export class QuickChatRunner {
             'rubber_duck_ask_agent',
             'rubber_duck_submit_report',
             'dispatch_sidekick',
+            'ultra_set_context',
             'sleep_semaphore',
             'release_semaphore',
           ].includes(tool.name))
@@ -531,7 +560,7 @@ export class QuickChatRunner {
             pluginTools,
             [...providerTools, ...mcpRuntime.tools],
           ),
-        'full_access',
+        permissionMode,
       );
       const messages = [...(session.question?.history ?? []), ...session.messages]
         .filter((message) => message.id !== assistantMessage.id)
@@ -554,10 +583,11 @@ export class QuickChatRunner {
             traceRound: roundIndex,
             mcpInstructions: mcpRuntime.instructions,
             ...this.getPluginContext(),
-            permissionMode: 'full_access',
+            permissionMode,
             orchestrationRole: 'orchestrator',
             quickChat: true,
             quickQuestion: question,
+            ultraScout,
             tuning: preferences.tuning,
             aivax,
           },
@@ -890,6 +920,7 @@ export class QuickChatRunner {
       updatedAt: new Date().toISOString(),
     });
     this.emit(session.id, { type: 'message', message: { ...message } });
+    session.onProgress?.(message);
   }
 
   createMessage({ role, model, content, attachments = [], segments = [], status }) {

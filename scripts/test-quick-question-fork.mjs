@@ -197,6 +197,57 @@ try {
     runner.createQuestionSession({ source: 'goal', workspacePath: profile, threadId: source.id }),
     /does not have an active Goal/,
   );
+
+  await assert.rejects(
+    runner.createQuestionSession({ source: 'ultra', workspacePath: profile, threadId: source.id }),
+    /Unsupported Quick question source/,
+  );
+  let scoutRequest = null;
+  provider.stream = async (request) => {
+    scoutRequest = request;
+    request.onEvent({ type: 'content', text: 'Ultra map.' });
+    return { assistantContent: 'Ultra map.', continuation: [], toolCalls: [] };
+  };
+  const scout = await runner.invoke({
+    text: 'Produce the Ultra map for the latest request.',
+    model: model.id,
+    ultraScout: { workspacePath: profile, threadId: source.id, messageId: selected.id },
+  });
+  const scoutPrompt = JSON.stringify(scoutRequest.messages);
+  const scoutTools = scoutRequest.tools.map((tool) => tool.name);
+  assert.equal(scout.status, 'completed');
+  assert.equal(scoutRequest.invocationContext.permissionMode, 'read_only');
+  assert.equal(scoutRequest.invocationContext.ultraScout, true);
+  assert.ok(scoutTools.includes('read_file'));
+  for (const name of ['run_in_terminal', 'write_file', 'multi_replace_file', 'ultra_set_context', 'chat_spawn_subagent']) {
+    assert.ok(!scoutTools.includes(name));
+  }
+  assert.match(scoutPrompt, /ultra_scout_context/);
+  assert.match(scoutPrompt, /Selected answer/);
+  assert.ok(!scoutPrompt.includes('Later request'));
+  assert.equal(runner.sessions.size, 0);
+
+  const scoutProgress = [];
+  const scoutStop = new AbortController();
+  provider.stream = async ({ signal, onEvent }) => {
+    onEvent({ type: 'reasoning', text: 'Looking.' });
+    scoutStop.abort();
+    await new Promise((resolveStream, rejectStream) => {
+      if (signal.aborted) rejectStream(new Error('aborted'));
+      signal.addEventListener('abort', () => rejectStream(new Error('aborted')), { once: true });
+    });
+  };
+  const stoppedScout = await runner.invoke({
+    text: 'Produce the Ultra map for the latest request.',
+    model: model.id,
+    ultraScout: { workspacePath: profile, threadId: source.id, messageId: selected.id },
+    signal: scoutStop.signal,
+    onProgress: (message) => scoutProgress.push(message.status),
+  });
+  assert.equal(stoppedScout.status, 'aborted');
+  assert.ok(scoutProgress.includes('streaming'));
+  assert.equal(scoutProgress.at(-1), 'aborted');
+  assert.equal(runner.sessions.size, 0);
   console.log('Quick question fork tests passed.');
 } finally {
   database?.closeDatabase?.();

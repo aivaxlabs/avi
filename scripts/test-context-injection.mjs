@@ -774,10 +774,15 @@ try {
     'must run a model-driven production, independent critique, correction, and fresh validation loop',
     'Do not limit the result to the literal wording of the request',
     'do not expand speculatively',
-    'smallest direct protection against a concrete, reproducible failure',
-    'immediate, observable consequence',
+    'Aim for the best result the request allows',
+    'research, produce, prove, attack, correct, and prove again',
+    'render visual design and evaluate the actual output',
     'Do not invent requirements',
     'chat_spawn_subagent',
+    'ultra_set_context',
+    'Delegate actively',
+    'prefer several focused sub-agents over one broad assignment',
+    'Every sub-agent runs on your model and reasoning effort',
     'chat_send_prompt',
     'Avoid orchestration thrashing',
     'gather relevant completed reports',
@@ -800,7 +805,78 @@ try {
     }
   }
   assert.doesNotMatch(ultraContext, /\btrivial(?:ity|ities)?\b/i);
+  assert.ok(!ultraContext.includes('<ultra_map>'));
+  assert.ok(!ultraContext.includes('<ultra_context'));
   assert.ok(!injected.includes('<work_mode mode="ultra"'));
+  const sharedUltraContext = {
+    revision: 2,
+    objective: 'Ship the redesigned landing page.',
+    expectedOutcome: 'The rendered page matches the brief on desktop and mobile.',
+    decisions: 'Keep the existing typography.',
+    userRequests: ['Redesign the landing page hero.'],
+  };
+  const mappedUltraContext = await resolveDynamicContext({
+    workspacePath: root,
+    ultraMode: true,
+    orchestrationRole: 'orchestrator',
+    ultraMap: '1. **Understanding** — scout map body.',
+    ultraContext: sharedUltraContext,
+  });
+  for (const requirement of [
+    '<ultra_map>',
+    'It is a hypothesis, not verified fact',
+    'scout map body',
+    '<ultra_context revision="2">',
+    'Objective: Ship the redesigned landing page.',
+    'Decisions: Keep the existing typography.',
+  ]) {
+    assert.ok(mappedUltraContext.includes(requirement), `Ultra orchestrator context is missing: ${requirement}`);
+  }
+  assert.ok(!mappedUltraContext.includes('<user_request>'));
+  const ultraSpecialistContext = await resolveDynamicContext({
+    workspacePath: root,
+    ultraMode: true,
+    orchestrationRole: 'subagent',
+    ultraMap: 'map must stay with the orchestrator',
+    ultraContext: sharedUltraContext,
+  });
+  for (const requirement of [
+    '<ultra_context revision="2">',
+    'The user\'s literal request is the source of the requirements',
+    '<user_request>\nRedesign the landing page hero.\n</user_request>',
+    'Expected outcome: The rendered page matches the brief on desktop and mobile.',
+  ]) {
+    assert.ok(ultraSpecialistContext.includes(requirement), `Ultra specialist context is missing: ${requirement}`);
+  }
+  assert.ok(!ultraSpecialistContext.includes('map must stay with the orchestrator'));
+  assert.ok(!ultraSpecialistContext.includes('<work_mode mode="ultra"'));
+  assert.ok(!(await resolveDynamicContext({
+    workspacePath: root,
+    ultraMode: true,
+    orchestrationRole: 'subagent',
+    fusionRole: 'sidekick',
+    ultraContext: sharedUltraContext,
+  })).includes('<ultra_context'));
+  const scoutContext = await resolveDynamicContext({
+    workspacePath: root,
+    quickChat: true,
+    quickQuestion: true,
+    ultraScout: true,
+    permissionMode: 'read_only',
+    ultraMode: true,
+    orchestrationRole: 'orchestrator',
+  });
+  for (const requirement of [
+    'You are the Ultra scout',
+    'The map is a hypothesis the orchestrator will verify',
+    'Do not assume the task is software',
+    'sub-agents can run in parallel',
+    '<permission_mode mode="read_only">',
+  ]) {
+    assert.ok(scoutContext.includes(requirement), `Ultra scout context is missing: ${requirement}`);
+  }
+  assert.ok(!scoutContext.includes('You are answering a Quick question'));
+  assert.ok(!scoutContext.includes('<work_mode mode="ultra"'));
   assert.ok(!(await resolveDynamicContext({
     workspacePath: root,
     ultraMode: true,

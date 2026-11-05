@@ -366,6 +366,7 @@ db.exec(`
     checkpoint_message_id TEXT,
     context_tokens INTEGER NOT NULL DEFAULT 0,
     tasks TEXT NOT NULL DEFAULT '[]',
+    ultra_state TEXT NOT NULL DEFAULT '{}',
     tags TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
@@ -739,6 +740,9 @@ if (!conversationColumns.some((column) => column.name === 'context_tokens')) {
 if (!conversationColumns.some((column) => column.name === 'tasks')) {
   db.exec("ALTER TABLE conversations ADD COLUMN tasks TEXT NOT NULL DEFAULT '[]'");
 }
+if (!conversationColumns.some((column) => column.name === 'ultra_state')) {
+  db.exec("ALTER TABLE conversations ADD COLUMN ultra_state TEXT NOT NULL DEFAULT '{}'");
+}
 if (!conversationColumns.some((column) => column.name === 'archived_at')) {
   db.exec('ALTER TABLE conversations ADD COLUMN archived_at TEXT');
 }
@@ -859,6 +863,8 @@ const statements = {
   getValue: db.prepare('SELECT value FROM session_values WHERE key = ?'),
   listTasks: db.prepare('SELECT tasks FROM conversations WHERE id = ?'),
   replaceTasks: db.prepare('UPDATE conversations SET tasks = ? WHERE id = ?'),
+  getUltraState: db.prepare('SELECT ultra_state FROM conversations WHERE id = ?'),
+  replaceUltraState: db.prepare('UPDATE conversations SET ultra_state = ?, updated_at = ? WHERE id = ?'),
   insertGoal: db.prepare(`
     INSERT INTO goals (
       id, conversation_id, specification, status, revision, model, reasoning_effort,
@@ -939,6 +945,10 @@ const statements = {
         orchestration_mode = CASE
           WHEN @orchestrationModeChanged = 1 THEN @orchestrationMode
           ELSE orchestration_mode
+        END,
+        ultra_state = CASE
+          WHEN @orchestrationModeChanged = 1 AND @orchestrationMode IS NOT 'ultra' THEN '{}'
+          ELSE ultra_state
         END,
         context_checkpoint = COALESCE(@contextCheckpoint, context_checkpoint),
         checkpoint_message_id = COALESCE(@checkpointMessageId, checkpoint_message_id),
@@ -1207,6 +1217,7 @@ const statements = {
         checkpoint_message_id = NULL,
         context_tokens = 0,
         tasks = '[]',
+        ultra_state = '{}',
         next_subagent_name_index = 0,
         updated_at = ?
     WHERE id = ?
@@ -2232,6 +2243,12 @@ export function listTasks(conversationId) {
 export function replaceTasks(conversationId, tasks) {
   statements.replaceTasks.run(stringify(tasks), conversationId);
   return listTasks(conversationId);
+}
+
+export function updateUltraState(conversationId, changes) {
+  const current = parse(statements.getUltraState.get(conversationId)?.ultra_state, {});
+  statements.replaceUltraState.run(stringify({ ...current, ...changes }), timestamp(), conversationId);
+  return getConversation(conversationId);
 }
 
 export function insertGoal(goal) {
@@ -3534,7 +3551,8 @@ function childThreadContext(conversation) {
     const teamInstructions = conversation.orchestration_mode === 'ultra'
       ? [
         'You are a specialist on an Ultra team led by the orchestrator in the parent thread.',
-        'Own the focused assignment independently, investigate beyond the obvious path, and return evidence rather than assumptions.',
+        'The <ultra_context> block carries the user\'s literal request and the shared team context; your specific assignment is in the latest message. When they conflict, the user\'s request wins: follow it and tell the orchestrator.',
+        'Own the focused assignment independently, aim for the strongest result it allows, investigate beyond the obvious path, and return evidence rather than assumptions. Prove your work in the way that fits its kind: run code, inspect rendered output, check facts against sources.',
         'Use chat_send_prompt to coordinate directly with another listed sub-agent when that materially improves the shared result.',
         'Challenge weak assumptions constructively, but stay within your assigned scope and do not duplicate work without a verification purpose.',
         'Do not expose private chain-of-thought. Communicate concise conclusions, decisions, evidence, and remaining uncertainty.',
@@ -4317,6 +4335,7 @@ function mapConversation(row) {
       }
     : storedGoal;
   const tasks = parse(row.tasks, []);
+  const ultraState = parse(row.ultra_state, {});
   const blocked = goal?.status === 'blocked'
     || tasks.some((task) => task.status === 'inconclusive');
 
@@ -4343,6 +4362,9 @@ function mapConversation(row) {
     parentConversationId: row.parent_conversation_id || null,
     initialPrompt: row.initial_prompt || null,
     orchestrationMode: ['plan', 'ultra'].includes(row.orchestration_mode) ? row.orchestration_mode : null,
+    ultraMap: typeof ultraState.map === 'string' ? ultraState.map : '',
+    ultraContext: ultraState.context && typeof ultraState.context === 'object' ? ultraState.context : null,
+    ultraScoutedAt: typeof ultraState.scoutedAt === 'string' ? ultraState.scoutedAt : null,
     autoForwardToParent: Boolean(row.auto_forward_to_parent),
     nextSubagentNameIndex: Number(row.next_subagent_name_index) || 0,
     contextCheckpoint: row.context_checkpoint || '',

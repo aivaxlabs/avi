@@ -636,12 +636,18 @@ try {
   assert.equal(sendPromptTool.inputSchema.properties.mode, undefined);
   assert.deepEqual(spawnTool.inputSchema.required, ['prompt']);
   assert.equal(spawnTool.inputSchema.properties.response_mode, undefined);
+  database.updateUltraState(parent.id, {
+    context: { revision: 1, objective: 'Inspect the queue.', expectedOutcome: 'Findings.' },
+  });
   const spawnEvents = [];
   const spawnCalls = [];
   const spawnRuns = new Map();
   const spawned = await spawnTool.execute(
     {
       prompt: 'Inspect the queue.',
+      model_name: 'test/other',
+      model_level: 'small',
+      reasoning_effort: 'low',
     },
     {
       chatRunner: {
@@ -655,12 +661,17 @@ try {
       },
       conversationId: parent.id,
       model: 'test/model',
-      models: [{
-        id: 'test/model',
-        name: 'Test model',
-        reasoning: ['high'],
-      }],
+      models: [
+        { id: 'test/model', name: 'Test model', reasoning: ['high'] },
+        { id: 'test/other', name: 'Other model', reasoning: ['low'] },
+      ],
       reasoningEffort: 'high',
+      defaultModels: {
+        subagents: {
+          enabled: true,
+          small: { modelId: 'test/other', reasoningEffort: 'low' },
+        },
+      },
       ultraMode: true,
     },
   );
@@ -675,6 +686,7 @@ try {
   assert.equal(getConversation(spawnedThreadId).orchestrationMode, 'ultra');
   assert.equal(getConversation(spawnedThreadId).autoForwardToParent, true);
   assert.equal(spawnCalls[0].conversationId, spawnedThreadId);
+  assert.equal(spawnCalls[0].model, 'test/model');
   assert.equal(spawnCalls[0].reasoningEffort, 'high');
   assert.equal(spawnCalls[0].ultraMode, true);
   assert.equal(spawnCalls[0].text, 'Inspect the queue.');

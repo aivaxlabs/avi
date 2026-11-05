@@ -1115,6 +1115,7 @@ function initializeServices() {
       sendEvent: sendQuickChatEvent,
       stopBackgroundTasks: stopConversationTerminals,
     });
+    chatRunner.quickChatRunner = quickChatRunner;
   }
   pluginManager.setRuntimeServices({
     appInfo: () => ({ name: app.getName(), version: app.getVersion(), platform: process.platform }),
