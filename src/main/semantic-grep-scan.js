@@ -1,6 +1,10 @@
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises';
-import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 const SKIPPED_DIRS = new Set([
   '.git', '.hg', '.svn', 'node_modules', 'bower_components', 'jspm_packages',
@@ -106,14 +110,52 @@ export function splitChunks(text) {
   return chunks;
 }
 
-async function* walk(root, { maxDepth, signal }) {
+function isInsideAny(path, roots) {
+  return roots.some((root) => {
+    const relativePath = relative(resolve(root), path);
+    return relativePath !== '..' && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath);
+  });
+}
+
+async function listGitFiles(root) {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', root, 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
+      encoding: 'utf8',
+      maxBuffer: 256 * 1024 * 1024,
+      windowsHide: true,
+    });
+    const entries = new Set();
+    const dirs = new Set();
+    for (const listed of stdout.split('\0')) {
+      const entry = listed.replace(/\/$/, '');
+      if (!entry) continue;
+      entries.add(entry);
+      let end = entry.lastIndexOf('/');
+      while (end > 0) {
+        const dir = entry.slice(0, end);
+        if (dirs.has(dir)) break;
+        dirs.add(dir);
+        end = entry.lastIndexOf('/', end - 1);
+      }
+    }
+    return { root, entries, dirs };
+  } catch {
+    return null;
+  }
+}
+
+async function* walk(root, { maxDepth, roots, signal }) {
   const visited = new Set();
-  async function* visit(dir, depth) {
+  async function* visit(dir, depth, repository) {
     if (signal?.aborted || depth > maxDepth) return;
     const real = await realpath(dir).catch(() => dir);
     if (visited.has(real)) return;
     visited.add(real);
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    if (entries.some((entry) => entry.name === '.git')) {
+      if (directoryKey(await canonicalWorktree(dir, roots)) !== directoryKey(dir)) return;
+      repository = await listGitFiles(dir);
+    }
     const siblingFiles = entries.filter((entry) => !entry.isDirectory()).map((entry) => entry.name.toLowerCase());
     if (depth > 0 && siblingFiles.some((file) => SELF_MARKED_DIR_FILES.has(file))) return;
     for (const entry of entries) {
@@ -127,14 +169,33 @@ async function* walk(root, { maxDepth, signal }) {
         directory = info.isDirectory();
         file = info.isFile();
       }
+      const gitPath = repository && relative(repository.root, fullPath).split(sep).join('/');
       if (directory) {
-        if (!isSkippedDir(entry.name, siblingFiles)) yield* visit(fullPath, depth + 1);
-      } else if (file && hasTextExtension(entry.name) && !isGeneratedFile(entry.name)) {
+        if (isSkippedDir(entry.name, siblingFiles)) continue;
+        if (!repository || repository.dirs.has(gitPath)) {
+          yield* visit(fullPath, depth + 1, repository);
+        } else if (repository.entries.has(gitPath)) {
+          // Git lists nested repositories, submodules, and symbolic links as single entries.
+          yield* visit(fullPath, depth + 1, null);
+        }
+      } else if (
+        file
+        && (!repository || repository.entries.has(gitPath))
+        && hasTextExtension(entry.name)
+        && !isGeneratedFile(entry.name)
+      ) {
         yield fullPath;
       }
     }
   }
-  yield* visit(root, 0);
+
+  const enclosing = await gitRepositoryRoot(root).catch(() => null);
+  if (enclosing && directoryKey(enclosing.path) !== directoryKey(root)) {
+    if (directoryKey(await canonicalWorktree(enclosing.path, roots)) !== directoryKey(enclosing.path)) return;
+    yield* visit(root, 0, await listGitFiles(enclosing.path));
+  } else {
+    yield* visit(root, 0, null);
+  }
 }
 
 function documentsForFile(filePath, root, bytes, info) {
@@ -171,17 +232,17 @@ export async function scanDirectories(dirs, {
   workers = 4,
 } = {}) {
   const pending = new Set();
+  const roots = dirs.map((dir) => resolve(dir));
   let files = 0;
   let documents = 0;
-  for (const dir of dirs) {
-    const root = resolve(dir);
+  for (const root of roots) {
     try {
       if (!(await stat(root)).isDirectory()) continue;
     } catch (error) {
       if (error.code === 'ENOENT') continue;
       throw error;
     }
-    for await (const filePath of walk(root, { maxDepth, signal })) {
+    for await (const filePath of walk(root, { maxDepth, roots, signal })) {
       if (signal?.aborted) break;
       const task = (async () => {
         const info = await stat(filePath);
@@ -201,13 +262,12 @@ export async function scanDirectories(dirs, {
   return { files, documents };
 }
 
-export async function gitWorktreeRoot(start) {
+export async function gitRepositoryRoot(start) {
   let current = resolve(start);
   while (true) {
     try {
       const info = await lstat(join(current, '.git'));
-      if (info.isFile()) return current;
-      if (info.isDirectory()) return null;
+      return { path: current, linked: info.isFile() };
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
@@ -215,6 +275,36 @@ export async function gitWorktreeRoot(start) {
     if (parent === current) return null;
     current = parent;
   }
+}
+
+export async function canonicalWorktree(worktree, roots) {
+  const root = resolve(worktree);
+  const dotGit = join(root, '.git');
+  if (!(await lstat(dotGit).catch(() => null))?.isFile()) return root;
+
+  const gitDir = await readFile(dotGit, 'utf8')
+    .then((text) => text.match(/^gitdir:\s*(.+)$/m)?.[1]?.trim())
+    .catch(() => null);
+  const commonDir = gitDir && await readFile(join(resolve(root, gitDir), 'commondir'), 'utf8')
+    .then((text) => resolve(root, gitDir, text.trim()))
+    .catch(() => null);
+  if (!commonDir) return root;
+
+  const main = basename(commonDir) === '.git' ? dirname(commonDir) : null;
+  if (main && isInsideAny(main, roots) && (await lstat(commonDir).catch(() => null))?.isDirectory()) return main;
+
+  const names = await readdir(join(commonDir, 'worktrees')).catch(() => []);
+  const linked = await Promise.all(names.map(async (name) => {
+    try {
+      const gitFile = join(commonDir, 'worktrees', name, 'gitdir');
+      const path = dirname(resolve(dirname(gitFile), (await readFile(gitFile, 'utf8')).trim()));
+      return isInsideAny(path, roots) && (await lstat(join(path, '.git'))).isFile() ? path : null;
+    } catch {
+      return null;
+    }
+  }));
+  return [root, ...linked.filter(Boolean)]
+    .sort((left, right) => left.length - right.length || left.localeCompare(right))[0];
 }
 
 export function directoryKey(filePath) {

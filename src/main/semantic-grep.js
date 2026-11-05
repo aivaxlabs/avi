@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { relative, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { getDocumentEmbeddingUsage, importAivaxDocuments, requestAivax } from './aivax-client.js';
 import {
   getAivaxAccessToken,
@@ -9,7 +9,14 @@ import {
   listFrequentProjectPaths,
   setSemanticGrepStatus,
 } from './database.js';
-import { directoryKey, formatFileSearchResults, gitWorktreeRoot, scanDirectories, semanticPathFilter } from './semantic-grep-scan.js';
+import {
+  canonicalWorktree,
+  directoryKey,
+  formatFileSearchResults,
+  gitRepositoryRoot,
+  scanDirectories,
+  semanticPathFilter,
+} from './semantic-grep-scan.js';
 import { traceError, traceInfo } from './trace-log.js';
 import { WorkspaceManager } from './workspaces.js';
 
@@ -39,6 +46,12 @@ export async function searchSemanticGrep({
   const terms = String(query ?? '').trim();
   if (!terms) throw new Error('Provide the search query.');
   const current = resolve(directory || '.');
+  const repository = await gitRepositoryRoot(current).catch(() => null);
+  const canonical = repository?.linked
+    ? await canonicalWorktree(repository.path, settings.semanticGrepDirectories ?? []).catch(() => repository.path)
+    : null;
+  const indexedRoot = canonical && directoryKey(canonical) !== directoryKey(repository.path) ? canonical : null;
+  const searched = indexedRoot ? join(indexedRoot, relative(repository.path, current)) : current;
   const results = await requestAivax('/api/v1/query', {
     body: {
       collections: [settings.semanticGrepCollectionId],
@@ -46,7 +59,7 @@ export async function searchSemanticGrep({
       top: Math.min(Math.max(1, top) * 4, 200),
       minScore: SEARCH_MIN_SCORE,
       reranker: settings.semanticGrepReranker || 'rrf',
-      filter: semanticPathFilter(current),
+      filter: semanticPathFilter(searched),
       includeReferences: false,
     },
     responseType: 'array',
@@ -54,7 +67,8 @@ export async function searchSemanticGrep({
   });
   const files = new Map();
   for (const result of results) {
-    const path = result.metadata?.real_path;
+    const indexedPath = result.metadata?.real_path;
+    const path = indexedRoot && indexedPath ? join(repository.path, relative(indexedRoot, indexedPath)) : indexedPath;
     if (!path || !existsSync(path)) continue;
     const range = sourceLineRange(result.metadata);
     const hit = files.get(path);
@@ -97,7 +111,8 @@ export async function recommendSemanticGrepDirectories(limit = 8) {
       } catch {
         continue;
       }
-      const worktree = await gitWorktreeRoot(recommended).catch(() => null);
+      const repository = await gitRepositoryRoot(recommended).catch(() => null);
+      const worktree = repository?.linked ? repository.path : null;
       if (worktree) recommended = worktree;
       const key = directoryKey(recommended);
       if (indexed.has(key)) continue;

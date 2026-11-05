@@ -8,6 +8,7 @@
 - **Ultra team context** — new `ultra_set_context` tool records the shared objective, motivation, expected outcome, constraints, decisions, out-of-scope items, and current state, with the user's literal Ultra requests attached by Avi. Ultra sub-agents receive the latest revision as `<ultra_context>` on every model request, and `chat_spawn_subagent` fails in Ultra until the context exists. Conversation snapshots expose `ultraContext`.
 
 ### Changed
+- **Semantic Grep Git rules** — indexing now honors `.gitignore`, `.git/info/exclude`, and global excludes through `git ls-files`. Nested repositories and submodules are scanned as their own repositories. Worktrees that share a Git common directory are indexed once: the main worktree when it is inside the configured directories, otherwise the linked worktree with the shortest path. The next `sync` removes duplicate worktree documents. From a linked worktree that was not indexed, `file_search` searches the indexed worktree of the same repository and maps results back to the current worktree.
 - **Ultra prompts** — the Ultra orchestrator, Fusion lead, and specialist contracts aim for the best result the request allows, adapt the research, produce, prove, attack, correct, and prove again loop to code, visual design, writing, or research, and no longer assume software. In Ultra, sub-agents always run on the orchestrator's model and reasoning effort: `chat_spawn_subagent` drops `model_level`, `model_name`, and `reasoning_effort`, and the orchestrator is encouraged to delegate independent supporting work to several focused sub-agents in parallel. Turning Ultra off clears its map and team context.
 - **Scheduled task cleanup** — startup archive maintenance now permanently deletes completed and failed scheduled tasks whose finish time is older than the **Automatically delete disposable conversations** period. Scheduled, running, and cancelled tasks are kept, and Never disables the cleanup.
 
@@ -15,6 +16,7 @@
 - **Bot Activity entries without a description** — `bot_activity_append` now requires a non-empty `description`, so an entry can no longer be written blank in the Activity.
 
 ### Tests
+- `bun scripts/test-semantic-grep.mjs` builds real Git repositories and checks `.gitignore` filtering, nested repositories, submodules, worktree deduplication by common directory, and the choice of canonical worktree.
 - `bun run test:ultra` now runs in the Electron test runner and covers the Ultra scout, its progress label and Stop, the spawn gate, `ultra_set_context`, and the reset when Ultra is turned off; `test:quick-question` covers the read-only scout session.
 - `bun run test:secret-vault` checks encrypted persistence, overwrite and removal, rename, placeholder resolution, thread scoping, expiry, excluded tools, and output masking in an isolated Electron profile.
 

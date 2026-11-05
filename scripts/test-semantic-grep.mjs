@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import {
+  canonicalWorktree,
   formatFileSearchResults,
-  gitWorktreeRoot,
+  gitRepositoryRoot,
   scanDirectories,
   semanticPathFilter,
   splitChunks,
@@ -12,6 +14,24 @@ import {
 
 const root = mkdtempSync(join(tmpdir(), 'avi-semantic-grep-'));
 const outside = mkdtempSync(join(tmpdir(), 'avi-semantic-grep-link-'));
+const repos = realpathSync(mkdtempSync(join(tmpdir(), 'avi-semantic-grep-git-')));
+
+function git(cwd, ...args) {
+  execFileSync('git', ['-c', 'user.name=Avi', '-c', 'user.email=avi@example.com', '-c', 'protocol.file.allow=always', ...args], {
+    cwd,
+    stdio: 'ignore',
+  });
+}
+
+async function scannedPaths(dirs) {
+  const paths = [];
+  await scanDirectories(dirs, {
+    onFile(file) {
+      paths.push(file.path.slice(repos.length + 1).replaceAll('\\', '/'));
+    },
+  });
+  return paths.sort();
+}
 
 try {
   const oversized = splitChunks('a'.repeat(6001));
@@ -53,8 +73,48 @@ try {
     assert.equal(line.text.endsWith('\n'), true);
   }
 
-  assert.equal(await gitWorktreeRoot(join(root, 'linked-worktree')), join(root, 'linked-worktree'));
-  assert.equal(await gitWorktreeRoot(root), null);
+  assert.deepEqual(await gitRepositoryRoot(join(root, 'linked-worktree')), { path: join(root, 'linked-worktree'), linked: true });
+  assert.deepEqual(await gitRepositoryRoot(join(root, 'src')), { path: root, linked: false });
+
+  const project = join(repos, 'project');
+  const library = join(repos, 'library');
+  mkdirSync(join(project, 'src'), { recursive: true });
+  mkdirSync(join(project, 'logs'));
+  mkdirSync(library);
+  git(library, 'init', '-q');
+  writeFileSync(join(library, 'lib.js'), 'export const lib = 1;\n');
+  git(library, 'add', '.');
+  git(library, 'commit', '-qm', 'library');
+  git(project, 'init', '-q');
+  writeFileSync(join(project, '.gitignore'), 'logs/\nsecret.txt\n');
+  writeFileSync(join(project, 'src', 'app.js'), 'export const app = 1;\n');
+  writeFileSync(join(project, 'logs', 'run.txt'), 'ignored\n');
+  writeFileSync(join(project, 'secret.txt'), 'ignored\n');
+  git(project, 'submodule', 'add', '-q', library, 'vendor-lib');
+  git(project, 'add', '.');
+  git(project, 'commit', '-qm', 'project');
+  writeFileSync(join(project, 'src', 'draft.js'), 'export const draft = 1;\n');
+  mkdirSync(join(project, 'nested'));
+  git(join(project, 'nested'), 'init', '-q');
+  writeFileSync(join(project, 'nested', 'inner.js'), 'export const inner = 1;\n');
+  git(project, 'worktree', 'add', '-q', '-b', 'fix', join(repos, 'project-fix'));
+  git(project, 'worktree', 'add', '-q', '-b', 'feature', join(repos, 'project-feature'));
+
+  const expected = [
+    'library/lib.js',
+    'project/nested/inner.js',
+    'project/src/app.js',
+    'project/src/draft.js',
+    'project/vendor-lib/lib.js',
+  ];
+  assert.deepEqual(await scannedPaths([repos]), expected);
+  assert.deepEqual(await scannedPaths([join(project, 'src')]), ['project/src/app.js', 'project/src/draft.js']);
+  assert.deepEqual(await scannedPaths([join(repos, 'project-fix'), join(repos, 'project-feature')]), ['project-fix/src/app.js']);
+  assert.deepEqual(await scannedPaths([join(repos, 'project-fix', 'src')]), ['project-fix/src/app.js']);
+  assert.equal(await canonicalWorktree(join(repos, 'project-fix'), [repos]), project);
+  assert.equal(await canonicalWorktree(join(repos, 'project-feature'), [join(repos, 'project-fix'), join(repos, 'project-feature')]), join(repos, 'project-fix'));
+  assert.equal(await canonicalWorktree(join(project, 'vendor-lib'), [repos]), join(project, 'vendor-lib'));
+  assert.equal(await canonicalWorktree(project, [repos]), project);
   const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
   assert.equal(semanticPathFilter(root), `metadata.real_path startswith ${JSON.stringify(prefix)}`);
 
@@ -73,6 +133,7 @@ try {
 } finally {
   rmSync(root, { recursive: true, force: true });
   rmSync(outside, { recursive: true, force: true });
+  rmSync(repos, { recursive: true, force: true });
 }
 
 console.log('semantic grep scan and search formatting passed');

@@ -3,7 +3,7 @@ import { searchSemanticGrep } from '../semantic-grep.js';
 export const semanticGrepTools = [
   {
     name: 'file_search',
-    description: 'Search indexed source files by meaning under the current chat directory, including indexed subfolders. Use this as the first search when looking for behavior or related code. It does not replace exact search: if it returns no matches, use rg or a similar tool. Results are file paths and source line ranges, not file contents.',
+    description: 'Search indexed source files by meaning under the current chat directory, including indexed subfolders; in a linked Git worktree, it searches the indexed worktree of the same repository. Use this as the first search when looking for behavior or related code. It does not replace exact search: if it returns no matches, use rg or a similar tool. Results are file paths and source line ranges, not file contents.',
     approval: 'never',
     canEditFile: false,
     canPerformDestructiveActions: false,
