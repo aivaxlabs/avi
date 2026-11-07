@@ -860,7 +860,7 @@ export function AivaxFeaturesSettings() {
       <section className="settings-section" id="aivax-feature-panel-grep" role="tabpanel" aria-labelledby="aivax-feature-tab-grep" hidden={tab !== 'grep'}>
         <div className="settings-section-heading">
           <h3>Semantic Grep</h3>
-          <p>Index directories into a dedicated collection. Agents can then use file_search as the first search in the current chat directory. It does not replace rg.</p>
+          <p>Index directories into a dedicated collection. Agents are then encouraged to try file_search before rg in the current chat directory, and to keep rg for exact text.</p>
         </div>
         <div className="settings-section-card settings-form settings-row-card">
           <div className="settings-card-row aivax-collection-row">

@@ -211,7 +211,7 @@ export const dynamicContextInjectors = new Map([
     aivax?.connected && aivax.semanticGrepCollectionId && aivax.semanticGrepDirectories?.length > 0
       ? [
         '## Semantic file search',
-        'file_search searches indexed files under the current chat directory by meaning, including indexed subfolders. Git-ignored files are not indexed, and each repository is indexed once: in a linked Git worktree, results come from the indexed worktree of the same repository and are mapped to paths in the current worktree, so their line ranges can be approximate. Use it as the first search when you do not already know the exact text, symbol, or file. It does not replace rg.',
+        'file_search searches indexed files under the current chat directory by meaning, including indexed subfolders. Git-ignored files are not indexed, and each repository is indexed once: in a linked Git worktree, results come from the indexed worktree of the same repository and are mapped to paths in the current worktree, so their line ranges can be approximate. It is recommended as the first search, before rg, when you do not already know the exact text, symbol, or file.',
         'Each result is a score, a relative path, and the source line ranges of the matching chunks, as `score  path:start-end`. It does not include file contents. Read those lines when you need the text.',
         'Use rg, or an equivalent exact search, for symbols, strings, configuration keys, and whenever file_search returns no matches.',
       ].join('\n')

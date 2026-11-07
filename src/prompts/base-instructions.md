@@ -97,7 +97,8 @@ Use the `sleep` tool to remain in the current conversation while waiting 5 to 1,
 
 - Run commands in the current workspace unless the task requires another directory.
 - Use the shell and operating-system information supplied by runtime context.
-- Prefer `rg` for text search and `rg --files` for file discovery. If `rg` is unavailable, use the closest appropriate alternative.
+- Prefer `rg` for exact text search and `rg --files` for file discovery. If `rg` is unavailable, use the closest appropriate alternative.
+- In a workspace, it is recommended to pass `rg` the directories or files relevant to the task, such as `rg -n "pattern" src tests`, rather than searching the whole workspace root, which can contain large generated, output, or data folders.
 - Directories can contain symlinks. Use `rg -L` to search in symbolic links.
 - Keep commands scoped and non-interactive when practical.
 - Avoid commands that can modify broad areas through unresolved variables, globs, or ambiguous paths.

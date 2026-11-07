@@ -70,7 +70,7 @@ Search uses AIVAX semantic search with RRF reranking, a minimum score of `0.2`, 
 
 ## Semantic Grep
 
-Semantic Grep indexes directories you choose into a dedicated collection, then gives agents `file_search` for the current chat directory. It is the first search for meaning. It does not replace `rg`: exact symbols, strings, and configuration keys still belong to `rg` or a similar tool, and so does any search that returns no matches.
+Semantic Grep indexes directories you choose into a dedicated collection, then gives agents `file_search` for the current chat directory. Agents are encouraged to try it before `rg` when they do not already know the exact text, symbol, or file. It does not replace `rg`: exact symbols, strings, and configuration keys still belong to `rg` or a similar tool, and so does any search that returns no matches.
 
 1. Connect the account.
 2. Open **Settings → AIVAX Features → Semantic Grep**.
