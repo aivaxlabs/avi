@@ -1,14 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 
+const PROTOCOL = 3;
+
 export class ChromeBridge {
-  constructor() {
+  constructor({ port = 55334 } = {}) {
+    this.port = port;
     this.connections = new Map();
     this.tabs = new Map();
   }
 
   async start() {
-    this.server = new WebSocketServer({ host: '127.0.0.1', port: 55334, maxPayload: 32 * 1024 * 1024,
+    this.server = new WebSocketServer({ host: '127.0.0.1', port: this.port, maxPayload: 128 * 1024 * 1024,
       verifyClient: ({ origin, req }) => /^chrome-extension:\/\/[a-z]{32}$/.test(origin ?? '') && req.url === '/extension',
     });
     this.server.on('connection', (socket) => {
@@ -24,10 +27,10 @@ export class ChromeBridge {
         try {
           const message = JSON.parse(data.toString());
           if (message.type === 'hello') {
-            if (message.protocol !== 2 || !Array.isArray(message.tabs)) return socket.close(4003, 'Reload the Avi Chrome extension.');
+            if (message.protocol !== PROTOCOL || !Array.isArray(message.tabs)) return socket.close(4003, 'Reload the Avi Chrome extension.');
             connection.ready = true;
             this.reconcile(connection, message.tabs);
-            socket.send(JSON.stringify({ type: 'ack', protocol: 2 }));
+            socket.send(JSON.stringify({ type: 'ack', protocol: PROTOCOL }));
           } else if (message.type === 'response') {
             const pending = connection.pending.get(message.id);
             if (pending) message.error ? pending.reject(new Error(typeof message.error === 'string' ? message.error : message.error.message)) : pending.resolve(message.result);
@@ -88,17 +91,79 @@ export class ChromeBridge {
       || connections.some((connection) => this.connections.get(connection.socket) !== connection)) {
       throw new Error('Chrome connections changed. Refresh context.');
     }
-    return connections.flatMap((connection) => [...connection.tabs].map(([id, tab]) => {
-      let url = String(tab.url || 'about:blank');
-      try { const parsed = new URL(url); parsed.search = ''; parsed.hash = ''; url = parsed.href; } catch { url = url.split(/[?#]/, 1)[0]; }
-      return { tab_id: id, title: tab.title || null, url, state: tab.state || 'idle', controllable: /^(?:https?:|file:|about:blank$)/i.test(url) };
+    return connections.flatMap((connection) => [...connection.tabs.keys()].map((id) => this.publicTab(connection, id)));
+  }
+
+  publicTab(connection, id) {
+    const tab = connection.tabs.get(id);
+    let url = String(tab.url || 'about:blank');
+    try { const parsed = new URL(url); parsed.search = ''; parsed.hash = ''; url = parsed.href; } catch { url = url.split(/[?#]/, 1)[0]; }
+    const opener = tab.openerTabId == null ? null : [...connection.tabs].find(([, item]) => item.tabId === tab.openerTabId)?.[0] ?? null;
+    return {
+      tab_id: id,
+      title: tab.title || null,
+      url,
+      state: tab.state || 'idle',
+      controllable: /^(?:https?:|file:|about:blank$)/i.test(url),
+      active: Boolean(tab.active),
+      ...(opener ? { opener_tab_id: opener } : {}),
+    };
+  }
+
+  publicTabFor(connection, tab) {
+    const id = [...connection.tabs].find(([, item]) => item.tabId === tab.tabId)?.[0] ?? randomUUID();
+    connection.tabs.set(id, tab);
+    this.tabs.set(id, { connection, tab });
+    return this.publicTab(connection, id);
+  }
+
+  entry(tab_id) {
+    const entry = this.tabs.get(tab_id);
+    if (!entry) throw new Error('Tab ID expired or not found. Call chrome_get_context first.');
+    return entry;
+  }
+
+  runActions({ tab_id, code, timeout_ms = 8000, frame_id, snapshot }, signal) {
+    const entry = this.entry(tab_id);
+    const params = { tabId: entry.tab.tabId, code, timeoutMs: timeout_ms };
+    if (frame_id !== undefined) params.frameId = frame_id;
+    if (snapshot !== undefined) params.snapshot = snapshot;
+    return this.request(entry.connection, 'runActions', params, timeout_ms + 5000, signal).then((result) => ({
+      ...result,
+      openedTabs: (result.openedTabs ?? [])
+        .map((tabId) => [...entry.connection.tabs].find(([, tab]) => tab.tabId === tabId)?.[0])
+        .filter(Boolean),
     }));
   }
 
-  runActions({ tab_id, code, timeout_ms = 8000 }, signal) {
-    const entry = this.tabs.get(tab_id);
-    if (!entry) throw new Error('Tab ID expired or not found. Call chrome_get_context first.');
-    return this.request(entry.connection, 'runActions', { tabId: entry.tab.tabId, code, timeoutMs: timeout_ms }, timeout_ms + 5000, signal);
+  async manageTab({ action, tab_id, url, active, bypass_cache, new_window, timeout_ms = 30000 }, signal) {
+    let connection;
+    let tabId;
+    if (tab_id) {
+      const entry = this.entry(tab_id);
+      connection = entry.connection;
+      tabId = entry.tab.tabId;
+    } else if (action === 'open') {
+      const ready = [...this.connections.values()].filter((item) => item.ready);
+      if (ready.length !== 1) {
+        throw new Error(ready.length
+          ? 'Several Chrome profiles are connected. Pass tab_id of a tab in the profile where the new tab should open.'
+          : 'No Chrome profile is connected. Ask the user to connect the Avi extension.');
+      }
+      [connection] = ready;
+    } else {
+      throw new Error('tab_id is required for this action.');
+    }
+    const result = await this.request(connection, 'manageTab', {
+      action, tabId, url, active, bypassCache: bypass_cache, newWindow: new_window, timeoutMs: timeout_ms,
+    }, timeout_ms + 5000, signal);
+    if (result.closed) {
+      this.tabs.delete(tab_id);
+      connection.tabs.delete(tab_id);
+      return { closed: true, tab_id };
+    }
+    const tab = this.publicTabFor(connection, result.tab);
+    return { tab, ...(result.warning ? { warning: result.warning } : {}) };
   }
 
   async close() {
