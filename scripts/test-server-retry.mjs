@@ -1059,6 +1059,30 @@ try {
   assert.equal(providerErrorEvents.filter((event) => event.type === 'retry').length, 1);
   assert.equal(providerErrorEvents.filter((event) => event.type === 'error').length, 0);
 
+  let upstreamReadAttempts = 0;
+  const upstreamReadEvents = [];
+  await stream(
+    createProvider(
+      async () => {
+        upstreamReadAttempts += 1;
+        return new Response(upstreamReadAttempts === 1
+          ? `data: ${JSON.stringify({
+              type: 'error',
+              code: 'upstream_stream_read_error',
+              message: 'Failed to read the upstream stream.',
+            })}\n\n`
+          : 'data: [DONE]\n\n', { status: 200 });
+      },
+      (payload) => [payload],
+    ),
+    null,
+    new AbortController().signal,
+    (event) => upstreamReadEvents.push(event),
+  );
+  assert.equal(upstreamReadAttempts, 2);
+  assert.equal(upstreamReadEvents.filter((event) => event.type === 'retry').length, 1);
+  assert.equal(upstreamReadEvents.filter((event) => event.type === 'error').length, 0);
+
   let requestTransportAttempts = 0;
   const requestTransportEvents = [];
   await stream(

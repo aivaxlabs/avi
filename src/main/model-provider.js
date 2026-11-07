@@ -3,6 +3,7 @@ import { mediaSizeLimitOptions } from '../shared/attachments.js';
 import { REASONING_EFFORTS, normalizeProviderHarness } from './provider-api.js';
 import { traceError, traceVerbose } from './trace-log.js';
 import { withRequestDiagnostics, reportRequestFailure, captureResponse } from './request-diagnostics.js';
+import { storeConversationMedia } from './storage/media-store.js';
 
 const EMPTY_PROVIDER_CONTRIBUTIONS = Object.freeze({
   models: Object.freeze([]),
@@ -32,6 +33,34 @@ const isConnectionError = (error) => [error, error?.cause]
 // Proxies built on Go relay an aborted upstream socket as text, not as an error code. Windows
 // reports WSAECONNABORTED with this message, which arrives wrapped in internal_server_error.
 const HOST_CONNECTION_ABORTED = 'An established connection was aborted by the software in your host machine';
+
+const MEDIA_CAPABILITIES = {
+  image_url: 'images',
+  video_url: 'video',
+  input_audio: 'audio',
+  file: 'pdfFiles',
+};
+
+function exportUnsupportedMedia(content, model, conversationId) {
+  return content.map((item) => {
+    const capability = MEDIA_CAPABILITIES[item?.type];
+    if (!capability) return item;
+
+    const media = item[item.type];
+    const mime = media?.mime ?? media?.file_data?.match(/^data:([^;,]+)/)?.[1];
+    const supported = model.capabilities?.[capability]
+      && (item.type !== 'file' || (mime ?? 'application/pdf') === 'application/pdf');
+    if (supported) return item;
+
+    const path = (conversationId ? storeConversationMedia(item, conversationId) : item)[item.type]?.path;
+    return {
+      type: 'text',
+      text: path
+        ? `This media is not supported as direct input by ${model.name}, so it was exported to: ${path}`
+        : `This media is not supported as direct input by ${model.name} and could not be exported.`,
+    };
+  });
+}
 
 function normalizeCustomJson(value, label) {
   const json = String(value ?? '').trim();
@@ -128,13 +157,25 @@ export class ModelProvider {
       throw new Error(`Reasoning effort "${reasoningEffort}" is not supported by ${model.name}.`);
     }
 
+    const exportMedia = (content) => exportUnsupportedMedia(content, model, invocationContext.conversationId);
     const body = await this.implementation.createBody({
       provider: this.config,
       model,
-      messages,
+      messages: messages.map((message) => (
+        message.role === 'user' && Array.isArray(message.content)
+          ? { ...message, content: exportMedia(message.content) }
+          : message
+      )),
       reasoningEffort,
       tools,
-      toolHistory,
+      toolHistory: toolHistory?.map((round) => ({
+        ...round,
+        results: round.results.map((result) => (
+          result.mediaContent?.length
+            ? { ...result, mediaContent: exportMedia(result.mediaContent) }
+            : result
+        )),
+      })),
       invocationContext: { ...invocationContext, effectiveModelId: model.id },
     });
     invocationContext.onPrepared?.();
@@ -343,6 +384,7 @@ export class ModelProvider {
                     event.code === 'server_error'
                     || event.code === 'provider_error'
                     || event.code === 'server_is_overloaded'
+                    || event.code === 'upstream_stream_read_error'
                     || (
                       event.code === 'internal_server_error'
                       && String(event.message ?? '').includes(HOST_CONNECTION_ABORTED)
