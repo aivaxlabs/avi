@@ -454,7 +454,10 @@ export class BotManager {
     const loadOne = async (bot) => {
       try {
         const { dataFolder } = await ensureBotFolders(bot);
-        const results = await Promise.allSettled([readInboxFile(dataFolder), readActivityFile(dataFolder)]);
+        const results = await Promise.allSettled([
+          readInboxFile(dataFolder, { cached: true }),
+          readActivityFile(dataFolder, { cached: true }),
+        ]);
         const [inboxError, activityError] = results.map((result) => result.status === 'rejected'
           ? result.reason instanceof Error ? result.reason.message : String(result.reason)
           : null);
@@ -909,8 +912,10 @@ export class BotManager {
   async drainActivationQueue() {
     if (this.drainingActivations) return;
     this.drainingActivations = true;
+    let queued = true;
     try {
       await this.continueQueues();
+      queued = this.activationQueue.size > 0;
       for (const [botId, options] of this.activationQueue) {
         const bot = getBot(botId);
         if (!bot || !bot.enabled) {
@@ -933,7 +938,7 @@ export class BotManager {
       }
     } finally {
       this.drainingActivations = false;
-      this.broadcast('bots:updated');
+      if (queued) this.broadcast('bots:updated');
     }
   }
 
@@ -998,6 +1003,11 @@ export class BotManager {
         this.broadcast('bots:updated');
       }
     }
+    const scheduleSignature = this.describeBots().map((bot) => `${bot.id}:${bot.scheduleState}`).join('\n');
+    if (this.scheduleSignature !== undefined && scheduleSignature !== this.scheduleSignature) {
+      this.broadcast('bots:updated');
+    }
+    this.scheduleSignature = scheduleSignature;
   }
 
   hasWaitingPriorityWork(botId) {

@@ -1535,6 +1535,12 @@ const statements = {
     WHERE conversation_id = ?
     ORDER BY created_at ASC
   `),
+  getUserAttachments: db.prepare(`
+    SELECT attachments FROM messages
+    WHERE conversation_id = ? AND role = 'user'
+      AND attachments IS NOT NULL AND attachments <> '[]'
+    ORDER BY created_at ASC
+  `),
   getSideChatHistoryStart: db.prepare(`
     SELECT m.rowid AS row_id, m.created_at
     FROM messages m
@@ -3278,6 +3284,11 @@ export function deleteMessagesFrom(conversationId, messageId) {
 
 export function getMessages(conversationId) {
   return statements.getMessages.all(conversationId).map(mapMessage);
+}
+
+export function getUserAttachments(conversationId) {
+  return statements.getUserAttachments.all(conversationId)
+    .flatMap((row) => parse(row.attachments, []));
 }
 
 export function getPendingMessages(conversationId) {

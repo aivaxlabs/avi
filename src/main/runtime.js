@@ -300,6 +300,8 @@ const botInitialization = Promise.withResolvers();
 const ipcHandlers = new Map();
 const remoteChatEventListeners = new Set();
 const attachmentPreviews = new Map();
+const gitBranchCache = new Map();
+const GIT_BRANCH_CACHE_TTL_MS = 10_000;
 const legacyVideoMigrations = new Map();
 const attachmentPreviewLifetimeMs = 60 * 60 * 1_000;
 const attachmentPreviewExtensions = new Set([
@@ -627,6 +629,7 @@ const startBots = inactiveBots ? Promise.resolve() : globalMcpInitialization
   error: error instanceof Error ? error.message : String(error),
   }));
 void startBots.finally(() => botInitialization.resolve());
+void startBots.then(() => botManager.listBotDataByBot()).catch(() => {});
 if (!inactiveBots) void globalMcpInitialization.finally(() => taskScheduler.start());
 if (inactiveBots) {
   traceInfo('bots.initialization-skipped', { operation: 'startup', status: 'inactive-by-flag' });
@@ -2093,8 +2096,7 @@ function registerIpc() {
   }));
   applicationIpc.handle('folders:list', async () => {
     const colors = getFolderColors();
-    const conversations = await listConversationsWithProjects();
-    const paths = new Set(conversations.map((conversation) => resolve(conversation.projectPath)));
+    const paths = new Set(listConversations().map((conversation) => resolve(conversation.projectPath)));
     paths.add(resolve(homedir()));
     return Promise.all([...paths].map(async (path) => ({
       ...await inspectProjectFolder(path),
@@ -2145,14 +2147,14 @@ function registerIpc() {
   });
   applicationIpc.handle('secret-vault:save', (_event, payload = {}) => saveSecretVaultEntry(payload ?? {}));
   applicationIpc.handle('secret-vault:delete', (_event, name) => deleteSecretVaultEntry(name));
-  applicationIpc.handle('bots:list', async () => {
+  applicationIpc.handle('bots:list', async (_event, payload) => {
     const botDataByBot = await botManager.listBotDataByBot();
     return {
       bots: botManager.describeBots().map((bot) => ({
         ...bot,
         attentionCount: (botDataByBot[bot.id]?.inbox ?? []).filter(hasOpenBotUserAction).length,
       })),
-      botDataByBot,
+      ...(payload?.includeData === false ? {} : { botDataByBot }),
       schedulerSnooze: botManager.getSchedulerSnooze(),
     };
   });
@@ -3446,18 +3448,39 @@ function describeProjectFolder(folderPath) {
   };
 }
 
+async function readGitBranch(folderPath) {
+  for (let directory = folderPath; ; directory = dirname(directory)) {
+    const gitPath = join(directory, '.git');
+    let head = await readFile(join(gitPath, 'HEAD'), 'utf8').catch(() => null);
+    if (head === null) {
+      const pointer = await readFile(gitPath, 'utf8').catch(() => null);
+      const gitDir = pointer?.match(/^gitdir:\s*(.+)$/m)?.[1].trim();
+      if (gitDir) head = await readFile(join(resolve(directory, gitDir), 'HEAD'), 'utf8').catch(() => null);
+    }
+    if (head !== null) {
+      const branch = head.match(/^ref:\s*refs\/heads\/(.+)$/m)?.[1].trim() ?? null;
+      // Reftable repositories keep a placeholder HEAD, so only Git itself can name their branch.
+      return branch === '.invalid'
+        ? execFileAsync('git', ['-C', folderPath, 'branch', '--show-current'], { encoding: 'utf8', windowsHide: true })
+          .then(({ stdout }) => stdout.trim() || null, () => null)
+        : branch;
+    }
+    if (dirname(directory) === directory) return null;
+  }
+}
+
 async function inspectProjectFolder(folderPath) {
   const project = { ...describeProjectFolder(folderPath), isWorkspace: workspaceManager.isWorkspace(folderPath) };
-  try {
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-C', project.path, 'branch', '--show-current'],
-      { encoding: 'utf8', windowsHide: true },
-    );
-    return { ...project, gitBranch: stdout.trim() || null };
-  } catch {
-    return { ...project, gitBranch: null };
+  const now = Date.now();
+  let cached = gitBranchCache.get(project.path);
+  if (!cached || cached.expiresAt <= now) {
+    cached = {
+      expiresAt: now + GIT_BRANCH_CACHE_TTL_MS,
+      branch: readGitBranch(project.path).catch(() => null),
+    };
+    gitBranchCache.set(project.path, cached);
   }
+  return { ...project, gitBranch: await cached.branch };
 }
 
 async function listConversationsWithProjects() {

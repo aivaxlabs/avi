@@ -40,8 +40,7 @@ export default function QuickChatApp() {
       api.conversations.context(conversationId),
       api.models.list(),
       api.models.favorites(),
-      api.conversations.list(),
-    ]).then(([state, context, availableModels, favoriteModels, threads]) => {
+    ]).then(([state, context, availableModels, favoriteModels]) => {
       if (cancelled) return;
       setPluginThemes(state.pluginCatalog?.themes);
       applyTheme(readAppearance());
@@ -56,7 +55,9 @@ export default function QuickChatApp() {
       setContextUsage(context.contextUsage ?? null);
       setModels(availableModels);
       setFavorites(favoriteModels);
-      setRecentProjects(recentProjectsFrom(threads, state.defaultProject?.path));
+      return api.conversations.list().then((threads) => {
+        if (!cancelled) setRecentProjects(recentProjectsFrom(threads, state.defaultProject?.path));
+      });
     }).catch((nextError) => {
       if (!cancelled) setError(nextError.message);
     });

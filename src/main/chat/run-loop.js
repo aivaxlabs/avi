@@ -17,6 +17,7 @@ import {
   getGoalForConversation,
   getMessage,
   getMessages,
+  getUserAttachments,
   hydratePersistedMediaContent,
   insertInferenceUsage,
   insertMessage,
@@ -1296,9 +1297,7 @@ export const runLoopMethods = {
                       defaultModels: preferences.defaultModels,
                       capabilities: selection.model.capabilities,
                       mediaSizeLimit: effectiveMediaSizeLimit(selection.model, tuning),
-                      userAttachments: getMessages(conversationId)
-                        .filter((message) => message.role === 'user')
-                        .flatMap((message) => message.attachments),
+                      userAttachments: getUserAttachments(conversationId),
                     }),
                 toolAborted.promise,
               ]);

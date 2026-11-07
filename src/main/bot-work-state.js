@@ -1,4 +1,4 @@
-import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, rename, mkdir, stat } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { BOT_PENDENCY_COMPLETION_REASONS } from '../shared/bot-work-items.js';
@@ -15,6 +15,8 @@ export const BOT_WORK_STATE_FILES = Object.freeze({
 const VALID_APPROVAL_KINDS = new Set(['work', 'tool']);
 
 const locks = new Map();
+// Cached values are shared by every cached reader, so they must never be mutated.
+const parsedFiles = new Map();
 
 export function mutateBotWorkState(lockKey, operation) {
   const previous = locks.get(lockKey) ?? Promise.resolve();
@@ -177,24 +179,34 @@ function validateActivityPayload(entries) {
   return entries;
 }
 
-async function readJsonFile(filePath, validator, fallback) {
+async function readJsonFile(filePath, validator, fallback, { cached = false } = {}) {
   try {
+    const stats = cached ? await stat(filePath) : null;
+    const entry = parsedFiles.get(filePath);
+    if (
+      stats
+      && entry?.mtimeMs === stats.mtimeMs
+      && entry.size === stats.size
+      && entry.ino === stats.ino
+    ) return entry.value;
     const raw = await readFile(filePath, 'utf8');
     let parsed;
     try { parsed = JSON.parse(raw); } catch { throw new Error(`Invalid JSON in ${filePath}`); }
-    return validator(parsed);
+    const value = validator(parsed);
+    if (stats) parsedFiles.set(filePath, { mtimeMs: stats.mtimeMs, size: stats.size, ino: stats.ino, value });
+    return value;
   } catch (error) {
     if (error?.code === 'ENOENT') return fallback();
     throw error;
   }
 }
 
-export async function readInboxFile(dataFolder) {
-  return readJsonFile(join(dataFolder, BOT_WORK_STATE_FILES.inbox), validatePendenciesPayload, () => []);
+export async function readInboxFile(dataFolder, options) {
+  return readJsonFile(join(dataFolder, BOT_WORK_STATE_FILES.inbox), validatePendenciesPayload, () => [], options);
 }
 
-export async function readActivityFile(dataFolder) {
-  return readJsonFile(join(dataFolder, BOT_WORK_STATE_FILES.activity), validateActivityPayload, () => []);
+export async function readActivityFile(dataFolder, options) {
+  return readJsonFile(join(dataFolder, BOT_WORK_STATE_FILES.activity), validateActivityPayload, () => [], options);
 }
 
 async function writeInboxFile(dataFolder, pendencies) {
@@ -214,16 +226,10 @@ export async function ensureBotWorkStateFiles(dataFolder) {
     [BOT_WORK_STATE_FILES.activity, '[]\n'],
   ];
   for (const [fileName, defaultContent] of defaults) {
-    const filePath = join(dataFolder, fileName);
     try {
-      await readFile(filePath, 'utf8');
+      await writeFile(join(dataFolder, fileName), defaultContent, { encoding: 'utf8', flag: 'wx' });
     } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
-      try {
-        await writeFile(filePath, defaultContent, { encoding: 'utf8', flag: 'wx' });
-      } catch (writeError) {
-        if (writeError?.code !== 'EEXIST') throw writeError;
-      }
+      if (error?.code !== 'EEXIST') throw error;
     }
   }
 }

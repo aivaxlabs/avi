@@ -10,10 +10,16 @@ const snapshots = [];
 assert.match(source, /const \[botsLoading, setBotsLoading\] = useState\(true\)/);
 const loading = [true];
 const errors = [];
+let botsState = [];
+const setBots = (value) => {
+  const next = typeof value === 'function' ? value(botsState) : value;
+  if (next !== botsState) snapshots.push(next);
+  botsState = next;
+};
 const refresh = new Function('api', 'useRef', 'useCallback', 'setBotsLoading', 'setBots', 'setBotDataByBot', 'setBotsError', 'setBotSchedulerSnooze', 'setError', `${source.slice(start, end)}\nreturn refreshBots;`)(
   { bots: { list: () => new Promise((resolve, reject) => requests.push({ resolve, reject })) } },
   (value) => ({ current: value }), (callback) => callback,
-  (value) => loading.push(value), (value) => snapshots.push(value), () => {},
+  (value) => loading.push(value), setBots, () => {},
   (value) => errors.push(value), () => {}, () => {},
 );
 const first = refresh();
@@ -45,4 +51,8 @@ requests[3].resolve({ bots: ['retry'] });
 await retry;
 assert.deepEqual(snapshots.at(-1), ['retry']);
 assert.deepEqual(loading, [true, false, false, false]);
+const unchanged = refresh();
+requests[4].resolve({ bots: ['retry'] });
+await unchanged;
+assert.equal(snapshots.length, 3);
 console.log('Inbox refresh coalescing, await semantics, and background loading stability passed.');

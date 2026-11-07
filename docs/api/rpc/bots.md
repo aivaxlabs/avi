@@ -167,17 +167,19 @@ Missing files represent empty sections with no error. Legacy `work-items.json` a
 
 ### Params
 
-Omit `params`.
+| Field | Type | Description |
+| --- | --- | --- |
+| `includeData` | boolean, optional | `false` omits `botDataByBot`; `attentionCount` is still computed. Defaults to `true`. Clients that only render the bot list should pass `false`, because Inbox and Activity can be large over the relay. |
 
 ### Result
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `bots` | [`BotSnapshot[]`](#botsnapshot) | Configured bots with derived runtime and schedule state. |
-| `botDataByBot` | `Record<string, BotData>` | Inbox and Activity keyed by bot ID. |
+| `botDataByBot` | `Record<string, BotData>` | Inbox and Activity keyed by bot ID. Absent when `includeData` is `false`. |
 | `schedulerSnooze` | [`SnoozeState`](#snoozestate) | Global scheduler snooze state. |
 
-The method returns an empty collection/state rather than throwing when no bots exist. Bot directories load with CPU-count-bounded parallelism (`Math.max(1, availableParallelism())`) in stable bot order: inbox and activity read in parallel per bot, per-section failures return `[]` for that section, and one bot's failure does not affect the others.
+The method returns an empty collection/state rather than throwing when no bots exist. Bot directories load with CPU-count-bounded parallelism (`Math.max(1, availableParallelism())`) in stable bot order: inbox and activity read in parallel per bot, per-section failures return `[]` for that section, and one bot's failure does not affect the others. A section whose file keeps the same modification time, size, and inode since the last `bots:list` is returned from memory instead of being read and validated again.
 
 ## `bots:snooze`
 

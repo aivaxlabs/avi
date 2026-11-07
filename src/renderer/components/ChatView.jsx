@@ -1279,7 +1279,14 @@ export const ChatView = memo(function ChatView({
   );
 }, (previous, next) => {
   const allProps = new Set([...Object.keys(previous), ...Object.keys(next)]);
+  const hasVisibleMessages = (props) => (props.currentMessages ?? []).some((message) => (
+    !message.hidden && !['queued', 'steered'].includes(message.status)
+  ));
+  const botSummaryHidden = hasVisibleMessages(previous) && hasVisibleMessages(next);
   return [...allProps].every((property) => {
+    if (botSummaryHidden && ['bots', 'botDataByBot', 'botsLoading', 'botsError'].includes(property)) {
+      return true;
+    }
     if (property === 'currentProject') {
       return previous[property] === next[property] || (
         previous[property]?.path === next[property]?.path

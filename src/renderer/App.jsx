@@ -671,8 +671,28 @@ export default function App() {
             setBotsError('Could not load bot inbox.');
             continue;
           }
-          setBots(state.bots ?? []);
-          setBotDataByBot(state.botDataByBot ?? {});
+          const nextBots = state.bots ?? [];
+          const nextBotDataByBot = state.botDataByBot ?? {};
+          setBots((current) => {
+            const currentById = new Map(current.map((bot) => [bot.id, bot]));
+            const shared = nextBots.map((bot) => {
+              const previous = currentById.get(bot.id);
+              return previous && JSON.stringify(previous) === JSON.stringify(bot) ? previous : bot;
+            });
+            return shared.length === current.length && shared.every((bot, index) => bot === current[index])
+              ? current
+              : shared;
+          });
+          setBotDataByBot((current) => {
+            const shared = Object.fromEntries(Object.entries(nextBotDataByBot).map(([botId, data]) => [
+              botId,
+              current[botId] && JSON.stringify(current[botId]) === JSON.stringify(data) ? current[botId] : data,
+            ]));
+            const keys = Object.keys(shared);
+            return keys.length === Object.keys(current).length && keys.every((botId) => shared[botId] === current[botId])
+              ? current
+              : shared;
+          });
           setBotsError('');
           setBotSchedulerSnooze(state.schedulerSnooze ?? {
             active: false,
@@ -997,9 +1017,10 @@ export default function App() {
     })
   ), []);
 
-  const selectedApprovalRequests = useMemo(() => approvalRequests.filter(
-    (request) => request.conversationId === selectedId,
-  ), [approvalRequests, selectedId]);
+  const selectedApprovalRequests = useMemo(() => {
+    const requests = approvalRequests.filter((request) => request.conversationId === selectedId);
+    return requests.length > 0 ? requests : emptyList;
+  }, [approvalRequests, selectedId]);
   const approvalPending = useMemo(() => Object.fromEntries(
     approvalRequests.map((request) => [request.conversationId, true]),
   ), [approvalRequests]);
@@ -2548,16 +2569,25 @@ export default function App() {
   ]
     .filter(Boolean)
     .join(' ');
-  const recentModels = useMemo(() => {
-    const modelsById = new Map(models.map((model) => [model.id, model]));
+  const recentModelIds = useMemo(() => {
+    const configuredModelIds = new Set(models.map((model) => model.id));
     const ids = [];
     for (const modelId of [currentModel, ...conversations.map((conversation) => conversation.model)]) {
-      if (!modelId || ids.includes(modelId) || !modelsById.has(modelId)) continue;
+      if (!modelId || ids.includes(modelId) || !configuredModelIds.has(modelId)) continue;
       ids.push(modelId);
       if (ids.length === 8) break;
     }
-    return ids.map((modelId) => modelsById.get(modelId));
+    return ids.join('\n');
   }, [conversations, currentModel, models]);
+  const recentModels = useMemo(() => {
+    const modelsById = new Map(models.map((model) => [model.id, model]));
+    return recentModelIds ? recentModelIds.split('\n').map((modelId) => modelsById.get(modelId)) : emptyList;
+  }, [models, recentModelIds]);
+  const chatOnLoadOlderHistory = useStableCallback(() => loadOlderMessagePage(selectedId));
+  const chatOnOpenInbox = useStableCallback((botId, pendencyId) => {
+    setOrchestrationOpen(true);
+    setOverviewInboxNavigation(botId ? { botId, pendencyId } : null);
+  });
   const messagesLoaded = !selectedId || (
     messagePagesByConversation[selectedId]?.loaded
     ?? Object.hasOwn(messagesByConversation, selectedId)
@@ -2571,14 +2601,12 @@ export default function App() {
     isRunning: Boolean(selectedId && running[selectedId]),
     semaphoreWait: semaphoreWaits.find((wait) => wait.conversationId === selectedId) ?? null,
     recentProjects,
-    recentModels,
   }), [
     currentConversation,
     currentMessages,
     currentModel,
     contextUsage,
     messagesLoaded,
-    recentModels,
     recentProjects,
     running,
     selectedId,
@@ -2833,15 +2861,12 @@ export default function App() {
               {...shell}
               historyHasMore={messagePagesByConversation[selectedId]?.hasMore ?? false}
               historyLoading={messagePagesByConversation[selectedId]?.loading ?? false}
-              onLoadOlderHistory={() => loadOlderMessagePage(selectedId)}
+              onLoadOlderHistory={chatOnLoadOlderHistory}
               bots={bots}
               botDataByBot={botDataByBot}
               botsLoading={botsLoading}
               botsError={botsError}
-              onOpenInbox={(botId, pendencyId) => {
-                setOrchestrationOpen(true);
-                setOverviewInboxNavigation(botId ? { botId, pendencyId } : null);
-              }}
+              onOpenInbox={chatOnOpenInbox}
               botMode={Boolean(selectedBot)}
               onShowBotInPanel={selectedBot ? chatOnShowBotInPanel : undefined}
               emptyBackgroundEnabled={getTheme(appearance.themeId).emptyChatBackground !== false}
@@ -3011,7 +3036,7 @@ export default function App() {
                 semaphoreWaits={auxiliarySemaphoreWaits}
                 models={models}
                 favorites={favorites}
-                recentModels={shell.recentModels}
+                recentModels={recentModels}
                 recentProjects={recentProjects}
                 fallbackModel={currentModel}
                 conversationId={selectedId}
@@ -3203,6 +3228,9 @@ function upsertById(items, item) {
 
 function upsertMessage(items, item) {
   const index = items.findIndex((current) => current.id === item.id);
+  if (index !== -1 && items[index].createdAt === item.createdAt) {
+    return items.with(index, item);
+  }
   const next = index === -1
     ? [...items, item]
     : items.map((current) => (current.id === item.id ? item : current));
