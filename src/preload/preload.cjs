@@ -302,6 +302,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     replaceUserMessage: (payload) => invoke('chat:replace-user-message', payload),
     retry: (payload) => invoke('chat:retry', payload),
     expandPrompt: (payload) => invoke('chat:expand-prompt', payload),
+    translatePrompt: (payload) => invoke('chat:translate-prompt', payload),
     resolveApproval: (payload) => invoke('chat:resolve-approval', payload),
     questionActivity: (payload) => invoke('chat:question-activity', payload),
     answerQuestion: (payload) => invoke('chat:answer-question', payload),

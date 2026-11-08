@@ -125,6 +125,30 @@ A string containing the expanded prompt.
 - Placeholder or auxiliary JSON validation errors.
 - `The auxiliary model attempted to call a tool.`
 
+## `chat:translate-prompt`
+
+Translates a draft to English. Uses the AIVAX translation API (`/api/v1/generations/translate`) when an AIVAX account is connected; otherwise uses the configured auxiliary model, or `model` when no auxiliary model is configured.
+
+### Params
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `prompt` | string | Yes | Draft prompt to translate. Must contain non-whitespace text. |
+| `model` | string | No | Chat model ID used when AIVAX is not connected and no auxiliary model is configured. |
+
+### Result
+
+A string containing the translated prompt.
+
+### Errors
+
+- `Write a prompt before translating it.`
+- `Connect AIVAX, configure an auxiliary model, or select a chat model.`
+- `The selected model is unavailable.`
+- `AIVAX returned an empty translation.` or an AIVAX API error.
+- `The model did not return a translated prompt.`
+- `The model attempted to call a tool.`
+
 ## `chat:resolve-approval`
 
 Resolves a pending tool approval for this conversation. `allow_all` also persists permission guidance.

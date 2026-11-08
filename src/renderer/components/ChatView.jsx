@@ -206,6 +206,7 @@ export const ChatView = memo(function ChatView({
   onSend,
   onReplaceUserMessage,
   onExpandPrompt,
+  onTranslatePrompt,
   onStop,
   onQuickCompress,
   onCompress,
@@ -898,6 +899,7 @@ export const ChatView = memo(function ChatView({
                     isRunning={isRunning}
                     onSend={(payload) => handleReplaceUserMessage(message.id, payload)}
                     onExpandPrompt={onExpandPrompt}
+                    onTranslatePrompt={onTranslatePrompt}
                     onStop={onStop}
                     onQuickCompress={onQuickCompress}
                     onCompress={onCompress}
@@ -1138,6 +1140,7 @@ export const ChatView = memo(function ChatView({
         isRunning={isRunning}
         onSend={onSend}
         onExpandPrompt={onExpandPrompt}
+        onTranslatePrompt={onTranslatePrompt}
         onStop={onStop}
         onQuickCompress={onQuickCompress}
         onCompress={onCompress}

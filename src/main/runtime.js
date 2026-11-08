@@ -2819,6 +2819,7 @@ function registerIpc() {
   applicationIpc.handle('chat:retry', (_event, payload) => chatRunner.retry(payload));
   applicationIpc.handle('chat:expand-prompt', (_event, payload) => chatRunner.expandPrompt(payload));
   applicationIpc.handle('chat:resolve-approval', async (_event, payload) => {
+  applicationIpc.handle('chat:translate-prompt', (_event, payload) => chatRunner.translatePrompt(payload));
     const result = await chatRunner.resolveApproval(payload);
     refreshTrayMenu();
     return result;

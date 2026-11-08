@@ -126,6 +126,7 @@ const CONVERSATION_RPC_METHODS = new Set([
   'chat:replace-user-message',
   'chat:retry',
   'chat:expand-prompt',
+  'chat:translate-prompt',
   'chat:resolve-approval',
   'chat:answer-question',
   'chat:question-activity',

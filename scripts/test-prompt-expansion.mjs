@@ -38,6 +38,7 @@ try {
   const responses = [
     JSON.stringify({ replacements: { '%tecnologia%': 'test doubles determinísticos' } }),
     JSON.stringify({ expandedPrompt: 'Validate the existing tests and describe the observed results.' }),
+    JSON.stringify({ translatedPrompt: 'Validate the tests in `src/main`.' }),
   ];
   const runner = new ChatRunner({
     registry: {
@@ -155,6 +156,21 @@ try {
         usage: { inputTokens: 2, outputTokens: 3 },
       },
     ],
+  );
+
+  const translatedResult = await runner.translatePrompt({
+    conversationId: conversation.id,
+    prompt: 'Valide os testes em `src/main`.',
+  });
+  assert.equal(translatedResult, 'Validate the tests in `src/main`.');
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2].messages.length, 2);
+  assert.equal(calls[2].messages[1].content, 'Valide os testes em `src/main`.');
+  assert.match(calls[2].messages[0].content, /Translate the user's prompt to English/);
+  assert.deepEqual(calls[2].tools, []);
+  await assert.rejects(
+    runner.translatePrompt({ conversationId: conversation.id, prompt: '   ' }),
+    /Write a prompt before translating it/,
   );
 
   await assert.rejects(

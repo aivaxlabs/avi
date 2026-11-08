@@ -2199,6 +2199,14 @@ export default function App() {
       return null;
     }
   });
+  const chatOnTranslatePrompt = useStableCallback(async (payload) => {
+    try {
+      return await api.chat.translatePrompt(payload);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return null;
+    }
+  });
   const chatOnShowBotInPanel = useStableCallback(() => openBotQueueTab(selectedBot?.id));
   const chatOnFileReferenceAction = useStableCallback(handleFileReferenceAction);
   const sidebarSemaphoreWaiting = useMemo(() => Object.fromEntries(
@@ -2881,6 +2889,7 @@ export default function App() {
               onSend={chatOnSend}
               onReplaceUserMessage={chatOnReplaceUserMessage}
               onExpandPrompt={chatOnExpandPrompt}
+              onTranslatePrompt={chatOnTranslatePrompt}
               onImplementPlan={chatOnImplementPlan}
               questionRequest={questionRequests.find(
                 (request) => request.conversationId === selectedId,

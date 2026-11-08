@@ -241,6 +241,7 @@ export default function QuickChatApp() {
             setMessages((current) => upsertMessage(current, result.message));
           }}
           onExpandPrompt={(payload) => api.chat.expandPrompt(payload)}
+          onTranslatePrompt={(payload) => api.chat.translatePrompt(payload)}
           onStop={() => api.chat.stop(conversationId)}
           onQuickCompress={() => api.chat.compressQuick({ conversationId })}
           onCompress={() => api.chat.compress({

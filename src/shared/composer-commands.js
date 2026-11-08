@@ -45,6 +45,11 @@ export const composerCommands = [
     description: 'Expand and optimize the current prompt using the auxiliary model',
   },
   {
+    id: 'translate-prompt',
+    name: 'translate-prompt',
+    description: 'Translate the current prompt to English using AIVAX or the auxiliary model',
+  },
+  {
     id: 'side',
     name: 'side',
     description: 'Fork this chat into a temporary side panel',

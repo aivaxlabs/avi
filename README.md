@@ -98,7 +98,7 @@ Avi is a harness built from scratch which brings model conversations, cross-prov
   - Resume button on stopped or failed chats, which continue from the last assistant turn.
   - Configurable response verbosity: low, medium, or high verbosity for injected assistant instructions.
   - Trace + Requests diagnostics: a log mode that records the raw HTTP request and response of failed provider calls with secrets redacted.
-  - Improve your prompts and their clarity with /optimize-prompt, which also translates them to English.
+  - Improve your prompts and their clarity with /optimize-prompt, which also translates them to English, or only translate them with /translate-prompt.
 - **Rich chat content**:
   - Assistant messages can render callouts, diffs, diagrams, equations, and bar, line, and pie charts.
   - Workspace file excerpts and copyable text blocks rendered inline in the conversation.
