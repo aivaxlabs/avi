@@ -299,7 +299,7 @@ export async function createVideoFileResponse(path, rangeHeader = null) {
   });
 }
 
-export async function materializeAttachment(attachment) {
+export async function materializeAttachment(attachment, { preserveName = false } = {}) {
   if (typeof attachment.path === 'string' && isAbsolute(attachment.path)) {
     try {
       const path = await realpath(attachment.path);
@@ -312,10 +312,13 @@ export async function materializeAttachment(attachment) {
   const buffer = attachmentToBuffer(attachment);
   if (!buffer) return null;
 
-  await mkdir(temporaryAttachmentDirectory, { recursive: true });
   const safeName = basename(attachment.name || 'attachment.bin')
     .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
-  const path = resolve(temporaryAttachmentDirectory, `${crypto.randomUUID()}-${safeName}`);
+  const directory = preserveName
+    ? resolve(temporaryAttachmentDirectory, crypto.randomUUID())
+    : temporaryAttachmentDirectory;
+  await mkdir(directory, { recursive: true });
+  const path = resolve(directory, preserveName ? safeName : `${crypto.randomUUID()}-${safeName}`);
   await writeFile(path, buffer);
   return { path, temporary: true, materialized: true };
 }

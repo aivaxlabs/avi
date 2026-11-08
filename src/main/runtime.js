@@ -160,6 +160,7 @@ import {
   dropMissingAttachments,
   filePathToAttachment,
   inspectWorkspaceFiles,
+  materializeAttachment,
   materializeLegacyVideoAttachments,
   materializeVideoAttachment,
   listWorkspaceDirectory,
@@ -2818,8 +2819,8 @@ function registerIpc() {
   });
   applicationIpc.handle('chat:retry', (_event, payload) => chatRunner.retry(payload));
   applicationIpc.handle('chat:expand-prompt', (_event, payload) => chatRunner.expandPrompt(payload));
-  applicationIpc.handle('chat:resolve-approval', async (_event, payload) => {
   applicationIpc.handle('chat:translate-prompt', (_event, payload) => chatRunner.translatePrompt(payload));
+  applicationIpc.handle('chat:resolve-approval', async (_event, payload) => {
     const result = await chatRunner.resolveApproval(payload);
     refreshTrayMenu();
     return result;
@@ -2989,6 +2990,31 @@ function registerIpc() {
     }
     const error = await shell.openPath(await realpath(filePath));
     if (error) throw new Error(`Could not open attachment: ${error}`);
+    return true;
+  });
+  applicationIpc.handle('attachments:copy-file', async (_event, attachment = {}) => {
+    const materialized = await materializeAttachment(attachment, { preserveName: true });
+    if (!materialized) throw new Error(`Could not create a local copy of "${attachment.name ?? 'attachment'}".`);
+
+    switch (process.platform) {
+      case 'win32':
+        await execFileAsync(
+          'powershell.exe',
+          ['-NoProfile', '-NonInteractive', '-Command', 'Set-Clipboard -LiteralPath $env:AVI_CLIPBOARD_FILE'],
+          { env: { ...process.env, AVI_CLIPBOARD_FILE: materialized.path }, windowsHide: true },
+        );
+        break;
+      case 'darwin':
+        await execFileAsync('osascript', [
+          '-e', 'on run argv',
+          '-e', 'set the clipboard to POSIX file (item 1 of argv)',
+          '-e', 'end run',
+          materialized.path,
+        ]);
+        break;
+      default:
+        clipboard.writeBuffer('text/uri-list', Buffer.from(`${pathToFileURL(materialized.path).href}\r\n`));
+    }
     return true;
   });
   applicationIpc.handle('attachments:release-preview', (event, token) => {

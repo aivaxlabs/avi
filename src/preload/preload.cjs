@@ -349,6 +349,7 @@ contextBridge.exposeInMainWorld('chatApp', {
   },
   attachments: {
     imageAction: (payload) => invoke('attachments:image-action', payload),
+    copyFile: (attachment) => invoke('attachments:copy-file', attachment),
     open: (path) => invoke('attachments:open', path),
     preview: (attachment) => invoke('attachments:preview', attachment),
     releasePreview: (token) => invoke('attachments:release-preview', token),

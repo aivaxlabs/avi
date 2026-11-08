@@ -1298,6 +1298,15 @@
   background: transparent;
 }
 
+.attachment-context-menu {
+  width: 190px;
+
+  .dropdown-menu-item:focus-visible {
+    outline: 2px solid var(--text-3);
+    outline-offset: -2px;
+  }
+}
+
 .queued-message-actions-menu {
   width: 174px;
 

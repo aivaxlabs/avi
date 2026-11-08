@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Clock3,
   CornerDownLeft,
+  Copy,
   Eye,
   FileDiff,
   FileText,
@@ -34,6 +35,7 @@ import {
   SquareTerminal,
   Square,
   Target,
+  TextCursorInput,
   Trash2,
   Workflow,
   X,
@@ -66,6 +68,7 @@ import { ProviderUsages } from './ProviderUsages.jsx';
 import { Overlay, Presence } from './Overlay.jsx';
 
 const commandResultLimit = 30;
+const largeExpandedTextLength = 20_000;
 const emptyIntelligenceLevels = Object.freeze([]);
 const composerReasoningEffortsKey = 'aivax.composer.reasoning-efforts';
 
@@ -139,6 +142,7 @@ export function Composer({
   isRunning,
   onSend,
   onExpandPrompt,
+  onTranslatePrompt,
   onStop,
   onQuickCompress,
   onCompress,
@@ -228,6 +232,8 @@ export function Composer({
   const [draggedPendingMessage, setDraggedPendingMessage] = useState(null);
   const [queueMutationPending, setQueueMutationPending] = useState(false);
   const [queuedMenu, setQueuedMenu] = useState(null);
+  const [attachmentMenu, setAttachmentMenu] = useState(null);
+  const attachmentMenuRef = useRef(null);
   const [editingQueuedMessageId, setEditingQueuedMessageId] = useState(null);
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
   const [providerUsageProviders, setProviderUsageProviders] = useState([]);
@@ -788,6 +794,29 @@ export function Composer({
   }, [queuedMenu]);
 
   useEffect(() => {
+    if (!attachmentMenu) return undefined;
+    const controller = new AbortController();
+    window.addEventListener('pointerdown', (event) => {
+      if (!attachmentMenuRef.current?.contains(event.target)) setAttachmentMenu(null);
+    }, { signal: controller.signal, capture: true });
+    window.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      event.stopImmediatePropagation();
+      setAttachmentMenu(null);
+      attachmentMenu.target.focus();
+    }, { signal: controller.signal, capture: true });
+    window.addEventListener('resize', () => setAttachmentMenu(null), { signal: controller.signal });
+    attachmentMenuRef.current?.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
+    return () => controller.abort();
+  }, [attachmentMenu]);
+
+  useEffect(() => {
+    if (attachmentMenu && !attachments.some((item) => item.id === attachmentMenu.attachment.id)) {
+      setAttachmentMenu(null);
+    }
+  }, [attachmentMenu, attachments]);
+
+  useEffect(() => {
     if (queuedMenu && !pendingMessages.some((message) => message.id === queuedMenu.messageId)) {
       setQueuedMenu(null);
     }
@@ -955,7 +984,7 @@ export function Composer({
     });
   }
 
-  async function optimizePrompt(sourcePrompt, { replaceDraft = false } = {}) {
+  async function rewritePrompt(sourcePrompt, { mode = 'optimize', replaceDraft = false } = {}) {
     if (promptExpandingRef.current) return;
 
     const sourceConversationId = conversationId;
@@ -975,11 +1004,12 @@ export function Composer({
 
     setPlusOpen(false);
     promptExpandingRef.current = true;
-    setPromptExpanding(true);
+    setPromptExpanding(mode);
     try {
-      const expandedPrompt = await onExpandPrompt?.({
+      const expandedPrompt = await (mode === 'translate' ? onTranslatePrompt : onExpandPrompt)?.({
         conversationId: sourceConversationId,
         prompt: sourcePrompt,
+        model: currentModel,
       });
       if (
         typeof expandedPrompt !== 'string'
@@ -1039,8 +1069,9 @@ export function Composer({
         onQuickCompress();
         return;
       }
-      if (option.id === 'optimize-prompt') {
-        optimizePrompt(`${text.slice(0, commandStart)}${text.slice(cursorPosition)}`, {
+      if (option.id === 'optimize-prompt' || option.id === 'translate-prompt') {
+        rewritePrompt(`${text.slice(0, commandStart)}${text.slice(cursorPosition)}`, {
+          mode: option.id === 'translate-prompt' ? 'translate' : 'optimize',
           replaceDraft: true,
         });
         return;
@@ -1173,6 +1204,37 @@ export function Composer({
       event.preventDefault();
       setAttachments((items) => [...items, textToAttachment(pastedText)]);
     }
+  }
+
+  function openAttachmentMenu(event, attachment) {
+    if (attachment.kind === 'context_marker') return;
+    event.preventDefault();
+    event.stopPropagation();
+    setAttachmentMenu({
+      attachment,
+      target: event.currentTarget,
+      left: Math.max(8, Math.min(event.clientX, window.innerWidth - 198)),
+      top: Math.max(8, Math.min(event.clientY, window.innerHeight - 96)),
+    });
+  }
+
+  function expandAttachment(attachment) {
+    if (
+      attachment.text.length > largeExpandedTextLength
+      && !window.confirm(
+        `"${attachment.name}" has ${attachment.text.length.toLocaleString()} characters. `
+          + 'Expanding it in the composer may make editing slow and use a lot of context. Continue?',
+      )
+    ) return;
+
+    const nextText = [text, attachment.text].filter(Boolean).join('\n\n');
+    setText(nextText);
+    setCursorPosition(nextText.length);
+    setAttachments((items) => items.filter((item) => item.id !== attachment.id));
+    queueMicrotask(() => {
+      textAreaRef.current?.focus();
+      textAreaRef.current?.setSelectionRange(nextText.length, nextText.length);
+    });
   }
 
   function handleKeyDown(event) {
@@ -1699,7 +1761,55 @@ export function Composer({
         </DropdownMenu>,
         document.body,
       )}</Presence>
-      <div className={`composer${promptExpanding ? ' prompt-optimizing' : ''}`} aria-busy={promptExpanding}>
+      <Presence when={attachmentMenu}>{(attachmentMenu) => createPortal(
+        <DropdownMenu
+          ref={attachmentMenuRef}
+          className="attachment-context-menu"
+          fixed
+          role="menu"
+          aria-label={`Actions for ${attachmentMenu.attachment.name}`}
+          style={{ left: attachmentMenu.left, top: attachmentMenu.top }}
+          onKeyDown={(event) => {
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const items = [...event.currentTarget.querySelectorAll('[role="menuitem"]:not(:disabled)')];
+            const index = items.indexOf(document.activeElement);
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+              : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+            items[next]?.focus();
+          }}
+        >
+          <DropdownMenuItem
+            icon={<Copy size={14} />}
+            role="menuitem"
+            onClick={() => {
+              const { attachment, target } = attachmentMenu;
+              setAttachmentMenu(null);
+              target.focus();
+              window.chatApp.attachments.copyFile(attachment).catch((error) => {
+                window.alert(`Could not copy "${attachment.name}": ${error?.message || 'Unknown error.'}`);
+              });
+            }}
+          >
+            Copy file
+          </DropdownMenuItem>
+          {attachmentMenu.attachment.kind === 'text_inline' && typeof attachmentMenu.attachment.text === 'string' && (
+            <DropdownMenuItem
+              icon={<TextCursorInput size={14} />}
+              role="menuitem"
+              onClick={() => {
+                const { attachment } = attachmentMenu;
+                setAttachmentMenu(null);
+                expandAttachment(attachment);
+              }}
+            >
+              Expand in composer
+            </DropdownMenuItem>
+          )}
+        </DropdownMenu>,
+        document.body,
+      )}</Presence>
+      <div className={`composer${promptExpanding ? ' prompt-optimizing' : ''}`} aria-busy={Boolean(promptExpanding)}>
         {commandMode && (
           <section
             className="command-picker"
@@ -1786,6 +1896,7 @@ export function Composer({
                   key={attachment.id}
                   className="attachment-image"
                   {...attachmentOpenProps(attachment, setPreviewAttachment)}
+                  onContextMenu={(event) => openAttachmentMenu(event, attachment)}
                 >
                   <img src={attachment.dataUrl} alt={attachment.name} draggable="false" />
                   <figcaption>
@@ -1806,6 +1917,7 @@ export function Composer({
                   key={attachment.id}
                   className="attachment-image attachment-video"
                   {...attachmentOpenProps(attachment, setPreviewAttachment)}
+                  onContextMenu={(event) => openAttachmentMenu(event, attachment)}
                 >
                   <AttachmentVideo attachment={attachment} controls muted preload="metadata" />
                   <figcaption>
@@ -1826,6 +1938,7 @@ export function Composer({
                   key={attachment.id}
                   className={`attachment-chip${attachment.kind === 'context_marker' ? ' context-marker' : ''}`}
                   {...attachmentOpenProps(attachment, setPreviewAttachment)}
+                  onContextMenu={(event) => openAttachmentMenu(event, attachment)}
                 >
                   {attachment.kind === 'context_marker'
                     ? attachment.markerType === 'workflow'
@@ -1856,7 +1969,7 @@ export function Composer({
         {promptExpanding && (
           <div className="prompt-optimization-status" role="status" aria-live="polite">
             <LoaderCircle size={14} />
-            <span>Optimizing prompt...</span>
+            <span>{promptExpanding === 'translate' ? 'Translating prompt...' : 'Optimizing prompt...'}</span>
           </div>
         )}
         <div className="composer-main">
@@ -1957,9 +2070,9 @@ export function Composer({
                     ? <LoaderCircle className="goal-strip-spinner" size={14} />
                     : <Sparkles size={14} />}
                   disabled={promptExpanding || !text.trim()}
-                  onClick={() => optimizePrompt(text)}
+                  onClick={() => rewritePrompt(text)}
                 >
-                  {promptExpanding ? 'Optimizing prompt...' : 'Expand prompt'}
+                  {promptExpanding === 'optimize' ? 'Optimizing prompt...' : 'Expand prompt'}
                 </DropdownMenuItem>
                 <DropdownMenuItem icon={<HardDrive size={14} />} onClick={attachFromComputer}>
                   Attach from computer
