@@ -1,11 +1,22 @@
 import { performance } from 'node:perf_hooks';
-import { traceError, traceInfo } from '../trace-log.js';
+import { traceError, traceInfo, traceVerbose } from '../trace-log.js';
 import {
+  EVENT_LOOP_BEAT_MS,
+  EVENT_LOOP_LAG_TRACE_MS,
   WATCHDOG_INTERVAL_MS,
   WATCHDOG_MIN_STALL_MS,
   WATCHDOG_STALL_COUNT,
   WATCHDOG_WINDOW_MS,
 } from './constants.js';
+
+let lastBeatAt = performance.now();
+let longestDelay = 0;
+
+setInterval(() => {
+  const now = performance.now();
+  longestDelay = Math.max(longestDelay, now - lastBeatAt - EVENT_LOOP_BEAT_MS);
+  lastBeatAt = now;
+}, EVENT_LOOP_BEAT_MS).unref();
 
 export const watchdogMethods = {
   measureBlocking(conversationId, task) {
@@ -27,6 +38,15 @@ export const watchdogMethods = {
     const now = performance.now();
     const lag = now - this.watchdogExpectedAt;
     this.watchdogExpectedAt = now + WATCHDOG_INTERVAL_MS;
+
+    if (longestDelay >= EVENT_LOOP_LAG_TRACE_MS) {
+      traceVerbose('chat.event-loop-lag', {
+        lag_ms: Math.round(longestDelay),
+        concurrent_runs: this.runs.size,
+      });
+    }
+    longestDelay = 0;
+
     const limit = lag >= WATCHDOG_MIN_STALL_MS ? this.getPreferences().tuning?.eventLoopWatchdogMs ?? 0 : 0;
     if (!limit || lag < limit) {
       if (now - this.watchdogWindowStartedAt >= WATCHDOG_WINDOW_MS) {

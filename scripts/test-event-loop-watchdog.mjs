@@ -20,6 +20,8 @@ let database;
 try {
   database = await import('../src/main/database.js');
   const { ChatRunner } = await import('../src/main/chat-runner.js');
+  const { setTraceLevel } = await import('../src/main/trace-log.js');
+  setTraceLevel('verbose');
   const { createConversation, getMessage, getPreferences, setTuningSettings } = database;
 
   assert.equal(getPreferences().tuning.eventLoopWatchdogMs, 1_000);
@@ -95,7 +97,11 @@ try {
     && /blocked the app/.test(event.message)
   )));
   const trace = readFileSync(join(testProfile, '.aivax', 'trace.log'), 'utf8');
-  assert.match(trace, /chat\.watchdog-stopped/);
+  assert.match(trace, /chat\.watchdog-stopped: thread_id="[^"]+" blocked_ms=\d+ lag_ms=\d+ stalls=3 limit_ms=500/);
+  assert.match(trace, /chat\.watchdog-stall: lag_ms=\d+ stalls=1/);
+  const longestLag = Math.max(...[...trace.matchAll(/chat\.event-loop-lag: lag_ms=(\d+) concurrent_runs=\d+/g)]
+    .map((match) => Number(match[1])));
+  assert.ok(longestLag >= 600, `a 700 ms block is traced with its duration, got ${longestLag} ms`);
 
   runner.stop(healthy);
   await waitFor(() => runner.runs.size === 0);

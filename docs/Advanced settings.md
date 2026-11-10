@@ -48,6 +48,8 @@ Side chats also run quick compaction automatically before a response when their 
 
 **Stalled thread watchdog** offers Disabled, 0.5 s, 1 s (default), or 3 s. Avi checks every 250 ms how late its event loop responds, and records how much blocking time each thread spends handling stream events and saving messages. After three stalls longer than the selected value, each within 30 seconds of the previous one, Avi stops the running thread with the most blocking time. The message ends with a `watchdog_stopped` error, `trace.log` gets a `chat.watchdog-stopped` entry, and the thread's queue is paused. Other threads keep running. The watchdog acts only when the app responds again, so it cannot end a freeze that never returns control.
 
+Shorter stalls are recorded regardless of this setting: at the **Verbose** and **Trace + Requests** log levels, `trace.log` gets a `chat.event-loop-lag` entry for each 250 ms interval in which Avi's main process stopped responding for 100 ms or more. `lag_ms` is the longest delay in that interval and `concurrent_runs` is the number of threads running at that moment.
+
 ## Tuning → Tool execution
 
 - **Tool output length** — 4,096, 8,192 (default), 32,768 characters, or Disabled/No limit. The UI estimates tokens as characters divided by four. A tool definition can set `forcedTruncationLength` in estimated tokens to override this setting for its own output, including when global truncation is disabled. Disabling truncation can exhaust the model context window.
