@@ -263,6 +263,7 @@ export class BotManager {
     const bot = getBotByConversation(conversationId);
     if (!bot) return;
     updateBotScheduler(bot.id, { activeAssistantMessageId: assistantMessageId });
+    this.broadcast('bots:updated');
   }
 
   noteRunFinished(conversationId, assistantMessageId) {

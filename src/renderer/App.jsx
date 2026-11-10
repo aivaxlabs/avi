@@ -840,7 +840,11 @@ export default function App() {
         )));
       } else if (event.type === 'conversation') {
         if (event.conversation.isBot) {
-          void refreshBots();
+          setBots((state) => state.map((bot) => (
+            bot.conversationId === event.conversation.id
+              ? { ...bot, conversation: event.conversation }
+              : bot
+          )));
         } else if (event.conversation.isSubagent) {
           if (event.conversation.parentConversationId === selectedConversationIdRef.current) {
             setSubagents((state) => upsertById(state, event.conversation));

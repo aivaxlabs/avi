@@ -12,7 +12,8 @@ const { decideActivation } = await import('../src/main/bot-scheduling.js');
 
 try {
   const requests = [];
-  const manager = new BotManager();
+  const broadcasts = [];
+  const manager = new BotManager({ sendEvent: (_channel, payload) => broadcasts.push(payload.type) });
   const chatRunner = {
     runs: new Map(),
     async send(request) {
@@ -178,6 +179,12 @@ try {
     requests.at(-1).text,
     new RegExp(`kind="work"[\\s\\S]*<focus-task>${database.getBot(bot.id).workQueue[indexBeforeNext]}</focus-task>`),
   );
+
+  broadcasts.length = 0;
+  manager.noteRunStarted(bot.conversationId, 'started-run');
+  assert.deepEqual(broadcasts, ['bots:updated'], 'a run start refreshes the bot state shown by the renderer');
+  assert.equal(manager.describeBots()[0].scheduleState, 'working');
+  database.updateBotScheduler(bot.id, { activeAssistantMessageId: null });
 
   await manager.fullResetBot(bot.id);
   assert.equal(manager.describePriorityQueue(bot.id).length, 0, 'full reset clears the priority queue');
