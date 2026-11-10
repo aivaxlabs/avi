@@ -158,23 +158,30 @@ export class ModelProvider {
     }
 
     const exportMedia = (content) => exportUnsupportedMedia(content, model, invocationContext.conversationId);
+
+    // Providers and gateways drop or reject empty tool outputs, leaving their tool calls unanswered.
+    const nonEmptyToolOutput = (output) => (
+      (typeof output === 'string' ? output.trim() : output?.length) ? output : '<empty>'
+    );
+
     const body = await this.implementation.createBody({
       provider: this.config,
       model,
-      messages: messages.map((message) => (
-        message.role === 'user' && Array.isArray(message.content)
+      messages: messages.map((message) => {
+        if (message.role === 'tool') return { ...message, content: nonEmptyToolOutput(message.content) };
+        return message.role === 'user' && Array.isArray(message.content)
           ? { ...message, content: exportMedia(message.content) }
-          : message
-      )),
+          : message;
+      }),
       reasoningEffort,
       tools,
       toolHistory: toolHistory?.map((round) => ({
         ...round,
-        results: round.results.map((result) => (
-          result.mediaContent?.length
-            ? { ...result, mediaContent: exportMedia(result.mediaContent) }
-            : result
-        )),
+        results: round.results.map((result) => ({
+          ...result,
+          output: nonEmptyToolOutput(result.output),
+          ...(result.mediaContent?.length ? { mediaContent: exportMedia(result.mediaContent) } : {}),
+        })),
       })),
       invocationContext: { ...invocationContext, effectiveModelId: model.id },
     });
