@@ -108,6 +108,8 @@ function toResponsesInput(message, model, reasoningReuse) {
 
   const { reasoning_content: _reasoningContent, ...inputMessage } = message;
   const content = reasoning ? withThinkBlock(message.content, reasoning) : message.content;
+  if (!content?.length) return [];
+
   return [{
     ...inputMessage,
     content: Array.isArray(content) ? toResponsesContent(content) : content,
@@ -240,7 +242,7 @@ export const responsesApi = {
                   }]
                 : []),
             ]),
-            ...(round.messages ?? []).map((message) => ({
+            ...(round.messages ?? []).filter((message) => message.content?.length).map((message) => ({
               ...message,
               content: Array.isArray(message.content)
                 ? toResponsesContent(message.content)
