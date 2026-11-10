@@ -11,6 +11,55 @@ const DIRECTIVE_TYPES = new Set(['textDirective', 'leafDirective', 'containerDir
 
 export function remarkAviDirectives() {
   const processor = this;
+  const parse = processor.parser;
+
+  processor.parser = (document, file) => {
+    const lines = [];
+    const containers = [];
+    let fence = null;
+
+    for (const line of String(document).split('\n')) {
+      const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+      if (fence) {
+        if (marker?.[0] === fence[0] && marker.length >= fence.length && !line.trim().slice(marker.length)) {
+          fence = null;
+        }
+        lines.push(line);
+        continue;
+      }
+      if (marker) {
+        fence = marker;
+        lines.push(line);
+        continue;
+      }
+
+      const sameLine = /^(\s*)(:{3,})([a-z][\w-]*(?:\[[^\]\n]*\])?(?:\{[^}\n]*\})?)[ \t]*:{3,}\s*$/i.exec(line);
+      const parts = sameLine
+        ? [`${sameLine[1]}${sameLine[2]}${sameLine[3]}`, `${sameLine[1]}${sameLine[2]}`]
+        : [line];
+
+      for (const part of parts) {
+        const index = lines.push(part) - 1;
+        if (/^\s*:{3,}[a-z]/i.test(part)) {
+          containers.push({ index, height: 0 });
+        } else if (/^\s*:{3,}\s*$/.test(part) && containers.length > 0) {
+          // LLMs often reuse `:::` for nested containers, which closes the parent early.
+          // Fence lengths are rebuilt from the open/close order so each parent outgrows its children.
+          const container = containers.pop();
+          const height = container.height + 1;
+          const colons = ':'.repeat(height + 2);
+          lines[container.index] = lines[container.index].replace(/^(\s*):+/, `$1${colons}`);
+          lines[index] = part.replace(/^(\s*):+/, `$1${colons}`);
+          const parent = containers.at(-1);
+          if (parent) parent.height = Math.max(parent.height, height);
+        }
+      }
+    }
+
+    file.value = lines.join('\n');
+    return parse(file.value, file);
+  };
+
   return (tree, file) => {
     const visit = (node) => {
       if (!node.children) return;
@@ -188,11 +237,15 @@ function transformHeader(node, type, inline = false) {
 }
 
 function transformFileMention(node, file) {
-  const reference = parseFileReference(node.attributes);
+  const reference = parseFileReference(node.attributes, true);
   const value = node.attributes?.value
     ?? node.attributes?.source
     ?? sourceForChildren(node, file);
-  if (!reference || !value?.trim() || value.length > MAX_SOURCE_LENGTH) return null;
+  if (reference && !value?.trim()) {
+    node.children = [];
+    return { type: 'paragraph', children: [{ ...transformFileReference(node), type: 'textDirective' }] };
+  }
+  if (!reference || value.length > MAX_SOURCE_LENGTH) return null;
   const language = node.attributes?.language || /\.([\w]+)$/.exec(reference.path)?.[1] || 'text';
   return withElement(node, 'avi-file-mention', {
     path: reference.path,
