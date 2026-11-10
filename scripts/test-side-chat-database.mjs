@@ -439,7 +439,7 @@ try {
     inspectedInterruptedThread,
     /<\|assistant_start\|>Interrupted response<\|assistant_end\|>/,
   );
-  assert.equal(getConversation(interruptedThread.id), null);
+  assert.equal(getConversation(interruptedThread.id)?.id, interruptedThread.id);
 
   const completedThread = createConversation({
     model: 'test:model',
@@ -527,6 +527,8 @@ try {
   await inspectThreadTool.execute({ threadId: activeErroredThread.id }, inspectionContext);
   assert.equal(getConversation(activeErroredThread.id)?.id, activeErroredThread.id);
   inspectionContext.chatRunner.runs.delete(activeErroredThread.id);
+  await inspectThreadTool.execute({ threadId: activeErroredThread.id }, inspectionContext);
+  assert.equal(getConversation(activeErroredThread.id)?.id, activeErroredThread.id);
 
   deleteConversation(first.conversation.id, { hard: true });
   assert.equal(getConversation(first.conversation.id), null);

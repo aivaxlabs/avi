@@ -14,7 +14,6 @@ import {
 import { answerTextFromTextualBlocks } from '../../shared/textual-blocks.js';
 import {
   createConversation,
-  deleteConversation,
   forkConversation,
   getComposerState,
   getConversation,
@@ -1190,16 +1189,6 @@ export const threadActionTools = [
         ])),
         ...renderedTurns,
       ].join('\n');
-      const lastMessage = messages
-        .filter((message) => !message.hidden && !['queued', 'steered'].includes(message.status))
-        .at(-1);
-      if (
-        status === 'idle'
-        && !conversation.isBot
-        && ['aborted', 'error'].includes(lastMessage?.status)
-      ) {
-        deleteConversation(conversation.id);
-      }
       return result;
     },
   },
