@@ -6,6 +6,8 @@ import { resolveTerminalShell } from '../terminal-shell.js';
 
 const MAX_TERMINAL_OUTPUT_CHARS = 2_000_000;
 
+const TERMINAL_FLUSH_CHUNK_COUNT = 3;
+
 const MIN_TERMINAL_TIMEOUT_SECONDS = 1;
 
 const MAX_TERMINAL_TIMEOUT_SECONDS = 300;
@@ -16,16 +18,43 @@ export const TERMINAL_INPUT_IDLE_MS = 1_500;
 
 const ANSI_ESCAPE_SEQUENCE = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
 
+const SPLIT_ANSI_ESCAPE_SEQUENCE = /[\u001B\u009B][[\]()#;?]*[\d;]{0,32}$/;
+
 export const terminals = new Map();
 
-function appendTerminalOutput(terminal, chunk) {
-  terminal.output = `${terminal.output}${String(chunk)}`.replace(ANSI_ESCAPE_SEQUENCE, '');
-  if (terminal.output.length > MAX_TERMINAL_OUTPUT_CHARS) {
-    terminal.output = terminal.output.slice(-MAX_TERMINAL_OUTPUT_CHARS);
-    terminal.truncated = true;
+function flushTerminalOutput(terminal) {
+  const received = `${terminal.splitEscape}${terminal.pendingChunks.join('')}`;
+  const splitIndex = terminal.running ? received.search(SPLIT_ANSI_ESCAPE_SEQUENCE) : -1;
+  const text = (splitIndex < 0 ? received : received.slice(0, splitIndex)).replace(ANSI_ESCAPE_SEQUENCE, '');
+
+  terminal.pendingChunks = [];
+  terminal.splitEscape = splitIndex < 0 ? '' : received.slice(splitIndex);
+  if (!text) return;
+
+  terminal.chunks.push(text);
+  terminal.outputLength += text.length;
+  if (terminal.outputLength > MAX_TERMINAL_OUTPUT_CHARS) terminal.truncated = true;
+
+  while (terminal.outputLength - terminal.chunks[0].length >= MAX_TERMINAL_OUTPUT_CHARS) {
+    terminal.outputLength -= terminal.chunks.shift().length;
   }
+}
+
+function appendTerminalOutput(terminal, chunk) {
+  terminal.pendingChunks.push(String(chunk));
+  if (terminal.pendingChunks.length >= TERMINAL_FLUSH_CHUNK_COUNT) flushTerminalOutput(terminal);
   terminal.lastActivityAt = Date.now();
   terminal.events.emit('activity');
+}
+
+export function terminalOutput(terminal) {
+  flushTerminalOutput(terminal);
+
+  if (terminal.chunks.length > 1 || terminal.outputLength > MAX_TERMINAL_OUTPUT_CHARS) {
+    terminal.chunks = [terminal.chunks.join('').slice(-MAX_TERMINAL_OUTPUT_CHARS)];
+    terminal.outputLength = terminal.chunks[0].length;
+  }
+  return terminal.chunks[0] ?? '';
 }
 
 export function terminalStatus(terminal) {
@@ -45,7 +74,8 @@ function terminalSnapshot(terminal, { includeId = true } = {}) {
   } else if (status === 'failed') {
     parts.push(`Exit code: ${terminal.exitCode}${terminal.signal ? ` (signal: ${terminal.signal})` : ''}`);
   }
-  if (terminal.output) parts.push(terminal.output);
+  const output = terminalOutput(terminal);
+  if (output) parts.push(output);
   if (terminal.truncated) parts.push('[output truncated]');
   return parts.join('\n');
 }
@@ -188,7 +218,10 @@ export const terminalTools = [
         command: normalizedCommand,
         shell,
         events: new EventEmitter(),
-        output: '',
+        chunks: [],
+        pendingChunks: [],
+        splitEscape: '',
+        outputLength: 0,
         truncated: false,
         lastActivityAt: Date.now(),
         running: true,
@@ -206,6 +239,7 @@ export const terminalTools = [
         terminal.running = false;
         terminal.exitCode = exitCode;
         terminal.signal = exitSignal;
+        flushTerminalOutput(terminal);
         terminal.events.emit('close');
       });
 

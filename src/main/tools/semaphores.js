@@ -1,5 +1,10 @@
 import { getConversation, listAllConversations } from '../database.js';
-import { TERMINAL_INPUT_IDLE_MS, terminals, terminalStatus } from './terminal.js';
+import {
+  TERMINAL_INPUT_IDLE_MS,
+  terminalOutput,
+  terminals,
+  terminalStatus,
+} from './terminal.js';
 import { isThreadWaitingForInput } from './shared.js';
 
 const MIN_SLEEP_SECONDS = 5;
@@ -150,10 +155,11 @@ export const semaphoreTools = [
             const terminal = requireTerminal(kind, target);
             return {
               trigger,
-              isReleased: () => terminal.running
-                && terminal.output.length > 0
-                && !terminal.output.endsWith('\n')
-                && Date.now() - terminal.lastActivityAt >= TERMINAL_INPUT_IDLE_MS,
+              isReleased: () => {
+                if (!terminal.running || Date.now() - terminal.lastActivityAt < TERMINAL_INPUT_IDLE_MS) return false;
+                const output = terminalOutput(terminal);
+                return output.length > 0 && !output.endsWith('\n');
+              },
             };
           }
 
