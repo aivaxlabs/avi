@@ -123,8 +123,8 @@ export const terminalTools = [
           type: 'string',
           enum: ['sync', 'async'],
           enumDescriptions: [
-            'Wait for command completion and return full output inline. Strongly preferred for all one-shot commands (builds, tests, installs, scripts).',
-            'Wait for an initial idle/output signal, then return a terminal ID and output snapshot while the process continues running. Timeout caps how long to wait for the initial signal. Use ONLY for processes that must keep running indefinitely (servers, watchers, daemons).',
+            'Wait for command completion and return full output inline. Stdin is closed, so commands that read stdin or prompt for input receive EOF immediately instead of waiting. Strongly preferred for all one-shot, non-interactive commands (builds, tests, installs, scripts).',
+            'Wait for an initial idle/output signal, then return a terminal ID and output snapshot while the process continues running. Stdin stays open for send_to_terminal. Timeout caps how long to wait for the initial signal. Use ONLY for processes that must keep running indefinitely (servers, watchers, daemons) or that require interactive input.',
           ],
           description: 'Execution mode for this command. Use sync (default) for nearly all commands.',
         },
@@ -179,6 +179,7 @@ export const terminalTools = [
         cwd: workspacePath ? resolve(workspacePath) : process.cwd(),
         env: process.env,
         shell: false,
+        stdio: [executionMode === 'sync' ? 'ignore' : 'pipe', 'pipe', 'pipe'],
         windowsHide: true,
       });
       const terminal = {
@@ -225,7 +226,8 @@ export const terminalTools = [
       }
 
       if (waitResult === 'timeout' && terminal.running) {
-        return `The command reached the ${timeoutSeconds}-second timeout and is still running. Use terminal ID "${terminal.id}" to read its partial output or interact with it.\n${terminalSnapshot(terminal)}`;
+        const followUp = executionMode === 'sync' ? 'read its partial output' : 'read its partial output or interact with it';
+        return `The command reached the ${timeoutSeconds}-second timeout and is still running. Use terminal ID "${terminal.id}" to ${followUp}.\n${terminalSnapshot(terminal)}`;
       }
       return terminalSnapshot(terminal, { includeId: executionMode === 'async' || terminal.running });
     },
@@ -240,7 +242,7 @@ export const terminalTools = [
       properties: {
         id: {
           type: 'string',
-          description: 'The ID of an active terminal execution to send a command to (returned by run_in_terminal for async executions, or for sync executions that timed out and were moved to the background).',
+          description: 'The ID of an active async terminal execution returned by run_in_terminal. Sync executions have stdin closed and do not accept input.',
           pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
         },
         command: {
@@ -257,6 +259,9 @@ export const terminalTools = [
     execute: async ({ id, command, waitForOutput }) => {
       const terminal = terminals.get(String(id));
       if (!terminal) throw new Error('The terminal execution was not found.');
+      if (!terminal.child.stdin) {
+        throw new Error('This terminal execution was started in sync mode and does not accept input. Run interactive commands with mode "async".');
+      }
       if (!terminal.running || !terminal.child.stdin.writable) {
         throw new Error('The terminal execution is no longer active.');
       }
