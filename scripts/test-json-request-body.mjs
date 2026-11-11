@@ -48,6 +48,34 @@ try {
     for await (const _chunk of aborted.body) {}
   }, /cancelled/);
 
+  const plain = {
+    model: 'test-ü',
+    messages: [{ role: 'user', content: 'a "quoted" line\n' }],
+    optional: undefined,
+    array: [undefined, 1],
+  };
+  const plainRequest = createJsonRequestBody(plain);
+  const plainChunks = await Array.fromAsync(plainRequest.body);
+
+  assert.equal(plainChunks.length, 1);
+  assert.equal(plainChunks[0].toString('utf8'), JSON.stringify(plain));
+  assert.equal(plainRequest.contentLength, plainChunks[0].length);
+  assert.throws(() => createJsonRequestBody(undefined), /not JSON serializable/);
+
+  const repeatedRequest = createJsonRequestBody({
+    raw: fileBase64JsonValue(filePath, 'video/mp4', { dataUrl: false }),
+    text: 'between',
+    url: fileBase64JsonValue(filePath, 'video/mp4'),
+  });
+  const repeated = Buffer.concat(await Array.fromAsync(repeatedRequest.body));
+
+  assert.equal(repeated.toString('utf8'), JSON.stringify({
+    raw: bytes.toString('base64'),
+    text: 'between',
+    url: `data:video/mp4;base64,${bytes.toString('base64')}`,
+  }));
+  assert.equal(repeatedRequest.contentLength, repeated.length);
+
   console.log('JSON request body tests passed.');
 } finally {
   await rm(root, { recursive: true, force: true });
