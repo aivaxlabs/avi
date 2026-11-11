@@ -1289,7 +1289,7 @@ function createTray() {
 
 function refreshTrayMenu() {
   if (!tray) return;
-  const recentChats = listConversations().slice(0, 5).map((conversation) => {
+  const recentChats = listConversations({ limit: 5 }).map((conversation) => {
     const run = chatRunner?.runs.get(conversation.id);
     const status = ['approval', 'question'].includes(run?.phase)
       ? 'input required'

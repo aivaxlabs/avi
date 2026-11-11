@@ -459,6 +459,15 @@ try {
   });
   await inspectThreadTool.execute({ threadId: completedThread.id }, inspectionContext);
   assert.equal(getConversation(completedThread.id)?.id, completedThread.id);
+  assert.equal(getConversation(interruptedThread.id).lastMessageStatus, 'aborted');
+  assert.equal(
+    listConversations().find((thread) => thread.id === completedThread.id).lastMessageRole,
+    'assistant',
+  );
+  assert.deepEqual(
+    listConversations({ limit: 2 }).map((thread) => thread.id),
+    listConversations().slice(0, 2).map((thread) => thread.id),
+  );
 
   const structuredThread = createConversation({
     model: 'test:model',
@@ -552,6 +561,24 @@ try {
     ['Euclid'],
   );
   assert.equal(listSubagents(parent.id)[0].firstPrompt, 'Inspect the initial queue state.');
+
+  const { semaphoreTools } = await import('../src/main/tools/semaphores.js');
+  const subagentRuns = new Map([[subagent.conversation.id, {}]]);
+  setTimeout(() => subagentRuns.delete(subagent.conversation.id), 700);
+  const sleepStartedAt = Date.now();
+  const sleepResult = await semaphoreTools.find((tool) => tool.name === 'sleep').execute(
+    { seconds: 20, releaseTriggers: ['after_subagents_stop'] },
+    {
+      conversationId: parent.id,
+      chatRunner: { runs: subagentRuns, semaphores: { waitSnapshot: () => null } },
+    },
+  );
+
+  assert.ok(Date.now() - sleepStartedAt >= 700);
+  assert.match(sleepResult, /Released by: after_subagents_stop/);
+  assert.ok(sleepResult.includes(
+    `Sub-agents:\n- Euclid\n  Thread ID: ${subagent.conversation.id}\n  Status: idle`,
+  ));
   const subagentModelMessages = toModelMessages(subagent.conversation.id);
   assert.ok(subagentModelMessages[0].content.includes('thread_type: subagent'));
   assert.ok(subagentModelMessages[0].content.includes(`thread_id: ${subagent.conversation.id}`));

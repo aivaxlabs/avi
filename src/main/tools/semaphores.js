@@ -1,4 +1,4 @@
-import { getConversation, listAllConversations } from '../database.js';
+import { getConversation, listSubagents } from '../database.js';
 import {
   TERMINAL_INPUT_IDLE_MS,
   terminalOutput,
@@ -120,10 +120,7 @@ export const semaphoreTools = [
           case 'after_subagents_stop':
             return {
               trigger,
-              isReleased: () => listAllConversations()
-                .filter((conversation) => (
-                  conversation.isSubagent && conversation.parentConversationId === conversationId
-                ))
+              isReleased: () => listSubagents(conversationId)
                 .every((subagent) => isThreadStopped(subagent.id)),
             };
 
@@ -198,10 +195,7 @@ export const semaphoreTools = [
       const sleptSeconds = Math.round((Date.now() - startedAt) / 10) / 100;
       const matchingTerminals = [...terminals.values()]
         .filter((terminal) => terminal.conversationId === conversationId);
-      const subagents = listAllConversations()
-        .filter((conversation) => (
-          conversation.isSubagent && conversation.parentConversationId === conversationId
-        ));
+      const subagents = listSubagents(conversationId);
       return [
         `Slept ${sleptSeconds} seconds.`,
         `Released by: ${releasedBy ?? 'timeout'}`,

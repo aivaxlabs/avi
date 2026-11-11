@@ -649,6 +649,13 @@ if (db.prepare("PRAGMA table_info('messages')").all().find((column) => column.na
     COMMIT;
   `);
 }
+// `updated_at` is stored after the large message columns, so reading it from the table walks every
+// overflow page of the row. The latest-message joins read it from this index instead, and name it
+// with INDEXED BY because the planner otherwise picks the primary key index.
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_messages_latest_state
+    ON messages(id, role, status, updated_at, stopped_by_user);
+`);
 const botColumns = db.prepare("PRAGMA table_info('bots')").all();
 if (!botColumns.some((column) => column.name === 'execution_mode')) {
   db.exec('ALTER TABLE bots ADD COLUMN execution_mode TEXT');
@@ -977,7 +984,7 @@ const statements = {
       latest.updated_at AS last_message_updated_at,
       latest.stopped_by_user AS last_message_stopped_by_user
     FROM conversations c
-    LEFT JOIN messages latest ON latest.id = (
+    LEFT JOIN messages latest INDEXED BY idx_messages_latest_state ON latest.id = (
       SELECT id FROM messages
       WHERE conversation_id = c.id AND hidden = 0
         AND status NOT IN ('queued', 'steered')
@@ -991,6 +998,7 @@ const statements = {
         WHERE conversation_id = c.id AND hidden = 0
       )
     ORDER BY c.updated_at DESC
+    LIMIT ?
   `),
   listSideChats: db.prepare(`
     SELECT c.*,
@@ -1045,7 +1053,7 @@ const statements = {
         ORDER BY created_at LIMIT 1
       ), '') AS first_prompt
     FROM conversations c
-    LEFT JOIN messages latest ON latest.id = (
+    LEFT JOIN messages latest INDEXED BY idx_messages_latest_state ON latest.id = (
       SELECT id FROM messages
       WHERE conversation_id = c.id AND hidden = 0 AND role IN ('user', 'assistant')
       ORDER BY created_at DESC, rowid DESC LIMIT 1
@@ -1120,7 +1128,7 @@ const statements = {
       latest.updated_at AS last_message_updated_at,
       latest.stopped_by_user AS last_message_stopped_by_user
     FROM conversations c
-    LEFT JOIN messages latest ON latest.id = (
+    LEFT JOIN messages latest INDEXED BY idx_messages_latest_state ON latest.id = (
       SELECT id FROM messages
       WHERE conversation_id = c.id AND hidden = 0
         AND status NOT IN ('queued', 'steered')
@@ -2393,8 +2401,8 @@ export function deleteQuickChats() {
   return ids.length;
 }
 
-export function listConversations() {
-  return statements.listConversations.all().map(mapConversation);
+export function listConversations({ limit = -1 } = {}) {
+  return statements.listConversations.all(limit).map(mapConversation);
 }
 
 export function markConversationAttentionSeen(id) {
