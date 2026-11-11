@@ -269,7 +269,7 @@ try {
   const normalizedPath = join(testRoot, 'normalized.txt');
   await writeFile(
     normalizedPath,
-    'Cafe\u0301 Action 👩‍💻\r\nsecond line\nthird line\r\n',
+    'Cafe\u0301 Action 👩‍💻\r\nsecond line\nthird line… 1ª 2º m²\r\n',
     'utf8',
   );
   const normalized = await tool.execute({
@@ -279,11 +279,11 @@ try {
       newString: 'edição 👍🏽\nupdated line',
     }],
   });
-  const normalizedContent = 'Café edição 👍🏽\r\nupdated line\r\nthird line\r\n';
+  const normalizedContent = 'Café edição 👍🏽\r\nupdated line\r\nthird line… 1ª 2º m²\r\n';
   assert.equal(await readFile(normalizedPath, 'utf8'), normalizedContent);
   assert.deepEqual(normalized.fileChanges, [{
     filePath: normalizedPath,
-    before: 'Cafe\u0301 Action 👩‍💻\r\nsecond line\nthird line\r\n',
+    before: 'Cafe\u0301 Action 👩‍💻\r\nsecond line\nthird line… 1ª 2º m²\r\n',
     after: normalizedContent,
   }]);
 

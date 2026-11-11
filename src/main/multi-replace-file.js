@@ -35,7 +35,7 @@ function getLineEntries(content) {
 
 function normalizeText(value) {
   return value
-    .normalize('NFKC')
+    .normalize('NFC')
     .replace(/\r\n|\r|\n/g, '\n');
 }
 
