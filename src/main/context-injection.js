@@ -3,6 +3,7 @@ import { mkdir, opendir, readFile, realpath, rename, stat, writeFile } from 'nod
 import { availableParallelism, homedir } from 'node:os';
 import path from 'node:path';
 import { composerCommands } from '../shared/composer-commands.js';
+import { canonicalWorktree } from './semantic-grep-scan.js';
 import {
   traceError,
   traceVerbose,
@@ -1100,6 +1101,8 @@ async function scanContextFiles(
   const botInstructionFiles = [];
   const skillFiles = [];
   const workflowFiles = [];
+  const linkedWorktrees = [];
+  const linkedDirectories = [];
   const seenDirectories = new Set();
   const pendingDirectories = [{ path: root, contextRoot: includeRootCatalog ? root : null, depth: 0 }];
   const deadline = Date.now() + CONTEXT_SCAN_TIMEOUT_MS;
@@ -1117,9 +1120,11 @@ async function scanContextFiles(
         ? directoryPath
         : null);
     let directoryKey;
+    let realDirectoryPath;
     try {
+      realDirectoryPath = await realpath(directoryPath);
       directoryKey = [
-        normalizePathKey(await realpath(directoryPath)),
+        normalizePathKey(realDirectoryPath),
         effectiveContextRoot ? normalizePathKey(effectiveContextRoot) : '',
       ].join('|');
     } catch {
@@ -1144,6 +1149,9 @@ async function scanContextFiles(
         }
 
         const normalizedName = entry.name.toLowerCase();
+        if (normalizedName === '.git' && entry.isFile()) {
+          linkedWorktrees.push({ path: directoryPath, realPath: realDirectoryPath });
+        }
         if (IGNORED_WORKSPACE_DIRECTORIES.has(normalizedName)) continue;
 
         const entryPath = path.join(directoryPath, entry.name);
@@ -1157,6 +1165,7 @@ async function scanContextFiles(
           } catch {
             continue;
           }
+          if (isDirectory) linkedDirectories.push(entryPath);
         }
         if (isDirectory) {
           childDirectories.push({
@@ -1203,9 +1212,21 @@ async function scanContextFiles(
     await mapContextConcurrent(pendingDirectories.splice(0, CONTEXT_SCAN_CONCURRENCY), visit);
   }
 
-  const sortPaths = (paths) => uniqueFiles(paths).sort((left, right) => (
-    left.localeCompare(right, undefined, { numeric: true })
-  ));
+  // Like semantic grep, a linked worktree is skipped when its main worktree (or a shorter linked one)
+  // is also reachable from this root, including through symlinks and junctions.
+  const scanRoots = [
+    await realpath(root).catch(() => root),
+    ...await Promise.all(linkedDirectories.map((directory) => realpath(directory).catch(() => directory))),
+  ];
+  const skippedWorktrees = (await Promise.all(linkedWorktrees.map(async (worktree) => (
+    normalizePathKey(await canonicalWorktree(worktree.realPath, scanRoots).catch(() => worktree.realPath))
+      === normalizePathKey(worktree.realPath)
+      ? null
+      : `${normalizePathKey(worktree.path)}${path.sep}`
+  )))).filter(Boolean);
+  const sortPaths = (paths) => uniqueFiles(paths)
+    .filter((file) => !skippedWorktrees.some((worktree) => normalizePathKey(file).startsWith(worktree)))
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
   return {
     instructionFiles: sortPaths(instructionFiles),
     botInstructionFiles: sortPaths(botInstructionFiles),
