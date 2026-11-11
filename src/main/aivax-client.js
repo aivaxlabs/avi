@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+import { createServer } from 'node:http';
 import WebSocket from 'ws';
 import { getAivaxAccessToken } from './database.js';
 import { diagnosticFetch as fetch, withRequestDiagnostics } from './request-diagnostics.js';
@@ -5,15 +7,85 @@ import { diagnosticFetch as fetch, withRequestDiagnostics } from './request-diag
 const AIVAX_API_BASE_URL = 'https://inference.aivax.net';
 export const AIVAX_LONG_INFERENCE_BASE_URL = 'https://direct.inference.aivax.net';
 
-export async function loginToAivax(loginKey, { signal } = {}) {
-  const key = String(loginKey ?? '').trim();
-  if (!key) throw new Error('Enter your AIVAX login key.');
-  return requestAivax('/api/v1/auth/login', {
-    body: { loginKey: key },
-    accessToken: null,
-    responseType: 'object',
-    signal,
+const AIVAX_OAUTH_CALLBACK_PATH = '/aivax/oauth/callback';
+const AIVAX_OAUTH_TIMEOUT_MS = 10 * 60 * 1000;
+const AIVAX_OAUTH_PERMISSIONS = [
+  'InferenceGenerations',
+  'ResourcesRead',
+  'ResourcesWrite',
+  'RagRead',
+  'RagWrite',
+  'ManagementAnalytics',
+  'Account',
+  'WebUtilities',
+];
+
+export async function authorizeAivax({ openExternal, signal } = {}) {
+  const state = randomBytes(24).toString('hex');
+  let settle;
+  const callback = new Promise((resolve, reject) => {
+    settle = { resolve, reject };
   });
+  callback.catch(() => {});
+
+  const server = createServer((request, response) => {
+    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+    if (url.pathname !== AIVAX_OAUTH_CALLBACK_PATH || url.searchParams.get('state') !== state) {
+      response.writeHead(404).end('Not found');
+      return;
+    }
+
+    const accessToken = url.searchParams.get('access_token');
+    response.writeHead(accessToken ? 200 : 400, { 'Content-Type': 'text/html; charset=utf-8' });
+    response.end(accessToken
+      ? '<h1>AIVAX connected</h1><p>You can close this window and return to Avi.</p>'
+      : '<h1>AIVAX was not connected</h1><p>Return to Avi to try again.</p>');
+
+    if (accessToken) settle.resolve(accessToken);
+    else settle.reject(new Error(url.searchParams.get('error') === 'access_denied'
+      ? 'AIVAX authorization was denied.'
+      : 'AIVAX did not return an access token.'));
+  });
+
+  const cancel = () => settle.reject(new Error('AIVAX authorization was canceled.'));
+  const timer = setTimeout(
+    () => settle.reject(new Error('AIVAX authorization timed out. Try again.')),
+    AIVAX_OAUTH_TIMEOUT_MS,
+  );
+  if (signal?.aborted) cancel();
+  signal?.addEventListener('abort', cancel, { once: true });
+
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+
+    const returnUrl = new URL(`http://127.0.0.1:${server.address().port}${AIVAX_OAUTH_CALLBACK_PATH}`);
+    returnUrl.searchParams.set('state', state);
+    const { authorizationUrl } = await requestAivax('/api/v1/auth/oauth', {
+      accessToken: null,
+      body: {
+        clientName: 'Avi Desktop',
+        reason: 'Use AIVAX memory, web, media, search, and Remote Control features from Avi on this computer.',
+        permissions: AIVAX_OAUTH_PERMISSIONS,
+        returnUrl: returnUrl.href,
+      },
+      responseType: 'object',
+      signal,
+    });
+    if (typeof authorizationUrl !== 'string' || !authorizationUrl.startsWith('https://')) {
+      throw new Error('AIVAX returned an invalid authorization address.');
+    }
+
+    await openExternal(authorizationUrl);
+    return await callback;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', cancel);
+    server.close();
+    server.closeAllConnections();
+  }
 }
 
 export async function requestAivax(path, {

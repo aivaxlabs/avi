@@ -2,7 +2,7 @@ import {
   ChevronDown,
   ExternalLink,
   Folder,
-  KeyRound,
+  LogIn,
   LogOut,
   Plus,
   RefreshCw,
@@ -134,8 +134,7 @@ export function AivaxFeaturesSettings() {
   const [state, setState] = useState(null);
   const [collections, setCollections] = useState([]);
   const [mediaModels, setMediaModels] = useState({ image: [], audio: [] });
-  const [loginKey, setLoginKey] = useState('');
-  const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+  const [authorizing, setAuthorizing] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
   const [collectionPickerTarget, setCollectionPickerTarget] = useState(null);
   const [collectionCreateTarget, setCollectionCreateTarget] = useState(null);
@@ -215,10 +214,18 @@ export function AivaxFeaturesSettings() {
     }
   }
 
-  function closeLoginDialog() {
-    setLoginDialogOpen(false);
-    setLoginKey('');
+  async function connect() {
+    setAuthorizing(true);
     setError('');
+    try {
+      setState(await window.chatApp.aivax.connect());
+      const items = await window.chatApp.aivax.collections();
+      setCollections(Array.isArray(items) ? items : []);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+    } finally {
+      setAuthorizing(false);
+    }
   }
 
   if (!state) {
@@ -245,25 +252,36 @@ export function AivaxFeaturesSettings() {
               <button
                 className="button primary"
                 type="button"
-                onClick={() => {
-                  setError('');
-                  setLoginDialogOpen(true);
-                }}
+                disabled={authorizing}
+                onClick={connect}
               >
-                <KeyRound size={15} />
-                Link login key
+                {authorizing ? <span className="aivax-spinner" aria-hidden="true" /> : <LogIn size={15} />}
+                {authorizing ? <>Waiting for approval&hellip;</> : 'Sign in with AIVAX'}
               </button>
-              <button
-                className="button"
-                type="button"
-                onClick={() => window.chatApp.app.openExternal('https://console.aivax.net/login')}
-              >
-                Create an account
-                <ExternalLink size={13} />
-              </button>
+              {authorizing ? (
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => window.chatApp.aivax.cancelConnect()}
+                >
+                  Cancel
+                </button>
+              ) : (
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => window.chatApp.app.openExternal('https://console.aivax.net/login')}
+                >
+                  Create an account
+                  <ExternalLink size={13} />
+                </button>
+              )}
             </div>
+            {error && <div className="settings-context-error" role="alert">{error}</div>}
             <p className="aivax-landing-security">
-              The login key is exchanged once. Avi stores only the resulting access token, encrypted locally.
+              {authorizing
+                ? 'Review and approve the request for Avi Desktop in your browser, then return here.'
+                : 'Avi opens the AIVAX console in your browser to approve access. Only the resulting access token is stored, encrypted locally.'}
             </p>
           </div>
         </section>
@@ -293,98 +311,6 @@ export function AivaxFeaturesSettings() {
             </div>
           </dl>
         </section>
-
-        <Presence when={loginDialogOpen}>{() => (
-          <Overlay
-            className="dialog-backdrop aivax-login-dialog-backdrop"
-            onMouseDown={() => !busy && closeLoginDialog()}
-          >
-            <section
-              className="aivax-login-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="aivax-login-dialog-title"
-              aria-describedby="aivax-login-dialog-description"
-              onMouseDown={(event) => event.stopPropagation()}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape' && !busy) closeLoginDialog();
-              }}
-            >
-              <header className="dialog-header">
-                <div>
-                  <img src={aivaxLogoUrl} width="1404" height="266" alt="" />
-                  <h2 id="aivax-login-dialog-title">Link your AIVAX account</h2>
-                  <p id="aivax-login-dialog-description">
-                    Paste the login key from your AIVAX account. Avi exchanges it once for an encrypted access token.
-                  </p>
-                </div>
-                <button
-                  className="icon-button tiny"
-                  type="button"
-                  aria-label="Close login key dialog"
-                  disabled={busy}
-                  onClick={closeLoginDialog}
-                >
-                  <X size={16} />
-                </button>
-              </header>
-              <form
-                className="aivax-login-form"
-                onSubmit={async (event) => {
-                  event.preventDefault();
-                  setBusy(true);
-                  setError('');
-                  try {
-                    const nextState = await window.chatApp.aivax.connect(loginKey);
-                    setState(nextState);
-                    setLoginKey('');
-                    setLoginDialogOpen(false);
-                    const items = await window.chatApp.aivax.collections();
-                    setCollections(Array.isArray(items) ? items : []);
-                  } catch (nextError) {
-                    setError(nextError instanceof Error ? nextError.message : String(nextError));
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                <label>
-                  <span>Login key</span>
-                  <input
-                    className="input"
-                    autoFocus
-                    type="password"
-                    autoComplete="off"
-                    spellCheck="false"
-                    value={loginKey}
-                    disabled={busy}
-                    onChange={(event) => setLoginKey(event.target.value)}
-                    placeholder="Paste your AIVAX login key"
-                  />
-                </label>
-                {error && <div className="settings-context-error" role="alert">{error}</div>}
-                <div className="aivax-login-actions">
-                  <button
-                    className="button"
-                    type="button"
-                    disabled={busy}
-                    onClick={closeLoginDialog}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="button primary"
-                    type="submit"
-                    disabled={busy || !loginKey.trim()}
-                  >
-                    {busy ? <span className="aivax-spinner" aria-hidden="true" /> : <KeyRound size={15} />}
-                    {busy ? <>Linking&hellip;</> : 'Link account'}
-                  </button>
-                </div>
-              </form>
-            </section>
-          </Overlay>
-        )}</Presence>
       </div>
     );
   }
@@ -424,12 +350,12 @@ export function AivaxFeaturesSettings() {
       <section className="settings-section" id="aivax-feature-panel-account" role="tabpanel" aria-labelledby="aivax-feature-tab-account" hidden={tab !== 'account'}>
         <div className="settings-section-heading">
           <h3>Account</h3>
-          <p>Connect Avi to AIVAX using a login key. The resulting access token is encrypted locally.</p>
+          <p>Avi is authorized through AIVAX OAuth. The access token is encrypted locally.</p>
         </div>
         <div className="settings-section-card settings-row-card">
           <div className="settings-card-row aivax-account-row">
             <span>
-              <strong>Login key</strong>
+              <strong>Authorized application</strong>
               <small>Connected · ••••••••••••••••</small>
             </span>
             <div className="aivax-account-actions">

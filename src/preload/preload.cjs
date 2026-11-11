@@ -113,7 +113,8 @@ contextBridge.exposeInMainWorld('chatApp', {
   },
   aivax: {
     state: () => invoke('aivax:state'),
-    connect: (loginKey) => invoke('aivax:connect', loginKey),
+    connect: () => invoke('aivax:connect'),
+    cancelConnect: () => invoke('aivax:cancel-connect'),
     disconnect: () => invoke('aivax:disconnect'),
     save: (settings) => invoke('aivax:save', settings),
     collections: () => invoke('aivax:collections'),
@@ -372,6 +373,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     create: (payload) => invoke('context:create', payload),
     read: (targetPath) => invoke('context:read', targetPath),
     write: (payload) => invoke('context:write', payload),
+    refine: (payload) => invoke('context:refine', payload),
     setVisibility: (payload) => invoke('context:set-visibility', payload),
   },
   mentions: {

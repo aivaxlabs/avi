@@ -10,8 +10,8 @@ process.env.USERPROFILE = resolvedProfile;
 
 const {
   AIVAX_LONG_INFERENCE_BASE_URL,
+  authorizeAivax,
   importAivaxDocuments,
-  loginToAivax,
   requestAivax,
   summarizeWithAivax,
 } = await import('../src/main/aivax-client.js');
@@ -33,21 +33,54 @@ const reply = (value, { status = 200, statusText = 'OK' } = {}) => {
 };
 
 try {
-  reply({
-    message: null,
-    data: {
-      accessToken: 'test-access-token',
-      account: { plan: ['Max'] },
+  reply({ message: null, data: { authorizationUrl: 'https://console.aivax.net/oauth/authorize?tnonce=abc', expiresIn: 3600 } });
+  const callbackRequest = (address, query) => {
+    const callbackUrl = new URL(address);
+    for (const [key, value] of Object.entries(query)) callbackUrl.searchParams.set(key, value);
+    return originalFetch(callbackUrl);
+  };
+  let opened = null;
+  const accessToken = await authorizeAivax({
+    openExternal: async (url) => {
+      opened = url;
+      const { returnUrl } = JSON.parse(requests[0].options.body);
+      const wrongState = await callbackRequest(returnUrl, { state: 'wrong', access_token: 'stolen' });
+      assert.equal(wrongState.status, 404);
+      const approved = await callbackRequest(returnUrl, { access_token: 'sk-aiv-apk-test', expires_in: '604800' });
+      assert.equal(approved.status, 200);
     },
   });
-  const login = await loginToAivax('test-login-key');
-  assert.equal(login.accessToken, 'test-access-token');
-  assert.deepEqual(login.account.plan, ['Max']);
-  assert.equal(requests[0].url, 'https://inference.aivax.net/api/v1/auth/login');
+  assert.equal(accessToken, 'sk-aiv-apk-test');
+  assert.equal(opened, 'https://console.aivax.net/oauth/authorize?tnonce=abc');
+  assert.equal(requests[0].url, 'https://inference.aivax.net/api/v1/auth/oauth');
   assert.equal(requests[0].options.method, 'POST');
   assert.equal(requests[0].options.headers.Authorization, undefined);
-  assert.equal(requests[0].options.headers['X-Response-Truncating'], undefined);
-  assert.deepEqual(JSON.parse(requests[0].options.body), { loginKey: 'test-login-key' });
+  const oauthRequest = JSON.parse(requests[0].options.body);
+  assert.equal(oauthRequest.clientName, 'Avi Desktop');
+  assert.ok(oauthRequest.permissions.includes('WebUtilities'));
+  assert.ok(!oauthRequest.permissions.includes('ManagementKeys'));
+  assert.match(oauthRequest.returnUrl, /^http:\/\/127\.0\.0\.1:\d+\/aivax\/oauth\/callback\?state=[0-9a-f]{48}$/);
+
+  requests.length = 0;
+  reply({ message: null, data: { authorizationUrl: 'https://console.aivax.net/oauth/authorize?tnonce=def', expiresIn: 3600 } });
+  await assert.rejects(
+    authorizeAivax({
+      openExternal: async () => {
+        const { returnUrl } = JSON.parse(requests[0].options.body);
+        await callbackRequest(returnUrl, { error: 'access_denied' });
+      },
+    }),
+    /authorization was denied/,
+  );
+
+  requests.length = 0;
+  reply({ message: null, data: { authorizationUrl: 'https://console.aivax.net/oauth/authorize?tnonce=ghi', expiresIn: 3600 } });
+  const authorization = new AbortController();
+  await assert.rejects(
+    authorizeAivax({ openExternal: async () => authorization.abort(), signal: authorization.signal }),
+    /authorization was canceled/,
+  );
+  requests.length = 0;
 
   reply({ message: null, data: { balance: 999, usage24h: 0, plan: 'Max' } });
   const balance = await requestAivax('/api/v1/information/balance', {
@@ -680,10 +713,10 @@ try {
   assert.ok(audioPath.startsWith(join(generationWorkspace, '.aivax', 'generated-audio')));
   assert.equal(readFileSync(audioPath, 'utf8'), 'audio');
 
-  reply({ message: 'Invalid login key.', data: null }, { status: 401, statusText: 'Unauthorized' });
+  reply({ message: 'The permission "All" cannot be requested.', data: null }, { status: 400, statusText: 'Bad Request' });
   await assert.rejects(
-    loginToAivax('invalid-login-key'),
-    (error) => error.message === 'Invalid login key.' && error.status === 401,
+    authorizeAivax({ openExternal: async () => assert.fail('must not open the browser') }),
+    (error) => error.message === 'The permission "All" cannot be requested.' && error.status === 400,
   );
 
   console.log('AIVAX client contract tests passed.');

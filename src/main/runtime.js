@@ -133,7 +133,12 @@ import {
   updateConversationProject,
   updateMessage,
 } from './database.js';
-import { importAivaxDocuments, loginToAivax, requestAivax } from './aivax-client.js';
+import {
+  AIVAX_LONG_INFERENCE_BASE_URL,
+  authorizeAivax,
+  importAivaxDocuments,
+  requestAivax,
+} from './aivax-client.js';
 import { recommendSemanticGrepDirectories, SEMANTIC_GREP_SYNC_INTERVAL_MS, synchronizeSemanticGrep } from './semantic-grep.js';
 import {
   projectChatEventForClient,
@@ -1665,20 +1670,32 @@ function registerIpc() {
     }
   };
   applicationIpc.handle('aivax:state', aivaxState);
-  applicationIpc.handle('aivax:connect', async (_event, loginKey) => {
-    const login = await loginToAivax(loginKey);
-    if (typeof login.accessToken !== 'string' || !login.accessToken) {
-      throw new Error('AIVAX did not return an access token.');
+  let aivaxAuthorization = null;
+  applicationIpc.handle('aivax:connect', async () => {
+    aivaxAuthorization?.abort();
+    const authorization = new AbortController();
+    aivaxAuthorization = authorization;
+    let accessToken;
+    try {
+      accessToken = await authorizeAivax({
+        openExternal: (url) => shell.openExternal(url),
+        signal: authorization.signal,
+      });
+    } finally {
+      if (aivaxAuthorization === authorization) aivaxAuthorization = null;
     }
     const account = await requestAivax('/api/v1/information/balance', {
-      accessToken: login.accessToken,
+      accessToken,
       responseType: 'object',
     });
-    setAivaxAccessToken(login.accessToken);
+    setAivaxAccessToken(accessToken);
     await synchronizeRemoteRelay();
     void synchronizeThreadSearchIndex();
     void synchronizeSemanticGrep();
     return { connected: true, account, settings: getAivaxSettings(), semanticGrep: getSemanticGrepStatus() };
+  });
+  applicationIpc.handle('aivax:cancel-connect', () => {
+    aivaxAuthorization?.abort();
   });
   applicationIpc.handle('aivax:disconnect', async () => {
     deleteAivaxAccessToken();
@@ -3353,6 +3370,46 @@ function registerIpc() {
     const result = await writeContextItem(payload.path, payload.content);
     traceVerbose('context.item-saved', { operation: 'context:write' });
     return result;
+  });
+  applicationIpc.handle('context:refine', async (_event, payload = {}) => {
+    if (!getAivaxAccessToken()) {
+      throw new Error('Refine requires AIVAX. Connect an AIVAX account in Settings → AIVAX first.');
+    }
+    const view = payload.view === 'macro' ? 'macro' : 'micro';
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const context = await Promise.all(items.map(async (item) => {
+      const target = resolve(String(item?.path ?? ''));
+      if (extname(target).toLowerCase() !== '.md') throw new Error('Only Markdown context files can be refined.');
+      return {
+        path: target,
+        title: String(item.title || basename(target)),
+        type: { instruction: 'instruction', skill: 'skill', workflow: 'prompt' }[item.kind] ?? 'instruction',
+        description: item.description ? String(item.description) : undefined,
+        content: await readFile(target, 'utf8'),
+      };
+    }));
+    const reviewed = context.filter((item) => item.content.trim());
+    if (reviewed.length === 0) throw new Error('There is no context content to refine.');
+
+    const startedAt = Date.now();
+    const result = await requestAivax('/api/v1/generations/instruction-refinement', {
+      baseUrl: AIVAX_LONG_INFERENCE_BASE_URL,
+      body: {
+        view,
+        context: reviewed.map(({ path: _path, ...item }) => item),
+      },
+      responseType: 'object',
+    });
+    traceVerbose('context.refined', {
+      operation: 'context:refine',
+      view,
+      item_count: reviewed.length,
+      duration_ms: Date.now() - startedAt,
+    });
+    return {
+      ...result,
+      items: reviewed.map(({ path, title }) => ({ path, title })),
+    };
   });
   applicationIpc.handle('context:set-visibility', async (_event, payload = {}) => {
     if (isReadOnlyContextPath(resolve(String(payload.path ?? '')))) {

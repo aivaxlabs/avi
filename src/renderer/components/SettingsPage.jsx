@@ -52,6 +52,7 @@ import { MaintenanceSettings } from './MaintenanceSettings.jsx';
 import { FolderNavigation } from './FolderNavigation.jsx';
 import { ContextEditorDialog } from './ContextEditorDialog.jsx';
 import { ContextItems } from './ContextItems.jsx';
+import { ContextRefineDialog } from './ContextRefineDialog.jsx';
 import { BotSettingsPage } from './BotSettingsPage.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { McpSettings } from './McpSettings.jsx';
@@ -382,6 +383,7 @@ export function SettingsPage({
   homeFolder = null,
   conversations = [],
   onOpenThread,
+  onStartThread,
   onThreadsChange,
   providers,
   providerTypes,
@@ -442,6 +444,7 @@ export function SettingsPage({
   const [contextReload, setContextReload] = useState(0);
   const [contextCreateDialog, setContextCreateDialog] = useState(null);
   const [contextEditor, setContextEditor] = useState(null);
+  const [contextRefine, setContextRefine] = useState(null);
   const [mcpNavigation, setMcpNavigation] = useState(null);
   const [providerState, setProviderState] = useState(null);
   const providerStateRequest = useRef(0);
@@ -1278,6 +1281,41 @@ export function SettingsPage({
                 >
                   <Plus size={14} />
                   Add router
+                </button>
+              )}
+              {view === 'context-folder' && contextFolder && (
+                <button
+                  className="button primary settings-add-provider"
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    const group = contextFolder.groups.find((item) => item.id === contextTab)
+                      ?? contextFolder.groups[0];
+                    setError('');
+                    setBusy(true);
+                    try {
+                      const aivax = await window.chatApp.aivax.state();
+                      if (!aivax.connected) {
+                        throw new Error('Refine requires AIVAX. Connect an AIVAX account in Settings → AIVAX first.');
+                      }
+                      if (contextFolder.itemCount === 0) throw new Error('There is no context to refine.');
+                      setContextRefine({
+                        title: group.title,
+                        scope: selectedContextFolder?.name ?? 'Context',
+                        items: group.items.map((item) => ({ ...item, kind: group.id })),
+                        allItems: contextFolder.groups.flatMap((item) => (
+                          item.items.map((entry) => ({ ...entry, kind: item.id }))
+                        )),
+                      });
+                    } catch (nextError) {
+                      setError(nextError instanceof Error ? nextError.message : String(nextError));
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  <Sparkles size={14} />
+                  Refine
                 </button>
               )}
               {view === 'mcp' && mcpNavigation?.onAction && (
@@ -3654,6 +3692,23 @@ export function SettingsPage({
           onSaved={() => setContextReload((current) => current + 1)}
         />
       )}
+      <Presence when={contextRefine}>{(contextRefine) => (
+        <ContextRefineDialog
+          title={contextRefine.title}
+          scope={contextRefine.scope}
+          items={contextRefine.items}
+          allItems={contextRefine.allItems}
+          readOnly={contextFolder?.readOnly !== false}
+          onStartThread={(prompt, conversationId) => onStartThread({
+            text: prompt,
+            conversationId,
+            project: !folderMode && selectedContextFolder?.name === 'Global' ? homeFolder : selectedContextFolder,
+          })}
+          onOpenThread={onOpenThread}
+          onSaved={() => setContextReload((current) => current + 1)}
+          onClose={() => setContextRefine(null)}
+        />
+      )}</Presence>
       <Presence when={providerShareDialog}>{(providerShareDialog) => (
         <Overlay
           className="dialog-backdrop provider-import-dialog-backdrop"

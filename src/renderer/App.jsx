@@ -1510,6 +1510,7 @@ export default function App() {
         [result.conversation.id]: applyPendingOrder(messages, result),
       };
     });
+    return result.conversation.id;
   }
 
   async function stopConversation(conversationId = selectedId) {
@@ -2682,6 +2683,14 @@ export default function App() {
           homeFolder={appState.defaultProject}
           conversations={conversations}
           onOpenThread={sidebarOnSelect}
+          onStartThread={({ text, conversationId = null, project }) => sendMessage({
+            text,
+            attachments: [],
+            conversationId,
+            project,
+            workMode: null,
+            ultraMode: false,
+          })}
           onThreadsChange={async () => setConversations(await api.conversations.list())}
           providers={providers}
           providerTypes={providerTypes}
