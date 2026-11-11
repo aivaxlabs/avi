@@ -3,6 +3,7 @@ importScripts("runtime.js");
 const protocolVersion = 3;
 const bindingName = "__aviBrowserHost";
 const worldName = "__avi_browser__";
+const frameGuardKey = "__aviForeignFrameGuard";
 const supportedUrl = /^(?:https?:|file:|about:blank$)/i;
 const isMac = /Mac/i.test(navigator.userAgent);
 const attachedTabs = new Set();
@@ -30,8 +31,12 @@ chrome.tabs.onUpdated.addListener((_tabId, change) => {
   if (change.url || change.title || change.status) publishTabs();
 });
 chrome.debugger.onEvent.addListener(handleDebuggerEvent);
+chrome.webNavigation.onCommitted.addListener(details => {
+  if (attachedTabs.has(details.tabId)) injectFrameGuard({ tabId: details.tabId, frameIds: [details.frameId] }, blockForeignFrames);
+});
 chrome.debugger.onDetach.addListener(source => {
   attachedTabs.delete(source.tabId);
+  injectFrameGuard({ tabId: source.tabId, allFrames: true }, releaseForeignFrames);
   const state = tabState.get(source.tabId);
   if (state) {
     state.sessions.clear();
@@ -170,6 +175,8 @@ async function attach(tabId) {
 
 async function connectDebugger(tabId, tab) {
   const restrictedFrame = /chrome-extension:\/\/|different extension|cannot access (?:contents|a .*url)/i;
+  await injectFrameGuard({ tabId, allFrames: true }, blockForeignFrames);
+
   try {
     await chrome.debugger.attach({ tabId }, "1.3").catch(async error => {
       if (!restrictedFrame.test(error.message || "")) throw error;
@@ -197,6 +204,62 @@ async function connectDebugger(tabId, tab) {
   await setupSession(tabId);
   state.mainFrameId = (await command(tabId, "Page.getFrameTree")).frameTree.frame.id;
   await command(tabId, "Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => {});
+}
+
+function injectFrameGuard(target, func) {
+  return chrome.scripting.executeScript({ target, func, args: [frameGuardKey], injectImmediately: true }).catch(() => {});
+}
+
+function blockForeignFrames(key) {
+  if (globalThis[key]) return;
+  const watched = new WeakSet();
+
+  const isForeign = url => {
+    if (!url?.startsWith("chrome-extension://")) return false;
+    try { return new URL(url).host !== chrome.runtime.id; } catch { return false; }
+  };
+
+  const shadowOf = element => {
+    try { return chrome.dom.openOrClosedShadowRoot(element); } catch { return element.shadowRoot; }
+  };
+
+  const visit = element => {
+    if (/^I?FRAME$/.test(element.tagName) && isForeign(element.src || element.getAttribute("src"))) {
+      if (element.tagName === "FRAME") element.setAttribute("src", "about:blank");
+      else if (element.getAttribute("srcdoc") !== "") element.setAttribute("srcdoc", "");
+    }
+    const shadow = shadowOf(element);
+    if (shadow) watch(shadow);
+  };
+
+  const scan = node => {
+    if (node.nodeType === Node.ELEMENT_NODE) visit(node);
+    else if (node.nodeType !== Node.DOCUMENT_NODE && node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return;
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_ELEMENT);
+    while (walker.nextNode()) visit(walker.currentNode);
+  };
+
+  const observer = new MutationObserver(records => {
+    for (const record of records) {
+      if (record.type === "attributes") visit(record.target);
+      record.addedNodes.forEach(scan);
+    }
+  });
+
+  const watch = root => {
+    if (watched.has(root)) return;
+    watched.add(root);
+    observer.observe(root, { attributeFilter: ["src"], attributes: true, childList: true, subtree: true });
+    scan(root);
+  };
+
+  globalThis[key] = observer;
+  watch(document);
+}
+
+function releaseForeignFrames(key) {
+  globalThis[key]?.disconnect();
+  delete globalThis[key];
 }
 
 async function setupSession(tabId, sessionId) {

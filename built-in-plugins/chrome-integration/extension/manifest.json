@@ -12,6 +12,7 @@
     "debugger",
     "downloads",
     "offscreen",
+    "scripting",
     "storage",
     "tabs",
     "webNavigation"

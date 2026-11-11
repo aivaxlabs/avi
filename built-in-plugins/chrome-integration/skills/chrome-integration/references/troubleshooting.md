@@ -6,7 +6,8 @@
 | Empty tab list | The extension is not connected in that profile. Ask the user to install or reload the Avi extension. |
 | `Reload the Avi Chrome extension` | Avi and the extension use different protocol versions after an update. Ask the user to reload it in `chrome://extensions`. |
 | `Could not attach ... Close DevTools` | DevTools is open on that tab. Ask the user to close it. |
-| Attach error naming a `chrome-extension://` frame | Another extension injected a frame. Ask the user to close its popup or disable it for the site, then reload the tab. If the error says the frame is gone, retry once. |
+| Attach error naming a `chrome-extension://` frame | Another extension injected a frame that Avi could not unload. Ask the user to close its popup or disable it for the site, then reload the tab. If the error says the frame is gone, retry once. |
+| Another extension's overlay is blank or missing | Avi unloads iframes from other extensions while it controls the tab, because they block the debugger. They return after the debugger detaches and the tab reloads. |
 | `No element matches` | The ref is from an older snapshot or the page changed. Take a new snapshot. |
 | Result has `coveredBy` | An overlay, modal or banner intercepted the click. Close it first. |
 | `Focused element is not editable` | Click the field first, or use `browser.fill(target, text)`. |
