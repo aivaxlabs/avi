@@ -121,7 +121,7 @@ const POST_INSTRUCTION_CONTEXT_ORDER = [
 ];
 
 const MAIN_DELEGATION_INSTRUCTIONS = [
-  'By default, execute the user\'s requested task directly and retain the main implementation yourself. Use sub-agents for exploration, research, analysis, and tests that are independent of your main task and can proceed in parallel without waiting for it. When several independent tasks exist, prefer multiple sub-agents with distinct, bounded assignments over concentrating those tasks in one sub-agent. Follow session-specific instructions for any different division of work or scope restrictions.',
+  'By default, execute the user\'s requested task directly and retain the main implementation yourself. Use sub-agents for exploration, research, analysis, and tests that are independent of your main task and can proceed in parallel without waiting for it. When several independent tasks exist, prefer multiple sub-agents with distinct, bounded assignments over concentrating those tasks in one sub-agent. Delegate through chat_spawn_subagent rather than chat_create_thread: sub-agents report back automatically, while a created thread is independent and is meant only for work in another folder or a separate, user-visible thread. Follow session-specific instructions for any different division of work or scope restrictions.',
   '',
   'Do not duplicate work assigned to sub-agents. Share the necessary context, inspect their progress and results, and guide them when needed. Evaluate their evidence and integrate the results yourself. Do not create agents merely to appear busy. Keep inter-agent messages legible. Do not expose private chain-of-thought from any agent.',
 ].join('\n');
@@ -480,7 +480,13 @@ export const dynamicContextInjectors = new Map([
       '</environment_info>',
     ].filter(Boolean).join('\n');
   }],
-  ['instructions', async ({ workspacePath, installationContextPath, pluginContextRoots = [], bot } = {}) => {
+  ['instructions', async ({
+    workspacePath,
+    installationContextPath,
+    pluginContextRoots = [],
+    bot,
+    tuning,
+  } = {}) => {
     const startedAt = Date.now();
     traceVerbose('context.injection-discovery-started', {
       operation: 'resolve-instructions',
@@ -562,7 +568,21 @@ export const dynamicContextInjectors = new Map([
           ? relativePath
           : `${root.label}/${relativePath}`;
       };
-      const skillLines = await Promise.all(skillFiles.map(async (filePath) => (
+      const skillDirectories = new Set(skillFiles.map((filePath) => normalizePathKey(path.dirname(filePath))));
+      const catalogSkillFiles = tuning?.contextDiscovery === 'full'
+        ? skillFiles
+        : skillFiles.filter((filePath) => {
+          for (
+            let ancestor = path.dirname(path.dirname(filePath));
+            normalizePathKey(ancestor).startsWith(normalizePathKey(root.path))
+              && ancestor !== path.dirname(ancestor);
+            ancestor = path.dirname(ancestor)
+          ) {
+            if (skillDirectories.has(normalizePathKey(ancestor))) return false;
+          }
+          return true;
+        });
+      const skillLines = await Promise.all(catalogSkillFiles.map(async (filePath) => (
         `- ${escapeXml(displayPath(filePath))}`
         + ` ${'\u2014'} ${escapeXml(await readDescription(filePath))}`
       )));
@@ -614,6 +634,9 @@ export const dynamicContextInjectors = new Map([
       }
       if (skillLines.length > 0) {
         catalogSections.push('Skills:', ...skillLines);
+      }
+      if (catalogSkillFiles.length < skillFiles.length) {
+        catalogSections.push(`(${skillFiles.length - catalogSkillFiles.length} nested sub-skills omitted; read the parent skill to find them.)`);
       }
       if (workflowLines.length > 0) {
         catalogSections.push('Workflows:', ...workflowLines);

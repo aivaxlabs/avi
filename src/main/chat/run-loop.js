@@ -38,6 +38,7 @@ import {
 import { requestAivax } from '../aivax-client.js';
 import { applySubagentModelSchema } from '../default-models.js';
 import { StreamAccumulator } from '../streaming.js';
+import { ENABLE_TOOLS_NAME, applyPassiveToolGroups } from '../tools/passive-groups.js';
 import { composeToolsWithPlugins } from '../tool-composition.js';
 import { mapToolCalls } from '../tool-concurrency.js';
 import { setDirectoryTool } from '../tools/quick-chat.js';
@@ -451,7 +452,6 @@ export const runLoopMethods = {
             'memory_search',
             'memory_write',
             'memory_delete',
-            'chat_spawn_subagent',
             'chat_overview',
             'sleep_semaphore',
           ].includes(tool.name))
@@ -499,7 +499,7 @@ export const runLoopMethods = {
                 ...tool,
                 ...(botRuntime && tool.name === 'chat_create_thread'
                   ? {
-                      description: 'Create a worker thread only for a genuinely long-running or context-heavy deliverable. Bots must execute exploration, research, listings, data collection, status checks, audits, and short diagnostics directly instead of creating a thread.',
+                      description: 'Create an independent worker thread that does not report back. Prefer chat_spawn_subagent for delegated work: sub-agents report their result to this bot automatically. Use this tool only when the work needs another folder or must continue as a separate, long-lived thread. Bots must execute exploration, research, listings, data collection, status checks, audits, and short diagnostics directly or through sub-agents instead of creating a thread.',
                     }
                   : {}),
                 inputSchema,
@@ -712,12 +712,38 @@ export const runLoopMethods = {
           ...providerTools.map((tool) => ({ ...tool, providerTool: true })),
           ...mcpRuntime.tools,
         ];
-        const availableTools = decorateToolsForInvocation(
-          composeToolsWithPlugins(coreTools, pluginTools, extensionTools),
+        const composedTools = composeToolsWithPlugins(coreTools, pluginTools, extensionTools);
+        const visibleTools = tuning.passiveToolGroups && workMode !== 'plan' && !rubberDuckMode
+          ? applyPassiveToolGroups(composedTools, {
+              calls: [
+                ...messages.flatMap((message) => (message.tool_calls ?? []).map((call) => ({
+                  name: call.function?.name,
+                  argumentsText: call.function?.arguments,
+                }))),
+                ...toolHistory.flatMap((round) => round.toolCalls),
+              ],
+              activeGroups: [
+                ...(botRuntime ? ['bots'] : []),
+                ...(this.semaphores.holdings(conversationId).length > 0 ? ['semaphores'] : []),
+              ],
+            })
+          : composedTools;
+        const modelTools = decorateToolsForInvocation(
+          visibleTools,
           permissionMode,
           { honorExplicitAuthorization: Boolean(botRuntime) },
         );
-        roundTools = availableTools;
+        const availableTools = visibleTools === composedTools
+          ? modelTools
+          : decorateToolsForInvocation(
+            [
+              ...composedTools,
+              ...visibleTools.filter((tool) => tool.name === ENABLE_TOOLS_NAME),
+            ],
+            permissionMode,
+            { honorExplicitAuthorization: Boolean(botRuntime) },
+          );
+        roundTools = modelTools;
         const latestGoal = goalId ? getGoal(goalId) : getGoalForConversation(conversationId);
         const goalContext = workMode !== 'plan' && latestGoal && CONTINUING_GOAL_STATUSES.has(latestGoal.status)
           ? latestGoal
@@ -739,7 +765,7 @@ export const runLoopMethods = {
             threadId: conversationId,
             runId: assistantMessage.id,
             providerId: selection.model.providerId,
-            data: { round: roundIndex, model: selection.model.id, toolCount: availableTools.length },
+            data: { round: roundIndex, model: selection.model.id, toolCount: modelTools.length },
           });
         }
         let turn;
@@ -747,7 +773,7 @@ export const runLoopMethods = {
           turn = pendingRound ?? await this.withThreadCapacity(conversationId, controller.signal, () => selection.provider.stream({
             model: selection.model,
             messages,
-            tools: availableTools,
+            tools: modelTools,
             toolHistory,
             reasoningEffort,
             invocationContext: {
@@ -925,7 +951,7 @@ export const runLoopMethods = {
             controller,
             contextMessages: messages,
             contextToolHistory: toolHistory,
-            contextTools: availableTools,
+            contextTools: modelTools,
             streamingSegments: accumulator.segments.slice(roundSegmentStart),
           });
           retriedAfterContextCompaction = true;
@@ -1477,7 +1503,7 @@ export const runLoopMethods = {
               controller,
               contextMessages: messages,
               contextToolHistory: toolHistory,
-              contextTools: availableTools,
+              contextTools: modelTools,
             });
             applyCompactionCheckpoint(compressedConversation);
           } catch (error) {

@@ -1160,6 +1160,22 @@ try {
   assert.equal(tree.items.find((item) => item.path === skillPaths[1]).parentSkillPath, skillPaths[0]);
   assert.equal(tree.items.find((item) => item.path === skillPaths[2]).parentSkillPath, skillPaths[1]);
   assert.equal(tree.items.find((item) => item.path === skillPaths[2]).relativePath, 'skills/parent/child/deep/SKILL.md');
+  for (const [contextDiscovery, expectedSkills] of [
+    [undefined, ['skills/parent/SKILL.md']],
+    ['minimal', ['skills/parent/SKILL.md']],
+    ['full', ['skills/parent/SKILL.md', 'skills/parent/child/SKILL.md', 'skills/parent/child/deep/SKILL.md']],
+  ]) {
+    const catalog = (await resolveDynamicContext({
+      installationContextPath: treeRoot,
+      workspacePath: treeRoot,
+      tuning: { contextDiscovery },
+    })).match(/<available_context>[\s\S]*?<\/available_context>/)?.[0] ?? '';
+    assert.deepEqual(catalog.match(/skills\/parent\/[^\s]*SKILL\.md/g), expectedSkills);
+    assert.equal(
+      catalog.includes('2 nested sub-skills omitted'),
+      contextDiscovery !== 'full',
+    );
+  }
   const createRoot = path.join(installationRoot, 'create-fixture');
   await mkdir(createRoot, { recursive: true });
   const createdSkill = await createContextItem(createRoot, { kind: 'skill', name: 'Revisão de PR' });

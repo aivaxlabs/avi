@@ -28,6 +28,7 @@ import {
 } from '../context-usage.js';
 import { resolveDynamicContextUsage } from '../context-injection.js';
 import { composeToolsWithPlugins } from '../tool-composition.js';
+import { applyPassiveToolGroups } from '../tools/passive-groups.js';
 import { setDirectoryTool } from '../tools/quick-chat.js';
 import { limitToolHistoryResults } from '../tool-output.js';
 import { traceVerbose } from '../trace-log.js';
@@ -137,7 +138,6 @@ export const contextMethods = {
         'memory_search',
         'memory_write',
         'memory_delete',
-        'chat_spawn_subagent',
         'chat_overview',
         'sleep_semaphore',
       ].includes(tool.name))
@@ -163,12 +163,24 @@ export const contextMethods = {
       extensionTools,
     );
     const toolNames = new Set();
+    const uniqueTools = composedTools.filter((tool) => {
+      if (toolNames.has(tool.name)) return false;
+      toolNames.add(tool.name);
+      return true;
+    });
     const tools = decorateToolsForInvocation(
-      composedTools.filter((tool) => {
-        if (toolNames.has(tool.name)) return false;
-        toolNames.add(tool.name);
-        return true;
-      }),
+      preferences.tuning.passiveToolGroups && workMode !== 'plan' && !rubberDuckMode
+        ? applyPassiveToolGroups(uniqueTools, {
+            calls: messages.flatMap((message) => (message.tool_calls ?? []).map((call) => ({
+              name: call.function?.name,
+              argumentsText: call.function?.arguments,
+            }))),
+            activeGroups: [
+              ...(botRuntime ? ['bots'] : []),
+              ...(this.semaphores.holdings(conversation.id).length > 0 ? ['semaphores'] : []),
+            ],
+          })
+        : uniqueTools,
       permissionMode,
       { honorExplicitAuthorization: Boolean(botRuntime) },
     );
