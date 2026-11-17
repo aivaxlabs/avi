@@ -387,6 +387,7 @@ interface ProviderTypeDescriptor {
   connection: string;
   models?: 'managed' | unknown;
   supportsModelListing?: boolean;
+  creatable?: boolean;
   fields?: Array<{
     id: string;
     label: string;
@@ -396,11 +397,14 @@ interface ProviderTypeDescriptor {
     default?: string;
     options?: Array<{ value: string; label: string }>;
   }>;
+  modelFields?: Array<NonNullable<ProviderTypeDescriptor['fields']>[number] & { placement?: 'modelId' }>;
   harness?: ProviderHarness;
 }
 ```
 
 A `json` field is edited as a multiline JSON object. Normalization trims it, rejects invalid JSON or non-object values, and stores the serialized string (empty when unset).
+
+`modelFields` use the same shape as `fields` but are edited in the model editor and stored on each `ModelConfig` as extra string properties, which `createBody()` receives on `model`. Normalization applies the same defaults and option validation. A `select` field with `placement: 'modelId'` renders as a compact picker beside **Model ID**; other model fields render with the model details. The built-in OpenAI Compatible types declare `temperature` and `topK`; the AIVAX type adds a `routingMode` picker sent as `routing_options.preset`.
 
 ```ts
 interface ProviderHarness {

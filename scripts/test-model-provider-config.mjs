@@ -21,8 +21,6 @@ const providerInput = {
   name: 'OpenAI Compatible',
   baseUrl: 'https://example.com',
   interface: 'chat-completions',
-  temperature: '0.7',
-  topK: '40',
   enabled: true,
   models: [
     {
@@ -34,11 +32,16 @@ const providerInput = {
       id: 'gpt-5.6-sol',
       name: 'GPT-5.6 Sol — 1M',
       context: { input: 1_000_000, output: 128_000 },
+      temperature: '0.7',
+      topK: '40',
     },
   ],
 };
 
 const normalized = registry.normalizeConfig(providerInput);
+assert.equal(Object.hasOwn(normalized, 'temperature'), false);
+assert.equal(normalized.models[0].temperature, '');
+assert.equal(normalized.models[1].topK, '40');
 assert.equal('mediaSizeLimit' in normalized.models[0], false);
 assert.equal(registry.normalizeConfig({
   ...providerInput,
@@ -291,11 +294,7 @@ assert.equal(astraFastBody.service_tier, 'priority');
 
 for (const api of [chatCompletionsApi, responsesApi]) {
   const emptyBody = await api.createBody({
-    provider: {
-      ...provider.config,
-      temperature: '',
-      topK: '',
-    },
+    provider: provider.config,
     model: models[0],
     messages: [{ role: 'user', content: 'Hello' }],
     reasoningEffort: null,
@@ -308,7 +307,7 @@ for (const api of [chatCompletionsApi, responsesApi]) {
 
   const configuredBody = await api.createBody({
     provider: provider.config,
-    model: models[0],
+    model: models[1],
     messages: [{ role: 'user', content: 'Hello' }],
     reasoningEffort: null,
     tools: [],

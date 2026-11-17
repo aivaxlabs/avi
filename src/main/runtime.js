@@ -106,6 +106,7 @@ import {
   listSubagents,
   listTasks,
   listThreadSearchMessages,
+  listThreadSearchStates,
   restoreConversation,
   runArchiveMaintenance,
   saveSecretVaultEntry,
@@ -137,6 +138,7 @@ import {
   AIVAX_LONG_INFERENCE_BASE_URL,
   authorizeAivax,
   importAivaxDocuments,
+  lookupAivaxModel,
   requestAivax,
 } from './aivax-client.js';
 import { recommendSemanticGrepDirectories, SEMANTIC_GREP_SYNC_INTERVAL_MS, synchronizeSemanticGrep } from './semantic-grep.js';
@@ -210,6 +212,7 @@ import {
   createThreadSearchManifest,
   THREAD_SEARCH_SYNC_INTERVAL_MS,
 } from './thread-search-index.js';
+import { AIVAX_PROVIDER_ID, aivaxProviderType } from '../providers/aivax.js';
 import { providerTypes } from '../providers/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -277,6 +280,28 @@ const remoteRelay = new RemoteRelay({
   trace: traceInfo,
 });
 
+async function synchronizeAivaxProvider() {
+  try {
+    const account = await requestAivax('/api/v1/accounts', { responseType: 'object' });
+    const providers = listProviders();
+    const current = providers.find((provider) => provider.id === AIVAX_PROVIDER_ID);
+    const provider = providerRegistry.normalizeConfig({
+      ...(current ?? { id: AIVAX_PROVIDER_ID, interface: aivaxProviderType.descriptor.id }),
+      name: `AIVAX - ${account.name}`,
+    });
+    if (current?.name === provider.name) return;
+
+    setProviders(current
+      ? providers.map((item) => item.id === AIVAX_PROVIDER_ID ? provider : item)
+      : [provider, ...providers]);
+    sendRendererEvent('providers:changed');
+  } catch (error) {
+    traceError('aivax.provider-sync-error', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 function synchronizeRemoteRelay() {
   return remoteRelay.update({
     accessToken: remoteMcpServer && getRemoteSettings().relayEnabled && !isQuitting ? getAivaxAccessToken() : null,
@@ -301,6 +326,7 @@ let aivaxModelCatalogExpiresAt = 0;
 let aivaxModelCatalogRequest = null;
 let threadSearchSyncInterval;
 let threadSearchSyncPromise = null;
+let threadSearchCache = { collectionId: null, threads: new Map() };
 let semanticGrepSyncInterval;
 const botInitialization = Promise.withResolvers();
 const ipcHandlers = new Map();
@@ -446,6 +472,7 @@ providerRegistry = new ModelProviderRegistry({
     shell: { openExternal: (url) => shell.openExternal(url) },
   },
 });
+if (getAivaxAccessToken()) void synchronizeAivaxProvider();
 routerService = new ModelRouterService({
   getRouters: listModelRouters,
   setRouters: setModelRouters,
@@ -661,12 +688,37 @@ async function synchronizeThreadSearchIndex() {
 
   threadSearchSyncPromise = (async () => {
     const startedAt = Date.now();
-    const documents = buildThreadSearchDocuments(listThreadSearchMessages());
+    if (threadSearchCache.collectionId !== collectionId) {
+      threadSearchCache = { collectionId, threads: new Map() };
+    }
+    const threads = new Map();
+    let rebuiltThreads = 0;
+    for (const thread of listThreadSearchStates()) {
+      const key = `${thread.messageCount}\0${thread.lastUpdatedAt}\0${thread.title}`;
+      const cached = threadSearchCache.threads.get(thread.id);
+      if (cached?.key === key) {
+        threads.set(thread.id, cached);
+        continue;
+      }
+      await new Promise((resolve) => setImmediate(resolve));
+      threads.set(thread.id, { key, documents: buildThreadSearchDocuments(listThreadSearchMessages(thread)) });
+      rebuiltThreads += 1;
+    }
+    threadSearchCache.threads = threads;
+    const documents = [...threads.values()].flatMap((thread) => thread.documents);
     const nextManifest = createThreadSearchManifest(documents);
     const changes = compareThreadSearchManifests(
       getThreadSearchManifest(collectionId),
       nextManifest,
     );
+    if (!changes.added && !changes.updated && !changes.removed) {
+      traceVerbose('aivax.thread-search-index-skipped', {
+        document_count: documents.length,
+        threads_rebuilt: rebuiltThreads,
+        duration_ms: Date.now() - startedAt,
+      });
+      return null;
+    }
     try {
       const response = await importAivaxDocuments(collectionId, documents, { sync: true });
       setThreadSearchManifest(collectionId, nextManifest);
@@ -1689,6 +1741,7 @@ function registerIpc() {
       responseType: 'object',
     });
     setAivaxAccessToken(accessToken);
+    await synchronizeAivaxProvider();
     await synchronizeRemoteRelay();
     void synchronizeThreadSearchIndex();
     void synchronizeSemanticGrep();
@@ -2612,6 +2665,7 @@ function registerIpc() {
   applicationIpc.handle('routers:remove', (_event, routerId) => routerService.remove(routerId));
 
   applicationIpc.handle('models:list', () => providerRegistry.listModels());
+  applicationIpc.handle('models:metadata', (_event, name) => lookupAivaxModel(String(name ?? '').trim()));
   applicationIpc.handle('models:favorites', () => listFavorites());
   applicationIpc.handle('models:favorite', (_event, { modelId, favorited }) => setFavorite(modelId, favorited));
 

@@ -727,6 +727,10 @@ export default function App() {
     });
   }, [activeActionPageId, foldersOpen, orchestrationOpen, fullPageActive, selectedId, settingsOpen]);
 
+  useEffect(() => api.providers.onChanged(async () => {
+    applyProviders(await api.providers.list());
+  }), []);
+
   useEffect(() => api.sidebar.onSeen(({ conversationId }) => {
     setCompletedUnseen((state) => {
       if (!state[conversationId]) return state;

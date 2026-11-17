@@ -23,6 +23,13 @@ export function formatMetricDuration(value) {
   return `${(value / 1000).toFixed(value < 10_000 ? 2 : 1)} s`;
 }
 
+export function formatTokens(value) {
+  if (value === null || value === undefined) return '—';
+  if (value >= 1_000_000) return `${Number((value / 1_000_000).toFixed(1))}M`;
+  if (value >= 1_000) return `${Number((value / 1_000).toFixed(1))}K`;
+  return value.toLocaleString();
+}
+
 export function classNames(...items) {
   return items.filter(Boolean).join(' ');
 }

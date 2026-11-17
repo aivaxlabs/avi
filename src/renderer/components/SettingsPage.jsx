@@ -44,7 +44,7 @@ import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import aviIconUrl from '../../../assets/icon/avi.png';
 import { mediaSizeLimitOptions } from '../../shared/attachments.js';
-import { classNames } from '../lib/format.js';
+import { classNames, formatTokens } from '../lib/format.js';
 import { intelligenceLevelLimits, titleCaseEffort } from '../lib/models.js';
 import { AivaxFeaturesSettings } from './AivaxFeaturesSettings.jsx';
 import { AppearanceSettings } from './AppearanceSettings.jsx';
@@ -101,33 +101,52 @@ function isInvalidJsonObject(value) {
   }
 }
 
-function providerHarnessRows(harness) {
-  const statefulSession = harness.session === 'stateful';
-  return [
-    { label: 'Tools and approvals', owner: 'Avi', detail: 'Tools run in Avi with its permissions and approvals.' },
-    {
-      label: 'Conversation session',
-      owner: statefulSession ? 'Provider' : 'Avi',
-      detail: statefulSession
-        ? 'Kept live between turns and recreated from Avi history when they differ.'
-        : 'Avi sends the conversation history with each request.',
-    },
-    { label: 'Context compaction', owner: 'Avi', detail: 'Avi summarizes long conversations before the context fills.' },
-    {
-      label: 'Request retries',
-      owner: harness.retries === 'provider' ? 'Provider' : 'Avi',
-      detail: harness.retries === 'provider'
-        ? 'The provider retries failed requests; Goal mode still retries after that.'
-        : 'Avi retries connection failures and server errors.',
-    },
-    {
-      label: 'Avi instructions',
-      owner: harness.instructions === 'context' ? 'Extra context' : 'System prompt',
-      detail: harness.instructions === 'context'
-        ? 'Delivered alongside the provider instructions as conversation context.'
-        : 'Sent as the system prompt; changes during a session arrive as context updates.',
-    },
-  ];
+function ProviderField({ field, idPrefix, onChange, value }) {
+  const id = `${idPrefix}-${field.id}`;
+
+  return (
+    <label
+      className={classNames(
+        'settings-field settings-field-wide',
+        field.type === 'json' && 'settings-json-field',
+      )}
+      htmlFor={field.type === 'json' ? id : undefined}
+    >
+      <span>{field.label}</span>
+      {field.type === 'json' ? (
+        <LongTextField
+          id={id}
+          label={field.label}
+          language="avi-json"
+          value={value ?? ''}
+          placeholder={field.placeholder ?? ''}
+          invalid={isInvalidJsonObject(value)}
+          describedBy={field.description ? `${id}-help` : undefined}
+          onChange={onChange}
+        />
+      ) : field.type === 'select' ? (
+        <select className="select"
+          value={value ?? field.default ?? ''}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          {field.options.map((option) => (
+            <option value={option.value} key={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <input className="input"
+          type={field.type === 'password' ? 'password' : 'text'}
+          value={value ?? field.default ?? ''}
+          placeholder={field.placeholder ?? ''}
+          autoComplete={field.type === 'password' ? 'off' : undefined}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+      {field.description && <small id={`${id}-help`}>{field.description}</small>}
+    </label>
+  );
 }
 
 function MultiSelect({ label, onChange, options, values }) {
@@ -421,6 +440,13 @@ export function SettingsPage({
   const [routersLoading, setRoutersLoading] = useState(false);
   const [modelDraft, setModelDraft] = useState(null);
   const [modelIndex, setModelIndex] = useState(-1);
+  const [modelAutoFill, setModelAutoFill] = useState({ status: 'idle' });
+  const modelAutoFillPending = useRef(false);
+  const modelAutoFillRequest = useRef(0);
+  const [modelCatalogContext, setModelCatalogContext] = useState(null);
+  const [contextPresetOpen, setContextPresetOpen] = useState(false);
+  const contextPresetRef = useRef(null);
+  const [aivaxProviderLocked, setAivaxProviderLocked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [updateAction, setUpdateAction] = useState(null);
   const [updateError, setUpdateError] = useState('');
@@ -499,6 +525,8 @@ export function SettingsPage({
   const selectedType = providerTypes.find((type) => (
     type.id === (providerDraft?.interface ?? selectedProvider?.interface)
   ));
+  const modelIdFields = (selectedType?.modelFields ?? [])
+    .filter((field) => field.placement === 'modelId' && field.type === 'select');
   // Saved type fields can change how a managed provider connects, such as its authentication mode.
   const savedProviderFields = selectedProvider
     ? JSON.stringify([
@@ -559,6 +587,23 @@ export function SettingsPage({
       document.removeEventListener('keydown', closeOnKeyDown);
     };
   }, [modelMenuOpen]);
+
+  useEffect(() => {
+    if (!contextPresetOpen) return undefined;
+
+    const closeOnPointerDown = (event) => {
+      if (!contextPresetRef.current?.contains(event.target)) setContextPresetOpen(false);
+    };
+    const closeOnKeyDown = (event) => {
+      if (event.key === 'Escape') setContextPresetOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnPointerDown);
+    document.addEventListener('keydown', closeOnKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnPointerDown);
+      document.removeEventListener('keydown', closeOnKeyDown);
+    };
+  }, [contextPresetOpen]);
 
   useEffect(() => {
     if (view !== 'routers') return undefined;
@@ -659,6 +704,21 @@ export function SettingsPage({
       cancelled = true;
     };
   }, [contextReload, folderMode, homeFolder?.path, selectedContextFolder, view]);
+
+  useEffect(() => {
+    if (view !== 'list' || !providers.some((provider) => provider.id === 'aivax')) return undefined;
+    let active = true;
+    window.chatApp.providers.state('aivax')
+      .then((state) => {
+        if (active) setAivaxProviderLocked(state.removable === false);
+      })
+      .catch((nextError) => {
+        if (active) setError(nextError instanceof Error ? nextError.message : String(nextError));
+      });
+    return () => {
+      active = false;
+    };
+  }, [providers, view]);
 
   useEffect(() => {
     if (!selectedProvider) {
@@ -792,12 +852,22 @@ export function SettingsPage({
     const model = selectedProvider?.models[index];
     if (!model) return;
     setModelIndex(index);
+    modelAutoFillPending.current = false;
+    const request = ++modelAutoFillRequest.current;
+    setModelAutoFill({ status: 'idle' });
+    setModelCatalogContext(null);
+    setContextPresetOpen(false);
     setModelDraft({
       ...structuredClone(model),
       instanceId: model.instanceId ?? model.id,
     });
     setError('');
     setView('model');
+    window.chatApp.models.metadata(model.id)
+      .then((metadata) => {
+        if (request === modelAutoFillRequest.current) setModelCatalogContext(metadata?.context ?? null);
+      })
+      .catch(() => {});
   }
 
   function openNewModelEditor(id = '') {
@@ -814,6 +884,46 @@ export function SettingsPage({
     });
     setError('');
     setView('model');
+    setModelCatalogContext(null);
+    setContextPresetOpen(false);
+    modelAutoFillPending.current = true;
+    modelAutoFillRequest.current += 1;
+    setModelAutoFill({ status: 'idle' });
+    autoFillModel(id);
+  }
+
+  async function autoFillModel(id) {
+    const name = id.trim();
+    if (!name) return;
+    modelAutoFillPending.current = false;
+    const request = ++modelAutoFillRequest.current;
+    setModelAutoFill({ status: 'loading' });
+    try {
+      const metadata = await window.chatApp.models.metadata(name);
+      if (request !== modelAutoFillRequest.current) return;
+      setModelCatalogContext(metadata?.context ?? null);
+      if (!metadata) {
+        setModelAutoFill({ status: 'missing', message: `"${name}" was not found in the AIVAX model catalog.` });
+        return;
+      }
+      setModelDraft((current) => current && {
+        ...current,
+        name: metadata.name,
+        capabilities: metadata.capabilities,
+        reasoning: metadata.reasoning,
+        context: {
+          input: metadata.context.input ?? current.context.input,
+          output: metadata.context.output ?? current.context.output,
+        },
+      });
+      setModelAutoFill({ status: 'found', message: `Filled from ${metadata.id}. Review the values before saving.` });
+    } catch (nextError) {
+      if (request !== modelAutoFillRequest.current) return;
+      setModelAutoFill({
+        status: 'error',
+        message: nextError instanceof Error ? nextError.message : String(nextError),
+      });
+    }
   }
 
   async function scanProviderModels() {
@@ -948,7 +1058,7 @@ export function SettingsPage({
               General
             </button>
           )}
-          {(!settingsQuery || 'tuning compaction output terminal timeout sub-agents quick chat instructions diagnostics logging logs'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'tuning compaction context discovery skills passive tools output terminal timeout sub-agents quick chat instructions diagnostics logging logs'.includes(settingsQuery)) && (
             <button
               className={view === 'tuning' ? 'active' : undefined}
               type="button"
@@ -1412,7 +1522,7 @@ export function SettingsPage({
                                 }
                               }),
                             },
-                            {
+                            !(provider.id === 'aivax' && aivaxProviderLocked) && {
                               label: 'Delete',
                               icon: <Trash2 size={14} />,
                               danger: true,
@@ -1430,7 +1540,7 @@ export function SettingsPage({
                                 });
                               },
                             },
-                          ]}
+                          ].filter(Boolean)}
                         />
                       </article>
                     );
@@ -2567,6 +2677,25 @@ export function SettingsPage({
                         Creates a context checkpoint after the selected share of the model window is used.
                       </small>
                     </label>
+                    <label className="settings-field settings-field-wide">
+                      <span>Context discovery</span>
+                      <select className="select"
+                        value={tuningDraft.contextDiscovery ?? 'minimal'}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            contextDiscovery: event.target.value,
+                          }));
+                        }}
+                      >
+                        <option value="minimal">Minimal</option>
+                        <option value="full">Full</option>
+                      </select>
+                      <small>
+                        Minimal lists only top-level skills and leaves nested sub-skills to their parent skill. Full lists every skill.
+                      </small>
+                    </label>
                   </div>
                 </section>
                 <section className="settings-section">
@@ -2639,6 +2768,24 @@ export function SettingsPage({
                       <small>
                         Default wait in seconds when a terminal command does not provide its own timeout. From 5 to 300.
                       </small>
+                    </label>
+                    <label className="settings-toggle-row">
+                      <span>
+                        <strong>Passive tool groups</strong>
+                        <small>Hide bot, thread management, semaphore, task scheduler, and Secret Vault tools until the model enables them with enable_tools.</small>
+                      </span>
+                      <input
+                        className="toggle"
+                        type="checkbox"
+                        checked={tuningDraft.passiveToolGroups ?? true}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            passiveToolGroups: event.target.checked,
+                          }));
+                        }}
+                      />
                     </label>
                   </div>
                 </section>
@@ -2825,7 +2972,10 @@ export function SettingsPage({
                     description: 'Connect any endpoint that implements a supported API with an API key.',
                     types: providerTypes.filter((type) => type.connection !== 'managed'),
                   },
-                ].filter((group) => group.types.length > 0).map((group) => (
+                ].map((group) => ({
+                  ...group,
+                  types: group.types.filter((type) => type.creatable !== false),
+                })).filter((group) => group.types.length > 0).map((group) => (
                   <section className="settings-section" key={group.id} aria-labelledby={`provider-types-${group.id}`}>
                     <div className="settings-section-heading">
                       <h3 id={`provider-types-${group.id}`}>{group.title}</h3>
@@ -2870,6 +3020,7 @@ export function SettingsPage({
                       <label className="settings-field">
                         <span>Name</span>
                         <input className="input"
+                          disabled={selectedType?.creatable === false}
                           value={providerDraft.name}
                           onChange={(event) => setProviderDraft({
                             ...providerDraft,
@@ -2881,6 +3032,7 @@ export function SettingsPage({
                       <label className="settings-field">
                         <span>Provider type</span>
                         <select className="select"
+                          disabled={selectedType?.creatable === false}
                           value={providerDraft.interface}
                           onChange={(event) => {
                             const type = providerTypes.find(
@@ -2901,7 +3053,9 @@ export function SettingsPage({
                             });
                           }}
                         >
-                          {providerTypes.map((type) => (
+                          {providerTypes.filter((type) => (
+                            type.creatable !== false || type.id === providerDraft.interface
+                          )).map((type) => (
                             <option value={type.id} key={type.id}>
                               {type.name} ({type.description})
                             </option>
@@ -3004,57 +3158,16 @@ export function SettingsPage({
                             <small>{providerState.connection.description}</small>
                           )}
                           {(selectedType?.fields ?? []).map((field) => (
-                            <label
-                              className={classNames(
-                                'settings-field settings-field-wide',
-                                field.type === 'json' && 'settings-json-field',
-                              )}
-                              htmlFor={field.type === 'json' ? `provider-field-${field.id}` : undefined}
+                            <ProviderField
                               key={field.id}
-                            >
-                              <span>{field.label}</span>
-                              {field.type === 'json' ? (
-                                <LongTextField
-                                  id={`provider-field-${field.id}`}
-                                  label={field.label}
-                                  language="avi-json"
-                                  value={providerDraft[field.id] ?? ''}
-                                  placeholder={field.placeholder ?? ''}
-                                  invalid={isInvalidJsonObject(providerDraft[field.id])}
-                                  describedBy={field.description ? `provider-field-${field.id}-help` : undefined}
-                                  onChange={(value) => setProviderDraft({
-                                    ...providerDraft,
-                                    [field.id]: value,
-                                  })}
-                                />
-                              ) : field.type === 'select' ? (
-                                <select className="select"
-                                  value={providerDraft[field.id] ?? field.default ?? ''}
-                                  onChange={(event) => setProviderDraft({
-                                    ...providerDraft,
-                                    [field.id]: event.target.value,
-                                  })}
-                                >
-                                  {field.options.map((option) => (
-                                    <option value={option.value} key={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input className="input"
-                                  type={field.type === 'password' ? 'password' : 'text'}
-                                  value={providerDraft[field.id] ?? field.default ?? ''}
-                                  placeholder={field.placeholder ?? ''}
-                                  autoComplete={field.type === 'password' ? 'off' : undefined}
-                                  onChange={(event) => setProviderDraft({
-                                    ...providerDraft,
-                                    [field.id]: event.target.value,
-                                  })}
-                                />
-                              )}
-                              {field.description && <small id={`provider-field-${field.id}-help`}>{field.description}</small>}
-                            </label>
+                              field={field}
+                              idPrefix="provider-field"
+                              value={providerDraft[field.id]}
+                              onChange={(value) => setProviderDraft({
+                                ...providerDraft,
+                                [field.id]: value,
+                              })}
+                            />
                           ))}
                         </div>
                       ) : (
@@ -3085,85 +3198,22 @@ export function SettingsPage({
                             />
                           </label>
                           {(selectedType?.fields ?? []).map((field) => (
-                            <label
-                              className={classNames(
-                                'settings-field settings-field-wide',
-                                field.type === 'json' && 'settings-json-field',
-                              )}
-                              htmlFor={field.type === 'json' ? `provider-field-${field.id}` : undefined}
+                            <ProviderField
                               key={field.id}
-                            >
-                              <span>{field.label}</span>
-                              {field.type === 'json' ? (
-                                <LongTextField
-                                  id={`provider-field-${field.id}`}
-                                  label={field.label}
-                                  language="avi-json"
-                                  value={providerDraft[field.id] ?? ''}
-                                  placeholder={field.placeholder ?? ''}
-                                  invalid={isInvalidJsonObject(providerDraft[field.id])}
-                                  describedBy={field.description ? `provider-field-${field.id}-help` : undefined}
-                                  onChange={(value) => setProviderDraft({
-                                    ...providerDraft,
-                                    [field.id]: value,
-                                  })}
-                                />
-                              ) : field.type === 'select' ? (
-                                <select className="select"
-                                  value={providerDraft[field.id] ?? field.default ?? ''}
-                                  onChange={(event) => setProviderDraft({
-                                    ...providerDraft,
-                                    [field.id]: event.target.value,
-                                  })}
-                                >
-                                  {field.options.map((option) => (
-                                    <option value={option.value} key={option.value}>
-                                      {option.label}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input className="input"
-                                  type={field.type === 'password' ? 'password' : 'text'}
-                                  value={providerDraft[field.id] ?? field.default ?? ''}
-                                  placeholder={field.placeholder ?? ''}
-                                  autoComplete={field.type === 'password' ? 'off' : undefined}
-                                  onChange={(event) => setProviderDraft({
-                                    ...providerDraft,
-                                    [field.id]: event.target.value,
-                                  })}
-                                />
-                              )}
-                              {field.description && <small id={`provider-field-${field.id}-help`}>{field.description}</small>}
-                            </label>
+                              field={field}
+                              idPrefix="provider-field"
+                              value={providerDraft[field.id]}
+                              onChange={(value) => setProviderDraft({
+                                ...providerDraft,
+                                [field.id]: value,
+                              })}
+                            />
                           ))}
                         </>
                       )}
                     </div>
                   </div>
                 </section>
-
-                {selectedType?.harness && (
-                  <section className="settings-section">
-                    <div className="settings-section-heading">
-                      <h3>Harness</h3>
-                      <p>Which parts of each run Avi handles and which the provider handles.</p>
-                    </div>
-                    <div className="settings-section-card">
-                      <dl className="provider-harness">
-                        {providerHarnessRows(selectedType.harness).map((row) => (
-                          <div key={row.label}>
-                            <dt>{row.label}</dt>
-                            <dd>
-                              <strong>{row.owner}</strong>
-                              <small>{row.detail}</small>
-                            </dd>
-                          </div>
-                        ))}
-                      </dl>
-                    </div>
-                  </section>
-                )}
 
                 <section className="settings-section">
                   <div className="models-editor-header">
@@ -3353,11 +3403,29 @@ export function SettingsPage({
                   <div className="model-editor-grid">
                     <label className="settings-field">
                       <span>Model ID</span>
-                      <input className="input"
-                        value={modelDraft.id}
-                        onChange={(event) => updateModelDraft({ id: event.target.value })}
-                        placeholder="openai/gpt-5"
-                      />
+                      <div className="default-model-row">
+                        <input className="input"
+                          value={modelDraft.id}
+                          onChange={(event) => updateModelDraft({ id: event.target.value })}
+                          onBlur={() => {
+                            if (modelAutoFillPending.current) autoFillModel(modelDraft.id);
+                          }}
+                          placeholder="openai/gpt-5"
+                        />
+                        {modelIdFields.map((field) => (
+                          <select className="select"
+                            key={field.id}
+                            aria-label={field.label}
+                            title={field.description}
+                            value={modelDraft[field.id] ?? field.default ?? ''}
+                            onChange={(event) => updateModelDraft({ [field.id]: event.target.value })}
+                          >
+                            {field.options.map((option) => (
+                              <option value={option.value} key={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        ))}
+                      </div>
                       <small>Sent to the provider API. Multiple configured variants can use the same Model ID.</small>
                     </label>
                     <label className="settings-field">
@@ -3366,32 +3434,6 @@ export function SettingsPage({
                         value={modelDraft.name}
                         onChange={(event) => updateModelDraft({ name: event.target.value })}
                         placeholder="GPT-5"
-                      />
-                    </label>
-                    <label className="settings-field">
-                      <span>Input context</span>
-                      <input className="input"
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={modelDraft.context.input ?? ''}
-                        onChange={(event) => updateModelDraft({
-                          context: { ...modelDraft.context, input: event.target.value },
-                        })}
-                        placeholder="128000"
-                      />
-                    </label>
-                    <label className="settings-field">
-                      <span>Output context</span>
-                      <input className="input"
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={modelDraft.context.output ?? ''}
-                        onChange={(event) => updateModelDraft({
-                          context: { ...modelDraft.context, output: event.target.value },
-                        })}
-                        placeholder="16384"
                       />
                     </label>
                     <label className="settings-field">
@@ -3419,6 +3461,17 @@ export function SettingsPage({
                       </select>
                       <small>Largest media file sent inline to this model.</small>
                     </label>
+                    {(selectedType?.modelFields ?? [])
+                      .filter((field) => !modelIdFields.includes(field))
+                      .map((field) => (
+                        <ProviderField
+                          key={field.id}
+                          field={field}
+                          idPrefix="model-field"
+                          value={modelDraft[field.id]}
+                          onChange={(value) => updateModelDraft({ [field.id]: value })}
+                        />
+                      ))}
                   </div>
                   <div className="model-options-row">
                     <div className="model-option-row">
@@ -3463,6 +3516,110 @@ export function SettingsPage({
                     />
                     <small id="model-custom-json-help">Object recursively merged into the request body after the provider custom JSON.</small>
                   </label>
+                </div>
+                <div className="models-editor-header">
+                  <div>
+                    <h3>Context window</h3>
+                    <p>Input context excludes the output reserve. Smaller values save context and reduce costs.</p>
+                  </div>
+                  <div className="settings-add-provider-group" ref={contextPresetRef}>
+                    <button
+                      className="button"
+                      type="button"
+                      disabled={!modelCatalogContext?.input}
+                      title={modelCatalogContext?.input
+                        ? undefined
+                        : 'Available when the Model ID is found in the AIVAX model catalog.'}
+                      aria-haspopup="menu"
+                      aria-expanded={contextPresetOpen}
+                      onClick={() => setContextPresetOpen((open) => !open)}
+                    >
+                      Preset
+                      <ChevronDown size={14} />
+                    </button>
+                    <Presence when={contextPresetOpen && Boolean(modelCatalogContext?.input)}>{() => (
+                      <DropdownMenu className="settings-add-provider-menu" role="menu">
+                        {[0.25, 0.5, 0.75, 1]
+                          .map((ratio) => ({
+                            ratio,
+                            input: ratio === 1
+                              ? modelCatalogContext.input
+                              : Math.min(
+                                  modelCatalogContext.input,
+                                  Math.max(128_000, Math.round(modelCatalogContext.input * ratio)),
+                                ),
+                          }))
+                          .filter((preset, index, presets) => presets
+                            .findLastIndex((item) => item.input === preset.input) === index)
+                          .map((preset) => (
+                            <DropdownMenuItem
+                              key={preset.ratio}
+                              active={Number(modelDraft.context.input) === preset.input}
+                              role="menuitem"
+                              onClick={() => {
+                                setContextPresetOpen(false);
+                                updateModelDraft({
+                                  context: {
+                                    input: preset.input,
+                                    output: modelCatalogContext.output ?? modelDraft.context.output,
+                                  },
+                                });
+                              }}
+                            >
+                              {`${preset.ratio * 100}% (${formatTokens(preset.input)})`}
+                            </DropdownMenuItem>
+                          ))}
+                      </DropdownMenu>
+                    )}</Presence>
+                  </div>
+                </div>
+                <div className="model-editor-card">
+                  <div className="model-editor-grid">
+                    <label className="settings-field">
+                      <span>Input context</span>
+                      <input className="input"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={modelDraft.context.input ?? ''}
+                        onChange={(event) => updateModelDraft({
+                          context: { ...modelDraft.context, input: event.target.value },
+                        })}
+                        placeholder="128000"
+                      />
+                    </label>
+                    <label className="settings-field">
+                      <span>Output context</span>
+                      <input className="input"
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={modelDraft.context.output ?? ''}
+                        onChange={(event) => updateModelDraft({
+                          context: { ...modelDraft.context, output: event.target.value },
+                        })}
+                        placeholder="16384"
+                      />
+                    </label>
+                  </div>
+                </div>
+                <div className="settings-section-heading">
+                  <h3>Auto fill</h3>
+                  <p>Fills the display name, context limits, capabilities, and reasoning efforts from the public AIVAX model catalog.</p>
+                </div>
+                <div className="settings-section-card settings-card-row">
+                  <span role="status">
+                    {modelAutoFill.message ?? 'Looks up the Model ID above. No AIVAX account is required.'}
+                  </span>
+                  <button
+                    className="button"
+                    type="button"
+                    disabled={modelAutoFill.status === 'loading' || !modelDraft.id.trim()}
+                    onClick={() => autoFillModel(modelDraft.id)}
+                  >
+                    <Sparkles size={14} />
+                    {modelAutoFill.status === 'loading' ? 'Searching...' : 'Auto fill'}
+                  </button>
                 </div>
               </section>
             )}

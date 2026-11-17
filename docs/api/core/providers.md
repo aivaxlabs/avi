@@ -45,6 +45,8 @@ avi.providers.types.register({
 });
 ```
 
+Set `descriptor.creatable: false` to hide a type from **Add provider** and the **Provider type** selector, and to lock the name and type of its existing providers. Use it for providers that the plugin creates itself with `avi.providers.create()`.
+
 ## Model listing
 
 Set `descriptor.supportsModelListing: true` and implement `listAvailableModels({ provider, services })` to let users scan the provider's remote catalog from Settings. The handler returns `Array<{ id: string }>`; Avi trims IDs, drops empty values and duplicates, and sorts the result. Registration fails with `VALIDATION_FAILED` when `supportsModelListing` is true but the handler is missing. `types.list()` always returns `supportsModelListing` as a boolean. Built-in OpenAI Compatible types request `GET /v1/models` with the configured API key.
@@ -69,7 +71,7 @@ Scanning only discovers IDs; it never changes the saved configuration. Read the 
 | `instructions` | `system`, `context` | `system` | Describes where the provider places Avi's instructions. It is shown to users; Avi's request contract is unchanged. |
 | `toolExecution` | `avi` | `avi` | Avi always executes tools, approvals, permissions, and interceptors. Providers return tool calls and never run them. |
 
-Unknown capabilities or values fail registration with `VALIDATION_FAILED`. `types.list()` returns the normalized `harness`, and Settings shows it for the selected provider type.
+Unknown capabilities or values fail registration with `VALIDATION_FAILED`. `types.list()` returns the normalized `harness`.
 
 A stateful provider still receives Avi's complete messages and tool history in every `createBody()` call. Avi remains the source of truth: the provider must compare that history with its session, append only new input, and recreate the session from Avi's history whenever they differ. Avi never restores a provider session from provider-side storage. `invocationContext.conversationId` and `traceOperation` identify which conversation turn a request belongs to; auxiliary requests set `auxiliary: true`.
 

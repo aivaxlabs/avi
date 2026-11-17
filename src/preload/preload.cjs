@@ -234,6 +234,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     importFromUrl: (url) => invoke('providers:import-from-url', url),
     save: (provider) => invoke('providers:save', provider),
     remove: (providerId) => invoke('providers:remove', providerId),
+    onChanged: (callback) => subscribe('providers:changed', callback),
     state: (providerId) => invoke('providers:state', providerId),
     availableModels: (providerId) => invoke('providers:available-models', providerId),
     action: (payload) => invoke('providers:action', payload),
@@ -251,6 +252,7 @@ contextBridge.exposeInMainWorld('chatApp', {
   },
   models: {
     list: () => invoke('models:list'),
+    metadata: (name) => invoke('models:metadata', name),
     favorites: () => invoke('models:favorites'),
     favorite: (payload) => invoke('models:favorite', payload),
   },

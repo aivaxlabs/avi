@@ -78,6 +78,16 @@ function normalizeCustomJson(value, label) {
   return json;
 }
 
+function normalizeDescriptorField(field, value, label) {
+  const fieldValue = field.type === 'json'
+    ? normalizeCustomJson(value, label)
+    : String(value ?? field.default ?? '');
+  if (Array.isArray(field.options) && !field.options.some((option) => option.value === fieldValue)) {
+    throw new Error(`Choose a valid value for "${label}".`);
+  }
+  return fieldValue;
+}
+
 export class ModelProvider {
   constructor(config, implementation, services) {
     this.config = config;
@@ -749,6 +759,10 @@ export class ModelProviderRegistry {
               throw new Error(`Choose a valid media size limit for "${modelName}".`);
             }
             const customJson = normalizeCustomJson(model?.customJson, `Custom JSON for "${modelName}"`);
+            const modelFields = Object.fromEntries((implementation.descriptor.modelFields ?? []).map((field) => [
+              field.id,
+              normalizeDescriptorField(field, model?.[field.id], `${field.label} for "${modelName}"`),
+            ]));
 
             return {
               id,
@@ -768,21 +782,14 @@ export class ModelProviderRegistry {
               reasoning: REASONING_EFFORTS.filter((effort) => model?.reasoning?.includes(effort)),
               ...(model?.mediaSizeLimit !== undefined ? { mediaSizeLimit: model.mediaSizeLimit } : {}),
               ...(customJson ? { customJson } : {}),
+              ...modelFields,
             };
           })
         : [];
-    const fields = Object.fromEntries((implementation.descriptor.fields ?? []).map((field) => {
-      const fieldValue = field.type === 'json'
-        ? normalizeCustomJson(provider[field.id], field.label)
-        : String(provider[field.id] ?? field.default ?? '');
-      if (
-        Array.isArray(field.options)
-        && !field.options.some((option) => option.value === fieldValue)
-      ) {
-        throw new Error(`Choose a valid value for "${field.label}".`);
-      }
-      return [field.id, fieldValue];
-    }));
+    const fields = Object.fromEntries((implementation.descriptor.fields ?? []).map((field) => [
+      field.id,
+      normalizeDescriptorField(field, provider[field.id], field.label),
+    ]));
 
     return {
       id: String(provider.id ?? '').trim() || crypto.randomUUID(),

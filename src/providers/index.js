@@ -1,3 +1,4 @@
+import { aivaxProviderType } from './aivax.js';
 import { openAiCompatibleProviderTypes } from './openai-compatible.js';
 import { openAiSubscriptionProviderType } from './openai-subscription.js';
 import { xSubscriptionProviderType } from './x-subscription.js';
@@ -5,5 +6,6 @@ import { xSubscriptionProviderType } from './x-subscription.js';
 export const providerTypes = [
   openAiSubscriptionProviderType,
   xSubscriptionProviderType,
+  aivaxProviderType,
   ...openAiCompatibleProviderTypes,
 ];

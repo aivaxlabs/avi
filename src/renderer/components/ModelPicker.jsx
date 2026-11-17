@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { classNames } from '../lib/format.js';
+import { classNames, formatTokens } from '../lib/format.js';
 import { Overlay } from './Overlay.jsx';
 
 export function ModelPicker({
@@ -241,9 +241,3 @@ export function ModelPicker({
   );
 }
 
-function formatTokens(value) {
-  if (value === null || value === undefined) return '—';
-  if (value >= 1_000_000) return `${Number((value / 1_000_000).toFixed(1))}M`;
-  if (value >= 1_000) return `${Number((value / 1_000).toFixed(1))}K`;
-  return value.toLocaleString();
-}

@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import WebSocket from 'ws';
 import { getAivaxAccessToken } from './database.js';
+import { REASONING_EFFORTS } from './provider-api.js';
 import { diagnosticFetch as fetch, withRequestDiagnostics } from './request-diagnostics.js';
 
 const AIVAX_API_BASE_URL = 'https://inference.aivax.net';
@@ -10,6 +11,7 @@ export const AIVAX_LONG_INFERENCE_BASE_URL = 'https://direct.inference.aivax.net
 const AIVAX_OAUTH_CALLBACK_PATH = '/aivax/oauth/callback';
 const AIVAX_OAUTH_TIMEOUT_MS = 10 * 60 * 1000;
 const AIVAX_OAUTH_PERMISSIONS = [
+  'InferenceText',
   'InferenceGenerations',
   'ResourcesRead',
   'ResourcesWrite',
@@ -67,7 +69,7 @@ export async function authorizeAivax({ openExternal, signal } = {}) {
       accessToken: null,
       body: {
         clientName: 'Avi Desktop',
-        reason: 'Use AIVAX memory, web, media, search, and Remote Control features from Avi on this computer.',
+        reason: 'Use AIVAX models, memory, web, media, search, and Remote Control features from Avi on this computer.',
         permissions: AIVAX_OAUTH_PERMISSIONS,
         returnUrl: returnUrl.href,
       },
@@ -149,6 +151,51 @@ export async function requestAivax(path, {
   if (includeResponseEnvelope) return value;
   return result;
   });
+}
+
+export async function lookupAivaxModel(name) {
+  if (!name) return null;
+
+  const groups = await requestAivax(
+    `/api/v1/information/models.json?name=${encodeURIComponent(name)}`,
+    { accessToken: null, responseType: 'array' },
+  );
+  const model = groups.flatMap((group) => group.models ?? [])[0];
+  if (!model) return null;
+
+  const limits = (model.providers ?? [])
+    .filter((provider) => !provider.isDisabled)
+    .map((provider) => provider.technicalInfo ?? {});
+  const smallest = (key) => {
+    const values = limits.map((limit) => limit[key]).filter((value) => value > 0);
+    return values.length ? Math.min(...values) : null;
+  };
+  const contextWindow = smallest('contextWindow');
+  const output = smallest('maxOutputTokens');
+  const capabilities = model.capabilities ?? [];
+  const efforts = model.modelInformation?.reasoningEfforts ?? [];
+
+  // Workaround: the catalog has no display name field, so the name is read from descriptions that start
+  // with "<Name> is ..." and falls back to the model slug. Replace this with a display name returned by
+  // /api/v1/information/models.json once the API exposes one.
+  const title = model.description?.match(/^(.{1,40}?) is /)?.[1];
+
+  return {
+    id: model.name,
+    name: title ?? model.name.split('/').pop(),
+    context: {
+      // Avi's input limit excludes the output budget, while the catalog reports the whole window.
+      input: contextWindow && output && contextWindow > output ? contextWindow - output : contextWindow,
+      output,
+    },
+    capabilities: {
+      images: capabilities.includes('ImageInput'),
+      video: capabilities.includes('VideoInput'),
+      audio: capabilities.includes('AudioInput'),
+      pdfFiles: capabilities.includes('FileInput'),
+    },
+    reasoning: REASONING_EFFORTS.filter((effort) => efforts.includes(effort)),
+  };
 }
 
 export async function summarizeWithAivax(text, instructions, options = {}) {

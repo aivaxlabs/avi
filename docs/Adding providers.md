@@ -32,6 +32,12 @@ The provider also reports usage in the Composer usage indicator and `/usage`: in
 
 Credentials are encrypted locally and refreshed automatically. **Disconnect** or removing the provider signs it out.
 
+## AIVAX
+
+While an account is connected in **Settings → AIVAX Features**, Avi keeps a provider named **AIVAX - <account name>** at the top of the list. It sends Chat completions requests to the AIVAX API with the connected account, so it has no Base URL or API key. Add its models as in any API provider, with **Add model** or **Scan models**. Each AIVAX model has a routing mode picker next to its **Model ID**: **Default routing** keeps the account's AIVAX routing preference, while **Balanced**, **Cheapest**, **Fastest**, **Quality**, and **Special** are sent as `routing_options.preset` with every request.
+
+The provider can be disabled and enabled, but it cannot be deleted or renamed while the account is connected, and it cannot be added manually. After **Disconnect**, the provider stays in the list without access and can be deleted; connecting again restores it.
+
 ## OpenAI-compatible providers
 
 Choose **OpenAI Compatible · Responses API** or **OpenAI Compatible · Chat completions API**, then configure:
@@ -41,11 +47,8 @@ Choose **OpenAI Compatible · Responses API** or **OpenAI Compatible · Chat com
 - **API key**, optional for unauthenticated local endpoints;
 - **Reasoning effort format**;
 - **Reasoning reuse**;
-- optional **Temperature** and **Top K** inference hyperparameters;
 - optional **Custom JSON**;
 - **Enabled**.
-
-Temperature and Top K are sent as numeric `temperature` and `top_k` request fields. Leave either value empty to omit that field from inference requests.
 
 **Custom JSON** must be a JSON object. Avi merges it recursively into every request body after building it, so it can add fields or override fields that Avi generates. Nested objects are merged key by key; arrays and other values replace the existing value. A model's own **Custom JSON** is merged after the provider's, so model values win. The Responses, Chat completions, and Messages request formats all apply both.
 
@@ -79,7 +82,10 @@ After saving the provider, select **Add model**. Configure:
 - Images, Audio, and PDF files capabilities;
 - supported reasoning efforts: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`;
 - media size limit: **Use Tuning setting** (default), 5 MB, 10 MB, 20 MB, 100 MB, or No limit. It overrides **Tuning → Media size limit** for chat attachments and `read_media_file`;
-- optional **Custom JSON**, a JSON object recursively merged into this model's request bodies after the provider's Custom JSON.
+- optional **Custom JSON**, a JSON object recursively merged into this model's request bodies after the provider's Custom JSON;
+- optional **Temperature** and **Top K** on OpenAI-compatible and AIVAX models, sent as numeric `temperature` and `top_k` request fields. Leave either value empty to omit that field.
+
+**Auto fill**, at the end of the model editor of every provider, looks up the Model ID in the public AIVAX model catalog and fills the display name, context limits, Images, Video, Audio, and PDF files capabilities, and reasoning efforts. The lookup needs no AIVAX account. A new model is filled automatically the first time its Model ID is entered; after that, and for saved models, use the **Auto fill** button. When several AIVAX routes serve the model, the smallest context window and output limit are used, and the input limit is the window minus the output limit. IDs missing from the catalog leave the fields unchanged.
 
 Providers that can list their models show a dropdown next to **Add model**. Choose **Scan models** to request the provider's `/v1/models` endpoint with the saved base URL and API key. The dialog lists the reported model IDs, which you can filter, and marks IDs that are already configured. Select **Add model** next to an ID to open a new model editor with that ID filled in, then complete the remaining fields and save. Both OpenAI Compatible interfaces support scanning.
 
@@ -103,7 +109,7 @@ Router IDs begin with `@`. Routers cannot contain other routers. Avi adapts a re
 
 A normal conversation selects the first available value from: draft model, saved conversation model, last-used model, then the first catalog model. Sending is blocked when no model is available.
 
-A provider connection must begin responding within 30 seconds. Transport failures and HTTP 5xx responses use a limited retry schedule in normal chats. Providers that retry on their own are not retried again in normal chats; **Settings → Providers** shows this under **Harness**. Goal mode retries indefinitely while the Goal remains active, eventually waiting five minutes between attempts.
+A provider connection must begin responding within 30 seconds. Transport failures and HTTP 5xx responses use a limited retry schedule in normal chats. Providers that retry on their own are not retried again in normal chats. Goal mode retries indefinitely while the Goal remains active, eventually waiting five minutes between attempts.
 
 ## Security and troubleshooting
 

@@ -12,9 +12,11 @@ const {
   AIVAX_LONG_INFERENCE_BASE_URL,
   authorizeAivax,
   importAivaxDocuments,
+  lookupAivaxModel,
   requestAivax,
   summarizeWithAivax,
 } = await import('../src/main/aivax-client.js');
+const { aivaxProviderType } = await import('../src/providers/aivax.js');
 const { CLIENT_TOOLS } = await import('../src/main/client-tools.js');
 const { closeDatabase, getRemoteSettings } = await import('../src/main/database.js');
 
@@ -58,6 +60,7 @@ try {
   const oauthRequest = JSON.parse(requests[0].options.body);
   assert.equal(oauthRequest.clientName, 'Avi Desktop');
   assert.ok(oauthRequest.permissions.includes('WebUtilities'));
+  assert.ok(oauthRequest.permissions.includes('InferenceText'));
   assert.ok(!oauthRequest.permissions.includes('ManagementKeys'));
   assert.match(oauthRequest.returnUrl, /^http:\/\/127\.0\.0\.1:\d+\/aivax\/oauth\/callback\?state=[0-9a-f]{48}$/);
 
@@ -81,6 +84,63 @@ try {
     /authorization was canceled/,
   );
   requests.length = 0;
+
+  reply({
+    message: null,
+    data: [{
+      provider: '@openai',
+      models: [{
+        name: '@openai/gpt-5.6-sol',
+        description: 'GPT-5.6 Sol is a flagship model.',
+        modelInformation: { reasoningEfforts: ['max', 'high', 'low'] },
+        capabilities: ['ImageInput', 'Thinking', 'FileInput'],
+        providers: [
+          { isDisabled: false, technicalInfo: { contextWindow: 1_100_000, maxOutputTokens: null } },
+          { isDisabled: false, technicalInfo: { contextWindow: 1_050_000, maxOutputTokens: 128_000 } },
+          { isDisabled: true, technicalInfo: { contextWindow: 8_000, maxOutputTokens: 1_000 } },
+        ],
+      }],
+    }],
+  });
+  assert.deepEqual(await lookupAivaxModel('gpt-5.6 sol'), {
+    id: '@openai/gpt-5.6-sol',
+    name: 'GPT-5.6 Sol',
+    context: { input: 922_000, output: 128_000 },
+    capabilities: { images: true, video: false, audio: false, pdfFiles: true },
+    reasoning: ['low', 'high', 'max'],
+  });
+  assert.equal(requests[0].url, 'https://inference.aivax.net/api/v1/information/models.json?name=gpt-5.6%20sol');
+  assert.equal(requests[0].options.headers.Authorization, undefined);
+
+  reply({ message: null, data: [] });
+  assert.equal(await lookupAivaxModel('unknown-model'), null);
+  requests.length = 0;
+
+  assert.equal(aivaxProviderType.descriptor.creatable, false);
+  assert.equal(aivaxProviderType.getState().removable, true);
+  assert.throws(() => aivaxProviderType.request({ provider: { id: 'aivax' } }), /Connect an AIVAX account/);
+  assert.throws(() => aivaxProviderType.refresh({ provider: { id: 'copy' } }), /cannot be added manually/);
+  aivaxProviderType.remove();
+  assert.equal(requests.length, 0);
+
+  const routingBody = (routingMode) => aivaxProviderType.createBody({
+    provider: { id: 'aivax' },
+    model: {
+      id: 'aivax:luna',
+      modelId: '@openai/gpt-6-luna',
+      interface: 'aivax',
+      reasoning: [],
+      context: {},
+      routingMode,
+    },
+    messages: [{ role: 'user', content: 'Hello' }],
+    reasoningEffort: null,
+    tools: [],
+    toolHistory: [],
+    invocationContext: { auxiliary: true },
+  });
+  assert.deepEqual((await routingBody('Cheapest')).routing_options, { preset: 'Cheapest' });
+  assert.equal(Object.hasOwn(await routingBody(''), 'routing_options'), false);
 
   reply({ message: null, data: { balance: 999, usage24h: 0, plan: 'Max' } });
   const balance = await requestAivax('/api/v1/information/balance', {

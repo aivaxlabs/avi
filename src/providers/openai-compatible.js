@@ -198,7 +198,7 @@ export const responsesApi = {
 
     return applyCustomJson({
       model: model.modelId,
-      ...inferenceRequestFields(provider),
+      ...inferenceRequestFields(model),
       ...(model.context?.output ? { max_output_tokens: model.context.output } : {}),
       ...(prepared.dynamicContext ? { instructions: prepared.dynamicContext } : {}),
       input: [
@@ -383,7 +383,7 @@ export const chatCompletionsApi = {
 
     return applyCustomJson({
       model: model.modelId,
-      ...inferenceRequestFields(provider),
+      ...inferenceRequestFields(model),
       ...(model.context?.output ? { max_completion_tokens: model.context.output } : {}),
       messages: [
         ...(prepared.dynamicContext
@@ -550,7 +550,8 @@ export const openAiCompatibleProviderTypes = [
       connection: 'custom',
       models: 'custom',
       supportsModelListing: true,
-      fields: [reasoningFormatField, reasoningReuseField, ...inferenceParameterFields, customJsonField],
+      fields: [reasoningFormatField, reasoningReuseField, customJsonField],
+      modelFields: inferenceParameterFields,
     },
     ...responsesApi,
     request: (context) => requestOpenAiCompatible(context, '/v1/responses'),
@@ -566,7 +567,8 @@ export const openAiCompatibleProviderTypes = [
       connection: 'custom',
       models: 'custom',
       supportsModelListing: true,
-      fields: [reasoningFormatField, reasoningReuseField, ...inferenceParameterFields, customJsonField],
+      fields: [reasoningFormatField, reasoningReuseField, customJsonField],
+      modelFields: inferenceParameterFields,
     },
     ...chatCompletionsApi,
     request: (context) => requestOpenAiCompatible(context, '/v1/chat/completions'),
@@ -574,10 +576,10 @@ export const openAiCompatibleProviderTypes = [
   }),
 ];
 
-function inferenceRequestFields(provider) {
+function inferenceRequestFields(model) {
   return [
-    ['temperature', provider.temperature],
-    ['top_k', provider.topK],
+    ['temperature', model.temperature],
+    ['top_k', model.topK],
   ].reduce((fields, [requestKey, value]) => {
     const input = String(value ?? '').trim();
     if (!input) return fields;
