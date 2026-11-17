@@ -29,24 +29,29 @@ export function buildThreadSearchDocuments(messages) {
       && message.status === 'completed'
       && thread.pendingUser
     ) {
-      const userText = truncateComponent(thread.pendingUser.content);
-      const assistantText = truncateComponent(answerTextFromTextualBlocks(message.content));
-      if (userText && assistantText) {
-        thread.turns.push({
-          userMessageId: thread.pendingUser.id,
-          assistantMessageId: message.id,
-          userText,
-          assistantText,
-          updatedAt: message.updatedAt,
-        });
-      }
+      thread.turns.push({ user: thread.pendingUser, assistant: message });
       thread.pendingUser = null;
     }
   }
 
-  return [...threads.values()].flatMap((thread) => (
-    thread.turns.slice(-THREAD_SEARCH_TURN_LIMIT).map((turn) => {
-      const title = truncateComponent(thread.title);
+  return [...threads.values()].flatMap((thread) => {
+    const title = truncateComponent(thread.title);
+    const turns = [];
+    for (let index = thread.turns.length - 1; index >= 0 && turns.length < THREAD_SEARCH_TURN_LIMIT; index -= 1) {
+      const { user, assistant } = thread.turns[index];
+      const userText = truncateComponent(user.content);
+      const assistantText = truncateComponent(answerTextFromTextualBlocks(assistant.content));
+      if (!userText || !assistantText) continue;
+      turns.unshift({
+        userMessageId: user.id,
+        assistantMessageId: assistant.id,
+        userText,
+        assistantText,
+        updatedAt: assistant.updatedAt,
+      });
+    }
+
+    return turns.map((turn) => {
       const docid = `avi-thread:${thread.id}:${turn.userMessageId}`;
       return {
         docid,
@@ -63,8 +68,8 @@ export function buildThreadSearchDocuments(messages) {
           updatedAt: turn.updatedAt,
         },
       };
-    })
-  ));
+    });
+  });
 }
 
 export function createThreadSearchManifest(documents) {

@@ -41,6 +41,8 @@ try {
     chatReasoningTraces: 'visible',
     continuationRepliesEnabled: true,
     automaticCompactionThreshold: 0.9,
+    contextDiscovery: 'minimal',
+    passiveToolGroups: true,
     toolOutputLimit: 8_192,
     mediaSizeLimit: 10 * 1024 * 1024,
     defaultPermissionMode: 'approve_for_me',
@@ -60,6 +62,8 @@ try {
     chatReasoningTraces: 'hidden',
     continuationRepliesEnabled: false,
     automaticCompactionThreshold: 0.8,
+    contextDiscovery: 'full',
+    passiveToolGroups: false,
     toolOutputLimit: null,
     mediaSizeLimit: 10 * 1024 * 1024,
     defaultPermissionMode: 'ask_for_approval',
@@ -78,6 +82,8 @@ try {
     chatReasoningTraces: 'hidden',
     continuationRepliesEnabled: false,
     automaticCompactionThreshold: 0.8,
+    contextDiscovery: 'full',
+    passiveToolGroups: false,
     toolOutputLimit: null,
     mediaSizeLimit: 10 * 1024 * 1024,
     defaultPermissionMode: 'ask_for_approval',
@@ -1188,6 +1194,71 @@ try {
   assert.equal(forwardingCalls[1].fromAgent, true);
   assert.match(forwardingCalls[1].text, /Managed worker failed\./);
   assert.match(forwardingCalls[1].text, /status="error"/);
+
+  const botParent = createConversation({
+    title: 'Bot parent',
+    model: 'test/model',
+    projectPath: process.cwd(),
+    conversationType: 'bot',
+  });
+  const reportBot = database.createBot({
+    conversationId: botParent.id,
+    name: 'Report bot',
+    iconSeed: 'report-bot',
+    workingFolder: process.cwd(),
+    model: 'test/bot-model',
+  });
+  const botQueue = [];
+  forwardingRunner.getBotManager = () => ({
+    enqueueThreadMessage: (conversationId, item) => {
+      botQueue.push({ conversationId, ...item });
+      return { id: 'queued-report' };
+    },
+  });
+  const botSubagent = forkConversation(botParent.id, {
+    subagent: true,
+    subagentPrompt: 'Return the bot result.',
+    autoForwardToParent: true,
+  });
+  const botResult = insertMessage({
+    conversationId: botSubagent.conversation.id,
+    role: 'assistant',
+    model: 'test/model',
+    status: 'completed',
+    content: 'Bot sub-agent result.',
+  });
+  await forwardingRunner.forwardSubagentResult(botResult, 'full_access');
+  assert.equal(forwardingCalls.length, 2);
+  assert.equal(botQueue.length, 1);
+  assert.equal(botQueue[0].conversationId, botParent.id);
+  assert.equal(botQueue[0].kind, 'subagent');
+  assert.equal(botQueue[0].sourceMessageId, botResult.id);
+  assert.match(botQueue[0].text, /Bot sub-agent result\./);
+
+  forwardingRunner.runs.set(botParent.id, {});
+  await forwardingRunner.forwardSubagentResult(botResult, 'full_access');
+  forwardingRunner.runs.delete(botParent.id);
+  assert.equal(botQueue.length, 1);
+  assert.equal(forwardingCalls.length, 3);
+  assert.equal(forwardingCalls[2].conversationId, botParent.id);
+  assert.equal(forwardingCalls[2].model, reportBot.model);
+  assert.equal(forwardingCalls[2].permissionMode, 'approve_for_me');
+  assert.equal(forwardingCalls[2].steer, true);
+  forwardingCalls.pop();
+
+  const poolTitles = [botSubagent.conversation.title];
+  while (!/ \d+$/.test(poolTitles.at(-1)) && poolTitles.length < 1000) {
+    poolTitles.push(
+      forkConversation(botParent.id, { subagent: true, subagentPrompt: 'Pool.' }).conversation.title,
+    );
+  }
+  assert.ok(poolTitles.length > 100);
+  assert.equal(poolTitles.at(-1), 'Euclid 2');
+  assert.equal(new Set(poolTitles).size, poolTitles.length);
+  assert.equal(
+    forkConversation(botParent.id, { subagent: true, subagentPrompt: 'Next.' }).conversation.title,
+    'Archimedes 2',
+  );
 
   const manualResult = insertMessage({
     conversationId: subagent.conversation.id,

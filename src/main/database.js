@@ -68,6 +68,8 @@ const defaultTuningSettings = Object.freeze({
   chatReasoningTraces: 'visible',
   continuationRepliesEnabled: true,
   automaticCompactionThreshold: 0.9,
+  contextDiscovery: 'minimal',
+  passiveToolGroups: true,
   toolOutputLimit: 8_192,
   mediaSizeLimit: defaultMediaSizeLimit,
   defaultPermissionMode: 'approve_for_me',
@@ -655,6 +657,8 @@ if (db.prepare("PRAGMA table_info('messages')").all().find((column) => column.na
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_messages_latest_state
     ON messages(id, role, status, updated_at, stopped_by_user);
+  CREATE INDEX IF NOT EXISTS idx_messages_thread_search
+    ON messages(conversation_id, created_at, hidden, role, status, from_agent, updated_at, id);
 `);
 const botColumns = db.prepare("PRAGMA table_info('bots')").all();
 if (!botColumns.some((column) => column.name === 'execution_mode')) {
@@ -1581,19 +1585,14 @@ const statements = {
     WHERE conversation_id = ? AND status IN ('queued', 'steered')
     ORDER BY queue_position ASC, rowid ASC
   `),
-  listThreadSearchMessages: db.prepare(`
+  listThreadSearchStates: db.prepare(`
     SELECT
-      c.id AS conversation_id,
-      c.title AS conversation_title,
-      m.id,
-      m.role,
-      m.status,
-      m.content,
-      m.updated_at,
-      m.hidden,
-      m.from_agent
+      c.id,
+      c.title,
+      COUNT(m.id) AS message_count,
+      MAX(m.updated_at) AS last_updated_at
     FROM conversations c
-    JOIN messages m ON m.conversation_id = c.id
+    JOIN messages m INDEXED BY idx_messages_thread_search ON m.conversation_id = c.id
     WHERE c.deleted_at IS NULL
       AND c.archived_at IS NULL
       AND c.conversation_type = 'thread'
@@ -1602,7 +1601,29 @@ const statements = {
         (m.role = 'user' AND m.from_agent = 0 AND m.status IN ('sent', 'completed'))
         OR (m.role = 'assistant' AND m.status = 'completed')
       )
-    ORDER BY c.id, m.created_at ASC, m.rowid ASC
+    GROUP BY c.id
+    ORDER BY c.id
+  `),
+  // The filter and `updated_at` come from idx_messages_thread_search because they are stored after
+  // the large message columns; only `content`, which precedes them, is read from the table row.
+  listThreadSearchMessages: db.prepare(`
+    SELECT m.id, m.role, m.status, m.content, m.updated_at, m.hidden, m.from_agent
+    FROM messages m INDEXED BY idx_messages_thread_search
+    WHERE m.conversation_id = ?
+      AND m.hidden = 0
+      AND (
+        (m.role = 'user' AND m.from_agent = 0 AND m.status IN ('sent', 'completed'))
+        OR (m.role = 'assistant' AND m.status = 'completed')
+      )
+    ORDER BY m.created_at ASC, m.rowid ASC
+  `),
+  getLatestBoundaryMessageId: db.prepare(`
+    SELECT id FROM messages
+    WHERE conversation_id = ?
+      AND role IN ('user', 'assistant')
+      AND status IN ('completed', 'sent', 'aborted')
+    ORDER BY created_at DESC, rowid DESC
+    LIMIT 1
   `),
   getMessage: db.prepare('SELECT * FROM messages WHERE id = ?'),
   getMessageConversationId: db.prepare('SELECT conversation_id FROM messages WHERE id = ?'),
@@ -1643,6 +1664,23 @@ const statements = {
   addFavorite: db.prepare('INSERT OR IGNORE INTO model_favorites (model_id, created_at) VALUES (?, ?)'),
   removeFavorite: db.prepare('DELETE FROM model_favorites WHERE model_id = ?'),
 };
+
+if (!readJson('modelInferenceParametersMigrated')) {
+  const providers = readJson('modelProviders');
+  if (Array.isArray(providers)) {
+    writeJson('modelProviders', providers.map(({ temperature, topK, ...provider }) => ({
+      ...provider,
+      models: Array.isArray(provider.models)
+        ? provider.models.map((model) => ({
+            ...(temperature ? { temperature } : {}),
+            ...(topK ? { topK } : {}),
+            ...model,
+          }))
+        : provider.models,
+    })));
+  }
+  writeJson('modelInferenceParametersMigrated', true);
+}
 
 export function getPreferences() {
   const storedTuning = readJson('tuningSettings');
@@ -3330,10 +3368,19 @@ export function getMessagePage(conversationId, { beforeMessageId = null, limit =
   };
 }
 
-export function listThreadSearchMessages() {
-  return statements.listThreadSearchMessages.all().map((row) => ({
-    conversationId: row.conversation_id,
-    conversationTitle: row.conversation_title,
+export function listThreadSearchStates() {
+  return statements.listThreadSearchStates.all().map((row) => ({
+    id: row.id,
+    title: row.title,
+    messageCount: Number(row.message_count),
+    lastUpdatedAt: row.last_updated_at,
+  }));
+}
+
+export function listThreadSearchMessages(thread) {
+  return statements.listThreadSearchMessages.all(thread.id).map((row) => ({
+    conversationId: thread.id,
+    conversationTitle: thread.title,
     id: row.id,
     role: row.role,
     status: row.status,
@@ -3347,6 +3394,10 @@ export function listThreadSearchMessages() {
 export function getMessage(id) {
   const row = statements.getMessage.get(id);
   return row ? mapMessage(row) : null;
+}
+
+export function getLatestBoundaryMessageId(conversationId) {
+  return statements.getLatestBoundaryMessageId.get(conversationId)?.id ?? null;
 }
 
 export function searchChats(query) {
@@ -3390,13 +3441,16 @@ export function forkConversation(id, {
   const usedSubagentNames = subagent
     ? new Set(listSubagents(source.id).map((agent) => agent.title))
     : null;
-  const subagentNameIndex = subagent
-    ? subagentNames.findIndex((name, index) => (
-      index >= source.nextSubagentNameIndex && !usedSubagentNames.has(name)
-    ))
-    : -1;
-  const subagentName = subagentNameIndex >= 0 ? subagentNames[subagentNameIndex] : null;
-  if (subagent && !subagentName) return null;
+  let subagentNameIndex = -1;
+  let subagentName = null;
+  for (let index = source.nextSubagentNameIndex; subagent && !subagentName; index += 1) {
+    const name = index < subagentNames.length
+      ? subagentNames[index]
+      : `${subagentNames[index % subagentNames.length]} ${Math.floor(index / subagentNames.length) + 1}`;
+    if (usedSubagentNames.has(name)) continue;
+    subagentNameIndex = index;
+    subagentName = name;
+  }
   const rubberDuckNumber = rubberDuck
     ? listRubberDucks(source.id).filter(({ conversationType }) => conversationType === 'rubber_duck').length + 1
     : null;
@@ -4285,6 +4339,12 @@ function normalizeTuningSettings(value, strict = false) {
     automaticCompactionThreshold: [0.8, 0.9, 0.95].includes(automaticCompactionThreshold)
       ? automaticCompactionThreshold
       : defaultTuningSettings.automaticCompactionThreshold,
+    contextDiscovery: ['minimal', 'full'].includes(tuning.contextDiscovery)
+      ? tuning.contextDiscovery
+      : defaultTuningSettings.contextDiscovery,
+    passiveToolGroups: typeof tuning.passiveToolGroups === 'boolean'
+      ? tuning.passiveToolGroups
+      : defaultTuningSettings.passiveToolGroups,
     toolOutputLimit: [4_096, 8_192, 32_768, null].includes(toolOutputLimit)
       ? toolOutputLimit
       : defaultTuningSettings.toolOutputLimit,
