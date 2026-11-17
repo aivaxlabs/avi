@@ -1,0 +1,6 @@
+{
+  "id": "browser-mcp",
+  "name": "Browser MCP",
+  "version": "1.0.0",
+  "description": "Control a dedicated browser window through the Browser MCP daemon, installed from npm on first use, with snapshots, real input, network mocking and saved logins."
+}
