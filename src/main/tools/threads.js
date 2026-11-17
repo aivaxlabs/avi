@@ -406,7 +406,7 @@ export const threadListingTools = [
 export const threadActionTools = [
   {
     name: 'chat_create_thread',
-    description: 'Create a chat thread and optionally start it with a prompt.',
+    description: 'Create an independent chat thread and optionally start it with a prompt. Its result is not reported back. Prefer chat_spawn_subagent for delegated work; use this tool only when the work needs another folder or must continue as a separate, user-visible thread.',
     canEditFile: false,
     canPerformDestructiveActions: true,
     inputSchema: {
@@ -669,7 +669,7 @@ export const threadActionTools = [
   },
   {
     name: 'chat_spawn_subagent',
-    description: 'Start an asynchronous sub-agent for a focused task in the current workspace. Returns immediately with its thread_id. A Plan-mode sub-agent remains in Plan mode; its final response or terminal error is automatically steered to the orchestrator.',
+    description: 'Start an asynchronous sub-agent for a focused task in the current workspace. Returns immediately with its thread_id. A Plan-mode sub-agent remains in Plan mode; its final response or terminal error is automatically steered to the orchestrator. Prefer this tool over chat_create_thread for delegated work.',
     canEditFile: false,
     canPerformDestructiveActions: true,
     inputSchema: {
@@ -756,7 +756,8 @@ export const threadActionTools = [
         prompt: normalizedPrompt,
         model: selectedModel,
         reasoningEffort: selectedReasoningEffort,
-        permissionMode,
+        // Bot-delegated sub-agents run unattended: permission requests would never be answered.
+        permissionMode: parent.isBot && permissionMode !== 'read_only' ? 'full_access' : permissionMode,
         tuning,
         workMode,
         ultraMode,

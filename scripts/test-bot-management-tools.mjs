@@ -297,7 +297,9 @@ try {
     role: 'user',
     content: 'Please proceed with the release work.',
   });
+  chatRunner.runs.set(created.bot.conversationId, {});
   await botManager.replyToPendency(created.bot.id, activePendency.id, { content: 'Ship it.' });
+  chatRunner.runs.delete(created.bot.conversationId);
   const flowchartBot = { ...getBot(created.bot.id), enabled: true };
   assert.equal(botManager.selectActivation({ ...flowchartBot, lastActivationKind: 'work' }).kind, 'priority');
   assert.equal(botManager.selectActivation({ ...flowchartBot, lastActivationKind: 'priority' }).kind, 'work');
@@ -391,12 +393,14 @@ try {
 
   // --- Pendency reply, delivery, completion, and approval resolution ---
   const requestsBeforeReply = activationRequests.length;
+  chatRunner.runs.set(created.bot.conversationId, {});
   const replyResult = await botManager.replyToPendency(created.bot.id, protectedPendency.id, {
     content: 'Please proceed carefully.  ',
   });
   assert.equal(replyResult.queued, true);
   assert.ok(replyResult.queueItemId);
-  assert.equal(activationRequests.length, requestsBeforeReply, 'Inbox replies are queued, not sent immediately');
+  assert.equal(activationRequests.length, requestsBeforeReply, 'Inbox replies to a working bot wait in the queue');
+  chatRunner.runs.delete(created.bot.conversationId);
   assert.equal(replyResult.item.messages.at(-1).role, 'user');
   assert.equal(replyResult.item.messages.at(-1).content, 'Please proceed carefully.');
   assert.deepEqual(replyResult.item.messages.at(-1).attachments, []);
@@ -414,9 +418,11 @@ try {
   let persistedPendency = persistedInbox.find((item) => item.id === protectedPendency.id);
   assert.equal(persistedPendency.messages.at(-1).content, 'Please proceed carefully.');
 
+  chatRunner.runs.set(created.bot.conversationId, {});
   const concurrentReplies = await Promise.all(['a', 'b', 'c'].map((suffix) => (
     botManager.replyToPendency(created.bot.id, protectedPendency.id, { content: `Concurrent ${suffix}.` })
   )));
+  chatRunner.runs.delete(created.bot.conversationId);
   for (const result of concurrentReplies) {
     assert.equal(result.queueItemId, replyResult.queueItemId, 'replies to one pendency merge into one item');
   }
@@ -523,12 +529,14 @@ try {
   const workLog = await tool('bots_read_work_log').execute({ id: created.bot.id, workLogId: contentOnlyPendency.id }, context);
   assert.equal(workLog.inbox.length, 1);
   assert.ok(Array.isArray(workLog.activity));
+  const requestsBeforeWorkLog = activationRequests.length;
   const sentWorkLog = await tool('bots_send_work_log_message').execute({ id: created.bot.id, workLogId: contentOnlyPendency.id, message: 'Continue this task.' }, context);
   assert.equal(sentWorkLog.queued, true);
   assert.equal(sentWorkLog.item.messages.at(-1).content, 'Continue this task.');
   await assert.rejects(() => tool('bots_read_work_log').execute({ id: 'missing' }, context), /Bot not found/);
   await assert.rejects(() => tool('bots_read_work_log').execute({ id: created.bot.id, workLogId: 'missing' }, context), /Work log not found/);
-  assert.match((await deliverPriority(created.bot.id)).text, /<bot-pendency-update [^>]*from="user">/);
+  assert.equal(activationRequests.length, requestsBeforeWorkLog + 1, 'a user reply activates a free bot');
+  assert.match(activationRequests.at(-1).text, /<bot-pendency-update [^>]*from="user">/);
   assert.equal(sentWorkLog.item.messages.at(-1).role, 'user');
 
   const peer = await tool('bots_create').execute({

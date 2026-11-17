@@ -89,11 +89,8 @@ try {
   const replied = await handle.inbox.reply(pending.id, { content: 'Use CSV.', attachments });
   assert.equal(replied.queued, true);
   assert.equal(replied.item.messages.at(-1).role, 'user');
-  assert.equal(requests.length, 0, 'Inbox replies wait in the priority queue');
-  const [queued] = manager.describePriorityQueue(bot.id);
-  assert.equal(queued.id, replied.queueItemId);
-  assert.equal(queued.kind, 'inbox');
-  assert.equal(await manager.activateBot(bot.id, { trigger: 'test', chained: true, admitted: true, force: true }), true);
+  assert.equal(requests.length, 1, 'Inbox replies activate a free bot');
+  assert.equal(manager.describePriorityQueue(bot.id).length, 0);
   assert.equal(requests[0].conversationId, bot.conversationId);
   assert.equal(requests[0].permissionMode, 'full_access');
   assert.deepEqual(requests[0].attachments, attachments);
@@ -184,6 +181,7 @@ try {
   assert.ok(discovery.result.methods.includes('bots:complete-pendency'));
   assert.ok(!discovery.result.methods.includes('bots:update-work-item'));
   const rpcPending = await tools.find((tool) => tool.name === 'bot_pendency_create').execute({ title: 'Confirm export', content: 'Is the CSV format correct?' });
+  manager.chatRunner.runs.set(bot.conversationId, {});
   const rpcReply = await rpc('bots:reply-pendency', { botId: bot.id, pendencyId: rpcPending.id, content: 'Correct.', attachments });
   assert.equal(rpcReply.error, undefined);
   assert.equal(rpcReply.result.queued, true);

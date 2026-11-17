@@ -56,6 +56,7 @@ const PRIORITY_KIND_LABELS = {
   approval: 'Approval decision',
   inbox: 'Inbox reply',
   mention: 'Mention',
+  subagent: 'Sub-agent report',
   thread: 'Thread prompt',
 };
 

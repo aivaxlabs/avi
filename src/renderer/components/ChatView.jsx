@@ -825,7 +825,7 @@ export const ChatView = memo(function ChatView({
   return (
     <Root
       ref={chatAreaRef}
-      className={`chat-area ${compact ? 'auxiliary-chat-view' : ''} ${isEmptyChat ? 'chat-empty' : ''} ${isEmptyChat && homeEmpty && !compact ? 'chat-empty-home' : ''}`}
+      className={`chat-area ${compact ? 'auxiliary-chat-view' : ''} ${currentConversation?.isBot ? 'bot-chat' : ''} ${isEmptyChat ? 'chat-empty' : ''} ${isEmptyChat && homeEmpty && !compact ? 'chat-empty-home' : ''}`}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}

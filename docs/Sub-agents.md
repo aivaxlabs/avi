@@ -8,7 +8,9 @@ The orchestrator uses `chat_spawn_subagent` with a self-contained task. The tool
 
 Rules:
 
-- only a normal orchestrator thread can spawn sub-agents, and in a Fusion conversation only the lead can, through `dispatch_sidekick`;
+- only a normal orchestrator thread or a bot's main thread can spawn sub-agents, and in a Fusion conversation only the lead can, through `dispatch_sidekick`;
+- orchestrators are instructed to prefer `chat_spawn_subagent` over `chat_create_thread`, which creates an independent thread that does not report back;
+- after every automatic name has been used in a thread, numbered names such as `Euclid 2` are used;
 - side chats and sub-agents cannot spawn nested sub-agents;
 - the prompt should include the objective, scope, acceptance criteria, relevant context, available tools, and expected evidence;
 - automatic names include Euclid, Archimedes, Pythagoras, and others;

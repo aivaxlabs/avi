@@ -16,8 +16,8 @@ import {
   getBotSchedulerSnoozeUntil,
   getBotSettings,
   getConversation,
+  getLatestBoundaryMessageId,
   getMessage,
-  getMessages,
   enqueueBotPriorityItem,
   listAllConversations,
   listBotPriorityItems,
@@ -873,6 +873,13 @@ export class BotManager {
     });
     this.broadcast('bots:work-state');
     if (senderBot) await this.forwardPendencyMentions(senderBot, item, bot);
+    if (!senderBot) {
+      await this.activateBot(bot.id, { trigger: 'inbox-reply', force: true, admitted: true, chained: true })
+        .catch((error) => traceError('bots.inbox-reply-activation-error', {
+          bot_id: bot.id,
+          error: error?.message ?? String(error),
+        }));
+    }
     return { item, queued: true, queueItemId: queueItem.id };
   }
 
@@ -1194,13 +1201,10 @@ export class BotManager {
       }
       activationPrompt.push('</bot-activation>');
       if (this.activating.get(bot.id) !== activation || !getBot(bot.id)) return null;
-      const boundaryMessage = getMessages(bot.conversationId)
-        .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
-        .filter((message) => message.role === 'user' || message.role === 'assistant')
-        .at(-1);
-      if (boundaryMessage) {
+      const boundaryMessageId = getLatestBoundaryMessageId(bot.conversationId);
+      if (boundaryMessageId) {
         updateConversation(bot.conversationId, {
-          checkpointMessageId: boundaryMessage.id,
+          checkpointMessageId: boundaryMessageId,
           contextCheckpoint: '',
           contextTokens: 0,
         });
