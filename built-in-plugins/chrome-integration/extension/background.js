@@ -5,10 +5,12 @@ const bindingName = "__aviBrowserHost";
 const worldName = "__avi_browser__";
 const frameGuardKey = "__aviForeignFrameGuard";
 const supportedUrl = /^(?:https?:|file:|about:blank$)/i;
+const markTitle = "Avi";
 const isMac = /Mac/i.test(navigator.userAgent);
 const attachedTabs = new Set();
 const attaching = new Map();
 const tabState = new Map();
+let markQueue = Promise.resolve();
 let instanceId;
 const initialized = initialize();
 
@@ -27,12 +29,14 @@ chrome.tabs.onRemoved.addListener(tabId => {
   publishTabs();
 });
 chrome.tabs.onActivated.addListener(() => publishTabs());
-chrome.tabs.onUpdated.addListener((_tabId, change) => {
+chrome.tabs.onUpdated.addListener((tabId, change) => {
+  if ("groupId" in change) syncBanner(tabId, { hideUnmarked: true });
   if (change.url || change.title || change.status) publishTabs();
 });
 chrome.debugger.onEvent.addListener(handleDebuggerEvent);
 chrome.webNavigation.onCommitted.addListener(details => {
   if (attachedTabs.has(details.tabId)) injectFrameGuard({ tabId: details.tabId, frameIds: [details.frameId] }, blockForeignFrames);
+  if (details.frameId === 0) syncBanner(details.tabId);
 });
 chrome.debugger.onDetach.addListener(source => {
   attachedTabs.delete(source.tabId);
@@ -162,12 +166,76 @@ function allSessions(tabId, method, params) {
     .catch(error => sessionId ? null : Promise.reject(error))));
 }
 
+function enqueueMark(task) {
+  return markQueue = markQueue.then(task).catch(() => {});
+}
+
+async function isMarked(tab) {
+  return tab.groupId > -1 && (await chrome.tabGroups.get(tab.groupId)).title === markTitle;
+}
+
+function markTab(tabId) {
+  return enqueueMark(async () => {
+    const tab = await chrome.tabs.get(tabId);
+    if (await isMarked(tab)) return;
+
+    const [group] = await chrome.tabGroups.query({ windowId: tab.windowId, title: markTitle });
+    const groupId = await chrome.tabs.group({
+      tabIds: tabId,
+      ...(group ? { groupId: group.id } : { createProperties: { windowId: tab.windowId } })
+    });
+    if (!group) await chrome.tabGroups.update(groupId, { title: markTitle, color: "purple" });
+  });
+}
+
+function syncBanner(tabId, { hideUnmarked = false } = {}) {
+  return enqueueMark(async () => {
+    const marked = await isMarked(await chrome.tabs.get(tabId));
+    if (!marked && !hideUnmarked) return;
+
+    await chrome.scripting.executeScript({ target: { tabId }, func: setBanner, args: [marked, markTitle], injectImmediately: true });
+  });
+}
+
+function setBanner(visible, label) {
+  document.querySelectorAll("avi-tab-banner").forEach(element => element.remove());
+  if (!visible) return;
+
+  const render = () => {
+    const host = document.createElement("avi-tab-banner");
+    host.style.cssText = "all: initial; position: fixed; inset: 0 0 auto 0; z-index: 2147483647; pointer-events: none;";
+
+    const shadow = host.attachShadow({ mode: "closed" });
+    const style = document.createElement("style");
+    style.textContent = `
+      .bar { height: 3px; background: linear-gradient(90deg, #8839ef, #cba6f7, #8839ef); }
+      .label {
+        position: absolute; top: 3px; left: 50%; transform: translateX(-50%);
+        padding: 1px 10px 2px; border-radius: 0 0 8px 8px;
+        background: #8839ef; color: #fff; box-shadow: 0 2px 6px #0003;
+        font: 600 11px/16px system-ui, sans-serif; letter-spacing: .02em;
+      }
+    `;
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    const text = document.createElement("div");
+    text.className = "label";
+    text.textContent = label;
+    shadow.append(style, bar, text);
+    document.documentElement.append(host);
+  };
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", render, { once: true });
+  else render();
+}
+
 async function attach(tabId) {
   const tab = await chrome.tabs.get(tabId);
   if (!supportedUrl.test(tab.url || "")) {
     await publishTabs();
     throw new Error(`Avi cannot control the restricted URL ${tab.url || "in this tab"}. Select an http(s), file or about:blank tab, or navigate this one with chrome_manage_tab.`);
   }
+  await markTab(tabId);
   if (attachedTabs.has(tabId)) return;
   if (!attaching.has(tabId)) attaching.set(tabId, connectDebugger(tabId, tab).finally(() => attaching.delete(tabId)));
   return attaching.get(tabId);
@@ -1601,6 +1669,7 @@ async function manageTab({ action, tabId, url, active, bypassCache, newWindow, t
   } else {
     throw new Error(`Unknown tab action "${action}". Use open, navigate, reload, back, forward, activate or close.`);
   }
+  await markTab(target.id);
   const warning = await waitForLoad(target.id, clamp(timeoutMs, 1000, 120000)).then(() => null, error => error.message);
   return { tab: tabInfo(await chrome.tabs.get(target.id)), ...(warning ? { warning } : {}) };
 }
