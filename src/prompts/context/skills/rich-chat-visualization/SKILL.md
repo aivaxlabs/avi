@@ -185,15 +185,37 @@ Open the `.dmg` and drag Avi to Applications.
 
 ## Copyable text
 
-Use the `avi-copy` leaf directive for commands, prompts, configuration fragments, identifiers, or other plain text the user is likely to copy as a unit.
+Use `avi-copy` for plain text the user is likely to copy as a unit: commands, prompts, messages to send, configuration fragments, or identifiers. Choose the form by the content, not by habit.
+
+For a single line, use the leaf directive with `value`:
 
 ```markdown
 ::avi-copy{label="Command" value="bun run renderer:build"}
 ```
 
-- `label` is optional and defaults to `Copyable text`.
-- `value` is required and must not be empty.
-- The value is displayed as plain preformatted text, not Markdown or executable HTML.
+For anything with more than one line (messages, emails, lists, multi-line commands, or config), use the container directive. Its body is the copied value:
+
+```markdown
+:::avi-copy{label="Reply to the client"}
+Hi Jessica,
+
+The integration is ready on our side. To start testing we need:
+
+- sandbox credentials;
+- the webhook URL.
+
+Best regards,
+Gabriel
+:::
+```
+
+- A leaf directive must fit on one line. A line break inside `value` breaks the directive, and the raw `::avi-copy{...}` source is shown as text. Never put line breaks in `value`; use the container instead.
+- `\"` is not an escape inside `value` and also breaks the directive. If the value contains double quotes, wrap it in single quotes (`value='say "hi"'`); if it contains both quote types, use the container.
+- Set the title only with the `label` attribute. A `[...]` label is not a title here: on the leaf it becomes the value, and on the container it is copied as part of the body.
+- Write the container body exactly as the user should paste it, starting at column 0. It is copied verbatim and is not rendered: `**bold**`, list markers, and code fences become part of the copied text, so do not wrap the body in a code fence.
+- The body ends at the first line containing only `:::`, so the copied text cannot contain such a line.
+- The directive is a block: it must start on its own line, never in the middle of a sentence.
+- `label` is optional, defaults to `Copyable text`, and is limited to 240 characters. The value is required, must not be empty, and is limited to 20,000 characters.
 - Do not use this directive for secrets, credentials, hidden reasoning, or sensitive data.
 
 ## Findings

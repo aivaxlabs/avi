@@ -66,6 +66,7 @@ import { formatBytes } from '../lib/files.js';
 import { consolidateFileEdits, createUndoPrompt } from '../lib/file-edits.js';
 import { parseStructuredUserMessage } from '../lib/message-groups.js';
 import { remarkAviDirectives } from '../lib/markdown-directives.js';
+import { ScrollFollow } from '../lib/scroll-follow.js';
 import { classNames, formatMetricDuration } from '../lib/format.js';
 import { AttachmentImage, AttachmentVideo } from './AttachmentVideo.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
@@ -81,6 +82,7 @@ const compactTokenFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 1,
 });
 const STANDARD_MARKDOWN_PLUGINS = Object.freeze([remarkGfm]);
+const TOOL_LABEL_INTERVAL_MS = 3_000;
 const toolCallDetailsCache = new Map();
 const MARKDOWN_PLUGINS = Object.freeze([
   remarkDirective,
@@ -540,15 +542,55 @@ function AssistantMessage({
     () => partitionTimeline(timeline, activelyStreaming),
     [activelyStreaming, timeline],
   );
-  const thinkingLabel = useMemo(() => {
-    let label = 'Thinking';
+  const thinking = useMemo(() => {
+    let status = 'Thinking';
+    let tools = [];
+
     for (const segment of message.segments ?? []) {
-      if (segment.type !== 'reasoning') continue;
-      const statusLabel = parseReasoningStatus(segment.text);
-      if (statusLabel !== null) label = statusLabel;
+      if (segment.type === 'tool-call' && segment.invocationGoal) {
+        tools.push(segment.invocationGoal);
+        continue;
+      }
+
+      const statusLabel = segment.type === 'reasoning' ? parseReasoningStatus(segment.text) : null;
+      if (statusLabel === null) continue;
+
+      status = statusLabel;
+      tools = [];
     }
-    return label;
+
+    return { status, tools };
   }, [message.segments]);
+  const toolCount = thinking.tools.length;
+  const [labelState, setLabelState] = useState(() => ({
+    count: toolCount,
+    next: toolCount,
+    index: toolCount - 1,
+    label: thinking.tools.at(-1) ?? thinking.status,
+    previous: null,
+  }));
+  let labelWalk = labelState;
+
+  if (labelState.count !== toolCount) {
+    const pending = labelState.next >= labelState.count - 1 ? labelState.count : labelState.next;
+
+    labelWalk = {
+      count: toolCount,
+      next: pending >= toolCount - 1 ? toolCount : pending,
+      index: toolCount - 1,
+    };
+  }
+
+  const thinkingLabel = thinking.tools[labelWalk.index] ?? thinking.status;
+
+  if (labelWalk !== labelState || labelState.label !== thinkingLabel) {
+    setLabelState({
+      ...labelWalk,
+      label: thinkingLabel,
+      previous: labelState.label === thinkingLabel ? labelState.previous : labelState.label,
+    });
+  }
+
   const durationLabel = formatWorkedDuration(
     workedStartedAt ?? message.createdAt,
     activelyStreaming ? null : message.updatedAt,
@@ -578,6 +620,18 @@ function AssistantMessage({
   );
 
   useEffect(() => () => clearTimeout(copyResetTimerRef.current), []);
+
+  useEffect(() => {
+    if (!activelyStreaming || labelWalk.next >= toolCount) return undefined;
+
+    const timer = setTimeout(() => setLabelState((current) => ({
+      ...current,
+      index: current.next,
+      next: current.next + 1,
+    })), TOOL_LABEL_INTERVAL_MS);
+
+    return () => clearTimeout(timer);
+  }, [activelyStreaming, labelWalk.next, toolCount]);
 
   useEffect(() => {
     if (!usageOpen) return undefined;
@@ -664,6 +718,16 @@ function AssistantMessage({
         {imageContextMenu}
         {activelyStreaming && !questionPending && (
           <div className="assistant-placeholder" aria-live="polite">
+            {labelState.previous !== null && (
+              <span
+                key={`leaving:${labelState.previous}`}
+                className="assistant-placeholder-label is-leaving"
+                aria-hidden="true"
+                onAnimationEnd={() => setLabelState((current) => ({ ...current, previous: null }))}
+              >
+                {labelState.previous}
+              </span>
+            )}
             <span key={thinkingLabel} className="assistant-placeholder-label">
               {thinkingLabel}
             </span>
@@ -1441,10 +1505,30 @@ function ThinkingElapsed({ startedAt }) {
 
 function ThinkingGroup({ items, streaming, trailing }) {
   const [manualOpen, setManualOpen] = useState(null);
+  const detailsRef = useRef(null);
+  const followRef = useRef(null);
   const open = manualOpen ?? (streaming && trailing);
+  const following = open && streaming && trailing;
   const tools = items.filter((item) => ['tool', 'tool-call', 'server-tool'].includes(item.type));
   const label = groupLabel(items);
   const toolsLabel = groupLabel(tools);
+
+  useEffect(() => {
+    if (!following) return undefined;
+
+    const follow = new ScrollFollow(detailsRef.current);
+    followRef.current = follow;
+    follow.jumpToBottom();
+
+    return () => {
+      followRef.current = null;
+      follow.destroy();
+    };
+  }, [following]);
+
+  useEffect(() => {
+    followRef.current?.chase();
+  }, [items]);
 
   return (
     <div className={classNames('thinking-group', tools.length > 0 && 'has-tools', open && 'open')}>
@@ -1455,7 +1539,7 @@ function ThinkingGroup({ items, streaming, trailing }) {
       </button>
       <div className="thinking-details" aria-hidden={!open}>
         {open && (
-          <div className="thinking-details-inner">
+          <div ref={detailsRef} className="thinking-details-inner">
             {items.map((item) => (
               <MutedSegment key={item.id} segment={item} />
             ))}

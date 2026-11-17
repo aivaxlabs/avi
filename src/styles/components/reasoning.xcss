@@ -74,6 +74,48 @@
 
 .thinking-details-inner {
   gap: 4px;
+  max-height: 150px;
+  // Workaround: `.tool-entry` pulls itself up with `margin-bottom: -10px` to hide the
+  // padding of its collapsed details, so the last entry overflows this box by 10px and
+  // would make short lists scrollable. The padding absorbs that overflow and the margin
+  // keeps the outer spacing. Remove both once collapsed tool details stop reserving padding.
+  padding-bottom: 10px;
+  margin-bottom: -10px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  mask-image: linear-gradient(to bottom,
+      transparent,
+      #000 var(--thinking-fade-top),
+      #000 calc(100% - var(--thinking-fade-bottom)),
+      transparent);
+  transition: max-height var(--duration-fast) var(--ease-smooth-out);
+  animation: thinking-fade-top linear both, thinking-fade-bottom linear both;
+  animation-timeline: scroll(self), scroll(self);
+  animation-range: 0px 24px, calc(100% - 24px) 100%;
+
+  &:has(.tool-entry.open) {
+    max-height: 60vh;
+  }
+
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--text-1) 16%, transparent);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+    border-radius: 999px;
+  }
+
+  &:hover::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--text-1) 34%, transparent);
+    background-clip: padding-box;
+  }
 }
 
 .worked-details-inner {
@@ -271,6 +313,38 @@
   color: var(--text-1);
 }
 
+@property --thinking-fade-top {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --thinking-fade-bottom {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes thinking-fade-top {
+  from {
+    --thinking-fade-top: 0px;
+  }
+
+  to {
+    --thinking-fade-top: 24px;
+  }
+}
+
+@keyframes thinking-fade-bottom {
+  from {
+    --thinking-fade-bottom: 24px;
+  }
+
+  to {
+    --thinking-fade-bottom: 0px;
+  }
+}
+
 @keyframes tool-line-spin {
   to {
     transform: rotate(360deg);
@@ -282,7 +356,8 @@
     animation-duration: 1.6s;
   }
 
-  .tool-details {
+  .tool-details,
+  .thinking-details-inner {
     transition: none;
   }
 }

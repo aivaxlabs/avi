@@ -14,20 +14,22 @@ const renderMessage = (
     showContinuations = false,
   } = {},
 ) => {
-  const segments = reasoning.map((text, index) => ({
+  const segments = reasoning.map((entry, index) => ({
     id: `reasoning-${index}`,
     sequence: index + 1,
-    type: 'reasoning',
-    text,
     status: 'streaming',
+    ...(typeof entry === 'string' ? { type: 'reasoning', text: entry } : entry),
   }));
+  const reasoningTexts = segments
+    .filter((segment) => segment.type === 'reasoning')
+    .map((segment) => segment.text);
   return renderToStaticMarkup(createElement(Message, {
     message: {
       id: 'assistant-message',
       role: 'assistant',
       status,
-      content: segments.length > 0
-        ? `<think>${segments.map((segment) => segment.text).join('\n')}</think>`
+      content: reasoningTexts.length > 0
+        ? `<think>${reasoningTexts.join('\n')}</think>`
         : '',
       segments,
       attachments: [],
@@ -198,6 +200,28 @@ assert.match(afterCompression, /Final answer/);
 const nextResponse = renderMessage();
 assert.match(nextResponse, />Thinking</);
 assert.doesNotMatch(nextResponse, /Inspecting the renderer flow/);
+
+const toolCall = (invocationGoal) => ({
+  type: 'tool-call',
+  name: 'run_in_terminal',
+  invocationGoal,
+  status: 'running',
+});
+
+const toolLabel = renderMessage([toolCall('Read the config'), toolCall('Run the test suite')]);
+assert.match(toolLabel, /class="assistant-placeholder-label">Run the test suite</);
+assert.doesNotMatch(toolLabel, />Thinking</);
+assert.doesNotMatch(toolLabel, /Read the config/);
+
+const toolAfterStatus = renderMessage(['**Reviewing the output**', toolCall('Run the test suite')]);
+assert.match(toolAfterStatus, /class="assistant-placeholder-label">Run the test suite</);
+
+const statusAfterTool = renderMessage([toolCall('Run the test suite'), '**Reviewing the output**']);
+assert.match(statusAfterTool, /class="assistant-placeholder-label">Reviewing the output</);
+assert.doesNotMatch(statusAfterTool, /Run the test suite/);
+
+const toolWithoutGoal = renderMessage([toolCall('')]);
+assert.match(toolWithoutGoal, />Thinking</);
 
 const retryableResponse = renderMessage([], {
   status: 'completed',

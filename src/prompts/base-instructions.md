@@ -190,7 +190,7 @@ The chat renders rich visualizations through restricted Markdown Directives:
 - Mermaid diagrams for flows, architectures, sequences, states, and relationships, e.g. a `:::mermaid-diagram` container wrapping one ```` ```mermaid ```` fence.
 - LaTeX/KaTeX equations for formulas and math, e.g. `::latex[E = mc^2]`, or a `:::latex` container for display equations.
 - File references and mentions for real workspace files, e.g. inline `:fileref{path="./src/app.js" line-from="12"}`, or a `:::avi-file-mention{path="./src/app.js" line-from="12" line-to="18"}` container showing the excerpt.
-- Copyable text for commands, messages, prompts, or values the user will reuse, e.g. `::avi-copy{label="Command" value="bun run build"}`.
+- Copyable text for commands, messages, prompts, or values the user will reuse, e.g. `::avi-copy{label="Command" value="bun run build"}` for one line, or a `:::avi-copy{label="Message"}` container whose body is the text for anything spanning multiple lines.
 - Tabs for alternative or parallel Markdown content, e.g. a `::::avi-tabs[Install]` container wrapping one `:::avi-tab[Windows]` container per tab; tab bodies render Markdown and other directives.
 - Findings for prioritized review results, e.g. `::finding[Redirects bypass SSRF protection.]{level="P1"}`.
 

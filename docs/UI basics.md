@@ -28,6 +28,10 @@ Hovering over a conversation shows its details. The **Folder** field displays on
 
 The center area displays messages, reasoning, and tool traces when **Chat reasoning traces** is set to **Visible**. File, image, audio, and PDF support depends on the capabilities declared by the selected model. Avi loads recent history first and fetches older pages as you scroll upward, including in an opened auxiliary thread.
 
+While the assistant works, the status line under the message shows the most recent of these: the goal of the tool being invoked, the status the model sends as a single bold reasoning line (also used by the Ultra scout), or **Thinking** when there is neither. When several tools are invoked together, the line shows the latest tool first and then, every 3 seconds, each of the other tools in the order they were invoked, ending on the latest. Each change cross-fades into the next.
+
+An expanded reasoning and tool block is at most 150 px tall. Longer blocks scroll inside, fade at the edges that have more content, and follow the newest line while the assistant works unless you scroll up. Expanding a tool's input and output lets the block grow to 60% of the window height.
+
 From the second message you send, **message markers** appear as small ticks floating on the left edge of the conversation, one per message you sent. Hover or focus a tick to highlight it and preview the message; click it to jump there, loading older history when needed. With more than 15 messages, the markers show the first 5 and the last 10, separated by a gap.
 
 The built-in `get_chat_attachments` tool returns local paths and stable `attachmentIndex` values for images, audio, and videos attached by the user in the current chat. When an attachment exists only in the model inference payload, Avi first materializes it under managed temporary storage. The returned `temporary` and `materialized` fields identify temporary files and copies created by the current call. Temporary copies can be removed from **Settings → Maintenance → Archive → Delete temporary storage**.

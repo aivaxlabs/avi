@@ -1222,9 +1222,11 @@
 }
 
 .assistant-placeholder {
+  position: relative;
   display: flex;
   gap: 6px;
   width: fit-content;
+  max-width: 100%;
   overflow: clip;
   color: transparent;
   -webkit-text-fill-color: transparent;
@@ -1245,10 +1247,26 @@
 
 .assistant-placeholder-label {
   display: block;
-  animation: thinking-label-swap 180ms var(--base-transition);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: thinking-label-swap var(--duration-fast) var(--ease-smooth-out);
+
+  &.is-leaving {
+    position: absolute;
+    top: 0;
+    left: 0;
+    max-width: 100%;
+    -webkit-text-fill-color: var(--text-3);
+    animation-name: thinking-label-leave;
+    animation-duration: var(--duration-quick);
+    animation-fill-mode: forwards;
+  }
 }
 
 .assistant-placeholder-time {
+  flex-shrink: 0;
   color: var(--text-3);
   -webkit-text-fill-color: var(--text-3);
   font-variant-numeric: tabular-nums;
@@ -1420,7 +1438,19 @@
   }
 }
 
+@keyframes thinking-label-leave {
+  to {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(-4px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+
+  .assistant-placeholder-label.is-leaving {
+    display: none;
+  }
 
   .messages-column > .message-row:last-child,
   .assistant-placeholder-label,
