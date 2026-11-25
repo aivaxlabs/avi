@@ -172,8 +172,10 @@ export function isContextLengthError(error) {
   }`.toLowerCase();
   return error?.status >= 400
     && error.status <= 499
-    && errorText.includes('context')
-    && (errorText.includes('length') || errorText.includes('window'));
+    && (
+      errorText.includes('prompt is too long')
+      || (errorText.includes('context') && (errorText.includes('length') || errorText.includes('window')))
+    );
 }
 
 export function traceContext(conversationId, selection, details = {}) {

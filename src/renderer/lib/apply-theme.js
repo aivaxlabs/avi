@@ -74,8 +74,23 @@ export function applyTheme({ themeId, scheme }) {
   if (style) style.textContent = theme.css ?? '';
 }
 
+// Chromium can skip the media query change event while the window is hidden or in the
+// background, so focus and visibility changes also recheck the current system scheme.
 export function onSystemSchemeChange(listener) {
-  const handler = () => listener(systemDarkQuery.matches);
+  let dark = systemDarkQuery.matches;
+  const handler = () => {
+    if (systemDarkQuery.matches === dark) return;
+    dark = systemDarkQuery.matches;
+    listener(dark);
+  };
+
   systemDarkQuery.addEventListener('change', handler);
-  return () => systemDarkQuery.removeEventListener('change', handler);
+  window.addEventListener('focus', handler);
+  document.addEventListener('visibilitychange', handler);
+
+  return () => {
+    systemDarkQuery.removeEventListener('change', handler);
+    window.removeEventListener('focus', handler);
+    document.removeEventListener('visibilitychange', handler);
+  };
 }

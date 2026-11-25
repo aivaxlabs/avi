@@ -2,7 +2,7 @@ import { GitFork } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { ChatView } from './components/ChatView.jsx';
 import { ComposerFloatButton, ComposerFloatButtonStrip } from './components/ComposerFloatButtons.jsx';
-import { applyTheme, readAppearance } from './lib/apply-theme.js';
+import { applyTheme, onSystemSchemeChange, readAppearance } from './lib/apply-theme.js';
 import { setPluginThemes } from './lib/themes.js';
 
 const api = window.chatApp;
@@ -28,6 +28,8 @@ export default function QuickChatApp() {
   useEffect(() => {
     document.title = 'Quick chat';
   }, []);
+
+  useEffect(() => onSystemSchemeChange(() => applyTheme(readAppearance())), []);
 
   useEffect(() => {
     if (!conversationId) {

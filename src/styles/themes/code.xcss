@@ -212,6 +212,17 @@
     border-right-color: transparent;
   }
 
+  &[data-transparency-mode="transparent"] .app-composer {
+    top: 0;
+    height: 100%;
+    border-radius: 0;
+    filter: none;
+
+    .sidebar {
+      --sidebar-background: transparent;
+    }
+  }
+
   .chat-workspace.with-auxiliary-panel .auxiliary-panel {
     margin: var(--code-surface-gap) var(--code-surface-gap) var(--code-surface-gap) 0;
     height: calc(100% - 2 * var(--code-surface-gap));
@@ -222,6 +233,7 @@
 
   .settings-page .settings-main {
     margin: var(--code-surface-gap) var(--code-surface-gap) var(--code-surface-gap) 0;
+    overflow: hidden;
     background: var(--code-surface);
     border: 1px solid var(--border-color);
     border-radius: var(--code-radius-large);
@@ -675,9 +687,11 @@
   }
 
   .settings-page {
+    background: transparent;
+
     .settings-sidebar {
       padding-inline: 2px;
-      border-right: 1px solid var(--border-color);
+      border-right: none;
     }
 
     .settings-back {
