@@ -582,9 +582,8 @@
     height: 32px;
     flex: 0 0 auto;
 
-    svg {
+    .blob-avatar {
       display: block;
-      border-radius: 50%;
     }
   }
 

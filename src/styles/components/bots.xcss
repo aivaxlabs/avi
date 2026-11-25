@@ -155,9 +155,8 @@
   height: 22px;
   flex: 0 0 auto;
 
-  img {
+  svg {
     display: block;
-    border-radius: 50%;
   }
 
   &.large {
@@ -1442,6 +1441,56 @@
   button {
     min-height: 28px;
     padding: 4px 8px;
+  }
+}
+
+.bot-settings-appearance {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 16px;
+  margin-top: 16px;
+
+  > span {
+    color: var(--text-3);
+    font-size: --font-sm;
+  }
+
+  .bot-settings-shapes,
+  .bot-settings-colors {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .bot-settings-shape {
+    min-width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    padding: 0 6px;
+    color: var(--text-2);
+    font-size: --font-xs;
+    background: var(--background-1);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--item-hover);
+    }
+
+    &.active {
+      color: var(--text-1);
+      border-color: var(--text-3);
+      background: var(--item-active);
+    }
+  }
+
+  .bot-settings-colors .bot-settings-shape {
+    height: 22px;
+    min-width: 0;
   }
 }
 

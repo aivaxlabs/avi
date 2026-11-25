@@ -1,4 +1,3 @@
-import Avatar from 'boring-avatars';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -37,6 +36,8 @@ import { ChatView } from './ChatView.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { FilesPanel } from './FilesPanel.jsx';
 import { GitReviewPanel } from './GitReviewPanel.jsx';
+import { botAvatarState } from '../lib/blob-avatar.js';
+import { BlobAvatar } from './BlobAvatar.jsx';
 import { MarkdownSegment } from './Message.jsx';
 import { ProviderPanel } from './ProviderPanel.jsx';
 import { Overlay, Presence } from './Overlay.jsx';
@@ -54,7 +55,7 @@ const botPanelTabs = [
   { id: 'inbox', label: 'Inbox' },
   { id: 'activity', label: 'Activity' },
 ];
-const subagentAvatarColors = ['#264653', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'];
+const subagentAvatarStates = { working: 'working', sleeping: 'sleeping', waiting: 'waiting' };
 function BotAttachments({ attachments, onRemove }) {
   const unescape = (value) => value
     .replaceAll('&lt;', '<')
@@ -990,7 +991,16 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                           {selectedPendency.messages.toSorted((left, right) => new Date(right.createdAt) - new Date(left.createdAt)).map((message) => (
                             <li key={message.id} className={`from-${message.role}`}>
                               <header data-bot-message-id={message.role === 'bot' ? message.id : undefined}>
-                                {message.role !== 'user' && <span className="bot-avatar" aria-hidden="true"><img src={`https://orb.aivax.net/${encodeURIComponent(message.role === 'agent' ? message.sender.botId : selectedBot.id)}`} width={22} height={22} alt="" /></span>}
+                                {message.role !== 'user' && (() => {
+                                  const sender = message.role === 'agent'
+                                    ? bots.find((bot) => bot.id === message.sender.botId) ?? { id: message.sender.botId }
+                                    : selectedBot;
+                                  return (
+                                    <span className="bot-avatar" aria-hidden="true">
+                                      <BlobAvatar name={sender.id} shape={sender.avatarShape} color={sender.avatarColor} state={botAvatarState(sender)} size={22} fps={6} />
+                                    </span>
+                                  );
+                                })()}
                                 <strong>{message.role === 'user' ? 'You' : message.role === 'agent' ? message.sender.name : selectedBot.name}</strong>
                                 {message.role === 'agent' && <span className="bot-message-response-indicator">Sent by another bot</span>}
                                 {message.role === 'bot' && <span className="bot-message-response-indicator">{message.requiresUserResponse !== false ? 'Requires your response' : 'No response required'}</span>}
@@ -1218,11 +1228,11 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
                     onClick={() => onSelectSubagent(subagent.id)}
                   >
                     <span className="subagent-avatar" aria-hidden="true">
-                      <Avatar
-                        size={32}
+                      <BlobAvatar
                         name={subagent.title}
-                        variant="beam"
-                        colors={subagentAvatarColors}
+                        state={subagentAvatarStates[subagent.status] ?? 'idle'}
+                        size={32}
+                        fps={8}
                       />
                       {subagent.status === 'sleeping' ? (
                         <Moon
@@ -1252,6 +1262,10 @@ export const AuxiliaryPanel = memo(function AuxiliaryPanel({
             <ChatView
               key={activeThread.id}
               compact
+              avatar={activeSubagent ? {
+                name: activeSubagent.title,
+                state: subagentAvatarStates[activeSubagent.status] ?? 'idle',
+              } : null}
               currentConversation={activeThread}
               currentMessages={visibleMessagesByConversation[activeThread.id] ?? emptyList}
               messagesLoaded={historyPagesByConversation[activeThread.id]?.loaded ?? false}

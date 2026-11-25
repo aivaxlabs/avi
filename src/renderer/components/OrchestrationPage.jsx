@@ -14,8 +14,10 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { botAvatarState } from '../lib/blob-avatar.js';
 import { formatPrice } from '../lib/format.js';
 import { getBotPendencyStatusLabel, hasOpenBotUserAction } from '../../shared/bot-work-items.js';
+import { BlobAvatar } from './BlobAvatar.jsx';
 import { Overlay, Presence } from './Overlay.jsx';
 
 const emptyBots = [];
@@ -544,7 +546,7 @@ export function OrchestrationPage({ models, onOpenThread, bots = emptyBots, botD
                   {day !== previousDay && <h2>{day === today.toLocaleDateString() ? 'Today' : day === yesterday.toLocaleDateString() ? 'Yesterday' : updated.toLocaleDateString(undefined, { dateStyle: 'long' })}</h2>}
                   <button type="button" className={`orchestration-inbox-row${needsUser ? ' needs-user' : ''}`} onClick={() => onOpenBotPendency(bot.id, pendency.id)}>
                     <span className="orchestration-inbox-dot" aria-label={status} title={status} />
-                    <img src={`https://orb.aivax.net/${encodeURIComponent(bot.id)}`} width={30} height={30} alt="" />
+                    <BlobAvatar name={bot.id} shape={bot.avatarShape} color={bot.avatarColor} state={botAvatarState(bot)} size={30} fps={6} />
                     <strong className="orchestration-inbox-sender">{bot.name}</strong>
                     <span className="orchestration-inbox-copy"><strong>{pendency.title}</strong><span>{latest?.role === 'user' ? 'You: ' : latest?.role === 'agent' ? `${latest.sender.name}: ` : ''}{latest?.content ? `${latest.content.slice(0, 240)}${latest.content.length > 240 ? '...' : ''}` : 'Attachment'}</span></span>
                     {pendency.messages.some((message) => message.attachments?.length) && <Paperclip size={14} aria-label="Has attachments" />}

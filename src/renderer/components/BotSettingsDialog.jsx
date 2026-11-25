@@ -20,7 +20,9 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { BLOB_COLORS, BLOB_SHAPES, botAvatarState } from '../lib/blob-avatar.js';
 import { classNames } from '../lib/format.js';
+import { BlobAvatar } from './BlobAvatar.jsx';
 import { LongTextField } from './LongTextField.jsx';
 import { McpSettings } from './McpSettings.jsx';
 import { Overlay } from './Overlay.jsx';
@@ -93,6 +95,8 @@ export function BotSettingsDialog({
   const [draft, setDraft] = useState(() => ({
     name: bot?.name ?? '',
     iconSeed: bot?.iconSeed ?? crypto.randomUUID(),
+    avatarShape: bot?.avatarShape ?? null,
+    avatarColor: bot?.avatarColor ?? null,
     personality: bot?.personality ?? '',
     workingFolder: bot?.workingFolder ?? '',
     model: bot?.model ?? models[0]?.id ?? '',
@@ -194,6 +198,8 @@ export function BotSettingsDialog({
       await onSave?.({
         name: draft.name.trim() || 'New bot',
         iconSeed: draft.iconSeed,
+        avatarShape: draft.avatarShape,
+        avatarColor: draft.avatarColor,
         personality: draft.personality || null,
         workingFolder: draft.workingFolder.trim() || null,
         model: draft.model,
@@ -326,7 +332,17 @@ export function BotSettingsDialog({
                   <div className="bot-settings-profile">
                     <div className="bot-settings-avatar">
                       <span className="bot-avatar large" aria-hidden="true">
-                        {bot?.id && <img src={`https://orb.aivax.net/${encodeURIComponent(bot.id)}`} width={48} height={48} alt="" />}
+                        {bot?.id && (
+                          <BlobAvatar
+                            name={bot.id}
+                            shape={draft.avatarShape}
+                            color={draft.avatarColor}
+                            state={botAvatarState(bot)}
+                            size={48}
+                            fps={24}
+                            followPointer
+                          />
+                        )}
                       </span>
                     </div>
                     <label className="bot-settings-control grow">
@@ -339,6 +355,53 @@ export function BotSettingsDialog({
                         onChange={(event) => update({ name: event.target.value })}
                       />
                     </label>
+                  </div>
+                  <div className="bot-settings-appearance">
+                    <span id="bot-settings-shape-label">Shape</span>
+                    <div className="bot-settings-shapes" role="group" aria-labelledby="bot-settings-shape-label">
+                      {[{ id: null, name: 'Automatic' }, ...BLOB_SHAPES].map((shape) => (
+                        <button
+                          key={shape.id ?? 'auto'}
+                          type="button"
+                          className={classNames('bot-settings-shape', draft.avatarShape === shape.id && 'active')}
+                          aria-label={shape.name}
+                          aria-pressed={draft.avatarShape === shape.id}
+                          title={shape.name}
+                          onClick={() => update({ avatarShape: shape.id })}
+                        >
+                          {shape.path ? (
+                            <svg viewBox="-116 -116 232 232" width={18} height={18} aria-hidden="true">
+                              <path d={shape.path} fill="currentColor" />
+                            </svg>
+                          ) : 'Auto'}
+                        </button>
+                      ))}
+                    </div>
+                    <span id="bot-settings-color-label">Color</span>
+                    <div className="bot-settings-colors" role="group" aria-labelledby="bot-settings-color-label">
+                      <button
+                        type="button"
+                        className={classNames('bot-settings-shape', draft.avatarColor === null && 'active')}
+                        aria-label="Automatic"
+                        aria-pressed={draft.avatarColor === null}
+                        title="Automatic"
+                        onClick={() => update({ avatarColor: null })}
+                      >
+                        Auto
+                      </button>
+                      {BLOB_COLORS.map((color) => (
+                        <button
+                          key={color.id}
+                          type="button"
+                          className={classNames('color-swatch', draft.avatarColor === color.id && 'active')}
+                          style={{ backgroundColor: color.value }}
+                          aria-label={color.name}
+                          aria-pressed={draft.avatarColor === color.id}
+                          title={color.name}
+                          onClick={() => update({ avatarColor: color.id })}
+                        />
+                      ))}
+                    </div>
                   </div>
                 </section>
                 <section className="bot-settings-section">

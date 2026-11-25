@@ -194,6 +194,24 @@
     outline: none;
   }
 
+  > .chat-avatar {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    z-index: 2;
+    transform: translateX(-50%);
+    pointer-events: none;
+
+    .blob-avatar {
+      display: block;
+    }
+  }
+
+  &.has-chat-avatar .chat-scroll {
+    padding-top: 84px;
+    mask-image: linear-gradient(transparent 0, #000 76px);
+  }
+
   .file-drop-overlay {
     position: absolute;
     inset: 34px 0 0;

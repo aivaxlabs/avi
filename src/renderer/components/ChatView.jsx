@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { BlobAvatar } from './BlobAvatar.jsx';
 import { ChatFind } from './ChatFind.jsx';
 import { Composer } from './Composer.jsx';
 import { EmptyChatSummary } from './EmptyChatSummary.jsx';
@@ -261,6 +262,7 @@ export const ChatView = memo(function ChatView({
   emptyHint = '',
   homeEmpty = true,
   compact = false,
+  avatar = null,
   emptyBackgroundEnabled = true,
   emptyBackgroundThemeKey,
   backgroundUrl = null,
@@ -825,7 +827,7 @@ export const ChatView = memo(function ChatView({
   return (
     <Root
       ref={chatAreaRef}
-      className={`chat-area ${compact ? 'auxiliary-chat-view' : ''} ${currentConversation?.isBot ? 'bot-chat' : ''} ${isEmptyChat ? 'chat-empty' : ''} ${isEmptyChat && homeEmpty && !compact ? 'chat-empty-home' : ''}`}
+      className={`chat-area ${compact ? 'auxiliary-chat-view' : ''} ${currentConversation?.isBot ? 'bot-chat' : ''} ${avatar ? 'has-chat-avatar' : ''} ${isEmptyChat ? 'chat-empty' : ''} ${isEmptyChat && homeEmpty && !compact ? 'chat-empty-home' : ''}`}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -849,6 +851,19 @@ export const ChatView = memo(function ChatView({
           className="empty-chat-background"
           aria-hidden="true"
         />
+      )}
+      {avatar && (
+        <div className="chat-avatar">
+          <BlobAvatar
+            name={avatar.name}
+            shape={avatar.shape}
+            color={avatar.color}
+            state={avatar.state}
+            size={compact ? 44 : 56}
+            fps={30}
+            followPointer
+          />
+        </div>
       )}
       {messagesLoaded && markersFit && (
         <MessageMarkers messages={humanMessages} onSelect={handleMarkerSelect} />
@@ -1297,6 +1312,10 @@ export const ChatView = memo(function ChatView({
         && previous[property]?.displayPath === next[property]?.displayPath
         && previous[property]?.gitBranch === next[property]?.gitBranch
       );
+    }
+    if (property === 'avatar') {
+      return ['name', 'shape', 'color', 'state']
+        .every((key) => previous.avatar?.[key] === next.avatar?.[key]);
     }
     if (property === 'recentProjects') {
       const previousProjects = previous[property] ?? [];

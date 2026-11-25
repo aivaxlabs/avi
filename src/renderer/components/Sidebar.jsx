@@ -33,9 +33,11 @@ import {
 import { createPortal } from 'react-dom';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import aviIconUrl from '../../../assets/icon/avi.png';
+import { botAvatarState } from '../lib/blob-avatar.js';
 import { conversationStatus } from '../lib/conversation-status.js';
 import { classNames } from '../lib/format.js';
 import { presetColors } from '../lib/palette.js';
+import { BlobAvatar } from './BlobAvatar.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { TagsManagerDialog } from './TagsManagerDialog.jsx';
 import { WorkspaceDialog } from './WorkspaceDialog.jsx';
@@ -1093,7 +1095,7 @@ const BotItem = memo(function BotItem({
         title={bot.name}
       >
         <span className="bot-avatar" aria-hidden="true">
-          <img src={`https://orb.aivax.net/${encodeURIComponent(bot.id)}`} width={22} height={22} alt="" />
+          <BlobAvatar name={bot.id} shape={bot.avatarShape} color={bot.avatarColor} state={botAvatarState(bot)} size={22} fps={6} />
         </span>
         <span className="conversation-title">{bot.name}</span>
       </button>
