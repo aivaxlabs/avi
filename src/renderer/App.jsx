@@ -14,6 +14,7 @@ import { MentionContext } from './components/Message.jsx';
 import { ChatView } from './components/ChatView.jsx';
 import { SearchDialog } from './components/SearchDialog.jsx';
 import { SettingsPage } from './components/SettingsPage.jsx';
+import { WelcomeDialog } from './components/WelcomeDialog.jsx';
 import { McpOverlay } from './components/McpOverlay.jsx';
 import { OrchestrationPage } from './components/OrchestrationPage.jsx';
 import { ScheduledJobsPage } from './components/ScheduledJobsPage.jsx';
@@ -35,11 +36,13 @@ import {
   deriveAuxiliaryThreadStatusList,
   updateAuxiliaryMessageStates,
 } from './lib/auxiliary-thread-status.js';
+import { botAvatarState } from './lib/blob-avatar.js';
 import { Overlay, Presence, usePresence } from './components/Overlay.jsx';
 
 const api = window.chatApp;
 const sidebarWidthStorageKey = 'aivax.layout.sidebar-width';
 const auxiliaryPanelWidthStorageKey = 'aivax.layout.auxiliary-panel-width';
+const welcomeCompletedStorageKey = 'aivax.welcome.completed';
 const savedSidebarWidth = Number(window.localStorage.getItem(sidebarWidthStorageKey));
 const savedAuxiliaryPanelWidth = Number(
   window.localStorage.getItem(auxiliaryPanelWidthStorageKey),
@@ -187,6 +190,7 @@ export default function App() {
   const [settingsContextFolder, setSettingsContextFolder] = useState(null);
   const [settingsInitialView, setSettingsInitialView] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [error, setError] = useState('');
   const [conversationErrors, setConversationErrors] = useState({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -602,6 +606,9 @@ export default function App() {
         }
         setDraftProject(nextAppState.defaultProject);
         setSettingsOpen(nextModels.length === 0);
+        setWelcomeOpen(
+          nextModels.length === 0 && !window.localStorage.getItem(welcomeCompletedStorageKey),
+        );
 
         if (nextConversations[0]) {
           const initialConversation = nextConversations[0];
@@ -2893,6 +2900,12 @@ export default function App() {
               botsError={botsError}
               onOpenInbox={chatOnOpenInbox}
               botMode={Boolean(selectedBot)}
+              avatar={selectedBot ? {
+                name: selectedBot.id,
+                shape: selectedBot.avatarShape,
+                color: selectedBot.avatarColor,
+                state: botAvatarState(selectedBot),
+              } : null}
               onShowBotInPanel={selectedBot ? chatOnShowBotInPanel : undefined}
               emptyBackgroundEnabled={getTheme(appearance.themeId).emptyChatBackground !== false}
               emptyBackgroundThemeKey={`${appearance.themeId}:${resolvedScheme(appearance.scheme)}`}
@@ -3158,6 +3171,15 @@ export default function App() {
           onForked={(conversation) => {
             setConversations((state) => upsertById(state, conversation).sort(sortByUpdatedAt));
             void selectConversation(conversation.id);
+          }}
+        />
+      )}</Presence>
+      <Presence when={welcomeOpen}>{() => (
+        <WelcomeDialog
+          onClose={() => {
+            window.localStorage.setItem(welcomeCompletedStorageKey, '1');
+            setWelcomeOpen(false);
+            sidebarOnSettings(null, 'list');
           }}
         />
       )}</Presence>

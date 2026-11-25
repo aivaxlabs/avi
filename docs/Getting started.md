@@ -2,6 +2,10 @@
 
 Avi is a local desktop workspace for AI conversations, tools, project context, and agent orchestration. This guide takes you from first launch to a working conversation.
 
+## Welcome
+
+The first time Avi starts without any model, it shows a five-page welcome: what Avi is, an optional **Sign in with AIVAX** step, providers and models, bots, and a final page. **Skip** on any page or **Open Providers** on the last one closes it and opens **Settings → Providers**. The welcome is shown once per installation profile.
+
 ## First-run flow
 
 1. Open **Settings → Providers**. If no models are available, Avi opens Settings automatically.
@@ -66,6 +70,7 @@ When an AIVAX account is connected and at least one AIVAX feature is enabled, th
 ## Next steps
 
 - [UI basics](UI%20basics.md)
+- [Profiles](Profiles.md)
 - [Default models](Default%20models.md)
 - [Context management](Context%20management.md)
 - [Plugins](Plugins.md)
