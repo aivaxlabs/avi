@@ -3,7 +3,8 @@ import {
   getConversation,
   getGoal,
   getGoalForConversation,
-  getMessages,
+  getLatestMessage,
+  getRecentTurnMessages,
   insertInferenceUsage,
   listSubagents,
   listTasks,
@@ -32,8 +33,7 @@ export const completionMethods = {
   hasActiveSubagents(conversationId) {
     return listSubagents(conversationId).some((subagent) => {
       if (this.runs.has(subagent.id)) return true;
-      const lastMessage = getMessages(subagent.id)
-        .findLast((message) => !message.hidden);
+      const lastMessage = getLatestMessage(subagent.id, { visibleOnly: true });
       return ['queued', 'steered', 'sent', 'waiting_mcp', 'streaming'].includes(
         lastMessage?.status,
       );
@@ -56,10 +56,7 @@ export const completionMethods = {
     if (!conversation || this.runs.has(conversationId)) return;
     if (this.hasActiveSubagents(conversationId)) return;
 
-    const messages = getMessages(conversationId).filter((message) => (
-      !message.hidden && !['queued', 'steered'].includes(message.status)
-    ));
-    const assistantMessage = messages.at(-1);
+    const assistantMessage = getLatestMessage(conversationId, { visibleOnly: true, settledOnly: true });
     if (
       assistantMessage?.role !== 'assistant'
       || assistantMessage.status !== 'completed'
@@ -79,12 +76,11 @@ export const completionMethods = {
     this.continuationGenerations.set(conversationId, generation);
 
     try {
-      const context = messages
-        .filter((message) => (
-          ['user', 'assistant'].includes(message.role)
-          && ['completed', 'sent', 'aborted'].includes(message.status)
-        ))
-        .slice(-AUXILIARY_CONTINUATION_CONTEXT_TURN_COUNT)
+      const context = getRecentTurnMessages(
+        conversationId,
+        AUXILIARY_CONTINUATION_CONTEXT_TURN_COUNT,
+        { visibleOnly: true },
+      )
         .flatMap((message) => messageToApiBlocks(message, selection.model.capabilities));
       let auxiliaryUsage = null;
       const turn = await selection.provider.stream({
@@ -151,9 +147,7 @@ export const completionMethods = {
       if (this.runs.has(conversationId)) return;
       if (this.hasActiveSubagents(conversationId)) return;
 
-      const latestMessage = getMessages(conversationId).findLast((message) => (
-        !message.hidden && !['queued', 'steered'].includes(message.status)
-      ));
+      const latestMessage = getLatestMessage(conversationId, { visibleOnly: true, settledOnly: true });
       if (latestMessage?.id !== assistantMessage.id) return;
       const updatedMessage = updateMessage(assistantMessage.id, { continuations });
       this.emit(conversationId, { type: 'message', message: updatedMessage });
@@ -245,6 +239,7 @@ export const completionMethods = {
 
     const steeredItems = compatibleSteeredItems(pendingQueue);
     const next = steeredItems[0] ?? pendingQueue[0];
+    if (!next && this.memoryHintThreads.has(conversationId)) return;
     if (!next) {
       const continuingGoal = current?.kind === 'chat'
         ? current.goalId
@@ -256,8 +251,7 @@ export const completionMethods = {
       } else if (continuingGoal?.status === 'active' && this.continueGoal(continuingGoal)) {
         return;
       } else {
-        const latestUserMessage = getMessages(conversationId)
-          .findLast((message) => message.role === 'user');
+        const latestUserMessage = getLatestMessage(conversationId, { role: 'user' });
         const conceptualHookAlreadySent = latestUserMessage?.hidden && (
           latestUserMessage.content.includes('<task_continuation>')
           || latestUserMessage.content.includes('<semaphore_release_required>')
@@ -362,6 +356,7 @@ export const completionMethods = {
   },
 
   emit(conversationId, payload) {
+    if (this.memoryHintThreads.has(conversationId)) return;
     this.sendEvent({ conversationId, ...payload });
   },
 

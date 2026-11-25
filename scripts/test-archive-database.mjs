@@ -96,6 +96,7 @@ try {
     setAivaxSettings,
     setArchiveSettings,
     setThreadSearchManifest,
+    updateConversation,
   } = database;
 
   assert.deepEqual(getArchiveSettings(), {
@@ -389,6 +390,11 @@ try {
     });
     sqlite.prepare('UPDATE messages SET updated_at = ? WHERE id = ?').run(createdAt, id);
   }
+  updateConversation(botConversation.id, {
+    checkpointMessageId: 'recent-assistant',
+    contextCheckpoint: '',
+    contextTokens: 0,
+  });
   setArchiveSettings({
     archiveAfterDays: null,
     deleteArchivedAfterDays: null,
@@ -405,6 +411,7 @@ try {
     'recent-human',
     'recent-assistant',
   ]);
+  assert.equal(getConversation(botConversation.id).checkpointMessageId, 'recent-assistant');
 
   const boundaryConversation = createConversation({
     title: 'Boundary bot',

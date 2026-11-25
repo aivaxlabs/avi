@@ -25,6 +25,7 @@ import {
 import { defaultMediaSizeLimit, mediaSizeLimitOptions } from '../shared/attachments.js';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import { normalizeDefaultModels } from './default-models.js';
+import { profilePaths } from './profiles.js';
 import { listSearchThreadsIn, searchChatsIn } from './search-core.js';
 import {
   activeMediaDirectory,
@@ -36,7 +37,7 @@ import {
 } from './storage/media-store.js';
 import { traceError } from './trace-log.js';
 
-const storageDir = join(homedir(), '.aivax');
+const storageDir = profilePaths().root;
 mkdirSync(storageDir, { recursive: true });
 
 const db = new DatabaseSync(join(storageDir, 'aivax.sqlite'));
@@ -67,6 +68,8 @@ const defaultTuningSettings = Object.freeze({
   verbosity: 'medium',
   chatReasoningTraces: 'visible',
   continuationRepliesEnabled: true,
+  defaultMemoryInstructionsEnabled: true,
+  asyncMemoryHintsEnabled: false,
   automaticCompactionThreshold: 0.9,
   contextDiscovery: 'minimal',
   passiveToolGroups: true,
@@ -363,6 +366,7 @@ db.exec(`
     initial_prompt TEXT,
     orchestration_mode TEXT,
     auto_forward_to_parent INTEGER NOT NULL DEFAULT 0,
+    specialized_agent TEXT,
     next_subagent_name_index INTEGER NOT NULL DEFAULT 0,
     context_checkpoint TEXT NOT NULL DEFAULT '',
     checkpoint_message_id TEXT,
@@ -691,6 +695,12 @@ if (!botColumns.some((column) => column.name === 'last_activation_kind')) {
 if (!botColumns.some((column) => column.name === 'last_activation_at')) {
   db.exec('ALTER TABLE bots ADD COLUMN last_activation_at TEXT');
 }
+if (!botColumns.some((column) => column.name === 'avatar_shape')) {
+  db.exec('ALTER TABLE bots ADD COLUMN avatar_shape TEXT');
+}
+if (!botColumns.some((column) => column.name === 'avatar_color')) {
+  db.exec('ALTER TABLE bots ADD COLUMN avatar_color TEXT');
+}
 const conversationColumns = db.prepare("PRAGMA table_info('conversations')").all();
 
 if (!conversationColumns.some((column) => column.name === 'project_path')) {
@@ -735,6 +745,9 @@ if (!db.prepare("SELECT 1 FROM session_values WHERE key = 'conversationModesMigr
 }
 if (!conversationColumns.some((column) => column.name === 'auto_forward_to_parent')) {
   db.exec('ALTER TABLE conversations ADD COLUMN auto_forward_to_parent INTEGER NOT NULL DEFAULT 0');
+}
+if (!conversationColumns.some((column) => column.name === 'specialized_agent')) {
+  db.exec('ALTER TABLE conversations ADD COLUMN specialized_agent TEXT');
 }
 if (!conversationColumns.some((column) => column.name === 'next_subagent_name_index')) {
   db.exec('ALTER TABLE conversations ADD COLUMN next_subagent_name_index INTEGER NOT NULL DEFAULT 0');
@@ -929,13 +942,13 @@ const statements = {
     INSERT INTO conversations (
       id, title, model, title_status, project_path, git_branch,
       conversation_type, created_by, parent_conversation_id, initial_prompt, orchestration_mode,
-      auto_forward_to_parent,
+      auto_forward_to_parent, specialized_agent,
       context_checkpoint, checkpoint_message_id, context_tokens, tags, created_at, updated_at
     )
     VALUES (
       @id, @title, @model, @titleStatus, @projectPath, @gitBranch,
       @conversationType, @createdBy, @parentConversationId, @initialPrompt, @orchestrationMode,
-      @autoForwardToParent,
+      @autoForwardToParent, @specializedAgent,
       @contextCheckpoint, @checkpointMessageId, @contextTokens, @tags, @createdAt, @updatedAt
     )
   `),
@@ -1064,6 +1077,7 @@ const statements = {
     )
     WHERE c.deleted_at IS NULL
       AND c.archived_at IS NULL
+      AND c.conversation_type != 'memory_hint'
     ORDER BY c.updated_at DESC
   `),
   listAllConversationsWithLatestReasoning: db.prepare(`
@@ -1090,6 +1104,7 @@ const statements = {
     FROM conversations c
     WHERE deleted_at IS NULL
       AND archived_at IS NULL
+      AND conversation_type != 'memory_hint'
     ORDER BY updated_at DESC
   `),
   countArchivedConversations: db.prepare(`
@@ -1236,14 +1251,14 @@ const statements = {
   `),
   insertBot: db.prepare(`
     INSERT INTO bots (
-      id, conversation_id, name, icon_seed, personality, working_folder, model,
+      id, conversation_id, name, icon_seed, avatar_shape, avatar_color, personality, working_folder, model,
       reasoning_effort, context_size, activation_period_minutes, activation_mode, execution_mode, permission_mode,
       max_activations, activation_window, instructions, work_queue, priority_auto_continue, enabled, status,
       next_activation_at, idle_until, activation_count, work_queue_index,
       active_assistant_message_id, snooze_until, created_at, updated_at
     )
     VALUES (
-      @id, @conversationId, @name, @iconSeed, @personality, @workingFolder, @model,
+      @id, @conversationId, @name, @iconSeed, @avatarShape, @avatarColor, @personality, @workingFolder, @model,
       @reasoningEffort, @contextSize, @activationPeriodMinutes, @activationMode, @executionMode, @permissionMode,
       @maxActivations, @activationWindow, @instructions, @workQueue, @priorityAutoContinue, @enabled, @status,
       @nextActivationAt, @idleUntil, @activationCount, @workQueueIndex,
@@ -1254,6 +1269,8 @@ const statements = {
     UPDATE bots
     SET name = COALESCE(@name, name),
         icon_seed = COALESCE(@iconSeed, icon_seed),
+        avatar_shape = CASE WHEN @avatarShapeChanged = 1 THEN @avatarShape ELSE avatar_shape END,
+        avatar_color = CASE WHEN @avatarColorChanged = 1 THEN @avatarColor ELSE avatar_color END,
         personality = CASE WHEN @personalityChanged = 1 THEN @personality ELSE personality END,
         working_folder = CASE WHEN @workingFolderChanged = 1 THEN @workingFolder ELSE working_folder END,
         model = COALESCE(@model, model),
@@ -1345,7 +1362,7 @@ const statements = {
   hardDeleteConversation: db.prepare('DELETE FROM conversations WHERE id = ?'),
   hardDeleteChildConversations: db.prepare(`
     DELETE FROM conversations
-    WHERE conversation_type IN ('side', 'subagent', 'rubber_duck', 'rubber_duck_subject')
+    WHERE conversation_type IN ('side', 'subagent', 'rubber_duck', 'rubber_duck_subject', 'memory_hint')
       AND parent_conversation_id = ?
   `),
   hardDeleteConversationDescendants: db.prepare(`
@@ -1397,7 +1414,7 @@ const statements = {
   deleteExpiredDisposable: db.prepare(`
     DELETE FROM conversations
     WHERE deleted_at IS NULL
-      AND conversation_type IN ('side', 'subagent', 'rubber_duck', 'rubber_duck_subject')
+      AND conversation_type IN ('side', 'subagent', 'rubber_duck', 'rubber_duck_subject', 'memory_hint')
       AND updated_at < ?
   `),
   deleteExpiredScheduledTasks: db.prepare(`
@@ -1472,6 +1489,8 @@ const statements = {
     UPDATE conversations
     SET context_checkpoint = '', checkpoint_message_id = NULL, context_tokens = 0
     WHERE id = ?
+      AND checkpoint_message_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM messages WHERE id = conversations.checkpoint_message_id)
   `),
   conversationCounts: db.prepare(`
     SELECT
@@ -1546,6 +1565,53 @@ const statements = {
     SELECT * FROM messages
     WHERE conversation_id = ?
     ORDER BY created_at ASC
+  `),
+  getMessagesSinceCheckpoint: db.prepare(`
+    SELECT * FROM messages
+    WHERE conversation_id = @conversationId
+      AND created_at >= (
+        SELECT created_at FROM messages
+        WHERE id = @checkpointMessageId AND conversation_id = @conversationId
+      )
+    ORDER BY created_at ASC
+  `),
+  getLatestMessage: db.prepare(`
+    SELECT * FROM messages
+    WHERE conversation_id = @conversationId
+      AND (@role IS NULL OR role = @role)
+      AND (@visibleOnly = 0 OR hidden = 0)
+      AND (@settledOnly = 0 OR status NOT IN ('queued', 'steered'))
+    ORDER BY created_at DESC, rowid DESC
+    LIMIT 1
+  `),
+  getRecentTurnMessages: db.prepare(`
+    SELECT * FROM messages
+    WHERE conversation_id = @conversationId
+      AND role IN ('user', 'assistant')
+      AND status IN ('completed', 'sent', 'aborted')
+      AND (@visibleOnly = 0 OR hidden = 0)
+    ORDER BY created_at DESC, rowid DESC
+    LIMIT @limit
+  `),
+  getMessagesFromRecentUserTurns: db.prepare(`
+    SELECT * FROM messages
+    WHERE conversation_id = @conversationId
+      AND created_at >= (
+        SELECT created_at FROM messages
+        WHERE conversation_id = @conversationId AND role = 'user' AND created_at IS NOT NULL
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT 1 OFFSET @offset
+      )
+    ORDER BY created_at ASC
+  `),
+  hasMessageContaining: db.prepare(`
+    SELECT 1 FROM messages
+    WHERE conversation_id = ? AND instr(content, ?) > 0
+    LIMIT 1
+  `),
+  getMessageIdsWithContinuations: db.prepare(`
+    SELECT id FROM messages
+    WHERE conversation_id = ? AND continuations <> '[]'
   `),
   getUserAttachments: db.prepare(`
     SELECT attachments FROM messages
@@ -1936,6 +2002,16 @@ export function setAivaxSettings(value) {
   const settings = normalizeAivaxSettings(value, true);
   writeJson('aivaxSettings', settings);
   return settings;
+}
+
+export function getAivaxSubscriptionModels() {
+  const models = readJson('aivaxSubscriptionModels');
+  return Array.isArray(models) ? models : [];
+}
+
+export function setAivaxSubscriptionModels(models) {
+  writeJson('aivaxSubscriptionModels', models);
+  return models;
 }
 
 export function getThreadSearchManifest(collectionId) {
@@ -2338,6 +2414,7 @@ export function createConversation({
   initialPrompt = null,
   orchestrationMode = null,
   autoForwardToParent = false,
+  specializedAgent = null,
   titleStatus = 'pending',
 } = {}) {
   const now = timestamp();
@@ -2354,6 +2431,7 @@ export function createConversation({
     initialPrompt,
     orchestrationMode: ['plan', 'ultra'].includes(orchestrationMode) ? orchestrationMode : null,
     autoForwardToParent: autoForwardToParent ? 1 : 0,
+    specializedAgent: specializedAgent ? JSON.stringify(specializedAgent) : null,
     contextCheckpoint: '',
     checkpointMessageId: null,
     contextTokens: 0,
@@ -2554,6 +2632,8 @@ function mapBot(row) {
     conversationId: row.conversation_id,
     name: row.name,
     iconSeed: row.icon_seed,
+    avatarShape: row.avatar_shape || null,
+    avatarColor: row.avatar_color || null,
     personality: row.personality || null,
     workingFolder: row.working_folder || null,
     model: row.model,
@@ -2589,6 +2669,8 @@ export function createBot({
   conversationId,
   name,
   iconSeed,
+  avatarShape = null,
+  avatarColor = null,
   personality = null,
   workingFolder = null,
   model,
@@ -2616,6 +2698,8 @@ export function createBot({
     conversationId,
     name,
     iconSeed,
+    avatarShape: avatarShape || null,
+    avatarColor: avatarColor || null,
     personality,
     workingFolder,
     model,
@@ -2659,6 +2743,10 @@ export function updateBot(id, changes = {}) {
     id,
     name: changes.name ?? null,
     iconSeed: changes.iconSeed ?? null,
+    avatarShape: changes.avatarShape || null,
+    avatarShapeChanged: changed('avatarShape'),
+    avatarColor: changes.avatarColor || null,
+    avatarColorChanged: changed('avatarColor'),
     personality: changes.personality ?? null,
     personalityChanged: changed('personality'),
     workingFolder: changes.workingFolder ?? null,
@@ -3332,6 +3420,50 @@ export function getMessages(conversationId) {
   return statements.getMessages.all(conversationId).map(mapMessage);
 }
 
+export function getMessagesSinceCheckpoint(conversationId) {
+  const checkpointMessageId = statements.getConversation.get(conversationId)?.checkpoint_message_id;
+  const rows = checkpointMessageId
+    ? statements.getMessagesSinceCheckpoint.all({ conversationId, checkpointMessageId })
+    : [];
+  return rows.length > 0 ? rows.map(mapMessage) : getMessages(conversationId);
+}
+
+export function getLatestMessage(
+  conversationId,
+  { role = null, visibleOnly = false, settledOnly = false } = {},
+) {
+  const row = statements.getLatestMessage.get({
+    conversationId,
+    role,
+    visibleOnly: visibleOnly ? 1 : 0,
+    settledOnly: settledOnly ? 1 : 0,
+  });
+  return row ? mapMessage(row) : null;
+}
+
+export function getRecentTurnMessages(conversationId, limit, { visibleOnly = false } = {}) {
+  return statements.getRecentTurnMessages
+    .all({ conversationId, limit, visibleOnly: visibleOnly ? 1 : 0 })
+    .reverse()
+    .map(mapMessage);
+}
+
+export function getMessagesFromRecentUserTurns(conversationId, turnCount) {
+  const rows = statements.getMessagesFromRecentUserTurns.all({
+    conversationId,
+    offset: turnCount - 1,
+  });
+  return rows.length > 0 ? rows.map(mapMessage) : getMessages(conversationId);
+}
+
+export function hasMessageContaining(conversationId, text) {
+  return Boolean(statements.hasMessageContaining.get(conversationId, text));
+}
+
+export function getMessageIdsWithContinuations(conversationId) {
+  return statements.getMessageIdsWithContinuations.all(conversationId).map((row) => row.id);
+}
+
 export function getUserAttachments(conversationId) {
   return statements.getUserAttachments.all(conversationId)
     .flatMap((row) => parse(row.attachments, []));
@@ -3414,17 +3546,25 @@ export function forkConversation(id, {
   subagent = false,
   rubberDuck = false,
   rubberDuckSubject = false,
+  memoryHint = false,
   subagentPrompt = null,
   rubberDuckContext = null,
   orchestrationMode = null,
   autoForwardToParent = false,
+  specializedAgent = null,
 } = {}) {
   const source = getConversation(id);
-  const childThread = sideChat || subagent || rubberDuck || rubberDuckSubject;
+  const childThread = sideChat || subagent || rubberDuck || rubberDuckSubject || memoryHint;
   if (
     !source
-    || [sideChat, subagent, rubberDuck, rubberDuckSubject].filter(Boolean).length > 1
-    || ((sideChat || subagent) && (source.isSideChat || source.isSubagent || source.isRubberDuck))
+    || [sideChat, subagent, rubberDuck, rubberDuckSubject, memoryHint].filter(Boolean).length > 1
+    || (memoryHint && !['thread', 'subagent'].includes(source.conversationType))
+    || (sideChat && (source.isSideChat || source.isSubagent || source.isRubberDuck))
+    || (subagent && (
+      source.isSideChat
+      || source.isRubberDuck
+      || (source.isSubagent && !specializedAgent && !source.specializedAgent)
+    ))
     || (rubberDuck && (source.isSideChat || source.isSubagent))
     || (rubberDuckSubject && source.conversationType !== 'rubber_duck')
   ) {
@@ -3458,19 +3598,22 @@ export function forkConversation(id, {
     title: sideChat
       ? `Side chat ${childNumber}`
       : subagent
-        ? subagentName
+        ? specializedAgent ? `${specializedAgent.name} · ${subagentName}` : subagentName
         : rubberDuck
           ? `Rubber Duck ${rubberDuckNumber}`
           : rubberDuckSubject
             ? `${source.title} · Subject`
-            : `${source.title} - Copy`,
+            : memoryHint
+              ? `${source.title} · Memory hint`
+              : `${source.title} - Copy`,
     model: source.model,
     projectPath: source.projectPath,
     gitBranch: source.gitBranch,
     conversationType: sideChat ? 'side'
       : subagent ? 'subagent'
         : rubberDuck ? 'rubber_duck'
-          : rubberDuckSubject ? 'rubber_duck_subject' : 'thread',
+          : rubberDuckSubject ? 'rubber_duck_subject'
+            : memoryHint ? 'memory_hint' : 'thread',
     parentConversationId: childThread ? source.id : null,
     initialPrompt: subagent
       ? String(subagentPrompt ?? '').trim() || null
@@ -3479,6 +3622,7 @@ export function forkConversation(id, {
         : rubberDuckSubject ? 'Subject agent answering the Rubber Duck interview' : null,
     orchestrationMode: subagent ? orchestrationMode : null,
     autoForwardToParent: subagent && autoForwardToParent,
+    specializedAgent: subagent ? specializedAgent : null,
     titleStatus: childThread ? 'generated' : 'pending',
   });
   if (subagent) {
@@ -3513,6 +3657,14 @@ export function forkConversation(id, {
         conversationId: target.id,
         goalId: null,
         ...(sideChat ? { continuations: [] } : {}),
+        // The source run may still be executing these tool calls; a fork would otherwise replay them.
+        ...(memoryHint
+          ? {
+            segments: messages[index].segments.filter((segment) => (
+              segment.type !== 'tool-call' || segment.resultText !== undefined
+            )),
+          }
+          : {}),
         status: messages[index].status === 'streaming'
           ? 'completed'
           : messages[index].status,
@@ -3563,8 +3715,26 @@ export function setFavorite(modelId, favorited) {
 }
 
 function childThreadContext(conversation) {
-  if (!['side', 'subagent', 'rubber_duck', 'rubber_duck_subject'].includes(conversation?.conversation_type)) {
+  if (!['side', 'subagent', 'rubber_duck', 'rubber_duck_subject', 'memory_hint'].includes(conversation?.conversation_type)) {
     return [];
+  }
+
+  if (conversation.conversation_type === 'memory_hint') {
+    return [{
+      role: 'system',
+      content: [
+        '<thread_context>',
+        'thread_type: memory_hint',
+        `thread_id: ${conversation.id}`,
+        `source_thread_id: ${conversation.parent_conversation_id}`,
+        'You are running in an invisible background fork of the source thread history above. Nobody reads your replies, and the source thread continues independently.',
+        'Your only job is to record reusable knowledge from that work in persistent memory, following the Memory section of your instructions.',
+        'Record decisions, constraints, implementation details, validation results, known issues, user preferences, or pending work. Update an existing entry instead of duplicating it, and remove or condense entries the new knowledge makes obsolete. If nothing new is worth remembering, write nothing.',
+        'Do not continue, repeat, or change the source task. Read only what you need, change nothing other than memory, and do not ask questions, delegate, or contact other threads.',
+        'End with a single short sentence stating what you recorded, or that nothing was recorded.',
+        '</thread_context>',
+      ].join('\n'),
+    }];
   }
 
   if (conversation.conversation_type === 'rubber_duck_subject') {
@@ -3610,6 +3780,7 @@ function childThreadContext(conversation) {
 
   if (conversation.conversation_type === 'subagent') {
     const parent = statements.getConversation.get(conversation.parent_conversation_id);
+    const specializedAgent = parse(conversation.specialized_agent, null);
     const deliveryInstructions = conversation.auto_forward_to_parent
       ? [
         'Your final assistant response is automatically forwarded to the parent orchestrator by the runtime using steering.',
@@ -3654,8 +3825,20 @@ function childThreadContext(conversation) {
         `You are the sub-agent called ${conversation.title}.`,
         ...teamInstructions,
         ...deliveryInstructions,
-        'You cannot invoke chat_spawn_subagent or create other sub-agents.',
+        specializedAgent
+          ? 'You may delegate independent supporting work with chat_spawn_subagent or invoke_specialized_agent; their reports return to this thread.'
+          : 'You cannot invoke chat_spawn_subagent or create other sub-agents.',
         '</thread_context>',
+        ...(specializedAgent
+          ? [
+            '',
+            `<specialized_agent id="${specializedAgent.id}" name="${String(specializedAgent.name).replaceAll('"', '&quot;')}">`,
+            'You are a specialized agent. The instructions below define your role and task, and take precedence over the default working-style guidance.',
+            '',
+            specializedAgent.instructions,
+            '</specialized_agent>',
+          ]
+          : []),
       ].join('\n'),
     }];
   }
@@ -3685,7 +3868,7 @@ export function toModelMessages(
   { excludeMessageId, capabilities = {} } = {},
 ) {
   const conversation = statements.getConversation.get(conversationId);
-  const messages = getMessages(conversationId);
+  const messages = getMessagesSinceCheckpoint(conversationId);
   const checkpointIndex = conversation?.checkpoint_message_id
     ? messages.findIndex((message) => message.id === conversation.checkpoint_message_id)
     : -1;
@@ -4336,6 +4519,12 @@ function normalizeTuningSettings(value, strict = false) {
     continuationRepliesEnabled: typeof tuning.continuationRepliesEnabled === 'boolean'
       ? tuning.continuationRepliesEnabled
       : defaultTuningSettings.continuationRepliesEnabled,
+    defaultMemoryInstructionsEnabled: typeof tuning.defaultMemoryInstructionsEnabled === 'boolean'
+      ? tuning.defaultMemoryInstructionsEnabled
+      : defaultTuningSettings.defaultMemoryInstructionsEnabled,
+    asyncMemoryHintsEnabled: typeof tuning.asyncMemoryHintsEnabled === 'boolean'
+      ? tuning.asyncMemoryHintsEnabled
+      : defaultTuningSettings.asyncMemoryHintsEnabled,
     automaticCompactionThreshold: [0.8, 0.9, 0.95].includes(automaticCompactionThreshold)
       ? automaticCompactionThreshold
       : defaultTuningSettings.automaticCompactionThreshold,
@@ -4415,6 +4604,7 @@ function mapConversation(row) {
     : storedGoal;
   const tasks = parse(row.tasks, []);
   const ultraState = parse(row.ultra_state, {});
+  const specializedAgent = parse(row.specialized_agent, null);
   const blocked = goal?.status === 'blocked'
     || tasks.some((task) => task.status === 'inconclusive');
 
@@ -4445,6 +4635,7 @@ function mapConversation(row) {
     ultraContext: ultraState.context && typeof ultraState.context === 'object' ? ultraState.context : null,
     ultraScoutedAt: typeof ultraState.scoutedAt === 'string' ? ultraState.scoutedAt : null,
     autoForwardToParent: Boolean(row.auto_forward_to_parent),
+    specializedAgent: specializedAgent ? { id: specializedAgent.id, name: specializedAgent.name } : null,
     nextSubagentNameIndex: Number(row.next_subagent_name_index) || 0,
     contextCheckpoint: row.context_checkpoint || '',
     checkpointMessageId: row.checkpoint_message_id || null,

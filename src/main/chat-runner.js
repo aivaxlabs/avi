@@ -11,6 +11,7 @@ import { runLoopMethods } from './chat/run-loop.js';
 import { semaphoreMethods } from './chat/semaphores.js';
 import { interactionMethods } from './chat/interactions.js';
 import { completionMethods } from './chat/completion.js';
+import { memoryHintMethods } from './chat/memory-hints.js';
 import { capacityMethods } from './chat/capacity.js';
 import { WATCHDOG_INTERVAL_MS } from './chat/constants.js';
 import { watchdogMethods } from './chat/watchdog.js';
@@ -70,6 +71,8 @@ export class ChatRunner {
     this.pendingCompletionNotifications = new Map();
     this.rubberDuckReports = new Map();
     this.rubberDuckInterviews = new Map();
+    this.memoryHints = new Map();
+    this.memoryHintThreads = new Set();
     this.quickChatRunner = null;
     this.shuttingDown = false;
     this.capacityHolders = new Set();
@@ -123,6 +126,7 @@ for (const group of [
   semaphoreMethods,
   interactionMethods,
   completionMethods,
+  memoryHintMethods,
   capacityMethods,
   watchdogMethods,
 ]) {

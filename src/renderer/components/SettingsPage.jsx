@@ -36,6 +36,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
+  UserRound,
   Workflow,
   Wrench,
   X,
@@ -57,6 +58,7 @@ import { BotSettingsPage } from './BotSettingsPage.jsx';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
 import { McpSettings } from './McpSettings.jsx';
 import { PluginsSettings } from './PluginsSettings.jsx';
+import { ProfilesSettings } from './ProfilesSettings.jsx';
 import { KeyboardShortcutSettings } from './KeyboardShortcuts.jsx';
 import { LongTextField } from './LongTextField.jsx';
 import { RemoteSettings } from './RemoteSettings.jsx';
@@ -447,6 +449,7 @@ export function SettingsPage({
   const [contextPresetOpen, setContextPresetOpen] = useState(false);
   const contextPresetRef = useRef(null);
   const [aivaxProviderLocked, setAivaxProviderLocked] = useState(false);
+  const [aivaxMemoryActive, setAivaxMemoryActive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [updateAction, setUpdateAction] = useState(null);
   const [updateError, setUpdateError] = useState('');
@@ -721,6 +724,25 @@ export function SettingsPage({
   }, [providers, view]);
 
   useEffect(() => {
+    if (view !== 'tuning') return undefined;
+    let active = true;
+    window.chatApp.aivax.state()
+      .then((state) => {
+        if (active) {
+          setAivaxMemoryActive(Boolean(
+            state.connected && state.settings?.memoryEnabled && state.settings.memoryCollectionId,
+          ));
+        }
+      })
+      .catch((nextError) => {
+        if (active) setError(nextError instanceof Error ? nextError.message : String(nextError));
+      });
+    return () => {
+      active = false;
+    };
+  }, [view]);
+
+  useEffect(() => {
     if (!selectedProvider) {
       setProviderState(null);
       return undefined;
@@ -967,6 +989,7 @@ export function SettingsPage({
     remote: 'Remote control',
     aivax: 'AIVAX Features',
     maintenance: 'Maintenance',
+    profiles: 'Profiles',
     bots: 'Bots',
     'default-models': 'Models',
     shortcuts: 'Keyboard shortcuts',
@@ -987,7 +1010,7 @@ export function SettingsPage({
       ? `${selectedType.name} · ${selectedType.description}`
       : 'Configure this provider connection and its models.',
     model: `Configure the model exposed by ${selectedProvider?.name || 'this provider'}.`,
-    'context-folders': 'Manage instructions, skills, and workflows by folder.',
+    'context-folders': 'Manage instructions, skills, workflows, and agents by folder.',
     'context-folder': selectedContextFolder?.displayPath || '',
     mcp: mcpNavigation?.description
       || 'Manage global and per-folder Model Context Protocol servers.',
@@ -995,6 +1018,7 @@ export function SettingsPage({
     remote: 'Expose Avi orchestration through a local authenticated MCP server.',
     aivax: 'Add persistent memory, richer web tools, media generation, and semantic thread search through AIVAX.',
     maintenance: 'Manage archived conversations, storage cleanup, and semaphore permits.',
+    profiles: 'Import and export profiles with their conversations, settings, and bots.',
     bots: 'Control new activations and review bot consumption.',
     'default-models': 'Configure model assignments, instructions, and the composer slider.',
     shortcuts: 'Customize shortcuts, desktop access, and plugin contributions.',
@@ -1003,7 +1027,7 @@ export function SettingsPage({
     personalization: 'Choose Avi’s personality, response detail, theme, and color scheme.',
     about: 'Project information, version, and links.',
   }[view];
-  const showInlineBack = !['shortcuts', 'list', 'routers', 'context-folders', 'mcp', 'plugins', 'remote', 'aivax', 'maintenance', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
+  const showInlineBack = !['shortcuts', 'list', 'routers', 'context-folders', 'mcp', 'plugins', 'remote', 'aivax', 'maintenance', 'profiles', 'default-models', 'general', 'tuning', 'personalization', 'about'].includes(view)
     || (view === 'mcp' && Boolean(mcpNavigation?.onBack));
 
   return (
@@ -1058,7 +1082,7 @@ export function SettingsPage({
               General
             </button>
           )}
-          {(!settingsQuery || 'tuning compaction context discovery skills passive tools output terminal timeout sub-agents quick chat instructions diagnostics logging logs'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'tuning compaction context discovery skills memory hints passive tools output terminal timeout sub-agents quick chat instructions diagnostics logging logs'.includes(settingsQuery)) && (
             <button
               className={view === 'tuning' ? 'active' : undefined}
               type="button"
@@ -1144,7 +1168,7 @@ export function SettingsPage({
               Models
             </button>
           )}
-          {(!settingsQuery || 'context instructions skills workflows'.includes(settingsQuery)) && (
+          {(!settingsQuery || 'context instructions skills workflows agents'.includes(settingsQuery)) && (
             <button
               className={view.startsWith('context-') ? 'active' : undefined}
               type="button"
@@ -1236,6 +1260,20 @@ export function SettingsPage({
             >
               <Wrench size={16} />
               Maintenance
+            </button>
+          )}
+          {(!settingsQuery || 'profiles profile import export backup transfer accounts'.includes(settingsQuery)) && (
+            <button
+              className={view === 'profiles' ? 'active' : undefined}
+              type="button"
+              aria-current={view === 'profiles' ? 'page' : undefined}
+              onClick={() => {
+                setView('profiles');
+                setError('');
+              }}
+            >
+              <UserRound size={16} />
+              Profiles
             </button>
           )}
 
@@ -1850,7 +1888,7 @@ export function SettingsPage({
                 {contextFolder && (() => {
                   const group = contextFolder.groups.find((item) => item.id === contextTab)
                     ?? contextFolder.groups[0];
-                  const singular = { instruction: 'instruction', skill: 'skill', workflow: 'workflow' }[group.id];
+                  const singular = { instruction: 'instruction', skill: 'skill', workflow: 'workflow', agent: 'agent' }[group.id];
                   return (
                     <>
                       <div className="maintenance-tabs settings-context-tabs" role="tablist" aria-label="Context types">
@@ -2022,6 +2060,7 @@ export function SettingsPage({
             {view === 'maintenance' && (
               <MaintenanceSettings onThreadsChange={onThreadsChange} />
             )}
+            {view === 'profiles' && <ProfilesSettings />}
             {view === 'bots' && <BotSettingsPage footerTarget={botFooter} />}
             {view === 'mcp' && (
               <McpSettings
@@ -2695,6 +2734,55 @@ export function SettingsPage({
                       <small>
                         Minimal lists only top-level skills and leaves nested sub-skills to their parent skill. Full lists every skill.
                       </small>
+                    </label>
+                  </div>
+                </section>
+                <section className="settings-section">
+                  <div className="settings-section-heading">
+                    <h3>Memory</h3>
+                    <p>Choose how agents keep persistent memory across conversations.</p>
+                  </div>
+                  <div className="settings-section-card settings-form settings-row-card">
+                    <label className="settings-toggle-row">
+                      <span>
+                        <strong>Default memory instructions</strong>
+                        <small>
+                          {aivaxMemoryActive
+                            ? 'AIVAX Memory is enabled and replaces these instructions with its memory tools.'
+                            : 'Instruct agents to keep memory in MEMORY.md: global knowledge in ~/.agents/MEMORY.md and project knowledge at the project root, kept compact.'}
+                        </small>
+                      </span>
+                      <input
+                        className="toggle"
+                        type="checkbox"
+                        disabled={aivaxMemoryActive}
+                        checked={tuningDraft.defaultMemoryInstructionsEnabled ?? true}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            defaultMemoryInstructionsEnabled: event.target.checked,
+                          }));
+                        }}
+                      />
+                    </label>
+                    <label className="settings-toggle-row">
+                      <span>
+                        <strong>Async memory hints</strong>
+                        <small>Run an invisible fork of the thread that records what was done in memory when a task step advances or blocks, the Ultra context changes, or an iteration ends.</small>
+                      </span>
+                      <input
+                        className="toggle"
+                        type="checkbox"
+                        checked={tuningDraft.asyncMemoryHintsEnabled ?? false}
+                        onChange={(event) => {
+                          setTuningSaved(false);
+                          setTuningDraft((current) => ({
+                            ...current,
+                            asyncMemoryHintsEnabled: event.target.checked,
+                          }));
+                        }}
+                      />
                     </label>
                   </div>
                 </section>
@@ -3795,6 +3883,7 @@ export function SettingsPage({
                     instruction: 'Creates .agents/AGENTS.<Name>.md from an instruction template.',
                     skill: 'Creates .agents/skills/<name>/SKILL.md from a skill template.',
                     workflow: 'Creates .agents/workflows/<name>.md from a workflow template.',
+                    agent: 'Creates .agents/agents/<name>.md from a specialized agent template.',
                   }[contextCreateDialog.kind]}
                 </p>
               </div>
@@ -3814,7 +3903,7 @@ export function SettingsPage({
                 type="text"
                 autoFocus
                 value={contextCreateDialog.name}
-                placeholder={contextCreateDialog.kind === 'instruction' ? 'Frontend' : 'Review pull request'}
+                placeholder={{ instruction: 'Frontend', agent: 'Code reviewer' }[contextCreateDialog.kind] ?? 'Review pull request'}
                 aria-invalid={Boolean(contextCreateDialog.error)}
                 onChange={(event) => setContextCreateDialog((current) => ({
                   ...current,

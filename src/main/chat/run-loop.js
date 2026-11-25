@@ -3,7 +3,8 @@ import {
   mkdirSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { INSTRUCTION_FILE_PATTERN, clearContextCaches, hasSpecializedAgents } from '../context-injection.js';
 import { effectiveMediaSizeLimit } from '../../shared/attachments.js';
 import {
   answerTextFromTextualBlocks,
@@ -16,7 +17,7 @@ import {
   getBotSettings,
   getGoalForConversation,
   getMessage,
-  getMessages,
+  getMessagesSinceCheckpoint,
   getUserAttachments,
   hydratePersistedMediaContent,
   insertInferenceUsage,
@@ -105,7 +106,7 @@ export const runLoopMethods = {
       ? permissionMode
       : 'approve_for_me';
     const controller = new AbortController();
-    const persistedMessagesAtStart = persistedMessages ?? getMessages(conversationId);
+    const persistedMessagesAtStart = persistedMessages ?? getMessagesSinceCheckpoint(conversationId);
     const accumulator = new StreamAccumulator({
       segments: initialSegments,
       usage: initialUsage,
@@ -381,6 +382,10 @@ export const runLoopMethods = {
       const rubberDuckMode = currentConversation?.conversationType === 'rubber_duck';
       const fusion = this.resolveFusion(currentConversation);
       const pluginTools = workMode === 'plan' || rubberDuckMode ? [] : this.getPluginTools(conversationId);
+      const specializedAgentsAvailable = workMode !== 'plan' && !rubberDuckMode && await hasSpecializedAgents({
+        workspacePath,
+        ...this.getPluginContext({ conversationId, workspacePath, botId: botRuntime?.bot.id ?? null }),
+      });
       const providerContributionContext = {
         model: selection.model,
         conversation: currentConversation,
@@ -457,7 +462,20 @@ export const runLoopMethods = {
           ].includes(tool.name))
           .filter((tool) => (
             tool.name !== 'chat_spawn_subagent'
-            || (!currentConversation?.isSubagent && !currentConversation?.isSideChat && !fusion)
+            || (
+              (!currentConversation?.isSubagent || currentConversation.specializedAgent)
+              && !currentConversation?.isSideChat
+              && !fusion
+            )
+          ))
+          .filter((tool) => (
+            tool.name !== 'invoke_specialized_agent'
+            || (
+              specializedAgentsAvailable
+              && (!currentConversation?.isSubagent || currentConversation.specializedAgent)
+              && !currentConversation?.isSideChat
+              && !fusion
+            )
           ))
           .filter((tool) => tool.name !== 'chat_create_thread' || !fusion)
           .filter((tool) => tool.name !== 'dispatch_sidekick' || fusion?.role === 'lead')
@@ -465,6 +483,19 @@ export const runLoopMethods = {
           .filter((tool) => tool.name !== 'ultra_set_context' || (
             ultraMode && !fusion && currentConversation?.conversationType === 'thread'
           ))
+          .filter((tool) => currentConversation?.conversationType !== 'memory_hint' || ![
+            'ask_question',
+            'chat_create_thread',
+            'chat_send_prompt',
+            'chat_spawn_subagent',
+            'dispatch_sidekick',
+            'invoke_rubber_duck',
+            'invoke_specialized_agent',
+            'sleep_semaphore',
+            'start_goal',
+            'update_goal_status',
+            'update_tasks',
+          ].includes(tool.name))
           .map((tool) => {
             if (tool.name === 'read_media_file') {
               const supportedMedia = [
@@ -1205,6 +1236,9 @@ export const runLoopMethods = {
             const needsApproval = flaggedForApproval
               && permissionMode !== 'full_access'
               && (intercepted.inputChanged || !this.approvedToolPatterns.has(approvalPattern));
+            if (needsApproval && this.memoryHintThreads.has(conversationId)) {
+              throw new Error('Background memory hints cannot request approval. Record memory only with tools that do not require it.');
+            }
             if (needsApproval && botRuntime) {
               const queuedApproval = await this.queueBotToolApproval({
                 conversationId,
@@ -1257,7 +1291,7 @@ export const runLoopMethods = {
             }
 
             if (
-              ['chat_spawn_subagent', 'dispatch_sidekick'].includes(tool.name)
+              ['chat_spawn_subagent', 'dispatch_sidekick', 'invoke_specialized_agent'].includes(tool.name)
               && !this.canCreateDisposableConversation()
             ) {
               throw new Error('Sub-agents cannot be created during forced cleanup.');
@@ -1345,6 +1379,9 @@ export const runLoopMethods = {
               run.attachments.push(attachment);
             }
             const fileChanges = Array.isArray(value?.fileChanges) ? value.fileChanges : [];
+            if (fileChanges.some((change) => (
+              INSTRUCTION_FILE_PATTERN.test(basename(String(change?.filePath ?? '')))
+            ))) clearContextCaches();
             for (const change of fileChanges) {
               if (
                 typeof change?.filePath !== 'string'
@@ -1610,7 +1647,7 @@ export const runLoopMethods = {
           });
         }
       }
-      if (!run.suspendAfterTools) {
+      if (!run.suspendAfterTools && !this.memoryHintThreads.has(conversationId)) {
         await this.forwardSubagentResult(completedMessage, run.permissionMode);
         await this.forwardMentions({
           conversationId,
@@ -1618,6 +1655,7 @@ export const runLoopMethods = {
           content: answerTextFromTextualBlocks(completedMessage.content),
           permissionMode: run.permissionMode,
         });
+        this.requestMemoryHint(conversationId, 'iteration', run);
       }
       this.sendPluginEvent('inference.request.completed', {
         threadId: conversationId,

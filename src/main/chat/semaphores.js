@@ -62,7 +62,15 @@ export const semaphoreMethods = {
     if (normalized.some((task) => task.status === 'inconclusive' && !task.result)) {
       throw new Error('Inconclusive tasks require a result explaining the concrete blocker.');
     }
+    const previous = listTasks(conversationId);
     const persisted = replaceTasks(conversationId, normalized);
+    if (normalized.some((task) => (
+      task.status !== 'pending'
+      && !previous.some((item) => (
+        item.title === task.title
+        && (item.status ?? (item.done ? 'completed' : 'pending')) === task.status
+      ))
+    ))) this.requestMemoryHint(conversationId, 'task');
     this.emit(conversationId, { type: 'tasks', tasks: persisted });
     this.emit(conversationId, {
       type: 'block-state',

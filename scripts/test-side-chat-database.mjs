@@ -40,6 +40,8 @@ try {
     verbosity: 'medium',
     chatReasoningTraces: 'visible',
     continuationRepliesEnabled: true,
+    defaultMemoryInstructionsEnabled: true,
+    asyncMemoryHintsEnabled: false,
     automaticCompactionThreshold: 0.9,
     contextDiscovery: 'minimal',
     passiveToolGroups: true,
@@ -61,6 +63,8 @@ try {
     verbosity: 'high',
     chatReasoningTraces: 'hidden',
     continuationRepliesEnabled: false,
+    defaultMemoryInstructionsEnabled: false,
+    asyncMemoryHintsEnabled: true,
     automaticCompactionThreshold: 0.8,
     contextDiscovery: 'full',
     passiveToolGroups: false,
@@ -81,6 +85,8 @@ try {
     verbosity: 'high',
     chatReasoningTraces: 'hidden',
     continuationRepliesEnabled: false,
+    defaultMemoryInstructionsEnabled: false,
+    asyncMemoryHintsEnabled: true,
     automaticCompactionThreshold: 0.8,
     contextDiscovery: 'full',
     passiveToolGroups: false,
@@ -608,6 +614,7 @@ try {
   const taskRunner = {
     emit: (conversationId, event) => taskEvents.push({ conversationId, event }),
     isConversationBlocked: () => false,
+    requestMemoryHint: () => {},
     replaceTasks: ChatRunner.prototype.replaceTasks,
   };
   assert.equal(await updateTasksTool.execute({ tasks: toolTasks }, {
@@ -649,6 +656,7 @@ try {
     chatRunner: {
       emit: () => {},
       isConversationBlocked: () => true,
+      requestMemoryHint: () => {},
       replaceTasks: ChatRunner.prototype.replaceTasks,
     },
     conversationId: parent.id,

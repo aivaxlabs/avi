@@ -1,6 +1,6 @@
 import {
   getConversation,
-  getMessages,
+  getRecentTurnMessages,
   insertInferenceUsage,
   messageToApiBlock,
   messageToApiBlocks,
@@ -77,10 +77,7 @@ export const auxiliaryPromptMethods = {
           : null,
       ].filter(Boolean);
       const recentGoalContext = improveGoal
-        ? getMessages(conversation.id)
-            .filter((message) => ['user', 'assistant'].includes(message.role))
-            .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
-            .slice(-AUXILIARY_GOAL_CONTEXT_TURN_COUNT)
+        ? getRecentTurnMessages(conversation.id, AUXILIARY_GOAL_CONTEXT_TURN_COUNT)
             .map((message) => {
               const block = messageToApiBlock(message, selection.model.capabilities);
               if (message.role !== 'assistant' || message.segments.length === 0) return block;
@@ -301,11 +298,7 @@ export const auxiliaryPromptMethods = {
 
     const placeholders = [...new Set(sourcePrompt.match(/%[^%\r\n]+%/g) ?? [])];
     const conversationSnapshot = conversation
-      ? getMessages(conversation.id)
-          .filter((message) => !message.hidden)
-          .filter((message) => ['user', 'assistant'].includes(message.role))
-          .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
-          .slice(-AUXILIARY_PROMPT_CONTEXT_TURN_COUNT)
+      ? getRecentTurnMessages(conversation.id, AUXILIARY_PROMPT_CONTEXT_TURN_COUNT, { visibleOnly: true })
           .flatMap((message) => messageToApiBlocks(message, selection.model.capabilities))
       : [];
 
