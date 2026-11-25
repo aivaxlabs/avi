@@ -126,7 +126,19 @@ export function PluginsSettings() {
             )}</Presence>
           </div>
         </div>
-        {state?.restartRequired && <div className="plugins-restart"><AlertTriangle size={15} />Restart Avi to apply plugin changes.</div>}
+        {state?.restartRequired ? (
+          <div className="plugins-restart">
+            <AlertTriangle size={15} />
+            <span>Restart Avi to apply plugin changes.</span>
+            <button className="button" type="button" onClick={() => runDeveloperTool('restartAvi')}>Restart Avi</button>
+          </div>
+        ) : state?.reloadRequired && (
+          <div className="plugins-restart">
+            <AlertTriangle size={15} />
+            <span>Reload the window to show plugin interface changes.</span>
+            <button className="button" type="button" onClick={() => runDeveloperTool('reloadWindow')}>Reload window</button>
+          </div>
+        )}
         {error && <div className="settings-context-error" role="alert">{error}</div>}
         <div className="plugins-list">
           {plugins.map((plugin) => {

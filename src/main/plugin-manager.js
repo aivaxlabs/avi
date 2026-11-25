@@ -51,6 +51,7 @@ const DEFINITION_FIELDS = new Set([
   'deactivate',
   'contributions',
   'settings',
+  'requiresRestart',
 ]);
 const CONTRIBUTION_FIELDS = Object.freeze({
   context: new Set(['path', 'content']),
@@ -91,6 +92,8 @@ const DISABLED_ENTRYPOINT = 'plugin.js.disabled';
 const MANIFEST = '.avi-plugin.json';
 const MAX_ZIP_ENTRIES = 1_000;
 const MAX_UNCOMPRESSED_BYTES = 100 * 1024 * 1024;
+const RENDERER_CONTRIBUTION_TYPES = Object.freeze(['themes', 'personalities', 'auxiliaryPanels', 'providers']);
+const RENDERER_CAPABILITIES = Object.freeze(['panels.register', 'providers.types.register']);
 
 export class PluginManager {
   constructor({
@@ -130,8 +133,16 @@ export class PluginManager {
     this.plugins = new Map();
     this.inventory = [];
     this.failures = [];
-    this.restartRequired = false;
+    this.removedRestartRequired = false;
+    this.reloadRequired = false;
+    this.importedIds = new Set();
+    this.restartPendingIds = new Set();
     this.runtime = new PluginRuntime({ pluginsDir: this.pluginsDir });
+  }
+
+  get restartRequired() {
+    return this.removedRestartRequired
+      || this.inventory.some((plugin) => String(plugin.status).startsWith('pending '));
   }
 
   async initialize() {
@@ -213,6 +224,7 @@ export class PluginManager {
           continue;
         }
         if (!sourceExists) throw new Error(`Plugin directory "${directoryName}" does not contain ${ENTRYPOINT}.`);
+        this.importedIds.add(directoryName.toLowerCase());
         const candidate = await this.#loadWithTimeout(sourcePath, directoryName);
         if (candidate.id.toLowerCase() !== directoryName.toLowerCase()) {
           throw new Error(`Plugin ID "${candidate.id}" does not match directory "${directoryName}".`);
@@ -306,6 +318,7 @@ export class PluginManager {
       builtInPluginsDir: this.builtInPluginsDir,
       pluginApi: { minVersion: MIN_PLUGIN_API_VERSION, version: PLUGIN_API_VERSION },
       restartRequired: this.restartRequired,
+      reloadRequired: this.reloadRequired,
       plugins: this.list(),
       failures: this.getFailures(),
     };
@@ -459,34 +472,43 @@ export class PluginManager {
   async setEnabled(id, enabled) {
     if (typeof enabled !== 'boolean') throw new Error('Plugin enabled state must be a boolean.');
     const plugin = this.#inventoryEntry(id);
-    if (plugin.enabled === enabled) return { ...plugin, restartRequired: this.restartRequired };
-    if (plugin.builtIn) {
-      const nextState = { ...this.builtInState, [plugin.id.toLowerCase()]: enabled };
-      this.setBuiltInPluginState(nextState);
-      this.builtInState = nextState;
-      Object.assign(plugin, {
-        enabled,
-        status: enabled ? 'pending enable' : (plugin.runtimeLoaded ? 'pending disable' : 'disabled'),
-      });
-      this.restartRequired = true;
-      return { ...plugin, restartRequired: true };
+    if (plugin.enabled !== enabled) {
+      if (plugin.builtIn) {
+        const nextState = { ...this.builtInState, [plugin.id.toLowerCase()]: enabled };
+        this.setBuiltInPluginState(nextState);
+        this.builtInState = nextState;
+      } else {
+        const directory = plugin.directory;
+        const source = join(directory, enabled ? DISABLED_ENTRYPOINT : ENTRYPOINT);
+        const destination = join(directory, enabled ? ENTRYPOINT : DISABLED_ENTRYPOINT);
+        await this.#assertManagedRegularFile(source);
+        await this.#assertMissing(destination, `Plugin entrypoint "${basename(destination)}" already exists.`);
+        if (!enabled) await this.#writeManifest(directory, plugin);
+        await rename(source, destination);
+        plugin.fileName = basename(destination);
+      }
+      plugin.enabled = enabled;
+      const key = plugin.id.toLowerCase();
+      const loaded = this.plugins.get(key);
+      if (enabled) {
+        if (loaded) plugin.status = this.runtime.records.has(key) ? 'active' : 'loaded';
+        else if (this.restartPendingIds.has(key)) plugin.status = 'pending enable';
+        else {
+          await this.#activate(plugin);
+          this.#markReload(plugin);
+        }
+      } else if (!loaded) {
+        plugin.status = 'disabled';
+      } else if (loaded.requiresRestart) {
+        plugin.status = 'pending disable';
+      } else {
+        this.#markReload(plugin);
+        const clean = await this.#deactivateLoaded(loaded, 'disabled');
+        if (!clean) this.restartPendingIds.add(key);
+        Object.assign(plugin, { status: clean ? 'disabled' : 'pending disable', runtimeLoaded: false });
+      }
     }
-    const directory = plugin.directory;
-    const source = join(directory, enabled ? DISABLED_ENTRYPOINT : ENTRYPOINT);
-    const destination = join(directory, enabled ? ENTRYPOINT : DISABLED_ENTRYPOINT);
-    await this.#assertManagedRegularFile(source);
-    await this.#assertMissing(destination, `Plugin entrypoint "${basename(destination)}" already exists.`);
-    if (!enabled) await this.#writeManifest(directory, plugin);
-    await rename(source, destination);
-    Object.assign(plugin, {
-      fileName: basename(destination),
-      enabled,
-      status: enabled
-        ? (plugin.runtimeLoaded ? 'loaded' : 'pending enable')
-        : (plugin.runtimeLoaded ? 'pending disable' : 'disabled'),
-    });
-    this.restartRequired = true;
-    return { ...plugin, restartRequired: true };
+    return { ...plugin, restartRequired: this.restartRequired, reloadRequired: this.reloadRequired };
   }
 
   async remove(id) {
@@ -497,13 +519,16 @@ export class PluginManager {
     if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
       throw new Error('The managed plugin package must be a regular directory.');
     }
-    await this.runtime.deactivate(plugin.id, 'removed');
+    const key = plugin.id.toLowerCase();
+    const loaded = this.plugins.get(key);
+    const clean = loaded ? await this.#deactivateLoaded(loaded, 'removed') : true;
+    if (!clean || loaded?.requiresRestart || this.restartPendingIds.has(key)) this.removedRestartRequired = true;
+    else if (loaded) this.#markReload(plugin);
     await rm(directory, { recursive: true });
     await rm(join(this.pluginsDir, '.avi', plugin.id), { recursive: true, force: true });
     await rm(join(this.pluginsDir, '.avi-storage', plugin.id), { recursive: true, force: true });
     this.inventory = this.inventory.filter((entry) => entry !== plugin);
-    if (plugin.runtimeLoaded) this.restartRequired = true;
-    return { id: plugin.id, restartRequired: this.restartRequired };
+    return { id: plugin.id, restartRequired: this.restartRequired, reloadRequired: this.reloadRequired };
   }
 
   async sideload(sourcePath, { confirmDowngrade = async () => false } = {}) {
@@ -573,18 +598,7 @@ export class PluginManager {
         });
         if (!confirmed) return null;
       }
-      const claimed = Object.fromEntries([
-        ['plugins', new Map()],
-        ['tools', new Map([...this.reservedToolNames].map((name) => [name, 'Avi']))],
-        ...['auxiliaryPanels', 'themes', 'personalities', 'providers', 'shortcuts'].map((type) => [
-          type,
-          new Map([...this.reservedIds[type]].map((id) => [id, 'Avi'])),
-        ]),
-      ]);
-      for (const plugin of this.plugins.values()) {
-        if (plugin.id.toLowerCase() !== candidate.id.toLowerCase()) this.#claim(plugin, claimed);
-      }
-      this.#claim(candidate, claimed);
+      this.#claim(candidate, this.#claimedIds(candidate.id));
       const contextCheck = join(stagingRoot, 'context-check');
       await mkdir(contextCheck, { recursive: true });
       for (const item of candidate.contributions.context) {
@@ -629,7 +643,15 @@ export class PluginManager {
           });
         }
       }
-      const runtimeLoaded = existing?.runtimeLoaded ?? false;
+      const key = candidate.id.toLowerCase();
+      if (this.importedIds.has(key)) {
+        // Relative imports are cached by URL without the entrypoint cache-busting query, so a
+        // replaced package with extra modules would keep running old module code until restart.
+        const entries = await readdir(destination, { recursive: true });
+        if (entries.some((entry) => /\.[cm]?js$/i.test(entry) && entry !== ENTRYPOINT && entry !== DISABLED_ENTRYPOINT)) {
+          this.restartPendingIds.add(key);
+        }
+      }
       const record = existing?.enabled === false
         ? this.#disabledRecord(candidate.id, {
             name: candidate.name,
@@ -640,21 +662,34 @@ export class PluginManager {
           })
         : this.#pluginRecord(candidate, {
             directory: destination,
-            status: runtimeLoaded ? 'pending update' : 'pending enable',
-            runtimeLoaded,
+            status: 'pending enable',
+            runtimeLoaded: false,
           });
       this.inventory = [
-        ...this.inventory.filter((plugin) => plugin.id.toLowerCase() !== candidate.id.toLowerCase()),
+        ...this.inventory.filter((plugin) => plugin.id.toLowerCase() !== key),
         record,
       ].sort((left, right) => left.id.localeCompare(right.id, 'en'));
-      this.restartRequired = true;
+      if (record.enabled) {
+        const loaded = this.plugins.get(key);
+        if (loaded?.requiresRestart || this.restartPendingIds.has(key)) {
+          Object.assign(record, { status: loaded ? 'pending update' : 'pending enable', runtimeLoaded: !!loaded });
+        } else if (loaded && !(await this.#deactivateLoaded(loaded, 'updated'))) {
+          this.restartPendingIds.add(key);
+          record.status = 'pending update';
+        } else {
+          await this.#activate(record);
+          this.#markReload(existing);
+          this.#markReload(record);
+        }
+      }
       return {
         id: candidate.id,
         name: candidate.name,
         version: candidate.version,
         path: join(destination, ENTRYPOINT),
         replaced: !!existing,
-        restartRequired: true,
+        restartRequired: this.restartRequired,
+        reloadRequired: this.reloadRequired,
       };
     } finally {
       try {
@@ -690,6 +725,75 @@ export class PluginManager {
       settings: plugin.settings.length,
       ...overrides,
     };
+  }
+
+  async #activate(record) {
+    const key = record.id.toLowerCase();
+    try {
+      this.importedIds.add(key);
+      const candidate = await this.#loadWithTimeout(join(record.directory, ENTRYPOINT), record.id);
+      if (candidate.id.toLowerCase() !== key) {
+        throw new Error(`Plugin ID "${candidate.id}" does not match directory "${basename(record.directory)}".`);
+      }
+      candidate.builtIn = record.builtIn === true;
+      this.#claim(candidate, this.#claimedIds(candidate.id));
+      const runtimeTools = [...this.runtime.tools.keys()].map((toolKey) => toolKey.split('\0')[1]);
+      for (const item of candidate.contributions.tools) {
+        const name = item.public.name ?? item.public.id;
+        if (runtimeTools.includes(name.toLowerCase())) throw new Error(`Tool "${name}" is already registered by another plugin.`);
+      }
+      for (const item of candidate.contributions.providers) {
+        const id = item.public.descriptor.id;
+        if (this.runtime.providerTypes.has(id.toLowerCase())) throw new Error(`Provider type "${id}" is already registered by another plugin.`);
+      }
+      await this.#materialize(candidate);
+      this.plugins.set(key, candidate);
+      try {
+        await this.runtime.activate(candidate);
+      } catch (error) {
+        this.plugins.delete(key);
+        await rm(join(this.pluginsDir, '.avi', candidate.id), { recursive: true, force: true });
+        throw new Error(`Plugin activation failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      delete record.error;
+      Object.assign(record, this.#pluginRecord(candidate, { status: 'active' }));
+    } catch (error) {
+      Object.assign(record, {
+        status: 'error',
+        runtimeLoaded: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return record;
+  }
+
+  async #deactivateLoaded(plugin, reason) {
+    const clean = await this.runtime.deactivate(plugin.id, reason);
+    this.plugins.delete(plugin.id.toLowerCase());
+    await rm(join(this.pluginsDir, '.avi', plugin.id), { recursive: true, force: true });
+    return clean;
+  }
+
+  #markReload(record) {
+    if (RENDERER_CONTRIBUTION_TYPES.some((type) => record?.contributions?.[type] > 0)
+      || record?.capabilities?.some((capability) => RENDERER_CAPABILITIES.includes(capability))) {
+      this.reloadRequired = true;
+    }
+  }
+
+  #claimedIds(pluginId) {
+    const claimed = Object.fromEntries([
+      ['plugins', new Map()],
+      ['tools', new Map([...this.reservedToolNames].map((name) => [name, 'Avi']))],
+      ...['auxiliaryPanels', 'themes', 'personalities', 'providers', 'shortcuts'].map((type) => [
+        type,
+        new Map([...this.reservedIds[type]].map((id) => [id, 'Avi'])),
+      ]),
+    ]);
+    for (const plugin of this.plugins.values()) {
+      if (plugin.id.toLowerCase() !== pluginId.toLowerCase()) this.#claim(plugin, claimed);
+    }
+    return claimed;
   }
 
   #disabledRecord(id, overrides = {}) {
@@ -943,6 +1047,9 @@ export class PluginManager {
     if (definition.deactivate != null && typeof definition.deactivate !== 'function') {
       throw new Error('Plugin deactivate must be a function.');
     }
+    if (definition.requiresRestart != null && typeof definition.requiresRestart !== 'boolean') {
+      throw new Error('Plugin requiresRestart must be a boolean.');
+    }
     const contributions = definition.contributions ?? {};
     if (!contributions || typeof contributions !== 'object' || Array.isArray(contributions)) {
       throw new Error('Plugin contributions must be an object.');
@@ -961,6 +1068,7 @@ export class PluginManager {
       capabilities,
       activate: definition.activate,
       deactivate: definition.deactivate,
+      requiresRestart: definition.requiresRestart === true,
       contributions: Object.fromEntries(CONTRIBUTION_TYPES.map((type) => [
         type,
         this.#validateContributions(type, contributions[type] ?? [], compatibilityWarnings),

@@ -359,10 +359,16 @@ try {
   ]);
   const disabled = await lifecycleManager.setEnabled('active', false);
   assert.equal(disabled.fileName, 'plugin.js.disabled');
-  assert.equal(disabled.status, 'pending disable');
+  assert.equal(disabled.status, 'disabled');
+  assert.equal(disabled.restartRequired, false);
+  assert.equal(lifecycleManager.getContributions('tools').length, 0);
   assert.equal(await readFile(join(activeDirectory, 'plugin.js.disabled'), 'utf8'), activePluginSource);
   const enabled = await lifecycleManager.setEnabled('active', true);
   assert.equal(enabled.fileName, 'plugin.js');
+  assert.equal(enabled.status, 'active');
+  assert.equal(enabled.restartRequired, false);
+  assert.equal(enabled.reloadRequired, false);
+  assert.deepEqual(lifecycleManager.getContributions('tools').map((tool) => tool.name), ['active_tool']);
   await assert.rejects(() => lifecycleManager.setEnabled('../active', false), /Plugin ID.*invalid/);
   await lifecycleManager.setEnabled('active', false);
   await lifecycleManager.remove('active');
@@ -392,7 +398,65 @@ try {
   await assert.rejects(() => readdir(join(removeRegDir, '.avi', 'deactivable')), /ENOENT/);
   await assert.rejects(() => readdir(join(removeRegDir, '.avi-storage', 'deactivable')), /ENOENT/);
   assert.equal(removeManager.list().length, 0);
-  assert.equal(removeManager.restartRequired, true);
+  assert.equal(removeManager.restartRequired, false);
+
+  const hotDir = join(root, 'hot-plugins');
+  await mkdir(hotDir);
+  await mkdir(join(hotDir, 'themed'));
+  await writeFile(join(hotDir, 'themed', 'plugin.js.disabled'), `export default {
+    apiVersion: 2, id: 'themed', name: 'Themed', version: '1.0.0', capabilities: [],
+    contributions: { themes: [{ id: 'themed-dark', name: 'Themed Dark', tagline: 'Dark', css: ':root{}' }] },
+    activate(api) { globalThis.hotThemedActive = true; api.lifecycle.onDeactivate(() => { globalThis.hotThemedActive = false; }); }
+  };`);
+  await writeFile(join(hotDir, 'themed', '.avi-plugin.json'), JSON.stringify({ id: 'themed', name: 'Themed', version: '1.0.0' }));
+  await mkdir(join(hotDir, 'sticky'));
+  await writeFile(join(hotDir, 'sticky', 'plugin.js'), `export default {
+    apiVersion: 2, id: 'sticky', name: 'Sticky', version: '1.0.0', capabilities: [], requiresRestart: true
+  };`);
+  await mkdir(join(hotDir, 'messy'));
+  await writeFile(join(hotDir, 'messy', 'plugin.js'), `export default {
+    apiVersion: 2, id: 'messy', name: 'Messy', version: '1.0.0', capabilities: [],
+    activate(api) { api.lifecycle.onDeactivate(() => { throw new Error('leaked'); }); }
+  };`);
+  await mkdir(join(hotDir, 'clash'));
+  await writeFile(join(hotDir, 'clash', 'plugin.js.disabled'), `export default {
+    apiVersion: 2, id: 'clash', name: 'Clash', version: '1.0.0', capabilities: [],
+    contributions: { themes: [{ id: 'themed-dark', name: 'Clash', tagline: 'Clash', css: ':root{}' }] }
+  };`);
+  await writeFile(join(hotDir, 'clash', '.avi-plugin.json'), JSON.stringify({ id: 'clash', name: 'Clash', version: '1.0.0' }));
+  const hotManager = new PluginManager({ pluginsDir: hotDir });
+  await hotManager.initialize();
+  await hotManager.activateAll();
+
+  const hotEnabled = await hotManager.setEnabled('themed', true);
+  assert.equal(hotEnabled.status, 'active', hotEnabled.error);
+  assert.equal(globalThis.hotThemedActive, true);
+  assert.equal(hotEnabled.restartRequired, false);
+  assert.equal(hotEnabled.reloadRequired, true, 'theme contributions need a window reload');
+  assert.deepEqual(hotManager.getContributions('themes').map((theme) => theme.id), ['themed-dark']);
+  const clash = await hotManager.setEnabled('clash', true);
+  assert.equal(clash.status, 'error');
+  assert.match(clash.error, /Duplicate themes ID/);
+  await hotManager.setEnabled('clash', false);
+  const hotDisabled = await hotManager.setEnabled('themed', false);
+  assert.equal(hotDisabled.status, 'disabled');
+  assert.equal(globalThis.hotThemedActive, false);
+  assert.equal(hotManager.getContributions('themes').length, 0);
+  await assert.rejects(() => readdir(join(hotDir, '.avi', 'themed')), /ENOENT/);
+
+  const sticky = await hotManager.setEnabled('sticky', false);
+  assert.equal(sticky.status, 'pending disable');
+  assert.equal(sticky.restartRequired, true, 'requiresRestart keeps the restart lifecycle');
+  const stickyBack = await hotManager.setEnabled('sticky', true);
+  assert.equal(stickyBack.status, 'active');
+  assert.equal(stickyBack.restartRequired, false);
+
+  const messy = await hotManager.setEnabled('messy', false);
+  assert.equal(messy.status, 'pending disable', 'failed cleanup falls back to restart');
+  assert.equal(messy.restartRequired, true);
+  const messyBack = await hotManager.setEnabled('messy', true);
+  assert.equal(messyBack.status, 'pending enable', 'plugins with leaked state are not re-imported in-process');
+  assert.equal(messyBack.restartRequired, true);
 
   const installDir = join(root, 'install-plugins');
   await mkdir(installDir);
@@ -408,7 +472,8 @@ try {
   assert.equal(installed.path, join(installDir, 'installed-plugin', 'plugin.js'));
   assert.equal(installed.replaced, false);
   assert.equal(await readFile(installed.path, 'utf8'), versionSource('1.0.0'));
-  assert.equal(installManager.getStatus().restartRequired, true);
+  assert.equal(installed.restartRequired, false);
+  assert.equal(installManager.list().find((plugin) => plugin.id === 'installed-plugin').status, 'active');
 
   await writeFile(arbitrarySource, versionSource('1.0.0', 'same version replacement'));
   const sameVersion = await installManager.sideload(arbitrarySource);
@@ -422,6 +487,8 @@ try {
   ]);
   const upgraded = await installManager.sideload(zipPath);
   assert.equal(upgraded.version, '2.0.0');
+  assert.equal(upgraded.restartRequired, false, 'single-module packages update in place');
+  assert.equal(installManager.list().find((plugin) => plugin.id === 'installed-plugin').description, 'zip replacement');
   assert.equal(await readFile(join(installDir, 'installed-plugin', 'assets', 'readme.txt'), 'utf8'), 'plugin asset');
 
   await writeFile(arbitrarySource, versionSource('1.5.0', 'downgrade'));

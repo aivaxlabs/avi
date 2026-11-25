@@ -335,7 +335,7 @@ export function PluginSettingsEditor({ plugin, onBack }) {
           finally { setBusy(''); }
         }}>Install extension in Chrome</button>
       </section>}
-      {plugin.builtIn && (plugin.status !== 'active' || plugin.enabled === false) && <p>Enable this plugin from the Built-in tab and restart Avi to use its tools and configuration.</p>}
+      {plugin.builtIn && (plugin.status !== 'active' || plugin.enabled === false) && <p>Enable this plugin from the Built-in tab to use its tools and configuration.</p>}
       {errors.load && <div className="settings-context-error" role="alert">{errors.load}</div>}
       {!data && busy === 'load' && <div className="plugin-settings-loading"><RefreshCw className="spin" size={16} />Loading settings...</div>}
 

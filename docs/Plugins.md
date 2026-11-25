@@ -59,7 +59,7 @@ Bot integrations use `bot.inbox.list/reply/complete` and `bot.activity.list`. Th
 
 ## Built-in and installed plugins
 
-**Settings → Plugins** separates **Built-in** plugins shipped with Avi from **Installed** JavaScript/ZIP packages. Built-ins use the same trusted Plugin API v2, tools, context and lifecycle as other plugins, but start disabled. Enable or disable them and restart Avi to apply the change. Disabling does not stop a currently loaded plugin until restart.
+**Settings → Plugins** separates **Built-in** plugins shipped with Avi from **Installed** JavaScript/ZIP packages. Built-ins use the same trusted Plugin API v2, tools, context and lifecycle as other plugins, but start disabled. Enabling or disabling them applies immediately, as described in [Applying changes](#applying-changes).
 
 Built-in sources are distributed in `resources/built-in-plugins/` (`built-in-plugins/` in development). Avi reads `.avi-plugin.json` metadata without importing disabled code. Enablement is stored in the user's `~/.aivax/aivax.sqlite` database (`session_values`, key `builtInPluginState`), outside the installation directory, so replacing the installation preserves the preference. On first use, Avi imports the legacy `plugins/.avi-built-in-state.json` if present, preserving enabled and disabled choices; the legacy file is left untouched and ignored once database state exists. Missing legacy state starts with all built-ins disabled. Invalid or unreadable legacy state is reported without marking migration complete, allowing a retry after the file is repaired. Database failures are surfaced instead of silently resetting saved preferences. Managed context and plugin storage remain under the ordinary plugin directory. Built-in IDs are reserved and cannot be removed or overwritten through sideloading.
 
@@ -93,7 +93,7 @@ The overlay, screenshots and image resizing run in Avi's main process with the h
 
 ### Background Processes
 
-Runs executables in the background while Avi is open. After enabling it and restarting Avi, open **Background Processes** in the Activity Bar. Each process has an executable, optional arguments (one string passed as written; on macOS and Linux the command line is run by the system shell), an optional absolute working directory (defaulting to `$HOME`), a retry policy (**After 2 seconds**, **After 5 seconds**, or **Do not retry**), and an enabled state. Retries apply to every exit that was not requested from the page.
+Runs executables in the background while Avi is open. After enabling it, open **Background Processes** in the Activity Bar. Each process has an executable, optional arguments (one string passed as written; on macOS and Linux the command line is run by the system shell), an optional absolute working directory (defaulting to `$HOME`), a retry policy (**After 2 seconds**, **After 5 seconds**, or **Do not retry**), and an enabled state. Retries apply to every exit that was not requested from the page.
 
 Add or edit a process in its modal; saving restarts it with the new configuration when it is enabled. Each row can start, stop, restart, enable, disable, edit, or remove its process, and **Logs** shows the newest 10 KiB of stdout and stderr. Logs are kept in memory only. Stopping lasts until the process is started again, re-enabled, or Avi restarts; disabling persists.
 
@@ -161,7 +161,7 @@ shortcuts: [{
 
 `id`, `title`, `pattern` (including an empty string), and `execute` are required. `supportsGlobal` and `global` are optional booleans, defaulting to false. Global defaults require `supportsGlobal: true`. IDs are collision-checked case-insensitively across plugins. Only serializable descriptors reach the renderer; `execute()` receives no arguments and its return value is ignored. Rejected handlers report an error to the app. Plugins are trusted code and must bound their own work.
 
-Bindings appear in **Settings → Keyboard shortcuts** with the plugin ID and can be edited, disabled, or reset. User overrides are stored separately from plugin sources. Conflicting patterns do not prevent plugin loading: the later conflicting binding is inactive and displays an error until edited. Contribution installation, removal, and enabled-state changes follow the normal restart lifecycle. Desktop registrations are released when Avi exits. See [Keyboard shortcuts](Keyboard-shortcuts.md).
+Bindings appear in **Settings → Keyboard shortcuts** with the plugin ID and can be edited, disabled, or reset. User overrides are stored separately from plugin sources. Conflicting patterns do not prevent plugin loading: the later conflicting binding is inactive and displays an error until edited. Contribution installation, removal, and enabled-state changes follow the normal plugin lifecycle and apply immediately. Desktop registrations are released when Avi exits. See [Keyboard shortcuts](Keyboard-shortcuts.md).
 
 ### Context
 
@@ -229,8 +229,21 @@ export default ({ definePlugin }) => definePlugin({
 - Definitions require a strict semantic `version`.
 - Installation stages and validates the package before replacing an existing version.
 - Downgrades require native confirmation.
-- Enable, disable, update, and removal currently require restart to change packages already loaded in the main process.
 - Startup and activation failures are recorded in plugin status, `trace.log`, and startup warnings.
+
+### Applying changes
+
+Enable, disable, install, update, and removal apply immediately in the running process. Enabling or installing imports and activates the plugin; disabling, updating, or removing deactivates the loaded version first, running its `onDeactivate()` handlers, `deactivate(reason)`, and tracked disposables. Managed MCP servers and keyboard shortcuts are refreshed at once.
+
+The interface reads themes, personalities, auxiliary panels, and provider types when the window loads. When a change affects them, **Settings → Plugins** shows **Reload window**, which reloads only the window; running threads, approvals, and questions are kept.
+
+**Restart Avi** is suggested only when:
+
+- the plugin declares `requiresRestart: true` and is disabled or updated while loaded;
+- a deactivation handler, `deactivate()`, or a tracked dispose fails or times out, so untracked state may remain; the plugin is not imported again in that process;
+- an update replaces a loaded package that contains other JavaScript modules, because relative imports stay cached by the runtime.
+
+Declare `requiresRestart: true` when the plugin keeps state that `deactivate()` cannot release, such as module-level timers, servers, or native handles. Plugins without the field are applied immediately.
 
 ZIP packages are bounded by entry count and uncompressed size and reject symbolic links, duplicate case-insensitive paths, absolute paths, and path traversal.
 

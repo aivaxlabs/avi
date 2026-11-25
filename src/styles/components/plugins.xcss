@@ -28,7 +28,13 @@
     .dropdown-menu-item { border-radius: 7px; }
   }
 
-  .plugins-restart { align-items: center; padding: 10px 12px; font-size: .9rem; }
+  .plugins-restart {
+    align-items: center;
+    padding: 10px 12px;
+    font-size: .9rem;
+
+    > span { flex: 1; }
+  }
   .plugins-list { display: grid; gap: 10px; }
 
   .plugin-card {

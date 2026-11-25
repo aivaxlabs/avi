@@ -234,9 +234,7 @@ export class PluginRuntime {
 
   async deactivate(pluginId, reason = 'shutdown') {
     const record = this.records.get(String(pluginId).toLowerCase());
-    if (!record) return false;
-    await this.#deactivateRecord(record, reason);
-    return true;
+    return record ? this.#deactivateRecord(record, reason) : true;
   }
 
   async deactivateAll(reason = 'shutdown') {
@@ -625,26 +623,39 @@ export class PluginRuntime {
   }
 
   async #deactivateRecord(record, reason) {
-    if (!record.active) return;
+    if (!record.active) return true;
     record.active = false;
+    let clean = true;
     record.controller.abort(new AviError('PLUGIN_DEACTIVATING', `Plugin "${record.id}" is deactivating.`));
     for (const handler of [...record.deactivationHandlers].reverse()) {
       try { await withTimeout(handler(reason), 5_000, `Plugin "${record.id}" deactivation handler`); }
-      catch (error) { traceError('plugin.deactivation-error', { plugin_id: record.id, error: error instanceof Error ? error.message : String(error) }); }
+      catch (error) {
+        clean = false;
+        traceError('plugin.deactivation-error', { plugin_id: record.id, error: error instanceof Error ? error.message : String(error) });
+      }
     }
     if (typeof record.definition.deactivate === 'function') {
       try { await withTimeout(record.definition.deactivate(reason), 5_000, `Plugin "${record.id}" deactivation`); }
-      catch (error) { traceError('plugin.deactivation-error', { plugin_id: record.id, error: error instanceof Error ? error.message : String(error) }); }
+      catch (error) {
+        clean = false;
+        traceError('plugin.deactivation-error', { plugin_id: record.id, error: error instanceof Error ? error.message : String(error) });
+      }
     }
-    await this.#disposeResources(record);
+    clean = await this.#disposeResources(record) && clean;
     this.records.delete(record.id.toLowerCase());
     this.emit('plugin.deactivated', { pluginId: record.id, data: { pluginId: record.id, reason } });
+    return clean;
   }
 
   async #disposeResources(record) {
+    let clean = true;
     for (const resource of [...record.resources].reverse()) {
       try { await withTimeout(resource.dispose(), 5_000, `Plugin "${record.id}" resource dispose`); }
-      catch (error) { traceError('plugin.resource-dispose-error', { plugin_id: record.id, error: error instanceof Error ? error.message : String(error) }); }
+      catch (error) {
+        clean = false;
+        traceError('plugin.resource-dispose-error', { plugin_id: record.id, error: error instanceof Error ? error.message : String(error) });
+      }
     }
+    return clean;
   }
 }

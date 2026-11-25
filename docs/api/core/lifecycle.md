@@ -25,14 +25,16 @@ export default ({ definePlugin }) => definePlugin({
 
 ## Deactivation
 
-On application shutdown, Avi:
+Avi deactivates a plugin on application shutdown (`reason` is `'shutdown'`) and when the user disables (`'disabled'`), updates (`'updated'`), or removes (`'removed'`) it while Avi runs. In each case Avi:
 
 1. aborts `avi.lifecycle.signal`;
 2. runs handlers registered with `onDeactivate()` in reverse order;
 3. calls definition-level `deactivate(reason)`;
 4. disposes tracked resources in reverse registration order.
 
-Deactivation handlers and `deactivate()` each have a five-second timeout. Failures are logged and do not stop the remaining cleanup.
+Deactivation handlers and `deactivate()` each have a five-second timeout. Failures are logged and do not stop the remaining cleanup. A failure during a runtime deactivation asks the user to restart Avi, and the plugin is not imported again until then.
+
+Release everything the plugin started during deactivation so it can be disabled and enabled again without restarting. If the plugin keeps state that cannot be released, declare `requiresRestart: true` in the definition; disabling or updating it while loaded then waits for an Avi restart. See [Applying changes](../../Plugins.md#applying-changes).
 
 ## API
 
