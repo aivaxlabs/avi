@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { availableParallelism, homedir } from 'node:os';
+import { availableParallelism } from 'node:os';
 import { join } from 'node:path';
 import {
   claimBotPriorityItem,
@@ -60,6 +60,7 @@ import {
   readActivityFile,
 } from './bot-work-state.js';
 import { filePathToAttachment } from './files.js';
+import { profilePaths } from './profiles.js';
 import { traceError, traceInfo } from './trace-log.js';
 import { QUESTIONS_SCHEMA, formatQuestionAnswers } from '../shared/questions.js';
 
@@ -79,7 +80,7 @@ function assertBotModelAllowed(modelId) {
 }
 
 function defaultWorkingFolder(botId) {
-  return join(homedir(), '.aivax', 'bots', botId);
+  return join(profilePaths().bots, botId);
 }
 
 export function resolveBotWorkingFolder(bot) {
@@ -510,6 +511,8 @@ export class BotManager {
       conversationId: conversation.id,
       name,
       iconSeed: config?.iconSeed ?? randomUUID(),
+      avatarShape: config?.avatarShape ?? null,
+      avatarColor: config?.avatarColor ?? null,
       personality: config?.personality ?? null,
       workingFolder,
       model: config.model,

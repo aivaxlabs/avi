@@ -10,23 +10,23 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
 import {
   basename,
   dirname,
   join,
   sep,
 } from 'node:path';
+import { profilePaths } from '../profiles.js';
 
 const conversationIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const storedReferences = new WeakMap();
 
 export function activeMediaDirectory() {
-  return join(homedir(), '.aivax', 'media');
+  return profilePaths().media;
 }
 
 export function archivedMediaDirectory() {
-  return join(tmpdir(), '.avi', 'archived-media');
+  return profilePaths().archivedMedia;
 }
 
 export function storesConversationMedia(media, conversationId) {

@@ -47,7 +47,7 @@
       outline-offset: 2px;
     }
 
-    &.activity-settings {
+    &.activity-profile {
       margin-top: auto;
     }
 

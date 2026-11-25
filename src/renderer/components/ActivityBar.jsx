@@ -1,5 +1,6 @@
 import { CalendarClock, Folder, Home, Inbox, Puzzle, Settings, Vault } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { ProfileMenu } from './ProfileMenu.jsx';
 
 const activities = [
   { id: 'home', label: 'Home', icon: Home },
@@ -48,7 +49,6 @@ export function ActivityBar({ active, onSelect, updateAvailable, counts = {}, ac
     return (
       <button
         key={id}
-        className={id === 'settings' ? 'activity-settings' : undefined}
         type="button"
         aria-label={accessibleLabel}
         aria-current={active === id ? 'page' : undefined}
@@ -83,6 +83,7 @@ export function ActivityBar({ active, onSelect, updateAvailable, counts = {}, ac
           </button>
         );
       })}
+      <ProfileMenu />
       {renderActivity(activities.at(-1))}
     </nav>
   );

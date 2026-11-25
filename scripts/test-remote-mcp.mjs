@@ -532,6 +532,7 @@ try {
   const globalSocket = await openSocket('/rpc');
   const globalDiscovery = (await callRpc(globalSocket, 'rpc:discover')).result;
   assert.equal(globalDiscovery.appVersion, JSON.parse(readFileSync(resolve('package.json'), 'utf8')).version);
+  assert.deepEqual(globalDiscovery.profile, { id: 'default', name: 'Default', color: null });
   assert.deepEqual(globalDiscovery.versions, {
     core: 2,
     rpc: 1,

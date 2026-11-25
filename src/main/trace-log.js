@@ -7,12 +7,13 @@ import {
   rmSync,
   statSync,
 } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
+import { profilePaths } from './profiles.js';
 
-const traceDirectory = join(homedir(), '.aivax');
+const traceDirectory = profilePaths().root;
 const tracePath = join(traceDirectory, 'trace.log');
 const requestLogDirectory = join(tmpdir(), '.avi', 'debug', 'request-logs');
 const maxTraceSize = 64 * 1024 * 1024;

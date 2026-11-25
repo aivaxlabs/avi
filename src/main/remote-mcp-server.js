@@ -18,6 +18,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { answerTextFromTextualBlocks } from '../shared/textual-blocks.js';
 import { CLIENT_TOOLS } from './client-tools.js';
 import { applySubagentModelSchema } from './default-models.js';
+import { activeProfile } from './profiles.js';
 import packageMetadata from '../../package.json' with { type: 'json' };
 
 const REMOTE_TOOL_NAMES = new Set([
@@ -712,6 +713,7 @@ export class RemoteMcpServer {
   rpcDiscovery(scope, methods) {
     return {
       appVersion: packageMetadata.version,
+      profile: { id: activeProfile.id, name: activeProfile.name, color: activeProfile.color },
       versions: {
         core: 2,
         rpc: RPC_API_VERSION,

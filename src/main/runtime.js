@@ -45,6 +45,19 @@ import { normalizeSearchOptions, sortSearchResults } from './search-core.js';
 import { AppUpdater } from './app-updater.js';
 import { KeyboardShortcuts } from './keyboard-shortcuts.js';
 import { WorkspaceManager } from './workspaces.js';
+import {
+  activeProfile,
+  clearProfileInstance,
+  createProfile,
+  deleteProfile,
+  isProfileRunning,
+  listProfiles,
+  profilePaths,
+  recordProfileInstance,
+  updateProfile,
+} from './profiles.js';
+import { createProfileAppIcon, createProfileBadge } from './profile-icon.js';
+import { exportProfile, importProfile } from './profile-transfer.js';
 
 const workspaceManager = new WorkspaceManager();
 import {
@@ -73,6 +86,7 @@ import {
   getArchiveStats,
   getAivaxAccessToken,
   getAivaxSettings,
+  getAivaxSubscriptionModels,
   getSemanticGrepStatus,
   getComposerDraft,
   getComposerState,
@@ -115,6 +129,7 @@ import {
   setKeyboardShortcuts,
   setAivaxAccessToken,
   setAivaxSettings,
+  setAivaxSubscriptionModels,
   getChatTags,
   setChatTags,
   setComposerDraft,
@@ -138,6 +153,7 @@ import {
   AIVAX_LONG_INFERENCE_BASE_URL,
   authorizeAivax,
   importAivaxDocuments,
+  listAivaxSubscriptionModels,
   lookupAivaxModel,
   requestAivax,
 } from './aivax-client.js';
@@ -302,6 +318,25 @@ async function synchronizeAivaxProvider() {
   }
 }
 
+async function synchronizeAivaxSubscriptionModels() {
+  if (!getAivaxAccessToken()) return;
+
+  try {
+    const models = await listAivaxSubscriptionModels();
+    if (!getAivaxAccessToken()) return;
+
+    const previous = getAivaxSubscriptionModels();
+    if (JSON.stringify(previous) === JSON.stringify(models)) return;
+
+    setAivaxSubscriptionModels(models);
+    sendRendererEvent('providers:changed');
+  } catch (error) {
+    traceError('aivax.subscription-models-sync-error', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 function synchronizeRemoteRelay() {
   return remoteRelay.update({
     accessToken: remoteMcpServer && getRemoteSettings().relayEnabled && !isQuitting ? getAivaxAccessToken() : null,
@@ -328,12 +363,14 @@ let threadSearchSyncInterval;
 let threadSearchSyncPromise = null;
 let threadSearchCache = { collectionId: null, threads: new Map() };
 let semanticGrepSyncInterval;
+let aivaxSubscriptionModelsSyncInterval;
 const botInitialization = Promise.withResolvers();
 const ipcHandlers = new Map();
 const remoteChatEventListeners = new Set();
 const attachmentPreviews = new Map();
 const gitBranchCache = new Map();
 const GIT_BRANCH_CACHE_TTL_MS = 10_000;
+const AIVAX_SUBSCRIPTION_MODELS_SYNC_INTERVAL_MS = 10 * 60 * 1_000;
 const legacyVideoMigrations = new Map();
 const attachmentPreviewLifetimeMs = 60 * 60 * 1_000;
 const attachmentPreviewExtensions = new Set([
@@ -408,6 +445,7 @@ app.on('before-quit', (event) => {
   memoryTraceProcess?.kill();
   clearInterval(threadSearchSyncInterval);
   clearInterval(semanticGrepSyncInterval);
+  clearInterval(aivaxSubscriptionModelsSyncInterval);
   botManager?.stop();
   taskScheduler?.stop();
   for (const sessionId of [...quickChatWindows.keys(), ...quickQuestionSessions]) {
@@ -424,6 +462,7 @@ app.on('before-quit', (event) => {
     }))
     .finally(() => {
       closeDatabase();
+      clearProfileInstance();
       shutdownReady = true;
       app.quit();
     });
@@ -436,6 +475,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin' && !getPreferences().desktop?.closeToTray) app.quit();
 });
 await app.whenReady();
+recordProfileInstance();
 for (const event of ['resume', 'unlock-screen']) powerMonitor.on(event, () => remoteRelay.resume());
 if (process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin) startHidden = true;
 await initializeSecureStorage();
@@ -472,7 +512,15 @@ providerRegistry = new ModelProviderRegistry({
     shell: { openExternal: (url) => shell.openExternal(url) },
   },
 });
-if (getAivaxAccessToken()) void synchronizeAivaxProvider();
+if (getAivaxAccessToken()) {
+  void synchronizeAivaxProvider();
+  void synchronizeAivaxSubscriptionModels();
+}
+aivaxSubscriptionModelsSyncInterval = setInterval(
+  () => void synchronizeAivaxSubscriptionModels(),
+  AIVAX_SUBSCRIPTION_MODELS_SYNC_INTERVAL_MS,
+);
+aivaxSubscriptionModelsSyncInterval.unref();
 routerService = new ModelRouterService({
   getRouters: listModelRouters,
   setRouters: setModelRouters,
@@ -648,10 +696,7 @@ if (app.isPackaged && process.env.CHAT_APP_SMOKE_TEST !== '1') {
 }
 await pluginManager.activateAll();
 keyboardShortcuts.refresh();
-mcpManager.setManagedServers(pluginManager.getContributions('mcps').map((server) => ({
-  name: `plugin-${server.pluginId}-${server.id}`,
-  config: server.config,
-})));
+setPluginMcpServers();
 const globalMcpInitialization = mcpManager.initializeGlobal().catch((error) => sendRendererEvent('mcp:event', {
   type: 'configuration-error',
   message: error instanceof Error ? error.message : String(error),
@@ -974,6 +1019,12 @@ function createWindow() {
     },
   });
   mainWindow.setMenu(null);
+  mainWindow.on('page-title-updated', (event) => {
+    if (!activeProfile.isDefault) event.preventDefault();
+  });
+  applyProfileIdentity();
+  // Windows drops overlay icons set before the taskbar button exists or after the window was hidden to the tray.
+  mainWindow.on('show', applyProfileIdentity);
   mainWindow.on('close', (event) => {
     if (!isQuitting && getPreferences().desktop?.closeToTray) {
       event.preventDefault();
@@ -1183,14 +1234,18 @@ function initializeServices() {
     chatRunner,
     botManager,
     providerRegistry,
-    reservedToolNames: new Set([
-      ...pluginManager.reservedToolNames,
-      ...pluginManager.getContributions('tools').map((tool) => tool.name.toLowerCase()),
-    ]),
-    reservedProviderIds: new Set(pluginManager.getProviderTypes().map((type) => type.descriptor.id.toLowerCase())),
-    reservedPanelIds: new Set(pluginManager.getContributions('auxiliaryPanels').map((panel) => (
-      `plugin:${panel.pluginId}:${panel.id}`.toLowerCase()
-    ))),
+    reservedToolNames: {
+      has: (name) => pluginManager.reservedToolNames.has(name)
+        || pluginManager.getContributions('tools').some((tool) => tool.name.toLowerCase() === name),
+    },
+    reservedProviderIds: {
+      has: (id) => pluginManager.getContributions('providers').some((type) => type.descriptor.id.toLowerCase() === id),
+    },
+    reservedPanelIds: {
+      has: (id) => pluginManager.getContributions('auxiliaryPanels').some((panel) => (
+        `plugin:${panel.pluginId}:${panel.id}`.toLowerCase() === id
+      )),
+    },
     cleanupConversation,
     notifyActionPages: (payload) => sendRendererEvent('action-pages:event', payload),
     createDomainApi: createPluginDomainApi,
@@ -1273,6 +1328,30 @@ function isReadOnlyContextPath(targetPath) {
   });
 }
 
+function setPluginMcpServers() {
+  mcpManager.setManagedServers(pluginManager.getContributions('mcps').map((server) => ({
+    name: `plugin-${server.pluginId}-${server.id}`,
+    config: server.config,
+  })));
+}
+
+async function applyPluginChange(result) {
+  if (!result) return result;
+  keyboardShortcuts.refresh();
+  setPluginMcpServers();
+  try {
+    await mcpManager.loadScope(mcpManager.globalRoot, 'global', { reload: true });
+    void mcpManager.initializeGlobal().catch(() => {});
+  } catch (error) {
+    sendRendererEvent('mcp:event', {
+      type: 'configuration-error',
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+  mcpManager.emitState();
+  return result;
+}
+
 function pluginContextRoots() {
   const plugins = new Map(pluginManager.list().map((plugin) => [plugin.id, plugin]));
   return [...new Map(pluginManager.getContributions('context').map((item) => [
@@ -1340,8 +1419,25 @@ function createTray() {
   const trayIcon = nativeImage.createFromPath(iconPath);
   tray = new Tray(trayIcon);
   tray.setToolTip('Avi');
+  applyProfileIdentity();
   refreshTrayMenu();
   tray.on('click', showMainWindow);
+}
+
+function applyProfileIdentity() {
+  if (activeProfile.isDefault) return;
+  const label = `Avi - ${activeProfile.name}`;
+  const iconPath = join(__dirname, '../../assets/icon/avi-bg.png');
+  tray?.setImage(createProfileAppIcon(iconPath, activeProfile.color, 32));
+  tray?.setToolTip(label);
+  if (process.platform === 'darwin') app.dock?.setIcon(createProfileAppIcon(iconPath, activeProfile.color));
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.setTitle(label);
+  if (process.platform === 'win32') {
+    mainWindow.setOverlayIcon(createProfileBadge(activeProfile.color), `Profile: ${activeProfile.name}`);
+  } else if (process.platform === 'linux') {
+    mainWindow.setIcon(createProfileAppIcon(iconPath, activeProfile.color));
+  }
 }
 
 function refreshTrayMenu() {
@@ -1385,16 +1481,23 @@ export function showMainWindow() {
 
 async function applyLoginSettings() {
   const openAtLogin = Boolean(getPreferences().desktop?.openAtLogin);
-  if (process.platform !== 'linux') {
+  const profileArguments = activeProfile.isDefault ? [] : [`--profile=${activeProfile.id}`];
+  if (process.platform === 'win32' || (process.platform === 'darwin' && activeProfile.isDefault)) {
     app.setLoginItemSettings({
       openAtLogin,
       openAsHidden: openAtLogin,
-      args: openAtLogin ? ['--hidden'] : [],
+      args: openAtLogin ? [...profileArguments, '--hidden'] : [],
+      ...(activeProfile.isDefault ? {} : { name: `net.aivax.avi.profile.${activeProfile.id}` }),
     });
     return;
   }
+  // macOS login items start the app bundle without arguments, so only the Default profile can open at login there.
+  if (process.platform === 'darwin') return;
   const autostartDirectory = join(homedir(), '.config', 'autostart');
-  const autostartPath = join(autostartDirectory, 'net.aivax.avi.desktop');
+  const autostartPath = join(
+    autostartDirectory,
+    activeProfile.isDefault ? 'net.aivax.avi.desktop' : `net.aivax.avi.profile.${activeProfile.id}.desktop`,
+  );
   if (!openAtLogin) {
     await rm(autostartPath, { force: true });
     return;
@@ -1404,8 +1507,8 @@ async function applyLoginSettings() {
   await writeFile(autostartPath, [
     '[Desktop Entry]',
     'Type=Application',
-    'Name=Avi',
-    `Exec="${executable}" --hidden`,
+    activeProfile.isDefault ? 'Name=Avi' : `Name=Avi - ${activeProfile.name}`,
+    `Exec="${executable}" ${[...profileArguments, '--hidden'].join(' ')}`,
     'Terminal=false',
     'X-GNOME-Autostart-enabled=true',
     '',
@@ -1598,7 +1701,7 @@ function registerIpc() {
       throw new TypeError('Select a GIF, JPEG, PNG, or WebP image.');
     }
 
-    const backgroundDirectory = join(homedir(), '.aivax', 'chat-backgrounds');
+    const backgroundDirectory = profilePaths().chatBackgrounds;
     const fileName = `chat-background${extension}`;
     const destinationPath = join(backgroundDirectory, fileName);
     await mkdir(backgroundDirectory, { recursive: true });
@@ -1618,11 +1721,11 @@ function registerIpc() {
     if (fileName !== `chat-background${extension}` || !chatBackgroundMimeTypes[extension]) {
       throw new TypeError('Invalid managed background image.');
     }
-    const image = await readFile(join(homedir(), '.aivax', 'chat-backgrounds', fileName));
+    const image = await readFile(join(profilePaths().chatBackgrounds, fileName));
     return `data:${chatBackgroundMimeTypes[extension]};base64,${image.toString('base64')}`;
   });
   applicationIpc.handle('appearance:remove-background', async () => {
-    const backgroundDirectory = join(homedir(), '.aivax', 'chat-backgrounds');
+    const backgroundDirectory = profilePaths().chatBackgrounds;
     await Promise.all(Object.keys(chatBackgroundMimeTypes).map((extension) => rm(
       join(backgroundDirectory, `chat-background${extension}`),
       { force: true },
@@ -1742,6 +1845,7 @@ function registerIpc() {
     });
     setAivaxAccessToken(accessToken);
     await synchronizeAivaxProvider();
+    await synchronizeAivaxSubscriptionModels();
     await synchronizeRemoteRelay();
     void synchronizeThreadSearchIndex();
     void synchronizeSemanticGrep();
@@ -1752,6 +1856,8 @@ function registerIpc() {
   });
   applicationIpc.handle('aivax:disconnect', async () => {
     deleteAivaxAccessToken();
+    setAivaxSubscriptionModels([]);
+    sendRendererEvent('providers:changed');
     await synchronizeRemoteRelay();
     const settings = setAivaxSettings({
       ...getAivaxSettings(),
@@ -2332,7 +2438,9 @@ function registerIpc() {
   const pendingSearches = new Map();
   const runChatSearch = (query) => new Promise((resolve, reject) => {
     if (!searchWorker) {
-      searchWorker = new Worker(new URL('./search-worker.js', import.meta.url));
+      searchWorker = new Worker(new URL('./search-worker.js', import.meta.url), {
+        workerData: { databasePath: profilePaths().database },
+      });
       searchWorker.unref();
       searchWorker.on('message', ({ id, results, error }) => {
         const settle = pendingSearches.get(id);
@@ -2479,7 +2587,7 @@ function registerIpc() {
       }]),
     );
     return runOverviewAggregation({
-      databasePath: join(homedir(), '.aivax', 'aivax.sqlite'),
+      databasePath: profilePaths().database,
       range: range ?? {},
       configuredModels,
       modelCatalog: aivaxModelCatalog,
@@ -2709,13 +2817,13 @@ function registerIpc() {
       filters: [{ name: 'Plugin packages', extensions: ['js', 'zip'] }],
     });
     if (canceled) return null;
-    return pluginManager.sideload(filePaths[0], {
+    return applyPluginChange(await pluginManager.sideload(filePaths[0], {
       confirmDowngrade: async ({ name, installedVersion, incomingVersion }) => {
         const { response } = await dialog.showMessageBox(mainWindow, {
           type: 'warning',
           title: 'Install older plugin version?',
           message: `${name} ${incomingVersion} is older than the installed version ${installedVersion}.`,
-          detail: 'Installing it replaces the entire plugin folder. The currently loaded version remains active until Avi restarts.',
+          detail: 'Installing it replaces the entire plugin folder.',
           buttons: ['Cancel', 'Install older version'],
           defaultId: 0,
           cancelId: 0,
@@ -2723,10 +2831,10 @@ function registerIpc() {
         });
         return response === 1;
       },
-    });
+    }));
   });
-  applicationIpc.handle('plugins:set-enabled', (_event, { id, enabled }) => (
-    pluginManager.setEnabled(id, enabled)
+  applicationIpc.handle('plugins:set-enabled', async (_event, { id, enabled }) => (
+    applyPluginChange(await pluginManager.setEnabled(id, enabled))
   ));
   applicationIpc.handle('plugins:settings', (_event, { id }) => pluginManager.getSettings(id));
   applicationIpc.handle('plugins:set-setting', (_event, {
@@ -2748,7 +2856,7 @@ function registerIpc() {
       cancelId: 0,
       noLink: true,
     });
-    return response === 1 ? pluginManager.remove(id) : null;
+    return response === 1 ? applyPluginChange(await pluginManager.remove(id)) : null;
   });
   applicationIpc.handle('plugins:docs', async () => {
     const docsPath = app.isPackaged
@@ -2761,6 +2869,14 @@ function registerIpc() {
   applicationIpc.handle('plugins:restart-avi', () => {
     app.relaunch();
     app.quit();
+    return true;
+  });
+  applicationIpc.handle('plugins:reload-window', () => {
+    reloadSnapshot = chatRunner.reloadSnapshot();
+    pluginManager.reloadRequired = false;
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reload();
+    }, 0);
     return true;
   });
   applicationIpc.handle('plugins:restore-reload', () => reloadSnapshot);
@@ -3264,6 +3380,80 @@ function registerIpc() {
         throw new TypeError('Unsupported image action.');
     }
   });
+  const describeProfiles = () => ({
+    activeId: activeProfile.id,
+    profiles: listProfiles().map((profile) => ({ ...profile, running: isProfileRunning(profile) })),
+  });
+  const findProfile = (id) => {
+    const profile = listProfiles().find((entry) => entry.id === id);
+    if (!profile) throw new Error('Profile not found.');
+    return profile;
+  };
+  const changedProfiles = () => {
+    const state = describeProfiles();
+    sendRendererEvent('profiles:changed', state);
+    return state;
+  };
+  applicationIpc.handle('profiles:list', () => describeProfiles());
+  applicationIpc.handle('profiles:create', (_event, payload = {}) => {
+    createProfile(payload);
+    return changedProfiles();
+  });
+  applicationIpc.handle('profiles:update', (_event, payload = {}) => {
+    updateProfile(payload.id, payload);
+    applyProfileIdentity();
+    return changedProfiles();
+  });
+  applicationIpc.handle('profiles:delete', async (_event, payload = {}) => {
+    const profile = findProfile(payload.id);
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Remove profile?',
+      message: `Remove ${profile.name}?`,
+      detail: 'This permanently deletes its conversations, settings, bots, media, and credentials.',
+      buttons: ['Cancel', 'Remove'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (response !== 1) return describeProfiles();
+    deleteProfile(profile.id);
+    return changedProfiles();
+  });
+  applicationIpc.handle('profiles:open', (_event, payload = {}) => {
+    const profile = findProfile(payload.id);
+    if (profile.id === activeProfile.id) {
+      showMainWindow();
+      return describeProfiles();
+    }
+    const argumentsForProfile = [
+      ...(app.isPackaged ? [] : [app.getAppPath()]),
+      ...(profile.isDefault ? [] : [`--profile=${profile.id}`]),
+    ];
+    spawn(process.execPath, argumentsForProfile, { detached: true, stdio: 'ignore', env: process.env }).unref();
+    return describeProfiles();
+  });
+  applicationIpc.handle('profiles:export', async (_event, payload = {}) => {
+    const profile = findProfile(payload.id);
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: `Export ${profile.name}`,
+      defaultPath: join(app.getPath('downloads'), `Avi profile - ${profile.name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-')}.aviprofile`),
+      filters: [{ name: 'Avi profile', extensions: ['aviprofile'] }],
+    });
+    if (canceled || !filePath) return null;
+    if (profile.id === activeProfile.id) await flushSecureStorage();
+    return exportProfile(profile, filePath);
+  });
+  applicationIpc.handle('profiles:import', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import profile',
+      properties: ['openFile'],
+      filters: [{ name: 'Avi profile', extensions: ['aviprofile'] }],
+    });
+    if (canceled || !filePaths[0]) return null;
+    const profile = await importProfile(filePaths[0]);
+    return { ...changedProfiles(), importedId: profile.id };
+  });
   applicationIpc.handle('workspaces:get', async (_event, payload = {}) => workspaceManager.inspect(payload.path));
   applicationIpc.handle('workspaces:save', async (_event, payload = {}) => {
     const workspace = await workspaceManager.save(payload);
@@ -3437,7 +3627,7 @@ function registerIpc() {
       return {
         path: target,
         title: String(item.title || basename(target)),
-        type: { instruction: 'instruction', skill: 'skill', workflow: 'prompt' }[item.kind] ?? 'instruction',
+        type: { instruction: 'instruction', skill: 'skill', workflow: 'prompt', agent: 'prompt' }[item.kind] ?? 'instruction',
         description: item.description ? String(item.description) : undefined,
         content: await readFile(target, 'utf8'),
       };

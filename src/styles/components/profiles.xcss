@@ -1,0 +1,157 @@
+.profile-avatar {
+  width: var(--profile-avatar-size, 16px);
+  height: var(--profile-avatar-size, 16px);
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+
+  &.neutral {
+    color: --text-2;
+    background: --background-4;
+  }
+}
+
+.profile-menu {
+  min-width: 200px;
+  transform-origin: bottom left;
+
+  .dropdown-menu-item > span {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .profile-menu-status {
+    flex: 0 0 auto;
+    color: --text-3;
+    font-size: --font-xs;
+  }
+
+  .bot-submenu-holder > .bot-submenu {
+    top: auto;
+    bottom: -4px;
+  }
+}
+
+.profile-dialog {
+  width: min(420px, calc(100vw - 32px));
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  color: --text-1;
+  background: --background-2;
+  border: 1px solid --border-color;
+  border-radius: 12px;
+  box-shadow: 0 16px 56px rgb(0 0 0 / 22%);
+  animation: dialog-surface-in var(--duration-fast) var(--ease-smooth-out);
+
+  &::backdrop {
+    background: rgb(0 0 0 / 32%);
+    animation: dialog-backdrop-in var(--duration-fast) var(--ease-smooth-out);
+  }
+
+  &[data-closing] {
+    animation: dialog-surface-out var(--duration-quick) var(--ease-smooth-out) forwards;
+
+    &::backdrop {
+      animation: dialog-backdrop-out var(--duration-quick) var(--ease-smooth-out) forwards;
+    }
+  }
+
+  > form {
+    display: grid;
+
+    > .dialog-header {
+      margin: 0;
+      padding: 18px 20px 14px;
+
+      > h2 {
+        margin: 0;
+        font-size: --font-md;
+        font-weight: 600;
+      }
+    }
+
+    > .profile-dialog-body {
+      display: grid;
+      gap: 16px;
+      padding: 0 20px 18px;
+      font-size: --font-sm;
+
+      > label,
+      > .profile-dialog-color {
+        display: grid;
+        gap: 7px;
+      }
+
+      .profile-dialog-colors {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 6px;
+
+        > .profile-avatar {
+          margin-right: 6px;
+        }
+      }
+
+      > .profile-dialog-note {
+        margin: 0;
+        color: --text-3;
+        font-size: --font-xs;
+      }
+
+      > [role="alert"] {
+        margin: 0;
+        color: --danger-color;
+      }
+    }
+
+    > .profile-dialog-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 12px 20px;
+      border-top: 1px solid --border-color;
+
+      > .danger {
+        margin-right: auto;
+      }
+    }
+  }
+}
+
+.profiles-settings {
+  .profiles-settings-name {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .profiles-settings-actions {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 8px;
+  }
+
+  .profiles-settings-status {
+    margin: 0;
+    color: --text-3;
+    font-size: --font-sm;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-dialog,
+  .profile-dialog::backdrop,
+  .profile-dialog[data-closing],
+  .profile-dialog[data-closing]::backdrop {
+    animation: none;
+  }
+}

@@ -272,6 +272,7 @@ contextBridge.exposeInMainWorld('chatApp', {
     remove: (payload) => invoke('plugins:remove', payload),
     docs: () => invoke('plugins:docs'),
     restartAvi: () => invoke('plugins:restart-avi'),
+    reloadWindow: () => invoke('plugins:reload-window'),
     restoreReload: () => invoke('plugins:restore-reload'),
     completeReload: () => invoke('plugins:complete-reload'),
     create: () => invoke('plugins:create'),
@@ -363,6 +364,16 @@ contextBridge.exposeInMainWorld('chatApp', {
   workspaces: {
     get: (payload) => invoke('workspaces:get', payload),
     save: (payload) => invoke('workspaces:save', payload),
+  },
+  profiles: {
+    list: () => invoke('profiles:list'),
+    create: (payload) => invoke('profiles:create', payload),
+    update: (payload) => invoke('profiles:update', payload),
+    remove: (id) => invoke('profiles:delete', { id }),
+    open: (id) => invoke('profiles:open', { id }),
+    export: (id) => invoke('profiles:export', { id }),
+    import: () => invoke('profiles:import'),
+    onChanged: (callback) => subscribe('profiles:changed', callback),
   },
   context: {
     folders: () => invoke('context:folders'),

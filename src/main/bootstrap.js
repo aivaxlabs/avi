@@ -1,5 +1,6 @@
 import { app, ipcMain, protocol } from 'electron';
 import { registerFatalErrorHandlers } from './fatal-errors.js';
+import { activeProfile, profilePaths } from './profiles.js';
 import {
   rotateTraceLog,
   traceError,
@@ -24,6 +25,11 @@ protocol.registerSchemesAsPrivileged([{
     supportFetchAPI: true,
   },
 }]);
+
+if (!activeProfile.isDefault) {
+  app.setPath('userData', profilePaths().userData);
+  if (process.platform === 'win32') app.setAppUserModelId(`net.aivax.avi.profile.${activeProfile.id}`);
+}
 
 rotateTraceLog()
   .then(() => {
