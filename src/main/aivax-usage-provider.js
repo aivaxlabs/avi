@@ -6,6 +6,7 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
 });
 const storageFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
 const storageUnits = Object.freeze(['B', 'KB', 'MB', 'GB', 'TB']);
+const percentFormatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 
 function formatStorage(bytes) {
   const unitIndex = bytes > 0
@@ -42,19 +43,38 @@ export function listAivaxUsageProviders({ accessToken, settings, requestBalance 
       const storageConsumed = includedStorage > 0
         ? Math.min(storageUsage / includedStorage, 1)
         : 0;
+      const subscriptionConsumptions = Array.isArray(account?.subscriptionModelUsage?.consumptions)
+        ? account.subscriptionModelUsage.consumptions
+        : [];
       const plan = Array.isArray(account?.plan)
         ? account.plan.filter(Boolean).join(', ')
         : String(account?.plan ?? '').trim();
 
       return {
         accountDetails: plan ? `${plan} plan` : 'AIVAX account',
-        limits: [{
-          label: 'Storage usage',
-          description: `${formatStorage(storageUsage)} of ${formatStorage(includedStorage)} used.`,
-          amountConsumed: storageConsumed,
-          resetsAt: null,
-          resetList: [],
-        }],
+        limits: [
+          {
+            label: 'Storage usage',
+            description: `${formatStorage(storageUsage)} of ${formatStorage(includedStorage)} used.`,
+            amountConsumed: storageConsumed,
+            resetsAt: null,
+            resetList: [],
+          },
+          ...subscriptionConsumptions.map((consumption) => {
+            const usedPercent = Math.max(0, Number(consumption?.usedPercent) || 0);
+            const resetsAt = consumption?.resetAt ? new Date(consumption.resetAt) : null;
+
+            return {
+              label: String(consumption?.name || 'Subscription usage'),
+              description: resetsAt
+                ? `${percentFormatter.format(usedPercent)}% used.`
+                : `${percentFormatter.format(usedPercent)}% used. No active consumption window.`,
+              amountConsumed: Math.min(usedPercent / 100, 1),
+              resetsAt: resetsAt && !Number.isNaN(resetsAt.getTime()) ? resetsAt : null,
+              resetList: [],
+            };
+          }),
+        ],
         counters: [
           {
             label: 'Balance',

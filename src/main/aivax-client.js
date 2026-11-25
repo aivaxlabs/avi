@@ -161,8 +161,23 @@ export async function lookupAivaxModel(name) {
     { accessToken: null, responseType: 'array' },
   );
   const model = groups.flatMap((group) => group.models ?? [])[0];
-  if (!model) return null;
+  return model ? toAviModel(model) : null;
+}
 
+export async function listAivaxSubscriptionModels() {
+  const [account, groups] = await Promise.all([
+    requestAivax('/api/v1/information/balance', { responseType: 'object' }),
+    requestAivax('/api/v1/information/models.json', { accessToken: null, responseType: 'array' }),
+  ]);
+  if (!account.planLimits?.includesSubscriptionModels) return [];
+
+  return groups
+    .flatMap((group) => group.models ?? [])
+    .filter((model) => model.flags?.isSubscription && model.flags.isAvailable !== false)
+    .map((model) => ({ ...toAviModel(model), description: model.description }));
+}
+
+function toAviModel(model) {
   const limits = (model.providers ?? [])
     .filter((provider) => !provider.isDisabled)
     .map((provider) => provider.technicalInfo ?? {});

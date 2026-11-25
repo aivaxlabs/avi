@@ -13,7 +13,7 @@ Providers contribute models, tools, and auxiliary panels to Avi. Only enabled pr
 
 GPT-6 Astra provides 272,000 input tokens; GPT-6 Astra (1M) provides 872,000. Both reserve 128,000 output tokens and offer Fast variants.
 
-The managed catalog currently includes GPT-6 Astra and Astra (1M); GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; and GPT-5.3 Codex Spark. Fast variants appear when supported. The GPT Image setting controls whether the image generation and editing tool is available to every configured model, including models from other providers. Image editing accepts local file references only.
+The managed catalog currently includes GPT-6.2 Astra and Sol, GPT-6.1 Sol, and GPT-6 Astra, Sol, and Luna, each with a 1M variant; GPT-6.1 Terra; and GPT-5.6 Sol, Terra, and Luna. Fast variants appear when supported. The GPT Image setting controls whether the image generation and editing tool is available to every configured model, including models from other providers. Image editing accepts local file references only.
 
 OAuth credentials are encrypted locally. **Disconnect** removes the provider session, and removing the provider also signs it out.
 
@@ -35,6 +35,8 @@ Credentials are encrypted locally and refreshed automatically. **Disconnect** or
 ## AIVAX
 
 While an account is connected in **Settings → AIVAX Features**, Avi keeps a provider named **AIVAX - <account name>** at the top of the list. It sends Chat completions requests to the AIVAX API with the connected account, so it has no Base URL or API key. Add its models as in any API provider, with **Add model** or **Scan models**. Each AIVAX model has a routing mode picker next to its **Model ID**: **Default routing** keeps the account's AIVAX routing preference, while **Balanced**, **Cheapest**, **Fastest**, **Quality**, and **Special** are sent as `routing_options.preset` with every request.
+
+When the account's plan includes subscription models, the provider also lists the `@aivax-subscription/...` models already configured, filled from the AIVAX catalog with context limits, capabilities, and reasoning efforts. Avi reads them when it starts, when the account connects, and every 10 minutes after that, so models added to or removed from the plan appear without manual setup. A model you add with the same **Model ID** replaces the preconfigured one. After **Disconnect**, the subscription models are removed.
 
 The provider can be disabled and enabled, but it cannot be deleted or renamed while the account is connected, and it cannot be added manually. After **Disconnect**, the provider stays in the list without access and can be deleted; connecting again restores it.
 

@@ -1,5 +1,5 @@
 import { AIVAX_LONG_INFERENCE_BASE_URL } from '../main/aivax-client.js';
-import { getAivaxAccessToken } from '../main/database.js';
+import { getAivaxAccessToken, getAivaxSubscriptionModels } from '../main/database.js';
 import { defineProvider } from '../main/provider-api.js';
 import { openAiCompatibleProviderTypes } from './openai-compatible.js';
 
@@ -59,6 +59,11 @@ export const aivaxProviderType = defineProvider({
   },
   request: (context) => chatCompletions.request(withAivaxConnection(context)),
   listAvailableModels: (context) => chatCompletions.listAvailableModels(withAivaxConnection(context)),
+  getContributions: () => ({
+    models: getAivaxAccessToken()
+      ? getAivaxSubscriptionModels().map((model) => ({ ...model, enabled: true }))
+      : [],
+  }),
   getState() {
     const connected = Boolean(getAivaxAccessToken());
 

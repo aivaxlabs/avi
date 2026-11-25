@@ -190,7 +190,13 @@ const subscriptionProvider = subscriptionRegistry.createProvider(
     interface: 'openai-subscription',
   }),
 );
-const [astra, astraFast, astra1m, astra1mFast] = subscriptionProvider.listModels();
+const subscriptionModels = subscriptionProvider.listModels();
+const [astra, astraFast, astra1m, astra1mFast] = [
+  'gpt-6-astra',
+  'gpt-6-astra-fast',
+  'gpt-6-astra-1m',
+  'gpt-6-astra-1m-fast',
+].map((id) => subscriptionModels.find((model) => model.id === `subscription:${id}`));
 assert.deepEqual(
   {
     id: astra.id,

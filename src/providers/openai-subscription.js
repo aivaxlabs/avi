@@ -39,9 +39,48 @@ const refreshPromises = new Map();
 const signedOutProviders = new Set();
 
 const THROUGH_MAX_REASONING = ['low', 'medium', 'high', 'xhigh', 'max'];
-const THROUGH_XHIGH_REASONING = ['low', 'medium', 'high', 'xhigh'];
 
 const modelDefinitions = [
+  {
+    id: 'gpt-6.2-astra',
+    modelId: 'gpt-6.2-astra',
+    name: 'GPT-6.2 Astra',
+    description: 'Most capable model for demanding projects across code, apps, and research.',
+    context: { input: 272_000, output: 128_000 },
+    reasoning: THROUGH_MAX_REASONING,
+    imageInput: true,
+    fast: true,
+  },
+  {
+    id: 'gpt-6.2-astra-1m',
+    modelId: 'gpt-6.2-astra',
+    name: 'GPT-6.2 Astra (1M)',
+    description: 'Most capable model for demanding projects across code, apps, and research with extended context.',
+    context: { input: 872_000, output: 128_000 },
+    reasoning: THROUGH_MAX_REASONING,
+    imageInput: true,
+    fast: true,
+  },
+  {
+    id: 'gpt-6.2-sol',
+    modelId: 'gpt-6.2-sol',
+    name: 'GPT-6.2 Sol',
+    description: 'Go-to model for everyday coding, writing, and multistep work.',
+    context: { input: 272_000, output: 128_000 },
+    reasoning: THROUGH_MAX_REASONING,
+    imageInput: true,
+    fast: true,
+  },
+  {
+    id: 'gpt-6.2-sol-1m',
+    modelId: 'gpt-6.2-sol',
+    name: 'GPT-6.2 Sol (1M)',
+    description: 'Go-to model for everyday coding, writing, and multistep work with extended context.',
+    context: { input: 872_000, output: 128_000 },
+    reasoning: THROUGH_MAX_REASONING,
+    imageInput: true,
+    fast: true,
+  },
   {
     id: 'gpt-6-astra',
     modelId: 'gpt-6-astra',
@@ -78,6 +117,16 @@ const modelDefinitions = [
     name: 'GPT-6.1 Sol (1M)',
     description: 'Cost-efficient high-end model for demanding professional work with extended context.',
     context: { input: 872_000, output: 128_000 },
+    reasoning: THROUGH_MAX_REASONING,
+    imageInput: true,
+    fast: true,
+  },
+  {
+    id: 'gpt-6.1-terra',
+    modelId: 'gpt-6.1-terra',
+    name: 'GPT-6.1 Terra',
+    description: 'Fast, efficient model for clear writing, visual understanding, and computer use.',
+    context: { input: 272_000, output: 128_000 },
     reasoning: THROUGH_MAX_REASONING,
     imageInput: true,
     fast: true,
@@ -152,16 +201,6 @@ const modelDefinitions = [
     imageInput: true,
     fast: true,
   },
-  {
-    id: 'gpt-5.5',
-    modelId: 'gpt-5.5',
-    name: 'GPT-5.5',
-    description: 'Previous-generation flagship model with strong reasoning and tool use.',
-    context: { input: 272_000, output: 128_000 },
-    reasoning: THROUGH_XHIGH_REASONING,
-    imageInput: true,
-    fast: true,
-  }
 ];
 
 export const openAiSubscriptionProviderType = defineProvider({
@@ -175,8 +214,8 @@ export const openAiSubscriptionProviderType = defineProvider({
     connection: 'managed',
     models: 'managed',
     modelsDescription:
-      'GPT-6.1 Sol and GPT-6 Astra, Sol, and Luna (standard and 1M); GPT-5.6 Sol, Terra, and Luna; GPT-5.5; GPT-5.4 and Mini; '
-      + 'GPT-5.3 Codex Spark. Supported models also include Fast variants.',
+      'GPT-6.2 Astra and Sol, GPT-6.1 Sol, and GPT-6 Astra, Sol, and Luna (standard and 1M); GPT-6.1 Terra; '
+      + 'GPT-5.6 Sol, Terra, and Luna. Supported models also include Fast variants.',
     fields: [{
       id: 'imageTool',
       type: 'select',
