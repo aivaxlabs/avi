@@ -17,7 +17,9 @@ import {
   forkConversation,
   getComposerState,
   getConversation,
+  getMessage,
   getMessages,
+  getMessagesFromRecentUserTurns,
   getPreferences,
   listAllConversations,
   listTasks,
@@ -25,11 +27,13 @@ import {
   updateConversation,
   updateUltraState,
 } from '../database.js';
+import { resolveSpecializedAgent } from '../context-injection.js';
 import { resolveSubagentModel } from '../default-models.js';
 import { traceVerbose } from '../trace-log.js';
 import { formatCrossMessage, isThreadWaitingForInput } from './shared.js';
 
 const MAX_INSPECTED_TURNS = 4;
+const MAX_SPECIALIZED_AGENT_DEPTH = 4;
 const ULTRA_CONTEXT_REQUEST_LIMIT = 6;
 const ULTRA_CONTEXT_REQUEST_CHARACTERS = 12_000;
 const ULTRA_CONTEXT_REQUEST_BUDGET = 16_000;
@@ -54,6 +58,7 @@ async function startSubagent({
   tuning,
   workMode,
   ultraMode,
+  specializedAgent = null,
 }) {
   const runningSubagents = listAllConversations()
     .filter((conversation) => conversation.isSubagent)
@@ -70,6 +75,7 @@ async function startSubagent({
     subagentPrompt: prompt,
     orchestrationMode: workMode === 'plan' ? 'plan' : ultraMode ? 'ultra' : null,
     autoForwardToParent: true,
+    specializedAgent,
   });
   if (!result) throw new Error('The sub-agent thread could not be created.');
   const subagent = model.id === result.conversation.model
@@ -542,8 +548,7 @@ export const threadActionTools = [
         const run = chatRunner.runs.get(conversation.id);
         if (wait_for_response === true && run) {
           await run.completion;
-          const responseMessage = getMessages(conversation.id)
-            .find((item) => item.id === run.assistantMessageId);
+          const responseMessage = getMessage(run.assistantMessageId);
           if (responseMessage) {
             response = {
               messageId: responseMessage.id,
@@ -715,8 +720,8 @@ export const threadActionTools = [
       },
     ) => {
       const parent = getConversation(conversationId);
-      if (!parent || parent.isSideChat || parent.isSubagent) {
-        throw new Error('Only an orchestrator thread can spawn a sub-agent.');
+      if (!parent || parent.isSideChat || (parent.isSubagent && !parent.specializedAgent)) {
+        throw new Error('Only an orchestrator thread or a specialized agent can spawn a sub-agent.');
       }
       const normalizedPrompt = String(prompt ?? '').trim();
       if (!normalizedPrompt) throw new Error('prompt is required.');
@@ -766,6 +771,111 @@ export const threadActionTools = [
       return [
         'Sub-agent started.',
         `Thread ID: ${subagent.id}`,
+        `Status: ${status}`,
+      ].join('\n');
+    },
+  },
+  {
+    name: 'invoke_specialized_agent',
+    description: 'Delegate a task to a specialized agent listed under "Specialized agents" in the available context. It runs asynchronously in an isolated thread with its own model and instructions, shares this workspace context, and reports its final response back to this thread automatically. Returns immediately with its thread_id.',
+    canEditFile: false,
+    canPerformDestructiveActions: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agent: {
+          type: 'string',
+          description: 'Id of the specialized agent to invoke, as listed in the available context.',
+        },
+        prompt: {
+          type: 'string',
+          description: 'Self-contained task for the specialized agent, including the scope, relevant context, and expected report.',
+        },
+      },
+      required: ['agent', 'prompt'],
+      additionalProperties: false,
+    },
+    execute: async (
+      { agent, prompt },
+      {
+        chatRunner,
+        conversationId,
+        workspacePath,
+        botRuntime,
+        model,
+        models,
+        reasoningEffort,
+        permissionMode,
+        tuning,
+        workMode,
+      },
+    ) => {
+      const parent = getConversation(conversationId);
+      if (!parent || parent.isSideChat || parent.isRubberDuck || (parent.isSubagent && !parent.specializedAgent)) {
+        throw new Error('Only an orchestrator thread or another specialized agent can invoke a specialized agent.');
+      }
+      const normalizedPrompt = String(prompt ?? '').trim();
+      if (!normalizedPrompt) throw new Error('prompt is required.');
+
+      let depth = 0;
+      for (let current = parent; current?.specializedAgent; current = getConversation(current.parentConversationId)) {
+        depth += 1;
+      }
+      if (depth >= MAX_SPECIALIZED_AGENT_DEPTH) {
+        throw new Error(`Specialized agents can be nested at most ${MAX_SPECIALIZED_AGENT_DEPTH} levels deep.`);
+      }
+
+      const definition = await resolveSpecializedAgent(agent, {
+        workspacePath: parent.projectPath ?? workspacePath,
+        ...chatRunner.getPluginContext({
+          conversationId,
+          workspacePath: parent.projectPath ?? workspacePath,
+          botId: botRuntime?.bot.id ?? null,
+        }),
+      });
+
+      const requestedModel = definition.model?.toLowerCase();
+      const modelMatches = requestedModel
+        ? [
+          (item) => item.id.toLowerCase() === requestedModel,
+          (item) => item.modelId?.toLowerCase() === requestedModel,
+          (item) => item.name?.toLowerCase() === requestedModel,
+        ].map((predicate) => models.filter(predicate)).find((matches) => matches.length > 0) ?? []
+        : models.filter((item) => item.id === model);
+      const selectedModel = modelMatches.find((item) => item.id === model) ?? modelMatches[0];
+      if (!selectedModel) {
+        throw new Error(`Model "${definition.model ?? model}" of specialized agent "${definition.id}" is not configured.`);
+      }
+      if (definition.reasoningEffort && !selectedModel.reasoning.includes(definition.reasoningEffort)) {
+        throw new Error(
+          `Reasoning effort "${definition.reasoningEffort}" of specialized agent "${definition.id}" is not supported by ${selectedModel.name}.`,
+        );
+      }
+      const selectedReasoningEffort = definition.reasoningEffort
+        ?? (selectedModel.reasoning.includes(reasoningEffort) ? reasoningEffort : null);
+
+      const { subagent, status } = await startSubagent({
+        chatRunner,
+        parent,
+        prompt: normalizedPrompt,
+        model: selectedModel,
+        reasoningEffort: selectedReasoningEffort,
+        // Bot-delegated agents run unattended: permission requests would never be answered.
+        permissionMode: parent.isBot && permissionMode !== 'read_only' ? 'full_access' : permissionMode,
+        tuning,
+        workMode,
+        ultraMode: false,
+        specializedAgent: {
+          id: definition.id,
+          name: definition.name,
+          instructions: definition.instructions,
+        },
+      });
+
+      return [
+        `Specialized agent "${definition.name}" started.`,
+        `Thread ID: ${subagent.id}`,
+        `Model: ${selectedModel.name}${selectedReasoningEffort ? ` (${selectedReasoningEffort})` : ''}`,
         `Status: ${status}`,
       ].join('\n');
     },
@@ -833,6 +943,7 @@ export const threadActionTools = [
         },
       });
       chatRunner.emit(conversationId, { type: 'conversation', conversation: updated });
+      chatRunner.requestMemoryHint(conversationId, 'ultra_context');
       const runningSubagents = listSubagents(conversationId)
         .filter((subagent) => subagent.orchestrationMode === 'ultra' && chatRunner.runs.has(subagent.id));
       return [
@@ -1115,7 +1226,7 @@ export const threadActionTools = [
       if (conversation.isSideChat && !getConversation(conversationId)?.isSideChat) {
         throw new Error('Side chats are private to side-chat threads.');
       }
-      const messages = getMessages(conversation.id);
+      const messages = getMessagesFromRecentUserTurns(conversation.id, MAX_INSPECTED_TURNS);
       const turns = [];
       const mediaMarkers = (attachments) => attachments.flatMap((attachment) => {
         if (attachment.kind === 'image_url') return ['<<image_media>>'];

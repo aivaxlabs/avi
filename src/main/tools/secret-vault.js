@@ -11,7 +11,7 @@ const PLACEHOLDER_PATTERN = /\{\{([A-Za-z0-9_.@-]{1,128}):([A-Z0-9]{10})\}\}/g;
 const MIN_REDACTED_LENGTH = 4;
 // Avi's own conversation, memory, and scheduling tools persist their input into chat history,
 // other threads, or remote memory, so placeholders stay unresolved there.
-const UNRESOLVED_TOOL_PATTERN = /^(chat_|bots_|bot_|memory_|task_scheduler_|secret_vault_|quick_chat_)|^(ask_question|update_tasks|update_semaphore_status|start_goal|update_goal_status|dispatch_sidekick|invoke_rubber_duck|rubber_duck_ask_agent|rubber_duck_submit_report)$/;
+const UNRESOLVED_TOOL_PATTERN = /^(chat_|bots_|bot_|memory_|task_scheduler_|secret_vault_|quick_chat_)|^(ask_question|update_tasks|update_semaphore_status|start_goal|update_goal_status|dispatch_sidekick|invoke_specialized_agent|invoke_rubber_duck|rubber_duck_ask_agent|rubber_duck_submit_report)$/;
 
 const placeholders = new Map();
 const revealedByConversation = new Map();

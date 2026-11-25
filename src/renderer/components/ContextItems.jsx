@@ -1,4 +1,4 @@
-import { FileText, FolderCog, FolderOpen, PanelTop, Trash2, Workflow } from 'lucide-react';
+import { BotMessageSquare, FileText, FolderCog, FolderOpen, PanelTop, Trash2, Workflow } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DropdownMenu, DropdownMenuItem } from './DropdownMenu.jsx';
@@ -165,7 +165,11 @@ function ContextItem({ item, groupId, childrenByPath, onOpen, onMenu }) {
         onContextMenu={(event) => onMenu(event, item)}
       >
         <span className="settings-entity-icon">
-          {groupId === 'instruction' ? <FileText size={16} /> : groupId === 'skill' ? <FolderCog size={16} /> : <Workflow size={16} />}
+          {{
+            instruction: <FileText size={16} />,
+            skill: <FolderCog size={16} />,
+            agent: <BotMessageSquare size={16} />,
+          }[groupId] ?? <Workflow size={16} />}
         </span>
         <span className="settings-context-item-copy">
           <span className="settings-context-item-heading">

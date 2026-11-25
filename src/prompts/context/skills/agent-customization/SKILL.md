@@ -7,7 +7,7 @@ user-invocable: false
 
 Use this skill to customize the application with five supported primitives: **instructions, skills, workflows, MCP, and plugins**. Bots are persistent autonomous teammates, and scheduled tasks and recurring jobs run unattended prompts at a set time; both are configured through built-in agent tools rather than additional context primitives.
 
-The application does not discover VS Code or Copilot prompt files, hooks, custom-agent files, `.github` customization folders, or `.claude` skill folders. Runtime features such as Plan, Goal, Ultra, and sub-agents are built-in features, not additional context file types.
+The application does not discover VS Code or Copilot prompt files, hooks, `.github/agents` custom-agent files, `.github` customization folders, or `.claude` skill folders. Runtime features such as Plan, Goal, Ultra, and generic sub-agents are built-in features, not additional context file types; Avi's own specialized agents live in `.agents/agents/<id>.md`.
 
 ## Choose the primitive
 
@@ -16,6 +16,7 @@ The application does not discover VS Code or Copilot prompt files, hooks, custom
 | Durable rules that should guide work in a user, project, or directory scope | Instructions |
 | A repeatable procedure selected explicitly for a task | Workflow |
 | Specialized knowledge or a procedure that benefits from references, scripts, examples, or assets | Skill |
+| A task delegated to an isolated agent with its own model and instructions, such as review or audit | Specialized agent |
 | Tools or live context from an external process, service, or API | MCP |
 | A trusted install-wide JavaScript extension contributing multiple application capabilities or main-process behavior | Plugin |
 
@@ -69,6 +70,8 @@ If `name` is omitted, a skill uses its folder name and a workflow uses its filen
 
 Other fields such as `applyTo`, `context-embeddable`, `disable-model-invocation`, `agent`, `model`, `tools`, `hooks`, and `tags` do not control behavior. `embeddable` applies only to instruction files; skills and workflows are already cataloged without embedding their full body. `user-invocable: false` only hides the composer command; the item remains in the catalog available to the model. Do not use frontmatter to imply restrictions or capabilities that will not be enforced.
 
+Specialized agents in `.agents/agents/<id>.md` (global `$HOME/.agents/agents/<id>.md`) also read `model` (configured model id, provider model id, or display name; empty uses the invoking model) and `reasoning-effort` (must be supported by that model). Their body is the agent's system instruction: it is never read as a workflow, but invoked with `invoke_specialized_agent` using the file name as id. The agent runs in an isolated child thread sharing the invoking context and reports back automatically. Use one only when the task benefits from isolation or a different model; otherwise prefer a workflow or skill.
+
 Plugin parameters do not come from workflow or skill frontmatter. They are JavaScript definition and contribution fields from the versioned plugin contract.
 
 ## Creation process
@@ -82,7 +85,7 @@ Plugin parameters do not come from workflow or skill frontmatter. They are JavaS
 
 ## Invocation model
 
-- Type `/` in the composer to find actions and workflows.
+- Type `/` in the composer to find actions, workflows, and specialized agents.
 - Type `$` to find skills.
 - Selecting an item adds a context marker to the next message.
 - The user's accompanying message supplies the task input; prompt variables and an argument schema in frontmatter are not implemented.

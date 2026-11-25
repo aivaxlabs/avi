@@ -493,6 +493,7 @@ export class QuickChatRunner {
             'rubber_duck_ask_agent',
             'rubber_duck_submit_report',
             'dispatch_sidekick',
+            'invoke_specialized_agent',
             'ultra_set_context',
             'sleep_semaphore',
             'release_semaphore',

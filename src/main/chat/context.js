@@ -4,8 +4,10 @@ import {
   getGoal,
   getBotSettings,
   getGoalForConversation,
+  getLatestMessage,
   getMessage,
   getMessages,
+  getRecentTurnMessages,
   getSideChatHistoryStart,
   insertMessage,
   listAllConversations,
@@ -26,7 +28,7 @@ import {
   countSerializedCharacters,
   distributeContextUsage,
 } from '../context-usage.js';
-import { resolveDynamicContextUsage } from '../context-injection.js';
+import { hasSpecializedAgents, resolveDynamicContextUsage } from '../context-injection.js';
 import { composeToolsWithPlugins } from '../tool-composition.js';
 import { applyPassiveToolGroups } from '../tools/passive-groups.js';
 import { setDirectoryTool } from '../tools/quick-chat.js';
@@ -65,12 +67,11 @@ export const contextMethods = {
     const selection = this.registry.resolve(model || conversation.model);
     if (!selection) throw new Error('The selected model is no longer configured.');
 
-    const sourceMessages = getMessages(conversation.id);
     const messages = toModelMessages(conversation.id, {
       capabilities: selection.model.capabilities,
     });
     const preferences = this.getPreferences();
-    const latestUser = sourceMessages.findLast((message) => message.role === 'user');
+    const latestUser = getLatestMessage(conversation.id, { role: 'user' });
     const workMode = latestUser?.workMode ?? null;
     const permissionMode = latestUser?.permissionMode ?? preferences.defaultPermissionMode ?? 'approve_for_me';
     const botRuntime = conversation.isBot ? this.getBotRuntimeContext(conversation.id) : null;
@@ -97,6 +98,14 @@ export const contextMethods = {
           ...(this.registry.listGlobalTools?.(providerContext) ?? [])
             .filter((tool) => !selectedProviderToolNames.has(tool.name)),
         ];
+    const specializedAgentsAvailable = workMode !== 'plan' && !rubberDuckMode && await hasSpecializedAgents({
+      workspacePath: conversation.projectPath,
+      ...this.getPluginContext({
+        conversationId: conversation.id,
+        workspacePath: conversation.projectPath,
+        botId: botRuntime?.bot.id ?? null,
+      }),
+    });
     const coreTools = CLIENT_TOOLS
       .filter((tool) => workMode !== 'plan' || PLAN_TOOL_NAMES.has(tool.name))
       .filter((tool) => !['memory_search', 'memory_write', 'memory_delete'].includes(tool.name) || (
@@ -142,9 +151,14 @@ export const contextMethods = {
         'sleep_semaphore',
       ].includes(tool.name))
       .filter((tool) => (
-        tool.name !== 'chat_spawn_subagent'
-        || (!conversation.isSubagent && !conversation.isSideChat && !fusion)
+        !['chat_spawn_subagent', 'invoke_specialized_agent'].includes(tool.name)
+        || (
+          (!conversation.isSubagent || conversation.specializedAgent)
+          && !conversation.isSideChat
+          && !fusion
+        )
       ))
+      .filter((tool) => tool.name !== 'invoke_specialized_agent' || specializedAgentsAvailable)
       .filter((tool) => tool.name !== 'chat_create_thread' || !fusion)
       .filter((tool) => tool.name !== 'dispatch_sidekick' || fusion?.role === 'lead')
       .filter((tool) => tool.name !== 'ask_question' || fusion?.role !== 'sidekick')
@@ -346,10 +360,7 @@ export const contextMethods = {
       && streamingSegments.length === 0
     ) return conversation;
 
-    const checkpointMessage = getMessages(conversation.id)
-      .filter((message) => ['completed', 'sent', 'aborted'].includes(message.status))
-      .filter((message) => message.role === 'user' || message.role === 'assistant')
-      .at(-1);
+    const checkpointMessage = getRecentTurnMessages(conversation.id, 1).at(-1);
     if (!checkpointMessage) return conversation;
 
     const limitedToolHistory = limitToolHistoryResults(

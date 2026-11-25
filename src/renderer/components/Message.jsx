@@ -16,6 +16,7 @@ import {
   FolderTree,
   GitFork,
   Globe,
+  BotMessageSquare,
   Info,
   ListChecks,
   LoaderCircle,
@@ -103,6 +104,7 @@ const TOOL_ICONS = Object.freeze({
   chat_send_prompt: Send,
   chat_spawn_subagent: Bot,
   dispatch_sidekick: Bot,
+  invoke_specialized_agent: BotMessageSquare,
   read_file: FileText,
   read_terminal_output: TerminalSquare,
   read_url: Globe,
@@ -115,6 +117,9 @@ const TOOL_ICONS = Object.freeze({
   update_goal_status: Target,
   update_tasks: ListChecks,
   write_file: FilePenLine,
+});
+const TOOL_LABELS = Object.freeze({
+  invoke_specialized_agent: 'Specialized Agent',
 });
 
 export function Message({
@@ -198,10 +203,10 @@ function SubagentReportCard({ report }) {
     <section className="subagent-report-card" aria-label={`Report from ${report.title}`}>
       <header className="subagent-report-header">
         <span className="subagent-report-icon" aria-hidden="true">
-          <Bot size={15} />
+          {report.specializedAgent ? <BotMessageSquare size={15} /> : <Bot size={15} />}
         </span>
         <span className="subagent-report-heading">
-          <small>Sub-agent report</small>
+          <small>{report.specializedAgent ? 'Specialized Agent report' : 'Sub-agent report'}</small>
           <strong>{report.title}</strong>
         </span>
         <code title={report.threadId}>{report.threadId.slice(0, 8)}</code>
@@ -457,6 +462,8 @@ function UserMessage({ message, editing, onEdit, editor }) {
                       {attachment.kind === 'context_marker' && (
                         attachment.markerType === 'workflow'
                           ? <Workflow size={13} />
+                          : attachment.markerType === 'agent'
+                            ? <BotMessageSquare size={13} />
                           : attachment.markerType === 'work_item'
                             ? <ListChecks size={13} />
                             : attachment.markerType === 'directory_reference'
@@ -1654,7 +1661,7 @@ function MutedSegment({ segment }) {
           )}
           <ToolIcon size={13} aria-hidden="true" />
           <span>
-            <strong>{name}</strong>
+            <strong>{TOOL_LABELS[name] ?? name}</strong>
             {reason && (
               <span className={!hasResult ? 'tool-line-pending-text' : undefined}>
                 {' '}{reason}
@@ -2053,7 +2060,7 @@ function groupLabel(items) {
   for (const [index, tool] of tools.entries()) {
     const name = tool.mcpServerName
       ? `${tool.mcpServerName.replace(/\s+MCP$/i, '')} MCP`
-      : tool.name || tool.toolType || 'tool';
+      : TOOL_LABELS[tool.name] ?? (tool.name || tool.toolType || 'tool');
     const key = tool.mcpServerName ? `mcp:${tool.mcpServerName}` : `tool:${name}`;
     const existing = toolCounts.get(key);
     if (existing) existing.count += 1;

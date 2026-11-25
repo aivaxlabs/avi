@@ -1,16 +1,17 @@
 # Context management
 
-Avi separates customization into five primitives:
+Avi separates customization into six primitives:
 
 | Need | Use |
 |---|---|
 | Durable rules | Instruction |
 | A reusable procedure selected for a task | Workflow |
 | Specialized knowledge with references or assets | Skill |
+| A delegated task run with its own model and instructions | Specialized agent |
 | Live tools or data from another process or service | MCP |
 | A trusted install-wide JavaScript extension | Plugin |
 
-Plan, Goal, Ultra, and sub-agents are runtime features, not context file types. Plugins are trusted executable extensions, not Markdown context files.
+Plan, Goal, Ultra, and generic sub-agents are runtime features, not context file types. Plugins are trusted executable extensions, not Markdown context files.
 
 ## Scopes and locations
 
@@ -18,7 +19,7 @@ Plan, Goal, Ultra, and sub-agents are runtime features, not context file types. 
 - Global user context: `$HOME/.agents`;
 - Workspace context: `$PWD` and supported nested `.agents` directories.
 
-Use `AGENTS.md` for instructions shared by every full chat, `BOTS.md` for instructions exclusive to bot threads, `.agents/workflows/*.md` for workflows, `.agents/skills/<name>/SKILL.md` for skills, and `.agents/mcpconfig.json` for global or exact-folder MCP configuration. Projects may centralize qualified instruction files as `.agents/AGENTS.<subject>.md`.
+Use `AGENTS.md` for instructions shared by every full chat, `BOTS.md` for instructions exclusive to bot threads, `.agents/workflows/*.md` for workflows, `.agents/skills/<name>/SKILL.md` for skills, `.agents/agents/<name>.md` for specialized agents, and `.agents/mcpconfig.json` for global or exact-folder MCP configuration. Projects may centralize qualified instruction files as `.agents/AGENTS.<subject>.md`.
 
 Runtime authority is ordered as: Avi system/runtime instructions, the direct user request, applicable project instructions, then repository conventions. Dynamic prompt roots are assembled installation → global → workspace. For duplicate skill or workflow command names, command lookup gives workspace precedence over global, installation, and registered plugin context.
 
@@ -38,7 +39,30 @@ Skill and workflow bodies are not embedded into the catalog. Type `$` to select 
 
 There is no argument schema, placeholder expansion, or automatic model selection in frontmatter. Plugin parameters are JavaScript contract fields, not workflow or skill frontmatter.
 
-Recognized metadata includes `name` or `title`, `description`, `user-invocable: false`, and `embeddable: false`. `user-invocable: false` only hides a skill or workflow from the composer selector; it remains available to the model. Fields such as `tools`, `model`, `agent`, `hooks`, and `tags` do not control Avi runtime behavior.
+Recognized metadata includes `name` or `title`, `description`, `user-invocable: false`, and `embeddable: false`. `user-invocable: false` only hides a skill or workflow from the composer selector; it remains available to the model. Fields such as `tools`, `model`, `agent`, `hooks`, and `tags` do not control skill or workflow behavior.
+
+## Specialized agents
+
+A specialized agent combines a model and an instruction for one task, such as reviewing, auditing, verifying, or analyzing something. Each agent is one file in `.agents/agents/<id>.md`, where the file name is its id:
+
+```markdown
+---
+name: Review Agent
+description: Specialized agent for code review
+model: claude-opus-5.5
+reasoning-effort: xhigh
+user-invocable: false
+---
+You are a review agent...
+```
+
+- `model` matches a configured model by qualified id (`provider:model`), then provider model id, then display name. Empty uses the invoking agent's model.
+- `reasoning-effort` must be supported by that model. Empty keeps the invoking effort when the model supports it.
+- `user-invocable: false` hides the agent from the `/` picker; it stays available to the model.
+
+The body is not read like a workflow or skill. The catalog lists each agent's id, name, and description under **Specialized agents** with a hint to delegate through `invoke_specialized_agent`. That tool, shown as **Specialized Agent**, runs the agent as an isolated child thread with the agent's model, effort, and body as system instructions, and returns immediately. The agent shares the invoking workspace context (instructions, skills, workflows, MCP servers, and other specialized agents) and its final response returns as a **Specialized Agent report**. The tool is available to normal threads, Quick Chat windows, bot main threads, and specialized agents themselves, only when at least one agent exists. Specialized agents may also call `chat_spawn_subagent`; nesting is limited to four specialized agent levels. Workspace agents take precedence over global, plugin, and installation agents with the same id.
+
+Select `/create-agent` in the composer for a guided setup that chooses the scope, model, and reasoning effort, writes the agent instruction, and validates discovery.
 
 ## Plugins
 
@@ -48,7 +72,9 @@ See [Plugins](Plugins.md) for the complete contract, security model, contributio
 
 ## Dynamic runtime context
 
-Depending on the turn, Avi may inject personality, response verbosity, AIVAX memory guidance, MCP server instructions, Plan/Goal/Ultra contracts, the Ultra map (`<ultra_map>`, orchestrator only) and team context (`<ultra_context>`), Tasks, the orchestration team, current-thread identity, and environment information.
+Depending on the turn, Avi may inject personality, response verbosity, memory guidance, MCP server instructions, Plan/Goal/Ultra contracts, the Ultra map (`<ultra_map>`, orchestrator only) and team context (`<ultra_context>`), Tasks, the orchestration team, current-thread identity, and environment information.
+
+Memory guidance depends on AIVAX Memory. When it is enabled, agents are told to use the memory tools. Otherwise, outside Plan mode and while **Settings → Tuning → Memory → Default memory instructions** is enabled (the default), agents are told to keep memory in `MEMORY.md` files: global knowledge (preferences, environment, lessons not tied to a codebase) in `$HOME/.agents/MEMORY.md`, and project knowledge in `MEMORY.md` at the workspace root (omitted when the workspace is the home folder). Because both files are injected automatically, agents are told not to read them first, to pick one file by scope without duplicating facts, to create the file when missing, and to keep each file under about 100 lines by merging, rewriting, and removing obsolete entries on every write instead of appending. Bots keep their own `MEMORY.md` rules. When a tool edits an instruction file such as `MEMORY.md` or `AGENTS.md`, Avi clears its context caches so the next request sees the new content.
 
 A Quick Chat window receives the same discovered instruction files, skills, workflows, and MCP instructions as a thread in its selected directory, plus the built-in Quick Chat prompt and **Settings → Tuning → Quick Chat instructions**. Headless `quick_chat_invoke` and Quick questions do not receive discovered instruction files. The Ultra scout uses `src/prompts/ultra-scout-instructions.md` in Read-only mode and does receive the discovered instruction files of the thread folder.
 
@@ -58,7 +84,7 @@ Open **Folders → Global or a working folder → Context** from the Activity Ba
 
 Use the search field to filter the current tab by title, description, or path; matching nested skills are shown as a flat list. The sort menu offers **Default** (directory depth, then larger token size first), **Token size**, **Created at (desc)**, **Created at (asc)**, **A-Z**, and **Z-A**. Creation dates come from the file system.
 
-The **+** button beside the **...** menu asks for a name and creates a templated item in the scope's `.agents` directory: `AGENTS.<Name>.md` for instructions, `skills/<name>/SKILL.md` for skills, and `workflows/<name>.md` for workflows. Existing files are never overwritten. Installation and plugin context is read-only, so **+** is hidden there.
+The **+** button beside the **...** menu asks for a name and creates a templated item in the scope's `.agents` directory: `AGENTS.<Name>.md` for instructions, `skills/<name>/SKILL.md` for skills, `workflows/<name>.md` for workflows, and `agents/<name>.md` for specialized agents in the **Agents** tab. Existing files are never overwritten. Installation and plugin context is read-only, so **+** is hidden there.
 
 **Refine** in the page header reviews the current tab, or the whole context of the scope, with [AIVAX Instruction Refinement](https://docs.aivax.net/docs/data-processing/instruction-refinement). It requires a connected AIVAX account and shows an error otherwise. The dialog chooses the scope, **This tab** or **Whole context** (the scope's instructions, skills, and workflows reviewed together, which costs more), and the review: **Wording** (`micro`, the clarity and structure of each item) or **Architecture** (`macro`, how the items work together as one agent). Instructions are sent as `instruction`, skills as `skill` with their description, and workflows as `prompt`. Each review is billed to the AIVAX balance and counts every item against the account's instruction refinement limit. The result opens in a two-pane dialog under the score and summary. The list on the left has one row per suggestion, with its change type, highest priority, title, and affected files; findings that no suggestion resolves are listed as **Finding**. Selecting a row shows on the right the suggested change, the problems it resolves with their file and line locations, and the unified diff of each file it changes. **Apply this patch** writes that suggestion's patch to the files, and **Apply all patches** applies every pending patch after a confirmation; the files are edited directly, without a thread. A patch whose text was edited after the review, by another patch or outside the dialog, is marked **Not applied** and its files are left unchanged. Suggestions marked **No patch**, which need information only you have or content outside the reviewed items, and patches that were not applied have **Send to thread**, which starts a thread in the scope's folder (the home folder for Global) to work on the suggestion with an agent; later ones go to the same thread, and **Open thread** opens it. Read-only installation and plugin context can be reviewed, but its patches cannot be applied. Desktop bridge: `window.chatApp.context.refine({ view, items })` (`context:refine`), where each item has `path`, `kind`, `title`, and `description`; it returns the AIVAX response plus `items` (`path`, `title`) in the order of the `contextIndex` values.
 

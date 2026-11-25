@@ -159,7 +159,7 @@ export function ContextRefineDialog({
                   This tab: {title.toLowerCase()} ({items.length})
                 </option>
                 <option value="all">
-                  Whole context: instructions, skills, and workflows ({allItems.length})
+                  Whole context: instructions, skills, workflows, and agents ({allItems.length})
                 </option>
               </select>
             </label>

@@ -3,7 +3,7 @@
 ## Project overview
 - Avi is a local Electron desktop workspace for AI conversations, providers, tools, MCP servers, context discovery, and multi-agent orchestration.
 - The project is an ESM JavaScript application. Bun runs scripts and dependency management, Electron hosts privileged runtime code, React renders the UI, Vite builds the renderer, and Cascadium compiles XCSS.
-- Start architecture discovery at `src/main/main.js`, `src/main/runtime.js`, `src/preload/preload.cjs`, and `src/renderer/main.jsx`. User-facing behavior is documented under `docs/`.
+- Start architecture discovery at `src/main/main.js`, `src/main/runtime.js`, `src/preload/preload.cjs`, and `src/renderer/main.jsx`. User-facing behavior is documented under `docs/`.  '
 
 ## Architecture and boundaries
 - `src/main/` owns Electron lifecycle, persistence, providers, chat execution, tools, MCP, plugins, filesystem operations, and IPC handlers. Read `.agents/AGENTS.MainProcess.md` before changing this boundary.

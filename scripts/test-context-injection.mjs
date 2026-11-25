@@ -7,12 +7,13 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { composerCommands } from '../src/shared/composer-commands.js';
 import {
   clearContextCaches,
   createContextItem,
+  dynamicContextInjectors,
   moveContextItem,
   listContextItems,
   resolveDynamicContext,
@@ -645,6 +646,29 @@ try {
   assert.ok(quickQuestionContext.includes('This session is read-only'));
   assert.ok(!quickQuestionContext.includes('Quick Chat is not read-only'));
   assert.ok(!quickQuestionContext.includes('memory_write'));
+  assert.ok(!quickQuestionContext.includes('MEMORY.md files that Avi injects'));
+
+  const memoryInjector = dynamicContextInjectors.get('memory');
+  const memoryProject = path.join(tmpdir(), 'memory-project');
+  const fileMemory = memoryInjector({ workspacePath: memoryProject });
+  assert.ok(fileMemory.includes(path.join(homedir(), '.agents', 'MEMORY.md')));
+  assert.ok(fileMemory.includes(path.join(memoryProject, 'MEMORY.md')));
+  assert.ok(fileMemory.includes('Do not read them'));
+  assert.ok(fileMemory.includes('keep them small'));
+  assert.ok(!fileMemory.includes('memory_write'));
+  assert.ok(!memoryInjector({ workspacePath: homedir() }).includes('Project memory'));
+  assert.equal(memoryInjector({ workspacePath: memoryProject, workMode: 'plan' }), '');
+  assert.equal(memoryInjector({
+    workspacePath: memoryProject,
+    tuning: { defaultMemoryInstructionsEnabled: false },
+  }), '');
+  const toolMemory = memoryInjector({
+    workspacePath: memoryProject,
+    tuning: { defaultMemoryInstructionsEnabled: false },
+    aivax: { connected: true, memoryEnabled: true, memoryCollectionId: 'memory' },
+  });
+  assert.ok(toolMemory.includes('memory_write'));
+  assert.ok(!toolMemory.includes('MEMORY.md'));
   assert.ok(quickQuestionContext.includes(lowVerbosity.trim()));
 
   const friendlyContext = await resolveDynamicContext({
@@ -1202,7 +1226,7 @@ try {
   assert.equal((await listContextItems(createRoot)).groups.find((group) => group.id === 'workflow').items.length, 2);
   const plainFile = path.join(createRoot, 'notes.md');
   await writeFile(plainFile, '# Notes');
-  await assert.rejects(writeContextItem(plainFile, 'x'), /Only instruction, skill, and workflow/);
+  await assert.rejects(writeContextItem(plainFile, 'x'), /Only instruction, skill, workflow, and agent/);
   const privateDirectory = path.join(createRoot, '.agents', '.user-private');
   const privateSkill = await moveContextItem(createdSkill.path, 'private');
   const privateWorkflow = await moveContextItem(createdWorkflow.path, 'private');
@@ -1218,6 +1242,7 @@ try {
   assert.equal((await moveContextItem(privateSkill.path, 'default')).path, createdSkill.path);
   assert.equal((await moveContextItem(privateWorkflow.path, 'default')).path, createdWorkflow.path);
   await assert.rejects(moveContextItem(createdWorkflow.path, 'hidden'), /visibility/);
+
   console.log('Context variant discovery passed.');
 } finally {
   if (originalHome === undefined) delete process.env.HOME;

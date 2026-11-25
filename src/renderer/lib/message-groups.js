@@ -6,7 +6,8 @@ const structuredUserMessageParsers = [
       const threadId = attributeValue(attributes, 'thread_id');
       const title = attributeValue(attributes, 'title');
       if (!threadId || !title) return null;
-      return { threadId, title, body };
+      const specializedAgent = attributeValue(attributes, 'specialized_agent');
+      return { threadId, title, ...(specializedAgent ? { specializedAgent } : {}), body };
     },
   },
   {

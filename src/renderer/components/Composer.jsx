@@ -1,6 +1,7 @@
 import {
   ArrowUp,
   Bot,
+  BotMessageSquare,
   Brain,
   Check,
   ChevronDown,
@@ -370,7 +371,7 @@ export function Composer({
         ))
         : [];
       const markerCommands = contextCommands
-        .filter(({ type }) => type === (commandPrefix === '/' ? 'workflow' : 'skill'))
+        .filter(({ type }) => (commandPrefix === '/' ? ['workflow', 'agent'] : ['skill']).includes(type))
         .filter((command) => command.name !== 'side' || onCreateSideChat)
         .map((command) => ({
           ...command,
@@ -1038,7 +1039,7 @@ export function Composer({
         return;
       }
       if (option.kind === 'context_marker') {
-        const prefix = option.type === 'workflow' ? '/' : '$';
+        const prefix = option.type === 'skill' ? '$' : '/';
         setAttachments((items) => (
           items.some((item) => (
             item.kind === 'context_marker'
@@ -1053,7 +1054,9 @@ export function Composer({
                 commandName: option.name,
                 name: `${prefix}${option.name}`,
                 size: 0,
-                text: `Use the ${option.name} ${option.type}.`,
+                text: option.type === 'agent'
+                  ? `Delegate this request to the ${option.name} specialized agent with invoke_specialized_agent.`
+                  : `Use the ${option.name} ${option.type}.`,
               }]
         ));
         exitCommandMode();
@@ -1850,7 +1853,9 @@ export function Composer({
                       option.kind === 'context_marker'
                         ? option.type === 'workflow'
                           ? <Workflow size={16} />
-                          : <Sparkles size={16} />
+                          : option.type === 'agent'
+                            ? <BotMessageSquare size={16} />
+                            : <Sparkles size={16} />
                         : <SquareTerminal size={16} />
                     )}
                     {commandMode === 'mentions' && (
@@ -1943,6 +1948,8 @@ export function Composer({
                   {attachment.kind === 'context_marker'
                     ? attachment.markerType === 'workflow'
                       ? <Workflow size={13} />
+                      : attachment.markerType === 'agent'
+                        ? <BotMessageSquare size={13} />
                       : attachment.markerType === 'work_item'
                         ? <ListChecks size={13} />
                         : attachment.markerType === 'directory_reference'

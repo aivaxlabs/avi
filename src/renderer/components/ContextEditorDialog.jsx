@@ -51,11 +51,25 @@ export function ContextEditorDialog({ item, kind, readOnly, onClose, onSaved }) 
   const [saving, setSaving] = useState(false);
   const [filePath, setFilePath] = useState(item.path);
   const [visibility, setVisibility] = useState(item.visibility ?? 'default');
+  const [models, setModels] = useState([]);
   const dialogRef = useRef(null);
   const editorHostRef = useRef(null);
   const contentRef = useRef(content);
   contentRef.current = content;
   const dirty = content !== null && content !== savedContent;
+  const agentModel = kind === 'agent' && content !== null ? (readProperty(content, 'model') ?? '').toLowerCase() : '';
+  const matchedModel = agentModel
+    ? [
+      (model) => model.id.toLowerCase() === agentModel,
+      (model) => model.modelId?.toLowerCase() === agentModel,
+      (model) => model.name?.toLowerCase() === agentModel,
+    ].map((predicate) => models.find(predicate)).find(Boolean)
+    : null;
+
+  useEffect(() => {
+    if (kind !== 'agent') return;
+    window.chatApp.models.list().then(setModels, () => setModels([]));
+  }, [kind]);
   const editorVisible = content !== null && tab === 'content';
 
   useEffect(() => {
@@ -298,6 +312,53 @@ export function ContextEditorDialog({ item, kind, readOnly, onClose, onSaved }) 
                 onChange={(event) => updateProperty('description', event.target.value ? event.target.value.replace(/\s*\n\s*/g, ' ') : null)}
               />
             </label>
+            {kind === 'agent' && (
+              <>
+                <label className="context-editor-field">
+                  <span>Model</span>
+                  <small>Configured model id or name, such as <code>claude-opus-5.5</code>. Empty uses the invoking agent's model.</small>
+                  <input
+                    className="input"
+                    type="text"
+                    list="context-editor-models"
+                    value={readProperty(content, 'model') ?? ''}
+                    disabled={readOnly}
+                    aria-invalid={Boolean(agentModel && models.length > 0 && !matchedModel)}
+                    onChange={(event) => updateProperty('model', event.target.value ? event.target.value : null)}
+                  />
+                  <datalist id="context-editor-models">
+                    {models.map((model) => (
+                      <option key={model.id} value={model.id}>{`${model.name} · ${model.providerName}`}</option>
+                    ))}
+                  </datalist>
+                  {agentModel && models.length > 0 && (
+                    <small role={matchedModel ? undefined : 'alert'}>
+                      {matchedModel
+                        ? `Resolves to ${matchedModel.name} · ${matchedModel.providerName}.`
+                        : 'No configured model matches; invoking this agent will fail.'}
+                    </small>
+                  )}
+                </label>
+                <label className="context-editor-field">
+                  <span>Reasoning effort</span>
+                  <small>Empty uses the invoking agent's reasoning effort when the model supports it.</small>
+                  <select
+                    className="select"
+                    value={readProperty(content, 'reasoning-effort') ?? ''}
+                    disabled={readOnly}
+                    onChange={(event) => updateProperty('reasoning-effort', event.target.value || null)}
+                  >
+                    <option value="">Default</option>
+                    {[...new Set([
+                      ...(matchedModel?.reasoning ?? ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
+                      ...[readProperty(content, 'reasoning-effort')].filter(Boolean),
+                    ])].map((effort) => (
+                      <option key={effort} value={effort}>{effort}</option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
             {kind === 'instruction' ? (
               <label className="context-editor-toggle">
                 <span>

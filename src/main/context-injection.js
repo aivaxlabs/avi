@@ -52,7 +52,7 @@ const mediumVerbosity = readFileSync(new URL('../prompts/verbosity/medium.md', i
 const highVerbosity = readFileSync(new URL('../prompts/verbosity/high.md', import.meta.url), 'utf8');
 
 const INSTALLATION_CONTEXT_DIRECTORY_NAME = 'context';
-const INSTRUCTION_FILE_PATTERN = /^(?:(?:AGENTS|MEMORY)(?:\.[^.]+)*|CLAUDE|GEMINI|.+\.INSTRUCTIONS|.+\.AGENTS)\.md$/i;
+export const INSTRUCTION_FILE_PATTERN = /^(?:(?:AGENTS|MEMORY)(?:\.[^.]+)*|CLAUDE|GEMINI|.+\.INSTRUCTIONS|.+\.AGENTS)\.md$/i;
 const BOT_INSTRUCTION_FILE_PATTERN = /^BOTS\.md$/i;
 const CONTEXT_ITEM_TEMPLATES = {
   instruction: ({ title }) => [
@@ -100,6 +100,23 @@ const CONTEXT_ITEM_TEMPLATES = {
     '',
     '## Completion',
     '- Describe the expected result and how to validate it.',
+    '',
+  ],
+  agent: ({ title }) => [
+    '---',
+    `name: ${title}`,
+    `description: Specialized agent for ${title}. Describe the task it performs and when to invoke it.`,
+    'model: ',
+    'reasoning-effort: ',
+    'user-invocable: true',
+    '---',
+    `You are the ${title} agent.`,
+    '',
+    '## Task',
+    '- Describe the specific task this agent performs.',
+    '',
+    '## Report',
+    '- Describe what the final response must contain.',
     '',
   ],
 };
@@ -184,9 +201,8 @@ function ultraContextLines(context) {
 }
 
 export const dynamicContextInjectors = new Map([
-  ['memory', ({ aivax } = {}) => (
-    aivax?.connected && aivax.memoryEnabled && aivax.memoryCollectionId
-      ? [
+  ['memory', ({ aivax, tuning, workMode, workspacePath } = {}) => {
+    if (aivax?.connected && aivax.memoryEnabled && aivax.memoryCollectionId) return [
         '## Memory',
         'You have access to persistent memory through the memory_search, memory_write, and memory_delete tools.',
         'Before substantial or context-sensitive work, search memory for relevant prior context.',
@@ -194,9 +210,22 @@ export const dynamicContextInjectors = new Map([
         'For significant changes, record what changed, why, how it was implemented and validated, the affected files or services, and any remaining limitations.',
         'Keep entries concise, avoid duplicating existing memories, and update an existing entry when appropriate.',
         'Each memory entry must include Markdown frontmatter with folder, title, and tags, followed by content organized with level-3 headings (###).'
-      ].join('\n')
-      : ''
-  )],
+    ].join('\n');
+    if (workMode === 'plan' || tuning?.defaultMemoryInstructionsEnabled === false) return '';
+
+    const projectRoot = path.resolve(workspacePath || process.cwd());
+    return [
+      '## Memory',
+      'Persistent memory lives in MEMORY.md files that Avi injects automatically into your context at the start of every request, with the other instruction files. Do not read them before using or editing them: the injected content is their current state. Read one again only when an edit fails because the file changed.',
+      `- Global memory: \`${path.join(homedir(), CONTEXT_DIRECTORY_NAME, 'MEMORY.md')}\`. Knowledge that applies across projects: user preferences, working style, environment and tooling facts, and lessons not tied to one codebase.`,
+      ...(isHomeDirectory(projectRoot)
+        ? []
+        : [`- Project memory: \`${path.join(projectRoot, 'MEMORY.md')}\`. Knowledge specific to this project: decisions and their reasons, architecture, conventions, commands, validation results, known issues, and pending work.`]),
+      'Choose the file by scope; never record the same fact in both. Create the file when it does not exist.',
+      'Write or update memory only when the work produces reusable knowledge. Do not record routine progress, conversation summaries, information already in the code, docs, or other instruction files, or secrets and credentials.',
+      'Both files are injected into every request, so keep them small. On each write, update the entries it affects instead of appending: merge duplicates, rewrite outdated facts, remove entries that are obsolete or no longer useful, and condense verbose text. Keep each file under about 100 lines, organized with level-3 headings (###) and short bullet points.',
+    ].join('\n');
+  }],
   ['secret-vault', ({ workMode } = {}) => (
     workMode === 'plan'
       ? ''
@@ -491,34 +520,9 @@ export const dynamicContextInjectors = new Map([
     traceVerbose('context.injection-discovery-started', {
       operation: 'resolve-instructions',
     });
-    const roots = [
-      {
-        id: 'installation',
-        label: '$AVI/context',
-        path: path.resolve(installationContextPath || resolveInstallationContextPath()),
-        includeRootCatalog: true,
-      },
-      ...pluginContextRoots.map((plugin) => ({
-        id: `plugin:${plugin.id}`,
-        label: `$HOME/.aivax/plugins/${plugin.id}`,
-        path: path.resolve(plugin.path),
-        includeRootCatalog: true,
-      })),
-      {
-        id: 'global',
-        label: '$HOME/.agents',
-        path: path.join(homedir(), CONTEXT_DIRECTORY_NAME),
-      },
-      {
-        id: 'workspace',
-        label: '$PWD',
-        path: path.resolve(workspacePath || process.cwd()),
-      },
-    ].filter((root, index, items) => (
-      !(root.id === 'workspace' && isHomeDirectory(root.path))
-      && items.findIndex((item) => normalizePathKey(item.path) === normalizePathKey(root.path)) === index
-    ));
+    const roots = contextRoots({ workspacePath, installationContextPath, pluginContextRoots });
     const instructionContexts = new Map();
+    let hasAgents = false;
     const contextSections = [];
 
     for (const root of roots) {
@@ -531,6 +535,7 @@ export const dynamicContextInjectors = new Map([
         botInstructionFiles,
         skillFiles,
         workflowFiles,
+        agentFiles,
       } = scan;
       const applicableInstructionFiles = bot
         ? [...instructionFiles, ...botInstructionFiles]
@@ -590,6 +595,12 @@ export const dynamicContextInjectors = new Map([
         `- ${escapeXml(displayPath(filePath))}`
         + ` ${'\u2014'} ${escapeXml(await readDescription(filePath))}`
       )));
+      const agentLines = await Promise.all(agentFiles.map(async (filePath) => {
+        const item = await readContextItem(filePath);
+        return `- ${escapeXml(agentId(filePath))}`
+          + `${item.title === agentId(filePath) ? '' : ` (${escapeXml(item.title)})`}`
+          + ` ${'\u2014'} ${escapeXml(item.description)}`;
+      }));
       const nestedContextLines = await Promise.all(nestedContextFiles.map(async (filePath) => (
         `- ${escapeXml(displayPath(filePath))}`
         + ` ${'\u2014'} ${escapeXml(await readDescription(filePath))}`
@@ -641,6 +652,10 @@ export const dynamicContextInjectors = new Map([
       if (workflowLines.length > 0) {
         catalogSections.push('Workflows:', ...workflowLines);
       }
+      if (agentLines.length > 0) {
+        hasAgents = true;
+        catalogSections.push('Specialized agents:', ...agentLines);
+      }
       if (catalogSections.length > 0) {
         contextSections.push(
           `Source: ${root.label}`,
@@ -657,9 +672,16 @@ export const dynamicContextInjectors = new Map([
         bot_instruction_count: botInstructionFiles.length,
         skill_count: skillFiles.length,
         workflow_count: workflowFiles.length,
+        agent_count: agentFiles.length,
         directory_count: scan.directoryCount,
         timed_out: scan.timedOut,
       });
+    }
+    if (hasAgents) {
+      contextSections.push(
+        'Specialized agents are listed by id. Do not read their files as instructions: when a task matches a specialized agent, or the user asks for one, delegate it with invoke_specialized_agent using that id. The agent runs in an isolated thread with its own model and instructions and reports back automatically.',
+        '',
+      );
     }
 
     traceVerbose('context.injection-discovery-completed', {
@@ -854,6 +876,7 @@ export async function listContextItems(
         botInstructionFiles: [],
         skillFiles: [],
         workflowFiles: [],
+        agentFiles: [],
         directoryCount: 0,
         timedOut: false,
       }
@@ -863,6 +886,7 @@ export async function listContextItems(
       botInstructionFiles,
       skillFiles,
       workflowFiles,
+      agentFiles,
     } = scan;
     const skillsByDirectory = new Map(skillFiles.map((file) => [normalizePathKey(path.dirname(file)), file]));
     const privateDirectory = path.join(
@@ -887,6 +911,12 @@ export async function listContextItems(
         title: 'Workflows',
         folderPath: root,
         files: workflowFiles,
+      },
+      {
+        id: 'agent',
+        title: 'Agents',
+        folderPath: root,
+        files: agentFiles,
       },
     ], async ({ files, ...group }) => ({
       ...group,
@@ -920,16 +950,18 @@ export async function listContextItems(
     const commands = [];
     const commandKeys = new Set();
 
-    for (const group of groups.filter(({ id }) => id === 'skill' || id === 'workflow')) {
+    for (const group of groups.filter(({ id }) => ['skill', 'workflow', 'agent'].includes(id))) {
       for (const item of group.items) {
         if (item.userInvocable === false) continue;
 
         const fileName = path.basename(item.path);
-        const sourceName = group.id === 'skill' && item.title.toLowerCase() === 'skill.md'
-          ? path.basename(path.dirname(item.path))
-          : group.id === 'workflow' && item.title === fileName
-            ? path.basename(fileName, path.extname(fileName))
-            : item.title;
+        const sourceName = group.id === 'agent'
+          ? agentId(item.path)
+          : group.id === 'skill' && item.title.toLowerCase() === 'skill.md'
+            ? path.basename(path.dirname(item.path))
+            : group.id === 'workflow' && item.title === fileName
+              ? path.basename(fileName, path.extname(fileName))
+              : item.title;
         const name = sourceName
           .normalize('NFD')
           .replace(/\p{Diacritic}/gu, '')
@@ -966,6 +998,7 @@ export async function listContextItems(
       bot_instruction_count: botInstructionFiles.length,
       skill_count: skillFiles.length,
       workflow_count: workflowFiles.length,
+      agent_count: agentFiles.length,
       directory_count: scan.directoryCount,
       timed_out: scan.timedOut,
     });
@@ -983,7 +1016,7 @@ export async function listContextItems(
 }
 export async function createContextItem(rootPath, { kind, name } = {}) {
   const template = CONTEXT_ITEM_TEMPLATES[kind];
-  if (!template) throw new Error('Context item kind must be instruction, skill, or workflow.');
+  if (!template) throw new Error('Context item kind must be instruction, skill, workflow, or agent.');
 
   const title = String(name ?? '').replace(/\s+/g, ' ').trim();
   const slug = title
@@ -1009,6 +1042,7 @@ export async function createContextItem(rootPath, { kind, name } = {}) {
     instruction: path.join(contextDirectory, `AGENTS.${subject}.md`),
     skill: path.join(contextDirectory, 'skills', slug, 'SKILL.md'),
     workflow: path.join(contextDirectory, 'workflows', `${slug}.md`),
+    agent: path.join(contextDirectory, 'agents', `${slug}.md`),
   }[kind];
 
   await mkdir(path.dirname(filePath), { recursive: true });
@@ -1083,8 +1117,8 @@ export async function writeContextItem(filePath, content) {
     || BOT_INSTRUCTION_FILE_PATTERN.test(fileName)
     || /^skill\.md$/i.test(fileName)
     || (path.extname(fileName).toLowerCase() === '.md'
-      && target.split(path.sep).some((part) => part.toLowerCase() === 'workflows'));
-  if (!isContextFile) throw new Error('Only instruction, skill, and workflow files can be edited.');
+      && target.split(path.sep).some((part) => ['workflows', 'agents'].includes(part.toLowerCase())));
+  if (!isContextFile) throw new Error('Only instruction, skill, workflow, and agent files can be edited.');
   if (typeof content !== 'string') throw new Error('Context content must be a string.');
   if (!(await stat(target)).isFile()) throw new Error('Context item is not a file.');
 
@@ -1124,6 +1158,7 @@ async function scanContextFiles(
   const botInstructionFiles = [];
   const skillFiles = [];
   const workflowFiles = [];
+  const agentFiles = [];
   const linkedWorktrees = [];
   const linkedDirectories = [];
   const seenDirectories = new Set();
@@ -1216,6 +1251,9 @@ async function scanContextFiles(
         if (catalogDepth < 0 || catalogDepth > MAX_CONTEXT_RECURSION_DEPTH) continue;
         if (catalogName === 'skills' && normalizedName === 'skill.md') skillFiles.push(entryPath);
         if (catalogName === 'workflows') workflowFiles.push(entryPath);
+        if (catalogName === 'agents' && catalogDepth === 0 && normalizedName.endsWith('.md')) {
+          agentFiles.push(entryPath);
+        }
       }
     } catch {
       return;
@@ -1255,8 +1293,86 @@ async function scanContextFiles(
     botInstructionFiles: sortPaths(botInstructionFiles),
     skillFiles: sortPaths(skillFiles),
     workflowFiles: sortPaths(workflowFiles),
+    agentFiles: sortPaths(agentFiles),
     directoryCount,
     timedOut,
+  };
+}
+
+function contextRoots({ workspacePath, installationContextPath, pluginContextRoots = [] } = {}) {
+  return [
+    {
+      id: 'installation',
+      label: '$AVI/context',
+      path: path.resolve(installationContextPath || resolveInstallationContextPath()),
+      includeRootCatalog: true,
+    },
+    ...pluginContextRoots.map((plugin) => ({
+      id: `plugin:${plugin.id}`,
+      label: `$HOME/.aivax/plugins/${plugin.id}`,
+      path: path.resolve(plugin.path),
+      includeRootCatalog: true,
+    })),
+    {
+      id: 'global',
+      label: '$HOME/.agents',
+      path: path.join(homedir(), CONTEXT_DIRECTORY_NAME),
+    },
+    {
+      id: 'workspace',
+      label: '$PWD',
+      path: path.resolve(workspacePath || process.cwd()),
+    },
+  ].filter((root, index, items) => (
+    !(root.id === 'workspace' && isHomeDirectory(root.path))
+    && items.findIndex((item) => normalizePathKey(item.path) === normalizePathKey(root.path)) === index
+  ));
+}
+
+function agentId(filePath) {
+  return path.basename(filePath, path.extname(filePath)).toLowerCase();
+}
+
+export async function hasSpecializedAgents(context = {}) {
+  const scans = await Promise.all(contextRoots(context).map((root) => (
+    scanContextFiles(root.path, { includeRootCatalog: root.includeRootCatalog })
+  )));
+  return scans.some((scan) => scan.agentFiles.length > 0);
+}
+
+// Workspace agents shadow global ones, which shadow plugin and installation agents with the same id.
+export async function resolveSpecializedAgent(id, context = {}) {
+  const requested = String(id ?? '').trim().toLowerCase().replace(/\.md$/, '');
+  if (!requested) throw new Error('agent is required.');
+
+  const available = [];
+  for (const root of contextRoots(context).reverse()) {
+    const { agentFiles } = await scanContextFiles(root.path, { includeRootCatalog: root.includeRootCatalog });
+    for (const filePath of agentFiles) {
+      if (available.some((item) => item.id === agentId(filePath))) continue;
+      available.push({ id: agentId(filePath), path: filePath });
+    }
+  }
+  const match = available.find((item) => item.id === requested);
+  if (!match) {
+    throw new Error(available.length
+      ? `Specialized agent "${requested}" was not found. Available agents: ${available.map((item) => item.id).join(', ')}.`
+      : `Specialized agent "${requested}" was not found. No specialized agents are available in this context.`);
+  }
+
+  const [content, item] = await Promise.all([
+    readFile(match.path, 'utf8'),
+    readContextItem(match.path, { skipCache: true }),
+  ]);
+  const instructions = content.replace(/^---\s*\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '').trim();
+  if (!instructions) throw new Error(`Specialized agent "${match.id}" has no instructions.`);
+  return {
+    id: match.id,
+    name: item.title,
+    path: match.path,
+    model: item.model,
+    reasoningEffort: item.reasoningEffort,
+    instructions,
   };
 }
 
@@ -1325,6 +1441,8 @@ async function readContextItem(filePath, { skipCache = false } = {}) {
       description: 'Unable to read file.',
       embeddable: true,
       userInvocable: true,
+      model: null,
+      reasoningEffort: null,
       tokenCount: 0,
       createdAt: null,
     };
@@ -1332,11 +1450,12 @@ async function readContextItem(filePath, { skipCache = false } = {}) {
 
   const frontmatter = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
   const frontmatterLines = frontmatter?.[1].split(/\r?\n/) ?? [];
-  const name = frontmatterLines
-    .find((line) => /^(?:name|title)\s*:/i.test(line))
-    ?.replace(/^(?:name|title)\s*:\s*/i, '')
+  const scalar = (pattern) => frontmatterLines
+    .find((line) => new RegExp(`^(?:${pattern})\\s*:`, 'i').test(line))
+    ?.replace(new RegExp(`^(?:${pattern})\\s*:\\s*`, 'i'), '')
     .trim()
     .replace(/^(['"])(.*)\1$/, '$2');
+  const name = scalar('name|title');
   const descriptionIndex = frontmatterLines.findIndex((line) => /^description\s*:/i.test(line));
   const embeddable = !frontmatterLines.some((line) => (
     /^embeddable\s*:\s*false(?:\s+#.*)?\s*$/i.test(line)
@@ -1371,6 +1490,8 @@ async function readContextItem(filePath, { skipCache = false } = {}) {
     description: description.replace(/^#+\s*/, '').replace(/\s+/g, ' ').trim(),
     embeddable,
     userInvocable,
+    model: scalar('model') || null,
+    reasoningEffort: scalar('reasoning-effort|reasoning_effort')?.toLowerCase() || null,
     tokenCount: Math.ceil(content.length / 4),
     createdAt,
   };
